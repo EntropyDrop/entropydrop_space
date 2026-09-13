@@ -270,6 +270,7 @@ def remote_deploy(environment, branch="main", quiesce=False):
     settings = ENVIRONMENTS[environment]
     if environment == "prod":
         # The DS HTTP CONNECT proxy is mandatory for production Git traffic.
+        # Driver is streamed before checkout; use the standard Linux CONNECT client.
         os.environ["GIT_SSH_COMMAND"] = "ssh -o ProxyCommand='nc -X connect -x 127.0.0.1:19100 %h %p'"
     config, data = paths(environment, Path.home())
     release = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:12]}"
