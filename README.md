@@ -5,7 +5,9 @@ Space is a Node 24+ / npm 10+ workspace with one root lockfile:
 - `client/`: Three.js browser client and UI (`@entropydrop/space`).
 - `engine/`: shared TypeScript physics, voxels, simulation and scripting (`@entropydrop/space-engine`).
 - `proto/`: canonical Protobuf definitions; generated TS stays in `engine/src/generated/`.
-- `tools/`: protocol and API documentation generators.
+- `server/`: independent FastAPI/WebSocket service, simulation worker, storage and migrations.
+- `tools/`: protocol/API generators and development deployment driver.
+- `deploy/`: standalone server Dockerfile and development deployment guide.
 
 ## Development
 
@@ -45,14 +47,21 @@ python3 space/sync_agent_docs.py --check --protobuf
 See [protocol rules](proto/README.md), [client guide](client/README.md), and
 [engine guide](engine/README.md).
 
-## Migration boundary
+## Server and development deployment
 
-This is the first migration stage. Server code, database migrations, account and
-billing services remain in the backend. The backend hosting runtime now links
-`../../../entropydrop_space/engine`; reinstall its dependencies after migration.
-Hosting Docker builds still use the parent directory as their build context.
+See [server setup](server/README.md) and [DS development deployment](deploy/README.md).
+Build the shared runtime with `npm run build:server-runtime`; run server checks from
+`server/` with `python -m pytest`. Verify Python bindings and public Agent references:
 
-The workspace retains the original engine Git history and remote configuration.
-Client files are moved from the frontend working tree; frontend history remains
-in that repository. No commits, remote changes or deployments are performed by
-this migration. Review and commit the Space, frontend and backend changes together.
+```sh
+python3 tools/sync_server_contracts.py --check --protobuf
+```
+
+Space owns world storage, Market objects, API/WebSocket handling, and hosted simulation.
+The sibling backend retains login, API keys, authoritative credits and the account RPC.
+Development Space is built entirely from this repository. The backend's legacy Space
+implementation is retained for the existing production release until production rollout;
+it is not used to build the new development image.
+
+The repository retains the original engine Git history and the new repository's
+initial commit. The frontend's client history remains in its original repository.

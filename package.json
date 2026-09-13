@@ -10,7 +10,8 @@
   },
   "workspaces": [
     "engine",
-    "client"
+    "client",
+    "server/space/runtime"
   ],
   "scripts": {
     "dev": "npm run dev --workspace @entropydrop/space",
@@ -21,7 +22,8 @@
     "check:protobuf": "node tools/generate-protobuf.mjs --check",
     "docs:generate": "node tools/generate-api-docs.ts",
     "docs:check": "node tools/generate-api-docs.ts --check",
-    "check:buf": "npm run check:buf --workspace @entropydrop/space-engine"
+    "check:buf": "npm run check:buf --workspace @entropydrop/space-engine",
+    "build:server-runtime": "npm run build --workspace @entropydrop/space-hosting-runtime"
   },
   "devDependencies": {
     "ts-proto": "2.12.1"
