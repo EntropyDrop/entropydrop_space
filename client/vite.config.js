@@ -1,8 +1,10 @@
-import { defineConfig, searchForWorkspaceRoot } from 'vite';
+import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite';
 import { fileURLToPath } from 'node:url';
 
-export default defineConfig({
-  base: '/space/app/',
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, fileURLToPath(new URL('../', import.meta.url)), 'VITE_');
+  return {
+  base: process.env.VITE_SPACE_BASE_PATH || env.VITE_SPACE_BASE_PATH || '/space/app/',
   envDir: '..',
   resolve: {
     // The linked engine has its own test dependencies; the browser uses one Three instance.
@@ -63,4 +65,5 @@ export default defineConfig({
   worker: {
     format: 'es'
   }
+};
 });

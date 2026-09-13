@@ -104,7 +104,7 @@ test('logged-out players are prompted to log in and no offline mode is offered',
   assert.deepEqual(
     actions.map(action => ({ href: action.href, className: action.className })),
     [
-      { href: '/skin/', className: 'space-entry-action' },
+      { href: '/space/login', className: 'space-entry-action' },
       { href: '/space/intro', className: 'space-entry-action secondary' },
     ]
   );

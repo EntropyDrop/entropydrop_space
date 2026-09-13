@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy the independent Space repository to isolated DS development services."""
+"""Deploy the independent Space repository to isolated DS development or production services."""
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -23,6 +23,10 @@ REPOSITORIES = {
 }
 DEV_WORLD = "00000000-0000-4000-8000-000000000002"
 ENVIRONMENTS = {
+    "prod": {"prefix": "entropydrop-space", "port": 18080, "workers": 2,
+             "db_port": 25432, "database": "space", "redis_port": 26379,
+             "account": "https://api.entropydrop.com", "environment": "production",
+             "public": "https://space-api.entropydrop.com/space/ready"},
     "dev": {"prefix": "entropydrop-space-dev", "port": 18081, "workers": 1,
             "db_port": 18432, "database": "space_dev", "redis_port": 18379,
             "account": "http://127.0.0.1:18082", "environment": "development",
@@ -129,7 +133,7 @@ def verify_repositories(sources):
 
 
 def get_json(url):
-    with build_opener(ProxyHandler({})).open(url, timeout=5) as response:
+    with build_opener(ProxyHandler({"http": "http://127.0.0.1:19100", "https": "http://127.0.0.1:19100"} if url.startswith("https://") else {})).open(url, timeout=10) as response:
         return json.load(response)
 
 
@@ -264,6 +268,9 @@ def ensure_dev_infrastructure(config):
 
 def remote_deploy(environment, branch="main", quiesce=False):
     settings = ENVIRONMENTS[environment]
+    if environment == "prod":
+        # The DS HTTP CONNECT proxy is mandatory for production Git traffic.
+        os.environ["GIT_SSH_COMMAND"] = "ssh -o ProxyCommand='nc -X connect -x 127.0.0.1:19100 %h %p'"
     config, data = paths(environment, Path.home())
     release = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:12]}"
     directory = data / "releases" / release
@@ -337,6 +344,12 @@ def remote_deploy(environment, branch="main", quiesce=False):
                         run(["docker", "stop", "--time", "30", previous["id"]])
                 state["quiesced"] = True
                 save_state(state_path, state)
+            if environment == "prod":
+                if len(state["previous"]) != 2 or not (data / "objects").is_dir():
+                    raise RuntimeError("Production deployment requires the existing API, worker and data")
+                phase("backup")
+                run(["bash", build_context / "deploy/backup-production.sh"],
+                    env={**os.environ, "SPACE_HOSTING_IMAGE": state["previous"]["api"]["image"]})
             phase("Space schema migration")
             run(["docker", "run", "--rm", "--network", "host", "--env-file", config / "app.env",
                  image, "python", "-m", "alembic", "-c", "space/alembic.ini", "upgrade", "head"])

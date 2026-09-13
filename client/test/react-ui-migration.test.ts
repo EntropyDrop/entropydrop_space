@@ -88,8 +88,8 @@ test('global settings remains English-only', () => {
   assert.doesNotMatch(settingsSource, /setting-mute-group|>Mute Audio</);
   assert.match(settingsSource, /may reduce performance while moving/);
   assert.match(settingsSource, /Set as My Skin/);
-  assert.match(settingsSource, /href="\/skin\/collection"/);
-  assert.match(settingsSource, /href="\/skin\/generate"/);
+  assert.ok(settingsSource.includes("mainSiteUrl('/skin/collection')"));
+  assert.ok(settingsSource.includes("mainSiteUrl('/skin/generate')"));
   assert.doesNotMatch(settingsSource, /Entity Gravity|setting-gravity-group|setGravity/);
   assert.doesNotMatch(settingsSource, /[\u3400-\u9fff]/);
 });

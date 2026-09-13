@@ -1,3 +1,4 @@
+import { mainSiteUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
 import React from 'react';
 import { SpaceAgentInstructions } from './SpaceAgentInstructions.tsx';
 import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
@@ -233,7 +234,7 @@ export function GlobalSettingsModal() {
               <CharacterSkinPreview url={state.currentSkin.url} model={state.currentSkin.model} />
               <div className="settings-label">{state.currentSkin.model === 'slim' ? 'Slim' : 'Strong'} character</div>
               <div className="settings-desc">This is the skin currently in use. Select a skin in Collection, choose Set as My Skin, then reload Space.</div>
-              <div className="settings-skin-actions"><a className="small-btn primary settings-skin-link" href="/skin/collection" target="_blank" rel="noopener noreferrer">Change Skin</a></div>
+              <div className="settings-skin-actions"><a className="small-btn primary settings-skin-link" href={mainSiteUrl('/skin/collection')} target="_blank" rel="noopener noreferrer">Change Skin</a></div>
             </section> : null}
             {state.skinWarning || !state.currentSkin ? (
               <section className="settings-skin-warning" aria-labelledby="settings-skin-warning-title">
@@ -251,10 +252,10 @@ export function GlobalSettingsModal() {
                   <li>Return to Space and reload to use the new skin.</li>
                 </ol>
                 <div className="settings-skin-actions">
-                  <a className="small-btn primary settings-skin-link" href="/skin/collection" target="_blank" rel="noopener noreferrer">
+                  <a className="small-btn primary settings-skin-link" href={mainSiteUrl('/skin/collection')} target="_blank" rel="noopener noreferrer">
                     Open Collection
                   </a>
-                  <a className="small-btn settings-skin-link" href="/skin/generate" target="_blank" rel="noopener noreferrer">
+                  <a className="small-btn settings-skin-link" href={mainSiteUrl('/skin/generate')} target="_blank" rel="noopener noreferrer">
                     Generate a Skin
                   </a>
                 </div>

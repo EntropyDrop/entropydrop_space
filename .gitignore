@@ -14,3 +14,5 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .local/
+
+!.env.production

@@ -19,7 +19,8 @@ def call(path, payload):
     try:
         response = httpx.post(base + "/internal/space/" + path, json=payload,
             headers={"X-Space-Service-Token": settings.SPACE_ACCOUNT_SERVICE_TOKEN},
-            timeout=httpx.Timeout(8, connect=3), follow_redirects=False, trust_env=False)
+            timeout=httpx.Timeout(8, connect=3), follow_redirects=False, trust_env=False,
+            proxy=settings.SPACE_OUTBOUND_PROXY_URL or None)
         if not response.is_success:
             detail = response.json().get("detail", {"code": "ACCOUNT_SERVICE_ERROR"})
             raise HTTPException(response.status_code, detail=detail)

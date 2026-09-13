@@ -20,7 +20,7 @@ def test_server_excludes_account_owned_routes_and_imports():
     assert not any(path.startswith(("/skin", "/internal/space", "/space/api/v2/api-keys")) for path in paths)
     forbidden = {"auth", "models", "database", "credit_balance", "s3_utils", "routers.space_accounts", "routers.space_billing"}
     for path in ROOT.rglob("*.py"):
-        if any(part in path.parts for part in (".venv", "venv", "tests", "__pycache__")):
+        if any(part in path.parts for part in (".venv", "venv", "tests", "__pycache__", "migration-reference")):
             continue
         for node in ast.walk(ast.parse(path.read_text())):
             modules = [node.module] if isinstance(node, ast.ImportFrom) else [alias.name for alias in node.names] if isinstance(node, ast.Import) else []

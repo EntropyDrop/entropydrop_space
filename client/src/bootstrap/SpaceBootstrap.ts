@@ -1,3 +1,4 @@
+import { mainSiteUrl, spaceLoginUrl } from './SpaceSiteLinks.ts';
 import type {
   TerrainEditChunk,
   TerrainMutation,
@@ -425,11 +426,11 @@ function entryErrorFromResponse(status: number, body: any) {
     return new SpaceEntryError(
       'LOGIN_REQUIRED',
       zh ? '进入 Space 前请先登录 EntropyDrop 账号。' : 'Please log in to EntropyDrop before entering Space.',
-      '/skin/',
+      spaceLoginUrl(),
       zh ? '前往登录' : 'Log In',
       [
-        { label: zh ? '前往登录' : 'Log In', url: '/skin/' },
-        { label: zh ? '返回主站' : 'Back to Main Site', url: '/space/intro', secondary: true }
+        { label: zh ? '前往登录' : 'Log In', url: spaceLoginUrl() },
+        { label: zh ? '返回主站' : 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
       ]
     );
   }
@@ -442,7 +443,7 @@ function entryErrorFromResponse(status: number, body: any) {
     zh ? '重试' : 'Retry',
     [
       { label: zh ? '重试' : 'Retry', url: window.location.href },
-      { label: zh ? '返回主站' : 'Back to Main Site', url: '/space/intro', secondary: true }
+      { label: zh ? '返回主站' : 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
     ]
   );
 }
@@ -548,7 +549,7 @@ export async function loadTerrainEditRemote(
         throw new SpaceEntryError(
           response.status === 401 || response.status === 403 ? 'LOGIN_REQUIRED' : 'BOOTSTRAP_FAILED',
           'Could not load Space world edits. Please check your network connection.',
-          response.status === 401 || response.status === 403 ? '/skin/' : retryUrl,
+          response.status === 401 || response.status === 403 ? spaceLoginUrl() : retryUrl,
           response.status === 401 || response.status === 403 ? 'Log In' : 'Retry'
         );
       }
@@ -856,7 +857,7 @@ export async function bootstrapSpace(): Promise<ReadySpaceSession> {
       'Retry',
       [
         { label: 'Retry', url: window.location.href },
-        { label: 'Back to Main Site', url: '/space/intro', secondary: true }
+        { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
       ]
     );
   }
@@ -874,7 +875,7 @@ function renderEntryError(error: unknown) {
         zh ? '重试' : 'Retry',
         [
           { label: zh ? '重试' : 'Retry', url: window.location.href },
-          { label: zh ? '返回主站' : 'Back to Main Site', url: '/space/intro', secondary: true }
+          { label: zh ? '返回主站' : 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
         ]
       );
   const gate = document.getElementById('space-entry-gate');
@@ -1015,7 +1016,7 @@ export async function enterSpace(
         throw error;
       }
       queueActive = false;
-      window.location.href = '/space/intro';
+      window.location.href = mainSiteUrl('/space/intro');
     };
 
     hooks.onStateChange?.({
