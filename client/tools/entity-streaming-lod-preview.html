@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>Static castle streaming LOD</title>
+<link rel="stylesheet" href="../src/style.css">
+<style>
+body{margin:0;background:#a6c8e4;color:#16232c;font:14px system-ui}canvas{display:block}aside{position:fixed;top:16px;left:16px;padding:16px;background:#fffffff2;border-radius:12px;max-width:340px}button{padding:8px;margin:3px;border:1px solid #91a4b0;border-radius:6px;background:white;cursor:pointer}pre{white-space:pre-wrap;margin-bottom:0}
+</style></head><body><aside><strong>Static castle · real entity streaming</strong><p>Cross the six-chunk detail boundary. The manager unloads the actual entity; its four-triangle silhouette stays in the scene.</p>
+<button id="near">Return to loaded chunks</button><button id="far">Leave loaded chunks</button><button id="settings">Open settings</button><button id="delete">Delete castle</button><pre id="status">Starting…</pre></aside><div id="settings-root"></div>
+<script type="module">
+import * as THREE from 'three';
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { GlobalSettingsModal } from '../src/ui/react/components/SimpleModals.tsx';
+import { spaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
+import { normalizeEntityImpostorSettings } from '../src/engine/render/EntityImpostorSettings.ts';
+import { CrossPlaneImpostorLod } from '../src/engine/render/CrossPlaneImpostor.ts';
+import { VoxelImpostorSources } from '../src/engine/render/VoxelImpostorSources.ts';
+import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
+import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { hookSceneMaterials, applyCameraBend, setWorldShapeMode, wrapChunkX, wrapChunkZ } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+setWorldShapeMode('torus');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#a6c8e4');
+scene.add(new THREE.AmbientLight(0xffffff, 2));
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 10000);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.append(renderer.domElement);
+let shaderError = false;
+renderer.debug.onShaderError = () => { shaderError = true; };
+const origin = new THREE.Vector3(8192,20,1024);
+const target = origin.clone().add(new THREE.Vector3(28,16,20));
+const world = { chunks: new Map(), activeChunkKeys: new Set() };
+const manager = new ContraptionManager(scene, world, null, null);
+const blocks = [];
+const add = (x,y,z,color=0xbd926b) => blocks.push({ localX:x,localY:y,localZ:z,size:8,color,block:BlockTypes.COLOR_BLOCK });
+for (const x of [0,48]) for (const z of [0,32]) for (const y of [0,8,16,24,32]) add(x,y,z,y===32 ? 0x455970 : 0xbd926b);
+for (const x of [8,16,24,32,40]) for (const z of [0,32]) add(x,16,z);
+for (const z of [8,16,24]) for (const x of [0,48]) add(x,8,z);
+const entity = new Contraption(42, blocks, origin, scene, { rootComponentId:'castle',bodyType:'static' });
+manager.registerContraption(entity);
+const publicId = entity.publicId;
+hookSceneMaterials(scene);
+const lod = new CrossPlaneImpostorLod(scene);
+const collector = new VoxelImpostorSources();
+let entitySettings = normalizeEntityImpostorSettings();
+spaceUiStore.setSceneRenderer({
+  setEntityImpostorSettings(settings) { entitySettings = lod.setEntitySettings(settings); return entitySettings; },
+  getEntityImpostorSettings() { return entitySettings; },
+});
+spaceUiStore.setWorld(world);
+createRoot(document.querySelector('#settings-root')).render(React.createElement(GlobalSettingsModal));
+let mode = 'near', windowKey = '';
+document.querySelector('#near').onclick = () => { mode = 'near'; };
+document.querySelector('#far').onclick = () => { mode = 'far'; };
+document.querySelector('#settings').onclick = () => spaceUiStore.toggleGlobalSettingsModal(true);
+document.querySelector('#delete').onclick = () => {
+  const active = manager.findActiveContraptionByPublicId(publicId);
+  if (active) manager.removeContraption(active);
+  else manager.deleteDormantContraption(publicId);
+};
+const flat = new THREE.Vector3(), quaternion = new THREE.Quaternion();
+function render() {
+  camera.position.copy(origin).add(new THREE.Vector3(...(mode === 'near' ? [90,45,90] : [240,70,260])));
+  camera.lookAt(target); camera.updateMatrixWorld(true);
+  flat.copy(camera.position); quaternion.copy(camera.quaternion);
+  const cx = Math.floor(flat.x/16), cz = Math.floor(flat.z/16), nextKey = `${cx},${cz}`;
+  if (nextKey !== windowKey) {
+    windowKey = nextKey;
+    world.activeChunkKeys = new Set();
+    for (let dx=-6;dx<=6;dx++) for (let dz=-6;dz<=6;dz++) world.activeChunkKeys.add(`${wrapChunkX(cx+dx)},${wrapChunkZ(cz+dz)}`);
+    manager.syncContraptionsToLoadedChunks();
+    hookSceneMaterials(scene);
+  }
+  const sources = [...collector.sources(world, manager.contraptions, flat, new Set(), manager)];
+  lod.beginRender(sources, flat);
+  applyCameraBend(camera);
+  renderer.render(scene, camera);
+  document.querySelector('#status').textContent = JSON.stringify({ mode, loadedEntities:manager.contraptions.length, dormantEntities:manager.getDormantContraptionCount(), triangles:renderer.info.render.triangles, calls:renderer.info.render.calls, visibleProxies:scene.children.filter(o=>o.name==='CrossPlaneImpostor'&&o.visible).length, entitySettings, shaderError }, null, 2);
+  lod.endRender();
+  camera.position.copy(flat); camera.quaternion.copy(quaternion);
+  requestAnimationFrame(render);
+}
+addEventListener('resize', () => { camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+render();
+</script></body></html>

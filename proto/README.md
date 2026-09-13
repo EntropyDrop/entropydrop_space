@@ -1,6 +1,6 @@
 # Space Protobuf contracts
 
-`entropydrop_space_engine/proto/` is the single source of truth for every Space schema that
+`entropydrop_space/proto/` is the single source of truth for every Space schema that
 crosses a process boundary.
 
 | File | Package | Purpose | Current version |
@@ -41,12 +41,12 @@ npm run check:protobuf      # verify the checked-in outputs are current
 The backend Python bindings are generated from the backend root:
 
 ```sh
-protoc --proto_path=space/contracts=../entropydrop_space_engine/proto --python_out=. space/contracts/inventory.proto
-protoc --proto_path=space/contracts=../entropydrop_space_engine/proto --python_out=. space/contracts/space_api.proto
+protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/inventory.proto
+protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/space_api.proto
 ```
 
 Then run `entropydrop_backend/space/sync_agent_docs.py --check --protobuf` to verify the
-bindings and refresh the public agent reference copies.
+bindings and the public agent reference copies.
 
 ## Linting and compatibility
 
@@ -65,5 +65,5 @@ versioned packages (`inventory.v7`, `backpack.v8`, `api.v2`) side by side. `buf 
 compares the working tree against the last released branch, so a wire change without a
 package version bump fails the check; run it before releasing, not on every commit.
 `protoc` 33.2 and `protoc-gen-ts_proto` 2.12.1 generated the checked-in bindings; the
-source hashes in `src/generated/inventory_descriptor.ts` fail `npm run check:protobuf` if
+source hashes in `engine/src/generated/inventory_descriptor.ts` fail `npm run check:protobuf` if
 `proto/` changes without regenerating.

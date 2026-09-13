@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Cross-plane LOD verification</title>
+<style>
+body{margin:0;background:#a6c8e4;color:#16232c;font:14px system-ui}canvas{display:block}aside{position:fixed;top:16px;left:16px;padding:16px;background:#fffffff2;border-radius:12px;max-width:550px}button{padding:8px;margin:3px;border:1px solid #91a4b0;border-radius:6px;background:white;cursor:pointer}pre{white-space:pre-wrap;margin-bottom:0}
+</style></head><body><aside><strong>Cross-plane LOD · GPU verification</strong><p>Compare the full model and two intersecting silhouette planes at the same camera distance.</p>
+<button id="full">Full model</button><button id="far">Far impostor</button><button id="near">Move near</button><button id="above">View from above</button><button id="paint">Recolor</button><button id="carve">Remove a tower</button><pre id="status">Starting…</pre></aside>
+<script type="module">
+import * as THREE from 'three';
+import { CrossPlaneImpostorLod } from '../src/engine/render/CrossPlaneImpostor.ts';
+import { hookSceneMaterials, applyCameraBend, setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+setWorldShapeMode('torus');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#a6c8e4');
+const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.append(renderer.domElement);
+const status = document.querySelector('#status');
+let shaderError = false;
+renderer.debug.onShaderError = () => { shaderError = true; };
+const group = new THREE.Group();
+scene.add(group);
+const meshes = [];
+function add(size, position, color) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), new THREE.MeshBasicMaterial({ color }));
+  mesh.position.set(...position);
+  group.add(mesh); meshes.push(mesh);
+}
+add([12,1,8], [0,-0.5,0], '#728ba0');
+for (const x of [-5,5]) for (const z of [-3,3]) {
+  add([2,7,2], [x,3.5,z], z > 0 ? '#f9a43b' : '#ee5858');
+  add([3,0.7,3], [x,7,z], '#485971');
+}
+add([9,1,1], [0,5,-3], '#ee5858');
+add([9,1,1], [0,5,3], '#f9a43b');
+hookSceneMaterials(group);
+const lod = new CrossPlaneImpostorLod();
+let mode = 'far';
+const flat = new THREE.Vector3();
+const quaternion = new THREE.Quaternion();
+for (const name of ['full','far','near','above']) document.querySelector('#'+name).onclick = () => { mode = name; };
+document.querySelector('#paint').onclick = () => { for (const mesh of meshes) mesh.material.color.offsetHSL(0.17,0,0); };
+document.querySelector('#carve').onclick = () => { if (meshes.length > 1) { const mesh = meshes.pop(); group.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); } };
+function render() {
+  camera.position.set(...(mode === 'near' ? [20,10,28] : mode === 'above' ? [15,160,20] : [110,25,130]));
+  camera.lookAt(0,3,0); camera.updateMatrixWorld(true);
+  flat.copy(camera.position); quaternion.copy(camera.quaternion);
+  const bounds = new THREE.Box3();
+  for (const mesh of meshes) bounds.expandByObject(mesh);
+  lod.beginRender([{ key:group, parent:group, meshes, bounds, protected:mode === 'full' }], flat);
+  applyCameraBend(camera);
+  renderer.render(scene, camera);
+  const proxy = group.children.find(object => object.name === 'CrossPlaneImpostor');
+  status.textContent = JSON.stringify({ mode, triangles:renderer.info.render.triangles, calls:renderer.info.render.calls, proxyVisible:!!proxy?.visible, textures:renderer.info.memory.textures, programs:renderer.info.programs.length, shaderError }, null, 2);
+  lod.endRender();
+  camera.position.copy(flat); camera.quaternion.copy(quaternion);
+  requestAnimationFrame(render);
+}
+addEventListener('resize', () => { camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+render();
+</script></body></html>

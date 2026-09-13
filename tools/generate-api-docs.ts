@@ -3,10 +3,10 @@ import { fileURLToPath } from 'node:url';
 import {
   renderAgentApiReference,
   renderApiReferenceMarkdown
-} from '../src/contraption/ScriptApiContract.ts';
+} from '../engine/src/contraption/ScriptApiContract.ts';
 
 const appRoot = fileURLToPath(new URL('../', import.meta.url));
-const generatedDir = fileURLToPath(new URL('../docs/generated/', import.meta.url));
+const generatedDir = fileURLToPath(new URL('../engine/docs/generated/', import.meta.url));
 const repositoryLinks = { spaceApiUrl: '../spaceAPI.md', entityApiUrl: 'api-v2.md' };
 const outputs = new Map([
   [

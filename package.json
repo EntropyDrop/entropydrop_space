@@ -1,45 +1,29 @@
 {
-  "name": "@entropydrop/space-engine",
-  "version": "1.0.0",
+  "name": "@entropydrop/space-workspace",
   "private": true,
+  "version": "1.0.0",
   "type": "module",
+  "packageManager": "npm@11.6.2",
   "engines": {
     "node": ">=24",
     "npm": ">=10"
   },
-  "exports": {
-    ".": "./src/index.ts",
-    "./package.json": "./package.json",
-    "./testing/setup": "./test/setup.ts",
-    "./proto/*": "./proto/*",
-    "./*": "./src/*"
-  },
+  "workspaces": [
+    "engine",
+    "client"
+  ],
   "scripts": {
+    "dev": "npm run dev --workspace @entropydrop/space",
+    "build": "npm run build --workspace @entropydrop/space",
+    "check": "npm run check --workspace @entropydrop/space",
+    "test": "npm test --workspace @entropydrop/space",
     "generate:protobuf": "node tools/generate-protobuf.mjs",
     "check:protobuf": "node tools/generate-protobuf.mjs --check",
-    "check:buf": "BUF_CACHE_DIR=.buf-cache buf lint proto",
     "docs:generate": "node tools/generate-api-docs.ts",
     "docs:check": "node tools/generate-api-docs.ts --check",
-    "typecheck": "tsc --noEmit",
-    "test": "node --import ./test/setup.ts --test --test-concurrency=1 \"test/*.test.ts\"",
-    "check": "npm run check:protobuf && npm run check:buf && npm run docs:check && npm run typecheck && npm test"
-  },
-  "dependencies": {
-    "@bufbuild/protobuf": "^2.14.1",
-    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
-    "acorn": "^8.18.0",
-    "quickjs-emscripten-core": "0.32.0",
-    "simplex-noise": "^4.0.3"
-  },
-  "peerDependencies": {
-    "three": "^0.183.2"
+    "check:buf": "npm run check:buf --workspace @entropydrop/space-engine"
   },
   "devDependencies": {
-    "@bufbuild/buf": "1.73.0",
-    "@types/node": "^24.10.1",
-    "@types/three": "^0.183.1",
-    "three": "^0.183.2",
-    "ts-proto": "^2.12.1",
-    "typescript": "~5.9.3"
+    "ts-proto": "2.12.1"
   }
 }

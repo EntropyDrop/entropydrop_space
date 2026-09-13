@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const protoDir = join(appRoot, 'proto');
 const protoFiles = ['inventory.proto', 'backpack.proto', 'space_api.proto'];
-const generatedDir = join(appRoot, 'src', 'generated');
+const generatedDir = join(appRoot, 'engine', 'src', 'generated');
 const descriptorModuleName = 'inventory_descriptor.ts';
 const checkOnly = process.argv.includes('--check');
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'space-protobuf-'));

@@ -24,9 +24,9 @@ const CROSS_LANGUAGE_BLOCKSET_HEX = '080752190a0543726f7373121008011004200128043
 const CROSS_LANGUAGE_CANONICAL_ENTITY_HEX = '08075a5712290a05776f726c641a002202400142070a01421a020801420a0a04726f6f741a02080162054f726465721a0f0a014122014261cdccccccccccec3f1a190a017a1a05776f726c642204726f6f7461cdccccccccccec3f';
 
 test('checked-in protobuf bindings and descriptor match the source schema', () => {
-  const inventory = readFileSync(new URL('../proto/inventory.proto', import.meta.url));
-  const backpack = readFileSync(new URL('../proto/backpack.proto', import.meta.url));
-  const spaceApi = readFileSync(new URL('../proto/space_api.proto', import.meta.url));
+  const inventory = readFileSync(new URL('../../proto/inventory.proto', import.meta.url));
+  const backpack = readFileSync(new URL('../../proto/backpack.proto', import.meta.url));
+  const spaceApi = readFileSync(new URL('../../proto/space_api.proto', import.meta.url));
   assert.equal(createHash('sha256').update(inventory).digest('hex'), INVENTORY_PROTO_SOURCE_SHA256);
   assert.equal(createHash('sha256').update(backpack).digest('hex'), BACKPACK_PROTO_SOURCE_SHA256);
   assert.equal(createHash('sha256').update(spaceApi).digest('hex'), SPACE_API_PROTO_SOURCE_SHA256);
