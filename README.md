@@ -6,8 +6,8 @@ Space is a Node 24+ / npm 10+ workspace with one root lockfile:
 - `engine/`: shared TypeScript physics, voxels, simulation and scripting (`@entropydrop/space-engine`).
 - `proto/`: canonical Protobuf definitions; generated TS stays in `engine/src/generated/`.
 - `server/`: independent FastAPI/WebSocket service, simulation worker, storage and migrations.
-- `tools/`: protocol/API generators and development deployment driver.
-- `deploy/`: standalone server Dockerfile and development deployment guide.
+- `tools/`: protocol/API generators and production/development deployment tools.
+- `deploy/`: standalone server Dockerfile, backup script and deployment guide.
 
 ## Development
 
@@ -18,13 +18,15 @@ npm run check
 npm run build
 ```
 
-The standalone client is served at `/space/app/`; output is `client/dist/`.
+The development client is served at `/space/app/`; production is served at
+`https://space.entropydrop.com/`. Build output is `client/dist/`.
 Copy `.env.example` to `.env.local` and set the account API origin and optional
 Space API origin. These public Vite settings are read from this workspace root.
 
 For the existing same-origin login flow, install this workspace, then run `npm ci`
 and `npm run dev` in the sibling `entropydrop_frontend/`. Its development server
-mounts this client; its production build still merges `client/dist/` into the site.
+mounts this client. Production publishes Space independently and provides the
+main-site login return page at `/space/login`.
 The account API-key page consumes explicit client package exports.
 
 ## Contracts
@@ -58,9 +60,10 @@ python3 tools/sync_server_contracts.py --check --protobuf
 
 Space owns world storage, Market objects, API/WebSocket handling, and hosted simulation.
 The sibling backend retains login, API keys, authoritative credits and the account RPC.
-Development Space is built entirely from this repository. The backend's legacy Space
-implementation is retained for the existing production release until production rollout;
-it is not used to build the new development image.
+Production and development Space are built from this repository. The backend's
+legacy world implementation has been removed; historical account Alembic revisions
+remain intact. Production deployments and CDN uploads must use the 19100 proxy.
+See [deployment and rollback](deploy/README.md).
 
 The repository retains the original engine Git history and the new repository's
 initial commit. The frontend's client history remains in its original repository.
