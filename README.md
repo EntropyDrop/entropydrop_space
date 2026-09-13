@@ -37,11 +37,10 @@ npm run docs:check
 ```
 
 Protobuf checks require protoc 33.2. Schemas and wire formats are unchanged.
-Python bindings and public agent copies remain in `entropydrop_backend/`:
+Python bindings and public Agent copies live in `server/space/`. Verify them with:
 
 ```sh
-cd ../entropydrop_backend
-python3 space/sync_agent_docs.py --check --protobuf
+python3 tools/sync_server_contracts.py --check --protobuf
 ```
 
 See [protocol rules](proto/README.md), [client guide](client/README.md), and

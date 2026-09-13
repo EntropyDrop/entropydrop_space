@@ -1,6 +1,6 @@
 # Space 的三种 Agent 接入方式
 
-[spaceAPI](../../../entropydrop_backend/space/agent/spaceAPI.md) · [entityAPI](../../engine/docs/generated/api-v2.md)
+[spaceAPI](../../server/space/agent/spaceAPI.md) · [entityAPI](../../engine/docs/generated/api-v2.md)
 
 entityAPI 是实体代码中通过 `self` / `ctx` 调用的运行时接口；spaceAPI 是 Agent 和客户端使用的 HTTP 接口。
 
