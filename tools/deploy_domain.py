@@ -131,6 +131,9 @@ def activate():
         raise RuntimeError('CloudFront is still deploying; check status before activation')
     r53 = client('route53')
     zone = next(z for page in r53.get_paginator('list_hosted_zones').paginate() for z in page['HostedZones'] if z['Name'] == 'entropydrop.com.' and not z['Config']['PrivateZone'])
+    if not (STATE / 'dns-before.json').exists():
+        records = r53.list_resource_record_sets(HostedZoneId=zone['Id'], StartRecordName=HOST, MaxItems='10')['ResourceRecordSets']
+        save('dns-before.json', [r for r in records if r['Name'].rstrip('.') == HOST])
     response = r53.change_resource_record_sets(HostedZoneId=zone['Id'], ChangeBatch={'Changes': [{'Action': 'UPSERT', 'ResourceRecordSet': {'Name': HOST, 'Type': kind, 'AliasTarget': {'HostedZoneId': 'Z2FDTNDATAQYW2', 'DNSName': current['domain'], 'EvaluateTargetHealth': False}}} for kind in ['A','AAAA']]})
     print('Space DNS activation:', response['ChangeInfo']['Id'])
 

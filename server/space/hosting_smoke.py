@@ -28,7 +28,9 @@ async def main():
         payload["entities"][0]["snapshot"] = snapshot
         payload["entities"][0]["definition_base64"] = result["entities"][0]["definition_base64"]
         await runtime.close()
+        assert await runtime.step({"probe": True}) == {"ready": True}
         result = await runtime.step(payload)
+        assert not result.get("faults") and not result.get("error"), result
         assert result["entities"][0]["snapshot"]["states"]["root"]["ticks"] == 40
         restored = decode_inventory_resource(base64.b64decode(result["entities"][0]["definition_base64"]))[1]
         assert restored["root"]["name"] == "Hosting smoke"
