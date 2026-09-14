@@ -148,7 +148,8 @@ def redirect_main():
             var values = item.multiValue || [item];
             for (var i = 0; i < values.length; i++) parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(values[i].value));
         }
-        return {statusCode: 302, statusDescription: 'Found', headers: {location: {value: 'https://space.entropydrop.com/' + (parts.length ? '?' + parts.join('&') : '')}, 'cache-control': {value: 'no-store'}}};
+        var destination = 'https://space.entropydrop.com/' + (parts.length ? '?' + parts.join('&') : '');
+        return {statusCode: 302, statusDescription: 'Found', headers: {location: {value: 'https://entropydrop.com/space/login?destination=' + encodeURIComponent(destination)}, 'cache-control': {value: 'no-store'}}};
     }
     if (uri === '/space/login') request.uri = '/space/login/index.html';
     else if (uri.endsWith('/')) request.uri += 'index.html';

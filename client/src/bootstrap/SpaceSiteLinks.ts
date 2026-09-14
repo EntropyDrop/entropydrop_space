@@ -11,13 +11,23 @@ export function mainSiteUrl(path: string): string {
   return path;
 }
 
-export function spaceLoginUrl(): string {
+export function spaceLoginUrl(options: { silent?: boolean; reauthenticate?: boolean } = {}): string {
   const target = mainSiteUrl('/space/login');
-  if (typeof window !== 'undefined' && target.startsWith('http')) {
+  if (typeof window !== 'undefined') {
     try {
-      const url = new URL(target);
+      const url = new URL(target, window.location.href);
       if (window.location?.href) {
-        url.searchParams.set('destination', window.location.href);
+        const destination = new URL(window.location.href);
+        destination.searchParams.delete('token');
+        const hash = new URLSearchParams(destination.hash.slice(1));
+        hash.delete('token');
+        destination.hash = hash.toString();
+        if (options.silent) {
+          destination.searchParams.set('sso_attempted', '1');
+          url.searchParams.set('silent', '1');
+        }
+        if (options.reauthenticate) url.searchParams.set('reauth', '1');
+        url.searchParams.set('destination', destination.href);
       }
       return url.href;
     } catch {
@@ -26,4 +36,3 @@ export function spaceLoginUrl(): string {
   }
   return target;
 }
-

@@ -173,3 +173,63 @@ test('Space immediately reuses valid unexpired localStorage token without blocki
 });
 
 
+
+test('Space restores a legacy cookie after the canonical route reports no session', async () => {
+  const storage = new MemoryStorage();
+  const calls: string[] = [];
+  const result = await refreshSpaceAuthSession('https://api.entropydrop.com', {
+    storage,
+    fetchImpl: async (input) => {
+      calls.push(String(input));
+      return String(input).includes('/skin/api/')
+        ? new Response(JSON.stringify({ access_token: 'legacy-session-token' }))
+        : new Response(null, { status: 401 });
+    },
+  });
+  assert.equal(result.token, 'legacy-session-token');
+  assert.equal(storage.getItem('token'), 'legacy-session-token');
+  assert.deepEqual(calls, ['https://api.entropydrop.com/api/auth/refresh', 'https://api.entropydrop.com/skin/api/auth/refresh']);
+});
+
+for (const failure of [503, 'network', 'malformed'] as const) {
+  test(`Space does not treat a legacy refresh ${failure} as logout`, async () => {
+    const storage = new MemoryStorage();
+    storage.setItem('token', 'keep-session');
+    const result = await refreshSpaceAuthSession('https://api.entropydrop.com', {
+      storage,
+      fetchImpl: async (input) => {
+        if (!String(input).includes('/skin/api/')) return new Response(null, { status: 401 });
+        if (failure === 'network') throw new Error('offline');
+        return new Response('{}', { status: failure === 'malformed' ? 200 : failure });
+      },
+    });
+    assert.deepEqual(result, { token: null, terminal: false });
+    assert.equal(storage.getItem('token'), 'keep-session');
+  });
+}
+
+test('Space removes expired incoming credentials without replacing a valid local account', async () => {
+  const priorWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const priorStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const storage = new MemoryStorage();
+  const goodToken = unsignedToken(Date.now() / 1000 + 3600);
+  const expired = unsignedToken(Date.now() / 1000 - 60);
+  storage.setItem('token', goodToken);
+  let cleaned = '';
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+    location: { href: `https://space.entropydrop.com/?force_pc=1&token=${expired}#view=world` },
+    history: { replaceState(_state: unknown, _title: string, url: string) { cleaned = url; } },
+  } });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+  try {
+    const { ensureSpaceAccessToken } = await import('../src/bootstrap/SpaceAuthSession.ts');
+    assert.equal(await ensureSpaceAccessToken('https://api.entropydrop.com'), goodToken);
+    assert.equal(cleaned, 'https://space.entropydrop.com/?force_pc=1#view=world');
+    assert.equal(storage.getItem('token'), goodToken);
+  } finally {
+    if (priorWindow) Object.defineProperty(globalThis, 'window', priorWindow);
+    else delete (globalThis as any).window;
+    if (priorStorage) Object.defineProperty(globalThis, 'localStorage', priorStorage);
+    else delete (globalThis as any).localStorage;
+  }
+});

@@ -42,6 +42,8 @@ export const MAX_SKIN_PNG_BYTES = 256 * 1024;
 const MAX_SPACE_API_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_TERRAIN_PAGE_BYTES = 16 * 1024 * 1024;
 
+class SpaceLoginRedirect extends Error {}
+
 export interface TerrainStreamArea {
   centerChunkX: number;
   centerChunkZ: number;
@@ -429,14 +431,14 @@ export function encodePlayerPosition(
 function entryErrorFromResponse(status: number, body: any) {
   const detail = body?.detail;
   const zh = isZhLang();
-  if (status === 401 || status === 403) {
+  if (status === 401 || (status === 403 && detail?.code === 'ACCOUNT_LOGIN_REQUIRED')) {
     return new SpaceEntryError(
       'LOGIN_REQUIRED',
       zh ? '进入 Space 前请先登录 EntropyDrop 账号。' : 'Please log in to EntropyDrop before entering Space.',
-      spaceLoginUrl(),
+      spaceLoginUrl({ reauthenticate: true }),
       zh ? '前往登录' : 'Log In',
       [
-        { label: zh ? '前往登录' : 'Log In', url: spaceLoginUrl() },
+        { label: zh ? '通过主站登录' : 'Sign in on main site', url: spaceLoginUrl({ reauthenticate: true }) },
         { label: zh ? '返回主站' : 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
       ]
     );
@@ -704,6 +706,12 @@ async function prepareOnlineSpace(
   reportProgress?.(14, isZhLang() ? '正在验证 EntropyDrop 账号…' : 'Verifying EntropyDrop account…');
   const token = await ensureSpaceAccessToken(accountOrigin);
   if (!token) {
+    // Recover older main-site-only localStorage sessions once. The return marker
+    // keeps anonymous visits from bouncing between the two applications.
+    if (!new URL(window.location.href).searchParams.has('sso_attempted')) {
+      window.location.replace(spaceLoginUrl({ silent: true }));
+      throw new SpaceLoginRedirect();
+    }
     throw entryErrorFromResponse(401, null);
   }
 
@@ -893,12 +901,22 @@ function renderEntryError(error: unknown) {
   if (gate) gate.hidden = false;
   if (status) status.textContent = entryError.message;
   if (progress) {
+    progress.hidden = entryError.code === 'LOGIN_REQUIRED';
     progress.classList.add('failed');
     progress.setAttribute('aria-invalid', 'true');
     progress.setAttribute('aria-valuetext', entryError.message);
   }
   if (actionContainer) {
     actionContainer.innerHTML = '';
+    if (entryError.code === 'LOGIN_REQUIRED') {
+      const login = document.createElement('div');
+      login.className = 'space-google-login';
+      actionContainer.appendChild(login);
+      const accountOrigin = resolveApiOrigin(import.meta.env?.VITE_API_BASE_URL, window.location.origin);
+      void import('./SpaceGoogleLogin.ts').then(({ mountSpaceGoogleLogin }) => {
+        if (login.isConnected) return mountSpaceGoogleLogin(login, accountOrigin, zh);
+      }).catch(error => console.warn('Could not load Google sign-in.', error));
+    }
     for (const act of entryError.actions) {
       const a = document.createElement('a');
       a.className = [
@@ -934,6 +952,7 @@ export async function enterSpace(
     const normalized = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
     if (status) status.textContent = message;
     if (progress) {
+      progress.hidden = false;
       progress.classList.remove('failed');
       progress.removeAttribute('aria-invalid');
       progress.setAttribute('aria-valuenow', String(normalized));
@@ -1113,6 +1132,7 @@ export async function enterSpace(
       }
     })();
   } catch (error) {
+    if (error instanceof SpaceLoginRedirect) return;
     renderEntryError(error);
   }
 }

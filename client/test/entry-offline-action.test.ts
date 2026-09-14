@@ -53,7 +53,8 @@ function replaceGlobal(name: string, value: unknown): () => void {
   };
 }
 
-test('logged-out players are prompted to log in and no offline mode is offered', async t => {
+for (const afterHandoff of [false, true]) {
+test(`logged-out entry ${afterHandoff ? 'offers Google login after handoff' : 'checks the main-site session once'}`, async t => {
   const elements = new Map([
     ['space-entry-gate', new FakeElement()],
     ['space-entry-status', new FakeElement()],
@@ -68,12 +69,15 @@ test('logged-out players are prompted to log in and no offline mode is offered',
     setItem: () => undefined,
     removeItem: () => undefined,
   };
+  let redirected = '';
+  const pageUrl = `http://localhost:5173/space/app/${afterHandoff ? '?sso_attempted=1' : ''}`;
   const fakeWindow = {
     innerWidth: 1280,
     innerHeight: 720,
     localStorage: storage,
     location: {
-      href: 'http://localhost:5173/space/app/',
+      href: pageUrl,
+      replace: (url: string) => { redirected = url; },
       origin: 'http://localhost:5173',
       pathname: '/space/app/',
       search: '',
@@ -100,12 +104,24 @@ test('logged-out players are prompted to log in and no offline mode is offered',
     assert.fail('the game must not start without an authenticated session');
   });
 
+  if (!afterHandoff) {
+    const login = new URL(redirected);
+    assert.equal(login.pathname, '/space/login');
+    assert.equal(login.searchParams.get('silent'), '1');
+    assert.equal(new URL(login.searchParams.get('destination')!).searchParams.get('sso_attempted'), '1');
+    return;
+  }
+  assert.equal(redirected, '');
+  assert.equal(elements.get('space-entry-progress')!.hidden, true);
   const actions = elements.get('space-entry-actions')!.children;
+  assert.equal(actions[0].className, 'space-google-login');
   assert.deepEqual(
-    actions.map(action => ({ href: action.href, className: action.className })),
+    actions.slice(1).map(action => ({ href: action.href, className: action.className })),
     [
-      { href: '/space/login', className: 'space-entry-action' },
+      { href: `http://localhost:5173/space/login?reauth=1&destination=${encodeURIComponent(pageUrl)}`, className: 'space-entry-action' },
       { href: '/space/intro', className: 'space-entry-action secondary' },
     ]
   );
 });
+
+}

@@ -80,11 +80,11 @@ export async function refreshSpaceAuthSession(
           cache: 'no-store',
           signal: controller.signal,
         });
-        if (fallbackResponse.ok) {
+        if (fallbackResponse.status !== 404) {
           response = fallbackResponse;
         }
       } catch {
-        // Keep primary response
+        return { token: null, terminal: false };
       }
     }
     if (!response.ok) {
@@ -92,7 +92,7 @@ export async function refreshSpaceAuthSession(
     }
     const data = await readJsonResponse<any>(response, MAX_AUTH_RESPONSE_BYTES).catch(() => null);
     const token = typeof data?.access_token === 'string' ? data.access_token : null;
-    if (!token) return { token: null, terminal: true };
+    if (!token) return { token: null, terminal: false };
     storage.setItem('token', token);
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-token-updated'));
     return { token, terminal: false };
@@ -123,17 +123,18 @@ export async function ensureSpaceAccessToken(apiOrigin: string): Promise<string 
         incomingToken = hashParams.get('token');
       }
       if (incomingToken) {
+        // Remove credentials even when expired or malformed.
+        url.searchParams.delete('token');
+        if (url.hash.includes('token=')) {
+          const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+          hashParams.delete('token');
+          const remaining = hashParams.toString();
+          url.hash = remaining ? `#${remaining}` : '';
+        }
+        window.history.replaceState({}, '', url.href);
         const exp = jwtExpiresAt(incomingToken);
-        if (exp === null || exp > Date.now()) {
+        if (exp !== null && exp > Date.now()) {
           localStorage.setItem('token', incomingToken);
-          url.searchParams.delete('token');
-          if (url.hash.includes('token=')) {
-            const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
-            hashParams.delete('token');
-            const remaining = hashParams.toString();
-            url.hash = remaining ? `#${remaining}` : '';
-          }
-          window.history.replaceState({}, '', url.href);
           return incomingToken;
         }
       }
@@ -158,6 +159,7 @@ export async function ensureSpaceAccessToken(apiOrigin: string): Promise<string 
   if (existingToken && (result.terminal || expiresAt === null || expiresAt <= Date.now())) {
     localStorage.removeItem('token');
   }
+  if (!result.terminal) throw new Error('Account service temporarily unavailable. Please retry.');
   return null;
 }
 
@@ -218,9 +220,17 @@ export function installSpaceAuthFetchInterceptor(apiOrigin: string, spaceOrigin:
           refreshed.token,
         );
         response = await browserFetch!(retry.input, retry.init);
+        if (response.status === 401) {
+          localStorage.removeItem('token');
+          window.dispatchEvent(new Event('logout'));
+        }
       } else if (refreshed.terminal) {
         localStorage.removeItem('token');
         window.dispatchEvent(new Event('logout'));
+      } else {
+        return new Response(JSON.stringify({ detail: 'Account service temporarily unavailable. Please retry.' }), {
+          status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5' },
+        });
       }
     }
     return response;

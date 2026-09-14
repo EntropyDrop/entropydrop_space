@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http: https: ws: wss:; object-src 'none'; base-uri 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com/gsi/; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http: https: ws: wss:; object-src 'none'; base-uri 'none'">
   <title>EntropyDrop · Space — Programmable Voxel Physics World</title>
   <meta name="description" content="An AI-native programmable voxel physics world: one block in any color, 1m standard voxels with 8x8x8 micro-carving, rigid-body entities and natural-language force controllers.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect x=%2220%22 y=%2220%22 width=%2260%22 height=%2260%22 fill=%22%233c8527%22 stroke=%22%23111111%22 stroke-width=%2210%22/></svg>">
