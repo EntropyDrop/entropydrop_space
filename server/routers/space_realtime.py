@@ -1014,6 +1014,10 @@ async def space_realtime(websocket: WebSocket):
                     return
             elif message_type == "ping":
                 session.last_packet_at = time.monotonic()
+                client_rtt = payload.get("rtt")
+                if isinstance(client_rtt, (int, float)):
+                    from space.metrics import metrics_collector
+                    metrics_collector.record_latency(float(client_rtt))
                 await websocket.send_bytes(msgpack.packb({
                     "type": "pong",
                     "client_time": payload.get("client_time"),

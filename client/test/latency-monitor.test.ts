@@ -44,6 +44,11 @@ test('LatencyMonitor.probe measures round-trip time from successful ping respons
   assert.ok(ping! >= 10);
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, 'http://localhost:8000/space/api/v2/ping');
+
+  // Second probe should send the smoothed rtt parameter
+  await monitor.probe();
+  assert.equal(fetchCalls.length, 2);
+  assert.ok(fetchCalls[1].url.includes('/space/api/v2/ping?rtt='));
 });
 
 test('LatencyMonitor.probe resets ping to null on HTTP error or network failure', async () => {

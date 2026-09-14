@@ -261,9 +261,9 @@ The V2 contract caps each world at 32 occupied sessions with FIFO queueing,
 uses reliable AOI presence plus wake/sleep entity activation, and keeps the
 three-category backpack in browser IndexedDB with automatic localStorage migration.
 
-- Architecture and consistency contract: [`entropydrop_backend/docs/space-backend.md`](../../entropydrop_backend/docs/space-backend.md)
-- PostgreSQL 15+ schema: [`entropydrop_backend/space/contracts/schema.sql`](../../entropydrop_backend/space/contracts/schema.sql)
-- Protobuf realtime protocol: [`entropydrop_backend/space/contracts/protocol.proto`](../../entropydrop_backend/space/contracts/protocol.proto)
+- Architecture and consistency contract: [`entropydrop_space/server/docs/space-backend.md`](../server/docs/space-backend.md)
+- PostgreSQL 15+ schema: [`entropydrop_space/server/space/contracts/schema.sql`](../server/space/contracts/schema.sql)
+- Protobuf realtime protocol: [`entropydrop_space/server/space/contracts/protocol.proto`](../server/space/contracts/protocol.proto)
 - Portable resource, backpack, and API envelopes: [`entropydrop_space/proto/`](../proto/README.md)
 
 ## Verification

@@ -15,6 +15,8 @@ const CodeEditorModal = React.lazy(() => loadEditorModals()
   .then(module => ({ default: module.CodeEditorModal })));
 const ApiDocsModal = React.lazy(() => loadEditorModals()
   .then(module => ({ default: module.ApiDocsModal })));
+const AdminMonitoringDashboard = React.lazy(() => import('./components/monitoring/AdminMonitoringDashboard.tsx')
+  .then(module => ({ default: module.AdminMonitoringDashboard })));
 
 function ModalChunkFallback() {
   return <div className="space-modal-loading" role="status">Loading interface…</div>;
@@ -94,6 +96,11 @@ export function SpaceRoot() {
       ) : null}
       {activeModal === 'builder' ? (
         <React.Suspense fallback={<ModalChunkFallback />}><BuildAssistantModal /></React.Suspense>
+      ) : null}
+      {activeModal === 'monitoring' ? (
+        <React.Suspense fallback={<ModalChunkFallback />}>
+          <AdminMonitoringDashboard isModal onClose={() => spaceUiStore.closeAllModals()} />
+        </React.Suspense>
       ) : null}
       <PauseScreen />
     </>

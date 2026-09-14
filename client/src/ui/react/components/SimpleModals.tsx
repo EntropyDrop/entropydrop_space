@@ -226,6 +226,17 @@ export function GlobalSettingsModal() {
               (event.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
             }}
           >{{ character: 'Character', graphics: 'Graphics', sound: 'Sound', api: 'API' }[value]}</button>)}
+          {state.isAdmin ? (
+            <button
+              type="button"
+              className="settings-tab"
+              style={{ color: '#34d399', fontWeight: 600 }}
+              title="Open Admin System Monitoring"
+              onClick={() => spaceUiStore.toggleAdminMonitoring(true)}
+            >
+              ⚡ System Monitor
+            </button>
+          ) : null}
         </div>
         <div className="settings-tab-panel" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`} tabIndex={0}>
           {tab === 'character' ? <>
@@ -617,6 +628,7 @@ export function GlobalSettingsModal() {
 
 export function PauseScreen() {
   const hasStarted = useSpaceUi(state => state.hasStarted);
+  const isAdmin = useSpaceUi(state => state.isAdmin);
   const altLabel = getAltKeyLabel();
   return (
     <div id="pause-screen" className={hasStarted ? 'hidden' : ''}>
@@ -642,7 +654,25 @@ export function PauseScreen() {
           <span><kbd className="key-badge">F3</kbd> Cycle 1st / 3rd Back / 3rd Front</span>
           <span><kbd className="key-badge">ESC</kbd> Settings / release cursor</span>
         </div>
-        <button id="start-btn" tabIndex={-1} className="start-btn" onClick={() => spaceUiStore.startGame()}>Enter Space</button>
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button id="start-btn" tabIndex={-1} className="start-btn" onClick={() => spaceUiStore.startGame()}>Enter Space</button>
+          {isAdmin ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              className="start-btn"
+              style={{
+                background: '#18181b',
+                color: '#38bdf8',
+                borderColor: '#000',
+                boxShadow: '4px 4px 0px #000',
+              }}
+              onClick={() => spaceUiStore.toggleAdminMonitoring(true)}
+            >
+              ⚡ System Monitor
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

@@ -417,3 +417,24 @@ class SpaceHostingAuthorization(Base):
     entity_id = Column(Uuid(as_uuid=False), nullable=False)
     revoked = Column(Boolean, nullable=False, default=False)
     settled = Column(Boolean, nullable=False, default=False)
+
+
+class SpaceMonitoringMetric(Base):
+    """Minute-level system metrics snapshot (online users, server load, user latency)."""
+    __tablename__ = "space_monitoring_metrics"
+
+    minute_bucket = Column(BigInteger, primary_key=True)  # epoch_seconds // 60
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
+    online_users = Column(Integer, nullable=False, default=0)
+    cpu_percent = Column(Float, nullable=False, default=0.0)
+    memory_percent = Column(Float, nullable=False, default=0.0)
+    memory_used_mb = Column(Float, nullable=False, default=0.0)
+    memory_total_mb = Column(Float, nullable=False, default=0.0)
+    load_1m = Column(Float, nullable=False, default=0.0)
+    avg_latency_ms = Column(Float, nullable=True)
+    latency_samples = Column(Integer, nullable=False, default=0)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        nullable=False,
+    )

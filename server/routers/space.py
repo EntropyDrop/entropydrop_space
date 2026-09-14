@@ -20,6 +20,7 @@ from space import models
 import space_surface
 from config import settings
 from space.database import get_db
+from space.metrics import metrics_collector
 from rate_limit import limiter
 from space_quota import QuotaWindow, UTC_DAY_SECONDS, reserve as reserve_quota, usage as quota_usage
 
@@ -656,7 +657,9 @@ def _get_or_create_player_profile(
 
 @router.get("/ping")
 @limiter.exempt
-def ping_space():
+def ping_space(rtt: float | None = Query(None, description="Client observed round-trip latency in ms")):
+    if rtt is not None:
+        metrics_collector.record_latency(rtt)
     return {"status": "ok"}
 
 

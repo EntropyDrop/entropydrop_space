@@ -78,7 +78,10 @@ export class LatencyMonitor {
       : null;
 
     try {
-      const response = await this.fetchImpl(`${this.apiOrigin}/space/api/v2/ping`, {
+      const pingUrl = this.currentPing !== null
+        ? `${this.apiOrigin}/space/api/v2/ping?rtt=${encodeURIComponent(this.currentPing)}`
+        : `${this.apiOrigin}/space/api/v2/ping`;
+      const response = await this.fetchImpl(pingUrl, {
         method: 'GET',
         cache: 'no-store',
         signal: controller?.signal,

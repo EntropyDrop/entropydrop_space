@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => {
           if (id.endsWith('/engine/contraption/AgentChat.ts')
             || id.endsWith('/engine/contraption/BehaviorAgent.ts')) return 'agent';
           if (id.endsWith('/engine/contraption/Blueprints.ts')) return 'blueprints';
+          if (id.includes('/components/monitoring/')) return 'admin-monitoring';
           if (id.includes('/entropydrop_space/engine/src/scripting/')) return 'script-runtime';
           if (/\/entropydrop_space\/engine\/src\/(physics|contraption|simulation|actions|voxel|torus|worldgen|mesher|render)\//.test(id)) return 'world-simulation';
           if (id.includes('/client/src/engine/physics/')

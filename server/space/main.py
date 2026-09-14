@@ -10,15 +10,26 @@ from space.database import engine, get_db
 from space import models
 from http_middleware import configure_http
 from rate_limit import limiter
-from routers import space, space_entities, space_hosting, space_external, space_agent, space_market, space_realtime
+from contextlib import asynccontextmanager
+from routers import space, space_entities, space_hosting, space_external, space_agent, space_market, space_realtime, space_monitoring
+from space.metrics import metrics_collector
 
 if not settings.SPACE_JOIN_TICKET_SECRET:
     raise RuntimeError("SPACE_JOIN_TICKET_SECRET is required")
 
-app = FastAPI(title="EntropyDrop Space API", docs_url=None, redoc_url=None, openapi_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    metrics_collector.start()
+    yield
+    metrics_collector.stop()
+
+
+app = FastAPI(title="EntropyDrop Space API", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 configure_http(app)
 for router in (space.router, space_entities.router, space_hosting.router, space_external.router,
-               space_market.router, space_realtime.api_router, space_realtime.realtime_router):
+               space_market.router, space_realtime.api_router, space_realtime.realtime_router,
+               space_monitoring.router):
     app.include_router(router)
 app.include_router(space_agent.router)
 app.include_router(space_agent.public_router)

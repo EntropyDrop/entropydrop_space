@@ -27,20 +27,30 @@ import {
 } from './bootstrap/SpaceBootstrap.ts';
 import { MultiplayerSync, type RemotePlayerInfo } from './engine/network/MultiplayerSync.ts';
 import { SpaceEntitySync } from './engine/network/SpaceEntitySync.ts';
-import { mountSpaceUi } from './ui/react/mountSpaceUi.tsx';
+import { mountSpaceUi, mountAdminMonitoring } from './ui/react/mountSpaceUi.tsx';
 import { spaceUiStore, type SpaceUiStore } from './ui/react/store/SpaceUiStore.ts';
 import {
   createSpacePersistentStorage,
   type SpaceStorage,
 } from './engine/storage/BrowserStorage.ts';
 import { logConsoleSecurityWarning } from './bootstrap/ConsoleSecurityWarning.ts';
+import { isMonitoringRoute } from './bootstrap/MonitoringRoute.ts';
 
 logConsoleSecurityWarning();
 
-// Mount the 2D interface as soon as the module starts. The authentication gate
-// remains above it until bootstrap succeeds, and every engine adapter created
-// later can synchronously resolve the React-owned DOM.
-mountSpaceUi();
+if (isMonitoringRoute()) {
+  const gate = typeof document !== 'undefined' ? document.getElementById('space-entry-gate') : null;
+  if (gate) {
+    gate.hidden = true;
+    gate.style.display = 'none';
+  }
+  mountAdminMonitoring();
+} else {
+  // Mount the 2D interface as soon as the module starts. The authentication gate
+  // remains above it until bootstrap succeeds, and every engine adapter created
+  // later can synchronously resolve the React-owned DOM.
+  mountSpaceUi();
+}
 
 class Game {
   canvasContainer: HTMLElement | null;
@@ -615,6 +625,7 @@ class Game {
 
 // Start Game on page load
 window.addEventListener('DOMContentLoaded', () => {
+  if (isMonitoringRoute()) return;
   void enterSpace(
     async (session, reportProgress) => {
       const persistentStorage = await createSpacePersistentStorage();

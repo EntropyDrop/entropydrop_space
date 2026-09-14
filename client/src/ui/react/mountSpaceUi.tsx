@@ -18,3 +18,31 @@ export function mountSpaceUi(): Root {
   });
   return spaceUiRoot;
 }
+
+export async function mountAdminMonitoring(): Promise<Root> {
+  const host = document.getElementById('space-react-root');
+  if (!host) throw new Error('Missing #space-react-root host');
+  if (!spaceUiRoot) spaceUiRoot = createRoot(host);
+  const { AdminMonitoringDashboard } = await import('./components/monitoring/AdminMonitoringDashboard.tsx');
+  flushSync(() => {
+    spaceUiRoot!.render(
+      <AdminMonitoringDashboard
+        onClose={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('admin');
+          url.searchParams.delete('page');
+          url.searchParams.delete('view');
+          if (url.pathname.includes('/monitoring') || url.pathname.includes('/monitor')) {
+            url.pathname = '/';
+          }
+          if (url.hash.includes('monitoring')) {
+            url.hash = '';
+          }
+          window.location.href = url.href;
+        }}
+      />
+    );
+  });
+  return spaceUiRoot;
+}
+

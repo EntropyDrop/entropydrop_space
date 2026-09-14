@@ -48,7 +48,7 @@ import {
   normalizeEntityImpostorSettings, type EntityImpostorSettings,
 } from '../../../engine/render/EntityImpostorSettings.ts';
 
-export type SpaceModal = 'inventory' | 'code' | 'settings' | 'builder' | null;
+export type SpaceModal = 'inventory' | 'code' | 'settings' | 'builder' | 'monitoring' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
 
 const RESOLUTION_SCALE_PRESETS = [1, 0.8, 0.67, 0.5] as const;
@@ -715,6 +715,10 @@ export class SpaceUiStore {
 
   toggleBuildAssistant(forceState: boolean | null = null): void {
     this.toggleModal('builder', forceState);
+  }
+
+  toggleAdminMonitoring(forceState: boolean | null = null): void {
+    this.toggleModal('monitoring', forceState);
   }
 
   toggleApiDocs(forceState: boolean | null = null): void {
