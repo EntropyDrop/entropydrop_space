@@ -272,9 +272,16 @@ export function getAltKeyLabel(): string {
 
 export function resolveApiOrigin(configuredBase: string | undefined, pageOrigin: string) {
   const normalized = (configuredBase || '').trim().replace(/\/+$/, '');
-  if (!normalized) return pageOrigin.includes('localhost') ? 'http://localhost:8000' : pageOrigin;
+  if (!normalized) {
+    if (pageOrigin.includes('localhost')) return 'http://localhost:8000';
+    if (pageOrigin.includes('space.entropydrop.com') || pageOrigin.includes('entropydrop.com')) {
+      return 'https://api.entropydrop.com';
+    }
+    return pageOrigin;
+  }
   return normalized.replace(/\/skin$/, '');
 }
+
 
 export function hasPngSignature(bytes: Uint8Array) {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

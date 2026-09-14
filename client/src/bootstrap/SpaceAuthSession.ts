@@ -64,13 +64,29 @@ export async function refreshSpaceAuthSession(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
   try {
-    const response = await fetchImpl(`${normalizedOrigin(apiOrigin)}/api/auth/refresh`, {
+    let response = await fetchImpl(`${normalizedOrigin(apiOrigin)}/api/auth/refresh`, {
       method: 'POST',
       headers: { Accept: 'application/json' },
       credentials: 'include',
       cache: 'no-store',
       signal: controller.signal,
     });
+    if (!response.ok && (response.status === 401 || response.status === 404)) {
+      try {
+        const fallbackResponse = await fetchImpl(`${normalizedOrigin(apiOrigin)}/skin/api/auth/refresh`, {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (fallbackResponse.ok) {
+          response = fallbackResponse;
+        }
+      } catch {
+        // Keep primary response
+      }
+    }
     if (!response.ok) {
       return { token: null, terminal: response.status === 401 || response.status === 403 };
     }
@@ -97,6 +113,35 @@ function refreshOnce(apiOrigin: string): Promise<SpaceSessionRefreshResult> {
 }
 
 export async function ensureSpaceAccessToken(apiOrigin: string): Promise<string | null> {
+  // 1. Consume token passed via URL hash or query parameter from main site single sign-on
+  if (typeof window !== 'undefined') {
+    try {
+      const url = new URL(window.location.href);
+      let incomingToken = url.searchParams.get('token');
+      if (!incomingToken && url.hash) {
+        const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+        incomingToken = hashParams.get('token');
+      }
+      if (incomingToken) {
+        const exp = jwtExpiresAt(incomingToken);
+        if (exp === null || exp > Date.now()) {
+          localStorage.setItem('token', incomingToken);
+          url.searchParams.delete('token');
+          if (url.hash.includes('token=')) {
+            const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+            hashParams.delete('token');
+            const remaining = hashParams.toString();
+            url.hash = remaining ? `#${remaining}` : '';
+          }
+          window.history.replaceState({}, '', url.href);
+          return incomingToken;
+        }
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+  }
+
   const existingToken = localStorage.getItem('token');
   const result = await refreshOnce(apiOrigin);
   if (result.token) return result.token;

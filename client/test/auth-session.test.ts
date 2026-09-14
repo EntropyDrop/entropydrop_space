@@ -114,3 +114,42 @@ test('Space can evaluate access-token expiry without trusting token contents', (
   assert.equal(jwtExpiresAt(unsignedToken(past)), past * 1000);
   assert.equal(jwtExpiresAt('not-a-jwt'), null);
 });
+
+test('Space consumes incoming SSO token from URL hash and cleans address bar', async () => {
+  const priorWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const priorStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const storage = new MemoryStorage();
+  const validToken = unsignedToken(Math.floor(Date.now() / 1000) + 3600);
+
+  let replacedUrl = '';
+  const fakeWindow = {
+    location: {
+      href: `https://space.entropydrop.com/#token=${validToken}`,
+      search: '',
+      hash: `#token=${validToken}`,
+    },
+    history: {
+      replaceState(_state: any, _title: string, url: string) {
+        replacedUrl = url;
+      },
+    },
+    dispatchEvent() {},
+  };
+
+  Object.defineProperty(globalThis, 'window', { value: fakeWindow, configurable: true });
+  Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
+
+  try {
+    const { ensureSpaceAccessToken } = await import('../src/bootstrap/SpaceAuthSession.ts');
+    const token = await ensureSpaceAccessToken('https://api.entropydrop.com');
+    assert.equal(token, validToken);
+    assert.equal(storage.getItem('token'), validToken);
+    assert.equal(replacedUrl, 'https://space.entropydrop.com/');
+  } finally {
+    if (priorWindow) Object.defineProperty(globalThis, 'window', priorWindow);
+    else delete (globalThis as any).window;
+    if (priorStorage) Object.defineProperty(globalThis, 'localStorage', priorStorage);
+    else delete (globalThis as any).localStorage;
+  }
+});
+
