@@ -31,12 +31,12 @@ function absoluteUrl(input: RequestInfo | URL): URL | null {
 function isEntropyDropApi(url: URL | null, apiOrigin: string): boolean {
   return !!url
     && ((url.origin === normalizedOrigin(apiOrigin)
-      && (/^\/space\/api(?:\/|$)/.test(url.pathname) || /^\/skin\/api(?:\/|$)/.test(url.pathname)))
+      && (/^\/space\/api(?:\/|$)/.test(url.pathname) || /^\/api(?:\/|$)/.test(url.pathname) || /^\/skin\/api(?:\/|$)/.test(url.pathname)))
       || (url.origin === installedSpaceOrigin && /^\/space\/api(?:\/|$)/.test(url.pathname)));
 }
 
 function isSessionControlRequest(url: URL | null): boolean {
-  return !!url && /^\/skin\/api\/auth\/(?:google|refresh|logout)\/?$/.test(url.pathname);
+  return !!url && /^\/(?:skin\/)?api\/auth\/(?:google|refresh|logout)\/?$/.test(url.pathname);
 }
 
 export function jwtExpiresAt(token: string): number | null {
@@ -64,7 +64,7 @@ export async function refreshSpaceAuthSession(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
   try {
-    const response = await fetchImpl(`${normalizedOrigin(apiOrigin)}/skin/api/auth/refresh`, {
+    const response = await fetchImpl(`${normalizedOrigin(apiOrigin)}/api/auth/refresh`, {
       method: 'POST',
       headers: { Accept: 'application/json' },
       credentials: 'include',

@@ -37,7 +37,7 @@ test('split Space origin refreshes through cloud accounts and never authorizes o
     await fakeWindow.fetch('https://cdn.entropydrop.com/space/api/v2/untrusted');
     await fakeWindow.fetch('https://space-api.entropydrop.com/skin/api/auth/me');
     assert.deepEqual(calls.map(c => c.token), ['Bearer old-token', null, 'Bearer fresh-token', 'Bearer fresh-token', null, null]);
-    assert.equal(calls[1].url, 'https://api.entropydrop.com/skin/api/auth/refresh');
+    assert.equal(calls[1].url, 'https://api.entropydrop.com/api/auth/refresh');
   } finally {
     if (priorWindow) Object.defineProperty(globalThis, 'window', priorWindow);
     else delete (globalThis as any).window;
@@ -85,7 +85,7 @@ test('Space refresh stores a new short-lived access token using the HttpOnly coo
 
   assert.deepEqual(result, { token: 'fresh-access-token', terminal: false });
   assert.equal(storage.getItem('token'), 'fresh-access-token');
-  assert.equal(requests[0].url, 'https://api.entropydrop.com/skin/api/auth/refresh');
+  assert.equal(requests[0].url, 'https://api.entropydrop.com/api/auth/refresh');
   assert.equal(requests[0].init?.method, 'POST');
   assert.equal(requests[0].init?.credentials, 'include');
   assert.equal(requests[0].init?.cache, 'no-store');
