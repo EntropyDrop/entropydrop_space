@@ -153,3 +153,23 @@ test('Space consumes incoming SSO token from URL hash and cleans address bar', a
   }
 });
 
+test('Space immediately reuses valid unexpired localStorage token without blocking on refresh', async () => {
+  const priorStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const storage = new MemoryStorage();
+  const validToken = unsignedToken(Math.floor(Date.now() / 1000) + 3600);
+  storage.setItem('token', validToken);
+
+  Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
+
+  try {
+    const { ensureSpaceAccessToken } = await import('../src/bootstrap/SpaceAuthSession.ts');
+    // Origin is deliberately non-functional to prove no network call is needed
+    const token = await ensureSpaceAccessToken('http://invalid-unreachable-origin-test');
+    assert.equal(token, validToken);
+  } finally {
+    if (priorStorage) Object.defineProperty(globalThis, 'localStorage', priorStorage);
+    else delete (globalThis as any).localStorage;
+  }
+});
+
+

@@ -143,6 +143,13 @@ export async function ensureSpaceAccessToken(apiOrigin: string): Promise<string 
   }
 
   const existingToken = localStorage.getItem('token');
+  if (existingToken) {
+    const expiresAt = jwtExpiresAt(existingToken);
+    if (expiresAt === null || expiresAt > Date.now() + 30000) {
+      return existingToken;
+    }
+  }
+
   const result = await refreshOnce(apiOrigin);
   if (result.token) return result.token;
 

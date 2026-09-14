@@ -163,7 +163,13 @@ def main():
     args = parser.parse_args(); initialize()
     if args.action == 'prepare': prepare(args.release)
     elif args.action == 'upload-space':
-        state = json.loads((STATE / 'release.json').read_text()); upload(ROOT / 'client/dist', 'space-app/' + state['release'] + '/')
+        state = json.loads((STATE / 'release.json').read_text())
+        upload(ROOT / 'client/dist', 'space-app/' + state['release'] + '/')
+        result = client('cloudfront').create_invalidation(
+            DistributionId=state['id'],
+            InvalidationBatch={'Paths': {'Quantity': 1, 'Items': ['/*']}, 'CallerReference': str(time.time_ns())}
+        )
+        print('Space invalidation:', result['Invalidation']['Id'])
     elif args.action == 'upload-main':
         upload(ROOT.parent / 'entropydrop_frontend/dist', '')
         result = client('cloudfront').create_invalidation(DistributionId=MAIN_DISTRIBUTION, InvalidationBatch={'Paths': {'Quantity': 1, 'Items': ['/*']}, 'CallerReference': str(time.time_ns())})
