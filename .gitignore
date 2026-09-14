@@ -16,3 +16,6 @@ __pycache__/
 .local/
 
 !.env.production
+
+# Private deployment configuration stays outside version control.
+/deploy/
