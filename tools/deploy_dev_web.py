@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 """Deploy prebuilt internal-development web assets and HTTPS gateway to DS."""
-import datetime,io,json,shlex,subprocess,tarfile
+import datetime,io,json,re,shlex,subprocess,tarfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 def ssh(command,**kwargs):
  return subprocess.run(['ssh','ds@192.168.0.111','-o','BatchMode=yes',shlex.join(command)],check=True,**kwargs)
 
+def validate_gateway_config(path):
+ source=path.read_text()
+ # Space uses /api/auth/*, while the account UI also uses /skin/api/*.
+ # Missing aliases must fail before any upload/container replacement; otherwise
+ # the SPA fallback returns HTML/405 instead of a terminal auth response.
+ for route in ('/api/','/skin/api/'):
+  if not re.search(r'location\s+'+re.escape(route)+r'\s*\{\s*proxy_pass\s+http://127\.0\.0\.1:18082;\s*\}',source):
+   raise RuntimeError('Development gateway must route '+route+' to the Mac account API')
+ if not re.search(r'location\s+/internal/\s*\{\s*return\s+404;\s*\}',source):
+  raise RuntimeError('Development gateway must keep /internal/ inaccessible')
+
 def main():
+ validate_gateway_config(ROOT/'deploy/dev-domain/nginx.conf')
  state=ROOT/'.local/dev-domain'
  files={}
  for kind in ('main','client'):
