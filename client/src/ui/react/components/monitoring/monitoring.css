@@ -14,7 +14,7 @@
   background-color: #111111;
   background-image: none;
   color: #ffffff;
-  font-family: 'Fusion-Pixel-Zh-Hans', 'FusionPixel', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace, sans-serif;
+  font-family: 'FusionPixel', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace, sans-serif;
   padding: 24px 16px 48px;
   box-sizing: border-box;
   overscroll-behavior: none;
@@ -95,7 +95,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-family: 'Fusion-Pixel-Zh-Hans', 'FusionPixel', sans-serif;
+  font-family: 'FusionPixel', sans-serif;
   font-weight: normal;
 }
 
@@ -423,7 +423,7 @@
   color: #ffffff;
   font-size: 15px;
   margin: 0;
-  font-family: 'Fusion-Pixel-Zh-Hans', 'FusionPixel', sans-serif;
+  font-family: 'FusionPixel', sans-serif;
   font-weight: normal;
 }
 
@@ -718,7 +718,7 @@
   color: rgba(255, 255, 255, 0.7);
   font-size: 13px;
   margin: 0;
-  font-family: 'Fusion-Pixel-Zh-Hans', 'FusionPixel', sans-serif;
+  font-family: 'FusionPixel', sans-serif;
   font-weight: normal;
   display: flex;
   align-items: center;
@@ -808,7 +808,7 @@
   color: #ffffff;
   font-size: 16px;
   margin: 0;
-  font-family: 'Fusion-Pixel-Zh-Hans', 'FusionPixel', sans-serif;
+  font-family: 'FusionPixel', sans-serif;
 }
 
 .guard-desc {

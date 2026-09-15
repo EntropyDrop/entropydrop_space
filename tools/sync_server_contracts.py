@@ -1,9 +1,8 @@
-"""Sync public schema/entityAPI references from the sibling shared engine.
+"""Sync public schema/entityAPI references from canonical workspace sources.
 
-Run with --check in development to detect reference drift, or --protobuf to also
-verify that the checked-in Python bindings match the shared engine schemas byte
-for byte. Runtime serving uses the checked-in copies and does not require an
-engine source checkout.
+Run with --check in development to detect reference drift, or --protobuf to also verify
+that the checked-in Python bindings match the canonical schemas byte for byte. Runtime
+serving uses the checked-in copies and does not invoke code generation.
 """
 import argparse
 from pathlib import Path
@@ -38,7 +37,10 @@ for source, filename in references.items():
         expected = expected.replace(navigation, b'[spaceAPI](spaceAPI.md) \xc2\xb7 [entityAPI](entityAPI.md)')
     if args.check:
         if not destination.exists() or destination.read_bytes() != expected:
-            raise SystemExit(f'Outdated public reference: {destination}; run space/sync_agent_docs.py')
+            raise SystemExit(
+                f'Outdated public reference: {destination}; '
+                'run python3 tools/sync_server_contracts.py'
+            )
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(expected)
@@ -69,7 +71,7 @@ def check_python_bindings(required: bool) -> None:
             checked_in = root / 'space/contracts' / f'{name}_pb2.py'
             if not checked_in.exists() or generated.read_bytes() != checked_in.read_bytes():
                 raise SystemExit(
-                    f'Stale Python binding: {checked_in}; regenerate it from the engine proto'
+                    f'Stale Python binding: {checked_in}; regenerate it from the workspace proto'
                 )
     print('Python Protobuf bindings are current.')
 

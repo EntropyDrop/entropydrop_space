@@ -38,7 +38,7 @@ function ModalBackdrop({ id, className = '', children, onClose }: { id: string; 
   );
 }
 
-function SpaceApiKeysSettings() {
+export function SpaceApiKeysSettings() {
   const client = spaceUiStore.getApiKeyClient();
   const [keys, setKeys] = React.useState<SpaceApiKeyRecord[]>([]);
   const [name, setName] = React.useState('My external agent');

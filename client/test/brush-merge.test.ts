@@ -95,7 +95,7 @@ test('brush right-click on running entity does not start selection', () => {
 
   controller.handleRightClick(null);
   assert.equal(controller.brushSelection, null, 'must not start selection on running entity');
-  assert.ok(toasts.some(t => t.includes('only works on stopped entities')));
+  assert.ok(toasts.some(t => t.includes('within 1 second')));
 });
 
 test('brush right-click first click on stopped entity picks corner 1 without showing component bounding box', () => {

@@ -2,7 +2,7 @@
 
 [spaceAPI](../server/space/agent/spaceAPI.md) · [entityAPI](../engine/docs/generated/api-v2.md)
 
-entityAPI 是实体代码中通过 `self` / `ctx` 调用的运行时接口；spaceAPI 是 Agent 和客户端使用的 HTTP 接口。
+entityAPI is the runtime interface called by entity code through `self` / `ctx`; spaceAPI is the HTTP interface used by agents and clients.
 
 ## Documentation map
 
@@ -11,7 +11,7 @@ entityAPI 是实体代码中通过 `self` / `ctx` 调用的运行时接口；spa
 | [docs/architecture.md](docs/architecture.md) | Three-repository split, module map and runtime data flow. |
 | [docs/networking.md](docs/networking.md) | REST boundaries, credentials and the `space-relay-v1` MessagePack schema. |
 | [docs/formats.md](docs/formats.md) | Inventory v7, backpack v8, API envelopes v2, `EDSZ` v3 and the world-edit outbox. |
-| [docs/ai-builder.md](docs/ai-builder.md) | HUD AI BuildPlan contract and `SpaceBuilder` runtime. |
+| [docs/ai-builder.md](docs/ai-builder.md) | Agent Build external-agent workflow and retired BuildPlan reference. |
 | [docs/micro-grid-p0.md](docs/micro-grid-p0.md) | 8×8×8 micro grid, collision caching and physics benchmarks. |
 | [docs/agent-access-design.md](docs/agent-access-design.md) | Agent access architecture and migration plan (design, not shipped status). |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Local verification, schema regeneration and documentation sources. |
@@ -169,7 +169,7 @@ striking face forward.
 
 1. Choose any color, then use the shovel for standard construction or the spoon
    for micro-voxel sculpting.
-2. Use the Selector to set selection corners A and B or select a connected structure.
+2. Use the Selector to confirm both selection corners A and B.
 3. Press `G` to entityize the selected blocks.
 4. Aim at the entity and press `C`.
 5. Describe the behavior, inspect the generated controller, and run it.
@@ -179,6 +179,19 @@ terrain spawns an independent entity and immediately puts it in **Play** (physic
 active and all runnable component scripts enabled). Placing on a stopped entity
 installs the item as a rigid child component under the crosshair; `Shift` + left-click
 requests this installation mode explicitly, and the combined entity stays stopped.
+
+Selector delete, copy, fill, recolor, assembly, and rotation require confirmed A/B;
+an A-only, component preselection, or Shift-picked selection is not sufficient.
+Right-click opens the complete Selector menu. **Select All** confirms the A/B bounds
+of the current component's own blocks, excluding child-component blocks.
+Changing the selection shape immediately updates selected cells, highlights,
+counts, and action availability while preserving the A/B range; switching back
+to Box restores that range without changing world or entity geometry.
+Selection and manual geometry edits require a stopped entity: the first attempt
+on a running entity warns, and another attempt on the same entity within one
+second only stops it. It does not also perform the attempted edit or selection.
+Online entities still require owner control permission and a successful server
+stop acknowledgement before editing is enabled.
 
 The bundled local Agent prototype currently understands English hover, follow,
 orbit, launch, spin, attitude-stabilization, and stop intents.

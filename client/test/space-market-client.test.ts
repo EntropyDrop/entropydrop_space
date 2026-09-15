@@ -32,16 +32,16 @@ const BLOCKSET_DIGEST = 'c190d16dabdeff20bbf2285fd6bb67c10c7cdace60227ae8eb4d7a1
 test('market component names match Python bytes and recursive name-free digests', async () => {
   const component = (id, name, children) => ({ id, name, body: { type: 'dynamic' }, blocks: [], seats: [], children });
   const entity = { type: 'space-entity', version: 7, constraints: [],
-    root: component('world', '机体', [component('root', '模块', [component('tip', '末端', [])])]) };
+    root: component('world', 'Chassis', [component('root', 'Module', [component('tip', 'Tip', [])])]) };
   const wire = encodeInventoryResource('entity', entity);
-  assert.equal(Buffer.from(wire).toString('hex'), '08075a3612340a05776f726c641a0042210a04726f6f741a00420f0a037469701a006206e69cabe7abaf6206e6a8a1e59d976206e69cbae4bd93');
+  assert.equal(Buffer.from(wire).toString('hex'), '08075a3412320a05776f726c641a00421e0a04726f6f741a00420c0a037469701a00620354697062064d6f64756c65620743686173736973');
   assert.deepEqual(decodeInventoryResource(wire).portable, entity);
   const digest = '3aa9f6f2d1a424d0f63d1fb4fe85d927eac86db793c6afa5d4095391b994f4c8';
   assert.equal(createHash('sha256').update(encodeInventoryResource('entity', entity, { includeNames: false })).digest('hex'), digest);
-  assert.equal(entity.root.children[0].name, '模块', 'digest encoding does not mutate names');
+  assert.equal(entity.root.children[0].name, 'Module', 'digest encoding does not mutate names');
   let payload = wire;
   const client = new SpaceMarketClient('https://api.example.test', 'token', async () => new Response(responseBody(payload)));
-  await client.loadResourceContent('https://cdn.example.test/entity.pb', undefined, { kind: 'entity', name: '机体', digest });
+  await client.loadResourceContent('https://cdn.example.test/entity.pb', undefined, { kind: 'entity', name: 'Chassis', digest });
 
   entity.root.name = '';
   entity.root.children[0].name = 'Renamed';

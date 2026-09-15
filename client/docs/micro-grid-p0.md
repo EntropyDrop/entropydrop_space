@@ -1,63 +1,63 @@
-# 8×8×8 微格与 P0 物理优化
+# 8×8×8 Micro Grid and P0 Physics Optimizations
 
-每个 1 米标准方块划分为 512 个微格，微格边长 0.125 米。整数微格索引和米坐标使用共享网格常量转换，格内偏移范围为 0–7。
+Each standard one-metre block is divided into 512 micro cells with a 0.125-metre edge length. Integer micro-cell indices and metre coordinates use shared grid constants, with in-cell offsets ranging from 0 to 7.
 
-## 已完成
+## Completed work
 
-- 统一雕刻、微格选取、复制粘贴、组装拆解、旋转、预览、模型导入和碰撞几何的尺度。
-- （历史）该时期的 Protobuf 采用打包微格索引 `1 + mx + 8*my + 64*mz`（索引 1–512）。Inventory v7 已改为 `is_micro` 加 `micro_x`/`micro_y`/`micro_z` 三分量（0–7），现行线格式见 [formats.md](formats.md)。
-- 更新后端体素操作、托管运行时、远景高度快照和着色器的坐标换算。
-- 按 2×2×2 米三维分区缓存合并碰撞盒及 BVH，每分区最多 4,096 个微格。碰撞盒可以跨颜色合并，保留孔洞；查询不再扫描包围体中的空微格。
-- 碰撞缓存跟随网格发布切换。编辑与分片清空期间继续使用已显示的完整形状，支持环形世界接缝。
-- 实体静止一秒后可以休眠，附近区块变化、力、冲量、碰撞、支撑移动或移除会唤醒；远处编辑和无关加载窗口变化不会唤醒它。
-- 休眠时脚本继续运行。静态支撑接触以 `sleeping: true`、零冲量和零相对速度传递，脚本施力可在同一次更新唤醒实体。
+- Unified scale handling across carving, micro-cell selection, copy/paste, assembly/disassembly, rotation, previews, model import, and collision geometry.
+- Historical note: Protobuf originally used the packed micro-cell index `1 + mx + 8*my + 64*mz` (indices 1–512). Inventory v7 now uses `is_micro` plus the three `micro_x`/`micro_y`/`micro_z` components (0–7). See [formats.md](formats.md) for the current wire format.
+- Updated coordinate conversion in backend voxel operations, the hosting runtime, distant-height snapshots, and shaders.
+- Cached merged collision boxes and BVHs in three-dimensional 2×2×2-metre partitions, with at most 4,096 micro cells per partition. Collision boxes can merge across colors while preserving holes, and queries no longer scan empty micro cells inside the bounding volume.
+- Tied collision-cache publication to mesh publication. Editing and sliced clearing continue using the complete displayed shape, including across toroidal world seams.
+- Allowed entities to sleep after one second at rest. Nearby chunk changes, forces, impulses, collisions, and support movement or removal wake them; distant edits and unrelated loading-window changes do not.
+- Kept scripts running while entities sleep. Static support contacts are delivered with `sleeping: true`, zero impulse, and zero relative velocity, allowing scripted forces to wake the entity during the same update.
 
-## 数据格式
+## Data formats
 
-| 数据 | 新版本 |
+| Data | Current version |
 | --- | --- |
 | InventoryResource | 7 |
-| 背包 | 8，`space.backpack.v8.pb` |
-| 离线实体 | 4 |
-| 本地地形缓存及待上传队列 | 3，`space.world-edits.v3.*` |
-| 远景地表快照 | 3 |
+| Backpack | 8, `space.backpack.v8.pb` |
+| Offline entities | 4 |
+| Local terrain cache and upload outbox | 3, `space.world-edits.v3.*` |
+| Distant-surface snapshots | 3 |
 
-按需求不转换 v1/v2 本地地形数据。独立 Space 数据库迁移 `space_0003` 会重置旧地形、实体、市场资源、玩家位置及派生快照，并将资源约束更新至 v6；`space_0004` 再就地把 v6 实体定义转换为 v7 线格式（`is_micro` + `micro_x/y/z` + `color_rgb`），重算内容摘要与大小并递增实体 revision，地形、地表、玩家位置与托管租约保持不变；市场资源保留在对象存储但暂不可下载。世界配置、账户资料、配额及结算记录保留。发布前停止所有 Space API/worker 写入并备份，使用 `tools/deploy_space.py <dev|prod> --quiesce`。`space_0003` 在存在未用完的付费托管时间或关联授权时会拒绝执行。
+As required, v1/v2 local terrain data is not converted. Standalone Space database migration `space_0003` resets old terrain, entities, market resources, player positions, and derived snapshots, then updates resource constraints to v6. Migration `space_0004` converts v6 entity definitions in place to the v7 wire format (`is_micro` + `micro_x/y/z` + `color_rgb`), recomputes content digests and sizes, and increments entity revisions while preserving terrain, surfaces, player positions, and hosting leases. Market resources remain in object storage but are temporarily unavailable for download. World configuration, account data, quotas, and billing records are preserved. Stop all Space API and worker writes, create a backup, and run `tools/deploy_space.py <dev|prod> --quiesce` before release. `space_0003` refuses to run while unused paid hosting time or linked authorizations remain.
 
-## 验证
+## Verification
 
-引擎 259 项、前端 571 项、后端相关 104 项测试通过；引擎、前端与托管运行时类型检查通过。包含全 512 个偏移的编解码、负坐标及接缝、雕刻孔洞、分片替换、静态支撑与局部唤醒测试。（数字为 2026-09-08 快照；当前基线以 `npm run check` 为准。）
+At the 2026-09-08 snapshot, 259 engine tests, 571 frontend tests, and 104 relevant backend tests passed. Engine, frontend, and hosting-runtime type checks also passed. Coverage included encoding and decoding all 512 offsets, negative coordinates and seams, carved holes, sliced replacement, static support, and local wakeups. Use `npm run check` for the current baseline.
 
-2026-09-08 本机 CPU 微基准：4×4×4 米查询范围内含 1,024 个地面微格，合并为 1 个碰撞盒。首次建缓存 1.88 ms。
+Local CPU microbenchmark on 2026-09-08: a 4×4×4-metre query volume contained 1,024 ground micro cells merged into one collision box. The initial cache build took 1.88 ms.
 
-| 查询路径 | 中位耗时 | P95 |
+| Query path | Median | P95 |
 | --- | ---: | ---: |
-| 逐格查询 | 5.1181 ms | 5.5617 ms |
-| 缓存碰撞盒 | 0.0013 ms | 0.0014 ms |
+| Per-cell query | 5.1181 ms | 5.5617 ms |
+| Cached collision boxes | 0.0013 ms | 0.0014 ms |
 
-100 个实体、每个 100 个标准方块、每次模拟 50 ms 的既有基准：活动实体中位 26.48 ms，停止实体 0.25 ms，休眠实体 0.30 ms。该基准不含脚本、地形占用、渲染和网络；不能据此推算浏览器 FPS。
+An existing benchmark with 100 entities, 100 standard blocks per entity, and 50 ms simulated per iteration measured medians of 26.48 ms for active entities, 0.25 ms for stopped entities, and 0.30 ms for sleeping entities. It excludes scripts, terrain occupancy, rendering, and networking and therefore cannot predict browser FPS.
 
-复现命令在共享引擎目录运行：`node tools/benchmark-micro-terrain.ts` 和 `node tools/benchmark-physics.ts`。缓存查询收益取决于形状是否连续和是否频繁编辑，首次建缓存成本单独计入。
+Reproduce these results from the shared-engine directory with `node tools/benchmark-micro-terrain.ts` and `node tools/benchmark-physics.ts`. Cached-query gains depend on shape continuity and edit frequency; the first cache-build cost is measured separately.
 
-## 连续勺子编辑卡顿修复（2026-09-08）
+## Continuous spoon-edit stutter fix (2026-09-08)
 
-- 微格网格与碰撞的重建范围从 4 米宽的全高度列缩小到 2×2×2 米；连续输入不再反复废弃大型整列任务。
-- 染色、组件标签及邻居表面更新保留未改变的碰撞索引和休眠版本。
-- 自身连续区块版本的写入回执不再重装区块。版本跳跃仍请求权威数据；不推进全局事件游标，避免漏掉其他区块的编辑。
-- 收到与本地最终内容相同的快照时跳过网格替换；判断与待上传编辑合并后再进行，比较本身按帧预算处理。
-- 分片比较期间按每区块的快照及写入回执版本保留已提交的较新操作，避免旧快照复原刚挖掉的微格；较新快照仍保留他人的后续编辑。
-- 小地图只查询视野内有变化的微格区块，微格高度统一换算为米；上传批次空间统计改为增量，移除默认批次间的 200ms 额外等待。
+- Reduced micro-mesh and collision rebuild scope from a four-metre-wide full-height column to a 2×2×2-metre region, so continuous input no longer repeatedly discards large column tasks.
+- Preserved unchanged collision indices and sleep versions during painting, component labeling, and neighboring-surface updates.
+- Prevented acknowledgements for consecutive local chunk versions from reinstalling chunks. Version jumps still request authoritative data without advancing the global event cursor, so edits to other chunks are not skipped.
+- Skipped mesh replacement when an incoming snapshot matches final local content. The comparison happens after merging pending uploads and is itself frame-budgeted.
+- Preserved newer committed operations using per-chunk snapshot and acknowledgement versions during sliced comparison, preventing an old snapshot from restoring a recently removed micro cell while still keeping later edits from other users.
+- Limited minimap queries to changed micro chunks inside the viewport, consistently converted micro heights to metres, made upload-batch spatial statistics incremental, and removed the default extra 200 ms wait between batches.
 
-同机 Node CPU 对照，密集 4×4×8 米微格区中局部连续雕刻，每次网格构建预算 2ms：
+Same-machine Node CPU comparison for continuous local carving in a dense 4×4×8-metre micro-cell region with a 2 ms mesh-build budget per frame:
 
-| 指标 | 修复前 | 修复后 |
+| Metric | Before | After |
 | --- | ---: | ---: |
-| 单刀网格 CPU 中位数 | 37.48ms | 2.56ms |
-| 等待网格显示 | 19 帧 | 2 帧 |
-| 发布后碰撞查询中位数 | 43.27ms | 2.32ms |
-| 30 刀中能在下一刀前显示 | 0 | 30 |
-| 两层相距 64 米的稀疏区域网格 CPU | 213.30ms | 0.158ms |
+| Median mesh CPU per cut | 37.48 ms | 2.56 ms |
+| Frames until the mesh appeared | 19 | 2 |
+| Median collision query after publication | 43.27 ms | 2.32 ms |
+| Cuts displayed before the next cut, out of 30 | 0 | 30 |
+| Mesh CPU for sparse regions 64 metres apart | 213.30 ms | 0.158 ms |
 
-上述为 CPU 基准，不等于浏览器 FPS 或实际网络延迟。复现当前版本：在引擎目录运行 `node tools/benchmark-spoon-edits.ts`。前文查询微基准是初版 4 米分区的历史结果。
+These are CPU benchmarks, not browser FPS or actual network latency. Reproduce the current version by running `node tools/benchmark-spoon-edits.ts` from the engine directory. The earlier query microbenchmark records the historical four-metre partition implementation.
 
-本次回归：引擎 291 项、前端 574 项测试通过；补充覆盖持续编辑、分片比较期间的写入回执、跨区块同步及新旧标准/微格网格原子发布。（数字为 2026-09-08 快照。）
+Regression snapshot for this change: 291 engine tests and 574 frontend tests passed, with added coverage for continuous editing, write acknowledgements during sliced comparison, cross-chunk synchronization, and atomic publication of new and old standard/micro meshes. Counts are from 2026-09-08.

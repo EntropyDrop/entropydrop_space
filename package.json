@@ -17,6 +17,7 @@
     "dev": "npm run dev --workspace @entropydrop/space",
     "build": "npm run build --workspace @entropydrop/space",
     "check": "npm run check --workspace @entropydrop/space",
+    "check:english": "node tools/check-english-only.mjs",
     "test": "npm test --workspace @entropydrop/space",
     "generate:protobuf": "node tools/generate-protobuf.mjs",
     "check:protobuf": "node tools/generate-protobuf.mjs --check",

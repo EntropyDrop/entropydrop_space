@@ -78,13 +78,19 @@ function makeEntity() {
   );
   const manager = new ContraptionManager(scene, {}, null, null);
   manager.registerContraption(contraption);
+  contraption.stopAllNodeScripts();
   return { contraption, manager, scene };
+}
+
+function selectEntity(controller, contraption) {
+  controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
+  assert.equal(controller.selectAllSelectionBlocks(), true);
 }
 
 test('R copies into the entity category, T into the blockset category', () => {
   const { contraption, manager } = makeEntity();
   const controller = makeController({ manager, world: {} as any });
-  controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
+  selectEntity(controller, contraption);
 
   controller.copySelectionToInventory();
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 1, 'R should fill an entity slot');
@@ -93,7 +99,7 @@ test('R copies into the entity category, T into the blockset category', () => {
   assert.equal(controller.activeInventoryCategory, 'entity', 'the bar should switch to entities after R');
 
   const controller2 = makeController({ manager, world: {} as any });
-  controller2.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
+  selectEntity(controller2, contraption);
   controller2.copySelectionAsBlockSet();
   const blockset = controller2.inventories.blockset.items.find(Boolean);
   assert.ok(blockset, 'T should fill a blockset slot');
@@ -107,10 +113,10 @@ test('each category caps at 99 items and the copy reports the limit', () => {
   const { contraption, manager } = makeEntity();
   const controller = makeController({ manager, world: {} as any });
   for (let i = 0; i < controller.inventories.entity.items.length; i++) {
-    controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
+    selectEntity(controller, contraption);
     assert.ok(controller.copySelectionToInventory(), 'copy ' + (i + 1) + ' should be accepted');
   }
-  controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
+  selectEntity(controller, contraption);
   const hundredth = controller.copySelectionToInventory();
   assert.equal(hundredth, null, 'the 100th entity copy must be rejected');
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 99);
@@ -907,7 +913,7 @@ test('copySelectionToInventory reports an error toast and rejects writing when e
   }
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 99);
 
-  controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
+  selectEntity(controller, contraption);
   const result = controller.copySelectionToInventory();
   assert.equal(result, null, 'copy must be rejected when entity inventory is full');
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 99);
@@ -946,11 +952,11 @@ test('copySelectionSmart handles both entity and world block selection with unif
   manager.selectionHost = controller;
 
   // 1. Entity selection -> copySelectionSmart writes to entity inventory
-  controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
+  selectEntity(controller, contraption);
   const entSlot = controller.copySelectionSmart();
-  assert.ok(entSlot, 'should copy entity subtree');
+  assert.ok(entSlot, 'should copy confirmed entity blocks');
   assert.equal(controller.activeInventoryCategory, 'entity');
-  assert.equal(controller.inventories.entity.items[0].nodeCount, 2);
+  assert.equal(controller.inventories.entity.items[0].nodeCount, 1);
 
   // 2. World selection -> copySelectionSmart writes to blockset inventory
   controller.activeTool = SpecialTool.SELECTOR;

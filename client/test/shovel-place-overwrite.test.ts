@@ -110,6 +110,7 @@ test('entity shovel break sounds once for a removed block and not for a stale hi
   };
   const contraption = {
     id: 7,
+    scriptStatus: 'stopped',
     blocks: [standardBlock],
     rebuildAfterBlockChange() {}
   };
@@ -139,6 +140,7 @@ test('entity shovel break sounds once for a removed block and not for a stale hi
 test('entity shovel micro-cell clear reports all removed debris in one sound', () => {
   const contraption = {
     id: 8,
+    scriptStatus: 'stopped',
     blocks: [
       { localX: 0, localY: 0, localZ: 0, size: 0.125, block: BlockTypes.COLOR_BLOCK, entityId: 'root' },
       { localX: 0.2, localY: 0, localZ: 0, size: 0.125, block: BlockTypes.COLOR_BLOCK, entityId: 'root' },
@@ -161,6 +163,49 @@ test('entity shovel micro-cell clear reports all removed debris in one sound', (
 
   assert.equal(contraption.blocks.length, 1);
   assert.deepEqual(controller.__breakSounds, [{ kind: 'standard', count: 2 }]);
+});
+
+test('entity shovel placement and removal are blocked while the entity is running', () => {
+  const toasts: string[] = [];
+  let rebuilt = 0;
+  const block = {
+    localX: 0,
+    localY: 0,
+    localZ: 0,
+    size: 1,
+    block: BlockTypes.COLOR_BLOCK,
+    entityId: 'root'
+  };
+  const contraption = {
+    id: 9,
+    scriptStatus: 'running',
+    stopAllNodeScripts() { this.scriptStatus = 'stopped'; },
+    blocks: [block],
+    rebuildAfterBlockChange() { rebuilt++; }
+  };
+  const controller = makeShovelController({
+    hoveredContraptionHit: {
+      contraption,
+      entityId: 'root',
+      kind: 'standard',
+      cell: { x: 0, y: 0, z: 0 },
+      placeCell: { x: 1, y: 0, z: 0 },
+      point: { x: 0.5, y: 0.5, z: 0.5 }
+    },
+    ui: {
+      showToast: (message: string) => toasts.push(message),
+      notifyContraptionStructureChanged() {}
+    }
+  });
+
+  controller.handleLeftClick();
+  controller.handleRightClick();
+
+  assert.deepEqual(contraption.blocks, [block]);
+  assert.equal(rebuilt, 0);
+  assert.equal(controller.__breakSounds.length, 0);
+  assert.equal(contraption.scriptStatus, 'stopped', 'the second attempt only stops');
+  assert.ok(toasts.some(message => message.includes('within 1 second')));
 });
 
 test('world placement beside a focused microblock targets the adjacent standard cell', () => {
@@ -220,7 +265,7 @@ test('world placement beside a standard block still targets the adjacent cell', 
 
 test('entity placement beside a focused microblock preserves the subdivided cell', () => {
   const microBlock = { localX: 0.4, localY: 0.2, localZ: 0.2, size: 0.125, block: BlockTypes.COLOR_BLOCK };
-  const contraption = { blocks: [microBlock], rebuildAfterBlockChange() {} };
+  const contraption = { scriptStatus: 'stopped', blocks: [microBlock], rebuildAfterBlockChange() {} };
   let rebuilt = 0;
   contraption.rebuildAfterBlockChange = () => { rebuilt++; };
   const controller = makeShovelController({
@@ -244,7 +289,7 @@ test('entity placement beside a focused microblock preserves the subdivided cell
 test('entity placement rejects a subdivided target cell', () => {
   const microBlock = { localX: 0.4, localY: 0.2, localZ: 0.2, size: 0.125, block: BlockTypes.COLOR_BLOCK };
   const microInTarget = { localX: 1.4, localY: 0.2, localZ: 0.2, size: 0.125, block: BlockTypes.COLOR_BLOCK };
-  const contraption = { blocks: [microBlock, microInTarget], rebuildAfterBlockChange() {} };
+  const contraption = { scriptStatus: 'stopped', blocks: [microBlock, microInTarget], rebuildAfterBlockChange() {} };
   let rebuilt = 0;
   contraption.rebuildAfterBlockChange = () => { rebuilt++; };
   const controller = makeShovelController({
@@ -264,7 +309,7 @@ test('entity placement rejects a subdivided target cell', () => {
 });
 
 test('entity placement beside a standard block still targets the adjacent cell', () => {
-  const contraption = { blocks: [], rebuildAfterBlockChange() {} };
+  const contraption = { scriptStatus: 'stopped', blocks: [], rebuildAfterBlockChange() {} };
   const controller = makeShovelController({
     hoveredContraptionHit: {
       contraption,

@@ -88,6 +88,10 @@ def test_public_markdown_links_work_without_auth_and_do_not_expose_files(client)
     for name in ['.env', 'references/../../.env', '%2e%2e%2f.env', 'references/private.py', 'missing.md']:
         assert client.get('/space/agent/' + name).status_code == 404
 
+    entity_create = client.get('/space/agent/references/entity-create.md').text
+    assert 'color_rgb=0xE58024' in entity_create
+    assert 'color=0xE58024' not in entity_create
+
 
 def test_standalone_identity_uses_remote_key_owner(client, db, monkeypatch):
     owner, world, headers, _ = setup(client, db)

@@ -181,8 +181,6 @@ export function AdminMonitoringDashboard({
 
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isZh = typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('zh');
-
   const resolveOrigin = useCallback(() => {
     if (explicitApiOrigin) return explicitApiOrigin.replace(/\/+$/, '');
     const configured = import.meta.env?.VITE_SPACE_API_BASE_URL || import.meta.env?.VITE_API_BASE_URL;
@@ -313,25 +311,21 @@ export function AdminMonitoringDashboard({
               <div className="guard-icon warn">
                 <Icon icon="pixelarticons:shield" />
               </div>
-              <h2 className="guard-title">
-                {isZh ? '需要管理员登录' : 'Administrator Login Required'}
-              </h2>
+              <h2 className="guard-title">Administrator Login Required</h2>
               <p className="guard-desc">
-                {isZh
-                  ? 'EntropyDrop Space 监控面板仅向已登录的管理员账号开放。请登录拥有管理权限的账号后继续。'
-                  : 'EntropyDrop Space monitoring telemetry is restricted to authenticated administrators. Please sign in with an admin account.'}
+                EntropyDrop Space monitoring telemetry is restricted to authenticated administrators. Please sign in with an admin account.
               </p>
               <div className="guard-actions">
                 <a href={spaceLoginUrl()} className="space-btn-text" style={{ borderColor: 'rgba(34, 197, 94, 0.3)', color: '#4ade80' }}>
-                  {isZh ? '前往登录' : 'Sign In'}
+                  Sign In
                 </a>
                 {onClose ? (
                   <button type="button" onClick={onClose} className="space-btn-text">
-                    {isZh ? '返回' : 'Back'}
+                    Back
                   </button>
                 ) : (
                   <a href="/" className="space-btn-text">
-                    {isZh ? '返回主页' : 'Home'}
+                    Home
                   </a>
                 )}
               </div>
@@ -352,22 +346,18 @@ export function AdminMonitoringDashboard({
               <div className="guard-icon danger">
                 <Icon icon="pixelarticons:alert" />
               </div>
-              <h2 className="guard-title">
-                {isZh ? '权限受限 (403 Forbidden)' : 'Access Forbidden (403)'}
-              </h2>
+              <h2 className="guard-title">Access Forbidden (403)</h2>
               <p className="guard-desc">
-                {isZh
-                  ? '当前账号非系统管理员，无权查阅系统核心负载与用户网络指标监控。如需访问请联系系统所有者开通权限。'
-                  : 'Your account lacks administrator privileges to view real-time Space infrastructure metrics.'}
+                Your account lacks administrator privileges to view real-time Space infrastructure metrics.
               </p>
               <div className="guard-actions">
                 {onClose ? (
                   <button type="button" onClick={onClose} className="space-btn-text">
-                    {isZh ? '返回游戏' : 'Back to Game'}
+                    Back to Game
                   </button>
                 ) : (
                   <a href="/" className="space-btn-text">
-                    {isZh ? '返回主页' : 'Home'}
+                    Home
                   </a>
                 )}
               </div>
@@ -390,10 +380,10 @@ export function AdminMonitoringDashboard({
             <div className="space-monitoring-titles">
               <h1>
                 <Icon icon="pixelarticons:device-tv" className="space-header-icon" />
-                {isZh ? 'Space 监控中心' : 'Space Monitoring Center'}
+                Space Monitoring Center
               </h1>
               <p className="space-monitoring-subtitle">
-                {isZh ? '实时系统状态 • ' : 'LIVE SYSTEM STATUS • '}
+                LIVE SYSTEM STATUS •{' '}
                 {realtime?.server_time
                   ? new Date(realtime.server_time).toLocaleTimeString()
                   : new Date().toLocaleTimeString()}
@@ -412,7 +402,7 @@ export function AdminMonitoringDashboard({
               <div className="space-status-pill">
                 <div className="space-status-dot pulsing" />
                 <span className="space-status-text">
-                  {isZh ? '系统在线' : 'SYSTEM ONLINE'}
+                  SYSTEM ONLINE
                 </span>
               </div>
             )}
@@ -438,10 +428,10 @@ export function AdminMonitoringDashboard({
               onChange={e => setAutoRefreshSec(Number(e.target.value))}
               aria-label="Auto refresh interval"
             >
-              <option value={10}>{isZh ? '10s 刷新' : '10s'}</option>
-              <option value={30}>{isZh ? '30s 刷新' : '30s'}</option>
-              <option value={60}>{isZh ? '60s 刷新' : '60s'}</option>
-              <option value={0}>{isZh ? '暂停' : 'Off'}</option>
+              <option value={10}>10s</option>
+              <option value={30}>30s</option>
+              <option value={60}>60s</option>
+              <option value={0}>Off</option>
             </select>
 
             {/* Refresh button matching MonitorPage line 1095 */}
@@ -450,7 +440,7 @@ export function AdminMonitoringDashboard({
               className="space-btn-icon"
               onClick={handleManualRefresh}
               disabled={refreshing}
-              title={isZh ? '刷新指标数据' : 'Refresh metrics'}
+              title="Refresh metrics"
             >
               <Icon
                 icon="pixelarticons:reload"
@@ -462,12 +452,12 @@ export function AdminMonitoringDashboard({
             {onClose ? (
               <button type="button" onClick={onClose} className="space-btn-text">
                 <Icon icon="pixelarticons:arrow-left" />
-                {isZh ? '返回 Space' : 'Back to Space'}
+                Back to Space
               </button>
             ) : (
               <a href="/" className="space-btn-text">
                 <Icon icon="pixelarticons:arrow-left" />
-                {isZh ? '进入游戏' : 'Play Space'}
+                Play Space
               </a>
             )}
           </div>
@@ -477,25 +467,25 @@ export function AdminMonitoringDashboard({
         <section className="space-stat-grid">
           <StatCard
             icon="pixelarticons:group"
-            label={isZh ? '实时在线人数' : 'Online Users'}
+            label="Online Users"
             value={loading && !realtime ? '--' : realtime?.online_users ?? 0}
             color="text-purple-400"
           />
           <StatCard
             icon="pixelarticons:speed-fast"
-            label={isZh ? 'CPU 使用率' : 'CPU Usage'}
+            label="CPU Usage"
             value={loading && !realtime ? '--' : `${(realtime?.cpu_percent ?? 0).toFixed(1)}%`}
             color="text-cyan-400"
           />
           <StatCard
             icon="pixelarticons:chip"
-            label={isZh ? '内存占用率' : 'Memory Usage'}
+            label="Memory Usage"
             value={loading && !realtime ? '--' : `${(realtime?.memory_percent ?? 0).toFixed(1)}%`}
             color="text-blue-400"
           />
           <StatCard
             icon="pixelarticons:activity"
-            label={isZh ? '平均网络延迟' : 'Avg Latency (24h)'}
+            label="Avg Latency (24h)"
             value={
               loading && !summary
                 ? '--'
@@ -505,13 +495,13 @@ export function AdminMonitoringDashboard({
           />
           <StatCard
             icon="pixelarticons:dashboard"
-            label={isZh ? '系统负载 (1m)' : 'Load Avg (1m)'}
+            label="Load Avg (1m)"
             value={loading && !realtime ? '--' : (realtime?.load_1m ?? 0).toFixed(2)}
             color="text-pink-400"
           />
           <StatCard
             icon="pixelarticons:server"
-            label={isZh ? '活跃世界数' : 'Active Worlds'}
+            label="Active Worlds"
             value={loading && !realtime ? '--' : realtime?.active_worlds ?? 0}
             color="text-green-400"
           />
@@ -525,19 +515,15 @@ export function AdminMonitoringDashboard({
                 <Icon icon="pixelarticons:server" />
               </div>
               <div>
-                <h2>{isZh ? 'Space 节点实时资源' : 'Space Server Realtime Resources'}</h2>
-                <p>
-                  {isZh
-                    ? '节点 CPU、内存、负载及网络延迟指标'
-                    : 'Node CPU, memory, load average and network latency telemetry'}
-                </p>
+                <h2>Space Server Realtime Resources</h2>
+                <p>Node CPU, memory, load average and network latency telemetry</p>
               </div>
             </div>
 
             <div className="space-status-pill">
               <div className="space-status-dot pulsing" />
               <span className="space-status-text">
-                {isZh ? '1/1 健康' : '1/1 Healthy'}
+                1/1 Healthy
               </span>
             </div>
           </div>
@@ -551,14 +537,14 @@ export function AdminMonitoringDashboard({
                   <span>entropydrop-space-node</span>
                 </div>
                 <div className="space-instance-tags">
-                  <span>{isZh ? '运行' : 'Uptime'} {calculateUptime(realtime?.uptime_seconds ?? 0)}</span>
+                  <span>Uptime {calculateUptime(realtime?.uptime_seconds ?? 0)}</span>
                   <span>PORT 8000</span>
                   <span>RING BUFFER 1440 PTS</span>
                   <span>SAMPLING 1 MIN</span>
                 </div>
               </div>
               <span className="space-badge-tag healthy">
-                {isZh ? '健康' : 'Healthy'}
+                Healthy
               </span>
             </div>
 
@@ -571,13 +557,13 @@ export function AdminMonitoringDashboard({
                 detail={`Load avg: 1m: ${(realtime?.load_1m ?? 0).toFixed(2)}, 5m: ${(realtime?.load_5m ?? 0).toFixed(2)}`}
               />
               <ResourceMeter
-                label={isZh ? '内存' : 'Memory'}
+                label="Memory"
                 icon="pixelarticons:chip"
                 percent={realtime?.memory_percent ?? null}
                 detail={`${formatBytes((realtime?.memory_used_mb ?? 0) * 1024 * 1024)} / ${formatBytes((realtime?.memory_total_mb ?? 0) * 1024 * 1024)}`}
               />
               <ResourceMeter
-                label={isZh ? '平均延迟' : 'Avg Latency'}
+                label="Avg Latency"
                 icon="pixelarticons:activity"
                 percent={
                   realtime?.current_latency_ms
@@ -589,7 +575,7 @@ export function AdminMonitoringDashboard({
                 detail={`Current: ${realtime?.current_latency_ms !== null && realtime?.current_latency_ms !== undefined ? `${realtime.current_latency_ms} ms` : '--'} • 24h Avg: ${(summary?.avg_latency_24h ?? 0).toFixed(1)} ms`}
               />
               <ResourceMeter
-                label={isZh ? '系统负载' : 'Load Avg'}
+                label="Load Avg"
                 icon="pixelarticons:dashboard"
                 percent={Math.min(100, (realtime?.load_1m ?? 0) * 25)}
                 detail={`1m: ${(realtime?.load_1m ?? 0).toFixed(2)} • 5m: ${(realtime?.load_5m ?? 0).toFixed(2)} • 15m: ${(realtime?.load_15m ?? 0).toFixed(2)}`}
@@ -605,7 +591,7 @@ export function AdminMonitoringDashboard({
                 <span className="space-dep-ok">WEBSOCKET OK</span>
               </div>
               <span>
-                {isZh ? '服务端时间' : 'Server Time'}: {realtime?.server_time ? new Date(realtime.server_time).toLocaleTimeString() : '--'}
+                Server Time: {realtime?.server_time ? new Date(realtime.server_time).toLocaleTimeString() : '--'}
               </span>
             </div>
           </article>
@@ -619,16 +605,8 @@ export function AdminMonitoringDashboard({
                 <Icon icon="pixelarticons:chart" />
               </div>
               <div>
-                <h3>
-                  {isZh
-                    ? `资源占用与指标趋势 • 最近 ${range.toUpperCase()}`
-                    : `Resource Utilization Trend • Last ${range.toUpperCase()}`}
-                </h3>
-                <p>
-                  {isZh
-                    ? `每 1 分钟一个采样点，聚合最近 ${range.toUpperCase()} 指标`
-                    : `One-minute samples aggregated over the last ${range.toUpperCase()}`}
-                </p>
+                <h3>Resource Utilization Trend • Last {range.toUpperCase()}</h3>
+                <p>One-minute samples aggregated over the last {range.toUpperCase()}</p>
               </div>
             </div>
 
@@ -637,7 +615,7 @@ export function AdminMonitoringDashboard({
               className="space-btn-icon"
               onClick={handleManualRefresh}
               disabled={refreshing}
-              title={isZh ? '刷新历史趋势' : 'Refresh history charts'}
+              title="Refresh history charts"
             >
               <Icon
                 icon="pixelarticons:reload"
@@ -650,8 +628,8 @@ export function AdminMonitoringDashboard({
             {/* Chart 1: Online Users */}
             <MetricChart
               data={playerSeries}
-              title={isZh ? '实时在线人数' : 'Online Users'}
-              unit={isZh ? '人' : 'Users'}
+              title="Online Users"
+              unit="Users"
               icon="pixelarticons:group"
               color="#a78bfa"
               subTag={`PEAK: ${summary?.peak_online_users_24h ?? 0} • AVG: ${(summary?.avg_online_users_24h ?? 0).toFixed(1)}`}
@@ -663,7 +641,7 @@ export function AdminMonitoringDashboard({
             {/* Chart 2: CPU Utilization */}
             <MetricChart
               data={cpuSeries}
-              title={isZh ? 'CPU 使用率' : 'CPU Utilization'}
+              title="CPU Utilization"
               unit="%"
               icon="pixelarticons:speed-fast"
               color="#38bdf8"
@@ -677,7 +655,7 @@ export function AdminMonitoringDashboard({
             {/* Chart 3: Memory Utilization */}
             <MetricChart
               data={memorySeries}
-              title={isZh ? '内存占用率' : 'Memory Utilization'}
+              title="Memory Utilization"
               unit="%"
               icon="pixelarticons:chip"
               color="#34d399"
@@ -691,7 +669,7 @@ export function AdminMonitoringDashboard({
             {/* Chart 4: Average Latency */}
             <MetricChart
               data={latencySeries}
-              title={isZh ? '平均网络延迟' : 'Average User Latency'}
+              title="Average User Latency"
               unit="ms"
               icon="pixelarticons:activity"
               color="#facc15"
@@ -713,9 +691,9 @@ export function AdminMonitoringDashboard({
           <div className="space-table-header">
             <h3 className="space-table-title">
               <Icon icon="pixelarticons:list" />
-              {isZh ? '每分钟采样明细记录' : 'Minute-by-Minute Telemetry Records'}
+              Minute-by-Minute Telemetry Records
               <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.35)', fontFamily: 'monospace' }}>
-                ({data?.history.length ?? 0} {isZh ? '个采样点' : 'samples'})
+                ({data?.history.length ?? 0} samples)
               </span>
             </h3>
             <button
@@ -724,7 +702,7 @@ export function AdminMonitoringDashboard({
               onClick={() => setTableExpanded(!tableExpanded)}
             >
               <Icon icon={tableExpanded ? 'pixelarticons:chevron-up' : 'pixelarticons:chevron-down'} />
-              {tableExpanded ? (isZh ? '收起明细' : 'Hide Table') : (isZh ? '展开明细' : 'Show Table')}
+              {tableExpanded ? 'Hide Table' : 'Show Table'}
             </button>
           </div>
 
@@ -733,14 +711,14 @@ export function AdminMonitoringDashboard({
               <table className="space-metric-table">
                 <thead>
                   <tr>
-                    <th>{isZh ? '时间 (UTC)' : 'Time (UTC)'}</th>
-                    <th>{isZh ? '在线人数' : 'Online Users'}</th>
-                    <th>{isZh ? 'CPU 使用率' : 'CPU %'}</th>
-                    <th>{isZh ? '内存使用率' : 'Memory %'}</th>
-                    <th>{isZh ? '已用内存' : 'Memory Used'}</th>
-                    <th>{isZh ? '1m 负载' : 'Load 1m'}</th>
-                    <th>{isZh ? '平均延迟' : 'Avg Latency'}</th>
-                    <th>{isZh ? '延迟采样数' : 'Latency Samples'}</th>
+                    <th>Time (UTC)</th>
+                    <th>Online Users</th>
+                    <th>CPU %</th>
+                    <th>Memory %</th>
+                    <th>Memory Used</th>
+                    <th>Load 1m</th>
+                    <th>Avg Latency</th>
+                    <th>Latency Samples</th>
                   </tr>
                 </thead>
                 <tbody>

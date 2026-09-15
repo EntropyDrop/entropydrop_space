@@ -1,0 +1,242 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
+import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
+import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { World } from '@entropydrop/space-engine/voxel/World.ts';
+import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
+
+function fixture() {
+  const scene = new THREE.Scene();
+  const world = new World(scene);
+  const manager = new ContraptionManager(scene, world, null, null);
+  const entity = new Contraption(1, [
+    { localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, color: 0xff0000 },
+    { localX: 2, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, color: 0xff0000 }
+  ], new THREE.Vector3(0, 50, 0), scene, { rootComponentId: 'root' });
+  entity.stopAllNodeScripts();
+  manager.registerContraption(entity);
+  const controller: any = Object.create(PlayerController.prototype);
+  Object.assign(controller, {
+    _activeTool: SpecialTool.SELECTOR, contraptions: manager, world,
+    selectedSubtree: null, selectedBlockSelection: null, selectorRange: null, selectorLevel: null,
+    selectorShape: 'box', selectorMicroMode: false, keys: {}, selectedColor: 0x00ff00,
+    sound: { playWrenchClick() {}, playBlockPlace() {}, playBlockBreak() {}, playAssemblyClack() {} },
+    inventorySlots: new Array(8).fill(null), selectedInventoryIndex: 0
+  });
+  const toasts: string[] = [];
+  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {}, notifyContraptionStructureChanged() {} };
+  manager.selectionHost = controller;
+  return { controller, manager, entity, world, toasts };
+}
+
+const operations = [
+  'deleteSelectionBlocks', 'copySelectionSmart', 'copySelectionToInventory', 'copySelectionAsBlockSet',
+  'copySelectedSubtreeToInventory', 'fillSelectionBlocks', 'paintSelectionBlocks',
+  'createChildFromSelectedBlocks', 'assembleSelection', 'rotateSelection'
+];
+
+for (const selection of ['world-A', 'world-Shift', 'entity-A', 'entity-Shift']) {
+  for (const operation of operations) {
+    test(`${operation} rejects ${selection} without dispatching or mutating`, () => {
+      const { controller, manager, entity, world, toasts } = fixture();
+      world.setBlock(10, 50, 10, BlockTypes.COLOR_BLOCK, false, 0xff0000);
+      if (selection === 'world-A') manager.setCornerA({ x: 10, y: 50, z: 10 });
+      if (selection === 'world-Shift') manager.toggleWorldGlueCell({ x: 10, y: 50, z: 10 });
+      if (selection === 'entity-A') {
+        controller.selectedSubtree = { contraption: entity, rootId: 'root', nodeIds: new Set(['root']) };
+        controller.selectorRange = { contraption: entity, nodeId: 'root', pointA: { x: 0, y: 0, z: 0 }, pointB: null };
+      }
+      if (selection === 'entity-Shift') controller.selectedBlockSelection = {
+        contraption: entity, nodeId: 'root', blocks: [entity.blocks[0]]
+      };
+      let dispatched = 0;
+      controller.performBasicAction = () => { dispatched++; throw new Error('Unconfirmed operation dispatched'); };
+      controller[operation]('cw', 'y');
+      assert.equal(dispatched, 0);
+      assert.equal(entity.blocks.length, 2);
+      assert.equal(entity.blocks[0].color, 0xff0000);
+      assert.equal(entity.childDefinitions.size, 0);
+      assert.equal(world.getBlockColor(10, 50, 10), 0xff0000);
+      assert.equal(controller.inventorySlots.every(slot => slot === null), true);
+      assert.equal(controller.canUseSelectionActions(), false);
+      assert.ok(toasts.some(m => m.includes('A and B')));
+    });
+  }
+}
+
+test('confirmed A/B enables copying, filling and painting entity selections', () => {
+  for (const operation of ['copySelectionSmart', 'copySelectionAsBlockSet', 'fillSelectionBlocks', 'paintSelectionBlocks']) {
+    const { controller, entity } = fixture();
+    controller.hoveredContraptionHit = { contraption: entity, entityId: 'root' };
+    assert.equal(controller.selectAllSelectionBlocks(), true);
+    assert.equal(controller.canUseSelectionActions(), true);
+    controller[operation]();
+    if (operation.startsWith('copy')) {
+      assert.ok(controller.inventorySlots.some(Boolean));
+      assert.equal(entity.blocks.length, 2);
+      assert.equal(entity.blocks[0].color, 0xff0000);
+    } else {
+      assert.equal(entity.blocks[0].color, 0x00ff00);
+      assert.equal(entity.blocks.length, operation === 'fillSelectionBlocks' ? 3 : 2);
+    }
+  }
+});
+
+test('a rejected Shift micro paint/fill/copy never materializes virtual entity voxels', () => {
+  for (const operation of ['paintSelectionBlocks', 'fillSelectionBlocks', 'copySelectionAsBlockSet', 'createChildFromSelectedBlocks']) {
+    const { controller, entity } = fixture();
+    controller.selectorMicroMode = true;
+    controller.selectedBlockSelection = {
+      contraption: entity, nodeId: 'root', micro: true,
+      blocks: [{ ...entity.blocks[0], size: 0.125, virtualMicro: true }]
+    };
+    controller[operation]();
+    assert.equal(entity.blocks.length, 2);
+    assert.equal(entity.blocks.every(block => (block.size || 1) === 1), true);
+  }
+});
+
+test('canonical player geometry attempts warn, then stop only; a third attempt edits', () => {
+  const { controller, entity, toasts } = fixture();
+  entity.enableAllNodeScripts();
+  const command = { domain: ActionDomain.ENTITY, action: 'remove-standard', target: { contraption: entity },
+    cell: { x: 0, y: 0, z: 0 }, nodeId: 'root' };
+  assert.equal(controller.performBasicAction(command).reason, 'entity_not_stopped');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  assert.equal(entity.blocks.length, 2);
+  assert.ok(toasts.some(m => m.includes('within 1 second')));
+  assert.equal(controller.performBasicAction(command).reason, 'entity_not_stopped');
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(entity.blocks.length, 2, 'the second attempt cannot remove geometry');
+  assert.equal(controller.performBasicAction(command).ok, true);
+  assert.equal(entity.blocks.length, 1);
+});
+
+test('retry window includes one second exactly, but not a later attempt or another target', t => {
+  const { controller, entity } = fixture();
+  entity.enableAllNodeScripts();
+  let now = 100;
+  t.mock.method(performance, 'now', () => now);
+  controller.handleRunningEntityInteraction(entity);
+  now = 1101;
+  controller.handleRunningEntityInteraction(entity);
+  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'expired retry warns again');
+  const other = { id: 2, scriptStatus: 'running' };
+  controller.handleRunningEntityInteraction(other);
+  now = 1200;
+  controller.handleRunningEntityInteraction(entity);
+  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'switching entities resets the target');
+  now = 2200;
+  controller.handleRunningEntityInteraction(entity);
+  assert.equal(entity.isPhysicsSimulationEnabled(), false, 'exactly one second is accepted');
+});
+
+test('server stop waits for acknowledgement and consumes all attempts while pending', async () => {
+  const { controller, entity } = fixture();
+  entity.enableAllNodeScripts();
+  Object.assign(entity, { serverManaged: true, serverCanControl: true, serverCanEdit: true, serverDesiredRunState: 'running' });
+  let acknowledge!: () => void;
+  let requests = 0;
+  const acknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
+  controller.serverEntityRunStateHandler = async (_, state) => { requests++; assert.equal(state, 'stopped'); await acknowledgement; };
+  controller.handleRunningEntityInteraction(entity);
+  assert.equal(requests, 0);
+  controller.handleRunningEntityInteraction(entity);
+  assert.equal(requests, 1);
+  assert.equal(controller.canEditEntityInternals(entity), false);
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  controller.handleRunningEntityInteraction(entity);
+  assert.equal(requests, 1, 'pending retries must not duplicate stop requests');
+  const command = { domain: ActionDomain.ENTITY, action: 'remove-standard', target: { contraption: entity },
+    cell: { x: 0, y: 0, z: 0 }, nodeId: 'root' };
+  assert.equal(controller.performBasicAction(command).ok, false);
+  assert.equal(entity.blocks.length, 2);
+  acknowledge();
+  await acknowledgement;
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(entity.serverDesiredRunState, 'stopped');
+  assert.equal(controller.canUseSelectionActions(), false);
+});
+
+test('server stop cannot bypass owner permissions or a failed acknowledgement', async () => {
+  for (const owner of [false, true]) {
+    const { controller, entity } = fixture();
+    entity.enableAllNodeScripts();
+    Object.assign(entity, { serverManaged: true, serverCanControl: owner, serverCanEdit: true, serverDesiredRunState: 'running' });
+    let requests = 0;
+    controller.serverEntityRunStateHandler = async () => { requests++; throw new Error('Stop failed'); };
+    controller.handleRunningEntityInteraction(entity);
+    controller.handleRunningEntityInteraction(entity);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(requests, owner ? 1 : 0);
+    assert.equal(entity.isPhysicsSimulationEnabled(), true);
+    assert.equal(entity.serverDesiredRunState, 'running');
+    assert.equal(controller.canEditEntityInternals(entity), false);
+  }
+});
+
+test('one Spoon click cannot retry itself through compound subdivision and carving', () => {
+  const { controller, entity } = fixture();
+  entity.enableAllNodeScripts();
+  controller._activeTool = SpecialTool.SPOON;
+  controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', kind: 'standard',
+    block: entity.blocks[0], cell: { x: 0, y: 0, z: 0 },
+    carveMicroPos: { localX: 0, localY: 0, localZ: 0 }, point: new THREE.Vector3(0, 50, 0) };
+  controller.handleLeftClick();
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  assert.equal(entity.blocks.length, 2, 'one click must not subdivide or stop');
+  controller.handleLeftClick();
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(entity.blocks.length, 2, 'the second click must not carve or subdivide');
+});
+
+test('a completed selection on a newly running entity still warns before clearing or selecting', () => {
+  const { controller, entity } = fixture();
+  controller.selectedBlockSelection = { contraption: entity, nodeId: 'root', blocks: [...entity.blocks],
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 2, y: 0, z: 0 } } };
+  const oldSelection = controller.selectedBlockSelection;
+  entity.enableAllNodeScripts();
+  controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', point: new THREE.Vector3(0.5, 50.5, 0.5) };
+  controller.handleLeftClick();
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  assert.equal(controller.selectedBlockSelection, oldSelection);
+  controller.handleLeftClick();
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(controller.selectedBlockSelection, null);
+  assert.equal(controller.selectorRange, null);
+});
+
+test('delayed server stop acknowledgement cannot overwrite a newer remote Start', async () => {
+  const { controller, entity } = fixture();
+  entity.enableAllNodeScripts();
+  Object.assign(entity, { serverManaged: true, serverCanControl: true, serverCanEdit: true,
+    serverDesiredRunState: 'running', serverRevision: 1 });
+  controller.serverEntityRunStateHandler = async () => {
+    entity.serverRevision = 3;
+    entity.serverDesiredRunState = 'running';
+  };
+  controller.handleRunningEntityInteraction(entity);
+  controller.handleRunningEntityInteraction(entity);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(entity.serverDesiredRunState, 'running');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  assert.equal(controller.canEditEntityInternals(entity), false);
+});
+
+test('a locally frozen mirror with durable running state still requires owner stop', () => {
+  const { controller, entity } = fixture();
+  Object.assign(entity, { serverManaged: true, serverCanControl: false, serverCanEdit: true, serverDesiredRunState: 'running' });
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(controller.canEditEntityInternals(entity), false);
+  assert.equal(controller.handleRunningEntityInteraction(entity), true);
+  assert.equal(controller.handleRunningEntityInteraction(entity), true);
+  assert.equal(entity.serverDesiredRunState, 'running');
+  assert.equal(controller.canEditEntityInternals(entity), false);
+});

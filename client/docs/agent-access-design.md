@@ -1,90 +1,91 @@
-# Space 的三种 Agent 接入方式
+# Three Agent Access Modes in Space
 
 [spaceAPI](../../server/space/agent/spaceAPI.md) · [entityAPI](../../engine/docs/generated/api-v2.md)
 
-entityAPI 是实体代码中通过 `self` / `ctx` 调用的运行时接口；spaceAPI 是 Agent 和客户端使用的 HTTP 接口。
+entityAPI is the runtime interface called by entity code through `self` / `ctx`; spaceAPI is the HTTP interface used by agents and clients.
 
-状态：推荐架构与分步迁移方案。主站已介绍这些用法及当前进度；本文不表示网页助手已经完成统一 API 迁移。
+Status: recommended architecture and phased migration plan. HUD Agent Build now onboards external spaceAPI agents; the entity editor assistant has not completed the unified API migration.
 
-## 结论
+## Conclusion
 
-保留三个产品入口，复用一个 Agent 工具执行器、一套 spaceAPI 和一份版本化的公开 Skill。三者的区别是默认上下文、可访问资源和授权方式，而不是各自维护一套世界操作逻辑。
+Keep three product entry points while reusing one agent tool executor, one spaceAPI, and one versioned public Skill. They differ in default context, accessible resources, and authorization—not in separate implementations of world operations.
 
-| 入口 | 目标用途 | 授权边界 | 当前实现 |
+| Entry point | Intended use | Authorization boundary | Current implementation |
 | --- | --- | --- | --- |
-| 实体编辑器中的编程 Agent | 编辑当前实体的结构、颜色、物理配置、约束、全部组件和代码 | 当前 `world_id + entity_id`，所有可编辑字段及组件；不能更改所有者、权限或系统维护字段 | 生成组件脚本，由玩家点击 Apply 应用 |
-| HUD 通用 Agent | 查询世界、在玩家附近建造、协调多个实体 | 当前玩家获授权的 Space 接口、世界与资源 | AI BUILD 生成 BuildPlan，客户端验证、预览和施工 |
-| 外部 spaceAPI Agent | 从外部 Agent、终端和自动化程序执行相同种类的世界任务 | 完整 Space 权限；受世界访问与资源所有权约束 | 自身保存位置、实体创建、读取及修改自有实体代码和默认属性、启动／停止、方块组建造 |
+| Programming agent in the entity editor | Edit the current entity's structure, color, physics configuration, constraints, components, and code | The current `world_id + entity_id` and all editable fields and components; cannot change owners, permissions, or system-maintained fields | Generates component scripts that the player applies by clicking Apply |
+| HUD Agent Build | Connect an external agent to query the world and build near the player | Full Space API-key permissions, constrained by world access and resource ownership | Agent prompt, public API/Skill links, and API-key management; replaces the retired AI BUILD plan assistant |
+| External spaceAPI agent | Perform the same kinds of world tasks from an external agent, terminal, or automation | Full Space permissions, constrained by world access and resource ownership | Reads its own position; creates entities; reads and edits owned entity code and defaults; starts/stops entities; builds blocksets |
 
-“通用”意味着可以使用所有向该玩家开放且已获授权的 Space 能力。服务管理、执行租约、计费管理和其他玩家私有资源不因 Agent 模式而自动开放。
+“General-purpose” means the agent can use all authorized Space capabilities available to that player. Service administration, execution leases, billing management, and other players' private resources do not become available merely because the caller is an agent.
 
-## 两层接口
+## Two interface layers
 
 ```mermaid
 flowchart TD
-    E[实体编辑器 Agent] --> T[共用工具执行器]
-    H[HUD 通用 Agent] --> T
-    T --> A[spaceAPI：鉴权、资源范围、校验、版本与操作记录]
-    X[外部 Agent] --> A
-    A --> D[保存实体定义与代码，提交运行指令]
-    D --> R[实体运行时与脚本沙箱]
-    R --> C[self / ctx：逐帧读取状态与执行控制]
+    E[Entity editor agent] --> T[Shared tool executor]
+    H[General-purpose HUD agent] --> T
+    T --> A[spaceAPI: authentication, resource scope, validation, revisions, and operation receipts]
+    X[External agent] --> A
+    A --> D[Store entity definitions and code; submit run commands]
+    D --> R[Entity runtime and script sandbox]
+    R --> C[self / ctx: per-frame state reads and controls]
 ```
 
-- spaceAPI 负责查询、创建、修改、运行状态和结果查询。Agent 提交有结构的操作，不获取 `world`、`contraption`、渲染器或物理引擎实例。
-- entityAPI（`self` / `ctx`）供实体脚本逐帧使用，维持力、扭矩、悬挂和传感器响应。逐帧控制保留在运行时，不改成每帧网络请求。
-- Agent 可以阅读 entityAPI 文档并生成调用这些接口的代码。代码必须通过 spaceAPI 保存、校验和部署到实体，再由沙箱执行；这不等于 Agent 获得运行时调用入口。
-- 原有手工编辑器和引擎可以继续通过自身内部接口工作。收敛的是 Agent 的操作边界，而不是把引擎每个函数都公开成 HTTP 接口。
+- spaceAPI handles queries, creation, modification, run state, and result lookup. Agents submit structured operations; they do not receive `world`, `contraption`, renderer, or physics-engine instances.
+- entityAPI (`self` / `ctx`) is used by entity scripts every frame to maintain forces, torques, suspension, and sensor responses. Per-frame control stays in the runtime instead of becoming a network request every frame.
+- Agents may read the entityAPI documentation and generate code that calls it. The code must be stored, validated, and deployed to an entity through spaceAPI before the sandbox executes it. This does not give the agent a direct runtime call surface.
+- Existing manual editors and engine code may continue using their internal interfaces. The goal is to converge the agent boundary, not expose every engine function over HTTP.
 
-## 权限必须落在执行层
+## Permissions must be enforced at execution time
 
-实体 Agent 的限制不能只写在 Skill 或系统提示词中。工具执行器筛选工具和上下文，spaceAPI 再校验主体、世界成员资格、实体所有权/协作权限、动作权限与目标实体。
+Entity-agent restrictions cannot exist only in a Skill or system prompt. The tool executor filters tools and context; spaceAPI then validates the principal, world membership, entity ownership or collaboration rights, action permissions, and target entity.
 
-建议网页登录后签发短期 Agent 会话授权。实体模式绑定一个世界和一个实体；HUD 模式绑定玩家选定的世界与允许的操作。切换实体时重新创建或收窄会话。凭证由执行器附加到请求，不作为模型提示词内容。外部调用使用可撤销的 spaceAPI Key，统一拥有全部 Space API 动作权限，已有 Key 自动适用，无需重建；世界成员资格、资源所有权及配额仍由后端校验。
+After web login, issue short-lived agent-session authorization. Entity mode binds one world and one entity; HUD mode binds the player's selected world and allowed operations. Recreate or narrow the session when switching entities. The executor attaches credentials to requests rather than placing them in model prompts. External calls use revocable spaceAPI keys. Every existing and new key has the full Space action set; world membership, resource ownership, and quotas remain enforced by the backend.
 
-不要把完整登录令牌直接交给受限实体 Agent 使用，否则它仍可能凭同一个令牌调用其他接口。短期会话的资源限制应由后端验证，而不是由调用者提供一个可任意修改的 `entity_id` 就视为授权。
+Do not hand a full login token directly to a restricted entity agent. The same token could call unrelated endpoints. The backend must enforce short-lived session resource limits rather than treating a caller-supplied, mutable `entity_id` as authorization.
 
-同时检查生成代码的执行权限。现有脚本契约包含 `ctx.selection`、世界查询等能力，仅限制“修改哪一份代码”不能保证该代码运行后只影响本实体。需要为脚本可见能力和引擎命令提交增加实体资源边界，尤其是选择、删除、组装等操作；否则可通过代码绕过 Agent 的实体限制。正常物理碰撞产生的影响与主动编辑其他资源应分开定义。
+Generated code also needs execution-time capability checks. The current script contract includes capabilities such as `ctx.selection` and world queries. Restricting which code document an agent may edit does not guarantee that the resulting code affects only that entity. Script-visible capabilities and engine-command submission need entity-scoped boundaries, especially for selection, deletion, and assembly. Otherwise code could bypass entity-agent restrictions. Effects from ordinary physical collisions should be distinguished from active edits to other resources.
 
-## Skill 与机器可读工具契约
+## Skill and machine-readable tool contracts
 
-保留 `/space/agent/SKILL.md` 作为公共入口，描述坐标、工作流、错误处理和能力边界。按需引用实体编辑、世界建造和 entityAPI 文档，避免把全部文档塞进每一次对话。
+Keep `/space/agent/SKILL.md` as the public entry point for coordinates, workflows, error handling, and capability boundaries. Link entity editing, world building, and entityAPI references as needed instead of loading every document into each conversation.
 
-spaceAPI 的 OpenAPI / JSON Schema 是请求格式的来源，Skill 解释如何使用它们。网页工具执行器和外部 SDK 使用同一份契约。网络工具只把 Space 授权凭证发送到配置的 spaceAPI origin；模型服务的 API Key 与 Space 的授权凭证分开管理。
+spaceAPI OpenAPI and JSON Schema definitions are the source of truth for request formats; the Skill explains how to use them. The web tool executor and external SDKs use the same contract. Network tools send Space credentials only to the configured spaceAPI origin. Model-provider API keys and Space credentials are managed separately.
 
-文档版本与后端能力应可查询。对尚未开放、当前模式无权使用或当前版本不支持的操作，返回明确错误，不能回退到直接调用浏览器内部对象。
+Documentation versions and backend capabilities should be queryable. Operations that are unavailable, unauthorized in the current mode, or unsupported by the current version must return explicit errors instead of falling back to direct browser-object access.
 
-## 需要补齐的 API 与状态同步
+## API and state synchronization work
 
-已开放 `GET /entities/{entity_id}/configuration` 读取自有实体定义，`PATCH /entities/{entity_id}/configuration` 修改组件代码、名称和 BodyConfig 默认属性；编辑需要 `space:entity:edit`。`PUT /entities/{entity_id}/run-state` 支持 API Key，通过 `space:entity:run` 启动／停止。路径均在 `/space/api/v2/worlds/{world_id}` 下。实体只有运行／停止两种状态，组件代码开关不构成第三种状态。
+`GET /entities/{entity_id}/configuration` reads an owned entity definition. `PATCH /entities/{entity_id}/configuration` changes component code, names, and BodyConfig defaults and requires `space:entity:edit`. `PUT /entities/{entity_id}/run-state` supports API keys and uses `space:entity:run` to start or stop an entity. Every path is under `/space/api/v2/worlds/{world_id}`. Entities have only running and stopped states; a component-code switch is not a third state.
 
-配置修改必须先停止并提供 `expected_revision`，之后可单独启动。编辑和运行指令都有持久操作回执，延迟重试不会覆盖较新的操作。停止／配置修改保留最近保存的根位置和朝向，清除旧运行变量、子组件姿态和临时物理参数。浏览器仍需在线获取执行租约；HTTP 成功表示后端已保存指令，不表示脚本已经执行。
+Configuration changes require the entity to be stopped and must provide `expected_revision`; starting can happen separately afterward. Edit and run commands have durable operation receipts, so delayed retries do not overwrite newer operations. Stopping or editing configuration preserves the latest root position and orientation while clearing old runtime variables, child-component poses, and temporary physics parameters. A browser must still be online to acquire an execution lease. HTTP success means the backend stored the command, not that the script has already executed it.
 
-列表、二进制定义、快照和 checkpoint 等通用同步路由仍使用网页登录鉴权，不能把 API Key 当成通用登录凭证。浏览器 checkpoint 包含执行权相关语义，不作为 Agent 的编辑接口。
+General synchronization routes—including lists, binary definitions, snapshots, and checkpoints—continue to use web-login authentication. An API key is not a general login credential. Browser checkpoints carry execution-right semantics and are not agent editing endpoints.
 
-后续扩展实体结构编辑、独立代码校验及运行时实际应用结果接口。复用现有校验与持久化服务，避免复制一套实体逻辑。是否用完整定义更新或结构化 patch，可按实体格式决定；不要允许任意对象路径写入。
+Future work should add entity-structure editing, standalone code validation, and an endpoint for actual runtime application results. Reuse existing validation and persistence services instead of duplicating entity logic. The entity format should determine whether updates use a complete definition or a structured patch; arbitrary object-path writes must not be allowed.
 
-配置写入携带预期版本（当前与运行快照共用 revision），防止 Agent 覆盖玩家同时进行的编辑。变更应保留操作 ID 与可读差异，方便重试、追踪和恢复。后续可将定义版本与频繁变化的运行快照版本拆分。运行中的实体应由持有执行权的浏览器或托管运行时接收更新，并返回实际应用结果；HTTP 接收成功不等于运行时已完成变更。
+Configuration writes carry an expected version—currently shared with runtime snapshot revision—to stop an agent from overwriting simultaneous player edits. Changes should retain operation IDs and readable diffs for retries, tracing, and recovery. Definition revisions may later be separated from frequently changing runtime-snapshot revisions. A running entity should receive updates through the browser or hosting runtime that holds execution rights and return the actual application result. An accepted HTTP request does not prove that the runtime completed the change.
 
-现有外部创建已经有幂等操作 ID，可继续沿用这一思路。后端接受命令后通过现有同步通道通知客户端，前端据此更新编辑器与世界。Agent 不应同时修改本地实例和远端记录。
+External entity creation already uses idempotent operation IDs and should retain that pattern. After accepting a command, the backend notifies clients through the existing synchronization channel so editors and the world update from the remote record. An agent must not mutate both a local instance and the remote record independently.
 
-离线模式如需保留 Agent 能力，可以提供同一工具契约的本地适配器，并明确显示离线状态和能力差异；不伪造服务器已接受或世界已同步的结果。
+If offline mode retains agent capabilities, it can provide a local adapter for the same tool contract while clearly showing offline status and capability differences. It must not pretend that a server accepted or synchronized an operation.
 
-## 迁移顺序
+## Migration order
 
-1. 整理公开 API 的动作与资源权限，补齐实体更新、代码校验和状态返回；明确服务内部路由与玩家接口的区别。
-2. 增加短期 Agent 会话授权、后端实体范围校验及脚本运行时的资源限制。
-3. 实现共用工具执行器，先将实体助手接入，验证单实体编辑、冲突处理和代码部署。
-4. 将 HUD AI BUILD 扩展为同一执行器上的通用模式，接入查询、建造与多个实体的操作。
-5. 将相同能力向拥有完整 Space 权限的外部 API Key 开放，同步更新公开 Skill 和示例。
+1. Organize public API actions and resource permissions; complete entity updates, code validation, and status results; distinguish service-internal routes from player-facing interfaces.
+2. Add short-lived agent-session authorization, backend entity scoping, and script-runtime resource restrictions.
+3. Implement the shared tool executor and connect the entity assistant first, validating single-entity editing, conflict handling, and code deployment.
+4. Keep HUD Agent Build as the external-agent onboarding entry; any future in-browser general-purpose agent should use the same executor rather than restoring the retired BuildPlan assistant.
+5. Expose the same capabilities to external API keys with full Space permissions and update the public Skill and examples.
 
-主站当前应同时说明入口、目标用途和已实现的能力；不把上述迁移计划描述为已经上线。
+The main site should describe the entry points, intended uses, and implemented capabilities without presenting this migration plan as already shipped.
 
-## 代码依据与参考
+## Code references
 
-- `src/engine/contraption/AgentChat.ts`：现有组件代码生成提示词与模型调用。
-- `src/engine/building/BuildAgent.ts`：现有 BuildPlan 生成契约。
-- `src/ui/react/store/SpaceUiStore.ts`：当前代码应用与建造方案预览入口。
-- 后端 `routers/space_entities.py`、`routers/space_agent.py`、`routers/space_external.py`：现有实体、位置与建造接口。
-- 共享引擎 `docs/generated/agent-api-v2.md`：entityAPI，包含 `ctx.selection`。
-- [RFC 9396：细粒度授权请求](https://www.rfc-editor.org/rfc/rfc9396.html) 支持将资源和动作表达为授权数据；这里借鉴其授权边界设计，不要求立即引入完整 OAuth 扩展。
+- `src/engine/contraption/AgentChat.ts`: existing component-code generation prompt and model call.
+- `src/ui/react/components/AgentBuildModal.tsx` and `SpaceAgentInstructions.tsx`: Agent Build onboarding, API links, and copyable prompt.
+- `src/engine/building/BuildAgent.ts`: retired BuildPlan generation contract, retained for reference and tests only.
+- `src/ui/react/store/SpaceUiStore.ts`: current code-application and Agent Build modal entry points.
+- Backend `routers/space_entities.py`, `routers/space_agent.py`, and `routers/space_external.py`: current entity, position, and construction interfaces.
+- Shared-engine `docs/generated/agent-api-v2.md`: entityAPI, including `ctx.selection`.
+- [RFC 9396: Rich Authorization Requests](https://www.rfc-editor.org/rfc/rfc9396.html) shows how resources and actions can be expressed as authorization data. This design borrows its authorization-boundary model without requiring the complete OAuth extension immediately.

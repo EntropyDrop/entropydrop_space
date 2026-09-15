@@ -298,6 +298,9 @@ test('PlayerController: micro mode shape switching sets microSelection and clear
 test('PlayerController: micro mode fill, paint, delete respect active shape', () => {
   const { controller, manager, world } = createController({ selectorMicroMode: true });
 
+  manager.setCornerA({ x: 10 / 8, y: 80 / 8, z: 10 / 8 }, { micro: true });
+  manager.setCornerB({ x: 14 / 8, y: 80 / 8, z: 14 / 8 }, { micro: true });
+
   // 5x1x5 microcells at y=80: (10, 80, 10) to (14, 80, 14)
   controller.selectionShapeAnchor = {
     cornerA: { x: 10, y: 80, z: 10 },
@@ -425,6 +428,7 @@ test('PlayerController: micro mode selection rotation preserves 0.125m grid', ()
     micro: true
   };
   manager.microBounds = { minX: 10, minY: 40, minZ: 10, maxX: 14, maxY: 41, maxZ: 12 };
+  manager.selectionBoxConfirmed = true;
   manager.microSelection = manager.materializeMicroBox(10, 40, 10, 14, 41, 12);
 
   // ArrowRight: rotates 90° horizontally -> size 5x2x3 becomes 3x2x5

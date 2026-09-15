@@ -138,6 +138,8 @@ export class MultiplayerSync {
   private terrainPollRequested = false;
   private isRunning = false;
   private sinceTerrainRevision = 0;
+  private terrainCursor: string | null = null;
+  private terrainPollAreaKey = '';
   private poseSequence = 0;
   private lastPoseKey = '';
   private lastPoseSentAt = 0;
@@ -222,17 +224,20 @@ export class MultiplayerSync {
     this.terrainInFlight = true;
     const includePlayers = !this.websocketReady;
     try {
-      const body: Record<string, number | boolean> = {
+      const body: Record<string, number | boolean | string> = {
         since_terrain_revision: this.sinceTerrainRevision,
         include_players: includePlayers
       };
       const pose = this.getPlayerPosition?.();
       if (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) && Number.isFinite(pose.z)) {
         const area = terrainStreamAreaForPosition(pose.x, pose.z);
+        if (this.terrainPollAreaKey !== area.key) this.terrainCursor = null;
+        this.terrainPollAreaKey = area.key;
         body.center_chunk_x = area.centerChunkX;
         body.center_chunk_z = area.centerChunkZ;
         body.terrain_radius_chunks = area.radiusChunks;
       }
+      if (this.terrainCursor) body.terrain_cursor = this.terrainCursor;
       if (includePlayers) {
         if (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) && Number.isFinite(pose.z)) {
           Object.assign(body, encodePlayerPosition(pose, pose.yaw || 0, pose.pitch || 0));
@@ -272,6 +277,7 @@ export class MultiplayerSync {
           Number(data.max_terrain_revision)
         );
       }
+      this.terrainCursor = typeof data.terrain_cursor === 'string' ? data.terrain_cursor : null;
     } catch (error) {
       this.logTemporaryFailure('Space terrain synchronization is temporarily unavailable.', error);
     } finally {

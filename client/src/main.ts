@@ -8,7 +8,6 @@ import { ContraptionPhysics } from '@entropydrop/space-engine/physics/Contraptio
 import { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
 import { EntitySimulationClock } from '@entropydrop/space-engine/simulation/EntitySimulationClock.ts';
 import { PlayerController } from './engine/controls/PlayerController.ts';
-import { SpaceBuilder } from './engine/building/SpaceBuilder.ts';
 import { SoundManager } from './engine/audio/SoundManager.ts';
 import { ParticleSystem } from './engine/render/ParticleSystem.ts';
 import { Minimap } from './ui/Minimap.ts';
@@ -65,7 +64,6 @@ class Game {
   minimap: Minimap;
   navigationSystem: NavigationSystem;
   controller: PlayerController;
-  spaceBuilder: SpaceBuilder;
   clock: THREE.Clock;
   entitySimulationClock: EntitySimulationClock;
   frameCount: number;
@@ -175,12 +173,6 @@ class Game {
       persistentStorage
     );
     this.controller.setSceneRenderer(this.sceneRenderer);
-    this.spaceBuilder = new SpaceBuilder({
-      world: this.world,
-      contraptions: this.contraptionManager,
-      controller: this.controller,
-      onStatus: status => this.uiStore.setBuilderJob(status)
-    });
     this.remotePlayers = [];
     this.contraptionManager.setRuntimeContextProvider(() => {
       const eye = this.playerPhysics.getEyePosition();
@@ -240,7 +232,6 @@ class Game {
     this.uiStore.setController(this.controller);
     this.uiStore.setWorld(this.world);
     this.uiStore.setContraptions(this.contraptionManager);
-    this.uiStore.setBuilder(this.spaceBuilder);
     this.uiStore.setSceneRenderer(this.sceneRenderer);
     this.uiStore.setMinimap(this.minimap);
     this.navigationSystem = new NavigationSystem(
@@ -361,9 +352,7 @@ class Game {
         const count = `${progress.readyChunks}/${progress.totalChunks}`;
         reportProgress?.(
           value,
-          document.documentElement.lang.toLowerCase().startsWith('zh')
-            ? `正在加载 AOI 全部地形（${count}）…`
-            : `Loading all AOI terrain (${count})…`,
+          `Loading all AOI terrain (${count})…`,
         );
       },
     );
@@ -494,8 +483,8 @@ class Game {
     // movement, entity code, and entity physics advance only on the immutable
     // 20 Hz simulation clock below.
     this.controller.updateRender();
-    this.spaceBuilder.update();
     const simulation = this.entitySimulationClock.advance(dt, simulationDt => {
+      this.entitySync?.enforceExecutionLeases();
       this.controller.updateSimulation(simulationDt);
 
       // Entity streaming consumes this exact active window, so chunks must be
@@ -587,7 +576,7 @@ class Game {
 
     // 6e. Hammer inventory hover ghost (entity slots and plain block sets).
     this.sceneRenderer.setInventoryPlacementPreview(
-      this.spaceBuilder.getRenderPreview() || this.controller.inventoryPlacementPreview
+      this.controller.inventoryPlacementPreview
     );
 
     // 7. Update UI HUD

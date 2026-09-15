@@ -1,8 +1,8 @@
 # Space networking
 
 The browser talks to the Space backend over authenticated REST plus one binary WebSocket.
-All paths below are served by `entropydrop_backend`; the authoritative architecture and
-consistency contract is [`entropydrop_backend/docs/space-backend.md`](../../../entropydrop_backend/docs/space-backend.md).
+All paths below are served by this workspace's `server`; the authoritative architecture and
+consistency contract is [the Space backend contract](../../server/docs/space-backend.md).
 
 ## Origins and credentials
 
@@ -39,6 +39,22 @@ Entity definitions travel as raw `InventoryResource` v7 bytes: upload through th
 `space_api.proto` envelope (`Content-Type: application/x-protobuf`), download as raw
 protobuf. JSON `definition_base64` requests remain accepted for existing agents. See
 [formats.md](formats.md).
+
+Heartbeat responses fit the 16 MiB and 512-chunk client limits. `max_terrain_revision`
+advances only past complete events. If one event spans several pages, echo the
+opaque `terrain_cursor` alongside `since_terrain_revision` and the same terrain AOI
+until the server returns a null cursor. Clear the cursor when the AOI changes.
+
+Browser checkpoints for running entities, including a script stopping itself,
+must include the current `execution_instance_id` and `execution_epoch`. The server
+checks that this lease is still live; owner/admin privileges alone are insufficient.
+Stopped construction edits need no lease. Explicit start/stop uses `/run-state`.
+Owner replicas skip runtime autosaves, and the client freezes execution at lease
+expiry even if polling fails or hangs. Lease validity is also checked before each
+simulation frame after tab suspension. Newly created entities wait for their first lease.
+
+Deploy the frontend and server together for this checkpoint contract change and
+refresh existing browser tabs; older clients omit the required lease proof.
 
 ## Realtime relay (`space-relay-v1`)
 

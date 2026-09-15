@@ -350,11 +350,17 @@ export class SpaceEntityClient {
   async checkpointBrowser(
     entityId: string,
     expectedRevision: number,
-    payload: Omit<PersistBrowserWorldEntity, 'definition'> & { definition?: Uint8Array },
+    payload: Omit<PersistBrowserWorldEntity, 'definition'> & {
+      definition?: Uint8Array;
+      execution_instance_id?: string;
+      execution_epoch?: number;
+    },
   ) {
     const envelope = CheckpointEntityRequest.encode({
       operationId: operationId(),
       expectedRevision,
+      executionInstanceId: payload.execution_instance_id,
+      executionEpoch: payload.execution_epoch,
       ...(payload.definition ? { definition: payload.definition } : {}),
       position: positionMessage(payload.position),
       desiredRunState: runStateEnum(payload.desired_run_state),

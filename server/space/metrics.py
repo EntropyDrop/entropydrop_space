@@ -3,7 +3,7 @@
 Monitors real-time online player count, server load (CPU, memory, load average),
 and average user latency. Samples and aggregates data minute-by-minute, preserving
 a 24-hour historical window (1,440 data points) with multi-tier storage
-(in-memory circular buffer, Redis cache, and database persistence).
+(process-local minute buffers, shared Redis counters, and database history).
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from typing import Any, Optional
 
 try:
@@ -40,7 +41,7 @@ RANGE_LIMITS = {
 
 
 class MetricsCollector:
-    def __init__(self, max_history_minutes: int = MAX_HISTORY_MINUTES) -> None:
+    def __init__(self, max_history_minutes: int = MAX_HISTORY_MINUTES, redis_client=None) -> None:
         self.max_history_minutes = max_history_minutes
         self._history: collections.deque[dict[str, Any]] = collections.deque(maxlen=max_history_minutes)
         self._lock = threading.Lock()
@@ -48,12 +49,12 @@ class MetricsCollector:
         self._task: Optional[asyncio.Task] = None
         self._running = False
 
-        # Current minute latency accumulator
-        self._current_bucket: int = int(time.time() // 60)
-        self._latency_sum: float = 0.0
-        self._latency_count: int = 0
-        self._latency_max: float = 0.0
-        self._latency_min: float = 999999.0
+        self._source_id = uuid.uuid4().hex
+        self._redis_client = redis_client
+        self._latency_buckets: dict[int, tuple[float, int]] = {}
+        self._pending_buckets: set[int] = set()
+        self._pending_history: set[int] = set()
+        self._flush_lock = threading.Lock()
 
         # Cached latest server load
         self._last_cpu_percent: float = 0.0
@@ -65,26 +66,65 @@ class MetricsCollector:
         if not (0.5 <= rtt_ms <= 120000.0):
             return
 
-        now_bucket = int(time.time() // 60)
+        bucket = int(time.time() // 60)
         with self._lock:
-            if now_bucket != self._current_bucket:
-                # Flush bucket if roll-over happened between ticks
-                self._rollover_locked(now_bucket)
+            total, count = self._latency_buckets.get(bucket, (0.0, 0))
+            self._latency_buckets[bucket] = (total + float(rtt_ms), count + 1)
+            self._pending_buckets.add(bucket)
+            cutoff = bucket - self.max_history_minutes
+            for old in [key for key in self._latency_buckets if key < cutoff]:
+                self._latency_buckets.pop(old, None)
+                self._pending_buckets.discard(old)
+                self._pending_history.discard(old)
 
-            self._latency_sum += float(rtt_ms)
-            self._latency_count += 1
-            if rtt_ms > self._latency_max:
-                self._latency_max = float(rtt_ms)
-            if rtt_ms < self._latency_min:
-                self._latency_min = float(rtt_ms)
+    def _redis(self):
+        if self._redis_client is not None:
+            return self._redis_client
+        from space.main import redis
+        return redis
 
-    def _rollover_locked(self, new_bucket: int) -> None:
-        """Reset current minute accumulator for a new bucket."""
-        self._current_bucket = new_bucket
-        self._latency_sum = 0.0
-        self._latency_count = 0
-        self._latency_max = 0.0
-        self._latency_min = 999999.0
+    def _flush_latency(self) -> set[int]:
+        # Each source publishes cumulative counters. The Lua comparison makes
+        # retries (including a lost acknowledgement) and delayed writes idempotent.
+        script = """
+        local previous = redis.call('HGET', KEYS[1], ARGV[1])
+        if not previous or cjson.decode(previous)[2] < tonumber(ARGV[3]) then
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+        end
+        redis.call('EXPIRE', KEYS[1], 172800)
+        return 1
+        """
+        flushed = set()
+        with self._flush_lock:
+            with self._lock:
+                pending = {key: self._latency_buckets[key] for key in self._pending_buckets}
+            for bucket, values in pending.items():
+                try:
+                    result = self._redis().eval(script, 1, f"space:metrics:latency:{bucket}",
+                                                self._source_id, json.dumps(values), values[1])
+                    if not isinstance(result, int) or result != 1:
+                        raise ValueError("Invalid metrics cache acknowledgement")
+                except Exception:
+                    continue  # Keep the original minute until it can be published.
+                flushed.add(bucket)
+                with self._lock:
+                    if bucket < int(time.time() // 60):
+                        self._pending_history.add(bucket)
+                    if self._latency_buckets.get(bucket) == values:
+                        self._pending_buckets.discard(bucket)
+        return flushed
+
+    def _latency_for(self, bucket: int) -> tuple[float, int, bool]:
+        try:
+            values = self._redis().hgetall(f"space:metrics:latency:{bucket}")
+            if not isinstance(values, dict):
+                raise ValueError("Invalid metrics cache response")
+            samples = [json.loads(raw) for raw in values.values()]
+            return sum(v[0] for v in samples), sum(v[1] for v in samples), True
+        except Exception:
+            with self._lock:
+                total, count = self._latency_buckets.get(bucket, (0.0, 0))
+            return total, count, False
 
     def get_realtime_load(self) -> dict[str, Any]:
         """Read system CPU, RAM, and load averages."""
@@ -158,159 +198,100 @@ class MetricsCollector:
         except Exception:
             return 1
 
-    def capture_snapshot(self, db: Optional[Session] = None) -> dict[str, Any]:
-        """Capture one minute metrics record."""
-        now = datetime.datetime.now(datetime.timezone.utc)
-        bucket = int(now.timestamp() // 60)
-
+    def capture_snapshot(self, db: Optional[Session] = None, *, bucket: int | None = None) -> dict[str, Any]:
+        """Snapshot a completed minute without clearing the following minute."""
+        bucket = int(time.time() // 60) - 1 if bucket is None else bucket
+        timestamp = datetime.datetime.fromtimestamp(bucket * 60, datetime.timezone.utc)
         load = self.get_realtime_load()
-        online_users = self.get_online_user_count(db)
-
-        with self._lock:
-            sample_count = self._latency_count
-            avg_latency = (
-                round(self._latency_sum / self._latency_count, 1)
-                if self._latency_count > 0
-                else None
-            )
-            # Reset accumulator for next minute
-            self._rollover_locked(bucket + 1)
-
-        record = {
+        total, count, shared = self._latency_for(bucket)
+        return {
             "minute_bucket": bucket,
-            "timestamp": now.isoformat(),
-            "datetime": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "online_users": online_users,
+            "timestamp": timestamp.isoformat(),
+            "datetime": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "online_users": self.get_online_user_count(db),
             "cpu_percent": load["cpu_percent"],
             "memory_percent": load["memory_percent"],
             "memory_used_mb": load["memory_used_mb"],
             "memory_total_mb": load["memory_total_mb"],
             "load_1m": load["load_1m"],
-            "avg_latency_ms": avg_latency,
-            "latency_samples": sample_count,
+            "avg_latency_ms": round(total / count, 1) if count else None,
+            "latency_samples": count,
+            "_shared": shared,
         }
-        return record
 
-    def record_minute_snapshot(self, db: Optional[Session] = None) -> dict[str, Any]:
-        """Produce and persist a minute record into in-memory buffer, Redis, and DB."""
-        record = self.capture_snapshot(db)
-
+    def record_minute_snapshot(self, db: Optional[Session] = None, *, bucket: int | None = None) -> dict[str, Any]:
+        self._flush_latency()
+        record = self.capture_snapshot(db, bucket=bucket)
+        shared = record.pop("_shared")
+        bucket = record["minute_bucket"]
+        # Never replace a global aggregate with one worker's disconnected samples.
+        saved = db is not None and shared and self._persist_to_db(record, db)
         with self._lock:
-            # Replace if same minute, otherwise append
-            if self._history and self._history[-1]["minute_bucket"] == record["minute_bucket"]:
-                self._history[-1] = record
+            if not saved:
+                self._pending_history.add(bucket)
             else:
-                self._history.append(record)
-
-        # 1. Cache to Redis if available
-        self._persist_to_redis(record)
-
-        # 2. Persist to Database if available
-        if db is not None:
-            self._persist_to_db(record, db)
-
+                self._pending_history.discard(bucket)
+            records = {item["minute_bucket"]: item for item in self._history}
+            records[bucket] = record
+            self._history.clear()
+            self._history.extend(records[key] for key in sorted(records)[-self.max_history_minutes:])
         return record
 
-    def _persist_to_redis(self, record: dict[str, Any]) -> None:
+    def _persist_to_db(self, record: dict[str, Any], db: Session) -> bool:
+        # Every worker sees the shared counters. A delayed snapshot with fewer
+        # samples must not overwrite a newer aggregate. Upsert also handles two
+        # workers inserting the first record for a minute concurrently.
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        table = models.SpaceMonitoringMetric.__table__
+        values = {key: value for key, value in record.items() if key in table.c and key != "created_at"}
+        values["timestamp"] = datetime.datetime.fromisoformat(record["timestamp"])
+        insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else pg_insert
+        statement = insert(table).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[table.c.minute_bucket],
+            set_={key: statement.excluded[key] for key in values if key != "minute_bucket"},
+            where=statement.excluded.latency_samples >= table.c.latency_samples,
+        )
         try:
-            from space.main import redis as redis_client
-            if redis_client is not None:
-                payload = json.dumps(record)
-                redis_client.rpush("space:metrics:24h", payload)
-                redis_client.ltrim("space:metrics:24h", -self.max_history_minutes, -1)
-                redis_client.expire("space:metrics:24h", 86400 * 2)
-        except Exception:
-            pass
-
-    def _persist_to_db(self, record: dict[str, Any], db: Session) -> None:
-        try:
-            dt_ts = datetime.datetime.fromisoformat(record["timestamp"])
-            existing = (
-                db.query(models.SpaceMonitoringMetric)
-                .filter(models.SpaceMonitoringMetric.minute_bucket == record["minute_bucket"])
-                .first()
-            )
-            if existing is None:
-                item = models.SpaceMonitoringMetric(
-                    minute_bucket=record["minute_bucket"],
-                    timestamp=dt_ts,
-                    online_users=record["online_users"],
-                    cpu_percent=record["cpu_percent"],
-                    memory_percent=record["memory_percent"],
-                    memory_used_mb=record["memory_used_mb"],
-                    memory_total_mb=record["memory_total_mb"],
-                    load_1m=record["load_1m"],
-                    avg_latency_ms=record["avg_latency_ms"],
-                    latency_samples=record["latency_samples"],
-                )
-                db.add(item)
-            else:
-                existing.online_users = record["online_users"]
-                existing.cpu_percent = record["cpu_percent"]
-                existing.memory_percent = record["memory_percent"]
-                existing.memory_used_mb = record["memory_used_mb"]
-                existing.memory_total_mb = record["memory_total_mb"]
-                existing.load_1m = record["load_1m"]
-                existing.avg_latency_ms = record["avg_latency_ms"]
-                existing.latency_samples = record["latency_samples"]
-
-            # Prune records older than 24 hours
-            cutoff_bucket = record["minute_bucket"] - self.max_history_minutes
+            db.execute(statement)
+            cutoff = int(time.time() // 60) - self.max_history_minutes
             db.query(models.SpaceMonitoringMetric).filter(
-                models.SpaceMonitoringMetric.minute_bucket < cutoff_bucket
+                models.SpaceMonitoringMetric.minute_bucket < cutoff
             ).delete(synchronize_session=False)
-
             db.commit()
+            return True
         except Exception as exc:
             db.rollback()
             logger.debug("Failed saving monitoring metric to DB: %s", exc)
+            return False
 
     def hydrate_history(self, db: Optional[Session] = None) -> None:
-        """Pre-populate in-memory history from DB or Redis on service startup."""
-        loaded: list[dict[str, Any]] = []
-
-        # Try database first
-        if db is not None:
-            try:
-                rows = (
-                    db.query(models.SpaceMonitoringMetric)
+        """Refresh shared history on reads as well as startup in every worker."""
+        if db is None:
+            return
+        try:
+            cutoff = int(time.time() // 60) - self.max_history_minutes
+            rows = (db.query(models.SpaceMonitoringMetric)
+                    .filter(models.SpaceMonitoringMetric.minute_bucket >= cutoff)
                     .order_by(models.SpaceMonitoringMetric.minute_bucket.desc())
-                    .limit(self.max_history_minutes)
-                    .all()
-                )
-                for row in reversed(rows):
-                    loaded.append({
-                        "minute_bucket": row.minute_bucket,
-                        "timestamp": row.timestamp.isoformat() if row.timestamp else "",
-                        "datetime": row.timestamp.strftime("%Y-%m-%d %H:%M:%S") if row.timestamp else "",
-                        "online_users": row.online_users,
-                        "cpu_percent": row.cpu_percent,
-                        "memory_percent": row.memory_percent,
-                        "memory_used_mb": row.memory_used_mb,
-                        "memory_total_mb": row.memory_total_mb,
-                        "load_1m": row.load_1m,
-                        "avg_latency_ms": row.avg_latency_ms,
-                        "latency_samples": row.latency_samples,
-                    })
-            except Exception as exc:
-                logger.debug("Failed hydrating metrics from DB: %s", exc)
-
-        # Fallback to Redis if DB yielded nothing
-        if not loaded:
-            try:
-                from space.main import redis as redis_client
-                if redis_client is not None:
-                    raw_items = redis_client.lrange("space:metrics:24h", -self.max_history_minutes, -1)
-                    for raw in raw_items:
-                        loaded.append(json.loads(raw))
-            except Exception:
-                pass
-
-        if loaded:
+                    .limit(self.max_history_minutes).populate_existing().all())
+            loaded = []
+            for row in reversed(rows):
+                item = {column.name: getattr(row, column.name) for column in row.__table__.columns
+                        if column.name != "created_at"}
+                timestamp = row.timestamp
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+                item["timestamp"] = timestamp.isoformat()
+                item["datetime"] = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                loaded.append(item)
             with self._lock:
                 self._history.clear()
                 self._history.extend(loaded)
-            logger.info("Hydrated %d monitoring metric points", len(loaded))
+        except Exception as exc:
+            db.rollback()
+            logger.debug("Failed loading shared metric history: %s", exc)
 
     def get_monitoring_data(
         self,
@@ -320,10 +301,11 @@ class MetricsCollector:
         """Return realtime stats, historical point list, and summary calculations."""
         limit = RANGE_LIMITS.get(range_code.lower(), MAX_HISTORY_MINUTES)
 
+        self._flush_latency()
+        self.hydrate_history(db)
+        current_lat_sum, current_lat_count, _ = self._latency_for(int(time.time() // 60))
         with self._lock:
             all_history = list(self._history)
-            current_lat_sum = self._latency_sum
-            current_lat_count = self._latency_count
 
         # Slice history according to requested range
         sliced_history = all_history[-limit:] if all_history else []
@@ -397,28 +379,32 @@ class MetricsCollector:
         }
 
     async def _tick_loop(self) -> None:
-        """Background coroutine that triggers metric aggregation once every minute."""
+        last_bucket = None
         while self._running:
             try:
-                # Sleep until next minute boundary
-                now = time.time()
-                sleep_seconds = max(1.0, 60.0 - (now % 60.0))
-                await asyncio.sleep(sleep_seconds)
-
-                if not self._running:
-                    break
-
-                # Run database snapshot inside thread pool to avoid blocking event loop
-                def _do_snapshot():
+                def collect():
+                    nonlocal last_bucket
+                    current = int(time.time() // 60)
+                    flushed = self._flush_latency()
+                    with self._lock:
+                        due = set(self._pending_history)
+                    due.update(bucket for bucket in flushed if bucket < current)
+                    if last_bucket != current:
+                        due.add(current - 1)
                     with SessionLocal() as db:
-                        self.record_minute_snapshot(db)
+                        for bucket in sorted(due):
+                            self.record_minute_snapshot(db, bucket=bucket)
+                    last_bucket = current
 
-                await asyncio.to_thread(_do_snapshot)
+                await asyncio.to_thread(collect)
+                # Publish live counters between minute boundaries so admin reads
+                # on another worker see the same sample population.
+                await asyncio.sleep(5)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 logger.exception("Error in metrics collector tick: %s", exc)
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(5)
 
     def start(self) -> None:
         if self._running:

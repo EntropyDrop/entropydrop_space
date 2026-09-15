@@ -9,8 +9,8 @@ import { useSpaceUi } from './store/useSpaceUi.ts';
 const loadEditorModals = () => import('./components/EditorModal.tsx');
 const InventoryModal = React.lazy(() => import('./components/InventoryModal.tsx')
   .then(module => ({ default: module.InventoryModal })));
-const BuildAssistantModal = React.lazy(() => import('./components/BuildAssistantModal.tsx')
-  .then(module => ({ default: module.BuildAssistantModal })));
+const AgentBuildModal = React.lazy(() => import('./components/AgentBuildModal.tsx')
+  .then(module => ({ default: module.AgentBuildModal })));
 const CodeEditorModal = React.lazy(() => loadEditorModals()
   .then(module => ({ default: module.CodeEditorModal })));
 const ApiDocsModal = React.lazy(() => loadEditorModals()
@@ -94,8 +94,8 @@ export function SpaceRoot() {
           <ApiDocsModal />
         </React.Suspense>
       ) : null}
-      {activeModal === 'builder' ? (
-        <React.Suspense fallback={<ModalChunkFallback />}><BuildAssistantModal /></React.Suspense>
+      {activeModal === 'agent-build' ? (
+        <React.Suspense fallback={<ModalChunkFallback />}><AgentBuildModal /></React.Suspense>
       ) : null}
       {activeModal === 'monitoring' ? (
         <React.Suspense fallback={<ModalChunkFallback />}>

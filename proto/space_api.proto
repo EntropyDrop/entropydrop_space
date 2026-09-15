@@ -47,6 +47,10 @@ message CheckpointEntityRequest {
   PositionCm position = 4;
   EntityRunState desired_run_state = 5;
   bytes snapshot_json = 6;
+  // Required for runtime checkpoints while the entity is running. Stopped
+  // construction edits do not require an execution lease.
+  string execution_instance_id = 7;
+  uint64 execution_epoch = 8;
 }
 
 message BuildBlocksetRequest {

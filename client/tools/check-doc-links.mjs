@@ -5,11 +5,19 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const workspaceRoot = resolve(appRoot, '..');
 const roots = [
+  join(workspaceRoot, 'README.md'),
   join(appRoot, 'README.md'),
   join(appRoot, 'CONTRIBUTING.md'),
   join(appRoot, 'CHANGELOG.md'),
   join(appRoot, 'docs'),
+  join(workspaceRoot, 'engine', 'README.md'),
+  join(workspaceRoot, 'engine', 'docs'),
+  join(workspaceRoot, 'server', 'README.md'),
+  join(workspaceRoot, 'server', 'docs'),
+  join(workspaceRoot, 'server', 'space', 'agent'),
+  join(workspaceRoot, 'proto', 'README.md'),
 ];
 
 const files = [];
@@ -34,7 +42,7 @@ for (const file of files) {
       const target = url.split('#')[0];
       if (!target) continue;
       if (!existsSync(resolve(dirname(file), target))) {
-        missing.push(`${relative(appRoot, file)}:${index + 1} -> ${target}`);
+        missing.push(`${relative(workspaceRoot, file)}:${index + 1} -> ${target}`);
       }
     }
   });

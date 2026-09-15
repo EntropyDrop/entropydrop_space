@@ -140,6 +140,13 @@ function finishEntityMutation(context: any, contraption: any, type: string, node
   return empty;
 }
 
+const PLAYER_STOPPED_ONLY_ENTITY_ACTIONS = new Set([
+  'place-standard', 'remove-standard', 'paint-standard',
+  'place-micro', 'remove-micro', 'paint-micro',
+  'clear-cell', 'subdivide-standard', 'subdivide-cells',
+  'fill-blocks', 'paint-blocks', 'remove-blocks', 'remove-subtree'
+]);
+
 function entityMutationEvent(command: any, extra: any = {}) {
   const source = String(command?.actor?.source || 'system');
   return {
@@ -319,6 +326,22 @@ function executeEntityAction(context: any, command: any) {
     && command.actor?.source !== 'server-sync'
   ) {
     return actionResult(command.action, 0, 'server_entity_read_only');
+  }
+  // Player editing always targets the authored construction grid. That grid is
+  // stable only after Stop has restored the entity pose and disabled physics.
+  // Runtime scripts keep their existing self-modifying voxel API; this guard is
+  // specifically for manual/editor mutations dispatched with actor=player.
+  if (command.actor?.source === 'player'
+    && PLAYER_STOPPED_ONLY_ENTITY_ACTIONS.has(command.action)
+    && !canEditInternalSelection(contraption)) {
+    return actionResult(command.action, 0, 'entity_not_stopped', {
+      placed: 0,
+      removed: 0,
+      painted: 0,
+      subdivided: 0,
+      added: 0,
+      recolored: 0
+    });
   }
   const nodeId = requestedNodeId(contraption, command.nodeId, command.target?.nodeId);
   if (contraption.entityNodes?.has && !contraption.entityNodes.has(nodeId)) {

@@ -112,6 +112,7 @@ test('KeyF fills selection with selectedColor when selection is active in select
   // Box select 2x2x2 region in air (10,50,10) to (11,51,11)
   manager.selectionCornerA = { x: 10, y: 50, z: 10 };
   manager.selectionCornerB = { x: 11, y: 51, z: 11 };
+  manager.selectionBoxConfirmed = true;
   assert.equal(controller.hasActiveSelection(), true);
 
   // Press KeyF -> fills with 0x4488ff
@@ -144,6 +145,7 @@ test('KeyP recolors existing blocks in selection to selectedColor', () => {
   // Select box (10,50,10) to (11,51,10)
   manager.selectionCornerA = { x: 10, y: 50, z: 10 };
   manager.selectionCornerB = { x: 11, y: 51, z: 10 };
+  manager.selectionBoxConfirmed = true;
 
   // Set new recent color: yellow 0xffff00
   controller.selectedColor = 0xffff00;
@@ -168,6 +170,7 @@ test('KeyF and KeyP work on micro selections with active color', () => {
 
   // Select micro box covering 8 microblocks at y=400 (air): (80, 400, 80) to (81, 401, 81)
   manager.microBounds = { minX: 80, minY: 400, minZ: 80, maxX: 81, maxY: 401, maxZ: 81 };
+  manager.selectionBoxConfirmed = true;
   manager.microSelection = manager.materializeMicroBox(80, 400, 80, 81, 401, 81);
   assert.equal(controller.hasActiveSelection(), true);
 

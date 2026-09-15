@@ -10,6 +10,7 @@ from typing import Literal
 
 import zstandard as zstd
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from starlette.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
@@ -52,6 +53,7 @@ SPACE_TERRAIN_EDIT_RADIUS_CHUNKS = settings.SPACE_TERRAIN_EDIT_RADIUS_CHUNKS
 SPACE_TERRAIN_POSITION_GRACE_SECONDS = settings.SPACE_TERRAIN_POSITION_GRACE_SECONDS
 SPACE_TERRAIN_MAX_EVENT_BYTES = settings.SPACE_TERRAIN_MAX_EVENT_BYTES
 SPACE_TERRAIN_MAX_RESPONSE_BYTES = settings.SPACE_TERRAIN_MAX_RESPONSE_BYTES
+SPACE_TERRAIN_MAX_RESPONSE_CHUNKS = 512  # Browser heartbeat application limit.
 SPACE_TERRAIN_USAGE_SCOPE = "terrain"
 SPACE_ONLINE_PRESENCE_SECONDS = 30
 MIN_PLAYER_Y_CM = -100_000
@@ -143,6 +145,7 @@ class SpaceHeartbeatRequest(BaseModel):
     yaw_q15: int | None = Field(default=None, ge=-32767, le=32767)
     pitch_q15: int | None = Field(default=0, ge=-32767, le=32767)
     since_terrain_revision: int = Field(default=0, ge=0)
+    terrain_cursor: str | None = Field(default=None, max_length=80, pattern=r"^\d+:\d+:\d+$")
     include_players: bool = True
     center_chunk_x: int | None = None
     center_chunk_z: int | None = None
@@ -928,26 +931,42 @@ def space_heartbeat(
     # Chunk revision is local to one chunk and therefore cannot be a world
     # cursor. Page complete event ids instead, so a first edit in a different
     # chunk is never hidden just because both chunks happen to be revision 1.
+    continuation = None
+    if heartbeat_req.terrain_cursor:
+        continuation = tuple(int(value) for value in heartbeat_req.terrain_cursor.split(":"))
+        if (continuation[0] <= max_revision or continuation[1] >= world.width_chunks
+                or continuation[2] >= world.length_chunks):
+            raise HTTPException(422, detail={"code": "INVALID_TERRAIN_CURSOR"})
     event_rows = db.query(models.SpaceChunkSnapshot.last_event_id).filter(
         models.SpaceChunkSnapshot.world_id == world.id,
         models.SpaceChunkSnapshot.last_event_id > heartbeat_req.since_terrain_revision,
+        *([models.SpaceChunkSnapshot.last_event_id >= continuation[0]] if continuation else []),
         *terrain_aoi_filters,
     ).distinct().order_by(models.SpaceChunkSnapshot.last_event_id.asc()).limit(16).all()
     event_ids = [int(row[0]) for row in event_rows]
-    if event_ids:
+    result = {"world_id": str(world.id), "players": players, "terrain_chunks": modified_chunks,
+              "max_terrain_revision": max_revision, "terrain_cursor": None}
+    # Count the actual UTF-8 response encoding, including player metadata. Keep
+    # room for the continuation cursor and revision digits in the envelope.
+    used_bytes = len(JSONResponse(result).body) + 256
+    for event_id in event_ids:
         chunk_rows = db.query(models.SpaceChunkSnapshot).filter(
             models.SpaceChunkSnapshot.world_id == world.id,
-            models.SpaceChunkSnapshot.last_event_id.in_(event_ids),
+            models.SpaceChunkSnapshot.last_event_id == event_id,
+            *([or_(models.SpaceChunkSnapshot.chunk_x > continuation[1], and_(
+                models.SpaceChunkSnapshot.chunk_x == continuation[1],
+                models.SpaceChunkSnapshot.chunk_z > continuation[2],
+            ))] if continuation and event_id == continuation[0] else []),
             *terrain_aoi_filters,
         ).order_by(
             models.SpaceChunkSnapshot.last_event_id.asc(),
             models.SpaceChunkSnapshot.chunk_x.asc(),
             models.SpaceChunkSnapshot.chunk_z.asc(),
         ).all()
-        max_revision = event_ids[-1]
+        event_chunks = []
         for row in chunk_rows:
             overlay = _decode_chunk_overlay(row)
-            modified_chunks.append({
+            event_chunks.append({
                 "chunk_x": row.chunk_x,
                 "chunk_z": row.chunk_z,
                 "revision": row.revision,
@@ -955,12 +974,22 @@ def space_heartbeat(
                 "standard": overlay["standard"],
                 "micro": overlay["micro"],
             })
-    return {
-        "world_id": str(world.id),
-        "players": players,
-        "terrain_chunks": modified_chunks,
-        "max_terrain_revision": max_revision,
-    }
+        chunk_sizes = [len(JSONResponse(chunk).body) + 1 for chunk in event_chunks]
+        if modified_chunks and (used_bytes + sum(chunk_sizes) > SPACE_TERRAIN_MAX_RESPONSE_BYTES
+                or len(modified_chunks) + len(event_chunks) > SPACE_TERRAIN_MAX_RESPONSE_CHUNKS):
+            break  # Prefer complete events whenever one fits in its own page.
+        for chunk, size in zip(event_chunks, chunk_sizes):
+            if (used_bytes + size > SPACE_TERRAIN_MAX_RESPONSE_BYTES
+                    or len(modified_chunks) >= SPACE_TERRAIN_MAX_RESPONSE_CHUNKS):
+                if not modified_chunks:
+                    raise HTTPException(413, detail={"code": "TERRAIN_CHUNK_SNAPSHOT_TOO_LARGE"})
+                last = modified_chunks[-1]
+                result["terrain_cursor"] = f"{event_id}:{last['chunk_x']}:{last['chunk_z']}"
+                return JSONResponse(result)
+            modified_chunks.append(chunk)
+            used_bytes += size
+        result["max_terrain_revision"] = event_id
+    return JSONResponse(result)
 
 
 @router.get("/worlds/{world_id}/players")

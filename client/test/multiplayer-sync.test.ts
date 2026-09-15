@@ -798,3 +798,32 @@ test('remote chunk snapshots are cached without echoing them back as local mutat
   assert.equal(world.getBlockColor(5, 40, 5), 0x123456);
   assert.equal(world.microVoxels.parts.get('30,200,25'), 'remote');
 });
+
+test('terrain continuations are echoed until the whole event is consumed and reset after AOI movement', async t => {
+  const requests: any[] = [];
+  const delivered: number[] = [];
+  let x = 0;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    requests.push(JSON.parse(String(options?.body)));
+    const second = requests.length === 2;
+    return new Response(JSON.stringify({ players: [], terrain_chunks: [{ chunk_x: requests.length }],
+      max_terrain_revision: second ? 4 : 0, terrain_cursor: second ? null : '5:1:0' }));
+  });
+  const sync: any = new MultiplayerSync({ apiOrigin: 'https://example.test', token: 't', worldId: 'w',
+    currentUserId: 'u', onTerrainUpdate: chunks => delivered.push(...chunks.map(c => c.chunk_x)) });
+  sync.isRunning = true;
+  sync.scheduleTerrainPoll = () => {};
+  sync.getPlayerPosition = () => ({ x, y: 32, z: 0, yaw: 0 });
+  t.after(() => sync.stop());
+  await sync.performTerrainPoll();
+  await sync.performTerrainPoll();
+  assert.equal(requests[1].terrain_cursor, '5:1:0');
+  assert.equal(requests[1].since_terrain_revision, 0);
+  await sync.performTerrainPoll();
+  assert.equal(requests[2].terrain_cursor, undefined);
+  assert.equal(requests[2].since_terrain_revision, 4);
+  x = 1000;
+  await sync.performTerrainPoll();
+  assert.equal(requests[3].terrain_cursor, undefined);
+  assert.deepEqual(delivered, [1, 2, 3, 4]);
+});

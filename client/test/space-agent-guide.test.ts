@@ -23,9 +23,7 @@ test('copyable instructions strip legacy account paths and never include URL cre
   assert.ok(markup.includes(guide.spaceApiUrl));
   assert.ok(markup.includes(guide.entityApiUrl));
   assert.ok(!/secret|token=|user:/.test(markup));
-  for (const zh of [false, true]) {
-    const prompt = spaceAgentPrompt(origin, zh);
-    assert.ok(prompt.includes(guide.skillUrl));
-    assert.ok(!/secret|token=|user:/.test(prompt));
-  }
+  const prompt = spaceAgentPrompt(origin);
+  assert.ok(prompt.includes(guide.skillUrl));
+  assert.ok(!/secret|token=|user:/.test(prompt));
 });

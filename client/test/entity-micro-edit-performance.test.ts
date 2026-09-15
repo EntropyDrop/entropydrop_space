@@ -35,7 +35,14 @@ function setup(blocks: any[]) {
 
 function select(controller: any, entity: any, contains: (x: number, y: number, z: number) => boolean, bounds: any) {
   const blocks = controller.buildEntityMicroSelection(entity, 'root', contains, bounds);
-  controller.selectedBlockSelection = { contraption: entity, nodeId: 'root', blocks, micro: true, virtualMicro: true };
+  controller.selectedBlockSelection = {
+    contraption: entity, nodeId: 'root', blocks, micro: true, virtualMicro: true,
+    // This helper constructs the captured result of a confirmed A/B micro box.
+    confirmedRange: {
+      pointA: { x: bounds.minX / 8, y: bounds.minY / 8, z: bounds.minZ / 8 },
+      pointB: { x: bounds.maxX / 8, y: bounds.maxY / 8, z: bounds.maxZ / 8 }
+    }
+  };
   return blocks;
 }
 

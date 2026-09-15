@@ -75,8 +75,8 @@ test('micro selection delete coalesces fully-covered standard blocks without sub
   assert.equal(world.microVoxels.cells.size, 0);
 
   // Select micro box exactly covering standard block (2, 5, 2): (16, 40, 16) to (23, 47, 23)
-  manager.microBounds = { minX: 16, minY: 40, minZ: 16, maxX: 23, maxY: 47, maxZ: 23 };
-  manager.microSelection = manager.materializeMicroBox(16, 40, 16, 23, 47, 23);
+  manager.setCornerA({ x: 2, y: 5, z: 2 }, { micro: true });
+  manager.setCornerB({ x: 23 / 8, y: 47 / 8, z: 23 / 8 }, { micro: true });
 
   // Delete selection
   controller.deleteSelectionBlocks();
@@ -95,8 +95,8 @@ test('micro selection delete preserves non-selected boundary microcells while de
 
   // Select all of block (2, 5, 2) (16..23) plus only 1 layer of block (3, 5, 2) (x = 24)
   // minX = 16, maxX = 24; Y: 40..47; Z: 16..23
-  manager.microBounds = { minX: 16, minY: 40, minZ: 16, maxX: 24, maxY: 47, maxZ: 23 };
-  manager.microSelection = manager.materializeMicroBox(16, 40, 16, 24, 47, 23);
+  manager.setCornerA({ x: 2, y: 5, z: 2 }, { micro: true });
+  manager.setCornerB({ x: 3, y: 47 / 8, z: 23 / 8 }, { micro: true });
 
   controller.deleteSelectionBlocks();
 
@@ -119,6 +119,7 @@ test('micro selection fill places standard block for full core and micro blocks 
 
   // Select all of block (4, 20, 4) (micro 32..39, Y 160..167) plus 1 layer on x=40 (inside block 5, 20, 4)
   manager.microBounds = { minX: 32, minY: 160, minZ: 32, maxX: 40, maxY: 167, maxZ: 39 };
+  manager.selectionBoxConfirmed = true;
 
   // Fill with color 0x123456
   controller.fillSelectionBlocks(0x123456);
@@ -140,6 +141,7 @@ test('micro selection paint recolors standard block directly without subdivision
 
   // Select entire block (2, 5, 2) in micro mode
   manager.microBounds = { minX: 16, minY: 40, minZ: 16, maxX: 23, maxY: 47, maxZ: 23 };
+  manager.selectionBoxConfirmed = true;
   manager.microSelection = manager.materializeMicroBox(16, 40, 16, 23, 47, 23);
 
   // Paint to yellow 0xffff00
@@ -160,6 +162,7 @@ test('micro selection paint coalesces 512 microblocks into a single standard blo
 
   // Select entire cell in micro mode and paint
   manager.microBounds = { minX: 16, minY: 40, minZ: 16, maxX: 23, maxY: 47, maxZ: 23 };
+  manager.selectionBoxConfirmed = true;
   manager.microSelection = manager.materializeMicroBox(16, 40, 16, 23, 47, 23);
 
   controller.paintSelectionBlocks(0x0000ff);

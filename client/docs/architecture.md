@@ -35,7 +35,7 @@ entropydrop_website/
 | `src/bootstrap/SpaceSurfaceSnapshot.ts` | Far-surface `EDSZ` manifest and zone download/verification. |
 | `src/bootstrap/SpaceApiKeyClient.ts`, `LatencyMonitor.ts`, `JsonParseWorker.ts` | API keys/usage, latency sampling, JSON worker. |
 | `src/engine/controls/PlayerController.ts` | The largest module: player, tools (shovel/spoon/hammer/wrench), selection, inventory, build/entityize flows, file import/export. |
-| `src/engine/building/` | `SpaceBuilder` (AI BuildPlan validate/preview/commit) and `BuildAgent` (plan generation). |
+| `src/engine/building/` | Retired `SpaceBuilder` and `BuildAgent` BuildPlan libraries; reference/tests only, not connected to application startup. |
 | `src/engine/contraption/` | `AgentChat` (model calls + prompts), `AgentConfig`, `BehaviorAgent`, entity script generation. |
 | `src/engine/network/` | `MultiplayerSync` (`space-relay-v1` client) and `SpaceEntitySync` (AOI entity polling, checkpoint cadence, execution-lease coordination). |
 | `src/engine/render/` | Scene, LOD/far-surface layer, impostors, lighting/HDR presets, particles, character/skin, held tools. |
@@ -43,6 +43,7 @@ entropydrop_website/
 | `src/engine/storage/BrowserStorage.ts` | IndexedDB with localStorage fallback and legacy-key migration. |
 | `src/engine/audio/` | Procedural/streamed sound and music. |
 | `src/ui/` | `Minimap`, `NavigationSystem`, and the React store/components (`ui/react/`). |
+| `src/ui/react/components/AgentBuildModal.tsx`, `SpaceAgentInstructions.tsx` | HUD Agent Build: external-agent prompt, public API/Skill links, and shared spaceAPI key management. |
 | `tools/`, `test/` | Screenshot/benchmark helpers and the Node test suite. |
 
 ## Runtime data flow

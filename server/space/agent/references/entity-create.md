@@ -42,7 +42,7 @@ if not request_path.exists():
     root.body.mass = 10
     root.body.use_gravity = True
     root.body.collision_enabled = True
-    root.blocks.add(dx=0, dy=0, dz=0, color=0xE58024)
+    root.blocks.add(dx=0, dy=0, dz=0, color_rgb=0xE58024)
     position = pose['position']
     target_y = position['y_cm'] + 300
     if not 0 <= target_y <= 25500:

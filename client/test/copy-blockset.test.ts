@@ -168,6 +168,7 @@ test('T copies an entity block selection using selected block-local coordinates'
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'root',
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 0, y: 2, z: 0 } },
     blocks: contraption.blocks.filter(b => (b.entityId || 'root') === 'root')
   };
   controller.copySelectionAsBlockSet();
@@ -180,7 +181,7 @@ test('T copies an entity block selection using selected block-local coordinates'
   assert.deepEqual(offsets[1], [0, 2, 0]);
 });
 
-test('T copies every block in a selected entity subtree as a block set', () => {
+test('T rejects a selected subtree until A/B are confirmed', () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     1,
@@ -210,9 +211,8 @@ test('T copies every block in a selected entity subtree as a block set', () => {
   };
   controller.copySelectionAsBlockSet();
   const slot = controller.inventorySlots[0];
-  assert.equal(slot.kind, 'blockset');
-  assert.equal(slot.blockCount, 2, 'arm and hand contribute two blocks; root is excluded');
-  assert.ok(slot.name.includes('[arm]'));
+  assert.equal(slot, null);
+  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
 });
 
 test('R still copies an entity slot and paste creates an entity', () => {
@@ -228,6 +228,8 @@ test('R still copies an entity slot and paste creates an entity', () => {
   const controller = makeController({ manager });
 
   controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root']) };
+  contraption.stopAllNodeScripts();
+  controller.selectAllSelectionBlocks();
   controller.copySelectionToInventory(); // R path.
   const slot = controller.inventorySlots[0];
   assert.ok(slot);
@@ -367,7 +369,7 @@ test('T with no selection reports a message and leaves the slot unchanged', () =
   assert.ok(controller.__toasts.some(m => m.includes('Nothing selected')));
 });
 
-test('T copies only explicitly selected cells in Shift single-cell mode', () => {
+test('T rejects Shift single-cell mode until A/B are confirmed', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 1, 1, 1, 1, 1, 1);
@@ -382,7 +384,7 @@ test('T copies only explicitly selected cells in Shift single-cell mode', () => 
 
   controller.copySelectionAsBlockSet();
   const slot = controller.inventorySlots[0];
-  assert.equal(slot.blockCount, 1, 'only the selected cell should be copied');
-  assert.deepEqual([slot.blocks[0].dx, slot.blocks[0].dy, slot.blocks[0].dz], [0, 0, 0]);
+  assert.equal(slot, null);
+  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
   assert.equal(world.getBlock(9, 9, 9), BlockTypes.COLOR_BLOCK, 'the unselected cell should remain unchanged');
 });

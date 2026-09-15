@@ -171,7 +171,8 @@ test('selector copy switches to Hammer and Hammer left-click builds a new entity
   assert.equal(controller.selectedSubtree.rootId, 'hand');
   assert.deepEqual([...controller.selectedSubtree.nodeIds].sort(), ['hand']);
 
-  // 2. Copy with R to slot 0.
+  // 2. Confirm the component's A/B bounds, then copy with R to slot 0.
+  assert.equal(controller.selectAllSelectionBlocks(), true);
   controller.copySelectionToInventory();
   assert.ok(controller.inventorySlots[0]);
   assert.equal(controller.inventorySlots[0].blockCount, 1);

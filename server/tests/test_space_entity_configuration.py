@@ -87,7 +87,7 @@ def test_legacy_keys_can_edit_code_defaults_and_control_execution(client, db, co
     [{'id': 'root', 'script': None}], [{'id': 'root', 'body': {}}],
     [{'id': 'root', 'body': {'mass': 0}}], [{'id': 'root', 'body': {'useGravity': 'false'}}],
     [{'id': 'root', 'owner_user_id': 'other'}], [{'id': 'absent', 'script': ''}],
-    [{'id': 'root', 'body': {'friction': 2}}], [{'id': 'root', 'script': '中'*65536}],
+    [{'id': 'root', 'body': {'friction': 2}}], [{'id': 'root', 'script': '🚀'*65536}],
     [{'id': 'root', 'script': ''}, {'id': 'root', 'script': 'oops'}],
 ])
 def test_configuration_validation_is_atomic(client, db, configured, components):

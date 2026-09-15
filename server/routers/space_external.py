@@ -46,13 +46,13 @@ async def build_blockset_request(request: Request) -> BuildBlocksetRequest:
     if raw is None:
         return entities.parse_json_model(BuildBlocksetRequest, await request.body())
     envelope = entities._parse_protobuf_envelope(space_api_pb2.BuildBlocksetRequest, raw)
-    return BuildBlocksetRequest(
-        operation_id=entities._envelope_operation_id(envelope.operation_id),
-        created_at_ms=envelope.created_at_ms,
-        definition_base64=entities._envelope_definition_base64(envelope.definition),
-        position=entities._envelope_position(envelope),
-        yaw_quarter_turns=envelope.yaw_quarter_turns,
-    )
+    return entities.validate_request_model(BuildBlocksetRequest, {
+        "operation_id": entities._envelope_operation_id(envelope.operation_id),
+        "created_at_ms": envelope.created_at_ms,
+        "definition_base64": entities._envelope_definition_base64(envelope.definition),
+        "position": entities._envelope_position(envelope),
+        "yaw_quarter_turns": envelope.yaw_quarter_turns,
+    })
 
 
 class BuildTerrainBatch(space.TerrainMutationBatchRequest):

@@ -53,20 +53,21 @@ dev dependency. Use `npm run generate:protobuf` after changing `proto/`, and
 `npm run docs:generate` after changing `src/contraption/ScriptApiContract.ts`. Generated
 files are checked in, so ordinary consumer builds do not need `protoc`.
 
-The Python backend keeps its generated bindings under `space/contracts/`. To regenerate
-them from the backend root (using protoc 33.2 to match the checked-in Python runtime
-version):
+The Python server keeps its generated bindings under `server/space/contracts/`. To
+regenerate them from the Space workspace root (using protoc 33.2 to match the checked-in
+Python runtime version):
 
 ```sh
-protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/inventory.proto
-protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/space_api.proto
+protoc --proto_path=space/contracts=proto --python_out=server space/contracts/inventory.proto
+protoc --proto_path=space/contracts=proto --python_out=server space/contracts/space_api.proto
 ```
 
-`entropydrop_backend/space/sync_agent_docs.py --check --protobuf` verifies those bindings
-and the public agent reference copies against this repository. The virtual proto path
-preserves the Python module name and descriptor identity. Moving these files does not
-change the wire format or database schema. Frontend `npm run check:space` also runs the
-engine checks and browser integration tests.
+From the Space workspace root, `python3 tools/sync_server_contracts.py --check --protobuf`
+verifies those bindings and the public agent reference copies against the canonical
+schemas. The virtual proto path preserves the Python module name and descriptor identity.
+Moving these files does not change the wire format or database schema. Frontend
+`npm run check --workspace @entropydrop/space` also runs the engine checks and browser
+integration tests.
 
 Rebuild both consumers after shared physics/script/codec changes. The optional hosting
 Docker image builds from the backend and this repository only. Hosting remains disabled

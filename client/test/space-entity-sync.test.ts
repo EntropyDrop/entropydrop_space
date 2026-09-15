@@ -263,3 +263,136 @@ test('a snapshot-only server change updates the entity in place instead of rebui
   assert.equal(entity.serverSnapshotDigest, 'b'.repeat(64), 'the local digest must advance to the server one');
   assert.equal(entity.position.y, 40, 'the runtime pose is applied without a rebuild');
 });
+
+function savedRecord(entity: any) {
+  return { publicId: entity.publicId, slot: {}, serverManaged: true, serverCanEdit: true,
+    serverDesiredRunState: entity.serverDesiredRunState, serverRevision: entity.serverRevision,
+    serverDefinitionDigest: definitionDigest, position: [1, 32, 2],
+    physicsSimulationEnabled: entity.isPhysicsSimulationEnabled(), scriptStatus: entity.scriptStatus };
+}
+
+test('an owner replica without a lease cannot autosave a stopped pose over a running entity', async t => {
+  const { sync, created } = harness('owner-1');
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  internal.leasedUntil.clear();
+  sync.enforceExecutionLeases();
+  let writes = 0;
+  internal.client.checkpointBrowser = async () => { writes++; return record(); };
+  internal.controller.encodeInventoryItem = () => definition;
+  await internal.persistRecord(savedRecord(created[0]), false);
+  assert.equal(writes, 0);
+  assert.equal(created[0].serverDesiredRunState, 'running');
+});
+
+test('a leased executor can publish a script stop with its epoch, while stopped construction edits remain writable', async t => {
+  const { sync, created } = harness('owner-1');
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  internal.contraptions.findActiveContraptionByPublicId = () => created[0];
+  internal.controller.encodeInventoryItem = () => definition;
+  created[0].setPhysicsSimulationEnabled(false); // the script stopped itself
+  const writes: any[] = [];
+  internal.client.checkpointBrowser = async (_id, _revision, payload) => {
+    writes.push(payload);
+    return { ...record(), revision: 2, desired_run_state: 'stopped' };
+  };
+  await internal.persistRecord(savedRecord(created[0]), false);
+  assert.equal(writes[0].desired_run_state, 'stopped');
+  assert.equal(writes[0].execution_instance_id, internal.instanceId);
+  assert.equal(writes[0].execution_epoch, 1);
+  internal.leasedUntil.clear();
+  const edited = { ...savedRecord(created[0]), position: [1, 33, 2] };
+  await internal.persistRecord(edited, true);
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].execution_instance_id, undefined);
+});
+
+test('a hanging list request cannot extend execution past the lease deadline', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const { sync, created, actions } = harness('owner-1');
+  t.after(() => sync.stop());
+  await sync.poll();
+  (sync as any).client.list = () => new Promise(() => {});
+  void sync.poll();
+  const position = created[0].position.clone();
+  t.mock.timers.tick(8_001);
+  assert.equal(created[0].serverExecutesLocally, false);
+  assert.equal(created[0].scriptStatus, 'stopped');
+  assert.equal(created[0].isPhysicsSimulationEnabled(), false);
+  assert.deepEqual(created[0].position, position);
+  assert.deepEqual(actions, [], 'lease expiry freezes without resetting the construction');
+});
+
+test('a newly adopted entity waits for its first lease without disabling stopped wrench edits', async t => {
+  const { sync, created } = harness('owner-1');
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  internal.leasedUntil.clear();
+  internal.contraptions.findActiveContraptionByPublicId = () => created[0];
+  const entity = created[0];
+  const position = entity.position.clone();
+  internal.adoptServerIdentity(entity.publicId, record());
+  assert.equal(entity.serverExecutesLocally, false);
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.deepEqual(entity.position, position);
+
+  entity.serverDesiredRunState = 'stopped';
+  entity.isWrenchGrabbed = true;
+  entity.setPhysicsSimulationEnabled(true);
+  sync.enforceExecutionLeases();
+  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'stopped construction editing needs no execution lease');
+});
+
+test('stale polls cannot downgrade acknowledged revisions or replace newer definitions', async t => {
+  const { sync, created, removed, overrides } = harness('owner-1');
+  t.after(() => sync.stop());
+  await sync.poll();
+  (sync as any).applyServerMetadata(record().id, { ...record(), revision: 3 });
+  // The harness looks up active instances through the same array fallback as poll.
+  created[0].serverRevision = 3;
+  overrides.revision = 2;
+  overrides.definition_digest = 'a'.repeat(64);
+  await sync.poll();
+  assert.equal(created[0].serverRevision, 3);
+  assert.equal(removed.length, 0);
+});
+
+test('snapshot downloads recheck revision after a newer checkpoint is acknowledged', async t => {
+  const { sync, created, restored, overrides } = harness('owner-1');
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  internal.contraptions.findActiveContraptionByPublicId = () => created[0];
+  let complete!: (value: any) => void;
+  let downloading!: () => void;
+  const started = new Promise<void>(resolve => { downloading = resolve; });
+  internal.client.getSnapshot = () => { downloading(); return new Promise(resolve => { complete = resolve; }); };
+  overrides.revision = 2;
+  overrides.snapshot_digest = 'b'.repeat(64);
+  const pending = sync.poll();
+  await started;
+  internal.applyServerMetadata(record().id, { ...record(), revision: 3, snapshot_digest: 'c'.repeat(64) });
+  complete({ position: [999, 32, 2] });
+  await pending;
+  assert.equal(restored.length, 0);
+  assert.equal(created[0].serverRevision, 3);
+  assert.equal(created[0].serverSnapshotDigest, 'c'.repeat(64));
+});
+
+test('failed definition downloads retain the existing entity and its local edits', async t => {
+  const { sync, created, removed, overrides } = harness('owner-1');
+  t.after(() => sync.stop());
+  await sync.poll();
+  created[0].position.y = 45;
+  overrides.revision = 2;
+  overrides.definition_digest = 'b'.repeat(64);
+  (sync as any).client.getDefinition = async () => { throw new Error('temporarily unavailable'); };
+  await sync.poll();
+  assert.equal(removed.length, 0);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].position.y, 45);
+});

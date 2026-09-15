@@ -486,6 +486,7 @@ test('PlayerController supports cylinder selection mode on sub-components with r
   controller.selectedBlockSelection = {
     contraption: stubContraption,
     nodeId: 'componentB',
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 2, y: 2, z: 2 } },
     blocks: [...blocks],
     bounds: { minX: 0, minY: 0, minZ: 0, maxX: 2, maxY: 2, maxZ: 2 }
   };
@@ -579,7 +580,7 @@ test('2-point selection validation rules between entity and world', () => {
   controller.hoveredContraptionHit = { contraption: contraption1, entityId: 'root' };
   PlayerController.prototype.handleLeftClick.call(controller);
   assert.equal(manager.selectionCornerA, null, 'CornerA should be cleared');
-  assert.ok(toasts.some(t => t.includes('起点不是实体，结束点也不能是实体')));
+  assert.ok(toasts.some(t => t.includes('starts in the world cannot end on an entity')));
 
   // Rule B: Point 1 is entity, Point 2 clicks world -> rejected
   controller.hoveredContraptionHit = null;
@@ -587,19 +588,19 @@ test('2-point selection validation rules between entity and world', () => {
   controller.currentRaycast = { hit: true, hitPos: { x: 5, y: 5, z: 5 } };
   PlayerController.prototype.handleLeftClick.call(controller);
   assert.equal(controller.selectorRange, null, 'selectorRange should be cleared');
-  assert.ok(toasts.some(t => t.includes('起点是实体，结束点也必须是该实体的一部分')));
+  assert.ok(toasts.some(t => t.includes('starts on an entity must end on that same entity')));
 
   // Rule C: Point 1 is entity c1, Point 2 hits entity c2 -> rejected
   controller.selectorRange = { contraption: contraption1, nodeId: 'root', pointA: { x: 0, y: 0, z: 0 }, pointB: null };
   controller.hoveredContraptionHit = { contraption: contraption2, entityId: 'root' };
   controller.selectorOnEntityClick(controller.hoveredContraptionHit, {});
-  assert.ok(toasts.some(t => t.includes('选区的起点与终点必须属于同一实体')));
+  assert.ok(toasts.some(t => t.includes('start and end must belong to the same entity')));
 
   // Rule D: Point 1 and Point 2 on different components of c1 -> rejected
   controller.selectorRange = { contraption: contraption1, nodeId: 'compA', pointA: { x: 0, y: 0, z: 0 }, pointB: null };
   controller.hoveredContraptionHit = { contraption: contraption1, entityId: 'compB' };
   controller.selectorOnEntityClick(controller.hoveredContraptionHit, {});
-  assert.ok(toasts.some(t => t.includes('选中区域必须是同一层级、同父组件')));
+  assert.ok(toasts.some(t => t.includes('same hierarchy level and share one parent component')));
 });
 
 test('2-point selection validation: child component blocks and full parent component selection', () => {
@@ -637,7 +638,7 @@ test('2-point selection validation: child component blocks and full parent compo
     pointB: { x: 2, y: 0, z: 0 }
   });
   assert.equal(controller.selectedBlockSelection, null);
-  assert.ok(toasts.some(t => t.includes('选区不能包含已分配的子组件方块')));
+  assert.ok(toasts.some(t => t.includes('cannot include blocks assigned to child components')));
 
   // Case 2: selection selects ALL blocks of parent component -> rejected when creating child (G)
   controller.performBasicAction = () => ({
@@ -659,7 +660,7 @@ test('2-point selection validation: child component blocks and full parent compo
   assert.ok(controller.selectedBlockSelection);
   const childResult = controller.createChildFromSelectedBlocks();
   assert.equal(childResult, null);
-  assert.ok(toasts.some(t => t.includes('不能将整个父组件全部选中创建子组件')));
+  assert.ok(toasts.some(t => t.includes('entire parent component cannot be selected')));
 });
 
 test('F key expands entity component by filling selection with blocks', () => {
@@ -676,6 +677,7 @@ test('F key expands entity component by filling selection with blocks', () => {
   let rebuilt = false;
   const contraption: any = {
     id: 'c1',
+    scriptStatus: 'stopped',
     rootComponentId: 'compA',
     entityNodes: new Map([['compA', { id: 'compA', parentId: null }]]),
     blocks: [
@@ -690,6 +692,7 @@ test('F key expands entity component by filling selection with blocks', () => {
     contraption,
     nodeId: 'compA',
     blocks: [contraption.blocks[0]],
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 1, y: 0, z: 0 } },
     bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0, maxZ: 0 }
   };
 
@@ -717,6 +720,7 @@ test('Del key cascades deletion of child component and subcomponents when all bl
   const contraption: any = {
     id: 'c1',
     rootComponentId: 'root',
+    scriptStatus: 'stopped',
     blocks: [
       { localX: 10, localY: 10, localZ: 10, entityId: 'root' },
       blockToDel
@@ -728,7 +732,8 @@ test('Del key cascades deletion of child component and subcomponents when all bl
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'childComponent',
-    blocks: [blockToDel]
+    blocks: [blockToDel],
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 0.9, y: 0.9, z: 0.9 } }
   };
 
   // Mock performBasicAction delete which removes blockToDel from contraption.blocks

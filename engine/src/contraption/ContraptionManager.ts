@@ -79,6 +79,7 @@ export class ContraptionManager {
   declare nextId: number;
   declare selectionCornerA: any;
   declare selectionCornerB: any;
+  declare selectionBoxConfirmed: boolean;
   declare gluePoints: any[];
   declare connectedSelection: any;
   declare microSelection: any;
@@ -117,6 +118,7 @@ export class ContraptionManager {
     // Selection State
     this.selectionCornerA = null;
     this.selectionCornerB = null;
+    this.selectionBoxConfirmed = false;
     this.gluePoints = []; // World Super Glue box mode: three points.
     this.connectedSelection = null; // World single mode: explicit cells, or null in box mode.
     this.microSelection = null; // World micro single mode: explicit 0.125 m cells, or null in standard mode.
@@ -1087,6 +1089,7 @@ export class ContraptionManager {
 
   setCornerA(pos, opts: any = {}) {
     this.clearChildSelection();
+    this.selectionBoxConfirmed = false;
     if (pos) {
       this.selectionCornerA = opts.micro === true
         ? this.microCellFromPoint(pos)
@@ -1171,6 +1174,7 @@ export class ContraptionManager {
 
   setCornerB(pos, opts: any = {}) {
     this.clearChildSelection();
+    this.selectionBoxConfirmed = !!(this.selectionCornerA && pos);
     const micro = opts.micro === true || !!this.selectionCornerA?.micro;
     if (micro && pos) {
       // A confirmed micro box materializes into the sparse set of existing
@@ -1307,6 +1311,7 @@ export class ContraptionManager {
       return false;
     }
     this.connectedSelection = normalizedBlocks;
+    this.selectionBoxConfirmed = false;
     this.selectionCornerA = null;
     this.selectionCornerB = null;
     this.microSelection = null;
@@ -1318,6 +1323,7 @@ export class ContraptionManager {
   addGluePoint(pos) {
     if (!pos) return 0;
     this.clearChildSelection();
+    this.selectionBoxConfirmed = false;
     // A plain click always returns from single mode to a fresh three-point
     // box. The click itself is point one, so only two more clicks are needed.
     if (this.connectedSelection !== null || this.gluePoints.length >= 3) {
@@ -1363,6 +1369,7 @@ export class ContraptionManager {
   toggleWorldGlueCell(pos) {
     if (!pos) return null;
     this.clearChildSelection();
+    this.selectionBoxConfirmed = false;
     const canonicalCell = { x: wrapX(Math.floor(pos.x)), y: Math.floor(pos.y), z: wrapZ(Math.floor(pos.z)) };
     const anchor = this.connectedSelection?.[0] || canonicalCell;
     const cell = {
@@ -1416,6 +1423,7 @@ export class ContraptionManager {
   toggleMicroCell(pos) {
     if (!pos) return null;
     this.clearChildSelection();
+    this.selectionBoxConfirmed = false;
     const canonicalCell = this.microCellFromPoint(pos);
     const anchor = this.microSelection?.[0] || canonicalCell;
     const cell = {
@@ -1609,6 +1617,7 @@ export class ContraptionManager {
 
   clearSelection() {
     this.clearChildSelection();
+    this.selectionBoxConfirmed = false;
     if (this.entitySelection?.contraption) {
       this.entitySelection.contraption.clearSubtreeHighlight?.();
     }

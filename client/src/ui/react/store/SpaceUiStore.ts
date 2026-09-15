@@ -1,9 +1,5 @@
 import * as THREE from 'three';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
-import type {
-  SpaceBuildValidation,
-  SpaceBuilderJobStatus
-} from '../../../engine/building/SpaceBuilder.ts';
 import {
   loadAgentConfig,
   normalizeAgentConfig,
@@ -48,7 +44,7 @@ import {
   normalizeEntityImpostorSettings, type EntityImpostorSettings,
 } from '../../../engine/render/EntityImpostorSettings.ts';
 
-export type SpaceModal = 'inventory' | 'code' | 'settings' | 'builder' | 'monitoring' | null;
+export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
 
 const RESOLUTION_SCALE_PRESETS = [1, 0.8, 0.67, 0.5] as const;
@@ -104,23 +100,22 @@ export interface AgentMessage {
   isStreaming?: boolean;
 }
 
-export interface BuildAgentMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  reasoning?: string;
-  transportContent?: string;
-  isStreaming?: boolean;
-}
-
 export interface SelectorView {
   micro: boolean;
   shape: SelectorShape;
   title: string;
   details: string;
+  hasSelection: boolean;
   canAssemble: boolean;
   assembleLabel: string;
   canCopy: boolean;
+  canModify: boolean;
   canDelete: boolean;
+}
+
+export interface SelectorContextMenuView {
+  x: number;
+  y: number;
 }
 
 export interface BulkEditView {
@@ -189,19 +184,13 @@ export interface SpaceUiSnapshot {
   agentMessages: AgentMessage[];
   agentBusy: boolean;
   agentConfig: any;
-  builder: any;
-  buildAgentMessages: BuildAgentMessage[];
-  buildAgentBusy: boolean;
-  buildAgentSetupOpen: boolean;
-  buildValidation: SpaceBuildValidation | null;
-  buildSourcePlan: any;
-  builderJob: SpaceBuilderJobStatus | null;
   fpsText: string;
   pingText: string;
   pingClass: string;
   positionText: string;
   nearbyEntities: NearbyEntityItem[];
   selector: SelectorView;
+  selectorContextMenu: SelectorContextMenuView | null;
   brushMicro: boolean;
   bulkEdit: BulkEditView | null;
   worldEditSync: WorldEditSyncView;
@@ -249,9 +238,11 @@ const EMPTY_SELECTOR: SelectorView = {
   shape: 'box',
   title: 'Standard Selection',
   details: '',
+  hasSelection: false,
   canAssemble: false,
   assembleLabel: 'Assemble (G)',
   canCopy: false,
+  canModify: false,
   canDelete: false
 };
 
@@ -353,19 +344,13 @@ export class SpaceUiStore {
     agentMessages: [],
     agentBusy: false,
     agentConfig: loadAgentConfig(),
-    builder: null,
-    buildAgentMessages: [],
-    buildAgentBusy: false,
-    buildAgentSetupOpen: false,
-    buildValidation: null,
-    buildSourcePlan: null,
-    builderJob: null,
     fpsText: '60 FPS',
     pingText: '-- ms',
     pingClass: 'hud-ping ping-unknown',
     positionText: 'X: -- | Y: -- | Z: --',
     nearbyEntities: [],
     selector: EMPTY_SELECTOR,
+    selectorContextMenu: null,
     brushMicro: false,
     bulkEdit: null,
     worldEditSync: EMPTY_WORLD_EDIT_SYNC,
@@ -539,23 +524,6 @@ export class SpaceUiStore {
     this.patch({ contraptions });
   }
 
-  setBuilder(builder: any): void {
-    this.patch({ builder });
-  }
-
-  setBuilderJob(builderJob: SpaceBuilderJobStatus | null): void {
-    this.patch({ builderJob });
-    if (!builderJob) return;
-    if (builderJob.phase === 'complete') {
-      const result = builderJob.entityId
-        ? `Entity created: ${builderJob.entityId}`
-        : `${builderJob.changed.toLocaleString()} voxels changed`;
-      this.showToast(`${builderJob.label} complete · ${result}`);
-    } else if (builderJob.phase === 'failed') {
-      this.showToast(`${builderJob.label} failed${builderJob.detail ? `: ${builderJob.detail}` : ''}`);
-    }
-  }
-
   setSceneRenderer(sceneRenderer: any): void {
     if (sceneRenderer) {
       sceneRenderer.onEntityPreviewNodeSelect = (nodeId: string) => this.selectComponentTreeNode(nodeId);
@@ -618,7 +586,8 @@ export class SpaceUiStore {
 
   resumeFromCanvas(): void {
     const state = this.snapshot;
-    if (state.hasStarted && !state.activeModal && !state.apiDocsOpen && !state.controller?.isLocked) {
+    if (state.hasStarted && !state.activeModal && !state.apiDocsOpen
+      && !state.selectorContextMenu && !state.controller?.isLocked) {
       void state.controller?.requestLock?.();
     }
   }
@@ -640,17 +609,14 @@ export class SpaceUiStore {
 
   closeAllModals(resumePointerLock = false): void {
     this.saveCurrentDraft();
-    const { editingContraption, sceneRenderer, controller, builder } = this.snapshot;
+    const { editingContraption, sceneRenderer, controller } = this.snapshot;
     sceneRenderer?.setEntityPreviewTarget?.(null);
     editingContraption?.setHighlightedNode?.(null);
-    builder?.clearPreview?.();
     this.patch({
       activeModal: null,
       apiDocsOpen: false,
-      agentSetupOpen: false,
-      buildAgentSetupOpen: false,
-      buildValidation: null,
-      buildSourcePlan: null
+      selectorContextMenu: null,
+      agentSetupOpen: false
     });
     if (resumePointerLock) void controller?.requestLock?.();
     else controller?.unlock?.();
@@ -677,17 +643,14 @@ export class SpaceUiStore {
         this.snapshot.controller?.setActiveInventoryCategory?.(targetCategory);
         this.patch({ activeInventoryCategory: targetCategory });
       }
-      this.patch({ activeModal: modal, apiDocsOpen: false });
+      this.patch({ activeModal: modal, apiDocsOpen: false, selectorContextMenu: null });
       this.snapshot.controller?.unlock?.();
       if (modal === 'inventory') this.syncInventoryState();
     } else {
       if (modal === 'code') this.saveCurrentDraft();
-      if (modal === 'builder') this.snapshot.builder?.clearPreview?.();
       this.patch({
         activeModal: null,
-        agentSetupOpen: false,
-        buildAgentSetupOpen: false,
-        ...(modal === 'builder' ? { buildValidation: null, buildSourcePlan: null } : {})
+        agentSetupOpen: false
       });
       this.snapshot.sceneRenderer?.setEntityPreviewTarget?.(null);
       this.snapshot.editingContraption?.setHighlightedNode?.(null);
@@ -713,8 +676,8 @@ export class SpaceUiStore {
     this.toggleModal('code', forceState);
   }
 
-  toggleBuildAssistant(forceState: boolean | null = null): void {
-    this.toggleModal('builder', forceState);
+  toggleAgentBuild(forceState: boolean | null = null): void {
+    this.toggleModal('agent-build', forceState);
   }
 
   toggleAdminMonitoring(forceState: boolean | null = null): void {
@@ -723,7 +686,7 @@ export class SpaceUiStore {
 
   toggleApiDocs(forceState: boolean | null = null): void {
     const open = forceState === null ? !this.snapshot.apiDocsOpen : forceState;
-    this.patch({ apiDocsOpen: open });
+    this.patch({ apiDocsOpen: open, selectorContextMenu: null });
     if (open) {
       // The reference modal covers the editor preview completely; suspend its
       // second WebGL context until the user returns to the editor.
@@ -737,6 +700,10 @@ export class SpaceUiStore {
   }
 
   handleEscape(): boolean {
+    if (this.snapshot.selectorContextMenu) {
+      this.closeSelectorContextMenu(true);
+      return true;
+    }
     if (this.snapshot.apiDocsOpen) {
       this.toggleApiDocs(false);
       this.showToast('API docs closed');
@@ -748,6 +715,27 @@ export class SpaceUiStore {
       return true;
     }
     return false;
+  }
+
+  showSelectorContextMenu(position: { x?: number; y?: number } = {}): void {
+    const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
+    const inputX = Number(position.x);
+    const inputY = Number(position.y);
+    // Pointer-locked mouse events may report (0, 0); the crosshair is the true
+    // interaction point in that mode, so center the menu in that case.
+    const x = Number.isFinite(inputX) && inputX > 0 ? inputX : viewportWidth / 2;
+    const y = Number.isFinite(inputY) && inputY > 0 ? inputY : viewportHeight / 2;
+    this.snapshot.controller?.unlock?.();
+    this.patch({ selectorContextMenu: { x, y }, selector: this.buildSelectorView() });
+  }
+
+  closeSelectorContextMenu(resumePointerLock = false): void {
+    if (!this.snapshot.selectorContextMenu) return;
+    this.patch({ selectorContextMenu: null });
+    if (resumePointerLock && !this.hasAnyModalOpen()) {
+      void this.snapshot.controller?.requestLock?.();
+    }
   }
 
   showToast(
@@ -963,6 +951,7 @@ export class SpaceUiStore {
     const controller = this.snapshot.controller;
     const slot = this.snapshot.hotbarSlots[this.snapshot.selectedHotbarIndex];
     if (!controller || !slot) return;
+    if (this.snapshot.selectorContextMenu) this.closeSelectorContextMenu(true);
     const previous = controller.activeTool;
     if ((previous === SpecialTool.SELECTOR || previous === SpecialTool.SUPER_GLUE)
       && slot.value !== SpecialTool.SELECTOR && slot.value !== SpecialTool.SUPER_GLUE) {
@@ -975,7 +964,7 @@ export class SpaceUiStore {
   }
 
   renderHotbar(): void { this.refresh(); }
-  updateToolPanelMode(): void { this.refresh(); }
+  updateToolPanelMode(): void { this.patch({ selector: this.buildSelectorView() }); }
 
   syncInventoryState(): void {
     const controller = this.snapshot.controller;
@@ -1379,166 +1368,10 @@ export class SpaceUiStore {
   saveAgentSettings(config: any): void {
     const normalized = normalizeAgentConfig(config);
     saveAgentConfig(normalized);
-    this.patch({ agentConfig: normalized, agentSetupOpen: false, buildAgentSetupOpen: false });
+    this.patch({ agentConfig: normalized, agentSetupOpen: false });
     this.showToast(normalized.apiKey
       ? `Model config saved (${normalized.model}; key ${normalized.rememberApiKey ? 'remembered' : 'for this tab'})`
       : 'Saved (no key - local compiler will be used)');
-  }
-
-  toggleBuildAgentSetup(forceState: boolean | null = null): void {
-    const buildAgentSetupOpen = forceState === null
-      ? !this.snapshot.buildAgentSetupOpen
-      : forceState;
-    this.patch({ buildAgentSetupOpen });
-  }
-
-  clearBuildAgent(): void {
-    this.snapshot.builder?.clearPreview?.();
-    this.patch({
-      buildAgentMessages: [],
-      buildAgentBusy: false,
-      buildValidation: null,
-      buildSourcePlan: null
-    });
-  }
-
-  async sendBuildAgentMessage(promptValue: string): Promise<void> {
-    const prompt = String(promptValue || '').trim();
-    const state = this.snapshot;
-    if (!prompt || state.buildAgentBusy || !state.builder) return;
-
-    state.builder.clearPreview?.();
-    const messages: BuildAgentMessage[] = [
-      ...state.buildAgentMessages,
-      { role: 'user', content: prompt },
-      { role: 'assistant', content: 'Generating a validated BuildPlan…', isStreaming: true }
-    ];
-    const assistantIndex = messages.length - 1;
-    this.patch({
-      buildAgentMessages: messages,
-      buildAgentBusy: true,
-      buildValidation: null
-    });
-
-    const ray = state.controller?.currentRaycast;
-    const target = ray?.hitPos
-      ? [Number(ray.hitPos.x.toFixed(2)), Number(ray.hitPos.y.toFixed(2)), Number(ray.hitPos.z.toFixed(2))]
-      : null;
-    const player = state.controller?.physics?.position;
-    const context = {
-      crosshairTarget: target,
-      playerPosition: player ? [
-        Number(player.x.toFixed(2)),
-        Number(player.y.toFixed(2)),
-        Number(player.z.toFixed(2))
-      ] : null,
-      palette: state.paletteColors.map(color => color.hex),
-      previousPlan: state.buildSourcePlan || null
-    };
-    const history = state.buildAgentMessages.map(message => ({
-      role: message.role,
-      content: message.transportContent || message.content
-    }));
-    const updateStreaming = (chunk: any) => {
-      const current = [...this.snapshot.buildAgentMessages];
-      if (!current[assistantIndex]) return;
-      current[assistantIndex] = {
-        ...current[assistantIndex],
-        content: 'Generating a validated BuildPlan…',
-        reasoning: chunk.reasoning || ''
-      };
-      this.patch({ buildAgentMessages: current });
-    };
-
-    try {
-      const { runSpaceBuildAgentTurn } = await import('../../../engine/building/BuildAgent.ts');
-      const result: any = await runSpaceBuildAgentTurn(
-        prompt,
-        state.agentConfig,
-        history,
-        context,
-        null,
-        updateStreaming
-      );
-      const current = [...this.snapshot.buildAgentMessages];
-      if (!result.ok) {
-        current[assistantIndex] = {
-          role: 'assistant',
-          content: `[!] ${result.error}`,
-          reasoning: result.reasoning || '',
-          isStreaming: false
-        };
-        this.patch({ buildAgentMessages: current });
-        return;
-      }
-
-      const validation: SpaceBuildValidation = state.builder.preview(result.plan);
-      if (!validation.ok) {
-        current[assistantIndex] = {
-          role: 'assistant',
-          content: `BuildPlan rejected:\n${validation.errors.map(error => `• ${error}`).join('\n')}`,
-          reasoning: result.reasoning || '',
-          transportContent: result.content || '',
-          isStreaming: false
-        };
-        this.patch({ buildAgentMessages: current, buildValidation: validation, buildSourcePlan: result.plan });
-        return;
-      }
-
-      const summary = validation.summary;
-      const bounds = summary.bounds?.size.map(value => Number(value.toFixed(1))).join(' × ') || '0 × 0 × 0';
-      current[assistantIndex] = {
-        role: 'assistant',
-        content: [
-          `${summary.name} is ready to preview.`,
-          `${summary.kind === 'entity' ? 'Entity' : 'Structure'} · ${summary.voxelCount.toLocaleString()} voxels`,
-          `Bounds ${bounds} m${summary.componentCount > 1 ? ` · ${summary.componentCount} components` : ''}`
-          + `${summary.scriptCount ? ` · ${summary.scriptCount} scripts` : ''}`
-          + `${summary.constraintCount ? ` · ${summary.constraintCount} constraints` : ''}`,
-          'Review the hologram, then confirm construction.'
-        ].join('\n'),
-        reasoning: result.reasoning || '',
-        transportContent: result.content || '',
-        isStreaming: false
-      };
-      this.patch({ buildAgentMessages: current, buildValidation: validation, buildSourcePlan: result.plan });
-    } catch (error: any) {
-      const current = [...this.snapshot.buildAgentMessages];
-      current[assistantIndex] = {
-        role: 'assistant',
-        content: `Build assistant failed: ${error?.message || String(error)}`,
-        isStreaming: false
-      };
-      this.patch({ buildAgentMessages: current });
-    } finally {
-      this.patch({ buildAgentBusy: false });
-    }
-  }
-
-  confirmBuildPlan(): void {
-    const result = this.snapshot.builder?.commit?.();
-    if (!result?.ok) {
-      this.showToast(`Unable to start build: ${result?.reason || 'invalid plan'}`);
-      return;
-    }
-    this.patch({ buildValidation: null, buildSourcePlan: null });
-    this.showToast(`Build queued: ${result.jobId}`);
-  }
-
-  cancelBuildPreview(): void {
-    this.snapshot.builder?.clearPreview?.();
-    this.patch({ buildValidation: null, buildSourcePlan: null });
-  }
-
-  cancelBuilderJob(): void {
-    const result = this.snapshot.builder?.cancel?.(this.snapshot.builderJob?.id || null);
-    this.showToast(result?.ok ? 'Cancelling build and rolling back changes' : 'No active build to cancel');
-  }
-
-  undoLastBuild(): void {
-    const result = this.snapshot.builder?.undo?.();
-    this.showToast(result?.ok ? 'Undo queued' : 'Nothing is available to undo');
-    if (result?.ok && !result.jobId) this.patch({ builderJob: null });
   }
 
   async sendAgentMessage(promptValue: string): Promise<void> {
@@ -1812,49 +1645,63 @@ export class SpaceUiStore {
     const child = contraptions.getChildSelectionInfo?.();
     const worldSelection = contraptions.getWorldGlueSelectionInfo?.();
     const worldActive = worldSelection && (worldSelection.mode === 'single' || worldSelection.pointCount > 0);
+    const canDelete = controller?.canUseSelectionActions?.() === true;
     if (child) {
       return {
         micro,
         shape,
         title: 'Entity Component Selection',
-        details: `Entity #${child.contraption.id} [${child.parentId}] · ${child.count} cells · Shift multi-select · G create child · R copy${child.existingChildCount > 0 ? ` · ${child.existingChildCount} children attached` : ''}`,
-        canAssemble: !!child.ready,
+        details: `Entity #${child.contraption.id} [${child.parentId}] · ${child.count} cells · confirm A/B before using selection actions${child.existingChildCount > 0 ? ` · ${child.existingChildCount} children attached` : ''}`,
+        hasSelection: true,
+        canAssemble: canDelete && !!child.ready,
         assembleLabel: 'Create Child (G)',
-        canCopy: true,
-        canDelete: true
+        canCopy: canDelete,
+        canModify: canDelete,
+        canDelete
       };
     }
     if (controller?.selectedSubtree?.contraption) {
       const { contraption, rootId } = controller.selectedSubtree;
+      const editable = controller.canEditEntityInternals?.(contraption) === true;
       return {
         micro,
         shape,
         title: rootId === entityRootId(contraption) ? 'Entity Selected' : 'Component Selected',
-        details: `Entity #${contraption.id} [${rootId}] · Del delete · R copy`,
+        details: editable
+          ? `Entity #${contraption.id} [${rootId}] · confirm A/B or use Select All before using selection actions`
+          : `Entity #${contraption.id} [${rootId}] · stop the entity, then confirm A/B before using selection actions`,
+        hasSelection: true,
         canAssemble: false,
         assembleLabel: 'Assemble (G)',
-        canCopy: true,
-        canDelete: true
+        canCopy: canDelete,
+        canModify: canDelete,
+        canDelete
       };
     }
-    if (controller?.selectedBlockSelection?.blocks?.length > 0) {
-      const { nodeId, blocks } = controller.selectedBlockSelection;
+    if (controller?.selectedBlockSelection) {
+      const { nodeId, blocks = [], confirmedRange } = controller.selectedBlockSelection;
+      const confirmed = !!(confirmedRange?.pointA && confirmedRange?.pointB);
       return {
         micro,
         shape,
         title: 'Component Blocks Selected',
-        details: `[${nodeId}] · ${blocks.length} blocks · Del delete`,
-        canAssemble: false,
-        assembleLabel: 'Assemble (G)',
-        canCopy: false,
-        canDelete: true
+        details: `[${nodeId}] · ${blocks.length} blocks · ${confirmed
+          ? `A/B [2/2] · ${canDelete ? 'R copy · F fill · P recolor · Del delete' : 'no editable blocks in this shape'}`
+          : 'confirm A/B before using selection actions'}`,
+        hasSelection: true,
+        canAssemble: canDelete,
+        assembleLabel: 'Create Child (G)',
+        canCopy: canDelete,
+        canModify: canDelete,
+        canDelete
       };
     }
     if (worldActive) {
       const isMicro = worldSelection.granularity === 'micro';
       let details = '';
-      if (worldSelection.mode === 'single') {
-        details = `${isMicro ? 'Micro single-select' : 'Single-select'} · ${worldSelection.count} cells · Shift+click toggle · Tab ${isMicro ? 'standard' : 'micro'} · R copy · Del delete`;
+      const confirmedBox = contraptions.selectionBoxConfirmed === true;
+      if (worldSelection.mode === 'single' && !confirmedBox) {
+        details = `${isMicro ? 'Micro single-select' : 'Single-select'} · ${worldSelection.count} cells · Shift+click toggle · Tab ${isMicro ? 'standard' : 'micro'} · confirm A/B before using selection actions`;
       } else if (worldSelection.ready) {
         const bounds = contraptions.getSelectionBounds?.();
         details = bounds
@@ -1866,12 +1713,14 @@ export class SpaceUiStore {
       return {
         micro,
         shape,
-        title: isMicro ? (worldSelection.mode === 'box' ? 'World Micro Box Selection' : 'World Micro-Cell Selection') : (worldSelection.mode === 'single' ? 'World Single-Cell Selection' : 'World 3-Point Box Selection'),
+        title: isMicro ? (confirmedBox || worldSelection.mode === 'box' ? 'World Micro Box Selection' : 'World Micro-Cell Selection') : (worldSelection.mode === 'single' && !confirmedBox ? 'World Single-Cell Selection' : 'World A/B Box Selection'),
         details,
-        canAssemble: !!worldSelection.ready,
+        hasSelection: true,
+        canAssemble: canDelete && !!worldSelection.ready,
         assembleLabel: 'Assemble (G)',
-        canCopy: !!worldSelection.ready,
-        canDelete: !!worldSelection.ready || (worldSelection.mode === 'single' && worldSelection.count > 0)
+        canCopy: canDelete,
+        canModify: canDelete,
+        canDelete
       };
     }
     if (contraptions.hasValidSelection?.()) {
@@ -1884,10 +1733,12 @@ export class SpaceUiStore {
         details: bounds
           ? `Region: ${bounds.maxX - bounds.minX + 1}x${bounds.maxY - bounds.minY + 1}x${bounds.maxZ - bounds.minZ + 1} (${count} blocks) · G assemble · R copy`
           : `Selected structure (${count} blocks) · G assemble · R copy`,
-        canAssemble: true,
+        hasSelection: true,
+        canAssemble: canDelete,
         assembleLabel: 'Assemble (G)',
-        canCopy: true,
-        canDelete: true
+        canCopy: canDelete,
+        canModify: canDelete,
+        canDelete
       };
     }
     return view;

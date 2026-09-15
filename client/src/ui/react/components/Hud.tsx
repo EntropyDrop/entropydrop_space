@@ -256,12 +256,19 @@ function InventoryBar() {
 function getSelectorShapeItems() {
   const altLabel = getAltKeyLabel();
   return [
-    { id: 'box' as const, name: '长方体 (Box)', shortcut: `${altLabel}+1`, icon: TbBox },
-    { id: 'cylinder' as const, name: '圆柱 (Cylinder)', shortcut: `${altLabel}+2`, icon: TbCylinder },
-    { id: 'sphere' as const, name: '球体/圆 (Sphere)', shortcut: `${altLabel}+3`, icon: TbSphere },
-    { id: 'stairs' as const, name: '阶梯 (Stairs)', shortcut: `${altLabel}+4`, icon: TbStairs },
-    { id: 'line' as const, name: '线条 (Line)', shortcut: `${altLabel}+5`, icon: TbLine },
+    { id: 'box' as const, name: 'Box', shortcut: `${altLabel}+1`, icon: TbBox },
+    { id: 'cylinder' as const, name: 'Cylinder', shortcut: `${altLabel}+2`, icon: TbCylinder },
+    { id: 'sphere' as const, name: 'Sphere / Circle', shortcut: `${altLabel}+3`, icon: TbSphere },
+    { id: 'stairs' as const, name: 'Stairs', shortcut: `${altLabel}+4`, icon: TbStairs },
+    { id: 'line' as const, name: 'Line', shortcut: `${altLabel}+5`, icon: TbLine },
   ];
+}
+
+function assembleCurrentSelection(controller: any) {
+  if (controller?.selectedBlockSelection) {
+    return controller.createChildFromSelectedBlocks?.();
+  }
+  return controller?.assembleSelection?.(ContraptionMode.PROGRAMMABLE);
 }
 
 function SelectorPanel() {
@@ -315,17 +322,131 @@ function SelectorPanel() {
           })}
         </div>
         <div className="selector-action-buttons">
-          <button id="assemble-btn" tabIndex={-1} className="banner-btn primary" disabled={!selector.canAssemble} onClick={() => controller?.assembleSelection?.(ContraptionMode.PROGRAMMABLE)}>{selector.assembleLabel}</button>
-          <button id="fill-btn" tabIndex={-1} className="banner-btn secondary" title={`Fill selection with ${activeHex.toUpperCase()} (F)`} disabled={!selector.canDelete} onClick={() => controller?.fillSelectionBlocks?.()}>
+          <button id="assemble-btn" tabIndex={-1} className="banner-btn primary" disabled={!selector.canAssemble} onClick={() => assembleCurrentSelection(controller)}>{selector.assembleLabel}</button>
+          <button id="fill-btn" tabIndex={-1} className="banner-btn secondary" title={`Fill selection with ${activeHex.toUpperCase()} (F)`} disabled={!selector.canModify} onClick={() => controller?.fillSelectionBlocks?.()}>
             <span className="btn-color-dot" style={{ backgroundColor: activeHex }} />
             Fill (F)
           </button>
-          <button id="paint-btn" tabIndex={-1} className="banner-btn secondary" title={`Recolor selection with ${activeHex.toUpperCase()} (P)`} disabled={!selector.canDelete} onClick={() => controller?.paintSelectionBlocks?.()}>
+          <button id="paint-btn" tabIndex={-1} className="banner-btn secondary" title={`Recolor selection with ${activeHex.toUpperCase()} (P)`} disabled={!selector.canModify} onClick={() => controller?.paintSelectionBlocks?.()}>
             <span className="btn-color-dot" style={{ backgroundColor: activeHex }} />
             Paint (P)
           </button>
           <button id="copy-btn" tabIndex={-1} className="banner-btn secondary" title="Copy selection to backpack (R)" disabled={!selector.canCopy} onClick={() => controller?.copySelectionSmart?.()}>Copy (R)</button>
           <button id="delete-btn" tabIndex={-1} className="banner-btn danger" title="Delete selection (Del)" disabled={!selector.canDelete} onClick={() => controller?.deleteSelectionBlocks?.()}>Delete (Del)</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SelectorContextMenu() {
+  const { selectorContextMenu, selector, controller, selectedColor } = useSpaceUi(state => state);
+  if (!selectorContextMenu) return null;
+
+  const activeHex = colorToHex(selectedColor ?? 0xf2a93b);
+  const selectorShapeItems = getSelectorShapeItems();
+  const selectedEntity = controller?.selectedBlockSelection?.contraption
+    || controller?.selectedSubtree?.contraption
+    || null;
+  const canRotate = selector.canModify
+    && (!selectedEntity || controller?.canEditEntityInternals?.(selectedEntity));
+  const canSelectAll = !!controller?.getSelectorSelectAllTarget?.();
+  const close = () => spaceUiStore.closeSelectorContextMenu(true);
+  const run = (action: () => unknown) => {
+    close();
+    action();
+  };
+  const setMicro = (micro: boolean) => {
+    if (selector.micro !== micro) controller?.toggleSelectorMicroMode?.();
+  };
+
+  return (
+    <div
+      id="selector-context-menu-layer"
+      className="selector-context-menu-layer"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) close();
+      }}
+      onContextMenu={event => event.preventDefault()}
+    >
+      <div
+        id="selector-context-menu"
+        className="selector-context-menu"
+        role="menu"
+        aria-label="Selector actions"
+        style={{ left: selectorContextMenu.x, top: selectorContextMenu.y }}
+        onMouseDown={event => event.stopPropagation()}
+      >
+        <div className="selector-context-header">
+          <div>
+            <div className="selector-context-kicker">SELECTOR MENU</div>
+            <div className="selector-context-title">{selector.title}</div>
+          </div>
+          <button type="button" className="selector-context-close" aria-label="Close selector menu" onClick={close}>×</button>
+        </div>
+        {selector.details ? <div className="selector-context-details">{selector.details}</div> : null}
+
+        <div className="selector-context-section">
+          <div className="selector-context-section-title">Grid</div>
+          <div className="selector-context-grid two">
+            <button type="button" role="menuitemradio" aria-checked={!selector.micro} className={!selector.micro ? 'active' : ''} onClick={() => run(() => setMicro(false))}>Standard <kbd>Tab</kbd></button>
+            <button type="button" role="menuitemradio" aria-checked={selector.micro} className={selector.micro ? 'active' : ''} onClick={() => run(() => setMicro(true))}>Micro <kbd>Tab</kbd></button>
+          </div>
+        </div>
+
+        <div className="selector-context-section">
+          <div className="selector-context-section-title">Shape</div>
+          <div className="selector-context-shapes">
+            {selectorShapeItems.map(item => {
+              const Icon = item.icon;
+              const isActive = selector.shape === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={isActive}
+                  className={isActive ? 'active' : ''}
+                  title={`${item.name} · ${item.shortcut}`}
+                  onClick={() => run(() => spaceUiStore.setSelectorShape(item.id))}
+                >
+                  <Icon size={16} />
+                  <span>{item.name}</span>
+                  <kbd>{item.shortcut}</kbd>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="selector-context-section">
+          <div className="selector-context-section-title">Rotate Selection</div>
+          <div className="selector-context-grid four">
+            <button type="button" role="menuitem" disabled={!canRotate} title="Rotate left around Y (Left Arrow)" onClick={() => run(() => controller?.rotateSelection?.(-1, 'y'))}>Y− <kbd>←</kbd></button>
+            <button type="button" role="menuitem" disabled={!canRotate} title="Rotate right around Y (Right Arrow)" onClick={() => run(() => controller?.rotateSelection?.(1, 'y'))}>Y+ <kbd>→</kbd></button>
+            <button type="button" role="menuitem" disabled={!canRotate} title="Rotate up around X (Up Arrow)" onClick={() => run(() => controller?.rotateSelection?.(1, 'x'))}>X+ <kbd>↑</kbd></button>
+            <button type="button" role="menuitem" disabled={!canRotate} title="Rotate down around X (Down Arrow)" onClick={() => run(() => controller?.rotateSelection?.(-1, 'x'))}>X− <kbd>↓</kbd></button>
+          </div>
+        </div>
+
+        <div className="selector-context-section">
+          <div className="selector-context-section-title selector-context-color-title">
+            <span>Actions</span>
+            <label className="selector-context-color" title={`Edit color ${activeHex.toUpperCase()}`}>
+              <span style={{ backgroundColor: activeHex }} />
+              <code>{activeHex.toUpperCase()}</code>
+              <input type="color" value={activeHex} aria-label="Selector action color" onChange={event => spaceUiStore.setBuildColor(event.target.value)} />
+            </label>
+          </div>
+          <div className="selector-context-actions">
+            <button type="button" role="menuitem" disabled={!canSelectAll} title="Select all directly owned blocks of the current entity component and confirm A/B" onClick={() => run(() => controller?.selectAllSelectionBlocks?.())}>Select All</button>
+            <button type="button" role="menuitem" className="primary" disabled={!selector.canAssemble} onClick={() => run(() => assembleCurrentSelection(controller))}>{selector.assembleLabel}</button>
+            <button type="button" role="menuitem" disabled={!selector.canModify} onClick={() => run(() => controller?.fillSelectionBlocks?.())}>Fill <kbd>F</kbd></button>
+            <button type="button" role="menuitem" disabled={!selector.canModify} onClick={() => run(() => controller?.paintSelectionBlocks?.())}>Paint <kbd>P</kbd></button>
+            <button type="button" role="menuitem" disabled={!selector.canCopy} onClick={() => run(() => controller?.copySelectionSmart?.())}>Copy <kbd>R</kbd></button>
+            <button type="button" role="menuitem" className="danger" disabled={!selector.canDelete} onClick={() => run(() => controller?.deleteSelectionBlocks?.())}>Delete <kbd>Del</kbd></button>
+            <button type="button" role="menuitem" disabled={!selector.hasSelection} onClick={() => run(() => controller?.clearSelection?.())}>Clear Selection</button>
+          </div>
         </div>
       </div>
     </div>
@@ -443,16 +564,16 @@ export function Hud() {
           </div>
           <div className="hud-actions">
             <button
-              id="ai-builder-btn"
+              id="agent-build-btn"
               type="button"
               tabIndex={-1}
-              className="icon-btn ai-builder-hud-btn"
-              title="AI Builder (Natural Language Construction)"
-              onClick={() => spaceUiStore.toggleBuildAssistant(true)}
+              className="icon-btn agent-build-hud-btn"
+              title="Agent Build (External Agent Construction)"
+              onClick={() => spaceUiStore.toggleAgentBuild(true)}
             >
-              <span className="ai-builder-pulse-dot" />
-              <LiaRobotSolid size={16} className="ai-builder-icon" />
-              <span className="ai-builder-label">AI BUILD</span>
+              <span className="agent-build-pulse-dot" />
+              <LiaRobotSolid size={16} className="agent-build-icon" />
+              <span className="agent-build-label">AGENT BUILD</span>
             </button>
             <button
               id="home-btn"
@@ -503,6 +624,7 @@ export function Hud() {
       >
         {state.toast?.message || ''}
       </div>
+      <SelectorContextMenu />
     </>
   );
 }

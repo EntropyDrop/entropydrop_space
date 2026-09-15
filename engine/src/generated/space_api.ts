@@ -52,7 +52,15 @@ export interface CheckpointEntityRequest {
   definition?: Uint8Array | undefined;
   position?: PositionCm | undefined;
   desiredRunState?: EntityRunState | undefined;
-  snapshotJson?: Uint8Array | undefined;
+  snapshotJson?:
+    | Uint8Array
+    | undefined;
+  /**
+   * Required for runtime checkpoints while the entity is running. Stopped
+   * construction edits do not require an execution lease.
+   */
+  executionInstanceId?: string | undefined;
+  executionEpoch?: number | undefined;
 }
 
 export interface BuildBlocksetRequest {
@@ -274,6 +282,8 @@ function createBaseCheckpointEntityRequest(): CheckpointEntityRequest {
     position: undefined,
     desiredRunState: 0,
     snapshotJson: new Uint8Array(0),
+    executionInstanceId: "",
+    executionEpoch: 0,
   };
 }
 
@@ -296,6 +306,12 @@ export const CheckpointEntityRequest: MessageFns<CheckpointEntityRequest> = {
     }
     if (message.snapshotJson !== undefined && message.snapshotJson.length !== 0) {
       writer.uint32(50).bytes(message.snapshotJson);
+    }
+    if (message.executionInstanceId !== undefined && message.executionInstanceId !== "") {
+      writer.uint32(58).string(message.executionInstanceId);
+    }
+    if (message.executionEpoch !== undefined && message.executionEpoch !== 0) {
+      writer.uint32(64).uint64(message.executionEpoch);
     }
     return writer;
   },
@@ -361,6 +377,22 @@ export const CheckpointEntityRequest: MessageFns<CheckpointEntityRequest> = {
             message.snapshotJson = reader.bytes();
             continue;
           }
+          case 7: {
+            if (tag !== 58) {
+              break;
+            }
+
+            message.executionInstanceId = reader.string();
+            continue;
+          }
+          case 8: {
+            if (tag !== 64) {
+              break;
+            }
+
+            message.executionEpoch = longToNumber(reader.uint64());
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -386,6 +418,8 @@ export const CheckpointEntityRequest: MessageFns<CheckpointEntityRequest> = {
       : undefined;
     message.desiredRunState = object.desiredRunState ?? 0;
     message.snapshotJson = object.snapshotJson ?? new Uint8Array(0);
+    message.executionInstanceId = object.executionInstanceId ?? "";
+    message.executionEpoch = object.executionEpoch ?? 0;
     return message;
   },
 };

@@ -988,3 +988,43 @@ def test_space_expired_receipt_cleanup_is_bounded(client, db, monkeypatch):
         SpaceTerrainMutationBatch.client_created_at < datetime.datetime.now(datetime.timezone.utc)
         - datetime.timedelta(days=30)
     ).count() == 1
+
+
+@pytest.mark.parametrize('event_ids', [[1, 2, 3, 4, 5, 6], [1, 1, 1, 1, 2, 2]])
+@pytest.mark.parametrize('limit_bytes,limit_chunks', [(6000, 512), (100000, 2)])
+def test_heartbeat_pages_without_skipping_partial_events(client, db, monkeypatch, event_ids, limit_bytes, limit_chunks):
+    user = _user(db, 'heartbeat-size', None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    world = client.post('/space/api/v2/bootstrap').json()['world']['id']
+    monkeypatch.setattr(space_router, 'SPACE_TERRAIN_MAX_RESPONSE_BYTES', limit_bytes)
+    monkeypatch.setattr(space_router, 'SPACE_TERRAIN_MAX_RESPONSE_CHUNKS', limit_chunks)
+    for cx, event in enumerate(event_ids):
+        # UTF-8 names exercise actual wire bytes instead of character counts.
+        overlay = {'standard': [], 'micro': [[cx * 128 + i, 0, 0, 0xffffff, 'Block 🚀' * 4] for i in range(30)]}
+        payload, digest, codec, size = space_router._encode_chunk_overlay(overlay)
+        db.add(SpaceChunkSnapshot(world_id=world, chunk_x=cx, chunk_z=0, revision=1, last_event_id=event,
+                                 codec=codec, codec_version=1, uncompressed_size=size, content_hash=digest, payload=payload))
+    db.commit()
+    since, cursor, observed, pages = 0, None, [], []
+    for _ in range(10):
+        response = client.post(f'/space/api/v2/worlds/{world}/heartbeat', json={
+            'since_terrain_revision': since, 'terrain_cursor': cursor, 'include_players': False,
+            'center_chunk_x': 0, 'center_chunk_z': 0, 'terrain_radius_chunks': 32,
+        })
+        assert response.status_code == 200, response.text
+        assert len(response.content) <= limit_bytes
+        result = response.json()
+        assert len(result['terrain_chunks']) <= limit_chunks
+        pages.append(result)
+        observed.extend(chunk['chunk_x'] for chunk in result['terrain_chunks'])
+        since, cursor = result['max_terrain_revision'], result['terrain_cursor']
+        if since == max(event_ids) and cursor is None:
+            break
+    assert observed == list(range(6)), 'every chunk must be returned exactly once'
+    assert len(pages) > 1
+    if event_ids[0] == event_ids[1]:
+        assert pages[0]['max_terrain_revision'] == 0
+        assert pages[0]['terrain_cursor'].startswith('1:')
+    else:
+        assert pages[0]['max_terrain_revision'] > 0
+        assert pages[0]['terrain_cursor'] is None

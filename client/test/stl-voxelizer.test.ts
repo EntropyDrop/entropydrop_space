@@ -304,7 +304,8 @@ test('successful T block-set copy resets entity block selection and highlights',
   );
   contraption.stopAllNodeScripts();
   const controller = makeController();
-  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: contraption.blocks };
+  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: contraption.blocks,
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 0, y: 0, z: 0 } } };
   controller.selectorLevel = { contraption, nodeId: 'root' };
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
   contraption.highlightBlocks(contraption.blocks);

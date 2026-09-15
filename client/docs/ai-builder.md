@@ -1,22 +1,25 @@
-# HUD AI Builder
+# Agent Build
 
 [spaceAPI](../../server/space/agent/spaceAPI.md) · [entityAPI](../../engine/docs/generated/api-v2.md)
 
-entityAPI 是实体代码中通过 `self` / `ctx` 调用的运行时接口；spaceAPI 是 Agent 和客户端使用的 HTTP 接口。
+entityAPI is the runtime interface called by entity code through `self` / `ctx`; spaceAPI is the HTTP interface used by agents and clients.
 
-The HUD AI Builder currently generates declarative plans; its planned HTTP tool integration uses spaceAPI. Entity scripts use entityAPI. A model produces a declarative `SpaceBuildPlan`; the engine validates it, renders a hologram, and waits for explicit player confirmation before changing the world.
+The HUD **AGENT BUILD** entry replaces the retired AI BUILD assistant. It provides connection instructions and spaceAPI key management for an external agent; it does not call a model or generate BuildPlan JSON in the browser. The entity code editor's AI assistant is unchanged.
 
 ## Flow
 
-1. Aim at a placement surface and open **AI BUILD** in the HUD.
-2. Describe a world structure or physics entity.
-3. The model returns a BuildPlan JSON object.
-4. `SpaceBuilder.validate()` expands primitives and checks grids, bounds, occupancy, component references, scripts, constraints, world height, and player overlap.
-5. `SpaceBuilder.preview()` reuses the Hammer hologram renderer without mutating the world.
-6. Player confirmation calls `SpaceBuilder.commit()`.
-7. Large plans commit in bounded frame slices and respect terrain-sync backpressure. Cancel rolls back admitted structure voxels; completed builds can be undone.
+1. Open **AGENT BUILD** in the HUD.
+2. Copy **Agent Prompt** to your external agent. The prompt contains the configured Space backend URL and public Skill link, never a credential.
+3. Sign in and enter online Space to create a spaceAPI key, or use an existing key. Give the key only to an agent you trust when it asks.
+4. Describe the structure or entity to build. The agent reads the public Skill and uses authenticated spaceAPI requests to locate the player and perform supported operations.
+5. Keep Space open for position updates and browser-executed entities. Stop entities before editing; backend ownership, revision checks, and quotas remain enforced.
+6. Revoke the key in this panel or Global Settings → API when it is no longer needed.
 
-## BuildPlan V1
+All existing and new spaceAPI keys have full Space permissions. A spaceAPI key is not a model-provider API key. Opening the panel does not create or revoke keys. Offline users can read and copy the instructions, but API key management and remote builds require online Space. A localhost backend is reachable only by an agent on the same machine.
+
+## Legacy BuildPlan V1 (retired)
+
+The following contract is retained as a source reference for `SpaceBuilder` and `BuildAgent` tests. Neither module is connected to the application startup, HUD, render loop, or Agent Build panel. The old model-chat, hologram-preview, confirmation, cancellation, and undo workflow is no longer exposed.
 
 The authoritative types are `SpaceBuildPlanInput` and friends in
 `src/engine/building/SpaceBuilder.ts`; the shape below mirrors them.
@@ -108,7 +111,7 @@ hierarchy depth 16, 64 metres per axis, 64 KiB per script, and 512 KiB of script
 `MAX_BUILD_TOTAL_SCRIPT_BYTES`). Frame slicing uses `BUILD_OPERATIONS_PER_FRAME` (1024) and
 `BUILD_FRAME_BUDGET_MS` (5).
 
-## Runtime service
+## Legacy runtime service
 
 ```ts
 builder.validate(plan)

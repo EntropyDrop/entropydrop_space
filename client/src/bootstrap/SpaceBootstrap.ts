@@ -233,16 +233,6 @@ export class SpaceEntryError extends Error {
   }
 }
 
-export function isZhLang(): boolean {
-  if (typeof window !== 'undefined') {
-    try {
-      const stored = window.localStorage?.getItem('lang');
-      if (stored) return stored.startsWith('zh');
-    } catch {}
-  }
-  return typeof navigator !== 'undefined' && (navigator.language || '').toLowerCase().startsWith('zh');
-}
-
 export function isNonPcDevice(
   userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '',
   platform = typeof navigator !== 'undefined' ? navigator.platform : '',
@@ -430,16 +420,15 @@ export function encodePlayerPosition(
 
 function entryErrorFromResponse(status: number, body: any) {
   const detail = body?.detail;
-  const zh = isZhLang();
   if (status === 401 || (status === 403 && detail?.code === 'ACCOUNT_LOGIN_REQUIRED')) {
     return new SpaceEntryError(
       'LOGIN_REQUIRED',
-      zh ? '进入 Space 前请先登录 EntropyDrop 账号。' : 'Please log in to EntropyDrop before entering Space.',
+      'Please log in to EntropyDrop before entering Space.',
       spaceLoginUrl({ reauthenticate: true }),
-      zh ? '前往登录' : 'Log In',
+      'Log In',
       [
-        { label: zh ? '通过主站登录' : 'Sign in on main site', url: spaceLoginUrl({ reauthenticate: true }) },
-        { label: zh ? '返回主站' : 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
+        { label: 'Sign in on main site', url: spaceLoginUrl({ reauthenticate: true }) },
+        { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
       ]
     );
   }
@@ -447,18 +436,17 @@ function entryErrorFromResponse(status: number, body: any) {
     'BOOTSTRAP_FAILED',
     typeof detail === 'string'
       ? detail
-      : (zh ? '无法加载 Space 玩家资料，请稍后重试。' : 'Could not load Space player profile. Please try again later.'),
+      : 'Could not load Space player profile. Please try again later.',
     window.location.href,
-    zh ? '重试' : 'Retry',
+    'Retry',
     [
-      { label: zh ? '重试' : 'Retry', url: window.location.href },
-      { label: zh ? '返回主站' : 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
+      { label: 'Retry', url: window.location.href },
+      { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
     ]
   );
 }
 
 async function downloadSkinPng(url: string) {
-  const zh = isZhLang();
   let response: Response;
   try {
     const safeUrl = resolveSafeHttpUrl(url, window.location.href);
@@ -469,29 +457,21 @@ async function downloadSkinPng(url: string) {
       referrerPolicy: 'no-referrer',
     });
   } catch {
-    throw new Error(zh
-      ? '下载角色皮肤失败，请重新配置您的皮肤。'
-      : 'Failed to download character skin PNG. Please reconfigure your skin.');
+    throw new Error('Failed to download character skin PNG. Please reconfigure your skin.');
   }
 
   if (!response.ok) {
-    throw new Error(zh
-      ? `下载角色皮肤失败 (${response.status})，请重新配置您的皮肤。`
-      : `Failed to download character skin PNG (${response.status}).`);
+    throw new Error(`Failed to download character skin PNG (${response.status}).`);
   }
 
   let bytes: Uint8Array;
   try {
     bytes = await readResponseBytes(response, MAX_SKIN_PNG_BYTES);
   } catch {
-    throw new Error(zh
-      ? '角色皮肤文件无效或超过 256 KiB，请重新配置。'
-      : 'Character skin is invalid or exceeds the 256 KiB safety limit.');
+    throw new Error('Character skin is invalid or exceeds the 256 KiB safety limit.');
   }
   if (!hasPngSignature(bytes)) {
-    throw new Error(zh
-      ? '角色皮肤不是有效的 PNG 格式图片，请重新配置。'
-      : 'Character skin is not a valid PNG file. Please reconfigure your skin.');
+    throw new Error('Character skin is not a valid PNG file. Please reconfigure your skin.');
   }
 
   const pngBuffer = new Uint8Array(bytes.byteLength);
@@ -503,9 +483,7 @@ async function downloadSkinPng(url: string) {
     bitmap.close();
     if (!validSize) throw new Error('invalid dimensions');
   } catch {
-    throw new Error(zh
-      ? '角色皮肤必须是可解析的 64×64 PNG 图片，请重新配置。'
-      : 'Character skin must be a decodable 64×64 PNG. Please reconfigure your skin.');
+    throw new Error('Character skin must be a decodable 64×64 PNG. Please reconfigure your skin.');
   }
   return URL.createObjectURL(blob);
 }
@@ -703,7 +681,7 @@ async function prepareOnlineSpace(
   const accountOrigin = resolveApiOrigin(import.meta.env?.VITE_API_BASE_URL, window.location.origin);
   const apiOrigin = resolveApiOrigin(import.meta.env?.VITE_SPACE_API_BASE_URL || accountOrigin, window.location.origin);
   installSpaceAuthFetchInterceptor(accountOrigin, apiOrigin);
-  reportProgress?.(14, isZhLang() ? '正在验证 EntropyDrop 账号…' : 'Verifying EntropyDrop account…');
+  reportProgress?.(14, 'Verifying EntropyDrop account…');
   const token = await ensureSpaceAccessToken(accountOrigin);
   if (!token) {
     // Recover older main-site-only localStorage sessions once. The return marker
@@ -717,7 +695,7 @@ async function prepareOnlineSpace(
 
   const latencyMonitor = new LatencyMonitor({ apiOrigin });
 
-  reportProgress?.(30, isZhLang() ? '正在加载 Space 角色与世界信息…' : 'Loading Space profile and world…');
+  reportProgress?.(30, 'Loading Space profile and world…');
   const response = await fetch(`${apiOrigin}/space/api/v2/bootstrap`, {
     method: 'POST',
     headers: {
@@ -733,26 +711,21 @@ async function prepareOnlineSpace(
     ? body.player.skin_url
     : null;
   const payload = parseSpaceBootstrapPayload(body);
-  const zh = isZhLang();
   let skinObjectUrl = DEFAULT_PLAYER_SKIN_URL;
   let entryWarning: string | null = null;
   if (configuredSkinUrl) {
-    reportProgress?.(46, zh ? '正在下载角色皮肤…' : 'Downloading character skin…');
+    reportProgress?.(46, 'Downloading character skin…');
     try {
       skinObjectUrl = await downloadSkinPng(configuredSkinUrl);
     } catch (error) {
       console.warn('Configured Space skin could not be loaded; using the bundled default skin.', error);
-      entryWarning = zh
-        ? '⚠ 已设置的角色皮肤暂时无法加载，当前使用默认皮肤。按 O 打开设置查看处理方法。'
-        : '⚠ Your configured character skin could not be loaded, so the default skin is in use. Press O to open Settings for help.';
+      entryWarning = '⚠ Your configured character skin could not be loaded, so the default skin is in use. Press O to open Settings for help.';
     }
   } else {
-    reportProgress?.(46, zh ? '正在使用默认角色皮肤…' : 'Using the default character skin…');
-    entryWarning = zh
-      ? '⚠ 尚未设置角色皮肤，当前使用默认皮肤。按 O 打开设置查看设置方法。'
-      : '⚠ No character skin is configured, so the default skin is in use. Press O to open Settings and set one up.';
+    reportProgress?.(46, 'Using the default character skin…');
+    entryWarning = '⚠ No character skin is configured, so the default skin is in use. Press O to open Settings and set one up.';
   }
-  reportProgress?.(58, isZhLang() ? '角色资源已就绪…' : 'Character resources ready…');
+  reportProgress?.(58, 'Character resources ready…');
   return { payload, apiOrigin, token, skinObjectUrl, entryWarning, latencyMonitor };
 }
 
@@ -822,7 +795,7 @@ async function completeOnlineSpace(
   latencyMonitor.start();
   let terrainEditRemote: WorldEditRemote;
   try {
-    reportProgress?.(74, isZhLang() ? '正在加载附近地形…' : 'Loading nearby terrain…');
+    reportProgress?.(74, 'Loading nearby terrain…');
     terrainEditRemote = await loadTerrainEditRemote(
       apiOrigin,
       token,
@@ -835,7 +808,7 @@ async function completeOnlineSpace(
     latencyMonitor.stop();
     throw error;
   }
-  reportProgress?.(86, isZhLang() ? '地形数据已就绪…' : 'Terrain data ready…');
+  reportProgress?.(86, 'Terrain data ready…');
   return {
     ...payload,
     mode: 'online',
@@ -880,17 +853,16 @@ export async function bootstrapSpace(): Promise<ReadySpaceSession> {
 }
 
 function renderEntryError(error: unknown) {
-  const zh = isZhLang();
   const entryError = error instanceof SpaceEntryError
     ? error
     : new SpaceEntryError(
         'BOOTSTRAP_FAILED',
-        zh ? 'Space 初始化失败，请检查网络后重试。' : 'Space initialization failed. Please check your network and try again.',
+        'Space initialization failed. Please check your network and try again.',
         window.location.href,
-        zh ? '重试' : 'Retry',
+        'Retry',
         [
-          { label: zh ? '重试' : 'Retry', url: window.location.href },
-          { label: zh ? '返回主站' : 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
+          { label: 'Retry', url: window.location.href },
+          { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
         ]
       );
   const gate = document.getElementById('space-entry-gate');
@@ -914,7 +886,7 @@ function renderEntryError(error: unknown) {
       actionContainer.appendChild(login);
       const accountOrigin = resolveApiOrigin(import.meta.env?.VITE_API_BASE_URL, window.location.origin);
       void import('./SpaceGoogleLogin.ts').then(({ mountSpaceGoogleLogin }) => {
-        if (login.isConnected) return mountSpaceGoogleLogin(login, accountOrigin, zh);
+        if (login.isConnected) return mountSpaceGoogleLogin(login, accountOrigin);
       }).catch(error => console.warn('Could not load Google sign-in.', error));
     }
     for (const act of entryError.actions) {
@@ -962,29 +934,26 @@ export async function enterSpace(
     if (progressValue) progressValue.textContent = `${normalized}%`;
   };
   if (gate) gate.hidden = false;
-  reportProgress(5, isZhLang() ? '正在准备进入 Space…' : 'Preparing to enter Space…');
+  reportProgress(5, 'Preparing to enter Space…');
   if (action) action.hidden = true;
 
   try {
     const searchParams = new URLSearchParams(window.location.search);
     const forcePc = searchParams.get('force_pc') === '1' || searchParams.get('force') === '1';
     if (isNonPcDevice() && !forcePc) {
-      const zh = isZhLang();
       const pcError = new SpaceEntryError(
         'PC_ONLY_REQUIRED',
-        zh
-          ? 'Space 目前仅支持 PC 电脑端运行。游戏包含 3D 体素物理引擎、0.125m 微体素精细雕刻与键鼠自主控制系统，请使用电脑浏览器（推荐 Chrome / Edge）体验完整功能。'
-          : 'EntropyDrop Space is designed for desktop PC browsers only. It requires 3D GPU acceleration, voxel physics, and keyboard & mouse controls.',
+        'EntropyDrop Space is designed for desktop PC browsers only. It requires 3D GPU acceleration, voxel physics, and keyboard & mouse controls.',
         '/space',
-        zh ? '返回主站' : 'Back to Main Site',
+        'Back to Main Site',
         [
           {
-            label: zh ? '返回 Space 主页' : 'Back to Space Overview',
+            label: 'Back to Space Overview',
             url: '/space',
             subtle: true,
           },
           {
-            label: zh ? '仍然尝试进入 (开发者)' : 'Try Anyway (Dev)',
+            label: 'Try Anyway (Dev)',
             url: window.location.search ? `${window.location.search}&force_pc=1` : '?force_pc=1',
             secondary: true
           }
@@ -1001,7 +970,7 @@ export async function enterSpace(
     }
 
     const prepared = await prepareOnlineSpace(reportProgress);
-    reportProgress(64, isZhLang() ? '正在加入共享世界…' : 'Joining shared world…');
+    reportProgress(64, 'Joining shared world…');
     const admission = await requestSpaceAdmission(
       prepared.apiOrigin,
       prepared.token,
@@ -1016,9 +985,9 @@ export async function enterSpace(
         cancelQueue: null,
         enterOnline: null
       });
-      reportProgress(92, isZhLang() ? '正在初始化地球模式场景…' : 'Initializing Earth-mode scene…');
+      reportProgress(92, 'Initializing Earth-mode scene…');
       await startGame(session, reportProgress);
-      reportProgress(100, isZhLang() ? 'Space 世界已就绪' : 'Space world ready');
+      reportProgress(100, 'Space world ready');
       if (gate) gate.hidden = true;
       return;
     }
@@ -1052,12 +1021,7 @@ export async function enterSpace(
       cancelQueue,
       enterOnline: null
     });
-    reportProgress(
-      72,
-      isZhLang()
-        ? `在线队列 #${admission.position}，请稍候…`
-        : `Space Queue #${admission.position}, please wait…`
-    );
+    reportProgress(72, `Space Queue #${admission.position}, please wait…`);
 
     cancelBeforeUnload = () => {
       if (!queueActive) return;
@@ -1096,7 +1060,7 @@ export async function enterSpace(
             if (cancelBeforeUnload) {
               window.removeEventListener('pagehide', cancelBeforeUnload);
             }
-            reportProgress(92, isZhLang() ? '排队完成，正在初始化 Space 场景…' : 'Admitted! Initializing Space scene…');
+            reportProgress(92, 'Admitted! Initializing Space scene…');
             const session = await completeOnlineSpace(prepared, reportProgress);
             hooks.onStateChange?.({
               mode: 'online',
@@ -1106,7 +1070,7 @@ export async function enterSpace(
               enterOnline: null
             });
             await startGame(session, reportProgress);
-            reportProgress(100, isZhLang() ? 'Space 世界已就绪' : 'Space world ready');
+            reportProgress(100, 'Space world ready');
             if (gate) gate.hidden = true;
             return;
           }
@@ -1117,12 +1081,7 @@ export async function enterSpace(
             cancelQueue,
             enterOnline: null
           });
-          reportProgress(
-            72,
-            isZhLang()
-              ? `在线队列 #${next.position}，请稍候…`
-              : `Space Queue #${next.position}, please wait…`
-          );
+          reportProgress(72, `Space Queue #${next.position}, please wait…`);
         } catch {
           // Retry on temporary network glitch
         } finally {

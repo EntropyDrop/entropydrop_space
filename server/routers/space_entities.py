@@ -114,6 +114,8 @@ class CheckpointBrowserWorldEntityRequest(StrictEntityModel):
     snapshot: dict[str, Any]
     position: EntityPosition
     desired_run_state: Literal["running", "stopped"]
+    execution_instance_id: uuid.UUID | None = None
+    execution_epoch: StrictInt | None = Field(default=None, ge=1)
 
 
 class SetWorldEntityRunStateRequest(StrictEntityModel):
@@ -133,6 +135,14 @@ def parse_json_model(model_type, raw: bytes):
     """
     try:
         return model_type.model_validate_json(raw)
+    except ValidationError as error:
+        raise RequestValidationError(error.errors()) from error
+
+
+def validate_request_model(model_type, value):
+    """Validate a manually decoded request with the same 422 semantics as JSON."""
+    try:
+        return model_type.model_validate(value)
     except ValidationError as error:
         raise RequestValidationError(error.errors()) from error
 
@@ -170,17 +180,19 @@ def _envelope_operation_id(value: str) -> uuid.UUID:
 def _envelope_position(envelope) -> EntityPosition:
     if not envelope.HasField("position"):
         raise HTTPException(422, detail={"code": "ENTITY_POSITION_REQUIRED"})
-    return EntityPosition(
-        x_cm=envelope.position.x_cm,
-        y_cm=envelope.position.y_cm,
-        z_cm=envelope.position.z_cm,
-    )
+    return validate_request_model(EntityPosition, {
+        "x_cm": envelope.position.x_cm,
+        "y_cm": envelope.position.y_cm,
+        "z_cm": envelope.position.z_cm,
+    })
 
 
 def _envelope_run_state(value: int) -> Literal["running", "stopped"]:
     if value == space_api_pb2.ENTITY_RUN_STATE_RUNNING:
         return "running"
-    return "stopped"
+    if value == space_api_pb2.ENTITY_RUN_STATE_STOPPED:
+        return "stopped"
+    raise HTTPException(422, detail={"code": "ENTITY_RUN_STATE_INVALID"})
 
 
 def _envelope_snapshot(raw: bytes) -> dict[str, Any]:
@@ -208,13 +220,13 @@ async def create_world_entity_request(request: Request) -> CreateWorldEntityRequ
     if raw is None:
         return parse_json_model(CreateWorldEntityRequest, await request.body())
     envelope = _parse_protobuf_envelope(space_api_pb2.CreateEntityRequest, raw)
-    return CreateWorldEntityRequest(
-        operation_id=_envelope_operation_id(envelope.operation_id),
-        definition_base64=_envelope_definition_base64(envelope.definition),
-        position=_envelope_position(envelope),
-        yaw_quarter_turns=envelope.yaw_quarter_turns,
-        desired_run_state=_envelope_run_state(envelope.desired_run_state),
-    )
+    return validate_request_model(CreateWorldEntityRequest, {
+        "operation_id": _envelope_operation_id(envelope.operation_id),
+        "definition_base64": _envelope_definition_base64(envelope.definition),
+        "position": _envelope_position(envelope),
+        "yaw_quarter_turns": envelope.yaw_quarter_turns,
+        "desired_run_state": _envelope_run_state(envelope.desired_run_state),
+    })
 
 
 async def create_browser_world_entity_request(request: Request) -> CreateBrowserWorldEntityRequest:
@@ -222,13 +234,13 @@ async def create_browser_world_entity_request(request: Request) -> CreateBrowser
     if raw is None:
         return parse_json_model(CreateBrowserWorldEntityRequest, await request.body())
     envelope = _parse_protobuf_envelope(space_api_pb2.CreateEntityRequest, raw)
-    return CreateBrowserWorldEntityRequest(
-        operation_id=_envelope_operation_id(envelope.operation_id),
-        definition_base64=_envelope_definition_base64(envelope.definition),
-        snapshot=_envelope_snapshot(envelope.snapshot_json),
-        position=_envelope_position(envelope),
-        desired_run_state=_envelope_run_state(envelope.desired_run_state),
-    )
+    return validate_request_model(CreateBrowserWorldEntityRequest, {
+        "operation_id": _envelope_operation_id(envelope.operation_id),
+        "definition_base64": _envelope_definition_base64(envelope.definition),
+        "snapshot": _envelope_snapshot(envelope.snapshot_json),
+        "position": _envelope_position(envelope),
+        "desired_run_state": _envelope_run_state(envelope.desired_run_state),
+    })
 
 
 async def checkpoint_browser_world_entity_request(request: Request) -> CheckpointBrowserWorldEntityRequest:
@@ -236,16 +248,18 @@ async def checkpoint_browser_world_entity_request(request: Request) -> Checkpoin
     if raw is None:
         return parse_json_model(CheckpointBrowserWorldEntityRequest, await request.body())
     envelope = _parse_protobuf_envelope(space_api_pb2.CheckpointEntityRequest, raw)
-    return CheckpointBrowserWorldEntityRequest(
-        operation_id=_envelope_operation_id(envelope.operation_id),
-        expected_revision=envelope.expected_revision,
-        definition_base64=(
+    return validate_request_model(CheckpointBrowserWorldEntityRequest, {
+        "operation_id": _envelope_operation_id(envelope.operation_id),
+        "expected_revision": envelope.expected_revision,
+        "execution_instance_id": envelope.execution_instance_id or None,
+        "execution_epoch": envelope.execution_epoch or None,
+        "definition_base64": (
             _envelope_definition_base64(envelope.definition) if envelope.definition else None
         ),
-        snapshot=_envelope_snapshot(envelope.snapshot_json),
-        position=_envelope_position(envelope),
-        desired_run_state=_envelope_run_state(envelope.desired_run_state),
-    )
+        "snapshot": _envelope_snapshot(envelope.snapshot_json),
+        "position": _envelope_position(envelope),
+        "desired_run_state": _envelope_run_state(envelope.desired_run_state),
+    })
 
 
 
@@ -1133,6 +1147,17 @@ def checkpoint_browser_world_entity(
             "code": "ENTITY_REVISION_CONFLICT",
             "current": _entity_response(entity, current_user),
         })
+
+    # Runtime publications belong to one live executor, even when the caller
+    # owns the entity or is an admin. Explicit Stop uses the run-state route.
+    if entity.desired_run_state == "running" or payload.desired_run_state == "running":
+        expiry = _utc(entity.execution_lease_expires_at)
+        if (entity.desired_run_state != "running"
+                or payload.execution_instance_id is None
+                or str(entity.execution_instance_id or "") != str(payload.execution_instance_id)
+                or entity.execution_epoch != payload.execution_epoch
+                or expiry is None or expiry <= datetime.datetime.now(datetime.timezone.utc)):
+            raise HTTPException(409, detail={"code": "ENTITY_EXECUTION_LEASE_REQUIRED"})
 
     _enforce_entity_storage_quota(
         db,

@@ -11,7 +11,7 @@ import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
  * Regression tests for selector fixes:
  *  - geometric shapes must apply to a component that shares an entity with others
  *  - a new selection must not reuse shape corners from a previous region
- *  - clicking a whole-entity selection returns to unselected ('未选')
+ *  - clicking a whole-entity selection returns to the unselected state
  *  - F expands a whole-component selection instead of only recoloring it
  *  - the cuboid guide box stays visible while the axis gizmo expands a selection
  */
@@ -292,7 +292,7 @@ test('a plain click dismisses an editable subtree-only selection', () => {
   assert.equal(controller.selectorRange, null, 'no in-progress box should remain');
 });
 
-test('F expands a whole-component subtree selection instead of only recoloring it', () => {
+test('F requires A/B, then Select All allows filling component holes', () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, {}, null, null);
   const contraption = new Contraption(
@@ -310,6 +310,10 @@ test('F expands a whole-component subtree selection instead of only recoloring i
   const rootId = contraption.rootComponentId;
 
   controller.selectedSubtree = { contraption, rootId, nodeIds: new Set([rootId]) };
+  controller.fillSelectionBlocks(0x00ff00);
+  assert.equal(contraption.blocks.length, 2, 'subtree selection alone cannot fill');
+  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
+  assert.equal(controller.selectAllSelectionBlocks(), true);
   controller.fillSelectionBlocks(0x00ff00);
 
   assert.equal(contraption.blocks.length, 3, 'the hole between the two blocks should be filled');

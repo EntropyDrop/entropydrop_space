@@ -18,6 +18,7 @@ test('script voxel adapters and engine input use the same canonical action dispa
   const inputDriven = new Contraption(2, [block(0)], new THREE.Vector3(5, 0, 0), scene) as any;
 
   const scriptResult = scripted.scriptApi.voxels.subdivide([-0.5, -0.5, -0.5], [4, 1, 1]);
+  inputDriven.stopAllNodeScripts();
   const inputResult = executeBasicAction({ contraption: inputDriven }, {
     domain: ActionDomain.ENTITY,
     action: 'subdivide-standard',
@@ -45,6 +46,55 @@ test('script voxel adapters and engine input use the same canonical action dispa
   assert.doesNotMatch(controllerSource, /(?:c|contraption)\.blocks\.(?:push|splice)/);
   assert.doesNotMatch(controllerSource, /(?:c|contraption)\.blocks\s*=/);
   assert.doesNotMatch(controllerSource, /this\.world\.(?:setBlock|setMicroBlock|removeMicroBlock|subdivideBlock|setBlockColor)/);
+});
+
+test('player voxel mutations require a stopped entity while script mutations remain available', () => {
+  const scene = new THREE.Scene();
+  const entity = new Contraption(3, [block(0)], new THREE.Vector3(), scene) as any;
+  entity.scriptStatus = 'running';
+
+  const playerPlace = executeBasicAction({ contraption: entity }, {
+    domain: ActionDomain.ENTITY,
+    action: 'place-standard',
+    target: { contraption: entity },
+    nodeId: 'root',
+    cell: [1, 0, 0],
+    actor: { source: 'player' }
+  });
+  const playerRemove = executeBasicAction({ contraption: entity }, {
+    domain: ActionDomain.ENTITY,
+    action: 'remove-standard',
+    target: { contraption: entity },
+    nodeId: 'root',
+    cell: [0, 0, 0],
+    actor: { source: 'player' }
+  });
+  assert.equal(playerPlace.reason, 'entity_not_stopped');
+  assert.equal(playerRemove.reason, 'entity_not_stopped');
+  assert.deepEqual(entity.blocks.map(item => item.localX), [0]);
+
+  const scriptPlace = executeBasicAction({ contraption: entity }, {
+    domain: ActionDomain.ENTITY,
+    action: 'place-standard',
+    target: { contraption: entity },
+    nodeId: 'root',
+    cell: [1, 0, 0],
+    actor: { source: 'script' }
+  });
+  assert.equal(scriptPlace.ok, true, 'the entity runtime keeps its self-modifying API');
+  assert.deepEqual(entity.blocks.map(item => item.localX), [0, 1]);
+
+  entity.stopAllNodeScripts();
+  const stoppedRemove = executeBasicAction({ contraption: entity }, {
+    domain: ActionDomain.ENTITY,
+    action: 'remove-standard',
+    target: { contraption: entity },
+    nodeId: 'root',
+    cell: [0, 0, 0],
+    actor: { source: 'player' }
+  });
+  assert.equal(stoppedRemove.ok, true);
+  assert.deepEqual(entity.blocks.map(item => item.localX), [1]);
 });
 
 test('player queries pick published terrain while scripts read the live terrain state', () => {

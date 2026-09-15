@@ -248,7 +248,7 @@ test('entity: clicking a standard block subdivides 512 cells and removes one', (
   const blocks = [
     { localX: 0, localY: 0, localZ: 0, size: 1, block: BlockTypes.COLOR_BLOCK, color: 0xffffff, entityId: 'root' }
   ];
-  const contraption = { blocks, rebuildAfterBlockChange() {} };
+  const contraption = { scriptStatus: 'stopped', blocks, rebuildAfterBlockChange() {} };
   let rebuilt = 0;
   contraption.rebuildAfterBlockChange = () => { rebuilt++; };
 
@@ -285,7 +285,7 @@ test('entity: a -X hit removes the opposite boundary microcell', () => {
   const blocks = [
     { localX: 0, localY: 0, localZ: 0, size: 1, block: BlockTypes.COLOR_BLOCK, color: 0xffffff, entityId: 'root' }
   ];
-  const contraption = { blocks, rebuildAfterBlockChange() {} };
+  const contraption = { scriptStatus: 'stopped', blocks, rebuildAfterBlockChange() {} };
   const controller = makeSpoonController({
     hoveredContraptionHit: {
       contraption,

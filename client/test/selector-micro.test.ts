@@ -303,8 +303,8 @@ test('Del removes exactly the selected micro voxels and nothing else', () => {
   const manager = new ContraptionManager(scene, world, null, null);
   const controller = makeMicroController({ manager, world });
 
-  manager.toggleMicroCell({ x: 2.375, y: 5.875, z: 2.5 }); // (19, 47, 20)
-  manager.toggleMicroCell({ x: 2.5, y: 5.875, z: 2.5 }); // (20, 47, 20)
+  manager.setCornerA({ x: 2.375, y: 5.875, z: 2.5 }, { micro: true }); // (19, 47, 20)
+  manager.setCornerB({ x: 2.5, y: 5.875, z: 2.5 }, { micro: true }); // (20, 47, 20)
   controller.deleteSelectionBlocks();
 
   assert.equal(world.microVoxels.cells.has('19,47,20'), false, 'selected micro voxel removed');
@@ -423,7 +423,8 @@ test('copying an entity micro selection removes empty layers below its lowest vo
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'root',
-    blocks: contraption.blocks.filter(block => block.localY === 0.5)
+    blocks: contraption.blocks.filter(block => block.localY === 0.5),
+    confirmedRange: { pointA: { x: 0, y: 0.5, z: 0 }, pointB: { x: 0.125, y: 0.5, z: 0 } }
   };
 
   const slot = controller.copySelectionToInventory();
@@ -575,7 +576,7 @@ test('entity 2-point box rejects world click as corner 2 with toast warning', ()
 
   assert.equal(controller.selectorRange, null, 'entity selection range must be cleared on invalid world endpoint');
   assert.ok(
-    controller.__toasts.some(m => m.includes('起点是实体，结束点也必须是该实体的一部分')),
+    controller.__toasts.some(m => m.includes('starts on an entity must end on that same entity')),
     'toast should warn about invalid endpoint'
   );
 });
@@ -609,7 +610,7 @@ test('entity 2-point box in standard mode also rejects world click as corner 2',
 
   assert.equal(controller.selectorRange, null, 'entity selection range must be cleared');
   assert.ok(
-    controller.__toasts.some(m => m.includes('起点是实体，结束点也必须是该实体的一部分')),
+    controller.__toasts.some(m => m.includes('starts on an entity must end on that same entity')),
     'toast should warn about invalid endpoint'
   );
 });
@@ -716,7 +717,8 @@ test('create-child from microblock selection isolates selected microblocks and c
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'root',
-    blocks: result.selection.blocks
+    blocks: result.selection.blocks,
+    confirmedRange: { pointA: a, pointB: b }
   };
   controller.createChildFromSelectedBlocks();
 
@@ -935,7 +937,7 @@ test('micro selector can select child component region and switch levels', () =>
   assert.ok(controller.selectedBlockSelection, 'block selection created on child component');
   assert.equal(controller.selectedBlockSelection.nodeId, 'arm');
   assert.equal(controller.selectedBlockSelection.blocks.length, 2);
-  assert.ok(!toasts.includes('选区不能包含已分配的子组件方块'), 'ancestor root should not trigger child component rejection');
+  assert.ok(!toasts.includes('The selection cannot include blocks assigned to child components.'), 'ancestor root should not trigger child component rejection');
 });
 
 test('micro selector hologram bounding box is scaled by MICRO_SIZE', () => {
@@ -1084,7 +1086,7 @@ test('F subdivides a virtual micro selection on demand before expanding it', () 
   assert.equal(filled.length, 8, 'the 2x2x2 virtual box was filled with the active color');
 });
 
-test('Shift+click in micro mode toggles a virtual 0.125 m cell; P subdivides and recolors it', () => {
+test('Shift-picked virtual micro cells cannot be recolored before A/B', () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     11,
@@ -1121,23 +1123,14 @@ test('Shift+click in micro mode toggles a virtual 0.125 m cell; P subdivides and
   assert.equal(Math.round(selected[0].localY * 1000) / 1000, 0.875, 'the aimed surface micro cell is toggled');
   assert.equal(contraption.blocks.length, 1, 'toggling alone must not subdivide the standard block');
 
-  // P is the moment the geometry is subdivided.
+  // P must not even materialize geometry before A/B confirmation.
   controller.selectedColor = 0x00ff00;
   controller.paintSelectionBlocks();
 
-  assert.equal(
-    contraption.blocks.filter((b: any) => (b.size || 1) < 1).length,
-    512,
-    'P subdivided the standard block into its 512 micro voxels'
-  );
-  const painted = contraption.blocks.filter((b: any) => (b.size || 1) < 1 && b.color === 0x00ff00);
-  assert.equal(painted.length, 1, 'only the selected cell was recolored');
-  assert.equal(Math.round(painted[0].localY * 1000) / 1000, 0.875);
-  assert.equal(
-    contraption.blocks.filter((b: any) => (b.size || 1) < 1 && b.color === 0xff0000).length,
-    511,
-    'the remaining micro voxels keep the original color'
-  );
+  assert.equal(contraption.blocks.length, 1);
+  assert.equal(contraption.blocks[0].size || 1, 1);
+  assert.equal(contraption.blocks[0].color, 0xff0000);
+  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
 });
 
 test('micro Del carves every covered block with one atomic rebuild', () => {

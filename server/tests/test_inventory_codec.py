@@ -348,9 +348,9 @@ def test_component_names_round_trip_at_every_depth_but_never_affect_content_dige
                 "blocks": [], "seats": [], "children": children}
 
     entity = {"type": "space-entity", "version": 7, "constraints": [],
-              "root": component("world", "机体", [component("root", "模块", [component("tip", "末端", [])])])}
+              "root": component("world", "Chassis", [component("root", "Module", [component("tip", "Tip", [])])])}
     encoded = encode_inventory_resource("entity", entity)
-    assert encoded.hex() == "08075a3612340a05776f726c641a0042210a04726f6f741a00420f0a037469701a006206e69cabe7abaf6206e6a8a1e59d976206e69cbae4bd93"
+    assert encoded.hex() == "08075a3412320a05776f726c641a00421e0a04726f6f741a00420c0a037469701a00620354697062064d6f64756c65620743686173736973"
     assert inventory_content_digest("entity", entity).hex() == "3aa9f6f2d1a424d0f63d1fb4fe85d927eac86db793c6afa5d4095391b994f4c8"
     assert decode_inventory_resource(encoded)[1] == entity
     assert "name" not in inventory_pb2.Entity.DESCRIPTOR.fields_by_name

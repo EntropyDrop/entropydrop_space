@@ -47,6 +47,9 @@ export class SpaceEntitySync {
   private readonly instanceId: string;
   private readonly loading = new Set<string>();
   private readonly leasedUntil = new Map<string, number>();
+  private readonly executionEpochs = new Map<string, number>();
+  private readonly latestRevisions = new Map<string, number>();
+  private leaseTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly entityAliases = new Map<string, string>();
   private readonly localIdByServerId = new Map<string, string>();
   private readonly saveChains = new Map<string, Promise<void>>();
@@ -61,6 +64,7 @@ export class SpaceEntitySync {
   private lastCheckpointAt = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private pollInFlight = false;
+  private stopped = false;
 
   constructor(options: SpaceEntitySyncOptions) {
     this.client = new SpaceEntityClient(
@@ -83,6 +87,7 @@ export class SpaceEntitySync {
 
   start() {
     if (this.timer) return;
+    this.stopped = false;
     this.contraptions?.setRemoteEntityPersistence?.({
       save: (record, options) => this.queueSave(record, options),
       remove: publicId => this.queueDelete(publicId),
@@ -95,8 +100,14 @@ export class SpaceEntitySync {
   }
 
   stop() {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.leaseTimer) clearTimeout(this.leaseTimer);
+    this.leaseTimer = null;
+    this.leasedUntil.clear();
+    this.executionEpochs.clear();
+    this.enforceExecutionLeases();
     this.controller?.setServerEntityRunStateHandler?.(null);
     this.contraptions?.setRemoteEntityPersistence?.(null);
   }
@@ -106,6 +117,8 @@ export class SpaceEntitySync {
   }
 
   async poll() {
+    if (this.stopped) return;
+    this.enforceExecutionLeases();
     if (this.pollInFlight) return;
     this.pollInFlight = true;
     try {
@@ -117,11 +130,13 @@ export class SpaceEntitySync {
         wrappedCentimetres(position.z, wrapZ, TORUS_SIZE_Z),
         radiusCm,
       );
+      if (this.stopped) return;
       try {
         await this.renewExecutionLeases(list.items);
       } catch (error) {
         console.warn('Space entity execution lease could not be renewed; entities stay stopped.', error);
       }
+      if (this.stopped) return;
       await Promise.all(list.items.map(entity => this.applyRecord(entity)));
       const currentIds = new Set(list.items.map(entity => entity.id));
       if (!list.truncated) this.removeEntitiesOutsideAoi(currentIds, position, radiusCm / 100);
@@ -146,8 +161,71 @@ export class SpaceEntitySync {
     } catch (error) {
       console.warn('Space entity synchronization is temporarily unavailable.', error);
     } finally {
+      this.enforceExecutionLeases();
       this.pollInFlight = false;
     }
+  }
+
+  /** Also called before each simulation frame, including after tab suspension. */
+  enforceExecutionLeases() {
+    const now = Date.now();
+    const freeze = (entity: any) => {
+      if (!entity?.serverManaged || entity.serverExecutionMode === 'hosted'
+        || entity.serverDesiredRunState !== 'running'
+        || (this.leasedUntil.get(String(entity.publicId)) || 0) > now) return;
+      const physicsEnabled = entity.isPhysicsSimulationEnabled?.() ?? entity.physicsSimulationEnabled !== false;
+      entity.serverExecutesLocally = false;
+      if (entity.scriptStatus === 'stopped' && !physicsEnabled) return;
+      entity.scriptStatus = 'stopped';
+      entity.setPhysicsSimulationEnabled?.(false);
+      if (typeof entity.setPhysicsSimulationEnabled !== 'function') entity.physicsSimulationEnabled = false;
+    };
+    for (const entity of this.contraptions.contraptions || []) freeze(entity);
+    for (const records of this.contraptions.dormantContraptions?.values?.() || []) {
+      for (const record of records.values()) freeze(record);
+    }
+    for (const [id, expires] of this.leasedUntil) {
+      if (expires <= now) {
+        this.leasedUntil.delete(id);
+        this.executionEpochs.delete(id);
+      }
+    }
+  }
+
+  private acceptLeases(leases: Awaited<ReturnType<SpaceEntityClient['claimExecutionLeases']>>, requestedAt: number) {
+    if (this.stopped) return;
+    for (const lease of leases) {
+      // Bound the deadline by the request start as well as server time. A slow
+      // response must not extend an eight-second lease on this browser.
+      const expires = Math.min(Date.parse(lease.lease_expires_at || ''), requestedAt + 8_000);
+      if (lease.granted && expires > Date.now()) {
+        this.leasedUntil.set(lease.entity_id, expires);
+        this.executionEpochs.set(lease.entity_id, lease.execution_epoch);
+      } else {
+        this.leasedUntil.delete(lease.entity_id);
+        this.executionEpochs.delete(lease.entity_id);
+      }
+    }
+    this.enforceExecutionLeases();
+    this.scheduleLeaseExpiry();
+  }
+
+  private scheduleLeaseExpiry() {
+    if (this.leaseTimer) clearTimeout(this.leaseTimer);
+    this.leaseTimer = null;
+    if (!this.leasedUntil.size) return;
+    this.leaseTimer = setTimeout(() => {
+      this.leaseTimer = null;
+      this.enforceExecutionLeases();
+      this.scheduleLeaseExpiry();
+    }, Math.max(1, Math.min(...this.leasedUntil.values()) - Date.now()));
+    this.leaseTimer.unref?.();
+  }
+
+  private isStale(entity: SpaceWorldEntityRecord) {
+    const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
+      || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
+    return Math.max(this.latestRevisions.get(entity.id) || 0, Number(active?.serverRevision) || 0) > entity.revision;
   }
 
   private metadata(entity: SpaceWorldEntityRecord) {
@@ -195,11 +273,7 @@ export class SpaceEntitySync {
       this.instanceId,
       due.map(entity => entity.id),
     );
-    for (const lease of leases) {
-      const expiresAt = lease.granted ? Date.parse(lease.lease_expires_at || '') : Number.NaN;
-      if (Number.isFinite(expiresAt) && expiresAt > now) this.leasedUntil.set(lease.entity_id, expiresAt);
-      else this.leasedUntil.delete(lease.entity_id);
-    }
+    this.acceptLeases(leases, now);
   }
 
   private applyPlayback(contraption: any, entity: SpaceWorldEntityRecord) {
@@ -228,6 +302,8 @@ export class SpaceEntitySync {
   }
 
   private async applyRecord(entity: SpaceWorldEntityRecord) {
+    if (this.isStale(entity)) return;
+    this.latestRevisions.set(entity.id, entity.revision);
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
       || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
     if (active) {
@@ -240,12 +316,7 @@ export class SpaceEntitySync {
         // moment and reappear on every server snapshot change.
         if (await this.applySnapshotInPlace(active, entity)) return;
       }
-      if (remoteSnapshotChanged || remoteDefinitionChanged) {
-        this.contraptions.removeContraption?.(active, {
-          skipSave: true,
-          skipRemoteDelete: true,
-        });
-      } else {
+      if (!remoteSnapshotChanged && !remoteDefinitionChanged) {
         this.applyRecordMetadata(active, entity);
         return;
       }
@@ -259,6 +330,7 @@ export class SpaceEntitySync {
         this.client.getDefinition(entity),
         this.client.getSnapshot(entity),
       ]);
+      if (this.stopped || this.isStale(entity)) return;
       const parsed = this.controller.parseInventoryImport?.(definition, 'entity');
       if (!parsed?.ok) throw new Error(parsed?.error || 'Server entity failed local validation.');
 
@@ -280,6 +352,9 @@ export class SpaceEntitySync {
       } : null;
       const created = this.contraptions.buildFromSlot(parsed.item, origin, restoreState, false);
       if (!created) throw new Error('Server entity could not be constructed.');
+      // Preserve the current instance until its replacement is ready. Failed
+      // or stale downloads must not erase local geometry and unsaved edits.
+      if (active) this.contraptions.removeContraption?.(active, { skipSave: true, skipRemoteDelete: true });
       created.publicId = entity.id;
       if (!snapshot) {
         created.position.copy(origin).add(created.localCenter.clone().applyQuaternion(rotation));
@@ -312,6 +387,7 @@ export class SpaceEntitySync {
     }
     try {
       const snapshot = await this.client.getSnapshot(entity);
+      if (this.stopped || this.isStale(entity)) return true;
       if (!snapshot) return false;
       this.contraptions.restoreContraptionStreamingState(active, {
         ...snapshot,
@@ -327,6 +403,8 @@ export class SpaceEntitySync {
 
   /** Merge server metadata and re-apply playback only when the revision changed. */
   private applyRecordMetadata(active: any, entity: SpaceWorldEntityRecord) {
+    if (this.isStale(entity)) return;
+    this.latestRevisions.set(entity.id, entity.revision);
     const revisionChanged = Number(active.serverPlaybackRevision) !== entity.revision;
     const metadata = this.metadata(entity);
     const executionChanged = active.serverExecutesLocally !== metadata.serverExecutesLocally;
@@ -424,6 +502,10 @@ export class SpaceEntitySync {
       return;
     }
 
+    const executing = (this.leasedUntil.get(serverId) || 0) > Date.now();
+    // Frozen replicas keep the durable running intent. They must never publish
+    // their local stopped pose as an owner/admin checkpoint.
+    if (record.serverDesiredRunState === 'running' && !executing) return;
     const payload = this.snapshotPayload(record);
     const snapshotJson = JSON.stringify(payload.snapshot);
     const definition = this.controller.encodeInventoryItem?.('entity', record.slot);
@@ -434,11 +516,13 @@ export class SpaceEntitySync {
     const currentDefinitionDigest = active?.serverDefinitionDigest || record.serverDefinitionDigest;
     const definitionDigest = await sha256Hex(definition);
     const sendDefinition = !currentDefinitionDigest || definitionDigest !== currentDefinitionDigest;
+    if (record.serverDesiredRunState === 'running' && (this.leasedUntil.get(serverId) || 0) <= Date.now()) return;
     if (!sendDefinition && this.lastSnapshotJson.get(serverId) === snapshotJson) return;
     let updated: SpaceWorldEntityRecord;
     try {
       updated = await this.client.checkpointBrowser(serverId, revision, {
         ...payload,
+        ...(executing ? { execution_instance_id: this.instanceId, execution_epoch: this.executionEpochs.get(serverId) } : {}),
         ...(sendDefinition ? { definition } : {}),
       });
     } catch (error: any) {
@@ -453,10 +537,12 @@ export class SpaceEntitySync {
   }
 
   private adoptServerIdentity(localPublicId: string, entity: SpaceWorldEntityRecord) {
+    this.latestRevisions.set(entity.id, entity.revision);
     const active = this.contraptions.findActiveContraptionByPublicId?.(localPublicId);
     if (active) {
       active.publicId = entity.id;
       Object.assign(active, this.metadata(entity));
+      this.enforceExecutionLeases();
       return;
     }
     for (const records of this.contraptions.dormantContraptions?.values?.() || []) {
@@ -471,6 +557,8 @@ export class SpaceEntitySync {
   }
 
   private applyServerMetadata(entityId: string, entity: SpaceWorldEntityRecord) {
+    if (this.isStale(entity)) return;
+    this.latestRevisions.set(entityId, entity.revision);
     const active = this.contraptions.findActiveContraptionByPublicId?.(entityId);
     if (active) Object.assign(active, this.metadata(entity));
     else this.contraptions.updateDormantServerEntity?.(entityId, this.dormantMetadata(entity));
@@ -558,14 +646,14 @@ export class SpaceEntitySync {
       Number(contraption.serverRevision),
     );
     if (updated.desired_run_state === 'running' && updated.owner_user_id === this.currentUserId) {
+      const requestedAt = Date.now();
       const leases = await this.client.claimExecutionLeases(this.instanceId, [updated.id]);
-      const lease = leases[0];
-      const expiresAt = lease?.granted ? Date.parse(lease.lease_expires_at || '') : Number.NaN;
-      if (Number.isFinite(expiresAt) && expiresAt > Date.now()) this.leasedUntil.set(updated.id, expiresAt);
-      else this.leasedUntil.delete(updated.id);
+      this.acceptLeases(leases, requestedAt);
     } else {
       this.leasedUntil.delete(updated.id);
     }
+    if (this.isStale(updated)) return updated;
+    this.latestRevisions.set(updated.id, updated.revision);
     Object.assign(contraption, this.metadata(updated));
     if (!contraption.isWrenchGrabbed && this.controller?.wrenchGrab?.contraption !== contraption) {
       this.applyPlayback(contraption, updated);

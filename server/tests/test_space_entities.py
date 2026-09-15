@@ -363,3 +363,125 @@ def test_binary_protobuf_envelope_rejects_invalid_definition(client, db):
     )
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "ENTITY_DEFINITION_INVALID"
+
+
+def test_binary_protobuf_envelope_returns_422_for_model_validation(client, db):
+    from space.contracts import space_api_pb2
+
+    owner = _user(db, "envelope-validation-owner")
+    app.dependency_overrides[get_current_user] = lambda: owner
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    _key_id, api_key = _create_api_key(client)
+    definition = encode_inventory_resource("entity", _entity("Invalid envelope"))
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/x-protobuf",
+    }
+
+    for envelope in (
+        space_api_pb2.CreateEntityRequest(
+            operation_id=str(uuid.uuid4()),
+            definition=definition,
+            position=space_api_pb2.PositionCm(x_cm=100, y_cm=3200, z_cm=100),
+            yaw_quarter_turns=4,
+        ),
+        space_api_pb2.CreateEntityRequest(
+            operation_id=str(uuid.uuid4()),
+            definition=definition,
+            position=space_api_pb2.PositionCm(x_cm=100, y_cm=1_000_001, z_cm=100),
+        ),
+    ):
+        response = client.post(
+            f"/space/api/v2/worlds/{world_id}/entities",
+            content=envelope.SerializeToString(),
+            headers=headers,
+        )
+        assert response.status_code == 422, response.text
+
+    assert db.query(SpaceWorldEntity).count() == 0
+
+
+def test_binary_protobuf_envelope_rejects_unknown_run_state(client, db):
+    from space.contracts import space_api_pb2
+
+    owner = _user(db, "envelope-run-state-owner")
+    app.dependency_overrides[get_current_user] = lambda: owner
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    _key_id, api_key = _create_api_key(client)
+    envelope = space_api_pb2.CreateEntityRequest(
+        operation_id=str(uuid.uuid4()),
+        definition=encode_inventory_resource("entity", _entity("Unknown state")),
+        position=space_api_pb2.PositionCm(x_cm=100, y_cm=3200, z_cm=100),
+        desired_run_state=2,
+    )
+
+    response = client.post(
+        f"/space/api/v2/worlds/{world_id}/entities",
+        content=envelope.SerializeToString(),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/x-protobuf",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "ENTITY_RUN_STATE_INVALID"
+    assert db.query(SpaceWorldEntity).count() == 0
+
+
+def test_browser_checkpoint_requires_the_current_execution_instance_and_epoch(client, db):
+    owner = _user(db, 'lease-checkpoint-owner')
+    app.dependency_overrides[get_current_user] = lambda: owner
+    world = client.post('/space/api/v2/bootstrap').json()['world']['id']
+    base = f'/space/api/v2/worlds/{world}/entities'
+    position = {'x_cm': 1250, 'y_cm': 2050, 'z_cm': 3450}
+    snapshot = {'position': [12.5, 20.5, 34.5], 'quaternion': [0, 0, 0, 1],
+                'constructorOrigin': [12, 20, 34],
+                'physicsSimulationEnabled': True, 'scriptStatus': 'running'}
+    response = client.post(base + '/browser', json={
+        'operation_id': str(uuid.uuid4()), 'position': position, 'snapshot': snapshot,
+        'desired_run_state': 'running',
+        'definition_base64': base64.b64encode(encode_inventory_resource('entity', _entity())).decode(),
+    })
+    assert response.status_code == 201, response.text
+    entity = response.json()
+    first_id, second_id = str(uuid.uuid4()), str(uuid.uuid4())
+    def claim(instance):
+        return client.put(base + '/execution-leases', json={
+            'instance_id': instance, 'entity_ids': [entity['id']],
+        }).json()['items'][0]
+    first = claim(first_id)
+    assert first['granted'] and not claim(second_id)['granted']
+    checkpoint = {'operation_id': str(uuid.uuid4()), 'expected_revision': entity['revision'],
+                  'position': position, 'snapshot': snapshot, 'desired_run_state': 'stopped'}
+    url = base + '/' + entity['id'] + '/checkpoint'
+    for proof in ({}, {'execution_instance_id': second_id, 'execution_epoch': first['execution_epoch']},
+                  {'execution_instance_id': first_id, 'execution_epoch': first['execution_epoch'] + 1}):
+        rejected = client.put(url, json={**checkpoint, **proof})
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()['detail']['code'] == 'ENTITY_EXECUTION_LEASE_REQUIRED'
+    row = db.get(SpaceWorldEntity, (world, entity['id']))
+    row.execution_lease_expires_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=1)
+    db.commit()
+    old_proof = {'execution_instance_id': first_id, 'execution_epoch': first['execution_epoch']}
+    assert client.put(url, json={**checkpoint, **old_proof}).status_code == 409
+    second = claim(second_id)
+    assert second['granted'] and second['execution_epoch'] > first['execution_epoch']
+    assert client.put(url, json={**checkpoint, **old_proof}).status_code == 409
+
+    # Exercise the binary envelope actually used by browser autosaves.
+    import json
+    from space.contracts import space_api_pb2
+    envelope = space_api_pb2.CheckpointEntityRequest(
+        operation_id=checkpoint['operation_id'], expected_revision=1,
+        position=space_api_pb2.PositionCm(**position),
+        snapshot_json=json.dumps(snapshot).encode(), desired_run_state=space_api_pb2.ENTITY_RUN_STATE_STOPPED,
+        execution_instance_id=second_id, execution_epoch=second['execution_epoch'],
+    )
+    accepted = client.put(url, content=envelope.SerializeToString(), headers={'Content-Type': 'application/x-protobuf'})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()['desired_run_state'] == 'stopped'
+    replay = client.put(url, content=envelope.SerializeToString(), headers={'Content-Type': 'application/x-protobuf'})
+    assert replay.status_code == 200 and replay.json()['revision'] == 2
+    edited = client.put(url, json={**checkpoint, 'operation_id': str(uuid.uuid4()), 'expected_revision': 2})
+    assert edited.status_code == 200, 'stopped construction edits do not need a runtime lease'

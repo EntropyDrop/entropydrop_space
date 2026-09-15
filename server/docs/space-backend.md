@@ -65,7 +65,7 @@ target ships; theoretical concurrency is not a promise.
 > online; offline mode keeps browser persistence. The API does not run physics. An
 > eight-second owner-browser execution lease prevents duplicate execution, while non-owner
 > browsers keep a stopped collision proxy. This remains narrower than the authoritative
-> worker target below. See [Space external entity-create API](space-entity-create-api.md).
+> worker target below. See the [spaceAPI entity-create guide](../space/agent/references/entity-create.md).
 
 ## 2. Performance Targets
 
@@ -517,8 +517,8 @@ Explicit hosted execution extends this transitional model with prepaid runtime a
 spending budget on `space_world_entities`, durable `space_hosting_operations` receipts,
 and fenced `space_hosting_workers` leases. It costs 1 credit per hour of committed
 simulation. The bounded headless worker shares the frontend engine and atomically commits
-entity state, terrain events and credit deductions. See [hosting API and deployment](space-entity-hosting.md).
-This implementation does not replace the final zone-worker protocol below.
+entity state, terrain events and credit deductions. This implementation does not replace
+the final zone-worker protocol below.
 
 There are deliberately no `player_inventories` or `player_inventory_slots` tables.
 `player_snapshots.state` also excludes backpack data. `build_assets` is world recovery

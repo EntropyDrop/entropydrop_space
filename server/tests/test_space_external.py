@@ -115,6 +115,30 @@ def test_invalid_builds_never_mutate(client, db, changes):
     assert db.query(models.SpaceTerrainMutationBatch).count() == 0
 
 
+def test_invalid_protobuf_build_returns_422_without_mutating(client, db):
+    from space.contracts import space_api_pb2
+
+    _, world, headers, _ = setup(client, db)
+    payload = body()
+    envelope = space_api_pb2.BuildBlocksetRequest(
+        operation_id=payload['operation_id'],
+        created_at_ms=payload['created_at_ms'],
+        definition=base64.b64decode(payload['definition_base64']),
+        position=space_api_pb2.PositionCm(**payload['position']),
+        yaw_quarter_turns=4,
+    )
+
+    failed = client.post(
+        f'/space/api/v2/worlds/{world}/blocksets/build',
+        content=envelope.SerializeToString(),
+        headers={**headers, 'Content-Type': 'application/x-protobuf'},
+    )
+
+    assert failed.status_code == 422, failed.text
+    assert db.query(models.SpaceChunkSnapshot).count() == 0
+    assert db.query(models.SpaceTerrainMutationBatch).count() == 0
+
+
 def test_build_larger_than_browser_batch_commits_as_one_revision(client, db):
     _, world, headers, _ = setup(client, db)
     blocks = [{'dx': x, 'dy': 0, 'dz': z, 'color': 9} for x in range(20) for z in range(20)]

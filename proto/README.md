@@ -38,15 +38,15 @@ npm run generate:protobuf   # engine: ts-proto bindings + descriptor set + sourc
 npm run check:protobuf      # verify the checked-in outputs are current
 ```
 
-The backend Python bindings are generated from the backend root:
+The server Python bindings are generated from the Space workspace root:
 
 ```sh
-protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/inventory.proto
-protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/space_api.proto
+protoc --proto_path=space/contracts=proto --python_out=server space/contracts/inventory.proto
+protoc --proto_path=space/contracts=proto --python_out=server space/contracts/space_api.proto
 ```
 
-Then run `entropydrop_backend/space/sync_agent_docs.py --check --protobuf` to verify the
-bindings and the public agent reference copies.
+Then run `python3 tools/sync_server_contracts.py --check --protobuf` to verify the bindings
+and the public agent reference copies.
 
 ## Linting and compatibility
 

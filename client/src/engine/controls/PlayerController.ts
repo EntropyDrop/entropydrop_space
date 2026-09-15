@@ -89,6 +89,17 @@ const ENTITY_PLACEMENT_EPSILON = 1e-5;
 const ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS = MAX_ENTITY_BOUNDS * MICRO_DIVISIONS;
 const ENTITY_TARGET_PLACEMENT_BUCKET_SIZE = 2;
 const STOPPED_GRID_EPSILON = 1e-6;
+const RUNNING_ENTITY_RETRY_WINDOW_MS = 1000;
+const INTERACTIVE_ENTITY_EDIT_ACTIONS = new Set([
+  'place-standard', 'remove-standard', 'paint-standard',
+  'place-micro', 'remove-micro', 'paint-micro',
+  'clear-cell', 'subdivide-standard', 'subdivide-cells',
+  'fill-blocks', 'paint-blocks', 'remove-blocks', 'remove-subtree'
+]);
+const INTERACTIVE_ENTITY_SELECTION_ACTIONS = new Set([
+  'entity-subtree', 'entity-box', 'toggle-entity-block',
+  'delete', 'fill', 'paint', 'create-child'
+]);
 // Wrench grabbing is a mass-independent editor servo. Its previous 36/s
 // position gain could request nearly 30 m/s in one 20 Hz tick, overshoot the
 // target, then reverse just as hard on the next tick. A bounded critically
@@ -353,6 +364,8 @@ export class PlayerController {
   currentRaycast: any;
   hoveredContraption: any;
   hoveredContraptionHit: any;
+  runningEntityAttempt: { contraption: any; at: number } | null;
+  pendingInteractionStops: WeakSet<object>;
   wrenchGrab: any;
   wrenchPivotTarget: any;
   microCarvePreview: any;
@@ -483,6 +496,8 @@ export class PlayerController {
     this.currentRaycast = { hit: false };
     this.hoveredContraption = null;
     this.hoveredContraptionHit = null;
+    this.runningEntityAttempt = null;
+    this.pendingInteractionStops = new WeakSet();
     this.wrenchGrab = null;
     this.wrenchPivotTarget = null;
     this.microCarvePreview = null;
@@ -835,7 +850,7 @@ export class PlayerController {
         }
         break;
 
-      case 'Delete': // Del key: delete the selected entity/component or selected blocks
+      case 'Delete': // Del key: delete blocks only after A/B confirmation
       case 'Backspace':
         this.deleteSelectionBlocks();
         break;
@@ -974,10 +989,23 @@ export class PlayerController {
 
   /** Canonical command entry shared with entity programs and editor buttons. */
   performBasicAction(command) {
-    return executeBasicAction(
+    const contraption = command?.target?.contraption || command?.selection?.contraption
+      || this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption;
+    const interactive = (command.actor?.source || 'player') === 'player'
+      && ((command.domain === ActionDomain.ENTITY && INTERACTIVE_ENTITY_EDIT_ACTIONS.has(command.action))
+        || (command.domain === ActionDomain.SELECTION && INTERACTIVE_ENTITY_SELECTION_ACTIONS.has(command.action)));
+    if (interactive && contraption && this.handleRunningEntityInteraction(contraption)) {
+      return { ok: false, action: command.action, reason: 'entity_not_stopped', changed: 0,
+        placed: 0, removed: 0, painted: 0, subdivided: 0, added: 0, recolored: 0, empty: false };
+    }
+    const result = executeBasicAction(
       { world: this.world, manager: this.contraptions, selectionHost: this },
       { actor: { source: 'player' }, ...command }
     );
+    if (interactive && result?.reason === 'entity_not_stopped') {
+      this.handleRunningEntityInteraction(contraption);
+    }
+    return result;
   }
 
   clearSelection() {
@@ -1070,6 +1098,17 @@ export class PlayerController {
     // Count accepted game clicks, including swings into empty space. DOM/UI
     // clicks never reach this method unless the game owns pointer lock.
     this.toolUseSequence = (this.toolUseSequence || 0) + 1;
+    // Consume one physical attempt before compound voxel actions can dispatch.
+    if ([SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH].includes(this.activeTool)
+      && !(this.activeTool === SpecialTool.BRUSH && this.brushSelection)
+      && this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
+    const selectorTool = this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE;
+    const worldBoxInProgress = !!(this.contraptions?.selectionCornerA && !this.contraptions.selectionCornerB);
+    const selectorTarget = this.hoveredGizmoHandle
+      ? this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption
+      : this.hoveredContraptionHit?.contraption;
+    if (selectorTool && !worldBoxInProgress
+      && this.handleRunningEntityInteraction(selectorTarget)) return false;
     // Selector XYZ coordinate axis gizmo dragging
     if (this.activeTool === SpecialTool.SELECTOR && this.hoveredGizmoHandle) {
       this.startGizmoDrag(this.hoveredGizmoHandle, e);
@@ -1331,12 +1370,10 @@ export class PlayerController {
         ? new THREE.Vector3(this.currentRaycast.hitPos.x, this.currentRaycast.hitPos.y, this.currentRaycast.hitPos.z)
         : null;
 
-      // 预选后左键再点击任意方块->回到未选:
       // When in preselected state (completed selection without an in-progress 2-point drag),
-      // a plain left click on any block (entity or world) dismisses the selection and returns to unselected ('未选').
-      // A subtree-only selection created by Shift+click on an editable level also counts as
-      // preselected. Running/errored entities keep their whole-selection on repeat clicks (the
-      // only level they expose), so their non-editable subtree stays sticky.
+      // a plain left click on any block (entity or world) dismisses the selection and returns to unselected.
+      // A subtree-only selection created by Shift+click on an editable level also
+      // counts as preselected. Running interactions are consumed before this branch.
       const isEntityBoxInProgress = !!(this.selectorRange && this.selectorRange.pointA && !this.selectorRange.pointB);
       const isWorldBoxInProgress = !!(this.contraptions && this.contraptions.selectionCornerA !== null && this.contraptions.selectionCornerB === null);
       const isEditableSubtreeSelection = !!(
@@ -1362,7 +1399,7 @@ export class PlayerController {
           this.contraptions.selectionCornerB = null;
           this.boxSelectionPreview = null;
           this.sceneRenderer?.clearBoxSelectionPreview?.();
-          this.ui?.showToast?.('起点不是实体，结束点也不能是实体', { tone: 'warning' });
+          this.ui?.showToast?.('A selection that starts in the world cannot end on an entity.', { tone: 'warning' });
           return;
         }
         // Entity/component hit:
@@ -1410,7 +1447,7 @@ export class PlayerController {
         this.selectorLevel = null;
         this.boxSelectionPreview = null;
         this.sceneRenderer?.clearBoxSelectionPreview?.();
-        this.ui?.showToast?.('起点是实体，结束点也必须是该实体的一部分', { tone: 'warning' });
+        this.ui?.showToast?.('A selection that starts on an entity must end on that same entity.', { tone: 'warning' });
         return;
       }
 
@@ -1499,7 +1536,7 @@ export class PlayerController {
    *
    * Interaction states for entities whose scripts are not running:
    * - **First click**: select the hit component level; auto-recursively highlight it and all
-   *   descendants (never the parent). Press R to copy the subtree.
+   *   descendants (never the parent). Confirm A/B before using selection actions.
    * - **Second click on the same entity** (any surface): advance the 2-point box selection for
    *   that level's *own* blocks only (child-component blocks are excluded). Any point on the
    *   entity surface is valid — the hit does not need to land exactly on the target component,
@@ -1509,10 +1546,8 @@ export class PlayerController {
    * - **Shift+click**: immediately switch / re-select the component level without entering box
    *   mode.
    *
-   * Only stopped entities expose their construction grid. A **running** entity is
-   * stopped by the first click (returning it to its construction pose); the next
-   * click starts the 2-point box on the now-editable entity. Entities the player
-   * is not allowed to edit keep whole-entity selection only.
+   * Only stopped entities expose their construction grid. The first attempt on a
+   * running entity warns; a second attempt within one second only stops it.
    */
   selectorOnEntityClick(hit, e = null) {
     const contraption = hit.contraption;
@@ -1522,36 +1557,20 @@ export class PlayerController {
     const shiftHeld = !!(e?.shiftKey || this.keys?.crouch);
 
     // World 2-point box in progress (cornerA set, cornerB not yet set): clicking an entity
-    // must be rejected per requirement: "如果框选的起点不是实体，结束的点也应该不是实体，否则退出选区，给出提示。"
+    // A selection that starts in the world cannot end on an entity.
     if (this.contraptions && this.contraptions.selectionCornerA !== null && this.contraptions.selectionCornerB === null) {
       this.contraptions.selectionCornerA = null;
       this.contraptions.selectionCornerB = null;
       this.boxSelectionPreview = null;
       this.sceneRenderer?.clearBoxSelectionPreview?.();
-      if (this.ui) this.ui.showToast('起点不是实体，结束点也不能是实体', { tone: 'warning' });
+      if (this.ui) this.ui.showToast('A selection that starts in the world cannot end on an entity.', { tone: 'warning' });
       return;
     }
 
     // A running entity must be stopped before its construction grid can be
-    // selected. The first click stops it (returning it to the construction pose);
-    // the next click starts the 2-point box on the now-editable entity.
+    // selected. A quick second attempt stops it, without also selecting blocks.
+    if (this.handleRunningEntityInteraction(contraption)) return;
     if (!this.canEditEntityInternals(contraption)) {
-      const mayEdit = contraption.serverManaged !== true || contraption.serverCanEdit === true;
-      const mayStop = contraption.serverManaged !== true || contraption.serverCanControl === true;
-      // Only stop when the player may both edit and control it; otherwise the
-      // stop can never stick and whole-entity selection is the only option.
-      if (mayEdit && mayStop && this.isEntityRunning(contraption)) {
-        // Drop any stale selection before the stop resets the entity pose.
-        this.clearSelection();
-        const stopped = this.stopRunningEntityForSelection(contraption);
-        if (!stopped) {
-          this.ui?.showToast?.(`Entity #${contraption.id} could not be stopped`);
-          return;
-        }
-        this.sound?.playWrenchClick?.();
-        this.ui?.showToast?.(`Entity #${contraption.id} stopped — click again to start the selection`);
-        return;
-      }
       this.startSubtreeSelection(contraption, contraptionRootId(contraption), { wholeOnly: true });
       return;
     }
@@ -1634,12 +1653,12 @@ export class PlayerController {
     if (this.selectorRange && this.selectorRange.pointA) {
       if (this.selectorRange.contraption !== contraption) {
         this.clearSelection();
-        if (this.ui) this.ui.showToast('选区的起点与终点必须属于同一实体', { tone: 'warning' });
+        if (this.ui) this.ui.showToast('The selection start and end must belong to the same entity.', { tone: 'warning' });
         return;
       }
       if (this.selectorRange.nodeId !== hitNodeId) {
         this.clearSelection();
-        if (this.ui) this.ui.showToast('选中区域必须是同一层级、同父组件', { tone: 'warning' });
+        if (this.ui) this.ui.showToast('The selection must stay at the same hierarchy level and share one parent component.', { tone: 'warning' });
         return;
       }
       const inwardPoint = this.getInwardEntityPoint(hit);
@@ -1681,9 +1700,171 @@ export class PlayerController {
 
   canEditEntityInternals(contraption) {
     return !!contraption && (contraption.serverManaged !== true || contraption.serverCanEdit === true)
-      && (typeof contraption.canEditInternalSelection === 'function'
-      ? contraption.canEditInternalSelection()
-      : contraption.scriptStatus === 'stopped');
+      && !this.pendingInteractionStops?.has(contraption) && !this.isEntityRunning(contraption);
+  }
+
+  /** A preselected subtree or Shift-picked cells are not a confirmed A/B box. */
+  canUseSelectionActions() {
+    if (this.selectedSubtree) return false;
+    if (this.selectedBlockSelection) {
+      const selection = this.selectedBlockSelection;
+      return !!(selection.confirmedRange?.pointA && selection.confirmedRange?.pointB
+        && selection.blocks?.length > 0 && this.canEditEntityInternals(selection.contraption));
+    }
+    return this.contraptions?.selectionBoxConfirmed === true
+      && this.contraptions.hasValidSelection?.() === true;
+  }
+
+  canDeleteSelection() {
+    return this.canUseSelectionActions();
+  }
+
+  requireConfirmedSelection(action: string) {
+    const entity = this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption
+      || this.selectorRange?.contraption || this.contraptions?.getChildSelectionInfo?.()?.contraption
+      || (!this.contraptions?.hasValidSelection?.() && !this.contraptions?.selectionCornerA
+        ? this.hoveredContraptionHit?.contraption : null);
+    if (this.handleRunningEntityInteraction(entity)) return false;
+    if (entity?.serverManaged === true && entity.serverCanEdit !== true) {
+      this.ui?.showToast?.('This entity is read-only', { tone: 'warning' });
+      return false;
+    }
+    if (!this.canUseSelectionActions()) {
+      this.ui?.showToast?.(entity || this.hasActiveSelection() || this.contraptions?.selectionCornerA
+        ? `Confirm both selection points A and B before ${action}`
+        : `Nothing selected - select points A and B before ${action}`, { tone: 'warning' });
+      return false;
+    }
+    return true;
+  }
+
+  /** First attempt warns; a second attempt on the same entity within 1s only stops it. */
+  handleRunningEntityInteraction(contraption) {
+    if (!contraption) return false;
+    const label = `Entity #${contraption.id}`;
+    if (this.pendingInteractionStops?.has(contraption)) {
+      this.ui?.showToast?.(`${label} is stopping — please wait`, { tone: 'warning' });
+      return true;
+    }
+    if (!this.isEntityRunning(contraption)) {
+      this.runningEntityAttempt = null;
+      return false;
+    }
+    const now = performance.now();
+    const previous = this.runningEntityAttempt;
+    this.runningEntityAttempt = { contraption, at: now };
+    if (!previous || previous.contraption !== contraption || now - previous.at > RUNNING_ENTITY_RETRY_WINDOW_MS) {
+      this.ui?.showToast?.(`${label} is running — try again within 1 second to stop it, then select A and B or modify it`, { tone: 'warning' });
+      return true;
+    }
+    this.runningEntityAttempt = null;
+    if (contraption.serverManaged === true) {
+      if (contraption.serverCanControl !== true || !this.serverEntityRunStateHandler) {
+        this.ui?.showToast?.(contraption.serverCanControl !== true
+          ? 'Only this entity’s owner can stop it'
+          : 'Entity control is temporarily unavailable', { tone: 'warning' });
+        return true;
+      }
+      this.clearSelection();
+      this.pendingInteractionStops ||= new WeakSet();
+      this.pendingInteractionStops.add(contraption);
+      const requestedRevision = contraption.serverRevision;
+      const previousRunState = contraption.serverDesiredRunState;
+      this.ui?.showToast?.(`${label} is stopping — please wait`);
+      void this.requestServerEntityRunState(contraption, 'stopped', { silent: true }).then(stopped => {
+        this.pendingInteractionStops.delete(contraption);
+        if (!stopped) {
+          if (contraption.serverRevision === requestedRevision) contraption.serverDesiredRunState = previousRunState;
+          this.ui?.showToast?.(`${label} could not be stopped — try again`, { tone: 'warning' });
+          return;
+        }
+        // A delayed stop acknowledgement must not overwrite a newer remote Start.
+        if (contraption.serverRevision !== requestedRevision && contraption.serverDesiredRunState !== 'stopped') {
+          this.ui?.showToast?.(`${label} state changed elsewhere — try again`, { tone: 'warning' });
+          return;
+        }
+        contraption.serverDesiredRunState = 'stopped';
+        executeBasicAction({ world: this.world, manager: this.contraptions, selectionHost: this }, {
+          domain: ActionDomain.ENTITY, action: 'stop-scripts', target: { contraption }, actor: { source: 'server-sync' }
+        });
+        this.sound?.playWrenchClick?.();
+        this.ui?.showToast?.(`${label} stopped — select A and B before using selection actions`);
+      });
+      return true;
+    }
+    this.clearSelection();
+    const result = this.performBasicAction({ domain: ActionDomain.ENTITY, action: 'stop-scripts', target: { contraption } });
+    if (result.ok || result.reason === 'already_stopped') {
+      this.sound?.playWrenchClick?.();
+      this.ui?.showToast?.(`${label} stopped — select A and B before using selection actions`);
+    } else {
+      this.ui?.showToast?.(`${label} could not be stopped`, { tone: 'warning' });
+    }
+    return true;
+  }
+
+  getSelectorSelectAllTarget() {
+    const selection = this.selectedBlockSelection || this.selectorRange
+      || this.selectedSubtree || this.selectorLevel || this.hoveredContraptionHit;
+    if (!selection?.contraption) return null;
+    return {
+      contraption: selection.contraption,
+      nodeId: selection.nodeId || selection.rootId || selection.entityId
+        || contraptionRootId(selection.contraption)
+    };
+  }
+
+  /** Explicitly confirm the full A/B bounds of the current component's own blocks. */
+  selectAllSelectionBlocks() {
+    if (this.bulkEditJob) {
+      this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
+      return false;
+    }
+    const target = this.getSelectorSelectAllTarget();
+    if (!target) {
+      this.ui?.showToast?.('Point at or select an entity component before using Select All', { tone: 'warning' });
+      return false;
+    }
+    const { contraption, nodeId } = target;
+    if (this.handleRunningEntityInteraction(contraption)) return false;
+    if (!this.canEditEntityInternals(contraption)) {
+      this.ui?.showToast?.(contraption.serverManaged === true && contraption.serverCanEdit !== true
+        ? 'This entity is read-only'
+        : 'Stop the entity with the Wrench before selecting all its blocks', { tone: 'warning' });
+      return false;
+    }
+    const node = contraption.entityNodes?.get?.(nodeId);
+    const blocks = contraption.blocks.filter(block => contraptionBlockOwnerId(contraption, block) === nodeId);
+    if (!node || blocks.length === 0) {
+      this.ui?.showToast?.('Selected component has no blocks', { tone: 'warning' });
+      return false;
+    }
+    const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+    const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    for (const block of blocks) {
+      const size = block.size || 1;
+      min.x = Math.min(min.x, block.localX);
+      min.y = Math.min(min.y, block.localY);
+      min.z = Math.min(min.z, block.localZ);
+      max.x = Math.max(max.x, block.localX + size);
+      max.y = Math.max(max.y, block.localY + size);
+      max.z = Math.max(max.z, block.localZ + size);
+    }
+    const pivot = node.pivotLocal || new THREE.Vector3();
+    this.clearSelection();
+    this.selectorShape = 'box';
+    this.resolveBlockRangeSelection({
+      contraption,
+      nodeId,
+      pointA: min.sub(pivot).addScalar(1e-6),
+      pointB: max.sub(pivot).addScalar(-1e-6),
+      allComponents: false
+    });
+    const selected = this.selectedBlockSelection;
+    if (!selected?.confirmedRange) return false;
+    this.ui?.updateToolPanelMode?.();
+    this.ui?.showToast?.(`Selected all ${selected.blocks.length} blocks in [${nodeId}] · A/B confirmed · Del delete`);
+    return true;
   }
 
   /**
@@ -1692,36 +1873,11 @@ export class PlayerController {
    */
   isEntityRunning(contraption) {
     if (!contraption) return false;
+    if (contraption.serverManaged === true && contraption.serverDesiredRunState === 'running') return true;
     if (typeof contraption.canEditInternalSelection === 'function') {
       return !contraption.canEditInternalSelection();
     }
     return contraption.scriptStatus !== 'stopped';
-  }
-
-  /**
-   * Stop a running entity so the selector can expose its construction grid.
-   *
-   * The stop is applied locally first (same state reset the Wrench uses) so the
-   * next click can select immediately instead of waiting for a server
-   * round-trip. Server-managed entities additionally sync the durable run state;
-   * setting `serverDesiredRunState` stops the poll from restarting it before the
-   * server confirms.
-   */
-  stopRunningEntityForSelection(contraption) {
-    if (!contraption) return false;
-    const result = this.performBasicAction({
-      domain: ActionDomain.ENTITY,
-      action: 'stop-scripts',
-      target: { contraption }
-    });
-    const stopped = result.ok || result.reason === 'already_stopped';
-    if (contraption.serverManaged === true) {
-      contraption.serverDesiredRunState = 'stopped';
-      if (contraption.serverCanControl === true && this.serverEntityRunStateHandler) {
-        void this.requestServerEntityRunState(contraption, 'stopped', { silent: true });
-      }
-    }
-    return stopped;
   }
 
   /**
@@ -1766,7 +1922,11 @@ export class PlayerController {
 
     const blockCount = contraption.blocks.filter(b => nodeIds.has(b.entityId || 'root')).length;
     if (this.ui && opts.wholeOnly) {
-      this.ui.showToast(`Entity #${contraption.id} is not stopped — whole entity selected (${blockCount} blocks) · Del delete entity · R copy entity · T copy block set · use Wrench to stop it before selecting internal blocks`);
+      const mayEdit = contraption.serverManaged !== true || contraption.serverCanEdit === true;
+      const message = !mayEdit
+        ? `Entity #${contraption.id} is read-only — inspection only (${blockCount} blocks)`
+        : `Entity #${contraption.id} must be stopped, then A/B confirmed before using selection actions`;
+      this.ui.showToast(message, { tone: 'warning' });
     }
   }
 
@@ -1919,7 +2079,7 @@ export class PlayerController {
       space: 'node-local',
       // Micro mode (Tab) keeps only 0.125 m blocks inside the range.
       micro: this.selectorMicroMode === true,
-      allComponents: true
+      allComponents: range.allComponents !== false
     });
 
     if (!result.ok) {
@@ -1938,11 +2098,11 @@ export class PlayerController {
     let selected = result.selection.blocks;
     const components = result.components || [];
 
-    // Validation: "不含已分配的子组件的方块。（否则退出选择器，给出提示）"
+    // A selection cannot include blocks already assigned to child components.
     const hasOtherComponentBlocks = selected.some((b: any) => contraptionBlockOwnerId(contraption, b) !== nodeId);
     if (hasOtherComponentBlocks || components.length > 1 || (components.length === 1 && components[0] !== nodeId)) {
       this.clearSelection();
-      if (this.ui) this.ui.showToast('选区不能包含已分配的子组件方块', { tone: 'warning' });
+      if (this.ui) this.ui.showToast('The selection cannot include blocks assigned to child components.', { tone: 'warning' });
       return;
     }
 
@@ -1984,6 +2144,7 @@ export class PlayerController {
       blocks: selected,
       micro: isMicro,
       virtualMicro: selected.some((b: any) => b.virtualMicro === true),
+      confirmedRange: { pointA: { ...pointA }, pointB: { ...pointB } },
       bounds: this.getEntitySelectionBounds(selected, isMicro)
     };
     contraption.clearSubtreeHighlight?.();
@@ -2291,6 +2452,7 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return null;
     }
+    if (!this.requireConfirmedSelection('creating a child component')) return null;
     const sel = this.selectedBlockSelection;
     if (!sel || !sel.contraption || sel.blocks.length === 0) {
       if (this.ui) this.ui.showToast('No block selection - box-select blocks of a level first');
@@ -2332,11 +2494,11 @@ export class PlayerController {
     sel.nodeId = targetNodeId;
     const nodeId = targetNodeId;
 
-    // Validation: "但不能把整个父组件选中创建子组件"
+    // The entire parent component cannot become a child component.
     const totalParentBlocks = contraption.blocks.filter((b: any) => contraptionBlockOwnerId(contraption, b) === nodeId).length;
     if (blocks.length >= totalParentBlocks) {
       if (this.ui) {
-        this.ui.showToast('不能将整个父组件全部选中创建子组件', { tone: 'warning' });
+        this.ui.showToast('The entire parent component cannot be selected to create a child component.', { tone: 'warning' });
       }
       return null;
     }
@@ -2396,11 +2558,13 @@ export class PlayerController {
 
   /**
    * Smart copy (R key or Copy button):
-   * - If an entity component or subtree is selected, copies as an entity.
-   * - If world blocks / micro cells are selected, copies as a raw block set.
+   * - Confirmed entity blocks copy as an entity.
+   * - Confirmed world blocks / micro cells copy as a raw block set.
+   * - A-only, subtree and Shift preselection are rejected.
    * - If nothing is selected, shows a helpful toast.
    */
   copySelectionSmart() {
+    if (!this.requireConfirmedSelection('copying')) return null;
     if (this.selectedBlockSelection && this.selectedBlockSelection.blocks.length > 0) {
       return this.copySelectionToInventory();
     }
@@ -2423,7 +2587,7 @@ export class PlayerController {
    *
    * - **Block selection** (2-point box): copies the selected own-blocks as a standalone entity
    *   slot.
-   * - **Subtree selection** (first-click level): copies the entire component subtree.
+   * - First-click subtree preselection is not sufficient; A/B must be confirmed.
    */
   private stripCopiedBottomGap(blocks, yKey) {
     if (!Array.isArray(blocks) || blocks.length === 0) return blocks;
@@ -2444,6 +2608,7 @@ export class PlayerController {
   }
 
   copySelectionToInventory() {
+    if (!this.requireConfirmedSelection('copying')) return null;
     if (this.selectedBlockSelection && this.selectedBlockSelection.blocks.length > 0) {
       const { contraption, nodeId, blocks } = this.selectedBlockSelection;
       if (!this.canEditEntityInternals(contraption)) {
@@ -2684,6 +2849,7 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return null;
     }
+    if (!this.requireConfirmedSelection('copying')) return null;
     let rawBlocks = null;
     let name = '';
 
@@ -4190,13 +4356,12 @@ export class PlayerController {
   }
 
   /**
-   * Delete removes blocks in the current selection and then resets the selection.
+   * Delete removes blocks in a confirmed A/B selection and then resets it.
    *
-   * - Entity subtree selection removes the selected component and descendants;
-   *   selecting root removes the whole entity.
    * - Entity block selection removes selected standard and microblocks directly
    *   owned by a component, removing the entity when it becomes empty.
-   * - World box or Shift single-cell selection removes standard and 8x8x8 microblocks.
+   * - Confirmed world boxes/shapes remove standard and 8x8x8 microblocks.
+   * - Preselected subtrees and Shift-picked cells cannot be deleted.
    */
   deleteSelectionBlocks() {
     const manager = this.contraptions;
@@ -4205,6 +4370,8 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return;
     }
+
+    if (!this.requireConfirmedSelection('deleting')) return;
 
     // 1. Remove selected blocks from an entity component.
     if (this.selectedBlockSelection && this.selectedBlockSelection.blocks.length > 0) {
@@ -4263,47 +4430,7 @@ export class PlayerController {
       return;
     }
 
-    // 2. Delete a selected entity/component subtree through the same selection
-    // command used by ctx.selection.delete(). Root selection removes the entity;
-    // child selection removes that component and all descendants.
-    if (this.selectedSubtree?.contraption) {
-      const { contraption, rootId, nodeIds } = this.selectedSubtree;
-      const result = this.performBasicAction({
-        domain: ActionDomain.SELECTION,
-        action: 'delete',
-        selection: { kind: 'entity-subtree', contraption, rootId, nodeId: rootId, nodeIds }
-      });
-      this.selectedSubtree = null;
-      this.selectedBlockSelection = null;
-      this.selectorLevel = null;
-      this.selectorRange = null;
-      if (this.hoveredContraption === contraption) this.hoveredContraption = null;
-      if (this.hoveredContraptionHit?.contraption === contraption) this.hoveredContraptionHit = null;
-
-      if (result.ok) {
-        if ((result.removed || 0) > 0) {
-          const kind = result.removed > 1 ? 'bulk' : result.micro > 0 ? 'micro' : 'standard';
-          this.sound?.playBlockBreak({ kind, count: result.removed });
-        }
-        if (result.entities > 0) {
-          this.ui?.notifyContraptionRemoved?.(contraption);
-          this.ui?.showToast(`Deleted entity ${result.entityId || `#${contraption.id}`} (${result.removed} voxels)`);
-        } else {
-          this.ui?.notifyContraptionStructureChanged?.(contraption);
-          const descendants = Math.max(0, (result.components || 1) - 1);
-          const suffix = descendants > 0 ? ` and ${descendants} descendant component${descendants === 1 ? '' : 's'}` : '';
-          this.ui?.showToast(`Deleted component [${rootId}]${suffix} (${result.removed} voxels)`);
-        }
-      } else {
-        this.ui?.showToast(result.reason === 'entity_not_stopped'
-          ? 'Stop the entity before deleting an internal component'
-          : 'Selected entity no longer exists');
-      }
-      return;
-    }
-
-    // 3. Delete a two-point world box or Shift-selected cells (standard or
-    // Tab-toggled micro mode).
+    // 2. Delete a confirmed A/B world box or shape (standard or micro mode).
     if (!this.world || !manager.hasValidSelection()) {
       if (this.ui) this.ui.showToast('Nothing selected - box-select a region with the selector first, then press Del');
       return;
@@ -4390,7 +4517,7 @@ export class PlayerController {
       };
 
       if (manager.connectedSelection !== null) {
-        // Shift single-cell mode deletes only explicitly selected cells.
+        // A shape deletes only cells inside the confirmed A/B region.
         for (const cell of manager.connectedSelection) collectCell(cell.x, cell.y, cell.z);
       } else {
         for (let x = bounds.minX; x <= bounds.maxX; x++) {
@@ -4431,6 +4558,7 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return;
     }
+    if (!this.requireConfirmedSelection('filling')) return;
 
     const color = targetColor ?? this.selectedColor;
 
@@ -4490,6 +4618,8 @@ export class PlayerController {
         color,
         micro: isMicro
       });
+
+      if (!result.ok) return;
 
       contraption.clearSubtreeHighlight?.();
       this.selectedBlockSelection = null;
@@ -4555,6 +4685,7 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return;
     }
+    if (!this.requireConfirmedSelection('recoloring')) return;
 
     const color = targetColor ?? this.selectedColor;
 
@@ -4644,10 +4775,21 @@ export class PlayerController {
   }
 
   handleRightClick(e = null) {
+    // Selector RMB opens the complete action menu. Pointer lock is released by
+    // the UI bridge so the player can choose an item, then restored on close.
+    if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
+      this.ui?.showSelectorContextMenu?.({
+        x: Number(e?.clientX),
+        y: Number(e?.clientY)
+      });
+      return true;
+    }
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
     }
+    if ([SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH].includes(this.activeTool)
+      && this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
     const isRecolorModifier = e && (e.shiftKey || this.keys.crouch);
 
     // 1. Shovel -> place one standard block, replacing micro cells in the cell.
@@ -4814,7 +4956,6 @@ export class PlayerController {
       return this.rotateActiveInventoryItem();
     }
 
-    // Selector intentionally has no right-click action.
     return;
   }
 
@@ -5525,6 +5666,7 @@ export class PlayerController {
   }
 
   paintTargetedBlock() {
+    if (this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return;
     if (this.hoveredContraptionHit) {
       const hit = this.hoveredContraptionHit;
       const c = hit.contraption;
@@ -5702,6 +5844,7 @@ export class PlayerController {
 
   handleBrushRightClick() {
     const hitEntity = this.hoveredContraptionHit;
+    if (this.handleRunningEntityInteraction(hitEntity?.contraption)) return;
 
     if (this.brushSelection === null) {
       if (!hitEntity) {
@@ -5748,6 +5891,7 @@ export class PlayerController {
 
     const selection = this.brushSelection;
     const c = selection.contraption;
+    if (this.handleRunningEntityInteraction(c)) return;
     if (!c || !this.canEditEntityInternals(c)) {
       this.clearBrushSelection();
       this.sound?.playWrenchClick?.();
@@ -5842,6 +5986,7 @@ export class PlayerController {
 
   /** R key (Selector): serialize the selected subtree into the entity category. */
   copySelectedSubtreeToInventory() {
+    if (!this.requireConfirmedSelection('copying')) return null;
     if (!this.selectedSubtree || !this.selectedSubtree.contraption) {
       if (this.ui) this.ui.showToast('Nothing selected - point at an entity/component with the selector first');
       return null;
@@ -5974,9 +6119,10 @@ export class PlayerController {
   /** Switch active geometric selection shape (box, cylinder, sphere, stairs, line). */
   setSelectorShape(shape: SelectorShape) {
     this.selectorShape = shape;
-    this.ui?.setSelectorShape?.(shape);
-    this.ui?.updateToolPanelMode?.();
     this.applySelectionShape(shape);
+    // Publish only after recomputing cells/highlights. The UI's setSelectorShape
+    // is a player command that delegates here, not a notification callback.
+    this.ui?.updateToolPanelMode?.();
   }
 
   /**
@@ -6133,6 +6279,11 @@ export class PlayerController {
     this.selectedBlockSelection.micro = isMicro;
     this.selectedBlockSelection.virtualMicro = matchingBlocks.some((b: any) => b.virtualMicro === true);
     this.selectedBlockSelection.shapeCells = shapeCells;
+    if (this.contraptions) {
+      this.contraptions.entitySelection = {
+        kind: 'entity-blocks', contraption, nodeId, blocks: matchingBlocks, components: [nodeId]
+      };
+    }
     contraption.clearSubtreeHighlight?.();
     contraption.highlightBlocks?.(matchingBlocks);
     this.updateSelectionAxisGizmo();
@@ -6258,6 +6409,7 @@ export class PlayerController {
    * - axis = 'x': Pitch (vertical rotation, ArrowDown = -1, ArrowUp = 1)
    */
   rotateSelection(direction: number = 1, axis: 'x' | 'y' = 'y'): boolean {
+    if (!this.requireConfirmedSelection('rotating')) return false;
     if (!this.contraptions || !this.hasActiveSelection()) {
       return false;
     }
@@ -7467,6 +7619,8 @@ export class PlayerController {
       return true;
     }
 
+    if (this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
+
     if (slot.kind === 'blockset' || category === 'blockset') {
       return this.pasteBlockSet(slot);
     }
@@ -7486,6 +7640,7 @@ export class PlayerController {
         this.ui?.showToast?.('Shift+LMB installs modules — aim directly at a stopped entity component');
         return false;
       }
+      if (this.handleRunningEntityInteraction(pose.targetContraption)) return false;
       if (!pose.targetContraption.canEditInternalSelection?.()) {
         this.ui?.showToast?.('Stop the target entity with the Wrench before installing components');
         return false;
@@ -7701,6 +7856,7 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return null;
     }
+    if (!this.requireConfirmedSelection('assembling')) return null;
     if (this.contraptions.hasChildSelection()) {
       if (!this.contraptions.hasReadyChildSelection()) {
         if (this.ui) this.ui.showToast('No blocks selected - click to select component blocks');
@@ -8805,6 +8961,7 @@ export class PlayerController {
 
   startGizmoDrag(hit: any, e: MouseEvent | null = null) {
     if (!hit) return;
+    if (this.handleRunningEntityInteraction(this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption)) return;
     const isEntity = !!(this.selectedBlockSelection || this.selectedSubtree);
     this.activeGizmoDrag = {
       handleKey: hit.handleKey,

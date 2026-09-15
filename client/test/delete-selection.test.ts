@@ -12,8 +12,8 @@ import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 
 /**
- * Delete removes a selected entity/component subtree, blocks from a two-point
- * world box or Shift single-cell selection, or an entity block selection.
+ * Delete requires a confirmed A/B box. Preselection and Shift-picked cells are
+ * read-only until both endpoints are confirmed (including explicit Select All).
  */
 
 function makeController(overrides: any = {}) {
@@ -24,6 +24,8 @@ function makeController(overrides: any = {}) {
   controller.selectedBlockSelection = null;
   controller.selectorLevel = null;
   controller.selectorRange = null;
+  controller.selectorShape = 'box';
+  controller.selectorMicroMode = false;
   controller.inventorySlots = new Array(8).fill(null);
   controller.selectedInventoryIndex = 0;
   controller.contraptions = overrides.manager || null;
@@ -97,7 +99,7 @@ test('Delete also removes 8x8x8 microblocks inside a world box', () => {
   assert.deepEqual(controller.__breakSounds, [{ kind: 'bulk', count: 2 }]);
 });
 
-test('Delete removes only selected cells in Shift single-cell mode', () => {
+test('Delete rejects Shift single-cell selection without clearing it or removing blocks', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 1, 1, 1, 1, 1, 1);
@@ -111,10 +113,34 @@ test('Delete removes only selected cells in Shift single-cell mode', () => {
   assert.equal(manager.hasValidSelection(), true);
   controller.deleteSelectionBlocks();
 
-  assert.equal(world.getBlock(1, 1, 1), BlockTypes.AIR, 'the selected cell should be deleted');
+  assert.equal(world.getBlock(1, 1, 1), BlockTypes.COLOR_BLOCK, 'Shift selection is not a confirmed A/B box');
   assert.equal(world.getBlock(9, 9, 9), BlockTypes.COLOR_BLOCK, 'the unselected cell should remain');
-  assert.equal(manager.connectedSelection, null, 'single-cell selection should reset');
-  assert.deepEqual(controller.__breakSounds, [{ kind: 'standard', count: 1 }]);
+  assert.equal(manager.connectedSelection.length, 1, 'rejected deletion preserves the selection');
+  assert.ok(controller.__toasts.some(message => message.includes('A and B')));
+  assert.deepEqual(controller.__breakSounds, []);
+
+  controller.setSelectorShape('sphere');
+  assert.equal(controller.canDeleteSelection(), false, 'shape-derived bounds cannot confirm Shift selection');
+  controller.deleteSelectionBlocks();
+  assert.equal(world.getBlock(1, 1, 1), BlockTypes.COLOR_BLOCK);
+});
+
+test('Delete rejects a world selection with only A and keeps it ready for B', () => {
+  const scene = new THREE.Scene();
+  const world = new World(scene) as any;
+  world.setBlock(1, 80, 1, BlockTypes.COLOR_BLOCK, false, 0xabcdef);
+  const manager = new ContraptionManager(scene, world, null, null);
+  const controller = makeController({ manager, world });
+  manager.setCornerA({ x: 1, y: 80, z: 1 });
+
+  controller.deleteSelectionBlocks();
+
+  assert.equal(world.getBlock(1, 80, 1), BlockTypes.COLOR_BLOCK);
+  assert.deepEqual(manager.selectionCornerA, { x: 1, y: 80, z: 1 });
+  assert.equal(manager.selectionCornerB, null);
+  assert.equal(controller.canDeleteSelection(), false);
+  assert.ok(controller.__toasts.some(message => message.includes('A and B')));
+  assert.deepEqual(controller.__breakSounds, []);
 });
 
 test('Delete removes selected entity-component blocks and preserves the rest', () => {
@@ -135,9 +161,15 @@ test('Delete removes selected entity-component blocks and preserves the rest', (
   const controller = makeController({ manager });
 
   const target = contraption.blocks.find(b => b.localX === 1);
-  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: [target] };
-  controller.selectorLevel = { contraption, nodeId: 'root' };
-  contraption.highlightBlocks([target]);
+  const node = contraption.entityNodes.get('root');
+  const hit = point => ({ contraption, entityId: 'root', block: target, point: node.group.localToWorld(point.clone().sub(node.pivotLocal)) });
+  controller.selectorOnEntityClick(hit(new THREE.Vector3(1.1, 0.1, 0.1)));
+  assert.equal(controller.canDeleteSelection(), false, 'A alone cannot enable deletion');
+  controller.deleteSelectionBlocks();
+  assert.equal(contraption.blocks.length, 3, 'the preselected whole root must not be deleted');
+  assert.ok(controller.selectorRange.pointA, 'rejected deletion keeps A');
+  controller.selectorOnEntityClick(hit(new THREE.Vector3(1.9, 0.9, 0.9)));
+  assert.equal(controller.canDeleteSelection(), true, 'A and B enable deletion');
 
   controller.deleteSelectionBlocks();
 
@@ -164,7 +196,8 @@ test('deleting every selected component block removes the empty component', () =
   contraption.stopAllNodeScripts();
   const controller = makeController({ manager });
 
-  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: contraption.blocks };
+  controller.hoveredContraptionHit = { contraption, entityId: 'root' };
+  assert.equal(controller.selectAllSelectionBlocks(), true);
   controller.deleteSelectionBlocks();
 
   assert.equal(contraption.blocks.length, 0);
@@ -199,7 +232,7 @@ test('deleting an empty entity component stays silent', () => {
   assert.deepEqual(controller.__breakSounds, []);
 });
 
-test('Delete removes the selected root entity through the shared selection API', () => {
+test('Select All confirms A/B before deleting all root blocks through the shared selection API', () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, {}, null, null) as any;
   const contraption = manager.registerContraption(new Contraption(
@@ -211,6 +244,7 @@ test('Delete removes the selected root entity through the shared selection API',
     new THREE.Vector3(0, 10, 0),
     scene
   )) as any;
+  contraption.stopAllNodeScripts();
   const controller = makeController({ manager });
   let dispatched = 0;
   const baseDispatch = controller.performBasicAction.bind(controller);
@@ -222,14 +256,65 @@ test('Delete removes the selected root entity through the shared selection API',
   controller.startSubtreeSelection(contraption, 'root');
   assert.equal(controller.selectedSubtree.contraption, contraption);
   controller.deleteSelectionBlocks();
+  assert.equal(dispatched, 0, 'preselection alone cannot dispatch deletion');
+  assert.equal(manager.contraptions.includes(contraption), true);
+  assert.equal(controller.selectAllSelectionBlocks(), true);
+  assert.equal(controller.canDeleteSelection(), true);
+  controller.deleteSelectionBlocks();
 
   assert.equal(dispatched, 1, 'keyboard deletion should dispatch the canonical selection command once');
   assert.equal(manager.contraptions.includes(contraption), false);
   assert.equal(controller.selectedSubtree, null);
   assert.equal(controller.selectorLevel, null);
   assert.equal(controller.selectorRange, null);
-  assert.ok(controller.__toasts.some(message => message.includes('Deleted entity')));
+  assert.ok(controller.__toasts.some(message => message.includes('fully dismantled')));
   assert.deepEqual(controller.__breakSounds, [{ kind: 'bulk', count: 2 }]);
+});
+
+test('Select All selects only current component blocks, even when child blocks lie inside its bounds', () => {
+  const scene = new THREE.Scene();
+  const contraption = new Contraption(51, [0, 1, 2].map(x => ({
+    localX: x, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK
+  })), new THREE.Vector3(0, 10, 0), scene, {
+    childEntities: [{ id: 'child', parentId: 'root', kind: 'child', pivot: [1.5, 0.5, 0.5], blockKeys: [['1', '0', '0']] }]
+  });
+  contraption.stopAllNodeScripts();
+  const manager = new ContraptionManager(scene, {}, null, null);
+  manager.registerContraption(contraption);
+  const controller = makeController({ manager });
+  controller.startSubtreeSelection(contraption, 'root');
+  controller.selectorShape = 'sphere';
+
+  assert.equal(controller.selectAllSelectionBlocks(), true);
+  assert.equal(controller.selectorShape, 'box', 'Select All must not filter by the previous shape');
+  assert.equal(controller.selectedBlockSelection.blocks.length, 2);
+  assert.ok(controller.selectedBlockSelection.blocks.every(block => block.entityId === 'root'));
+  assert.equal(controller.canDeleteSelection(), true);
+
+  controller.hoveredContraptionHit = { contraption, entityId: 'child' };
+  controller.clearSelection();
+  assert.equal(controller.selectAllSelectionBlocks(), true, 'pointed component is a valid fallback');
+  assert.equal(controller.selectedBlockSelection.nodeId, 'child');
+  assert.equal(controller.selectedBlockSelection.blocks.length, 1);
+});
+
+test('Select All in micro mode stays virtual and confirms every micro cell of the component', () => {
+  const scene = new THREE.Scene();
+  const contraption = new Contraption(61, [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }], new THREE.Vector3(), scene);
+  contraption.stopAllNodeScripts();
+  const manager = new ContraptionManager(scene, {}, null, null);
+  manager.registerContraption(contraption);
+  const controller = makeController({ manager });
+  controller.selectorMicroMode = true;
+  controller.hoveredContraptionHit = { contraption };
+
+  assert.equal(controller.selectAllSelectionBlocks(), true, controller.__toasts.join('\n'));
+  assert.equal(contraption.blocks.length, 1, 'selection must not subdivide geometry');
+  assert.equal(controller.selectedBlockSelection.blocks.length, 512);
+  assert.equal(controller.selectedBlockSelection.virtualMicro, true);
+  assert.equal(controller.canDeleteSelection(), true);
+  controller.toggleSelectorMicroMode();
+  assert.equal(controller.canDeleteSelection(), false, 'changing grid invalidates the confirmed box');
 });
 
 test('Delete with no selection reports a message without crashing', () => {

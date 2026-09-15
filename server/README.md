@@ -22,9 +22,16 @@ Set `DATABASE_URL`, `REDIS_URL`, `SPACE_ACCOUNT_API_URL`,
 The internal account endpoint requires the same service token on both sides.
 `SPACE_STANDALONE=false` is rejected. Paid hosting remains opt-in.
 
-The existing `space_0001`–`space_0004` migration chain and table names are preserved:
+The existing `space_0001`–`space_0005` migration chain and table names are preserved:
 `python -m alembic -c space/alembic.ini upgrade head`. No new data migration is
 introduced by extraction. Development deploys reuse the existing isolated volumes.
+
+Monitoring workers retain separate minute buffers and publish cumulative latency
+counters to shared Redis every five seconds. Atomic, per-worker updates make retries
+idempotent; completed-minute snapshots are stored in the world database without
+allowing a delayed, smaller sample count to overwrite the aggregate. Monitoring reads
+refresh history from that shared database. Redis outages retain unpublished samples
+for retry within the 24-hour window. This aggregation change needs no schema migration.
 
 Build the server image from the workspace root with
 `docker build -f deploy/Dockerfile --target runtime .`. This requires only Space;

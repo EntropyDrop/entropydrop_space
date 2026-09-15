@@ -110,7 +110,7 @@ test('repeat clicks reject point 2 on a different component than point 1', () =>
   controller.handleLeftClick();
   assert.equal(controller.selectedBlockSelection, null, 'selection across different components must be rejected');
   assert.equal(controller.selectorRange, null, 'box mode should exit after rejection');
-  assert.ok(toasts.some(m => m.includes('同一层级、同父组件')), 'toast should warn about different component levels');
+  assert.ok(toasts.some(m => m.includes('same hierarchy level and share one parent component')), 'toast should warn about different component levels');
 });
 
 test('Shift-click switches component level without entering box mode', () => {
@@ -166,7 +166,8 @@ test('R copies a block selection and pastes it as an independent entity', () => 
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'arm',
-    blocks: contraption.blocks.filter(b => (b.entityId || 'root') === 'arm')
+    blocks: contraption.blocks.filter(b => (b.entityId || 'root') === 'arm'),
+    confirmedRange: { pointA: { x: 0, y: 1, z: 0 }, pointB: { x: 0, y: 1, z: 0 } }
   };
   controller.copySelectionToInventory();
   const slot = controller.inventorySlots[0];
@@ -220,6 +221,9 @@ test('selector copy reports no selection and copies when a selection exists', ()
   // Copy after selecting.
   controller.selectedSubtree = { contraption, rootId: 'wing', nodeIds: new Set(['wing']) };
   controller.copySelectedSubtreeToInventory();
+  assert.equal(controller.inventorySlots[0], null, 'subtree alone is not confirmed');
+  assert.equal(controller.selectAllSelectionBlocks(), true);
+  controller.copySelectionToInventory();
   assert.ok(controller.inventorySlots[0]);
   assert.equal(controller.inventorySlots[0].blockCount, 1);
 });
@@ -268,7 +272,8 @@ test('G creates a child component from a boxed block selection', () => {
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'root',
-    blocks: [rootBlock]
+    blocks: [rootBlock],
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 0, y: 0, z: 0 } }
   };
   controller.createChildFromSelectedBlocks();
 
@@ -302,7 +307,7 @@ test('clicking after box completion starts re-boxing at the same level', () => {
   assert.ok(controller.selectedBlockSelection, 'the first box should complete');
   assert.equal(controller.selectorRange, null, 'box mode should exit after completion');
 
-  // 2. Click any block in preselected state -> returns to unselected ('未选').
+  // 2. Click any block in preselected state -> returns to unselected.
   controller.hoveredContraptionHit = {
     contraption, entityId: 'root', cell: { x: 0, y: 0, z: 0 },
     point: new THREE.Vector3(center.x - 0.5, top, center.z)
@@ -358,7 +363,8 @@ test('world clicks after entity selection clear entity state and start a new wor
   manager.contraptions.push(contraption);
   const controller = makeSelectorController({ manager });
   const rootBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'root');
-  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: [rootBlock] };
+  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: [rootBlock],
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 0, y: 0, z: 0 } } };
   controller.selectorLevel = { contraption, nodeId: 'root' };
 
   // World click 1: preselected entity selection is dismissed, returning to unselected.
@@ -430,7 +436,7 @@ test('a root-level box over a child region is rejected with child component warn
   controller.resolveBlockRangeSelection(controller.selectorRange);
 
   assert.equal(controller.selectedBlockSelection, null, 'box covering child component should be rejected');
-  assert.ok(toasts.some(m => m.includes('选区不能包含已分配的子组件方块')), 'toast should warn about child component');
+  assert.ok(toasts.some(m => m.includes('cannot include blocks assigned to child components')), 'toast should warn about child component');
 });
 
 test('rotated component box recognizes and selects the visible edge of a rotated component', () => {
@@ -519,7 +525,7 @@ test('a box covering multiple direct children is rejected immediately', () => {
   controller.resolveBlockRangeSelection(controller.selectorRange);
 
   assert.equal(controller.selectedBlockSelection, null, 'box selection across multiple components should be rejected');
-  assert.ok(toasts.some(m => m.includes('选区不能包含已分配的子组件方块')), 'toast should report child component blocks error');
+  assert.ok(toasts.some(m => m.includes('cannot include blocks assigned to child components')), 'toast should report child component blocks error');
 });
 
 test('after G creates a child, a world click clears entity state and starts a world box', () => {
@@ -532,7 +538,8 @@ test('after G creates a child, a world click clears entity state and starts a wo
   const rootBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'root');
 
   // Box-select a root-owned block.
-  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: [rootBlock] };
+  controller.selectedBlockSelection = { contraption, nodeId: 'root', blocks: [rootBlock],
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 0, y: 0, z: 0 } } };
   controller.selectorLevel = { contraption, nodeId: 'root' };
   // Create a child with G.
   controller.createChildFromSelectedBlocks();
@@ -578,7 +585,7 @@ test('an entity click during an in-progress world box is rejected with toast and
   controller.handleLeftClick();
   assert.equal(manager.selectionCornerA, null, 'selection should be cleared on invalid entity endpoint');
   assert.equal(manager.selectionCornerB, null, 'point 2 should not be set');
-  assert.ok(toasts.some(m => m.includes('起点不是实体，结束点也不能是实体')), 'toast should warn about invalid endpoint');
+  assert.ok(toasts.some(m => m.includes('starts in the world cannot end on an entity')), 'toast should warn about invalid endpoint');
 });
 
 test('re-boxing anchors range points in node-local space while the component rotates', () => {
@@ -730,7 +737,8 @@ test('inventory copy prunes empty ghost children and scripts from a block select
   contraption.setNodeScript('arm', '// arm code');
   contraption.setNodeScript('hand', '// hand code');
   contraption.stopAllNodeScripts();
-  controller.selectedBlockSelection = { contraption, nodeId: 'arm', blocks: armBlocks };
+  controller.selectedBlockSelection = { contraption, nodeId: 'arm', blocks: armBlocks,
+    confirmedRange: { pointA: { x: 0, y: 1, z: 0 }, pointB: { x: 0, y: 1, z: 0 } } };
   controller.copySelectionToInventory();
   const slot = controller.inventorySlots[0];
   assert.ok(slot);
@@ -840,7 +848,7 @@ test('entering entity selection clears world cornerA and cornerB state', () => {
   assert.equal(controller.selectorRange?.nodeId, 'arm');
 });
 
-test('Shift-clicking blocks across multiple components allows arbitrary selection, but G rejects until same component', () => {
+test('Shift-picked blocks cannot create children until A/B are confirmed', () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, {}, null, null);
   const { contraption } = makeEntityWithChildren();
@@ -878,13 +886,20 @@ test('Shift-clicking blocks across multiple components allows arbitrary selectio
   // Pressing G rejects because blocks span multiple components
   const failResult = controller.createChildFromSelectedBlocks();
   assert.equal(failResult, null, 'child creation should fail validation');
-  assert.ok(toasts.some(m => m.includes('multiple components')), 'toast should warn about multiple components');
+  assert.ok(toasts.some(m => m.includes('A and B')));
 
   // Shift-click to deselect the arm block
   controller.handleLeftClick({ shiftKey: true });
   assert.equal(controller.selectedBlockSelection.blocks.length, 1, 'arm block deselected');
 
-  // Now pressing G succeeds because only root block remains
+  // Even one component still requires A/B.
+  assert.equal(controller.createChildFromSelectedBlocks(), null);
+  controller.clearSelection();
+  controller.hoveredContraptionHit = { contraption, entityId: 'root', block: rootBlock,
+    cell: { x: 0, y: 0, z: 0 }, point: contraption.getBlockWorldCenter(rootBlock) };
+  controller.handleLeftClick();
+  controller.handleLeftClick();
+  assert.equal(controller.canUseSelectionActions(), true);
   const successResult = controller.createChildFromSelectedBlocks();
   assert.ok(successResult, 'child creation should succeed');
 });

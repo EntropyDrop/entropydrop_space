@@ -105,6 +105,8 @@ test('SpaceEntityClient lists, verifies definitions, creates, and changes run st
   });
   const loadedSnapshot = await client.getSnapshot(browserEntity);
   await client.checkpointBrowser(browserEntity.id, 1, {
+    execution_instance_id: '55437452-a51f-4d26-93b9-24c6a41f5e1a',
+    execution_epoch: 7,
     snapshot: { position: [1, 32, 2] },
     position: { x_cm: 100, y_cm: 3200, z_cm: 200 },
     desired_run_state: 'stopped',
@@ -138,6 +140,8 @@ test('SpaceEntityClient lists, verifies definitions, creates, and changes run st
   assert.match(calls[4].url, /\/snapshot$/);
   assert.match(calls[5].url, /\/checkpoint$/);
   const checkpointEnvelope = CheckpointEntityRequest.decode(calls[5].options.body as Uint8Array);
+  assert.equal(checkpointEnvelope.executionInstanceId, '55437452-a51f-4d26-93b9-24c6a41f5e1a');
+  assert.equal(checkpointEnvelope.executionEpoch, 7);
   assert.equal(checkpointEnvelope.expectedRevision, 1);
   assert.equal(checkpointEnvelope.definition?.length ?? 0, 0);
   assert.equal(new TextDecoder().decode(checkpointEnvelope.snapshotJson!), '{"position":[1,32,2]}');

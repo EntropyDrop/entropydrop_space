@@ -96,7 +96,8 @@ test('deleting a micro selection over an unsubdivided standard block carves the 
   world.setBlock(3, 4, 5, BlockTypes.COLOR_BLOCK, false, 0x0000ff);
 
   // Select 1 micro cell at (24, 32, 40) (which is corner of (3, 4, 5))
-  manager.toggleMicroCell({ x: 3.0, y: 4.0, z: 5.0 }); // (24, 32, 40)
+  manager.setCornerA({ x: 3.0, y: 4.0, z: 5.0 }, { micro: true }); // (24, 32, 40)
+  manager.setCornerB({ x: 3.0, y: 4.0, z: 5.0 }, { micro: true });
   assert.equal(manager.microSelection?.length, 1);
 
   // Perform Delete

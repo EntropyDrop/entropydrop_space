@@ -210,7 +210,8 @@ test('large entity block selection creates its child through BulkEditJob', () =>
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'root',
-    blocks: contraption.blocks.slice(0, total)
+    blocks: contraption.blocks.slice(0, total),
+    confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: total, y: 0, z: 0 } }
   };
 
   assert.equal(controller.createChildFromSelectedBlocks(), true);
