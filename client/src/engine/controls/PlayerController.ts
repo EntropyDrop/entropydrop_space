@@ -89,7 +89,6 @@ const ENTITY_PLACEMENT_EPSILON = 1e-5;
 const ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS = MAX_ENTITY_BOUNDS * MICRO_DIVISIONS;
 const ENTITY_TARGET_PLACEMENT_BUCKET_SIZE = 2;
 const STOPPED_GRID_EPSILON = 1e-6;
-const RUNNING_ENTITY_RETRY_WINDOW_MS = 1000;
 const INTERACTIVE_ENTITY_EDIT_ACTIONS = new Set([
   'place-standard', 'remove-standard', 'paint-standard',
   'place-micro', 'remove-micro', 'paint-micro',
@@ -309,6 +308,7 @@ export class PlayerController {
   // --- Pointer lock state ---
   isLocked: boolean;
   pointerLockDesired: boolean;
+  ignoreNextLockedMouseMove: boolean;
   mouseSensitivity: number;
 
   // --- Movement key states ---
@@ -364,7 +364,6 @@ export class PlayerController {
   currentRaycast: any;
   hoveredContraption: any;
   hoveredContraptionHit: any;
-  runningEntityAttempt: { contraption: any; at: number } | null;
   pendingInteractionStops: WeakSet<object>;
   wrenchGrab: any;
   wrenchPivotTarget: any;
@@ -420,6 +419,7 @@ export class PlayerController {
   persistentStorage: SpaceStorage | null;
   bulkEditJob: BulkEditJob | null;
   serverEntityRunStateHandler: ((contraption: any, state: 'running' | 'stopped') => Promise<any>) | null;
+  serverEntityDeleteHandler: ((contraption: any) => Promise<any>) | null = null;
 
   // --- Camera / View Settings ---
   sceneRenderer: any;
@@ -466,6 +466,7 @@ export class PlayerController {
 
     this.isLocked = false;
     this.pointerLockDesired = false;
+    this.ignoreNextLockedMouseMove = false;
     this.mouseSensitivity = 0.0022;
 
     // Movement key states
@@ -496,7 +497,6 @@ export class PlayerController {
     this.currentRaycast = { hit: false };
     this.hoveredContraption = null;
     this.hoveredContraptionHit = null;
-    this.runningEntityAttempt = null;
     this.pendingInteractionStops = new WeakSet();
     this.wrenchGrab = null;
     this.wrenchPivotTarget = null;
@@ -550,18 +550,19 @@ export class PlayerController {
 
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === domElement;
+      // Do not briefly publish a locked state for a cancelled request: queued
+      // mouse events must remain UI input while a menu or modal is open.
+      if (locked && !this.pointerLockDesired) {
+        this.applyPointerLockState(false);
+        try { document.exitPointerLock?.(); } catch (e) {}
+        return;
+      }
       this.applyPointerLockState(locked);
       if (!locked) {
         this.pointerLockDesired = false;
         this.resetEntityInputState();
         this.releaseWrenchGrab();
         this.clearWrenchPivotDisplay();
-      }
-
-      // A pending request may finish after a modal has already called
-      // unlock(). Never let that stale request hide the cursor again.
-      if (locked && !this.pointerLockDesired && document.exitPointerLock) {
-        try { document.exitPointerLock(); } catch (e) {}
       }
     });
 
@@ -573,13 +574,15 @@ export class PlayerController {
   }
 
   applyPointerLockState(locked) {
+    if (locked && !this.isLocked) this.ignoreNextLockedMouseMove = true;
     this.isLocked = !!locked;
     if (this.ui) this.ui.setPointerLocked?.(this.isLocked);
     return this.isLocked;
   }
 
   syncPointerLockState() {
-    return this.applyPointerLockState(typeof document !== 'undefined' && document.pointerLockElement === document.body);
+    return this.applyPointerLockState(this.pointerLockDesired
+      && typeof document !== 'undefined' && document.pointerLockElement === document.body);
   }
 
   requestLock() {
@@ -621,11 +624,12 @@ export class PlayerController {
 
   unlock() {
     this.pointerLockDesired = false;
+    // exitPointerLock / pointerlockchange are asynchronous in some browsers.
+    // Stop consuming look deltas before restoring the system cursor.
+    this.applyPointerLockState(false);
     this.resetEntityInputState();
     if (typeof document !== 'undefined' && document.exitPointerLock && document.pointerLockElement) {
       try { document.exitPointerLock(); } catch (e) {}
-    } else {
-      this.syncPointerLockState();
     }
   }
 
@@ -636,10 +640,16 @@ export class PlayerController {
         this.updateGizmoDrag(e);
         return;
       }
-      if (!this.isLocked) {
+      if (!this.isLocked || !this.pointerLockDesired || document.pointerLockElement !== document.body) {
         if (this.activeTool === SpecialTool.SELECTOR) {
           this.updateSelectionGizmoPointerHover(e);
         }
+        return;
+      }
+      // Lock transitions can include a large cursor-recentring delta. Drop
+      // only the first event after acquisition, never cap genuine fast turns.
+      if (this.ignoreNextLockedMouseMove) {
+        this.ignoreNextLockedMouseMove = false;
         return;
       }
 
@@ -741,6 +751,7 @@ export class PlayerController {
   }
 
   handleKeyDown(e: KeyboardEvent) {
+    if (this.ui?.isEntityContextMenuOpen?.()) return;
     const eventTarget = e.target as HTMLElement;
     if (eventTarget && (eventTarget.tagName === 'INPUT' || eventTarget.tagName === 'SELECT' || eventTarget.tagName === 'TEXTAREA' || eventTarget.isContentEditable)) return;
 
@@ -1074,8 +1085,7 @@ export class PlayerController {
     this.entityInputReleased?.clear();
   }
 
-  openCodeEditorForTarget() {
-    const target = this.hoveredContraption;
+  openCodeEditorForTarget(target = this.hoveredContraption) {
     if (!target || !this.contraptions.contraptions.includes(target)) {
       if (this.ui) this.ui.showToast(`Point directly at an assembled entity to program it.`);
       return false;
@@ -1091,6 +1101,7 @@ export class PlayerController {
   }
 
   handleLeftClick(e = null) {
+    if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
@@ -1103,12 +1114,10 @@ export class PlayerController {
       && !(this.activeTool === SpecialTool.BRUSH && this.brushSelection)
       && this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
     const selectorTool = this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE;
-    const worldBoxInProgress = !!(this.contraptions?.selectionCornerA && !this.contraptions.selectionCornerB);
     const selectorTarget = this.hoveredGizmoHandle
       ? this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption
       : this.hoveredContraptionHit?.contraption;
-    if (selectorTool && !worldBoxInProgress
-      && this.handleRunningEntityInteraction(selectorTarget)) return false;
+    if (selectorTool && this.handleRunningEntityInteraction(selectorTarget)) return false;
     // Selector XYZ coordinate axis gizmo dragging
     if (this.activeTool === SpecialTool.SELECTOR && this.hoveredGizmoHandle) {
       this.startGizmoDrag(this.hoveredGizmoHandle, e);
@@ -1546,8 +1555,8 @@ export class PlayerController {
    * - **Shift+click**: immediately switch / re-select the component level without entering box
    *   mode.
    *
-   * Only stopped entities expose their construction grid. The first attempt on a
-   * running entity warns; a second attempt within one second only stops it.
+   * Only stopped entities expose their construction grid. An attempt on a
+   * running entity immediately stops it without also selecting or editing.
    */
   selectorOnEntityClick(hit, e = null) {
     const contraption = hit.contraption;
@@ -1555,6 +1564,10 @@ export class PlayerController {
       ? hit.entityId
       : contraptionRootId(contraption);
     const shiftHeld = !!(e?.shiftKey || this.keys?.crouch);
+
+    // Consume the interaction as Stop before opening the construction grid,
+    // including attempts made while a world-space selection is in progress.
+    if (this.handleRunningEntityInteraction(contraption)) return;
 
     // World 2-point box in progress (cornerA set, cornerB not yet set): clicking an entity
     // A selection that starts in the world cannot end on an entity.
@@ -1567,9 +1580,6 @@ export class PlayerController {
       return;
     }
 
-    // A running entity must be stopped before its construction grid can be
-    // selected. A quick second attempt stops it, without also selecting blocks.
-    if (this.handleRunningEntityInteraction(contraption)) return;
     if (!this.canEditEntityInternals(contraption)) {
       this.startSubtreeSelection(contraption, contraptionRootId(contraption), { wholeOnly: true });
       return;
@@ -1738,7 +1748,7 @@ export class PlayerController {
     return true;
   }
 
-  /** First attempt warns; a second attempt on the same entity within 1s only stops it. */
+  /** A running-entity interaction immediately performs Stop, never the attempted edit. */
   handleRunningEntityInteraction(contraption) {
     if (!contraption) return false;
     const label = `Entity #${contraption.id}`;
@@ -1746,18 +1756,7 @@ export class PlayerController {
       this.ui?.showToast?.(`${label} is stopping — please wait`, { tone: 'warning' });
       return true;
     }
-    if (!this.isEntityRunning(contraption)) {
-      this.runningEntityAttempt = null;
-      return false;
-    }
-    const now = performance.now();
-    const previous = this.runningEntityAttempt;
-    this.runningEntityAttempt = { contraption, at: now };
-    if (!previous || previous.contraption !== contraption || now - previous.at > RUNNING_ENTITY_RETRY_WINDOW_MS) {
-      this.ui?.showToast?.(`${label} is running — try again within 1 second to stop it, then select A and B or modify it`, { tone: 'warning' });
-      return true;
-    }
-    this.runningEntityAttempt = null;
+    if (!this.isEntityRunning(contraption)) return false;
     if (contraption.serverManaged === true) {
       if (contraption.serverCanControl !== true || !this.serverEntityRunStateHandler) {
         this.ui?.showToast?.(contraption.serverCanControl !== true
@@ -1788,7 +1787,7 @@ export class PlayerController {
           domain: ActionDomain.ENTITY, action: 'stop-scripts', target: { contraption }, actor: { source: 'server-sync' }
         });
         this.sound?.playWrenchClick?.();
-        this.ui?.showToast?.(`${label} stopped — select A and B before using selection actions`);
+        this.ui?.showToast?.(`${label} stopped`);
       });
       return true;
     }
@@ -1796,7 +1795,7 @@ export class PlayerController {
     const result = this.performBasicAction({ domain: ActionDomain.ENTITY, action: 'stop-scripts', target: { contraption } });
     if (result.ok || result.reason === 'already_stopped') {
       this.sound?.playWrenchClick?.();
-      this.ui?.showToast?.(`${label} stopped — select A and B before using selection actions`);
+      this.ui?.showToast?.(`${label} stopped`);
     } else {
       this.ui?.showToast?.(`${label} could not be stopped`, { tone: 'warning' });
     }
@@ -1815,12 +1814,12 @@ export class PlayerController {
   }
 
   /** Explicitly confirm the full A/B bounds of the current component's own blocks. */
-  selectAllSelectionBlocks() {
+  selectAllSelectionBlocks(explicitTarget = null) {
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
     }
-    const target = this.getSelectorSelectAllTarget();
+    const target = explicitTarget || this.getSelectorSelectAllTarget();
     if (!target) {
       this.ui?.showToast?.('Point at or select an entity component before using Select All', { tone: 'warning' });
       return false;
@@ -4775,6 +4774,7 @@ export class PlayerController {
   }
 
   handleRightClick(e = null) {
+    if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     // Selector RMB opens the complete action menu. Pointer lock is released by
     // the UI bridge so the player can choose an item, then restored on close.
     if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
@@ -5622,6 +5622,85 @@ export class PlayerController {
 
   setServerEntityRunStateHandler(handler) {
     this.serverEntityRunStateHandler = typeof handler === 'function' ? handler : null;
+  }
+
+  setServerEntityDeleteHandler(handler) {
+    this.serverEntityDeleteHandler = typeof handler === 'function' ? handler : null;
+  }
+
+  /** Whole-entity menu commands deliberately do not depend on hover, active
+   * tool, or a Selector A/B range. Geometry selection retains its own gate. */
+  async performEntityMenuAction(contraption, action: string): Promise<boolean> {
+    if (!this.contraptions?.contraptions?.includes(contraption)) {
+      this.ui?.showToast?.('This entity is no longer available', { tone: 'warning' });
+      return false;
+    }
+    if (this.bulkEditJob) {
+      this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`, { tone: 'warning' });
+      return false;
+    }
+    if (action === 'program') return this.openCodeEditorForTarget(contraption);
+    if (action === 'copy') {
+      const slot = contraption.serializeSubtree(contraptionRootId(contraption));
+      const index = this.addInventoryItem('entity', slot);
+      if (index === null) {
+        this.ui?.showToast?.('Entity inventory is full; remove an item first', { tone: 'warning' });
+        return false;
+      }
+      this.clearSelection();
+      this.setActiveInventoryCategory('entity');
+      this.activateTool(SpecialTool.HAMMER);
+      this.ui?.renderInventoryBar?.();
+      this.ui?.showToast?.(`Entity copied to backpack slot ${index + 1} · use Hammer to place it`);
+      return true;
+    }
+    if (action === 'select-all') {
+      this.activateTool(SpecialTool.SELECTOR);
+      return this.selectAllSelectionBlocks({ contraption, nodeId: contraptionRootId(contraption) });
+    }
+    if (!['start', 'stop', 'delete'].includes(action)) return false;
+    if (contraption.serverManaged === true && contraption.serverCanControl !== true) {
+      this.ui?.showToast?.('Only this entity’s owner can control or delete it', { tone: 'warning' });
+      return false;
+    }
+    if (action === 'delete') {
+      if (contraption.serverManaged === true) {
+        if (!this.serverEntityDeleteHandler) {
+          this.ui?.showToast?.('Entity deletion is temporarily unavailable', { tone: 'warning' });
+          return false;
+        }
+        try {
+          await this.serverEntityDeleteHandler(contraption);
+        } catch {
+          this.ui?.showToast?.('Entity could not be deleted; please try again', { tone: 'warning' });
+          return false;
+        }
+      }
+      if (this.wrenchGrab?.contraption === contraption) this.releaseWrenchGrab();
+      if (this.isDriving && this.drivenContraption === contraption) this.toggleDriveVehicle();
+      if ([this.selectedBlockSelection, this.selectedSubtree, this.selectorLevel, this.selectorRange]
+        .some(selection => selection?.contraption === contraption)) this.clearSelection();
+      if (this.hoveredContraption === contraption) this.hoveredContraption = null;
+      if (this.hoveredContraptionHit?.contraption === contraption) this.hoveredContraptionHit = null;
+      if (this.contraptions.contraptions.includes(contraption)) {
+        this.contraptions.removeContraption(contraption, { skipRemoteDelete: contraption.serverManaged === true });
+      }
+      this.ui?.notifyContraptionRemoved?.(contraption);
+      this.ui?.showToast?.(`Entity #${contraption.id} deleted`);
+      return true;
+    }
+    if (this.wrenchGrab?.contraption === contraption) this.releaseWrenchGrab();
+    if (contraption.serverManaged === true) {
+      return this.requestServerEntityRunState(contraption, action === 'start' ? 'running' : 'stopped');
+    }
+    const result = this.performBasicAction({
+      domain: ActionDomain.ENTITY,
+      action: action === 'start' ? 'start-scripts' : 'stop-scripts',
+      target: { contraption }
+    });
+    this.ui?.refresh?.();
+    this.ui?.showToast?.(result.ok ? `Entity #${contraption.id} ${action === 'start' ? 'started' : 'stopped'}` : 'Entity could not be updated');
+    return result.ok;
   }
 
   async requestServerEntityRunState(contraption, desiredState, options: any = {}) {

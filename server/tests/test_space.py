@@ -690,6 +690,8 @@ def test_space_terrain_quota_counts_effective_changes_once(client, db, monkeypat
     world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
     monkeypatch.setattr(space_router, "SPACE_TERRAIN_HOURLY_LIMIT", 2)
     monkeypatch.setattr(space_router, "SPACE_TERRAIN_DAILY_LIMIT", 2)
+    usage_url = f"/space/api/v2/worlds/{world_id}/api-usage"
+    before_usage = client.get(usage_url).json()
 
     def apply(batch_id: str, color: int):
         return client.post(
@@ -732,6 +734,12 @@ def test_space_terrain_quota_counts_effective_changes_once(client, db, monkeypat
     assert blocked.json()["detail"]["code"] == "TERRAIN_EDIT_QUOTA_REACHED"
     assert blocked.json()["detail"]["used"] == 2
     assert blocked.headers["retry-after"]
+    after_usage = client.get(usage_url).json()
+    for window in ("hour", "day"):
+        assert before_usage["quotas"]["terrain"][window]["used"] == 0
+        assert after_usage["quotas"]["terrain"][window]["used"] == 2
+        assert after_usage["quotas"]["terrain"][window]["remaining"] == 0
+    assert after_usage["credits"] == before_usage["credits"], "Manual terrain edits are free"
     loaded = client.get(f"/space/api/v2/worlds/{world_id}/terrain-edits").json()
     assert loaded["chunks"][0]["standard"] == [[1, 80, 1, 1, 2]]
     assert db.query(SpaceTerrainMutationBatch).count() == 3
@@ -741,8 +749,51 @@ def test_space_terrain_quota_counts_effective_changes_once(client, db, monkeypat
     } == {"terrain"}
 
 
-def test_space_terrain_effective_quota_includes_implicit_micro_clears(client, db):
+def test_admin_terrain_edits_record_usage_without_enforcing_caps(client, db, monkeypatch):
+    user = _user(db, "terrain-admin", "https://cdn.entropydrop.com/skins/admin.png")
+    user.is_admin = True
+    user.credits = 7
+    app.dependency_overrides[get_current_user] = lambda: user
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    monkeypatch.setattr(space_router, "SPACE_TERRAIN_HOURLY_LIMIT", 1)
+    monkeypatch.setattr(space_router, "SPACE_TERRAIN_DAILY_LIMIT", 1)
+    monkeypatch.setattr(space_router, "SPACE_TERRAIN_BURST_LIMIT", 1)
+    monkeypatch.setattr(space_router, "SPACE_TERRAIN_WORLD_SECOND_LIMIT", 1)
+    url = f"/space/api/v2/worlds/{world_id}/terrain-edits/batches"
+    body = {
+        "batch_id": str(uuid.uuid4()),
+        "mutations": [
+            {"kind": "set_standard", "x": x, "y": 80, "z": 1, "block": 1, "color": 1}
+            for x in (1, 2, 3)
+        ],
+    }
+    first = client.post(url, json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()["effective_changes"] == 3
+    assert first.json()["quota"]["used_today"] == 3
+    assert client.post(url, json=body).json() == first.json(), "Retries must not double-count"
+    no_op = client.post(url, json={**body, "batch_id": str(uuid.uuid4())})
+    assert no_op.status_code == 200
+    assert no_op.json()["effective_changes"] == 0
+    assert no_op.json()["quota"]["used_today"] == 3
+    changed = client.post(url, json={
+        "batch_id": str(uuid.uuid4()),
+        "mutations": [{**body["mutations"][0], "color": 2}],
+    })
+    assert changed.status_code == 200
+    assert changed.json()["quota"]["used_today"] == 4
+    usage = client.get(f"/space/api/v2/worlds/{world_id}/api-usage").json()
+    assert usage["admin_quota_exemptions"] is True
+    assert usage["credits"] == 7
+    for window in ("hour", "day"):
+        assert usage["quotas"]["terrain"][window]["used"] == 4
+    assert db.query(SpaceUsageBucket).filter_by(metric="terrain_submitted_mutations").count() == 0
+
+
+@pytest.mark.parametrize("is_admin", [False, True])
+def test_space_terrain_effective_quota_includes_implicit_micro_clears(client, db, is_admin):
     user = _user(db, "space-quota-002", "https://cdn.entropydrop.com/skins/quota-2.png")
+    user.is_admin = is_admin
     app.dependency_overrides[get_current_user] = lambda: user
     world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
     added = client.post(

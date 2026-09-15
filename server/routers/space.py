@@ -1405,8 +1405,8 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
         stream = models.SpaceWorldEventStream(world_id=world.id, last_event_id=0)
         db.add(stream)
         db.flush()
-    if not current_user.is_admin:
-        try:
+    try:
+        if not current_user.is_admin:
             reserve_quota(
                 db,
                 principal_id=current_user.id,
@@ -1422,20 +1422,24 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
                 message="Too many terrain edits were submitted at once.",
                 now=now,
             )
-            reserve_quota(
-                db,
-                principal_id=current_user.id,
-                scope_id=SPACE_TERRAIN_USAGE_SCOPE,
-                metric="terrain_effective_changes",
-                amount=effective_changes,
-                windows=(
-                    QuotaWindow(3_600, SPACE_TERRAIN_HOURLY_LIMIT, "hour"),
-                    QuotaWindow(UTC_DAY_SECONDS, SPACE_TERRAIN_DAILY_LIMIT, "utc_day"),
-                ),
-                code="TERRAIN_EDIT_QUOTA_REACHED",
-                message="The terrain edit allowance for this period has been reached.",
-                now=now,
-            )
+        # Exemption disables the cap, not the usage counter. Otherwise an
+        # administrator's successful placements always report zero changes.
+        reserve_quota(
+            db,
+            principal_id=current_user.id,
+            scope_id=SPACE_TERRAIN_USAGE_SCOPE,
+            metric="terrain_effective_changes",
+            amount=effective_changes,
+            windows=(
+                QuotaWindow(3_600, SPACE_TERRAIN_HOURLY_LIMIT, "hour"),
+                QuotaWindow(UTC_DAY_SECONDS, SPACE_TERRAIN_DAILY_LIMIT, "utc_day"),
+            ),
+            code="TERRAIN_EDIT_QUOTA_REACHED",
+            message="The terrain edit allowance for this period has been reached.",
+            now=now,
+            enforce_limits=not current_user.is_admin,
+        )
+        if not current_user.is_admin:
             reserve_quota(
                 db,
                 principal_id="world",
@@ -1447,9 +1451,9 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
                 message="The world is receiving too many terrain edits; retry shortly.",
                 now=now,
             )
-        except HTTPException:
-            db.rollback()
-            raise
+    except HTTPException:
+        db.rollback()
+        raise
 
     terrain_revision = int(stream.last_event_id or 0)
     revisions = []

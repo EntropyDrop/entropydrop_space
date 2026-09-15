@@ -8,7 +8,7 @@ import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerCont
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 
 /**
- * Running interactions warn once, then a quick retry stops without selecting or editing.
+ * Running interactions immediately stop without also selecting or editing.
  */
 
 function makeEntityWithChildren() {
@@ -60,7 +60,7 @@ function clickEntity(controller, contraption, entityId, cell, point, e = null) {
   controller.handleLeftClick(e);
 }
 
-test('running entity selection warns, retries only stop, then A/B enable actions', () => {
+test('running entity selection immediately stops only, then A/B enable actions', () => {
   const { contraption, scene } = makeEntityWithChildren();
   const manager = new ContraptionManager(scene, {}, null, null);
   manager.registerContraption(contraption);
@@ -68,14 +68,15 @@ test('running entity selection warns, retries only stop, then A/B enable actions
   contraption.scriptStatus = 'running';
 
   clickEntity(controller, contraption, 'arm', { x: 0, y: 1, z: 0 }, new THREE.Vector3(0.5, 11.5, 0.5));
-  assert.equal(contraption.scriptStatus, 'running', 'the first attempt must not stop');
+  assert.equal(contraption.scriptStatus, 'stopped', 'the first attempt must stop');
+  assert.equal(contraption.isPhysicsSimulationEnabled(), false);
   assert.equal(controller.selectorRange, null, 'running entities do not expose a block box');
   assert.equal(controller.selectedSubtree, null, 'the first attempt cannot select');
-  assert.ok(controller.__toasts.some(m => m.includes('within 1 second')));
+  assert.ok(controller.__toasts.some(m => m === 'Entity #1 stopped'));
 
   const before = contraption.blocks.length;
   controller.deleteSelectionBlocks();
-  assert.equal(contraption.blocks.length, before, 'the retry stops only; it must not delete');
+  assert.equal(contraption.blocks.length, before, 'stopping alone does not confirm A/B for deletion');
   assert.equal(contraption.scriptStatus, 'stopped');
   assert.equal(contraption.isPhysicsSimulationEnabled(), false);
   assert.equal(controller.selectorRange, null);
@@ -87,7 +88,7 @@ test('running entity selection warns, retries only stop, then A/B enable actions
   assert.equal(controller.canUseSelectionActions(), true);
 });
 
-test('selecting a server-managed running entity does not change durable or local run state', async () => {
+test('selecting a server-managed running entity immediately requests Stop and waits for acknowledgement', async () => {
   const { contraption } = makeEntityWithChildren();
   const controller = makeSelectorController();
   contraption.scriptStatus = 'running';
@@ -106,9 +107,14 @@ test('selecting a server-managed running entity does not change durable or local
   assert.equal(contraption.serverDesiredRunState, 'running');
   assert.equal(controller.canEditEntityInternals(contraption), false);
   assert.equal(controller.selectedSubtree, null);
-
+  assert.equal(runStateCalls, 1, 'the first selection attempt requests Stop');
   await Promise.resolve();
-  assert.equal(runStateCalls, 0, 'selection must not send a stop request');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(contraption.scriptStatus, 'stopped');
+  assert.equal(contraption.serverDesiredRunState, 'stopped');
+  assert.equal(contraption.isPhysicsSimulationEnabled(), false);
+  assert.equal(controller.selectedSubtree, null, 'the acknowledged Stop does not also select');
 });
 
 test('after an explicit stop, level switching and box clicks behave normally', () => {
@@ -128,7 +134,7 @@ test('after an explicit stop, level switching and box clicks behave normally', (
   assert.equal(controller.selectorRange?.pointA ?? null, null, 'Shift-click does not set a box point');
 });
 
-test('a quick stop discards stale internal selection without setting a new A', () => {
+test('the first Stop interaction discards stale internal selection without setting a new A', () => {
   const { contraption } = makeEntityWithChildren();
   const controller = makeSelectorController();
   contraption.scriptStatus = 'running';
@@ -142,9 +148,6 @@ test('a quick stop discards stale internal selection without setting a new A', (
     pointB: null
   };
 
-  clickEntity(controller, contraption, 'arm', { x: 0, y: 1, z: 0 }, new THREE.Vector3(0.5, 11.5, 0.5));
-  assert.equal(contraption.scriptStatus, 'running');
-  assert.ok(controller.selectorRange?.pointA, 'warning alone does not mutate selection');
   clickEntity(controller, contraption, 'arm', { x: 0, y: 1, z: 0 }, new THREE.Vector3(0.5, 11.5, 0.5));
   assert.equal(contraption.scriptStatus, 'stopped');
   assert.equal(controller.selectorRange, null, 'stale box progress is discarded');
@@ -241,7 +244,7 @@ test('starting an entity invalidates an internal selection and stale destructive
   assert.equal(manager.entitySelection, null, 'a rejected stale selection is discarded');
 });
 
-test('clicking an entity during an active world box is rejected with toast and clears selection', () => {
+test('clicking a running entity during an active world box stops it without selecting an endpoint', () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, {}, null, null);
   const { contraption } = makeEntityWithChildren();
@@ -256,26 +259,42 @@ test('clicking an entity during an active world box is rejected with toast and c
   controller.handleLeftClick();
   assert.ok(manager.selectionCornerA, 'point 1 should be set');
 
-  // Second click on an entity is rejected.
+  // The entity click stops it instead of completing the world box.
   clickEntity(controller, contraption, 'root', { x: 0, y: 0, z: 0 }, new THREE.Vector3(0.8, 10.8, 0.7));
-  assert.equal(manager.selectionCornerA, null, 'selection should be cleared on invalid entity endpoint');
+  assert.equal(manager.selectionCornerA, null, 'selection should be cleared when stopping');
   assert.equal(manager.selectionCornerB, null, 'point 2 should not be set');
-  assert.ok(toasts.some(m => m.includes('starts in the world cannot end on an entity')), 'toast should warn about invalid endpoint');
+  assert.equal(contraption.scriptStatus, 'stopped');
+  assert.ok(toasts.some(m => m === 'Entity #1 stopped'), 'toast confirms Stop');
   assert.equal(controller.selectedSubtree, null, 'whole-entity selection should not activate');
 });
 
-test('R on a running entity consumes its retry to stop, and copies only after A/B', () => {
+test('a stopped entity is still rejected as the endpoint of a world-space selection', () => {
+  const { contraption, scene } = makeEntityWithChildren();
+  contraption.stopAllNodeScripts();
+  const manager = new ContraptionManager(scene, {}, null, null);
+  manager.registerContraption(contraption);
+  const controller = makeSelectorController({ manager });
+  manager.setCornerA({ x: 0, y: 10, z: 0 });
+  clickEntity(controller, contraption, 'root', { x: 0, y: 0, z: 0 }, new THREE.Vector3(0.8, 10.8, 0.7));
+  assert.equal(manager.selectionCornerA, null);
+  assert.equal(manager.selectionCornerB, null);
+  assert.equal(controller.selectedSubtree, null);
+  assert.equal(contraption.scriptStatus, 'stopped');
+  assert.ok(controller.__toasts.some(m => m.includes('cannot end on an entity')));
+  assert.equal(controller.__toasts.includes('Entity #1 stopped'), false, 'a stopped entity is not stopped again');
+});
+
+test('R on a running entity immediately stops it, and copies only after A/B', () => {
   const { contraption, scene } = makeEntityWithChildren();
   const manager = new ContraptionManager(scene, {}, null, null);
   manager.registerContraption(contraption);
   const controller = makeSelectorController({ manager });
   contraption.scriptStatus = 'running';
 
-  clickEntity(controller, contraption, 'root', { x: 0, y: 0, z: 0 }, new THREE.Vector3(0.5, 10.5, 0.5));
-  assert.equal(contraption.scriptStatus, 'running');
-
+  controller.hoveredContraptionHit = { contraption, entityId: 'root', cell: { x: 0, y: 0, z: 0 },
+    point: new THREE.Vector3(0.5, 10.5, 0.5) };
   controller.copySelectionToInventory(); // R-key path.
-  assert.equal(controller.inventorySlots[0], null, 'retry must not copy');
+  assert.equal(controller.inventorySlots[0], null, 'the Stop interaction must not copy');
   assert.equal(contraption.scriptStatus, 'stopped');
   controller.copySelectionToInventory();
   assert.equal(controller.inventorySlots[0], null, 'stopping alone is not confirmed A/B');

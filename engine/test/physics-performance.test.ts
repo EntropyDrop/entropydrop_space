@@ -62,6 +62,31 @@ test('collision queries reuse one stable result until the entity pose changes', 
   assert.equal(movedSamples[0].x, samples[0].x + 3);
 });
 
+test('local player sweeps reuse transformed candidates and invalidate them on pose or geometry changes', () => {
+  const entity = makeGrid(2, 1, 2);
+  const bounds = { minX: -1, maxX: 3, minY: 29, maxY: 32, minZ: -1, maxZ: 3 };
+  const build = entity.buildCollisionWorldAABBs.bind(entity);
+  let transformed = 0;
+  entity.buildCollisionWorldAABBs = entries => { transformed += entries.length; return build(entries); };
+  const first = entity.queryCollisionWorldAABBs(bounds);
+  for (let pass = 0; pass < 4; pass++) {
+    const repeated = entity.queryCollisionWorldAABBs(bounds);
+    assert.equal(repeated.length, first.length);
+    repeated.forEach((box, i) => assert.equal(box, first[i]));
+  }
+  assert.equal(transformed, 4, 'each nearby authored voxel is transformed only once per pose');
+  entity.position.y += 1;
+  entity.updateTransform();
+  const moved = entity.queryCollisionWorldAABBs(bounds);
+  assert.notEqual(moved[0], first[0]);
+  assert.equal(moved[0].currentMinY, first[0].currentMinY + 1);
+  entity.blocks.splice(0, 1);
+  entity.rebuildAfterBlockChange();
+  const edited = entity.queryCollisionWorldAABBs(bounds);
+  assert.equal(edited.length, 3);
+  assert.notEqual(edited[0], moved[1]);
+});
+
 test('surface terrain optimization keeps interior boxes for deep-penetration recovery', () => {
   const solid = makeGrid(3, 3, 3);
   const embedded = makeGrid(1, 1, 1);

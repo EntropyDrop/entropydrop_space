@@ -35,8 +35,10 @@ def post(client, world, headers, payload):
     return client.post(f'/space/api/v2/worlds/{world}/blocksets/build', headers=headers, json=payload)
 
 
-def test_build_works_without_browser_presence_and_updates_live_allowance(client, db):
+@pytest.mark.parametrize('is_admin', [False, True])
+def test_build_works_without_browser_presence_and_updates_live_allowance(client, db, is_admin):
     owner, world, headers, _ = setup(client, db)
+    owner.is_admin = is_admin
     db.query(models.SpacePlayerSnapshot).filter_by(user_id=owner.id).delete()
     db.commit()
     payload = body()

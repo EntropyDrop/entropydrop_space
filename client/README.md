@@ -4,6 +4,26 @@
 
 entityAPI is the runtime interface called by entity code through `self` / `ctx`; spaceAPI is the HTTP interface used by agents and clients.
 
+World entities have overhead nameplates: name, playback status, browser executor
+name, or a purple `Server hosting` badge. A live browser lease is distinguished
+from a start request waiting for its owner's browser. The `…` button opens the
+same entity menu with every tool; locked input hit-tests the crosshair before
+tool actions. Menu commands target the clicked entity, not later hover state.
+Actions include Start/Stop, whole-entity copy to the backpack, programming, root
+block Select All, ID copy, and confirmed whole-entity deletion. Whole-entity copy
+does not require a Selector A/B range and does not change the source's playback;
+block selection actions still require confirmed A/B. Online deletion waits for
+the backend acknowledgement and leaves the entity intact on failure. Existing
+ownership restrictions and the paid-hosting availability switch remain enforced.
+Menu actions retain text rows with leading icons and shortened captions, descriptive
+hover titles and accessible labels. Nameplate playback uses filled green play/red
+stop icons matching the code editor to the right of the entity name.
+The browser executor name appears as a smaller second line below the entity name;
+the playback icon remains on the right and hosting retains its purple badge.
+The delete confirmation retains its explicit irreversible-action warning.
+Nameplates share the world render pass's bent camera and interpolated component
+transforms, caching authored extents rather than transforming every voxel per frame.
+
 ## Documentation map
 
 | Document | Contents |
@@ -188,10 +208,10 @@ Changing the selection shape immediately updates selected cells, highlights,
 counts, and action availability while preserving the A/B range; switching back
 to Box restores that range without changing world or entity geometry.
 Selection and manual geometry edits require a stopped entity: the first attempt
-on a running entity warns, and another attempt on the same entity within one
-second only stops it. It does not also perform the attempted edit or selection.
-Online entities still require owner control permission and a successful server
-stop acknowledgement before editing is enabled.
+on a running entity immediately stops it and shows a notification. That
+interaction does not also perform the attempted edit or selection. Online
+entities request Stop immediately and remain non-editable until the server
+acknowledges it; owner-control permissions still apply.
 
 The bundled local Agent prototype currently understands English hover, follow,
 orbit, launch, spin, attitude-stabilization, and stop intents.

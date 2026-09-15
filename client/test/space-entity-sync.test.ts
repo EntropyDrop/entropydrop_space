@@ -177,6 +177,78 @@ test('the owner lease runs one browser entity at its exact quarter-turn construc
   assert.ok(created[0].position.distanceTo(new THREE.Vector3(1, 32, 1)) < 1e-12);
 });
 
+test('executor identity and lease expiry reach active mirrors and are excluded from authored snapshot uploads', async () => {
+  const expiry = new Date(Date.now() + 12_000).toISOString();
+  const { sync, created } = harness('other', { owner_name: 'Alice', executor_name: 'Alice', execution_lease_expires_at: expiry });
+  await sync.poll();
+  assert.equal(created[0].serverOwnerName, 'Alice');
+  assert.equal(created[0].serverExecutorName, 'Alice');
+  assert.equal(created[0].serverExecutionLeaseExpiresAt, expiry);
+  const payload = (sync as any).snapshotPayload({ ...created[0], position: [1, 2, 3] });
+  for (const key of ['serverOwnerName', 'serverExecutorName', 'serverExecutionLeaseExpiresAt']) assert.equal(key in payload.snapshot, false);
+  const local = harness('owner-1', { owner_name: 'Alice' });
+  await local.sync.poll();
+  assert.equal(local.created[0].serverExecutorName, 'Alice', 'a freshly claimed lease uses the verified owner name immediately');
+  assert.ok(Date.parse(local.created[0].serverExecutionLeaseExpiresAt) > Date.now());
+});
+
+test('menu deletion surfaces errors, releases pending-deletion suppression, and permits retry', async () => {
+  const { sync } = harness('owner-1');
+  let attempts = 0;
+  (sync as any).client.delete = async () => { if (++attempts === 1) throw new Error('offline'); };
+  const id = record().id;
+  await assert.rejects(() => (sync as any).queueDelete(id, true), /offline/);
+  assert.equal((sync as any).pendingDeletes.has(id), false);
+  assert.equal((sync as any).deletedEntityIds.has(id), false);
+  await (sync as any).queueDelete(id, true);
+  assert.equal(attempts, 2);
+  assert.equal((sync as any).deletedEntityIds.has(id), true);
+});
+
+test('successful deletion rejects stale AOI records and in-flight definition downloads instead of resurrecting entities', async () => {
+  const { sync, created } = harness('owner-1');
+  let release: (bytes: Uint8Array) => void;
+  (sync as any).client.getDefinition = () => new Promise(resolve => { release = resolve; });
+  (sync as any).client.delete = async () => {};
+  const entity = record();
+  const pendingLoad = (sync as any).applyRecord(entity);
+  await (sync as any).queueDelete(entity.id, true);
+  release!(definition);
+  await pendingLoad;
+  assert.equal(created.length, 0);
+  await (sync as any).applyRecord(entity);
+  assert.equal(created.length, 0);
+});
+
+test('Stop waits for backend acknowledgement and failed control preserves the current live lease and intent', async () => {
+  const { sync, created } = harness('owner-1', { can_edit: true });
+  await sync.poll();
+  const target = created[0];
+  const expiry = (sync as any).leasedUntil.get(target.publicId);
+  let reject: (error: Error) => void;
+  (sync as any).client.setRunState = () => new Promise((_resolve, fail) => { reject = fail; });
+  const request = (sync as any).setRunState(target, 'stopped');
+  assert.equal(target.serverDesiredRunState, 'running');
+  assert.equal((sync as any).leasedUntil.get(target.publicId), expiry);
+  assert.equal(target.isPhysicsSimulationEnabled(), true);
+  reject!(new Error('offline'));
+  await assert.rejects(() => request, /offline/);
+  assert.equal(target.serverDesiredRunState, 'running');
+  assert.equal((sync as any).leasedUntil.get(target.publicId), expiry);
+});
+
+test('an obsolete Stop reply cannot delete a newer Start execution lease', async () => {
+  const { sync, created } = harness('owner-1', { can_edit: true });
+  await sync.poll();
+  const target = created[0];
+  const expiry = (sync as any).leasedUntil.get(target.publicId);
+  (sync as any).latestRevisions.set(target.publicId, 3);
+  (sync as any).client.setRunState = async () => ({ ...record(), revision: 2, desired_run_state: 'stopped' });
+  await (sync as any).setRunState(target, 'stopped');
+  assert.equal(target.serverDesiredRunState, 'running');
+  assert.equal((sync as any).leasedUntil.get(target.publicId), expiry);
+});
+
 test('a non-owner browser keeps the shared entity in stopped collision state', async () => {
   const { sync, created, actions } = harness('observer-1');
 

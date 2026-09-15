@@ -19,6 +19,12 @@ test('disabled or mixed component switches never create a third entity state', (
   assert.equal(store.getGlobalPlayback(), 'stop');
 });
 
+test('script-free physics playback agrees with the world nameplate', () => {
+  const store: any = new SpaceUiStore();
+  store.snapshot.editingContraption = { scriptStatus: 'stopped', isPhysicsSimulationEnabled: () => true };
+  assert.equal(store.getGlobalPlayback(), 'play');
+});
+
 test('editor start/stop waits for the server and does not apply a local-only change', async () => {
   const store: any = new SpaceUiStore();
   const target = { serverManaged: true, serverDesiredRunState: 'stopped', serverExecutesLocally: false };

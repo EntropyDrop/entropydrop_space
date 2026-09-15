@@ -80,8 +80,11 @@ test('brush right-click ignores non-entity (world terrain) and does not start se
 test('brush right-click on running entity does not start selection', () => {
   const toasts: string[] = [];
   const runningContraption = {
+    id: 1,
+    blocks: [],
     scriptStatus: 'running',
-    canEditInternalSelection: () => false
+    stopAllNodeScripts() { this.scriptStatus = 'stopped'; },
+    canEditInternalSelection() { return this.scriptStatus === 'stopped'; }
   };
   const controller = makeController({
     hoveredContraptionHit: {
@@ -95,7 +98,8 @@ test('brush right-click on running entity does not start selection', () => {
 
   controller.handleRightClick(null);
   assert.equal(controller.brushSelection, null, 'must not start selection on running entity');
-  assert.ok(toasts.some(t => t.includes('within 1 second')));
+  assert.equal(runningContraption.scriptStatus, 'stopped');
+  assert.ok(toasts.some(t => t === 'Entity #1 stopped'));
 });
 
 test('brush right-click first click on stopped entity picks corner 1 without showing component bounding box', () => {

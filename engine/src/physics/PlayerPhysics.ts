@@ -63,6 +63,12 @@ export class PlayerPhysics {
   ridingContraption: any;
   ridingBodyId: string | null;
   lastRidingPlatformPos: any;
+  private ridingPlatformPose: { contraption: any; bodyId: string; matrix: THREE.Matrix4 } | null = null;
+  private ridingInverseMatrix = new THREE.Matrix4();
+  private ridingTargetPosition = new THREE.Vector3();
+  private ridingDisplacement = new THREE.Vector3();
+  private currentCollisionBoxes = new WeakMap<object, any>();
+  private observedColliderPoses = new WeakMap<object, Map<string, THREE.Matrix4>>();
 
   constructor(world, contraptionManager = null) {
     this.world = world;
@@ -191,22 +197,10 @@ export class PlayerPhysics {
     this.capturePreviousPosition();
     if (dt > 0.1) dt = 0.1;
 
-    // 1. Moving Platform Attachment (Ride on moving contraptions smoothly)
-    if (this.ridingContraption && this.isOnGround) {
-      if (this.contraptionManager && this.contraptionManager.contraptions.includes(this.ridingContraption)) {
-        const platVel = this.getContraptionBodyPointVelocity(
-          this.ridingContraption,
-          entityBodyId(this.ridingContraption, this.ridingBodyId),
-          this.position
-        );
-        this.position.x += platVel.x * dt;
-        this.position.y += platVel.y * dt;
-        this.position.z += platVel.z * dt;
-      } else {
-        this.ridingContraption = null;
-        this.ridingBodyId = null;
-      }
-    }
+    // Follow the solved contact-point transform, not velocity * dt. Collision
+    // push-outs and scripted rotations can change the pose without matching
+    // velocity; predicting another step also doubles platform motion.
+    this.followRidingPlatformPose();
 
     // 2. Calculate movement vector aligned with camera yaw
     const forward = new THREE.Vector3(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw)).normalize();
@@ -333,9 +327,179 @@ export class PlayerPhysics {
     this.resolveContraptionHorizontalSweep(this.getContraptionCollisionBoxes(nearbyContraptions,
       this.sweptBounds(previousZAABB, this.getAABB())), 'z', dz, previousZAABB);
 
-    // Recover from an entity that started the frame overlapping the player.
-    // This routine only moves in X/Z, so it cannot become an auto-step system.
+    // Recover moving-entity contacts. Side penetration still resolves only in
+    // X/Z; riding and a real upward face crossing are separate from auto-step.
     this.resolveDynamicContraptionOverlaps(nearbyContraptions);
+    if (!this.isOnGround) {
+      this.ridingContraption = null;
+      this.ridingBodyId = null;
+    }
+    this.captureRidingPlatformPose();
+  }
+
+  private captureRidingPlatformPose() {
+    const contraption = this.ridingContraption;
+    const bodyId = entityBodyId(contraption, this.ridingBodyId);
+    const group = contraption?.entityNodes?.get?.(bodyId)?.group;
+    if (!contraption || !this.isOnGround || !group) {
+      this.ridingPlatformPose = null;
+      return;
+    }
+    group.updateWorldMatrix(true, false);
+    if (this.ridingPlatformPose?.contraption !== contraption || this.ridingPlatformPose.bodyId !== bodyId) {
+      this.ridingPlatformPose = { contraption, bodyId, matrix: group.matrixWorld.clone() };
+    } else {
+      this.ridingPlatformPose.matrix.copy(group.matrixWorld);
+    }
+  }
+
+  private followRidingPlatformPose() {
+    const contraption = this.ridingContraption;
+    if (!contraption || !this.isOnGround || this.isFlying) {
+      this.ridingPlatformPose = null;
+      return false;
+    }
+    if (!this.contraptionManager?.contraptions?.includes(contraption)) {
+      this.ridingContraption = null;
+      this.ridingBodyId = null;
+      this.ridingPlatformPose = null;
+      this.isOnGround = false;
+      return false;
+    }
+    const bodyId = entityBodyId(contraption, this.ridingBodyId);
+    if (contraption.isNodeCollisionEnabled?.(bodyId) === false) {
+      this.ridingContraption = null;
+      this.ridingBodyId = null;
+      this.ridingPlatformPose = null;
+      this.isOnGround = false;
+      return false;
+    }
+    const group = contraption.entityNodes?.get?.(bodyId)?.group;
+    const previous = this.ridingPlatformPose;
+    if (!group || previous?.contraption !== contraption || previous.bodyId !== bodyId) {
+      this.captureRidingPlatformPose();
+      return false;
+    }
+    group.updateWorldMatrix(true, false);
+    if (previous.matrix.equals(group.matrixWorld)) return false;
+    this.ridingTargetPosition.copy(this.position)
+      .applyMatrix4(this.ridingInverseMatrix.copy(previous.matrix).invert())
+      .applyMatrix4(group.matrixWorld);
+    this.ridingDisplacement.subVectors(this.ridingTargetPosition, this.position);
+    previous.matrix.copy(group.matrixWorld);
+    if (this.ridingDisplacement.lengthSq() <= 1e-24) return false;
+
+    // Platform carriage must still respect ceilings, terrain walls and other
+    // entities. Do not collide against the carrier's own previous swept volume.
+    this.moveWithExternalDisplacement(this.ridingDisplacement, contraption);
+    return true;
+  }
+
+  private refreshRidingSupport() {
+    if (!this.ridingContraption || !this.isOnGround) return;
+    const aabb = this.getAABB();
+    const bounds = { ...aabb, minY: aabb.minY - COLLISION_EPSILON, maxY: aabb.minY + COLLISION_EPSILON };
+    const supported = this.getContraptionCollisionBoxes([this.ridingContraption], bounds).some(box => (
+      Math.abs(box.maxY - aabb.minY) <= COLLISION_EPSILON
+      && this.intervalsOverlap(aabb.minX, aabb.maxX, box.minX, box.maxX)
+      && this.intervalsOverlap(aabb.minZ, aabb.maxZ, box.minZ, box.maxZ)
+    ));
+    if (!supported) {
+      this.isOnGround = false;
+      this.ridingContraption = null;
+      this.ridingBodyId = null;
+      this.ridingPlatformPose = null;
+    }
+  }
+
+  private moveWithExternalDisplacement(displacement: THREE.Vector3, carrier) {
+    const others = this.getNearbyContraptions().filter(entity => entity !== carrier);
+    for (const axis of ['y', 'x', 'z'] as const) {
+      const delta = displacement[axis];
+      if (Math.abs(delta) <= 1e-12) continue;
+      const before = this.getAABB();
+      this.position[axis] += delta;
+      const bounds = this.sweptBounds(before, this.getAABB());
+      const blocks = this.getIntersectingSolidBlocks(bounds);
+      if (axis === 'y') {
+        if (!this.resolveWorldVerticalCollision(blocks, delta, before)) {
+          this.resolveContraptionVerticalSweep(this.getContraptionCollisionBoxes(others, bounds), delta, before);
+        }
+      } else {
+        this.resolveWorldHorizontalCollision(blocks, axis, delta);
+        this.resolveContraptionHorizontalSweep(this.getContraptionCollisionBoxes(others, bounds), axis, delta, before);
+      }
+    }
+  }
+
+  /** Keep moving-entity CCD separate from current-pose overlap recovery. The
+   * swept broadphase envelope is never a persistent floor or a solid wall. */
+  private resolveMovingContraptionSweeps(contraptions) {
+    let moved = false;
+    for (const contraption of contraptions) {
+      let observed = this.observedColliderPoses.get(contraption);
+      if (!observed) this.observedColliderPoses.set(contraption, observed = new Map());
+      const movingNodes = new Set<string>();
+      for (const node of contraption.entityNodes?.values?.() || []) {
+        node.group.updateWorldMatrix(true, false);
+        const previous = observed.get(node.id);
+        if (previous && node.previousWorldMatrix && !previous.equals(node.group.matrixWorld)
+          && previous.equals(node.previousWorldMatrix)) movingNodes.add(node.id);
+        if (previous) previous.copy(node.group.matrixWorld);
+        else observed.set(node.id, node.group.matrixWorld.clone());
+      }
+      if (contraption === this.ridingContraption || movingNodes.size === 0) continue;
+      const candidates = contraption.queryCollisionWorldAABBs?.(this.getAABB()) || [];
+      for (const box of candidates) {
+        if (!movingNodes.has(box.entityId)) continue;
+        const aabb = this.getAABB();
+        let entry = -Infinity, exit = Infinity;
+        let hitAxis: 'x' | 'y' | 'z' | null = null;
+        let hitSign = 0;
+        for (const axis of ['x', 'y', 'z'] as const) {
+          const suffix = axis.toUpperCase();
+          const previousMin = box[`previousMin${suffix}`], previousMax = box[`previousMax${suffix}`];
+          const currentMin = box[`currentMin${suffix}`], currentMax = box[`currentMax${suffix}`];
+          // Linear face sweeps are exact for translations. Rotating intrusions
+          // continue through current-pose overlap recovery, not inflated CCD.
+          if (Math.abs((currentMax - currentMin) - (previousMax - previousMin)) > COLLISION_EPSILON) {
+            exit = -Infinity;
+            break;
+          }
+          const delta = currentMin - previousMin;
+          const min = aabb[`min${suffix}`], max = aabb[`max${suffix}`];
+          if (Math.abs(delta) <= COLLISION_EPSILON) {
+            if (!this.intervalsOverlap(min, max, previousMin, previousMax)) { exit = -Infinity; break; }
+            continue;
+          }
+          const near = (delta > 0 ? min - previousMax : max - previousMin) / delta;
+          const far = (delta > 0 ? max - previousMin : min - previousMax) / delta;
+          if (near > entry) { entry = near; hitAxis = axis; hitSign = Math.sign(delta); }
+          exit = Math.min(exit, far);
+        }
+        if (!hitAxis || entry < 0 || entry > 1 || entry > exit) continue;
+        const normal = new THREE.Vector3();
+        normal[hitAxis] = hitSign;
+        const surface = box[`${hitSign > 0 ? 'currentMax' : 'currentMin'}${hitAxis.toUpperCase()}`];
+        const contactPoint = this.position.clone();
+        contactPoint[hitAxis] = surface;
+        const closingSpeed = this.getContraptionBodyPointVelocity(contraption,
+          entityBodyId(contraption, box.bodyId ?? box.entityId), contactPoint).sub(this.velocity).dot(normal);
+        this.applyPlayerContactImpulse(box, normal.clone().negate(), closingSpeed, contactPoint);
+        const target = surface + (hitAxis === 'y'
+          ? (hitSign > 0 ? 0 : -(this.isCrouching ? 1.45 : this.height))
+          : hitSign * this.width / 2);
+        this.moveWithExternalDisplacement(normal.multiplyScalar((target - this.position[hitAxis]) * hitSign), contraption);
+        this.velocity[hitAxis] = 0;
+        if (hitAxis === 'y' && hitSign > 0) {
+          this.isOnGround = true;
+          this.ridingContraption = contraption;
+          this.ridingBodyId = entityBodyId(contraption, box.bodyId ?? box.entityId);
+        }
+        moved = true;
+      }
+    }
+    return moved;
   }
 
   getNearbyContraptions() {
@@ -369,7 +533,19 @@ export class PlayerPhysics {
       const candidates = bounds && typeof contraption.queryCollisionWorldAABBs === 'function'
         ? contraption.queryCollisionWorldAABBs(bounds)
         : contraption.getCollisionWorldAABBs();
-      for (const box of candidates) boxes.push(box);
+      // Swept bounds are broadphase candidates, not solid volume. Resolving
+      // against their previous/current union creates ghost floors and walls.
+      for (const box of candidates) {
+        let current = this.currentCollisionBoxes.get(box);
+        if (!current) {
+          current = { ...box,
+            minX: box.currentMinX ?? box.minX, maxX: box.currentMaxX ?? box.maxX,
+            minY: box.currentMinY ?? box.minY, maxY: box.currentMaxY ?? box.maxY,
+            minZ: box.currentMinZ ?? box.minZ, maxZ: box.currentMaxZ ?? box.maxZ };
+          this.currentCollisionBoxes.set(box, current);
+        }
+        boxes.push(current);
+      }
     }
     return boxes;
   }
@@ -550,7 +726,11 @@ export class PlayerPhysics {
       contactPoint
     );
     const impulseDirection = new THREE.Vector3(0, dy < 0 ? -1 : 1, 0);
-    const relativeClosingSpeed = this.velocity.clone().sub(bodyVelocity).dot(impulseDirection);
+    const attached = this.ridingPlatformPose?.contraption === hit.contraption
+      && this.ridingPlatformPose.bodyId === entityBodyId(hit.contraption, hit.box.bodyId ?? hit.box.entityId);
+    // An attached rider's velocity is already relative to the transported
+    // platform pose. Subtracting carrier velocity again invents extra impacts.
+    const relativeClosingSpeed = (attached ? this.velocity : this.velocity.clone().sub(bodyVelocity)).dot(impulseDirection);
     this.applyPlayerContactImpulse(hit.box, impulseDirection, relativeClosingSpeed, contactPoint);
 
     if (dy < 0) {
@@ -558,6 +738,7 @@ export class PlayerPhysics {
       this.isOnGround = true;
       this.ridingContraption = hit.contraption;
       this.ridingBodyId = entityBodyId(hit.contraption, hit.box.bodyId ?? hit.box.entityId);
+      this.captureRidingPlatformPose();
     } else {
       const h = this.isCrouching ? 1.45 : this.height;
       this.position.y = hit.surface - h;
@@ -620,13 +801,14 @@ export class PlayerPhysics {
 
   /**
    * Resolve overlap caused by a moving entity after the player's own sweep.
-   * There is intentionally no Y candidate here: side contact may push the
+   * There is intentionally no Y side-penetration candidate: side contact may push the
    * player sideways, but can never act like automatic climbing or teleport up.
    */
   resolveDynamicContraptionOverlaps(contraptions = this.getNearbyContraptions()) {
     if (this.isFlying || contraptions.length === 0) return false;
 
-    let moved = false;
+    let moved = this.followRidingPlatformPose();
+    moved = this.resolveMovingContraptionSweeps(contraptions) || moved;
 
     for (let iteration = 0; iteration < 6; iteration++) {
       const aabb = this.getAABB();
@@ -639,10 +821,11 @@ export class PlayerPhysics {
       // touching velocity, so the player's velocity-follow can lag a few mm
       // into the top face. Lift the player back onto the face and keep riding
       // instead of shoving them sideways off the platform.
-      const standingBox = overlaps.find(box =>
+      const standingBox = overlaps.filter(box =>
         box.contraption === this.ridingContraption &&
+        entityBodyId(box.contraption, box.bodyId ?? box.entityId) === entityBodyId(this.ridingContraption, this.ridingBodyId) &&
         aabb.minY >= box.maxY - STAND_TOLERANCE
-      );
+      ).sort((a, b) => b.maxY - a.maxY)[0];
       if (standingBox) {
         this.position.y = standingBox.maxY;
         this.velocity.y = 0;
@@ -712,6 +895,8 @@ export class PlayerPhysics {
       moved = true;
     }
 
+    this.refreshRidingSupport();
+    this.captureRidingPlatformPose();
     return moved;
   }
 

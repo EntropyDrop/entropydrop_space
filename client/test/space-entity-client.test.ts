@@ -15,6 +15,19 @@ const definitionDigest = '0caed08c0cdfe078464c77fbc4032b985d9757db85e8fac65733d5
 const snapshot = new TextEncoder().encode('{"position":[1,32,2]}');
 const snapshotDigest = '8ac8c3d59ef8d0cb5704fde86de4e635578b7f9fa8f32536d2fdf9572e3df2c2';
 
+test('entity identity display fields accept older servers, validate names, and reject invalid expiry', async () => {
+  let record: any = entity();
+  const client = new SpaceEntityClient('https://api.test', 'token', 'world-1',
+    (async () => new Response(JSON.stringify({ items: [record], limit: 256, truncated: false }))) as typeof fetch);
+  assert.equal((await client.list(1, 2, 100)).items.length, 1);
+  record = entity({ owner_name: 'Alice', executor_name: 'Alice', execution_lease_expires_at: '2026-09-15T10:00:00Z' });
+  assert.equal((await client.list(1, 2, 100)).items[0].executor_name, 'Alice');
+  for (const fields of [{ owner_name: {} }, { executor_name: 'x'.repeat(101) }, { execution_lease_expires_at: 'bad' }]) {
+    record = entity(fields);
+    await assert.rejects(() => client.list(1, 2, 100), /Invalid Space world entity response/);
+  }
+});
+
 function entity(overrides: Record<string, unknown> = {}) {
   return {
     id: '3cd7daba-d196-44e8-a433-cf139258f617',

@@ -1370,6 +1370,91 @@ button.palette-title:hover {
 
 /* Selector right-click menu. The transparent layer makes outside-click close
    deterministic while the compact panel keeps the world visible behind it. */
+.entity-nameplates {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  pointer-events: none;
+}
+
+.entity-nameplate {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(480px, calc(100vw - 24px));
+  padding: 3px 3px 3px 10px;
+  transform: translate(-50%, -100%);
+  background: rgba(14, 16, 22, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+  color: #f5f5fa;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.entity-nameplate-labels { display: flex; flex-direction: column; gap: 1px; min-width: 20px; }
+.entity-nameplate-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; line-height: 22px; }
+.entity-nameplate-executor { overflow: hidden; text-overflow: ellipsis; color: #b7becb; font-size: 10px; line-height: 13px; }
+.entity-run-status { display: inline-flex; align-items: center; gap: 4px; min-width: 16px; font-size: 11px; color: #b7becb; overflow: hidden; }
+.entity-run-status svg { flex: 0 0 auto; }
+.entity-playback-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 22px; }
+.entity-playback-icon.play { color: var(--accent-active); background: rgba(60, 133, 39, 0.3); }
+.entity-playback-icon.stop { color: #f87171; background: rgba(153, 27, 27, 0.3); }
+.entity-run-status.hosted .entity-playback-icon { color: inherit; background: rgba(139, 92, 246, 0.18); }
+.entity-nameplate .entity-run-status { pointer-events: auto; }
+.entity-run-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-run-status.running { color: #8ae5b0; }
+.entity-run-status.waiting { color: #f2ce7a; }
+.entity-run-status.hosted { color: #c5a4ff; }
+.entity-menu-trigger {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+  font-size: 21px;
+  cursor: pointer;
+}
+.entity-menu-trigger:hover { background: rgba(255, 255, 255, 0.24); }
+.selector-context-menu.entity-context-menu { border-top-color: #b794ff; }
+.entity-context-menu .selector-context-header > div { min-width: 0; }
+.entity-context-menu .selector-context-title { overflow-wrap: anywhere; }
+.entity-context-menu .selector-context-details { overflow-wrap: anywhere; }
+.entity-context-actions { display: grid; gap: 5px; margin-top: 10px; }
+.entity-context-menu .entity-context-actions button[role="menuitem"] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  min-width: 44px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.entity-context-menu .entity-context-actions button[role="menuitem"]:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.entity-context-menu .entity-context-actions button[role="menuitem"]:disabled { opacity: 0.4; cursor: default; }
+.entity-context-menu .entity-context-actions button[role="menuitem"] svg { flex: 0 0 auto; }
+.entity-context-menu .entity-context-actions button[role="menuitem"].entity-action-start { color: var(--accent-active); }
+.entity-context-menu .entity-context-actions button[role="menuitem"].entity-action-stop { color: #f87171; }
+.entity-context-actions > button.danger { grid-column: 1 / -1; }
+.entity-context-menu .entity-context-actions button[role="menuitem"].danger { color: #ffa4a4; border-color: rgba(255, 100, 100, 0.3); }
+.entity-delete-confirm { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; font-size: 12px; color: #ffa4a4; padding-top: 6px; }
+.entity-delete-confirm > span { grid-column: 1 / -1; }
+.entity-context-actions button:focus-visible, .entity-menu-trigger:focus-visible { outline: 2px solid #c5a4ff; outline-offset: 2px; }
+
 .selector-context-menu-layer {
   position: fixed;
   inset: 0;
@@ -1382,7 +1467,6 @@ button.palette-title:hover {
   width: min(360px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
   overflow-y: auto;
-  transform: translate(-50%, -50%);
   padding: 10px;
   background: rgba(18, 18, 21, 0.97);
   border: 1px solid var(--border-medium);

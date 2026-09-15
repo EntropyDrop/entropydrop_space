@@ -11,6 +11,8 @@ const ENTITY_BROADPHASE_CELL_SIZE = 32;
 const ENTITY_SWEEP_THRESHOLD = 0.05;
 const TERRAIN_SWEEP_THRESHOLD = 0.1;
 const ENTITY_CONTACT_ITERATIONS = 10;
+const TERRAIN_CONTACT_ITERATIONS = 10;
+const RESTING_TERRAIN_CONTACT_ITERATIONS = 32;
 const EXACT_TERRAIN_CONTACT_SLOP = 0.005;
 // Entity contacts share the terrain resting rules: separation leaves one
 // millimetre of contact slop instead of over-pushing, and residual normal
@@ -29,12 +31,24 @@ const TERRAIN_FACE_NORMALS = [
   new THREE.Vector3(0, 0, 1)
 ];
 
+type RestingTerrainSupport = {
+  shape: any;
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+  normal: THREE.Vector3;
+  points: THREE.Vector3[];
+  manifold: THREE.Vector3[];
+  cells: any[];
+  parts: Array<{ node: any; matrix: THREE.Matrix4 | null; enabled: boolean }>;
+};
+
 export class ContraptionPhysics {
   private world: World;
   private sleep: ContraptionSleep;
   private gravity: THREE.Vector3;
   private collisionIndexes = new WeakMap<any[], CollisionBoxIndex<any>>();
   private collisionBounds = new WeakMap<any[], ReturnType<typeof collisionBoundsOf>>();
+  private restingTerrainSupports = new WeakMap<object, RestingTerrainSupport>();
 
   physicsBoxes(contraption) {
     return contraption.getPhysicsCollisionWorldAABBs?.() || contraption.getCollisionWorldAABBs?.() || [];
@@ -226,8 +240,45 @@ export class ContraptionPhysics {
     }
     body.velocity.multiplyScalar(Math.pow(body.linearDamping, dt * 60));
     body.angularVelocity.multiplyScalar(Math.pow(body.angularDamping, dt * 60));
+    // Solve an existing resting face before advancing the pose. Otherwise an
+    // off-centre rider's weight rotates a flat body into the floor before the
+    // ground can oppose that load, turning standing contact into repeated impacts.
+    this.solveRestingTerrainSupport(contraption, body, dt);
     body.position.addScaledVector(body.velocity, dt);
     this.rotateBody(body, body.angularVelocity.clone().multiplyScalar(dt));
+  }
+
+  private solveRestingTerrainSupport(contraption, body, dt) {
+    const support = this.restingTerrainSupports.get(body);
+    if (!support) return;
+    const valid = support.shape === contraption.collisionEntries
+      && support.parts.every(part => contraption.isNodeCollisionEnabled(part.node.id) === part.enabled
+        && this.contactBodyFor(contraption, contraption.getRigidBody(part.node.id)) === body
+        && (!part.matrix || part.node.group.matrix.equals(part.matrix)))
+      && support.position.distanceTo(body.position)
+        + support.quaternion.angleTo(body.quaternion) * Math.max(0.5, contraption.boundingRadius || 0)
+        <= EXACT_TERRAIN_CONTACT_SLOP
+      && support.manifold.every((point, i) => {
+        // Verify the actual supporting cells, including micro geometry, even
+        // in hosts without terrain revision notifications. Never reuse a removed
+        // floor, changed joint/shape, or pose beyond the contact slop.
+        const current = this.terrainCellAtPoint(point.clone().addScaledVector(support.normal, -0.002));
+        const previous = support.cells[i];
+        return current && previous && ['minX', 'maxX', 'minY', 'maxY', 'minZ', 'maxZ']
+          .every(axis => current[axis] === previous[axis]);
+      });
+    if (!valid) {
+      this.restingTerrainSupports.delete(body);
+      return;
+    }
+    const relativeVelocity = body.velocity.clone();
+    const impulse = this.solveTerrainContact(body, support.normal, support.manifold[0], 0,
+      support.points, dt, support.manifold, false, RESTING_TERRAIN_CONTACT_ITERATIONS);
+    contraption.recordScriptContact?.({
+      kind: 'terrain', selfNodeId: body.id, otherEntityId: null, otherNodeId: null,
+      playerId: null, position: support.manifold[0].toArray(), normal: support.normal.toArray(),
+      relativeVelocity: relativeVelocity.toArray(), penetration: 0, impulse
+    });
   }
 
   bodyAnchorWorld(body, localAnchor) {
@@ -1717,6 +1768,70 @@ export class ContraptionPhysics {
     return { velocity, normals };
   }
 
+  /** A near-flush face uses its real convex support boundary plus a pressure
+   * centre nearest the body centre. Averaging samples makes asymmetric faces
+   * invent a torque; projecting outside the boundary would freeze overhangs. */
+  terrainSupportManifold(body, normal: THREE.Vector3, points: THREE.Vector3[]): THREE.Vector3[] {
+    if (points.length <= 1) return points.map(point => point.clone());
+    const localNormal = normal.clone().applyQuaternion(body.quaternion.clone().invert());
+    if (Math.max(Math.abs(localNormal.x), Math.abs(localNormal.y), Math.abs(localNormal.z)) < 0.995) {
+      // Deep samples on a tilted body are not a flush support face. Keep the
+      // original lever while it tips, rather than treating penetration as a
+      // broad resting footprint and locking it in an inclined pose.
+      return [points.reduce((sum, point) => sum.add(point), new THREE.Vector3()).divideScalar(points.length)];
+    }
+    const tangent = new THREE.Vector3(1, 0, 0);
+    if (Math.abs(normal.x) > 0.9) tangent.set(0, 1, 0);
+    const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+    tangent.crossVectors(bitangent, normal).normalize();
+    let height = 0;
+    const projected = points.map(point => {
+      const offset = point.clone().sub(body.position);
+      height += offset.dot(normal);
+      return { u: offset.dot(tangent), v: offset.dot(bitangent), point };
+    }).sort((a, b) => a.u - b.u || a.v - b.v);
+    const cross = (a, b, c) => (b.u - a.u) * (c.v - a.v) - (b.v - a.v) * (c.u - a.u);
+    const lower: typeof projected = [];
+    const upper: typeof projected = [];
+    for (const point of projected) {
+      while (lower.length >= 2 && cross(lower.at(-2), lower.at(-1), point) <= 1e-10) lower.pop();
+      lower.push(point);
+    }
+    for (let i = projected.length - 1; i >= 0; i--) {
+      const point = projected[i];
+      while (upper.length >= 2 && cross(upper.at(-2), upper.at(-1), point) <= 1e-10) upper.pop();
+      upper.push(point);
+    }
+    const hull = [...lower.slice(0, -1), ...upper.slice(0, -1)];
+    const inside = hull.length >= 3 && hull.every((point, i) => (
+      point.u * hull[(i + 1) % hull.length].v - point.v * hull[(i + 1) % hull.length].u >= -1e-10
+    ));
+    let u = 0;
+    let v = 0;
+    if (!inside) {
+      let nearestDistanceSq = Infinity;
+      for (let i = 0; i < hull.length; i++) {
+        const a = hull[i];
+        const b = hull[(i + 1) % hull.length];
+        const du = b.u - a.u;
+        const dv = b.v - a.v;
+        const lengthSq = du * du + dv * dv;
+        const t = lengthSq > 1e-12 ? THREE.MathUtils.clamp(-(a.u * du + a.v * dv) / lengthSq, 0, 1) : 0;
+        const candidateU = a.u + t * du;
+        const candidateV = a.v + t * dv;
+        const distanceSq = candidateU * candidateU + candidateV * candidateV;
+        if (distanceSq < nearestDistanceSq) {
+          nearestDistanceSq = distanceSq;
+          u = candidateU;
+          v = candidateV;
+        }
+      }
+    }
+    const pressurePoint = body.position.clone().addScaledVector(normal, height / points.length)
+      .addScaledVector(tangent, u).addScaledVector(bitangent, v);
+    return [pressurePoint, ...hull.map(vertex => vertex.point)];
+  }
+
   /**
    * Width of the narrowest principal axis of a support point set projected
    * onto the contact plane. Points that span a single point or a line (corner
@@ -1784,26 +1899,40 @@ export class ContraptionPhysics {
     }
   }
 
-  solveTerrainContact(body, normal, hitPosition, penetration, contactPoints, dt) {
+  solveTerrainContact(body, normal, hitPosition, penetration, contactPoints, dt, manifold = [hitPosition], allowRestitution = true, contactIterations = TERRAIN_CONTACT_ITERATIONS) {
     body.position.addScaledVector(normal, Math.max(0, penetration - 0.001));
     if (normal.y > 0.5) body.isOnGround = true;
 
     const r = hitPosition.clone().sub(body.position);
-    const contactVelocity = body.velocity.clone().add(body.angularVelocity.clone().cross(r));
-    const normalVelocity = contactVelocity.dot(normal);
-    if (normalVelocity >= 0) return 0;
-
-    const restitution = Math.abs(normalVelocity) < 0.5 ? 0 : body.restitution;
     const inverseMass = 1 / body.mass;
-    const normalLever = r.clone().cross(normal);
-    const normalDenominator = inverseMass + normalLever.lengthSq() * body.inverseInertia;
-    const normalImpulseMagnitude = normalDenominator > 1e-9
-      ? -(1 + restitution) * normalVelocity / normalDenominator
-      : 0;
-    const normalImpulse = normal.clone().multiplyScalar(normalImpulseMagnitude);
-
-    body.velocity.addScaledVector(normalImpulse, inverseMass);
-    body.angularVelocity.addScaledVector(normalLever, normalImpulseMagnitude * body.inverseInertia);
+    const rows = manifold.map(point => {
+      const offset = point.clone().sub(body.position);
+      const lever = offset.clone().cross(normal);
+      const initialVelocity = body.velocity.dot(normal) + body.angularVelocity.dot(lever);
+      return {
+        lever,
+        denominator: inverseMass + lever.lengthSq() * body.inverseInertia,
+        targetVelocity: allowRestitution && initialVelocity < -0.5 ? -initialVelocity * body.restitution : 0,
+        impulse: 0
+      };
+    });
+    // A pressure centre alone balances gravity but cannot stop a face from
+    // rocking. Constrain its boundary velocities too, using non-negative
+    // accumulated impulses so the ground never pulls an overhang downward.
+    const iterations = rows.length > 1 ? contactIterations : 1;
+    for (let iteration = 0; iteration < iterations; iteration++) {
+      for (const row of rows) {
+        if (row.denominator <= 1e-9) continue;
+        const normalVelocity = body.velocity.dot(normal) + body.angularVelocity.dot(row.lever);
+        const nextImpulse = Math.max(0, row.impulse + (row.targetVelocity - normalVelocity) / row.denominator);
+        const delta = nextImpulse - row.impulse;
+        row.impulse = nextImpulse;
+        body.velocity.addScaledVector(normal, delta * inverseMass);
+        body.angularVelocity.addScaledVector(row.lever, delta * body.inverseInertia);
+      }
+    }
+    const normalImpulseMagnitude = rows.reduce((sum, row) => sum + row.impulse, 0);
+    if (normalImpulseMagnitude <= 0) return 0;
 
     // Solve Coulomb friction after the support impulse. Its effective mass
     // includes the same contact lever arm, and the impulse is capped by μN.
@@ -1967,8 +2096,13 @@ export class ContraptionPhysics {
     // wall at a corner). The ground flag is reset once per entity update, so a
     // contact found in any of its three substeps remains stable for that update.
     const groups = [...contacts.values()].sort((a, b) => b.penetration - a.penetration);
+    let restingSupport: RestingTerrainSupport | null = null;
     for (const group of groups) {
       group.hitPosition.divideScalar(group.count);
+      const manifold = group.normal.y > 0.5
+        ? this.terrainSupportManifold(body, group.normal, group.points)
+        : [group.hitPosition];
+      group.hitPosition.copy(manifold[0]);
       const relativeVelocity = body.velocity.clone();
       const impulse = this.solveTerrainContact(
         body,
@@ -1976,8 +2110,23 @@ export class ContraptionPhysics {
         group.hitPosition,
         group.penetration,
         group.points,
-        dt
+        dt,
+        manifold
       );
+      const localNormal = group.normal.clone().applyQuaternion(body.quaternion.clone().invert());
+      const faceAlignment = Math.max(Math.abs(localNormal.x), Math.abs(localNormal.y), Math.abs(localNormal.z));
+      if (group.normal.y > 0.999 && faceAlignment > 1 - 1e-10 && manifold.length > 2) {
+        restingSupport = {
+          shape: contraption.collisionEntries,
+          position: body.position.clone(), quaternion: body.quaternion.clone(),
+          normal: group.normal, points: group.points, manifold,
+          cells: manifold.map(point => this.terrainCellAtPoint(point.clone().addScaledVector(group.normal, -0.002))),
+          parts: [...contraption.entityNodes.values()]
+            .filter(node => this.contactBodyFor(contraption, contraption.getRigidBody(node.id)) === body)
+            .map(node => ({ node, matrix: node.id === body.id ? null : node.group.matrix.clone(),
+              enabled: contraption.isNodeCollisionEnabled(node.id) }))
+        };
+      }
       contraption.recordScriptContact?.({
         kind: 'terrain',
         selfNodeId: body.id,
@@ -2001,6 +2150,15 @@ export class ContraptionPhysics {
         body.velocity.addScaledVector(group.normal, -inwardVelocity);
       }
     }
+    if (restingSupport) {
+      restingSupport.position.copy(body.position);
+      restingSupport.quaternion.copy(body.quaternion);
+      this.restingTerrainSupports.set(body, restingSupport);
+    }
+    // A tiny separating solver residual can leave a face within the existing
+    // contact slop without positive overlap. Keep that manifold until the next
+    // pre-solve validates its pose and supporting cells, rather than alternating
+    // between a fresh impact and a missing support every other substep.
   }
 
   applyImpulse(contraption, impulse, worldPoint = null, nodeId = contraption?.rootComponentId) {

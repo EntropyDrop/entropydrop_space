@@ -7,6 +7,7 @@ import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerCont
 import {
   calculateEntityPreviewCameraPose,
   calculatePreviewDragForce,
+  createEntityPreviewCamera,
   ENTITY_PREVIEW_FORCE_LIMIT_RATIO,
   ENTITY_PREVIEW_LAYER,
   ENTITY_PREVIEW_MAX_FPS,
@@ -15,6 +16,10 @@ import {
 import {
   bendPoint,
   bendFrameQuaternion,
+  applyCameraBend,
+  cullChunks,
+  getWorldShapeMode,
+  setWorldShapeMode,
   unbendDirection,
   TORUS_GREF,
   TORUS_SPAWN_X,
@@ -296,7 +301,22 @@ test('programming preview camera is fitted behind the entity bounding box', () =
   assert.deepEqual(pose.up.toArray(), [0, 1, 0]);
 });
 
-test('programming preview isolates the selected entity on its own render layer', () => {
+test('programming preview keeps the world and preview helpers in view', () => {
+  const camera = createEntityPreviewCamera();
+  const terrain = new THREE.Mesh();
+  const otherEntity = new THREE.Group();
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(7000), new THREE.MeshBasicMaterial());
+  const forceArrow = new THREE.ArrowHelper();
+  forceArrow.layers.set(ENTITY_PREVIEW_LAYER);
+
+  for (const object of [terrain, otherEntity, sky, forceArrow]) {
+    assert.equal(camera.layers.test(object.layers), true, 'world objects must not be excluded by the preview layer');
+  }
+  assert.ok(camera.far > sky.geometry.parameters.radius, 'the sky must fit inside the far clipping plane');
+  assert.equal(new THREE.PerspectiveCamera().layers.test(forceArrow.layers), false, 'preview helpers stay out of the main view');
+});
+
+test('programming preview tracks the selected entity on its extra render layer', () => {
   const renderer: any = Object.create(SceneRenderer.prototype);
   renderer.previewTarget = null;
   renderer.previewForceArrow = null;
@@ -321,6 +341,130 @@ test('programming preview isolates the selected entity on its own render layer',
   assert.equal(firstRoot.layers.test(previewLayer), false, 'the previous target leaves the preview layer');
   assert.equal(firstMesh.layers.test(previewLayer), false);
   assert.equal(secondRoot.layers.test(previewLayer), true);
+});
+
+for (const mode of ['earth', 'torus'] as const) {
+  for (const failRender of [false, true]) {
+    test(`programming preview uses its own sky and terrain culling in ${mode}${failRender ? ' even when rendering fails' : ''}`, t => {
+      const previousMode = getWorldShapeMode();
+      setWorldShapeMode(mode);
+      t.after(() => setWorldShapeMode(previousMode));
+      const renderer: any = Object.create(SceneRenderer.prototype);
+      renderer.scene = new THREE.Scene();
+      renderer.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 10000);
+      renderer.camera.add(new THREE.Group());
+      renderer.camera.position.set(TORUS_SPAWN_X, 18, TORUS_SPAWN_Z);
+      renderer.camera.lookAt(TORUS_SPAWN_X, 18, TORUS_SPAWN_Z - 10);
+      renderer.camera.updateMatrixWorld(true);
+      const flatPosition = renderer.camera.position.clone();
+      const flatQuaternion = renderer.camera.quaternion.clone();
+      const mainBentCamera = renderer.camera.clone();
+      applyCameraBend(mainBentCamera);
+      renderer.previewCamera = mainBentCamera.clone();
+      renderer.previewCamera.rotateY(Math.PI);
+      renderer.previewCamera.updateMatrixWorld(true);
+
+      const terrain = new THREE.Group();
+      const terrainChild = new THREE.Mesh();
+      terrain.add(terrainChild);
+      const microTerrain = new THREE.Mesh();
+      microTerrain.userData.standardChunkKey = 'active';
+      const inactiveTerrain = new THREE.Group();
+      renderer.world = {
+        chunks: new Map([
+          ['active', { cx: 0, cz: 0, mesh: terrain }],
+          ['inactive', { cx: 0, cz: 0, mesh: inactiveTerrain }],
+        ]),
+        activeChunkKeys: new Set(['active']),
+        microVoxels: { meshChunks: new Map([['active', microTerrain]]) },
+      };
+      cullChunks(mainBentCamera, renderer.world);
+      // Place the cached bent bounds behind the main camera, in front of the
+      // preview camera, beyond the near-camera visibility safety ring.
+      const center = new THREE.Vector3(0, 0, 200)
+        .applyQuaternion(mainBentCamera.quaternion).add(mainBentCamera.position);
+      for (const object of [terrain, microTerrain]) {
+        Object.assign(object.userData.bentSphere, { cx: center.x, cy: center.y, cz: center.z, radius: 1 });
+      }
+      cullChunks(mainBentCamera, renderer.world);
+      assert.equal(terrain.visible, false);
+      assert.equal(microTerrain.visible, false);
+
+      renderer.skyColorDay = new THREE.Color('#74b9ff');
+      renderer.bentLightDirection = new THREE.Vector3(0, 1, 0);
+      renderer.skyDome = new THREE.Mesh();
+      renderer.skyDome.position.copy(mainBentCamera.position).addScalar(3);
+      renderer.skyDomeUniforms = {
+        uHoleDir: { value: new THREE.Vector3(1, 0, 0) },
+        uSunDir: { value: new THREE.Vector3(0, 0, 1) },
+      };
+      const skyPosition = renderer.skyDome.position.clone();
+      const holeDirection = renderer.skyDomeUniforms.uHoleDir.value.clone();
+      const sunDirection = renderer.skyDomeUniforms.uSunDir.value.clone();
+      renderer.playerFirstPersonHand = new THREE.Group();
+      renderer.renderer = { toneMappingExposure: 1.15 };
+      let renders = 0;
+      renderer.previewRenderer = {
+        setClearColor(color, alpha) {
+          assert.equal(color.getHex(), renderer.skyColorDay.getHex());
+          assert.equal(alpha, 1);
+        },
+        render(scene, camera) {
+          renders++;
+          assert.equal(scene, renderer.scene);
+          assert.equal(camera, renderer.previewCamera);
+          assert.deepEqual(renderer.skyDome.position.toArray(), camera.position.toArray());
+          assert.equal(terrain.visible, true, 'terrain hidden by the main camera must be visible from the preview');
+          assert.equal(microTerrain.visible, true, 'micro terrain must also use the preview frustum');
+          assert.equal(inactiveTerrain.visible, false, 'unloaded terrain stays hidden');
+          assert.equal(renderer.playerFirstPersonHand.visible, false);
+          assert.equal(renderer.previewRenderer.toneMappingExposure, renderer.renderer.toneMappingExposure);
+          if (failRender) throw new Error('preview render failed');
+        },
+      };
+
+      if (failRender) assert.throws(() => renderer.renderEntityPreviewScene(), /preview render failed/);
+      else renderer.renderEntityPreviewScene();
+      assert.equal(renders, 1);
+      assert.equal(terrain.visible, false);
+      assert.equal(microTerrain.visible, false);
+      assert.equal(terrainChild.castShadow, false);
+      assert.equal(microTerrain.castShadow, false);
+      assert.deepEqual(renderer.skyDome.position.toArray(), skyPosition.toArray());
+      assert.deepEqual(renderer.skyDomeUniforms.uHoleDir.value.toArray(), holeDirection.toArray());
+      assert.deepEqual(renderer.skyDomeUniforms.uSunDir.value.toArray(), sunDirection.toArray());
+      assert.equal(renderer.playerFirstPersonHand.visible, true);
+      assert.deepEqual(renderer.camera.position.toArray(), flatPosition.toArray());
+      assert.deepEqual(renderer.camera.quaternion.toArray(), flatQuaternion.toArray());
+      assert.equal(renderer.previewWorldCullCamera.children.length, 0, 'culling copies do not clone main-camera viewmodels');
+    });
+  }
+}
+
+test('programming preview render preserves the sky clipping distance while framing an entity', () => {
+  const renderer: any = Object.create(SceneRenderer.prototype);
+  renderer.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 10000);
+  renderer.previewCamera = createEntityPreviewCamera();
+  renderer.previewCanvas = {
+    width: 340, height: 240, clientWidth: 340, clientHeight: 240,
+    classList: { remove() {} },
+  };
+  renderer.previewRenderer = { getPixelRatio: () => 1 };
+  renderer.previewOrbit = renderer.createDefaultPreviewOrbit();
+  const entity = {
+    rootGroup: new THREE.Group(),
+    position: new THREE.Vector3(TORUS_SPAWN_X, 18, TORUS_SPAWN_Z),
+    quaternion: new THREE.Quaternion(),
+    boundingRadius: 0.75,
+  };
+  let renders = 0;
+  renderer.renderEntityPreviewScene = () => {
+    renders++;
+    assert.ok(renderer.previewCamera.far >= renderer.camera.far);
+    assert.equal(renderer.previewCamera.layers.isEnabled(0), true);
+  };
+  renderer.renderEntityPreview(entity);
+  assert.equal(renders, 1);
 });
 
 test('programming preview refresh is capped independently of the React HUD', () => {

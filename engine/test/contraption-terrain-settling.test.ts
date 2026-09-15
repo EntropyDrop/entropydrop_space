@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { BodyType, Contraption } from '../src/contraption/Contraption.ts';
 import { ContraptionPhysics } from '../src/physics/ContraptionPhysics.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
+import { MICRO_SIZE } from '../src/voxel/MicroGrid.ts';
 
 function makeFloorWorld() {
   return {
@@ -361,6 +362,124 @@ test('resting terrain contact remains stable across physics frames', () => {
     maxY = Math.max(maxY, contraption.position.y);
   }
   assert.ok(maxY - minY < 0.01, `resting pose should not jitter, range=${maxY - minY}`);
+});
+
+test('a flat asymmetric footprint settles without support impulses inventing rotation', () => {
+  const blocks = [];
+  for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
+    if (x < 2 || z < 2) blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
+  }
+  for (const size of [1, MICRO_SIZE]) for (const yaw of [0, 0.3]) {
+    const entity = new Contraption('flat-L', blocks.map(block => ({ ...block,
+      localX: block.localX * size, localZ: block.localZ * size, size })),
+      new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
+    entity.quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
+    entity.updateTransform();
+    const initialQuaternion = entity.quaternion.clone();
+    const physics = new ContraptionPhysics({ ...makeFloorWorld(), terrainVersion: 0 } as any);
+    for (let tick = 0; tick < 100; tick++) physics.update(entity, 0.05);
+    assert.equal(physics.isSleeping(entity), true, `asymmetric face support should sleep, yaw=${yaw}, size=${size}`);
+    assert.ok(entity.quaternion.angleTo(initialQuaternion) < 1e-6, 'a flat support must not manufacture a torque');
+    const settled = entity.position.clone();
+    for (let tick = 0; tick < 100; tick++) physics.update(entity, 0.05);
+    assert.deepEqual(entity.position.toArray(), settled.toArray());
+    assert.equal(entity.velocity.lengthSq(), 0);
+    assert.equal(entity.angularVelocity.lengthSq(), 0);
+  }
+});
+
+test('a nearly flat wide plate converges to rest instead of rocking between sampled corners', () => {
+  const blocks = [];
+  for (let x = 0; x < 8; x++) for (let z = 0; z < 4; z++) {
+    blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
+  }
+  for (const dt of [0.05, 1 / 60]) for (const tilt of [0.001, 0.02]) {
+    const entity = new Contraption('wide-plate', blocks.map(block => ({ ...block })),
+      new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
+    entity.quaternion.setFromEuler(new THREE.Euler(tilt, 0.3, tilt));
+    entity.updateTransform();
+    const physics = new ContraptionPhysics({ ...makeFloorWorld(), terrainVersion: 0 } as any);
+    for (let tick = 0; tick < 200; tick++) physics.update(entity, dt);
+    assert.equal(physics.isSleeping(entity), true, `a nearly flat plate must eventually stop rocking, tilt=${tilt}, dt=${dt}`);
+    assert.equal(entity.angularVelocity.lengthSq(), 0);
+  }
+});
+
+test('asymmetric face contact stays quiet without relying on sleep to hide motion', () => {
+  const blocks = [];
+  for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
+    if (x < 2 || z < 2) blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
+  }
+  const entity = new Contraption('awake-L', blocks, new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
+  entity.quaternion.setFromEuler(new THREE.Euler(0, 0.3, 0));
+  entity.updateTransform();
+  const physics = new ContraptionPhysics(makeFloorWorld() as any); // No terrainVersion: sleep is unavailable.
+  for (let tick = 0; tick < 100; tick++) physics.update(entity, 0.05);
+  const position = entity.position.clone();
+  const quaternion = entity.quaternion.clone();
+  for (let tick = 0; tick < 100; tick++) {
+    physics.update(entity, 0.05);
+    assert.ok(entity.position.distanceTo(position) < 1e-8, 'support must not manufacture translation');
+    assert.ok(entity.quaternion.angleTo(quaternion) < 1e-6, 'support must not manufacture rotation');
+    assert.ok(entity.angularVelocity.length() < 1e-8);
+    assert.equal(entity.isOnGround, true);
+  }
+  assert.equal(physics.isSleeping(entity), false);
+});
+
+test('a stabilized plate still responds to a force and falls when its ground is removed', () => {
+  for (const action of ['force', 'remove-ground']) {
+    let floor = true;
+    const world = { ...makeFloorWorld(), terrainVersion: 0,
+      getBlock: (_x, y, _z) => floor && y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR };
+    const blocks = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 4; z++) {
+      blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
+    }
+    const entity = new Contraption('wake-plate', blocks, new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
+    entity.quaternion.setFromEuler(new THREE.Euler(0.02, 0.3, 0.02));
+    entity.updateTransform();
+    const physics = new ContraptionPhysics(world as any);
+    for (let tick = 0; tick < 200; tick++) physics.update(entity, 0.05);
+    assert.equal(physics.isSleeping(entity), true);
+    const before = entity.position.clone();
+    if (action === 'force') entity.appliedForces.set(10_000, 0, 0);
+    else { floor = false; world.terrainVersion++; }
+    physics.update(entity, 0.05);
+    assert.equal(physics.isSleeping(entity), false, action);
+    if (action === 'force') assert.ok(entity.position.x > before.x && entity.velocity.x > 0);
+    else assert.ok(entity.position.y < before.y && entity.velocity.y < 0);
+  }
+});
+
+test('face stabilization does not balance a plate whose centre lies outside the real support', () => {
+  const entity = new Contraption('overhang', [0, 1, 2].map(localX => ({
+    localX, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK
+  })), new THREE.Vector3(0.3, 1, 0.1), new THREE.Scene(), { restitution: 0 });
+  const physics = new ContraptionPhysics({ ...makeSingleBlockWorld(), terrainVersion: 0 } as any);
+  const initialQuaternion = entity.quaternion.clone();
+  for (let tick = 0; tick < 120; tick++) physics.update(entity, 0.05);
+  assert.ok(entity.quaternion.angleTo(initialQuaternion) > 0.1, 'unsupported mass must produce a tipping torque');
+  assert.ok(entity.position.y < 0, `the plate must tip and fall off, y=${entity.position.y}`);
+  assert.equal(physics.isSleeping(entity), false);
+});
+
+test('multi-point face support preserves frictionless sliding and restitution', () => {
+  const blocks = [];
+  for (let x = 0; x < 8; x++) for (let z = 0; z < 4; z++) {
+    blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
+  }
+  for (const restitution of [0, 0.8]) {
+    const entity = new Contraption('slider', blocks.map(block => ({ ...block })),
+      new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene(), { friction: 0, restitution });
+    entity.velocity.set(5, -5, 0);
+    const physics = new ContraptionPhysics(makeFloorWorld() as any);
+    physics.update(entity, 0.05);
+    assert.ok(Math.abs(entity.velocity.x - 5 * 0.98 ** 3) < 1e-8, 'support must not introduce tangential drag');
+    assert.ok(entity.angularVelocity.length() < 1e-8, 'a flat impact must not invent a turning impulse');
+    if (restitution === 0) assert.equal(entity.velocity.y, 0);
+    else assert.ok(entity.velocity.y > 3, 'bouncy material must retain its normal rebound');
+  }
 });
 
 test('terrain contact at points exactly on voxel seams reports the exposed shell face', () => {

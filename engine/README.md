@@ -86,6 +86,25 @@ boxes, then uses a per-pose box tree for complex shapes. Bounds are checked agai
 at every substep/iteration because earlier impulses can move another entity.
 Stopped/stopped pairs are omitted; stopped entities still collide with active ones.
 
+Player carriage follows the supporting component's actual solved world transform,
+including translation, yaw and collision push-outs, exactly once. Swept bounds are
+only candidate envelopes: linear moving-face sweeps and current-pose recovery are
+separate, so vacated volumes cannot become ghost floors. Repeated local player
+queries reuse transformed voxel candidates until pose or geometry invalidation.
+The character's 50kg contact mass, standing weight and jump reactions are retained.
+
+An existing flat terrain support manifold is solved before advancing the body's
+pose, with no restitution for a resting load. Its cached contact cells, shape,
+collision switches and attached kinematic transforms are validated before reuse.
+The ground applies only non-negative normal impulses: it cannot pull a lifted body
+down or hold a removed support, overhang or tilted body artificially level.
+
+Design references are Create's [contact-point pose motion](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/contraptions/AbstractContraptionEntity.java)
+and [local collision candidate handling](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/contraptions/ContraptionCollider.java).
+These ideas are adapted, not a Java implementation port or full Create parity:
+the character's rotating-voxel narrowphase still uses world AABBs, while the
+dynamic entity solver uses oriented SAT contacts.
+
 Entities settle to sleep after one second of low motion when supported (or without
 gravity). Their authored run state stays unchanged. Impacts, forces, impulses,
 pose/shape/body-setting changes, Stop/Play and support movement/removal wake them.

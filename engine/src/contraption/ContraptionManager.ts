@@ -624,6 +624,9 @@ export class ContraptionManager {
       serverExecutionMode: contraption.serverExecutionMode || 'browser',
       serverHostingEnabled: contraption.serverHostingEnabled === true,
       serverOwnerUserId: contraption.serverOwnerUserId || null,
+      serverOwnerName: contraption.serverOwnerName || null,
+      serverExecutorName: contraption.serverExecutorName || null,
+      serverExecutionLeaseExpiresAt: contraption.serverExecutionLeaseExpiresAt || null,
       serverCanControl: contraption.serverCanControl === true,
       serverCanEdit: contraption.serverCanEdit === true,
       serverExecutesLocally: contraption.serverExecutesLocally === true,
@@ -2213,6 +2216,9 @@ export class ContraptionManager {
       contraption.serverHostingEnabled = restoreState.serverHostingEnabled === true;
       contraption.serverManaged = true;
       contraption.serverOwnerUserId = restoreState.serverOwnerUserId || null;
+      contraption.serverOwnerName = restoreState.serverOwnerName || null;
+      contraption.serverExecutorName = restoreState.serverExecutorName || null;
+      contraption.serverExecutionLeaseExpiresAt = restoreState.serverExecutionLeaseExpiresAt || null;
       contraption.serverCanControl = restoreState.serverCanControl === true;
       contraption.serverCanEdit = restoreState.serverCanEdit === true;
       contraption.serverExecutesLocally = restoreState.serverExecutesLocally === true;

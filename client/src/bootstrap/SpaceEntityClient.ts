@@ -39,6 +39,9 @@ export interface SpaceWorldEntityRecord {
   id: string;
   world_id: string;
   owner_user_id: string;
+  owner_name?: string | null;
+  executor_name?: string | null;
+  execution_lease_expires_at?: string | null;
   name: string;
   schema_version: typeof INVENTORY_PROTOBUF_SCHEMA_VERSION;
   definition_digest: string;
@@ -111,6 +114,9 @@ function parseEntity(value: any): SpaceWorldEntityRecord {
     typeof value?.id !== 'string'
     || typeof value?.world_id !== 'string'
     || typeof value?.owner_user_id !== 'string'
+    || ![value?.owner_name, value?.executor_name].every(name => name === undefined || name === null || (typeof name === 'string' && name.length <= 100))
+    || !(value?.execution_lease_expires_at === undefined || value?.execution_lease_expires_at === null
+      || (typeof value.execution_lease_expires_at === 'string' && Number.isFinite(Date.parse(value.execution_lease_expires_at))))
     || typeof value?.name !== 'string'
     || value?.schema_version !== INVENTORY_PROTOBUF_SCHEMA_VERSION
     || !/^[0-9a-f]{64}$/i.test(value?.definition_digest || '')

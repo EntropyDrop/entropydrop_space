@@ -43,8 +43,12 @@ export function SpaceApiKeysSettings() {
   const [keys, setKeys] = React.useState<SpaceApiKeyRecord[]>([]);
   const [name, setName] = React.useState('My external agent');
   const worldId = useSpaceUi(state => state.apiWorldId);
+  const acknowledgedBatches = useSpaceUi(state => state.worldEditSync.acknowledgedBatches);
+  const syncIdle = useSpaceUi(state => state.worldEditSync.pendingBatches === 0 && !state.worldEditSync.sending);
+  const usageAcknowledgement = React.useRef(acknowledgedBatches);
   const [usage, setUsage] = React.useState<SpaceApiUsage | null>(null);
   const [usageError, setUsageError] = React.useState('');
+  const usageRequestId = React.useRef(0);
   const hostingAvailable = SPACE_HOSTING_UI_ENABLED && usage?.features?.entity_hosting === true;
   const [secret, setSecret] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -66,10 +70,14 @@ export function SpaceApiKeysSettings() {
 
   const loadUsage = React.useCallback(async () => {
     if (!client || !worldId) return;
+    const requestId = ++usageRequestId.current;
     try {
-      setUsage(await client.usage(worldId));
+      const nextUsage = await client.usage(worldId);
+      if (requestId !== usageRequestId.current) return;
+      setUsage(nextUsage);
       setUsageError('');
     } catch (error: any) {
+      if (requestId !== usageRequestId.current) return;
       setUsageError(error?.message || 'Could not load API allowances.');
     }
   }, [client, worldId]);
@@ -77,12 +85,27 @@ export function SpaceApiKeysSettings() {
   React.useEffect(() => {
     let active = true;
     setUsage(null);
+    usageAcknowledgement.current = acknowledgedBatches;
     void loadUsage();
     const refresh = () => { if (active && document.visibilityState === 'visible') void loadUsage(); };
     const timer = window.setInterval(refresh, 30000);
     window.addEventListener('focus', refresh);
-    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+    return () => {
+      active = false;
+      usageRequestId.current++;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
   }, [loadUsage]);
+
+  React.useEffect(() => {
+    // Only confirmed terrain batches trigger a refresh. Coalesce queued bulk
+    // batches into one usage request so a fill cannot exhaust its rate limit.
+    // Periodic refreshes still cover external builds and other browser tabs.
+    if (!syncIdle || usageAcknowledgement.current === acknowledgedBatches) return;
+    usageAcknowledgement.current = acknowledgedBatches;
+    void loadUsage();
+  }, [loadUsage, acknowledgedBatches, syncIdle]);
 
   const create = async () => {
     if (!client || !name.trim() || busy) return;
@@ -131,16 +154,16 @@ export function SpaceApiKeysSettings() {
         {hostingAvailable ? <p className="settings-desc">Hosting buys one hour when execution starts, then uses prepaid simulation time. Pauses and downtime preserve unused time. A spending budget is required (up to {usage.pricing.hosting_max_budget_credits} credits); prepaid time is used first, and hosting pauses if the next hour cannot be funded.</p> : null}
         <dl className="settings-api-allowances">
           {([
-            ['API keys · account', usage.quotas.api_keys],
-            ['Entities · this world', usage.quotas.entities],
-            ['Running entities · you', usage.quotas.running_entities],
-            ...(hostingAvailable ? [['Hosted entities · entire world', usage.quotas.hosted_entities_world] as const] : []),
-            ['Terrain changes · this UTC hour', usage.quotas.terrain.hour],
-            ['Terrain changes · today (UTC)', usage.quotas.terrain.day],
-          ] as const).map(([label, quota]) => <div key={label}>
-            <dt>{label}</dt><dd><strong>{quota.remaining.toLocaleString()} remaining</strong><span>{quota.used.toLocaleString()} / {quota.limit.toLocaleString()} used</span></dd>
+            ['API keys · account', usage.quotas.api_keys, false],
+            ['Entities · this world', usage.quotas.entities, false],
+            ['Running entities · you', usage.quotas.running_entities, usage.admin_quota_exemptions],
+            ...(hostingAvailable ? [['Hosted entities · entire world', usage.quotas.hosted_entities_world, false] as const] : []),
+            ['Terrain changes · this UTC hour', usage.quotas.terrain.hour, usage.admin_quota_exemptions],
+            ['Terrain changes · today (UTC)', usage.quotas.terrain.day, usage.admin_quota_exemptions],
+          ] as const).map(([label, quota, exempt]) => <div key={label}>
+            <dt>{label}</dt><dd><strong>{exempt ? 'Unlimited · administrator' : `${quota.remaining.toLocaleString()} remaining`}</strong><span>{exempt ? `${quota.used.toLocaleString()} used · quota exempt` : `${quota.used.toLocaleString()} / ${quota.limit.toLocaleString()} used`}</span></dd>
           </div>)}
-          <div><dt>Entity storage · this world</dt><dd>{(usage.quotas.entity_storage_bytes.used / 1048576).toFixed(1)} / {(usage.quotas.entity_storage_bytes.limit / 1048576).toFixed(0)} MiB</dd></div>
+          <div><dt>Entity storage · this world</dt><dd>{(usage.quotas.entity_storage_bytes.used / 1048576).toFixed(1)} MiB used{usage.admin_quota_exemptions ? ' · Unlimited (administrator)' : ` / ${(usage.quotas.entity_storage_bytes.limit / 1048576).toFixed(0)} MiB`}</dd></div>
         </dl>
         <div className="settings-desc">Terrain allowance is shared by manual edits and API builds{hostingAvailable ? ', including hosted scripts' : ''}. Daily reset: {new Date(usage.quotas.terrain.day.reset_at).toLocaleString()}.</div>
         <div className="settings-desc">Build: up to {usage.limits.blockset_blocks_per_build.toLocaleString()} voxels, {usage.limits.terrain_chunks_per_build} chunks and {usage.limits.terrain_zones_per_build} zones per request. Build / create endpoints: {usage.limits.build_requests_per_minute} requests/minute, {usage.limits.build_requests_per_hour}/hour each.{hostingAvailable ? ` Hosting: ${usage.limits.hosted_blocks_per_entity} voxels and ${usage.limits.hosted_components_per_entity} components per entity.` : ''}</div>

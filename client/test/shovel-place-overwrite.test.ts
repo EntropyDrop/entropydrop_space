@@ -165,7 +165,7 @@ test('entity shovel micro-cell clear reports all removed debris in one sound', (
   assert.deepEqual(controller.__breakSounds, [{ kind: 'standard', count: 2 }]);
 });
 
-test('entity shovel placement and removal are blocked while the entity is running', () => {
+test('the first shovel placement or removal attempt stops the entity without editing', () => {
   const toasts: string[] = [];
   let rebuilt = 0;
   const block = {
@@ -198,14 +198,15 @@ test('entity shovel placement and removal are blocked while the entity is runnin
     }
   });
 
-  controller.handleLeftClick();
-  controller.handleRightClick();
-
-  assert.deepEqual(contraption.blocks, [block]);
-  assert.equal(rebuilt, 0);
-  assert.equal(controller.__breakSounds.length, 0);
-  assert.equal(contraption.scriptStatus, 'stopped', 'the second attempt only stops');
-  assert.ok(toasts.some(message => message.includes('within 1 second')));
+  for (const method of ['handleLeftClick', 'handleRightClick']) {
+    contraption.scriptStatus = 'running';
+    controller[method]();
+    assert.deepEqual(contraption.blocks, [block]);
+    assert.equal(rebuilt, 0);
+    assert.equal(controller.__breakSounds.length, 0);
+    assert.equal(contraption.scriptStatus, 'stopped', 'the first attempt only stops');
+  }
+  assert.deepEqual(toasts, ['Entity #9 stopped', 'Entity #9 stopped']);
 });
 
 test('world placement beside a focused microblock targets the adjacent standard cell', () => {

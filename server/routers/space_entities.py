@@ -16,7 +16,7 @@ from google.protobuf.message import DecodeError
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError, model_validator
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from space import auth
 from space import models
@@ -633,12 +633,28 @@ def _enforce_running_entity_quota(
         })
 
 
-def _entity_response(entity: models.SpaceWorldEntity, current_user: models.User) -> dict:
+def _entity_response(entity: models.SpaceWorldEntity, current_user: models.User,
+                     owner_names: dict[str, str | None] | None = None) -> dict:
     can_control = entity.owner_user_id == current_user.id or bool(current_user.is_admin)
+    if owner_names is not None:
+        owner_name = owner_names.get(entity.owner_user_id)
+    elif entity.owner_user_id == current_user.id:
+        owner_name = current_user.username
+    else:
+        session = object_session(entity)
+        owner = session.get(models.User, entity.owner_user_id) if session else None
+        owner_name = owner.username if owner else None
+    expiry = _utc(entity.execution_lease_expires_at)
+    browser_running = (entity.execution_mode != "hosted" and entity.desired_run_state == "running"
+                       and entity.execution_instance_id is not None and expiry is not None
+                       and expiry > datetime.datetime.now(datetime.timezone.utc))
     return {
         "id": str(entity.id),
         "world_id": str(entity.world_id),
         "owner_user_id": entity.owner_user_id,
+        "owner_name": owner_name,
+        "executor_name": owner_name if browser_running else None,
+        "execution_lease_expires_at": expiry.isoformat() if browser_running else None,
         "name": entity.name,
         "schema_version": entity.schema_version,
         "definition_digest": bytes(entity.content_digest).hex(),
@@ -900,8 +916,11 @@ def list_world_entities(
             in_radius.append((dx * dx + dz * dz, entity))
     in_radius.sort(key=lambda item: (item[0], item[1].created_at, str(item[1].id)))
     truncated = len(candidates) > SPACE_ENTITY_MAX_AOI_CANDIDATES or len(in_radius) > limit
+    # One bounded identity query for the entire AOI, not one query per label.
+    owner_ids = {entity.owner_user_id for _distance, entity in in_radius[:limit]}
+    owner_names = dict(db.query(models.User.id, models.User.username).filter(models.User.id.in_(owner_ids)).all())
     return {
-        "items": [_entity_response(entity, current_user) for _distance, entity in in_radius[:limit]],
+        "items": [_entity_response(entity, current_user, owner_names) for _distance, entity in in_radius[:limit]],
         "truncated": truncated,
         "limit": limit,
     }

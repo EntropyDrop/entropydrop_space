@@ -614,7 +614,21 @@ export function calculateEntityPreviewCameraPose(contraption, aspect = 1, fov = 
   return { center, position, up: worldUp, distance, radius };
 }
 
+export function createEntityPreviewCamera() {
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 10000);
+  // Layer 0 contains the world, including terrain, other entities and the sky.
+  // Keep the extra layer for preview-only helpers such as the force arrow.
+  camera.layers.enable(ENTITY_PREVIEW_LAYER);
+  return camera;
+}
+
 export class SceneRenderer {
+  private worldOverlayListeners = new Set<(camera: THREE.PerspectiveCamera) => void>();
+
+  subscribeWorldOverlay(listener: (camera: THREE.PerspectiveCamera) => void): () => void {
+    this.worldOverlayListeners.add(listener);
+    return () => this.worldOverlayListeners.delete(listener);
+  }
   declare container: any;
   declare scene: THREE.Scene;
   declare skyColorDay: THREE.Color;
@@ -629,6 +643,7 @@ export class SceneRenderer {
   declare onResolutionScaleChange: ((state: any) => void) | null;
   declare previewRenderer: any;
   declare previewCamera: any;
+  declare previewWorldCullCamera: THREE.PerspectiveCamera;
   declare previewCanvas: any;
   declare previewTarget: any;
   declare previewRaycaster: any;
@@ -1252,11 +1267,7 @@ export class SceneRenderer {
     }
     if (this.previewRenderer) this.previewRenderer.dispose();
     this.previewCanvas = canvas;
-    this.previewCamera = new THREE.PerspectiveCamera(42, 1, 0.05, 500);
-    // The target entity is added to this layer while retaining layer 0 for the
-    // main camera. Rendering layer 0 here used to draw the entire world a
-    // second time for every tiny editor preview frame.
-    this.previewCamera.layers.set(ENTITY_PREVIEW_LAYER);
+    this.previewCamera = createEntityPreviewCamera();
 
     this.previewRenderer = new THREE.WebGLRenderer({
       canvas,
@@ -1491,7 +1502,7 @@ export class SceneRenderer {
     if (!this.previewRenderer || !this.previewCamera || !this.previewCanvas || !contraption) return;
     this.setEntityPreviewTarget(contraption);
     // Hierarchy rebuilds can introduce new meshes while the same entity stays
-    // selected, so ensure only that small subtree joins the preview layer.
+    // selected, so keep the target's preview layer membership up to date.
     contraption.rootGroup?.traverse?.(object => {
       object.layers.enable(ENTITY_PREVIEW_LAYER);
     });
@@ -1525,7 +1536,7 @@ export class SceneRenderer {
     ).multiplyScalar(this.previewOrbit.distance);
     this.previewCamera.aspect = aspect;
     this.previewCamera.near = Math.max(0.03, pose.radius * 0.015);
-    this.previewCamera.far = Math.max(500, pose.distance + pose.radius * 12);
+    this.previewCamera.far = Math.max(10000, this.camera.far, pose.distance + pose.radius * 12);
     this.previewCamera.position.copy(pose.center).add(cameraOffset);
     this.previewCamera.up.set(0, 1, 0);
     this.previewCamera.lookAt(pose.center);
@@ -1545,8 +1556,38 @@ export class SceneRenderer {
       }
     }
 
-    this.previewRenderer.render(this.scene, this.previewCamera);
+    this.renderEntityPreviewScene();
     this.previewLastRenderedAt = performance.now();
+  }
+
+  /** Use the preview's viewpoint without leaking sky/culling state into the main view. */
+  renderEntityPreviewScene() {
+    const skyPosition = this.skyDome?.position.clone();
+    const holeDirection = this.skyDomeUniforms?.uHoleDir.value.clone();
+    const sunDirection = this.skyDomeUniforms?.uSunDir.value.clone();
+    const handVisible = this.playerFirstPersonHand?.visible;
+    try {
+      cullChunks(this.previewCamera, this.world);
+      this.updateSkyDome(this.previewCamera.position);
+      this.previewRenderer.setClearColor(this.skyColorDay, 1);
+      this.previewRenderer.toneMappingExposure = this.renderer.toneMappingExposure;
+      // The main camera's first-person viewmodel is not a world-space object.
+      if (this.playerFirstPersonHand) this.playerFirstPersonHand.visible = false;
+      this.previewRenderer.render(this.scene, this.previewCamera);
+    } finally {
+      if (skyPosition) this.skyDome.position.copy(skyPosition);
+      if (holeDirection) this.skyDomeUniforms.uHoleDir.value.copy(holeDirection);
+      if (sunDirection) this.skyDomeUniforms.uSunDir.value.copy(sunDirection);
+      if (this.playerFirstPersonHand) this.playerFirstPersonHand.visible = handVisible;
+      if (this.world) {
+        // The logical main camera is flat outside its own render pass. Bend a
+        // reusable copy so restoring terrain visibility never mutates it.
+        this.previewWorldCullCamera ??= new THREE.PerspectiveCamera();
+        this.previewWorldCullCamera.copy(this.camera, false);
+        applyCameraBend(this.previewWorldCullCamera);
+        cullChunks(this.previewWorldCullCamera, this.world);
+      }
+    }
   }
 
   /** Render the editor preview smoothly without tying it to the 10 Hz React HUD. */
@@ -3141,6 +3182,9 @@ export class SceneRenderer {
         this.retainRemoteEntityImpostor,
       ), this.flatCameraPosition);
       this.updateSkyDome(this.camera.position);
+      // Overlays use the same bent camera and interpolated component transforms
+      // as this world pass, not the flat simulation pose or the editor preview.
+      for (const listener of this.worldOverlayListeners || []) listener(this.camera);
       this.renderWorld();
     } finally {
       this.impostorLod?.endRender();

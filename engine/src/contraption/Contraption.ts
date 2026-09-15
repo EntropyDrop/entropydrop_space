@@ -470,6 +470,9 @@ export class Contraption {
   serverExecutionMode?: 'browser' | 'hosted';
   serverHostingEnabled?: boolean;
   serverOwnerUserId?: string | null;
+  serverOwnerName?: string | null;
+  serverExecutorName?: string | null;
+  serverExecutionLeaseExpiresAt?: string | null;
   serverCanControl?: boolean;
   serverCanEdit?: boolean;
   serverExecutesLocally?: boolean;
@@ -621,6 +624,7 @@ export class Contraption {
   private collisionVoxelIndexes: any = null;
   private pickingVoxelIndexes: any = null;
   collisionWorldAabbCache: { version: number; all?: any[]; surface?: any[]; merged?: any[] } | null;
+  private collisionQueryAabbCache: { version: number; boxes: Map<any, any> } | null = null;
   collisionSamplePointCache: Map<string, { version: number; points: THREE.Vector3[] }>;
 
   // --- Applied forces ---
@@ -5676,7 +5680,16 @@ export class Contraption {
     const matches = this.queryIndexedVoxels(true, (local, node, transformed) => (
       collisionBoundsOverlap(bounds, transformVoxelBounds(local, node, transformed, true))
     ));
-    return this.buildCollisionWorldAABBs(matches);
+    // Player Y/X/Z sweeps and post-physics recovery query the same pose. Reuse
+    // transformed candidates instead of transforming sixteen corners per voxel
+    // again for each pass; the local voxel tree still prunes distant geometry.
+    if (this.collisionQueryAabbCache?.version !== this.collisionPoseVersion) {
+      this.collisionQueryAabbCache = { version: this.collisionPoseVersion, boxes: new Map() };
+    }
+    const cache = this.collisionQueryAabbCache.boxes;
+    const missing = matches.filter(cell => !cache.has(cell));
+    for (const box of this.buildCollisionWorldAABBs(missing)) cache.set(box.cell, box);
+    return matches.map(cell => cache.get(cell));
   }
 
   private queryIndexedVoxels(collision, intersects) {
@@ -6015,6 +6028,7 @@ export class Contraption {
   invalidateCollisionPoseCache() {
     this.collisionPoseVersion = (this.collisionPoseVersion || 0) + 1;
     this.collisionWorldAabbCache = null;
+    this.collisionQueryAabbCache = null;
     this.collisionSamplePointCache?.clear();
   }
 

@@ -39,6 +39,7 @@ import {
   normalizeLightingQuality, type LightingQuality,
 } from '../../../engine/render/LightingQuality.ts';
 import { triggerColorPickerInput } from '../utils/colorPickerInput.ts';
+import { entityRunStatus } from '../utils/entityNameplate.ts';
 import {
   DEFAULT_ENTITY_IMPOSTOR_SETTINGS, ENTITY_IMPOSTOR_SETTING_KEY,
   normalizeEntityImpostorSettings, type EntityImpostorSettings,
@@ -118,6 +119,10 @@ export interface SelectorContextMenuView {
   y: number;
 }
 
+export interface EntityContextMenuView extends SelectorContextMenuView {
+  contraption: any;
+}
+
 export interface BulkEditView {
   label: string;
   phase: 'applying' | 'waiting' | 'syncing' | 'complete' | 'failed';
@@ -191,6 +196,8 @@ export interface SpaceUiSnapshot {
   nearbyEntities: NearbyEntityItem[];
   selector: SelectorView;
   selectorContextMenu: SelectorContextMenuView | null;
+  entityContextMenu: EntityContextMenuView | null;
+  currentUserName: string | null;
   brushMicro: boolean;
   bulkEdit: BulkEditView | null;
   worldEditSync: WorldEditSyncView;
@@ -351,6 +358,8 @@ export class SpaceUiStore {
     nearbyEntities: [],
     selector: EMPTY_SELECTOR,
     selectorContextMenu: null,
+    entityContextMenu: null,
+    currentUserName: null,
     brushMicro: false,
     bulkEdit: null,
     worldEditSync: EMPTY_WORLD_EDIT_SYNC,
@@ -450,16 +459,16 @@ export class SpaceUiStore {
     } catch { }
   }
 
-  setAuthenticatedSession(apiOrigin: string, token: string, isAdmin = false, worldId: string | null = null, accountOrigin: string = apiOrigin): void {
+  setAuthenticatedSession(apiOrigin: string, token: string, isAdmin = false, worldId: string | null = null, accountOrigin: string = apiOrigin, currentUserName: string | null = null): void {
     if (!token) {
       this.marketClient = null;
       this.apiKeyClient = null;
-      this.patch({ isAdmin: false, apiWorldId: null });
+      this.patch({ isAdmin: false, apiWorldId: null, currentUserName: null });
       return;
     }
     this.marketClient = new SpaceMarketClient(apiOrigin, token);
     this.apiKeyClient = new SpaceApiKeyClient(accountOrigin, token, fetch, apiOrigin);
-    this.patch({ isAdmin: !!isAdmin, apiWorldId: worldId });
+    this.patch({ isAdmin: !!isAdmin, apiWorldId: worldId, currentUserName });
   }
 
   setSessionState(
@@ -587,7 +596,7 @@ export class SpaceUiStore {
   resumeFromCanvas(): void {
     const state = this.snapshot;
     if (state.hasStarted && !state.activeModal && !state.apiDocsOpen
-      && !state.selectorContextMenu && !state.controller?.isLocked) {
+      && !state.selectorContextMenu && !state.entityContextMenu && !state.controller?.isLocked) {
       void state.controller?.requestLock?.();
     }
   }
@@ -616,6 +625,7 @@ export class SpaceUiStore {
       activeModal: null,
       apiDocsOpen: false,
       selectorContextMenu: null,
+      entityContextMenu: null,
       agentSetupOpen: false
     });
     if (resumePointerLock) void controller?.requestLock?.();
@@ -643,7 +653,7 @@ export class SpaceUiStore {
         this.snapshot.controller?.setActiveInventoryCategory?.(targetCategory);
         this.patch({ activeInventoryCategory: targetCategory });
       }
-      this.patch({ activeModal: modal, apiDocsOpen: false, selectorContextMenu: null });
+      this.patch({ activeModal: modal, apiDocsOpen: false, selectorContextMenu: null, entityContextMenu: null });
       this.snapshot.controller?.unlock?.();
       if (modal === 'inventory') this.syncInventoryState();
     } else {
@@ -686,7 +696,7 @@ export class SpaceUiStore {
 
   toggleApiDocs(forceState: boolean | null = null): void {
     const open = forceState === null ? !this.snapshot.apiDocsOpen : forceState;
-    this.patch({ apiDocsOpen: open, selectorContextMenu: null });
+    this.patch({ apiDocsOpen: open, selectorContextMenu: null, entityContextMenu: null });
     if (open) {
       // The reference modal covers the editor preview completely; suspend its
       // second WebGL context until the user returns to the editor.
@@ -700,6 +710,10 @@ export class SpaceUiStore {
   }
 
   handleEscape(): boolean {
+    if (this.snapshot.entityContextMenu) {
+      this.closeEntityContextMenu(true);
+      return true;
+    }
     if (this.snapshot.selectorContextMenu) {
       this.closeSelectorContextMenu(true);
       return true;
@@ -722,12 +736,17 @@ export class SpaceUiStore {
     const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
     const inputX = Number(position.x);
     const inputY = Number(position.y);
-    // Pointer-locked mouse events may report (0, 0); the crosshair is the true
-    // interaction point in that mode, so center the menu in that case.
-    const x = Number.isFinite(inputX) && inputX > 0 ? inputX : viewportWidth / 2;
-    const y = Number.isFinite(inputY) && inputY > 0 ? inputY : viewportHeight / 2;
-    this.snapshot.controller?.unlock?.();
-    this.patch({ selectorContextMenu: { x, y }, selector: this.buildSelectorView() });
+    // Locked events retain the cursor position from before lock, even when
+    // nonzero. Capture lock state before unlock and use the aiming crosshair.
+    const controller = this.snapshot.controller;
+    const locked = !!controller?.isLocked || this.snapshot.pointerLocked
+      || (typeof document !== 'undefined' && !!document.pointerLockElement);
+    const x = !locked && Number.isFinite(inputX) ? inputX : viewportWidth / 2;
+    const y = !locked && Number.isFinite(inputY) ? inputY : viewportHeight / 2;
+    // Publish the overlay first so synchronous lock-state subscribers cannot
+    // accidentally resume the canvas between unlocking and opening the menu.
+    this.patch({ selectorContextMenu: { x, y }, entityContextMenu: null, selector: this.buildSelectorView() });
+    controller?.unlock?.();
   }
 
   closeSelectorContextMenu(resumePointerLock = false): void {
@@ -736,6 +755,50 @@ export class SpaceUiStore {
     if (resumePointerLock && !this.hasAnyModalOpen()) {
       void this.snapshot.controller?.requestLock?.();
     }
+  }
+
+  showEntityContextMenu(contraption: any, position: { x?: number; y?: number } = {}): boolean {
+    if (!this.snapshot.contraptions?.contraptions?.includes(contraption) || this.hasAnyModalOpen()) return false;
+    const width = typeof window === 'undefined' ? 1024 : window.innerWidth;
+    const height = typeof window === 'undefined' ? 768 : window.innerHeight;
+    const locked = this.snapshot.controller?.isLocked || this.snapshot.pointerLocked
+      || (typeof document !== 'undefined' && document.pointerLockElement);
+    const x = !locked && Number.isFinite(position.x) ? position.x! : width / 2;
+    const y = !locked && Number.isFinite(position.y) ? position.y! : height / 2;
+    this.patch({ entityContextMenu: { contraption, x, y }, selectorContextMenu: null });
+    this.snapshot.controller?.unlock?.();
+    return true;
+  }
+
+  /** Pointer-locked clicks target document.body, so hit-test the actual crosshair
+   * against the visible DOM button before any active tool can consume input. */
+  tryOpenEntityContextMenuAtPointer(event: any): boolean {
+    if (!event || typeof document === 'undefined' || !document.elementFromPoint
+      || this.hasAnyModalOpen() || this.snapshot.entityContextMenu || this.snapshot.selectorContextMenu) return false;
+    const locked = this.snapshot.controller?.isLocked || this.snapshot.pointerLocked || document.pointerLockElement;
+    const x = locked ? window.innerWidth / 2 : Number(event.clientX);
+    const y = locked ? window.innerHeight / 2 : Number(event.clientY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const button = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-entity-menu-id]');
+    if (!button) return false;
+    const target = this.snapshot.contraptions?.contraptions?.find((entity: any) =>
+      String(entity.publicId || entity.id) === button.dataset.entityMenuId);
+    if (!target || !this.showEntityContextMenu(target, { x, y })) return false;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    return true;
+  }
+
+  closeEntityContextMenu(resumePointerLock = false): void {
+    if (!this.snapshot.entityContextMenu) return;
+    this.patch({ entityContextMenu: null });
+    if (resumePointerLock && !this.hasAnyModalOpen() && !this.snapshot.selectorContextMenu) {
+      void this.snapshot.controller?.requestLock?.();
+    }
+  }
+
+  isEntityContextMenuOpen(): boolean {
+    return this.snapshot.entityContextMenu !== null;
   }
 
   showToast(
@@ -1205,13 +1268,7 @@ export class SpaceUiStore {
     if (contraption.isWrenchGrabbed || this.snapshot.controller?.wrenchGrab?.contraption === contraption) {
       return 'stop';
     }
-    if (contraption.serverManaged && !contraption.serverExecutesLocally) {
-      return contraption.serverDesiredRunState === 'running' ? 'play' : 'stop';
-    }
-    if (contraption.scriptStatus === 'stopped') {
-      return 'stop';
-    }
-    return contraption.isPhysicsSimulationEnabled?.() === false ? 'stop' : 'play';
+    return entityRunStatus(contraption).running ? 'play' : 'stop';
   }
 
   setSelectedComponentName(name: string): boolean {
@@ -1339,6 +1396,7 @@ export class SpaceUiStore {
   }
 
   notifyContraptionRemoved(contraption: any): void {
+    if (this.snapshot.entityContextMenu?.contraption === contraption) this.closeEntityContextMenu();
     if (!contraption || this.snapshot.editingContraption !== contraption) return;
     this.snapshot.sceneRenderer?.setEntityPreviewTarget?.(null);
     this.patch({ editingContraption: null, selectedComponentNodeId: '', scriptDraft: '', activeModal: null });
@@ -1825,6 +1883,9 @@ export class SpaceUiStore {
       pingClass: roundedPing === null ? 'hud-ping ping-unknown' : `hud-ping ${roundedPing < 80 ? 'ping-good' : roundedPing < 180 ? 'ping-medium' : 'ping-poor'}`,
       positionText: `X: ${playerPos.x.toFixed(1)} | Y: ${playerPos.y.toFixed(1)} | Z: ${playerPos.z.toFixed(1)}`,
       nearbyEntities: entities,
+      entityContextMenu: this.snapshot.entityContextMenu
+        && contraptions?.contraptions?.includes(this.snapshot.entityContextMenu.contraption)
+        ? this.snapshot.entityContextMenu : null,
       selector: this.buildSelectorView(),
       brushMicro: Boolean(controller?.brushMicroMode),
       telemetry,

@@ -162,11 +162,13 @@ def reserve(
     code: str,
     message: str,
     now: datetime.datetime | None = None,
+    enforce_limits: bool = True,
 ) -> dict[int, int]:
     """Reserve all windows or raise before changing any of them.
 
     Callers serialize missing-row creation by locking the owning user/world row
     first, and commit this reservation in the same transaction as the write.
+    Exempt callers may disable enforcement while still recording actual usage.
     """
     current = now or datetime.datetime.now(UTC)
     _maybe_cleanup_expired_buckets(db, current)
@@ -197,7 +199,7 @@ def reserve(
             lock=True,
         )
         used = int(row.used or 0) if row is not None else 0
-        if used + normalized_amount > window.limit:
+        if enforce_limits and used + normalized_amount > window.limit:
             start = bucket_start(current, window.seconds)
             reset_at = start + datetime.timedelta(seconds=window.seconds)
             retry_after = max(1, int((reset_at - current).total_seconds()) + 1)

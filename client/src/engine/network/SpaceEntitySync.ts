@@ -58,6 +58,9 @@ export class SpaceEntitySync {
   private readonly pendingLocalRecords = new Map<string, any>();
   private readonly lastSnapshotJson = new Map<string, string>();
   private readonly pendingDeletes = new Set<string>();
+  // Entity UUIDs are never reused. Keep successful deletions for this session
+  // so an older in-flight AOI/definition reply cannot resurrect a deleted entity.
+  private readonly deletedEntityIds = new Set<string>();
   private previousAoiIds = new Set<string>();
   private readonly lastAoiRecords = new Map<string, SpaceWorldEntityRecord>();
   private readonly retainedOutsideAoi = new Map<string, SpaceWorldEntityRecord>();
@@ -95,6 +98,7 @@ export class SpaceEntitySync {
     this.controller?.setServerEntityRunStateHandler?.((contraption, desiredState) => (
       this.setRunState(contraption, desiredState)
     ));
+    this.controller?.setServerEntityDeleteHandler?.(contraption => this.queueDelete(String(contraption.publicId), true));
     void this.poll();
     this.timer = setInterval(() => void this.poll(), SPACE_ENTITY_POLL_INTERVAL_MS);
   }
@@ -109,6 +113,7 @@ export class SpaceEntitySync {
     this.executionEpochs.clear();
     this.enforceExecutionLeases();
     this.controller?.setServerEntityRunStateHandler?.(null);
+    this.controller?.setServerEntityDeleteHandler?.(null);
     this.contraptions?.setRemoteEntityPersistence?.(null);
   }
 
@@ -223,6 +228,7 @@ export class SpaceEntitySync {
   }
 
   private isStale(entity: SpaceWorldEntityRecord) {
+    if (this.deletedEntityIds.has(entity.id)) return true;
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
       || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
     return Math.max(this.latestRevisions.get(entity.id) || 0, Number(active?.serverRevision) || 0) > entity.revision;
@@ -237,6 +243,10 @@ export class SpaceEntitySync {
       serverExecutionMode: entity.execution_mode || 'browser',
       serverHostingEnabled: entity.hosting_enabled === true,
       serverOwnerUserId: entity.owner_user_id,
+      serverOwnerName: entity.owner_name || null,
+      serverExecutorName: executesLocally ? entity.owner_name || null : entity.executor_name || null,
+      serverExecutionLeaseExpiresAt: executesLocally
+        ? new Date(this.leasedUntil.get(entity.id)!).toISOString() : entity.execution_lease_expires_at || null,
       serverCanControl: entity.can_control,
       serverCanEdit: entity.can_edit,
       serverExecutesLocally: executesLocally,
@@ -429,6 +439,9 @@ export class SpaceEntitySync {
     delete snapshot.serverExecutionMode;
     delete snapshot.serverHostingEnabled;
     delete snapshot.serverOwnerUserId;
+    delete snapshot.serverOwnerName;
+    delete snapshot.serverExecutorName;
+    delete snapshot.serverExecutionLeaseExpiresAt;
     delete snapshot.serverCanControl;
     delete snapshot.serverCanEdit;
     delete snapshot.serverExecutesLocally;
@@ -564,7 +577,7 @@ export class SpaceEntitySync {
     else this.contraptions.updateDormantServerEntity?.(entityId, this.dormantMetadata(entity));
   }
 
-  private queueDelete(publicId: string) {
+  private queueDelete(publicId: string, reportErrors = false) {
     const id = String(publicId || '');
     if (!id) return;
     const key = this.queueKey(id);
@@ -580,11 +593,15 @@ export class SpaceEntitySync {
         if (!serverId) return;
         this.pendingDeletes.add(serverId);
         try {
-          await this.client.delete(serverId);
-        } catch (error: any) {
-          if (error?.status !== 404) throw error;
+          try {
+            await this.client.delete(serverId);
+          } catch (error: any) {
+            if (error?.status !== 404) throw error;
+          }
+          this.deletedEntityIds.add(serverId);
+        } finally {
+          this.pendingDeletes.delete(serverId);
         }
-        this.pendingDeletes.delete(serverId);
         this.previousAoiIds.delete(serverId);
         this.lastAoiRecords.delete(serverId);
         this.retainedOutsideAoi.delete(serverId);
@@ -596,8 +613,12 @@ export class SpaceEntitySync {
         this.initialCreateRecords.delete(localId);
         this.pendingLocalRecords.delete(localId);
       })
-      .catch(error => console.warn(`Space entity ${id} could not be deleted.`, error));
+      .catch(error => {
+        if (reportErrors) throw error;
+        console.warn(`Space entity ${id} could not be deleted.`, error);
+      });
     this.saveChains.set(key, next);
+    return next;
   }
 
   private removeEntitiesOutsideAoi(currentIds: Set<string>, position: { x: number; z: number }, aoiRadius: number) {
@@ -636,15 +657,14 @@ export class SpaceEntitySync {
   }
 
   private async setRunState(contraption: any, desiredState: SpaceEntityRunState) {
-    if (desiredState === 'stopped') {
-      this.leasedUntil.delete(String(contraption.publicId));
-      contraption.serverDesiredRunState = 'stopped';
-    }
     const updated = await this.client.setRunState(
       String(contraption.publicId),
       desiredState,
       Number(contraption.serverRevision),
     );
+    // A failed request must leave the current intent and valid execution lease
+    // untouched. A delayed old Stop must not revoke a newer Start's lease.
+    if (this.isStale(updated)) return updated;
     if (updated.desired_run_state === 'running' && updated.owner_user_id === this.currentUserId) {
       const requestedAt = Date.now();
       const leases = await this.client.claimExecutionLeases(this.instanceId, [updated.id]);

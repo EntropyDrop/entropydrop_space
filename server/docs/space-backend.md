@@ -4,6 +4,14 @@
 
 spaceAPI handles Agent/client HTTP requests; entityAPI is called by entity component code (`self` / `ctx`) inside the runtime.
 
+Entity responses also include public `owner_name`, `executor_name`, and
+`execution_lease_expires_at` display metadata. The browser executor is the owner,
+not the most recent control requester; executor metadata is returned only while
+a browser execution lease is live and the entity's desired state is running.
+Hosted entities identify their mode through `execution_mode`/`hosting_enabled`,
+never a browser executor. AOI listing batches owner-name lookup in one bounded
+query. Execution instance IDs and other lease proofs are not included.
+
 > Status: shared-user bootstrap, durable latest-player snapshots, paginated authored chunk
 > AOI-paged Zstd chunk overlays, bounded epoch-1 idempotent terrain mutation batches,
 > 128 asynchronously rebuilt far-surface zone snapshots,
@@ -584,6 +592,9 @@ limits (all configurable) are:
 An effective terrain change means a stored cell value actually changed. Replaying a
 receipt or setting a cell to its current value costs zero effective changes. Implicit
 micro-voxel removals caused by filling a parent standard cell are counted individually.
+Administrator edits increment the same hourly/daily effective-change counters, but
+do not enforce terrain caps or submitted-mutation burst budgets. The UI shows their
+actual usage alongside an unlimited allowance instead of an unchanged finite balance.
 Terrain list pages stop before their uncompressed payload would exceed 16 MiB. A new
 profile has a 30-second checkpoint grace period; afterward, missing or stale player
 position prevents edits rather than weakening the range check. Expired counters with

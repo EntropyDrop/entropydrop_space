@@ -152,7 +152,8 @@ class Game {
       session.token,
       session.player.is_admin === true,
       session.world.id,
-      session.account_api_origin || session.api_origin
+      session.account_api_origin || session.api_origin,
+      session.player.username
     );
     this.uiStore.setSkinWarning(session.entry_warning);
     this.uiStore.setCurrentSkin(

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { EntityContextMenu, EntityNameplates } from './EntityMenus.tsx';
 import {
   LiaCubeSolid,
   LiaUtensilSpoonSolid,
@@ -25,6 +26,7 @@ import { InventoryThumbnailRenderer } from '../../../engine/render/InventoryThum
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
 import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
+import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 
 import { LuShovel } from "react-icons/lu";
 
@@ -341,6 +343,26 @@ function SelectorPanel() {
 
 function SelectorContextMenu() {
   const { selectorContextMenu, selector, controller, selectedColor } = useSpaceUi(state => state);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu || !selectorContextMenu) return;
+    const updatePosition = () => {
+      const next = selectorMenuPosition(selectorContextMenu,
+        { width: menu.offsetWidth, height: menu.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight });
+      setPosition(current => current.left === next.left && current.top === next.top ? current : next);
+    };
+    updatePosition(); // Measure before first paint: no off-screen flash.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updatePosition);
+    observer?.observe(menu);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [selectorContextMenu]);
   if (!selectorContextMenu) return null;
 
   const activeHex = colorToHex(selectedColor ?? 0xf2a93b);
@@ -365,16 +387,20 @@ function SelectorContextMenu() {
       id="selector-context-menu-layer"
       className="selector-context-menu-layer"
       onMouseDown={event => {
+        event.stopPropagation();
         if (event.target === event.currentTarget) close();
       }}
-      onContextMenu={event => event.preventDefault()}
+      onMouseUp={event => event.stopPropagation()}
+      onClick={event => event.stopPropagation()}
+      onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}
     >
       <div
         id="selector-context-menu"
+        ref={menuRef}
         className="selector-context-menu"
         role="menu"
         aria-label="Selector actions"
-        style={{ left: selectorContextMenu.x, top: selectorContextMenu.y }}
+        style={position}
         onMouseDown={event => event.stopPropagation()}
       >
         <div className="selector-context-header">
@@ -499,7 +525,7 @@ function Hotbar() {
 }
 
 function BulkEditProgressPanel() {
-  const { bulkEdit, worldEditSync } = useSpaceUi(state => state);
+  const { bulkEdit, worldEditSync, isAdmin } = useSpaceUi(state => state);
   if (!bulkEdit) return null;
 
   const percent = bulkEdit.total > 0
@@ -522,9 +548,11 @@ function BulkEditProgressPanel() {
       : syncIdle
         ? 'Server synced'
         : `Server sync · ${worldEditSync.pendingBatches} batches / ${worldEditSync.pendingMutations} edits pending`;
-  const quotaText = worldEditSync.quota
-    ? `${worldEditSync.quota.remainingToday.toLocaleString()} / ${worldEditSync.quota.dailyLimit.toLocaleString()} daily edits remaining`
-    : null;
+  const quotaText = isAdmin
+    ? `Terrain edit allowance: unlimited (administrator)${worldEditSync.quota ? ` · ${worldEditSync.quota.usedToday.toLocaleString()} edits today` : ''}`
+    : worldEditSync.quota
+      ? `${worldEditSync.quota.remainingToday.toLocaleString()} / ${worldEditSync.quota.dailyLimit.toLocaleString()} daily edits remaining`
+      : null;
 
   return (
     <div className={`bulk-edit-progress phase-${bulkEdit.phase}`} role="status" aria-live="polite">
@@ -625,6 +653,8 @@ export function Hud() {
         {state.toast?.message || ''}
       </div>
       <SelectorContextMenu />
+      <EntityNameplates />
+      <EntityContextMenu />
     </>
   );
 }
