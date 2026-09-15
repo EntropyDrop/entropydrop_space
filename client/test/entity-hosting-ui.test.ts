@@ -20,13 +20,21 @@ const hook = registerHooks({ load(url, context, nextLoad) {
 const { HostedEntities } = await import(componentUrl);
 hook.deregister();
 
-function render(state: any) {
+function render(state: any, props: { defaultExpanded?: boolean } = { defaultExpanded: true }) {
   const original = spaceUiStore.getSnapshot();
   try {
     (spaceUiStore as any).patch(state);
-    return renderToStaticMarkup(React.createElement(HostedEntities));
+    return renderToStaticMarkup(React.createElement(HostedEntities, props));
   } finally { (spaceUiStore as any).patch(original); }
 }
+
+test('hosting HUD starts collapsed while keeping the hosted entity count visible', () => {
+  const markup = render({ hosting: hostingList(), hostingBusyIds: [], hostingError: 'Hosting capacity is full.' }, {});
+  assert.match(markup, /aria-expanded="false"/);
+  assert.match(markup, /Hosted Entities \(1\)/);
+  assert.match(markup, /transform:none/);
+  assert.doesNotMatch(markup, /hud-entities-body|Hosted Walker|Teleport|Stop hosting|Hosting capacity is full/);
+});
 
 test('hosting HUD lists off-AOI entities with English icon-and-text Teleport and early Stop', () => {
   const markup = render({ hosting: hostingList(), hostingBusyIds: [], hostingError: null });

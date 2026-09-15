@@ -4,9 +4,9 @@ import { LiaAngleDownSolid, LiaServerSolid, LiaSyncSolid, LiaMapMarkerSolid } fr
 import { spaceUiStore, hostingAvailabilityMessage } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
 
-export function HostedEntities() {
+export function HostedEntities({ defaultExpanded = false }: { defaultExpanded?: boolean } = {}) {
   const { hosting, hostingBusyIds, hostingError } = useSpaceUi(state => state);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const running = hosting.items.filter(entity => entity.enabled).length;
   return <section className="hud-entities-section hud-hosting-section" id="hud-hosted-entities" aria-label="Hosted entities">
     <button type="button" tabIndex={-1} className="hud-entities-header hud-hosting-toggle" aria-expanded={expanded}
