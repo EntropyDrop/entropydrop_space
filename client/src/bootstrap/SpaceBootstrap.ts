@@ -684,10 +684,13 @@ async function prepareOnlineSpace(
   reportProgress?.(14, 'Verifying EntropyDrop account…');
   const token = await ensureSpaceAccessToken(accountOrigin);
   if (!token) {
-    // Recover older main-site-only localStorage sessions once. The return marker
-    // keeps anonymous visits from bouncing between the two applications.
-    if (!new URL(window.location.href).searchParams.has('sso_attempted')) {
-      window.location.replace(spaceLoginUrl({ silent: true }));
+    // Only another origin can have a main-site-only localStorage session. On a
+    // same-origin development site it is already shared, so silent handoff is
+    // redundant and can loop when the login page normalizes its destination.
+    const silentLogin = new URL(spaceLoginUrl({ silent: true }), window.location.href);
+    if (silentLogin.origin !== window.location.origin
+      && !new URL(window.location.href).searchParams.has('sso_attempted')) {
+      window.location.replace(silentLogin.href);
       throw new SpaceLoginRedirect();
     }
     throw entryErrorFromResponse(401, null);

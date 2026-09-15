@@ -53,8 +53,9 @@ function replaceGlobal(name: string, value: unknown): () => void {
   };
 }
 
+for (const crossOrigin of [false, true]) {
 for (const afterHandoff of [false, true]) {
-test(`logged-out entry ${afterHandoff ? 'offers Google login after handoff' : 'checks the main-site session once'}`, async t => {
+test(`logged-out ${crossOrigin ? 'separate-origin' : 'same-origin'} entry ${afterHandoff ? 'offers Google login after handoff' : 'checks only relevant sessions'}`, async t => {
   const elements = new Map([
     ['space-entry-gate', new FakeElement()],
     ['space-entry-status', new FakeElement()],
@@ -70,7 +71,9 @@ test(`logged-out entry ${afterHandoff ? 'offers Google login after handoff' : 'c
     removeItem: () => undefined,
   };
   let redirected = '';
-  const pageUrl = `http://localhost:5173/space/app/${afterHandoff ? '?sso_attempted=1' : ''}`;
+  const pageOrigin = crossOrigin ? 'https://space.entropydrop.com' : 'http://localhost:5173';
+  const mainOrigin = crossOrigin ? 'https://entropydrop.com' : pageOrigin;
+  const pageUrl = `${pageOrigin}/space/app/${afterHandoff ? '?sso_attempted=1' : ''}`;
   const fakeWindow = {
     innerWidth: 1280,
     innerHeight: 720,
@@ -78,7 +81,8 @@ test(`logged-out entry ${afterHandoff ? 'offers Google login after handoff' : 'c
     location: {
       href: pageUrl,
       replace: (url: string) => { redirected = url; },
-      origin: 'http://localhost:5173',
+      origin: pageOrigin,
+      hostname: new URL(pageUrl).hostname,
       pathname: '/space/app/',
       search: '',
     },
@@ -104,9 +108,10 @@ test(`logged-out entry ${afterHandoff ? 'offers Google login after handoff' : 'c
     assert.fail('the game must not start without an authenticated session');
   });
 
-  if (!afterHandoff) {
+  if (crossOrigin && !afterHandoff) {
     const login = new URL(redirected);
     assert.equal(login.pathname, '/space/login');
+    assert.equal(login.origin, mainOrigin);
     assert.equal(login.searchParams.get('silent'), '1');
     assert.equal(new URL(login.searchParams.get('destination')!).searchParams.get('sso_attempted'), '1');
     return;
@@ -118,10 +123,11 @@ test(`logged-out entry ${afterHandoff ? 'offers Google login after handoff' : 'c
   assert.deepEqual(
     actions.slice(1).map(action => ({ href: action.href, className: action.className })),
     [
-      { href: `http://localhost:5173/space/login?reauth=1&destination=${encodeURIComponent(pageUrl)}`, className: 'space-entry-action' },
-      { href: '/space/intro', className: 'space-entry-action secondary' },
+      { href: `${mainOrigin}/space/login?reauth=1&destination=${encodeURIComponent(pageUrl)}`, className: 'space-entry-action' },
+      { href: crossOrigin ? `${mainOrigin}/space/intro` : '/space/intro', className: 'space-entry-action secondary' },
     ]
   );
 });
 
+}
 }
