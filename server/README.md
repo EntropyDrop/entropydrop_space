@@ -22,9 +22,19 @@ Set `DATABASE_URL`, `REDIS_URL`, `SPACE_ACCOUNT_API_URL`,
 The internal account endpoint requires the same service token on both sides.
 `SPACE_STANDALONE=false` is rejected. Paid hosting remains opt-in.
 
-The existing `space_0001`–`space_0005` migration chain and table names are preserved:
-`python -m alembic -c space/alembic.ini upgrade head`. No new data migration is
-introduced by extraction. Development deploys reuse the existing isolated volumes.
+The existing migration chain and table names are preserved. Run
+`python -m alembic -c space/alembic.ini upgrade head` before starting the updated API
+and hosting workers. `space_0006` adds the actual execution-holder account separately
+from creator attribution and backfills older browser/hosting leases. World members
+operate unoccupied entities equally; only market resources retain publisher checks.
+`space_0007` creates the global 128-slot physical-core pool and adds per-entity core
+assignments. Stop the old API/worker before migrating (`deploy_space.py --quiesce`);
+previous hosting jobs pause with prepaid time preserved and require explicit restart.
+The new worker probes its runtime, detects cpuset/physical cores/container CPU quota,
+and advertises the actual capacity. Linux entity processes bind to their assigned CPU;
+non-Linux development uses separate processes without hard affinity. See the
+[hosting controls and deployment guide](docs/entity-hosting.md).
+Development deploys reuse the existing isolated volumes.
 
 Monitoring workers retain separate minute buffers and publish cumulative latency
 counters to shared Redis every five seconds. Atomic, per-worker updates make retries

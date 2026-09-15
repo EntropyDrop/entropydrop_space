@@ -23,14 +23,39 @@ export function entityRunStatus(entity: any, currentUserName: string | null = nu
       ? 'Server hosting · running' : running ? 'Server hosting · paused' : 'Server hosting · stopped' };
   }
   if (!running) return { running: false, tone: 'stopped', icon: 'stop', caption: '', text: 'Stopped' };
-  const owner = entity.serverOwnerName || entity.serverOwnerUserId || 'owner';
   if (entity.serverManaged && !entity.serverExecutesLocally
     && !(Date.parse(entity.serverExecutionLeaseExpiresAt || '') > now)) {
-    return { running: true, tone: 'waiting', icon: 'waiting', caption: owner, text: `Starting · waiting for ${owner}` };
+    return { running: true, tone: 'waiting', icon: 'waiting', caption: 'Waiting for executor', text: 'Starting · waiting for an execution endpoint' };
   }
   const executor = entity.serverExecutorName || (entity.serverExecutesLocally ? currentUserName : null)
-    || (entity.serverManaged ? owner : currentUserName || 'this browser');
+    || (entity.serverManaged ? 'execution endpoint' : currentUserName || 'this browser');
   return { running: true, tone: 'running', icon: 'play', caption: executor, text: `Running · ${executor}` };
+}
+
+/** CSS handles the unlocked cursor; this handles pointer-locked crosshair aim.
+ * One topmost DOM hit after projection avoids per-control rect reads/rerenders. */
+export class EntityNameplateAimHighlighter {
+  private highlighted: HTMLElement | null = null;
+
+  update(root: HTMLElement, locked: boolean, viewport: { width: number; height: number }, blocked = false): void {
+    root.classList.toggle('is-pointer-locked', locked);
+    let control: HTMLElement | null = null;
+    if (locked && !blocked && viewport.width > 0 && viewport.height > 0) {
+      const hit = root.ownerDocument.elementFromPoint?.(viewport.width / 2, viewport.height / 2);
+      control = hit?.closest<HTMLElement>('[data-entity-nameplate-control]') || null;
+      if (control && (!root.contains(control) || (control as HTMLButtonElement).disabled)) control = null;
+    }
+    if (control === this.highlighted) return;
+    this.clear();
+    this.highlighted = control;
+    control?.classList.add('is-aimed');
+  }
+
+  clear(root?: HTMLElement | null): void {
+    this.highlighted?.classList.remove('is-aimed');
+    this.highlighted = null;
+    root?.classList.remove('is-pointer-locked');
+  }
 }
 
 /** Cache authored per-component extents, then transform only eight corners per

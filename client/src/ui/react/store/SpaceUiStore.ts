@@ -40,6 +40,7 @@ import {
 } from '../../../engine/render/LightingQuality.ts';
 import { triggerColorPickerInput } from '../utils/colorPickerInput.ts';
 import { entityRunStatus } from '../utils/entityNameplate.ts';
+import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
 import {
   DEFAULT_ENTITY_IMPOSTOR_SETTINGS, ENTITY_IMPOSTOR_SETTING_KEY,
   normalizeEntityImpostorSettings, type EntityImpostorSettings,
@@ -90,6 +91,44 @@ export interface NearbyEntityItem {
   pos: { x: number; y: number; z: number };
   dist: number;
   type: string;
+}
+
+export interface EntityHostingHandlers {
+  host: (entity: any, maxCredits: number) => Promise<SpaceEntityHostingStatus>;
+  stop: (entityId: string) => Promise<SpaceEntityHostingStatus>;
+  get: (entityId: string) => Promise<SpaceEntityHostingStatus>;
+  refresh: () => Promise<void>;
+}
+
+const EMPTY_HOSTING: SpaceHostingList = { enabled: false, worker_available: false,
+  capacity: { limit: 128, total: 0, used: 0, available: 0 }, items: [] };
+
+export function hostingAvailabilityMessage(hosting: SpaceHostingList): string {
+  if (!hosting.enabled) return 'Server hosting is disabled';
+  if (!hosting.worker_available) return 'Hosting worker unavailable';
+  if (hosting.capacity.available === 0) return 'Hosting capacity is full';
+  return 'Hosting available';
+}
+
+export function hostingErrorMessage(error: any): string {
+  switch (error?.code) {
+    case 'HOSTING_DISABLED': return 'Server hosting is currently disabled.';
+    case 'HOSTING_WORKER_UNAVAILABLE': return 'The hosting worker is unavailable. Please try again later.';
+    case 'HOSTING_CORE_UNAVAILABLE': return 'No dedicated hosting core is available. Please try again later.';
+    case 'HOSTING_CORES_FULL': return 'Hosting capacity is full. Stop a hosted entity or try again later.';
+    case 'HOSTING_CREDITS_REQUIRED': return 'Not enough credits to start hosting. At least 1 credit is required.';
+    case 'ACCOUNT_SERVICE_UNAVAILABLE':
+    case 'ACCOUNT_SERVICE_NOT_CONFIGURED':
+    case 'ACCOUNT_SERVICE_TLS_REQUIRED': return 'Hosting cannot reach the account service. Please try again later.';
+    case 'HOSTING_BUDGET_INVALID': return 'Choose a hosting budget between 1 and 168 credits.';
+    case 'ENTITY_HOSTING_FORBIDDEN': return 'This account is not authorized for the current hosting operation.';
+    case 'HOSTING_ENTITY_TOO_COMPLEX': return 'This entity is too large to host (maximum 512 voxels and 8 components).';
+    case 'HOSTING_ENTITY_BOUNDS_LIMIT': return 'This entity exceeds the hosting size limits.';
+    case 'HOSTING_STATE_CHANGED': return 'Entity execution changed. Refresh and try again.';
+    case 'ENTITY_OCCUPIED': return 'This entity is occupied by another endpoint. Ask its executor to stop it first.';
+    case 'HOSTING_WORLD_INACTIVE': return 'This world is not available for hosting.';
+    default: return error?.message || 'Hosting could not be updated. Please try again.';
+  }
 }
 
 export interface AgentMessage {
@@ -194,6 +233,9 @@ export interface SpaceUiSnapshot {
   pingClass: string;
   positionText: string;
   nearbyEntities: NearbyEntityItem[];
+  hosting: SpaceHostingList;
+  hostingBusyIds: string[];
+  hostingError: string | null;
   selector: SelectorView;
   selectorContextMenu: SelectorContextMenuView | null;
   entityContextMenu: EntityContextMenuView | null;
@@ -322,6 +364,7 @@ export class SpaceUiStore {
   private apiKeyClient: SpaceApiKeyClient | null = null;
   private queueCancelHandler: (() => Promise<void>) | null = null;
   private enterOnlineHandler: (() => void) | null = null;
+  private entityHostingHandlers: EntityHostingHandlers | null = null;
 
   private snapshot: SpaceUiSnapshot = {
     revision: 0,
@@ -356,6 +399,9 @@ export class SpaceUiStore {
     pingClass: 'hud-ping ping-unknown',
     positionText: 'X: -- | Y: -- | Z: --',
     nearbyEntities: [],
+    hosting: EMPTY_HOSTING,
+    hostingBusyIds: [],
+    hostingError: null,
     selector: EMPTY_SELECTOR,
     selectorContextMenu: null,
     entityContextMenu: null,
@@ -405,6 +451,99 @@ export class SpaceUiStore {
 
   refresh(): void {
     this.patch({});
+  }
+
+  setEntityHostingHandlers(handlers: EntityHostingHandlers | null): void {
+    this.entityHostingHandlers = handlers;
+    this.patch({ hosting: EMPTY_HOSTING, hostingBusyIds: [], hostingError: null });
+  }
+
+  setHostingState(hosting: SpaceHostingList): void {
+    this.patch({ hosting, hostingError: null });
+  }
+
+  setHostingError(message: string): void { this.patch({ hostingError: message }); }
+
+  private async hostingAction(entityId: string, action: () => Promise<SpaceEntityHostingStatus>, enabled: boolean): Promise<boolean> {
+    if (this.snapshot.hostingBusyIds.includes(entityId)) return false;
+    this.patch({ hostingBusyIds: [...this.snapshot.hostingBusyIds, entityId], hostingError: null });
+    try {
+      const result = await action();
+      // A durable mutation receipt updates the HUD even if the following list
+      // request failed. Capacity remains server-reported (Stop drains async).
+      const items = this.snapshot.hosting.items.filter(item => item.entity_id !== result.entity_id);
+      if (result.execution_mode === 'hosted' && result.can_manage) items.unshift(result);
+      this.patch({ hosting: { ...this.snapshot.hosting, items } });
+      this.showToast(enabled ? `Server hosting started · Core ${Number(result.core_id) + 1} · up to ${result.budget_remaining_credits} credit(s)`
+        : 'Server hosting stopped. Unused prepaid time is preserved.');
+      return true;
+    } catch (error) {
+      this.showToast(hostingErrorMessage(error), { tone: 'warning' });
+      return false;
+    } finally {
+      this.patch({ hostingBusyIds: this.snapshot.hostingBusyIds.filter(id => id !== entityId) });
+    }
+  }
+
+  hostEntity(entity: any, maxCredits: number): Promise<boolean> {
+    if (!this.entityHostingHandlers) {
+      this.showToast('Hosting is only available in an online world.', { tone: 'warning' });
+      return Promise.resolve(false);
+    }
+    if (!Number.isInteger(maxCredits) || maxCredits < 1 || maxCredits > 168) {
+      this.showToast('Choose a hosting budget between 1 and 168 credits.', { tone: 'warning' });
+      return Promise.resolve(false);
+    }
+    return this.hostingAction(String(entity.publicId), () => this.entityHostingHandlers!.host(entity, maxCredits), true);
+  }
+
+  stopHostedEntity(entityId: string): Promise<boolean> {
+    if (!this.entityHostingHandlers) return Promise.resolve(false);
+    return this.hostingAction(entityId, () => this.entityHostingHandlers!.stop(entityId), false);
+  }
+
+  async refreshHosting(): Promise<void> {
+    try { await this.entityHostingHandlers?.refresh(); }
+    catch { this.patch({ hostingError: 'Hosting status is temporarily unavailable. Try refreshing.' }); }
+  }
+
+  async teleportToHostedEntity(entityId: string): Promise<boolean> {
+    const handlers = this.entityHostingHandlers;
+    const { controller, world, navigationSystem } = this.snapshot;
+    if (!handlers || !controller?.physics) return false;
+    if (this.snapshot.hostingBusyIds.includes(entityId)) return false;
+    this.patch({ hostingBusyIds: [...this.snapshot.hostingBusyIds, entityId] });
+    try {
+      const entity = await handlers.get(entityId); // Fresh pose, including outside AOI.
+      const position = entity.teleport_position || entity.position;
+      const x = wrapX(position.x_cm / 100), z = wrapZ(position.z_cm / 100);
+      const y = Math.max(2, Math.min(254, position.y_cm / 100));
+      navigationSystem?.stopNavigation?.('cancelled');
+      if (controller.isDriving) controller.toggleDriveVehicle?.();
+      if (controller.wrenchGrab) controller.releaseWrenchGrab?.();
+      controller.unlock?.();
+      // Stay safely in flight during remote terrain preload, then use the same
+      // collision-safe placement and interpolation reset as reconnect spawn.
+      controller.physics.isFlying = true;
+      controller.physics.position.set(x, y, z);
+      controller.physics.velocity.set(0, 0, 0);
+      controller.physics.ridingContraption = null;
+      controller.physics.ridingBodyId = null;
+      controller.physics.resetRenderInterpolation?.();
+      await world?.preloadTerrainAoi?.(x, z);
+      controller.physics.setInitialPosition(x, y, z);
+      controller.physics.isFlying = true;
+      controller.physics.isOnGround = false;
+      this.refresh();
+      void controller.requestLock?.();
+      this.showToast(`Teleported to ${entity.name}`);
+      return true;
+    } catch (error) {
+      this.showToast(error instanceof Error ? error.message : 'Unable to teleport to this entity.', { tone: 'warning' });
+      return false;
+    } finally {
+      this.patch({ hostingBusyIds: this.snapshot.hostingBusyIds.filter(id => id !== entityId) });
+    }
   }
 
   setController(controller: any): void {
@@ -1580,7 +1719,7 @@ export class SpaceUiStore {
   }
 
   setPerspective(perspective: PlayerPerspective, persist = true): void {
-    this.snapshot.controller?.setPerspective?.(perspective);
+    this.snapshot.controller?.setPerspective?.(perspective, persist);
     this.patch({ perspective });
     if (persist) try { localStorage.setItem('space_setting_perspective', perspective); } catch { }
   }

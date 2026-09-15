@@ -630,6 +630,7 @@ export class ContraptionManager {
       serverCanControl: contraption.serverCanControl === true,
       serverCanEdit: contraption.serverCanEdit === true,
       serverExecutesLocally: contraption.serverExecutesLocally === true,
+      serverExecutionEpoch: Number(contraption.serverExecutionEpoch) || 0,
       serverRevision: Number(contraption.serverRevision) || 0,
       serverPlaybackRevision: Number(contraption.serverPlaybackRevision) || 0,
       serverDesiredRunState: contraption.serverDesiredRunState || null,
@@ -2222,6 +2223,7 @@ export class ContraptionManager {
       contraption.serverCanControl = restoreState.serverCanControl === true;
       contraption.serverCanEdit = restoreState.serverCanEdit === true;
       contraption.serverExecutesLocally = restoreState.serverExecutesLocally === true;
+      contraption.serverExecutionEpoch = Number(restoreState.serverExecutionEpoch) || 0;
       contraption.serverRevision = Number(restoreState.serverRevision) || 0;
       contraption.serverPlaybackRevision = Number(restoreState.serverPlaybackRevision) || 0;
       contraption.serverDesiredRunState = restoreState.serverDesiredRunState || null;

@@ -63,7 +63,7 @@ interface SpaceBuildComponentInput {
     position: [number, number, number];
     /** Rider orientation `[x,y,z,w]` in the component pivot frame; identity faces -Z. */
     rotation?: [number, number, number, number];
-    /** When true a mounted rider's yaw follows the seat's solved world orientation. */
+    /** Fixes the rider's body to the seat's world orientation; camera look stays free. */
     fixedOrientation?: boolean;
   }>;
   script?: string;

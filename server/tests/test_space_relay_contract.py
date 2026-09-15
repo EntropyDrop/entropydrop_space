@@ -15,6 +15,7 @@ import msgpack
 import pytest
 
 from routers.space_realtime import SPACE_REALTIME_MAX_MESSAGE_BYTES, _unpack_message
+from space.entity_pose import parse_entity_pose
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "space-relay-v1.json"
@@ -69,6 +70,7 @@ def test_server_frames_carry_only_documented_fields():
         "input_hz": 20,
         "snapshot_hz": 10,
         "persistence_seconds": 5,
+        "entity_pose_hz": 20,
     }
 
     terrain = frame("terrain_server")
@@ -116,3 +118,14 @@ def test_fixture_matches_sibling_frontend_copy():
         "tests/fixtures/space-relay-v1.json drifted from the frontend copy; "
         "re-run client/tools/generate-relay-fixtures.mjs and re-copy the output"
     )
+
+
+def test_entity_pose_frames_hide_executor_capability_and_pin_vectors():
+    sent = parse_entity_pose(_unpack_message(frame_bytes('entity_pose_client')))
+    received = frame('entity_state_server')
+    assert received['type'] == 'entity_state'
+    item = received['items'][0]
+    assert set(item) == {'entity_id', 'execution_epoch', 'sequence', 'revision',
+                         'definition_digest', 'lease_expires_at', 'bodies'}
+    assert item['bodies'] == sent['bodies']
+    assert 'instance_id' not in item

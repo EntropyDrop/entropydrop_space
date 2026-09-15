@@ -117,15 +117,10 @@ def test_browser_entities_are_backend_snapshotted_updated_and_hard_deleted(clien
 
     app.dependency_overrides[get_current_user] = lambda: other
     assert client.post("/space/api/v2/bootstrap").status_code == 200
-    forbidden = client.delete(
-        f"/space/api/v2/worlds/{world_id}/entities/{record['id']}"
-    )
-    assert forbidden.status_code == 403
-
-    app.dependency_overrides[get_current_user] = lambda: owner
     deleted = client.delete(
         f"/space/api/v2/worlds/{world_id}/entities/{record['id']}"
     )
+    assert deleted.status_code == 200, 'any world member may delete an unoccupied entity'
     assert deleted.json() == {"deleted": True, "entity_id": record["id"]}
     assert db.query(SpaceWorldEntity).count() == 0
 

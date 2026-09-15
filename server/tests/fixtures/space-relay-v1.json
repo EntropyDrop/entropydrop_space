@@ -24,7 +24,15 @@
     },
     "hello_server": {
       "direction": "server",
-      "msgpack_base64": "haR0eXBlpWhlbGxvqHByb3RvY29srnNwYWNlLXJlbGF5LXYxqGlucHV0X2h6FKtzbmFwc2hvdF9oegqzcGVyc2lzdGVuY2Vfc2Vjb25kcwU="
+      "msgpack_base64": "hqR0eXBlpWhlbGxvqHByb3RvY29srnNwYWNlLXJlbGF5LXYxqGlucHV0X2h6FKtzbmFwc2hvdF9oegqzcGVyc2lzdGVuY2Vfc2Vjb25kcwWuZW50aXR5X3Bvc2VfaHoU"
+    },
+    "entity_pose_client": {
+      "direction": "client",
+      "msgpack_base64": "hqR0eXBlq2VudGl0eV9wb3NlqWVudGl0eV9pZNkkM2NkN2RhYmEtZDE5Ni00NGU4LWE0MzMtY2YxMzkyNThmNjE3q2luc3RhbmNlX2lk2SQ4NzVjMTJkYy0zYmRhLTRjM2EtOTcwYi0yZmNiOGQ2NGUxYjGvZXhlY3V0aW9uX2Vwb2NoBKhzZXF1ZW5jZSqmYm9kaWVzkYWiaWSkcm9vdKhwb3NpdGlvbpPLQCkAAAAAAADLQDSAAAAAAADLQEFAAAAAAACqcXVhdGVybmlvbpQAAAABqHZlbG9jaXR5kwIAAK9hbmd1bGFyVmVsb2NpdHmTAAEA"
+    },
+    "entity_state_server": {
+      "direction": "server",
+      "msgpack_base64": "gqR0eXBlrGVudGl0eV9zdGF0ZaVpdGVtc5GHqWVudGl0eV9pZNkkM2NkN2RhYmEtZDE5Ni00NGU4LWE0MzMtY2YxMzkyNThmNjE3r2V4ZWN1dGlvbl9lcG9jaASoc2VxdWVuY2UqqHJldmlzaW9uArFkZWZpbml0aW9uX2RpZ2VzdNlAYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYbBsZWFzZV9leHBpcmVzX2F0tDIwMjYtMDktMTVUMDg6MDA6MDhapmJvZGllc5GFomlkpHJvb3SocG9zaXRpb26Ty0ApAAAAAAAAy0A0gAAAAAAAy0BBQAAAAAAAqnF1YXRlcm5pb26UAAAAAah2ZWxvY2l0eZMCAACvYW5ndWxhclZlbG9jaXR5kwABAA=="
     },
     "state_server": {
       "direction": "server",

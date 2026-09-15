@@ -261,7 +261,7 @@ export function CodeEditorModal() {
     ? contraption.serverCanEdit === true
       ? contraption.serverCanControl === true ? 'edit + control' : 'edit only'
       : contraption.serverCanControl === true ? 'control only' : 'read only'
-    : 'local owner';
+    : 'local entity';
   const executorLabel = !backendManaged
     ? 'this browser'
     : contraption.serverExecutionMode === 'hosted'
@@ -272,7 +272,7 @@ export function CodeEditorModal() {
       ? 'stopped'
       : contraption.serverExecutesLocally === true
         ? 'this browser (lease)'
-        : 'owner browser / waiting';
+        : contraption.serverExecutorName || 'waiting for an execution endpoint';
   return (
     <div id="code-editor-modal" className="custom-modal open" onMouseDown={event => { if (event.target === event.currentTarget) spaceUiStore.toggleCodeEditorModal(false); }}>
       <div className="modal-content code-editor-container">

@@ -165,7 +165,9 @@ def api_usage(request: Request, world_id: uuid.UUID, db: Session = Depends(get_d
             "api_keys": allowance(user.api_key_count, entities.SPACE_API_KEY_MAX_PER_USER),
             "entities": allowance(owned.count(), entities.SPACE_ENTITY_MAX_PER_OWNER),
             "entity_storage_bytes": allowance(entities._owned_entity_storage_bytes(db, str(world.id), user.id), entities.SPACE_ENTITY_MAX_TOTAL_BYTES_PER_OWNER),
-            "running_entities": allowance(owned.filter_by(desired_run_state="running").count(), entities.SPACE_ENTITY_MAX_RUNNING_PER_OWNER),
+            "running_entities": allowance(entities._running_entity_query(db, str(world.id)).filter(
+                entities.func.coalesce(models.SpaceWorldEntity.execution_user_id, models.SpaceWorldEntity.owner_user_id) == user.id
+            ).count(), entities.SPACE_ENTITY_MAX_RUNNING_PER_OWNER),
             "terrain": terrain,
         },
         "limits": {"blockset_blocks_per_build": MAX_BUILD_BLOCKS, "blockset_definition_bytes": MAX_BUILD_BYTES,
@@ -182,6 +184,8 @@ def api_usage(request: Request, world_id: uuid.UUID, db: Session = Depends(get_d
         result["pricing"].update(hosting_credits_per_hour=1, hosting_billing="prepaid_simulation_hour", hosting_max_budget_credits=168)
         result["quotas"]["hosted_entities_world"] = allowance(
             db.query(models.SpaceWorldEntity).filter_by(world_id=world.id, hosting_enabled=True).count(), hosting.MAX_HOSTED_PER_WORLD)
+        from space.hosting_cores import capacity
+        result['hosting_cores'] = capacity(db, db.get(models.SpaceHostingWorker, str(world.id)))
         result["limits"].update(hosted_blocks_per_entity=hosting.MAX_HOSTED_BLOCKS, hosted_components_per_entity=hosting.MAX_HOSTED_COMPONENTS)
     db.commit()
     return result

@@ -3,12 +3,15 @@ import {
   SpaceEntityClient,
   type SpaceEntityRunState,
   type SpaceWorldEntityRecord,
+  type SpaceHostingList,
 } from '../../bootstrap/SpaceEntityClient.ts';
 import { sha256Hex } from '../../bootstrap/NetworkSafety.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import { CHUNK_SIZE_X } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear, wrapX, wrapZ } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { ENTITY_IMPOSTOR_SETTING_LIMITS } from '../render/EntityImpostorSettings.ts';
+import { EntityPoseBuffer, parseEntityPose, type EntityPoseFrame } from './EntityPoseBuffer.ts';
+import type { MultiplayerSync } from './MultiplayerSync.ts';
 
 
 export const SPACE_ENTITY_POLL_INTERVAL_MS = 2_000;
@@ -29,12 +32,15 @@ type SpaceEntitySyncOptions = {
   getPlayerPosition: () => { x: number; z: number };
   getEntityImpostorDistance?: () => number;
   fetchImpl?: typeof fetch;
+  realtime?: Pick<MultiplayerSync, 'sendEntityPose'>;
+  onHostingUpdate?: (state: SpaceHostingList) => void;
+  onHostingError?: () => void;
 };
 
 /**
  * Loads server-placed entities into the nearby browser simulation window.
- * Only the owner's browser advances scripts/physics. Everyone else receives a
- * stopped, collidable construction pose and cannot mutate the durable run bit.
+ * Only the leased endpoint advances scripts/physics. Other endpoints project
+ * received collidable trajectories without advancing their own simulation.
  */
 export class SpaceEntitySync {
   private readonly client: SpaceEntityClient;
@@ -48,7 +54,10 @@ export class SpaceEntitySync {
   private readonly loading = new Set<string>();
   private readonly leasedUntil = new Map<string, number>();
   private readonly executionEpochs = new Map<string, number>();
+  private readonly executorNames = new Map<string, string | null>();
   private readonly latestRevisions = new Map<string, number>();
+  private readonly latestEpochs = new Map<string, number>();
+  private readonly leaseRequestsAt = new Map<string, number>();
   private leaseTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly entityAliases = new Map<string, string>();
   private readonly localIdByServerId = new Map<string, string>();
@@ -68,6 +77,15 @@ export class SpaceEntitySync {
   private timer: ReturnType<typeof setInterval> | null = null;
   private pollInFlight = false;
   private stopped = false;
+  private readonly realtime: SpaceEntitySyncOptions['realtime'];
+  private readonly onHostingUpdate: SpaceEntitySyncOptions['onHostingUpdate'];
+  private readonly onHostingError: SpaceEntitySyncOptions['onHostingError'];
+  private hostingTimer: ReturnType<typeof setInterval> | null = null;
+  private hostingPollInFlight: Promise<void> | null = null;
+  private readonly poseBuffers = new Map<string, { buffer: EntityPoseBuffer; frame: EntityPoseFrame; receivedAt: number }>();
+  private poseSequence = 0;
+  private readonly metadataLoading = new Set<string>();
+  private readonly metadataRetryAt = new Map<string, number>();
 
   constructor(options: SpaceEntitySyncOptions) {
     this.client = new SpaceEntityClient(
@@ -86,6 +104,9 @@ export class SpaceEntitySync {
       throw new Error('This browser cannot generate a secure entity executor identity.');
     }
     this.instanceId = globalThis.crypto.randomUUID();
+    this.realtime = options.realtime;
+    this.onHostingUpdate = options.onHostingUpdate;
+    this.onHostingError = options.onHostingError;
   }
 
   start() {
@@ -100,6 +121,11 @@ export class SpaceEntitySync {
     ));
     this.controller?.setServerEntityDeleteHandler?.(contraption => this.queueDelete(String(contraption.publicId), true));
     void this.poll();
+    if (this.onHostingUpdate) {
+      void this.pollHosting().catch(() => {});
+      this.hostingTimer = setInterval(() => void this.pollHosting().catch(() => {}), 3_000);
+      this.hostingTimer.unref?.();
+    }
     this.timer = setInterval(() => void this.poll(), SPACE_ENTITY_POLL_INTERVAL_MS);
   }
 
@@ -107,10 +133,13 @@ export class SpaceEntitySync {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.hostingTimer) clearInterval(this.hostingTimer);
+    this.hostingTimer = null;
     if (this.leaseTimer) clearTimeout(this.leaseTimer);
     this.leaseTimer = null;
     this.leasedUntil.clear();
     this.executionEpochs.clear();
+    this.poseBuffers.clear();
     this.enforceExecutionLeases();
     this.controller?.setServerEntityRunStateHandler?.(null);
     this.controller?.setServerEntityDeleteHandler?.(null);
@@ -119,6 +148,102 @@ export class SpaceEntitySync {
 
   hasRetainedImpostor(publicId: string) {
     return this.retainedOutsideAoi.has(publicId);
+  }
+
+  /** Called after the authoritative fixed tick, never from render interpolation. */
+  publishPoses() {
+    if (this.stopped || !this.realtime) return;
+    this.enforceExecutionLeases();
+    const sequence = ++this.poseSequence;
+    for (const entity of this.contraptions.contraptions || []) {
+      const id = String(entity.publicId);
+      const epoch = this.executionEpochs.get(id);
+      if (!entity.serverManaged || !epoch || (this.leasedUntil.get(id) || 0) <= Date.now()) continue;
+      const bodies = [...(entity.rigidBodies?.values?.() || [])].map((body: any) => ({
+        id: String(body.id), position: body.position.toArray(), quaternion: body.quaternion.toArray(),
+        velocity: body.velocity.toArray(), angularVelocity: body.angularVelocity.toArray(),
+        collisionEnabled: entity.getNodeCollisionEnabled?.(body.id) !== false,
+      }));
+      // The root is first, so the relay's AOI follows the entity, not a child.
+      bodies.sort((a, b) => Number(b.id === entity.rootComponentId) - Number(a.id === entity.rootComponentId));
+      if (!bodies.length || bodies.length > 128) continue;
+      this.realtime.sendEntityPose({ entity_id: id, instance_id: this.instanceId,
+        execution_epoch: epoch, sequence, bodies });
+    }
+  }
+
+  receivePose(value: EntityPoseFrame) {
+    const frame = parseEntityPose(value);
+    if (this.stopped || !frame || this.deletedEntityIds.has(frame.entity_id)) return;
+    const active = this.contraptions.findActiveContraptionByPublicId?.(frame.entity_id);
+    if (active && (frame.execution_epoch < (active.serverExecutionEpoch || 0)
+      || frame.revision < (active.serverRevision || 0)
+      || frame.definition_digest !== active.serverDefinitionDigest)) return;
+    const localEpoch = this.executionEpochs.get(frame.entity_id);
+    if (localEpoch && frame.execution_epoch === localEpoch) return; // Never correct the executor with its own echo.
+    if (localEpoch && frame.execution_epoch > localEpoch) {
+      this.leasedUntil.delete(frame.entity_id);
+      this.executionEpochs.delete(frame.entity_id);
+      this.enforceExecutionLeases();
+    }
+    let entry = this.poseBuffers.get(frame.entity_id);
+    if (!entry) {
+      entry = { buffer: new EntityPoseBuffer(), frame, receivedAt: Date.now() };
+      this.poseBuffers.set(frame.entity_id, entry);
+    }
+    if (!entry.buffer.push(frame, Date.now())) return;
+    this.latestEpochs.set(frame.entity_id, frame.execution_epoch);
+    this.latestRevisions.set(frame.entity_id, Math.max(frame.revision, this.latestRevisions.get(frame.entity_id) || 0));
+    entry.frame = frame;
+    entry.receivedAt = Date.now();
+    while (this.poseBuffers.size > 256) this.poseBuffers.delete(this.poseBuffers.keys().next().value!);
+    if (active) {
+      active.serverExecutionEpoch = frame.execution_epoch;
+      active.serverCanControl = active.serverCanEdit = false;
+      active.serverDesiredRunState = 'running';
+      active.serverExecutionLeaseExpiresAt = frame.lease_expires_at;
+    } else if (this.metadataLoading.size < 8 && !this.metadataLoading.has(frame.entity_id)
+      && Date.now() >= (this.metadataRetryAt.get(frame.entity_id) || 0)) {
+      // A fast moving entity can enter realtime AOI before its next durable
+      // position checkpoint moves the REST index. Fetch its metadata by ID.
+      this.metadataLoading.add(frame.entity_id);
+      this.metadataRetryAt.set(frame.entity_id, Date.now() + 2_000);
+      while (this.metadataRetryAt.size > 256) this.metadataRetryAt.delete(this.metadataRetryAt.keys().next().value!);
+      void this.client.get(frame.entity_id).then(async record => {
+        if (this.stopped || this.isStale(record)) return;
+        this.contraptions.deleteDormantContraption?.(frame.entity_id);
+        this.lastAoiRecords.set(record.id, record);
+        this.previousAoiIds.add(record.id);
+        await this.applyRecord(record);
+      }).catch(error => console.warn('Moving Space entity metadata could not be loaded.', error))
+        .finally(() => this.metadataLoading.delete(frame.entity_id));
+    }
+  }
+
+  /** Run before player collision; rendering uses these same physical poses. */
+  updateReplicaPoses(dt: number) {
+    const now = Date.now();
+    for (const entity of this.contraptions.contraptions || []) {
+      if (!entity.serverManaged || entity.serverExecutesLocally) continue;
+      const entry = this.poseBuffers.get(String(entity.publicId));
+      if (!entry || entry.frame.execution_epoch < (entity.serverExecutionEpoch || 0)
+        || entry.frame.revision < (entity.serverRevision || 0)
+        || entry.frame.definition_digest !== entity.serverDefinitionDigest
+        || entity.serverDesiredRunState !== 'running') continue;
+      const bodies = entry.buffer.sample(now, entity.position);
+      if (bodies) {
+        entity.applyReplicaBodyPoses?.(bodies, dt, { resetHistory: entity.serverReplicaEpoch !== entry.frame.execution_epoch });
+        entity.serverReplicaEpoch = entry.frame.execution_epoch;
+      }
+      if (now - entry.receivedAt > 500) {
+        // Never keep stale contact velocities when the publisher disconnects.
+        entity.velocity?.set(0, 0, 0);
+        entity.angularVelocity?.set(0, 0, 0);
+        for (const body of entity.rigidBodies?.values?.() || []) {
+          body.velocity.set(0, 0, 0); body.angularVelocity.set(0, 0, 0);
+        }
+      }
+    }
   }
 
   async poll() {
@@ -144,12 +269,24 @@ export class SpaceEntitySync {
       if (this.stopped) return;
       await Promise.all(list.items.map(entity => this.applyRecord(entity)));
       const currentIds = new Set(list.items.map(entity => entity.id));
+      const liveRecords = new Map<string, SpaceWorldEntityRecord>();
+      for (const [id, entry] of this.poseBuffers) {
+        if (Date.now() - entry.receivedAt > 500) continue;
+        const [x, , z] = entry.frame.bodies[0].position;
+        const distance = Math.hypot(unwrapPeriodicNear(x, position.x, TORUS_SIZE_X) - position.x,
+          unwrapPeriodicNear(z, position.z, TORUS_SIZE_Z) - position.z);
+        if (distance > radiusCm / 100) continue;
+        currentIds.add(id);
+        const record = this.lastAoiRecords.get(id);
+        if (record) liveRecords.set(id, record);
+      }
       if (!list.truncated) this.removeEntitiesOutsideAoi(currentIds, position, radiusCm / 100);
       // An incomplete list does not prove that a previously seen entity left
       // the AOI or was deleted. Keep it until a complete poll can reconcile it.
       if (!list.truncated) {
         this.previousAoiIds = currentIds;
         this.lastAoiRecords.clear();
+        for (const [id, record] of liveRecords) this.lastAoiRecords.set(id, record);
       }
       for (const entity of list.items) {
         this.previousAoiIds.add(entity.id);
@@ -177,7 +314,8 @@ export class SpaceEntitySync {
     const freeze = (entity: any) => {
       if (!entity?.serverManaged || entity.serverExecutionMode === 'hosted'
         || entity.serverDesiredRunState !== 'running'
-        || (this.leasedUntil.get(String(entity.publicId)) || 0) > now) return;
+        || (entity.serverExecutesLocally === true
+          && (this.leasedUntil.get(String(entity.publicId)) || 0) > now)) return;
       const physicsEnabled = entity.isPhysicsSimulationEnabled?.() ?? entity.physicsSimulationEnabled !== false;
       entity.serverExecutesLocally = false;
       if (entity.scriptStatus === 'stopped' && !physicsEnabled) return;
@@ -200,12 +338,17 @@ export class SpaceEntitySync {
   private acceptLeases(leases: Awaited<ReturnType<SpaceEntityClient['claimExecutionLeases']>>, requestedAt: number) {
     if (this.stopped) return;
     for (const lease of leases) {
+      if (requestedAt < (this.leaseRequestsAt.get(lease.entity_id) || 0)) continue;
+      if (lease.granted && lease.execution_epoch < (this.latestEpochs.get(lease.entity_id) || 0)) continue;
+      this.leaseRequestsAt.set(lease.entity_id, requestedAt);
       // Bound the deadline by the request start as well as server time. A slow
       // response must not extend an eight-second lease on this browser.
       const expires = Math.min(Date.parse(lease.lease_expires_at || ''), requestedAt + 8_000);
       if (lease.granted && expires > Date.now()) {
         this.leasedUntil.set(lease.entity_id, expires);
         this.executionEpochs.set(lease.entity_id, lease.execution_epoch);
+        this.executorNames.set(lease.entity_id, lease.executor_name || null);
+        this.latestEpochs.set(lease.entity_id, lease.execution_epoch);
       } else {
         this.leasedUntil.delete(lease.entity_id);
         this.executionEpochs.delete(lease.entity_id);
@@ -229,27 +372,34 @@ export class SpaceEntitySync {
 
   private isStale(entity: SpaceWorldEntityRecord) {
     if (this.deletedEntityIds.has(entity.id)) return true;
+    if (entity.execution_epoch !== undefined && entity.execution_epoch < (this.latestEpochs.get(entity.id) || 0)) return true;
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
       || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
     return Math.max(this.latestRevisions.get(entity.id) || 0, Number(active?.serverRevision) || 0) > entity.revision;
   }
 
   private metadata(entity: SpaceWorldEntityRecord) {
-    const executesLocally = entity.owner_user_id === this.currentUserId
-      && entity.execution_mode !== 'hosted'
+    const executesLocally = entity.execution_mode !== 'hosted'
+      && (entity.execution_user_id == null || entity.execution_user_id === this.currentUserId)
+      && (entity.execution_epoch === undefined || this.executionEpochs.get(entity.id) === entity.execution_epoch)
       && (this.leasedUntil.get(entity.id) || 0) > Date.now();
+    const occupiedElsewhere = entity.execution_mode === 'hosted'
+      || (!executesLocally && Date.parse(entity.execution_lease_expires_at || '') > Date.now());
     return {
       serverManaged: true,
       serverExecutionMode: entity.execution_mode || 'browser',
       serverHostingEnabled: entity.hosting_enabled === true,
+      serverHostingCoreId: entity.hosting_core_id ?? null,
+      serverCanManageHosting: entity.can_manage_hosting === true,
       serverOwnerUserId: entity.owner_user_id,
       serverOwnerName: entity.owner_name || null,
-      serverExecutorName: executesLocally ? entity.owner_name || null : entity.executor_name || null,
+      serverExecutorName: (executesLocally ? this.executorNames.get(entity.id) : null) || entity.executor_name || null,
       serverExecutionLeaseExpiresAt: executesLocally
         ? new Date(this.leasedUntil.get(entity.id)!).toISOString() : entity.execution_lease_expires_at || null,
-      serverCanControl: entity.can_control,
-      serverCanEdit: entity.can_edit,
+      serverCanControl: entity.can_control && !occupiedElsewhere,
+      serverCanEdit: entity.can_edit && !occupiedElsewhere,
       serverExecutesLocally: executesLocally,
+      serverExecutionEpoch: entity.execution_epoch || 0,
       serverRevision: entity.revision,
       serverDesiredRunState: entity.desired_run_state,
       serverDefinitionDigest: entity.definition_digest,
@@ -269,21 +419,32 @@ export class SpaceEntitySync {
 
   private async renewExecutionLeases(entities: SpaceWorldEntityRecord[]) {
     const now = Date.now();
-    const ownedRunning = entities.filter(entity => (
-      entity.owner_user_id === this.currentUserId && entity.desired_run_state === 'running'
+    const running = entities.filter(entity => (
+      !this.isStale(entity) && entity.desired_run_state === 'running'
       && entity.execution_mode !== 'hosted'
     ));
-    const runningIds = new Set(ownedRunning.map(entity => entity.id));
+    const runningIds = new Set(running.map(entity => entity.id));
     for (const entity of entities) {
-      if (!runningIds.has(entity.id)) this.leasedUntil.delete(entity.id);
+      if (!this.isStale(entity) && !runningIds.has(entity.id)) this.leasedUntil.delete(entity.id);
     }
-    const due = ownedRunning.filter(entity => (this.leasedUntil.get(entity.id) || 0) <= now + 4_000);
+    const due = running.filter(entity => (this.leasedUntil.get(entity.id) || 0) <= now + 4_000
+      && (this.leasedUntil.has(entity.id) || !(Date.parse(entity.execution_lease_expires_at || '') > now)));
     if (due.length === 0) return;
     const leases = await this.client.claimExecutionLeases(
       this.instanceId,
       due.map(entity => entity.id),
     );
     this.acceptLeases(leases, now);
+    // A grant can advance the epoch after the list was read. Merge that grant
+    // into its record instead of discarding the whole initial AOI as stale.
+    for (const entity of running) {
+      if (entity.execution_epoch !== undefined && (this.leasedUntil.get(entity.id) || 0) > Date.now()) {
+        entity.execution_epoch = this.executionEpochs.get(entity.id)!;
+        entity.execution_user_id = this.currentUserId;
+        entity.executor_name = this.executorNames.get(entity.id) || null;
+        entity.execution_lease_expires_at = new Date(this.leasedUntil.get(entity.id)!).toISOString();
+      }
+    }
   }
 
   private applyPlayback(contraption: any, entity: SpaceWorldEntityRecord) {
@@ -294,12 +455,19 @@ export class SpaceEntitySync {
       // Freeze the latest server pose. Global Stop would reset component state and
       // construction transforms, destroying the authoritative runtime snapshot.
       contraption.scriptStatus = 'stopped';
-      contraption.setPhysicsSimulationEnabled?.(false);
+      if (contraption.isPhysicsSimulationEnabled?.() !== false) contraption.setPhysicsSimulationEnabled?.(false);
       return;
     }
-    const shouldRun = (this.leasedUntil.get(entity.id) || 0) > Date.now()
+    const shouldRun = this.metadata(entity).serverExecutesLocally
       && entity.desired_run_state === 'running'
       && contraption.serverDesiredRunState !== 'stopped';
+    if (entity.desired_run_state === 'running' && !shouldRun) {
+      // Losing execution is NOT the entity's Stop operation. Keep its latest
+      // root/child runtime pose and state, without resetting to construction.
+      contraption.scriptStatus = 'stopped';
+      if (contraption.isPhysicsSimulationEnabled?.() !== false) contraption.setPhysicsSimulationEnabled?.(false);
+      return;
+    }
     const isRunning = contraption.scriptStatus === 'running'
       || (contraption.scriptStatus !== 'stopped' && contraption.isPhysicsSimulationEnabled?.() !== false);
     if (shouldRun === isRunning) return;
@@ -313,6 +481,7 @@ export class SpaceEntitySync {
 
   private async applyRecord(entity: SpaceWorldEntityRecord) {
     if (this.isStale(entity)) return;
+    if (entity.execution_epoch !== undefined) this.latestEpochs.set(entity.id, entity.execution_epoch);
     this.latestRevisions.set(entity.id, entity.revision);
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
       || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
@@ -399,6 +568,15 @@ export class SpaceEntitySync {
       const snapshot = await this.client.getSnapshot(entity);
       if (this.stopped || this.isStale(entity)) return true;
       if (!snapshot) return false;
+      // Durable checkpoints are recovery data, not a second pose timeline.
+      // Applying an older six-second save over a live stream causes jumps.
+      const stream = this.poseBuffers.get(entity.id);
+      if (entity.desired_run_state === 'running' && (active.serverExecutesLocally
+        || (stream && stream.frame.execution_epoch === entity.execution_epoch
+          && Date.now() - stream.receivedAt < 500))) {
+        this.applyRecordMetadata(active, entity);
+        return true;
+      }
       this.contraptions.restoreContraptionStreamingState(active, {
         ...snapshot,
         ...this.metadata(entity),
@@ -440,11 +618,15 @@ export class SpaceEntitySync {
     delete snapshot.serverHostingEnabled;
     delete snapshot.serverOwnerUserId;
     delete snapshot.serverOwnerName;
+    delete snapshot.serverHostingCoreId;
+    delete snapshot.serverCanManageHosting;
     delete snapshot.serverExecutorName;
     delete snapshot.serverExecutionLeaseExpiresAt;
     delete snapshot.serverCanControl;
     delete snapshot.serverCanEdit;
     delete snapshot.serverExecutesLocally;
+    delete snapshot.serverExecutionEpoch;
+    delete snapshot.serverReplicaEpoch;
     delete snapshot.serverRevision;
     delete snapshot.serverPlaybackRevision;
     delete snapshot.serverDesiredRunState;
@@ -594,7 +776,7 @@ export class SpaceEntitySync {
         this.pendingDeletes.add(serverId);
         try {
           try {
-            await this.client.delete(serverId);
+            await this.client.delete(serverId, this.instanceId, this.executionEpochs.get(serverId));
           } catch (error: any) {
             if (error?.status !== 404) throw error;
           }
@@ -657,20 +839,34 @@ export class SpaceEntitySync {
   }
 
   private async setRunState(contraption: any, desiredState: SpaceEntityRunState) {
+    const requestedAt = Date.now();
     const updated = await this.client.setRunState(
       String(contraption.publicId),
       desiredState,
       Number(contraption.serverRevision),
+      this.instanceId,
+      this.executionEpochs.get(String(contraption.publicId)),
+      desiredState === 'stopped' && contraption.serverExecutesLocally === true
+        ? { position: contraption.position.toArray(), quaternion: contraption.quaternion.toArray() } : undefined,
     );
     // A failed request must leave the current intent and valid execution lease
     // untouched. A delayed old Stop must not revoke a newer Start's lease.
     if (this.isStale(updated)) return updated;
-    if (updated.desired_run_state === 'running' && updated.owner_user_id === this.currentUserId) {
-      const requestedAt = Date.now();
-      const leases = await this.client.claimExecutionLeases(this.instanceId, [updated.id]);
-      this.acceptLeases(leases, requestedAt);
+    if (updated.execution_epoch !== undefined) this.latestEpochs.set(updated.id, updated.execution_epoch);
+    this.leaseRequestsAt.set(updated.id, requestedAt);
+    if (updated.desired_run_state === 'running') {
+      if (updated.execution_epoch !== undefined) {
+        this.acceptLeases([{ entity_id: updated.id, granted: true,
+          execution_epoch: updated.execution_epoch,
+          lease_expires_at: updated.execution_lease_expires_at || null,
+          executor_name: updated.executor_name || null }], requestedAt);
+      } else {
+        // Compatibility with older servers during a rolling deployment.
+        this.acceptLeases(await this.client.claimExecutionLeases(this.instanceId, [updated.id]), requestedAt);
+      }
     } else {
       this.leasedUntil.delete(updated.id);
+      this.executionEpochs.delete(updated.id);
     }
     if (this.isStale(updated)) return updated;
     this.latestRevisions.set(updated.id, updated.revision);
@@ -680,5 +876,54 @@ export class SpaceEntitySync {
     }
     contraption.serverPlaybackRevision = updated.revision;
     return updated;
+  }
+
+  pollHosting(): Promise<void> {
+    if (this.hostingPollInFlight) return this.hostingPollInFlight;
+    this.hostingPollInFlight = (async () => {
+      const state = await this.client.listHosting();
+      if (!this.stopped) this.onHostingUpdate?.(state);
+    })().catch(error => {
+      if (!this.stopped) this.onHostingError?.();
+      throw error;
+    }).finally(() => { this.hostingPollInFlight = null; });
+    return this.hostingPollInFlight;
+  }
+
+  getHosting(entityId: string) { return this.client.getHosting(entityId); }
+
+  async hostEntity(contraption: any, maxCredits: number) {
+    if (contraption.serverManaged !== true) throw new Error('Wait until this entity has finished saving before hosting it.');
+    if (contraption.serverExecutionMode !== 'hosted' && contraption.serverDesiredRunState === 'running') {
+      // Only our own live endpoint may hand execution to the server.
+      if (contraption.serverExecutesLocally !== true) throw new Error('This entity is occupied by another endpoint.');
+      await this.setRunState(contraption, 'stopped');
+    }
+    const result = await this.client.setHosting(String(contraption.publicId), true, maxCredits, undefined,
+      Number(contraption.serverExecutionEpoch) || 0);
+    await this.refreshAfterHosting(result.entity_id);
+    return result;
+  }
+
+  async stopHosting(entityId: string) {
+    const current = await this.client.getHosting(entityId);
+    const result = await this.client.setHosting(entityId, false, 0, undefined, current.execution_epoch);
+    await this.refreshAfterHosting(entityId);
+    return result;
+  }
+
+  private async refreshAfterHosting(entityId: string) {
+    // Mutation success must not be reported as failure if a later metadata read
+    // fails: retrying a new paid operation would grant an unintended budget.
+    this.leasedUntil.delete(entityId);
+    this.executionEpochs.delete(entityId);
+    try {
+      const record = await this.client.get(entityId);
+      if (!this.isStale(record)) {
+        this.latestEpochs.set(entityId, record.execution_epoch || 0);
+        await this.applyRecord(record);
+      }
+    } catch { /* The independent polls will converge. */ }
+    try { await this.pollHosting(); } catch { /* Preserve a successful receipt. */ }
   }
 }

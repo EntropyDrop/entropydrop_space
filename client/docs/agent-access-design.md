@@ -13,8 +13,8 @@ Keep three product entry points while reusing one agent tool executor, one space
 | Entry point | Intended use | Authorization boundary | Current implementation |
 | --- | --- | --- | --- |
 | Programming agent in the entity editor | Edit the current entity's structure, color, physics configuration, constraints, components, and code | The current `world_id + entity_id` and all editable fields and components; cannot change owners, permissions, or system-maintained fields | Generates component scripts that the player applies by clicking Apply |
-| HUD Agent Build | Connect an external agent to query the world and build near the player | Full Space API-key permissions, constrained by world access and resource ownership | Agent prompt, public API/Skill links, and API-key management; replaces the retired AI BUILD plan assistant |
-| External spaceAPI agent | Perform the same kinds of world tasks from an external agent, terminal, or automation | Full Space permissions, constrained by world access and resource ownership | Reads its own position; creates entities; reads and edits owned entity code and defaults; starts/stops entities; builds blocksets |
+| HUD Agent Build | Connect an external agent to query the world and build near the player | Full Space API-key permissions, constrained by world access and exclusive execution occupancy | Agent prompt, public API/Skill links, and API-key management; replaces the retired AI BUILD plan assistant |
+| External spaceAPI agent | Perform the same kinds of world tasks from an external agent, terminal, or automation | Full Space permissions, constrained by world access and exclusive execution occupancy | Reads its own position; creates entities; reads world entities and edits stopped/unoccupied code and defaults; starts/stops unoccupied entities; builds blocksets |
 
 “General-purpose” means the agent can use all authorized Space capabilities available to that player. Service administration, execution leases, billing management, and other players' private resources do not become available merely because the caller is an agent.
 
@@ -38,9 +38,9 @@ flowchart TD
 
 ## Permissions must be enforced at execution time
 
-Entity-agent restrictions cannot exist only in a Skill or system prompt. The tool executor filters tools and context; spaceAPI then validates the principal, world membership, entity ownership or collaboration rights, action permissions, and target entity.
+Entity-agent restrictions cannot exist only in a Skill or system prompt. The tool executor filters tools and context; spaceAPI then validates the principal, world membership, exclusive execution occupancy, action permissions, and target entity. World-entity authorship is attribution only; publisher permissions apply to market resources, not placed copies.
 
-After web login, issue short-lived agent-session authorization. Entity mode binds one world and one entity; HUD mode binds the player's selected world and allowed operations. Recreate or narrow the session when switching entities. The executor attaches credentials to requests rather than placing them in model prompts. External calls use revocable spaceAPI keys. Every existing and new key has the full Space action set; world membership, resource ownership, and quotas remain enforced by the backend.
+After web login, issue short-lived agent-session authorization. Entity mode binds one world and one entity; HUD mode binds the player's selected world and allowed operations. Recreate or narrow the session when switching entities. The executor attaches credentials to requests rather than placing them in model prompts. External calls use revocable spaceAPI keys. Every existing and new key has the full Space action set; world membership, execution occupancy, market publisher rights, and quotas remain enforced by the backend.
 
 Do not hand a full login token directly to a restricted entity agent. The same token could call unrelated endpoints. The backend must enforce short-lived session resource limits rather than treating a caller-supplied, mutable `entity_id` as authorization.
 
@@ -56,7 +56,7 @@ Documentation versions and backend capabilities should be queryable. Operations 
 
 ## API and state synchronization work
 
-`GET /entities/{entity_id}/configuration` reads an owned entity definition. `PATCH /entities/{entity_id}/configuration` changes component code, names, and BodyConfig defaults and requires `space:entity:edit`. `PUT /entities/{entity_id}/run-state` supports API keys and uses `space:entity:run` to start or stop an entity. Every path is under `/space/api/v2/worlds/{world_id}`. Entities have only running and stopped states; a component-code switch is not a third state.
+`GET /entities/{entity_id}/configuration` reads a world-entity definition without an author check. `PATCH /entities/{entity_id}/configuration` changes component code, names, and BodyConfig defaults while stopped. `PUT /entities/{entity_id}/run-state` supports API keys to start or stop unoccupied entities. All keys have full Space permissions, but another endpoint's live lease cannot be bypassed. Every path is under `/space/api/v2/worlds/{world_id}`. Entities have only running and stopped states; a component-code switch is not a third state.
 
 Configuration changes require the entity to be stopped and must provide `expected_revision`; starting can happen separately afterward. Edit and run commands have durable operation receipts, so delayed retries do not overwrite newer operations. Stopping or editing configuration preserves the latest root position and orientation while clearing old runtime variables, child-component poses, and temporary physics parameters. A browser must still be online to acquire an execution lease. HTTP success means the backend stored the command, not that the script has already executed it.
 

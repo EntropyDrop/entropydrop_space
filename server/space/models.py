@@ -145,10 +145,14 @@ class SpaceWorldEntity(Base):
     last_checkpoint_operation_id = Column(Uuid(as_uuid=False), nullable=True)
     last_checkpoint_request_digest = Column(LargeBinary(32), nullable=True)
     execution_instance_id = Column(Uuid(as_uuid=False), nullable=True)
+    # Creator attribution never grants execution authority. For hosting this is
+    # the requesting account whose explicit authorization funds the server.
+    execution_user_id = Column(String(16), ForeignKey(f"{ACCOUNT_TABLE}.id", ondelete="RESTRICT"), nullable=True)
     execution_lease_expires_at = Column(DateTime(timezone=True), nullable=True)
     execution_epoch = Column(BigInteger, nullable=False, default=0, server_default="0")
     execution_mode = Column(String(16), nullable=False, default="browser", server_default="browser")
     hosting_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    hosting_core_id = Column(Integer, ForeignKey("space_hosting_cores.id", ondelete="RESTRICT"), nullable=True)
     hosting_remaining_ms = Column(BigInteger, nullable=False, default=0, server_default="0")
     hosting_budget_remaining = Column(Integer, nullable=False, default=0, server_default="0")
     hosting_billed_hours = Column(Integer, nullable=False, default=0, server_default="0")
@@ -188,12 +192,29 @@ class SpaceHostingOperation(Base):
     result = Column(JSON, nullable=False)
 
 
+class SpaceHostingCore(Base):
+    """Fixed global pool: one fenced process/core reservation per hosted entity."""
+    __tablename__ = "space_hosting_cores"
+    id = Column(Integer, primary_key=True)
+    world_id = Column(Uuid(as_uuid=False), nullable=True)
+    entity_id = Column(Uuid(as_uuid=False), nullable=True)
+    cpu_id = Column(Integer, nullable=True)
+    execution_epoch = Column(BigInteger, nullable=False, default=0, server_default="0")
+    executor_instance_id = Column(Uuid(as_uuid=False), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        CheckConstraint("id BETWEEN 0 AND 127", name="ck_space_hosting_core_id"),
+        UniqueConstraint("world_id", "entity_id", name="uq_space_hosting_core_entity"),
+    )
+
+
 class SpaceHostingWorker(Base):
     __tablename__ = "space_hosting_workers"
     world_id = Column(Uuid(as_uuid=False), ForeignKey("worlds.id", ondelete="CASCADE"), primary_key=True)
     instance_id = Column(String(36), nullable=False)
     epoch = Column(BigInteger, nullable=False, default=1)
     lease_expires_at = Column(DateTime(timezone=True), nullable=False)
+    core_cpu_ids = Column(JSON, nullable=False, default=list, server_default="[]")
 
 
 class SpaceHostingGrant(Base):

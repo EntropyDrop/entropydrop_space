@@ -3,7 +3,61 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { applyCameraBend, bendPoint, setWorldShapeMode, setWorldProjectionAnchor, TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
-import { entityDisplayName, entityRunStatus, EntityNameplateProjector } from '../src/ui/react/utils/entityNameplate.ts';
+import { entityDisplayName, entityRunStatus, EntityNameplateProjector, EntityNameplateAimHighlighter } from '../src/ui/react/utils/entityNameplate.ts';
+
+function aimFixture() {
+  const classList = () => {
+    const values = new Set<string>();
+    return { add: (name: string) => { values.add(name); }, remove: (name: string) => { values.delete(name); },
+      contains: (name: string) => values.has(name), toggle: (name: string, enabled: boolean) => { enabled ? values.add(name) : values.delete(name); } };
+  };
+  const playback = { classList: classList(), disabled: false };
+  const menu = { classList: classList(), disabled: false };
+  const outside = { classList: classList() };
+  let hit: any = null;
+  const queries: number[][] = [];
+  const root: any = { classList: classList(), contains: (node: any) => node === playback || node === menu,
+    ownerDocument: { elementFromPoint(x: number, y: number) { queries.push([x, y]); return hit; } } };
+  return { root, playback, menu, outside, queries,
+    aim(control: any) { hit = { closest(selector: string) {
+      assert.equal(selector, '[data-entity-nameplate-control]'); return control;
+    } }; }, miss() { hit = null; } };
+}
+
+test('locked nameplates hit-test only the screen center and move highlight from playback to menu', () => {
+  const fixture = aimFixture(), highlighter = new EntityNameplateAimHighlighter();
+  fixture.aim(fixture.playback); // Hit an inner SVG, closest() returns its marked control.
+  highlighter.update(fixture.root, true, { width: 800, height: 600 });
+  assert.deepEqual(fixture.queries, [[400, 300]]);
+  assert.ok(fixture.root.classList.contains('is-pointer-locked'));
+  assert.ok(fixture.playback.classList.contains('is-aimed'));
+  highlighter.update(fixture.root, true, { width: 800, height: 600 });
+  assert.ok(fixture.playback.classList.contains('is-aimed'), 'same target keeps its highlight');
+  fixture.aim(fixture.menu);
+  highlighter.update(fixture.root, true, { width: 800, height: 600 });
+  assert.equal(fixture.playback.classList.contains('is-aimed'), false);
+  assert.ok(fixture.menu.classList.contains('is-aimed'));
+  highlighter.clear(fixture.root);
+  assert.equal(fixture.menu.classList.contains('is-aimed'), false);
+  assert.equal(fixture.root.classList.contains('is-pointer-locked'), false);
+});
+
+test('unlock, menus, lost aim, invalid viewport, disabled or occluded controls clear crosshair highlights', () => {
+  for (const reason of ['unlock', 'blocked', 'miss', 'invalid viewport', 'disabled', 'outside', 'no control'] as const) {
+    const fixture = aimFixture(), highlighter = new EntityNameplateAimHighlighter();
+    fixture.aim(fixture.menu);
+    highlighter.update(fixture.root, true, { width: 800, height: 600 });
+    if (reason === 'miss') fixture.miss();
+    if (reason === 'disabled') fixture.menu.disabled = true;
+    if (reason === 'outside') fixture.aim(fixture.outside);
+    if (reason === 'no control') fixture.aim(null);
+    highlighter.update(fixture.root, reason !== 'unlock', { width: reason === 'invalid viewport' ? 0 : 800, height: 600 }, reason === 'blocked');
+    assert.equal(fixture.menu.classList.contains('is-aimed'), false, reason);
+    assert.equal(fixture.outside.classList.contains('is-aimed'), false, 'other overlays must not be highlighted');
+    if (['unlock', 'blocked', 'invalid viewport'].includes(reason)) assert.equal(fixture.queries.length, 1, 'do not hit-test inactive aim');
+    assert.equal(fixture.root.classList.contains('is-pointer-locked'), reason !== 'unlock');
+  }
+});
 
 test('labels show names and local/remote executor names without confusing frozen playback with Stop', () => {
   const local: any = { id: 'one', rootComponentName: 'Walker', scriptStatus: 'running' };
@@ -19,7 +73,7 @@ test('labels show names and local/remote executor names without confusing frozen
   assert.deepEqual(entityRunStatus(remote, 'Bob', 10_000), {
     running: true, tone: 'running', icon: 'play', caption: 'Alice', text: 'Running · Alice'
   });
-  assert.equal(entityRunStatus(remote, 'Bob', 20_001).text, 'Starting · waiting for Alice');
+  assert.equal(entityRunStatus(remote, 'Bob', 20_001).text, 'Starting · waiting for an execution endpoint');
   assert.equal(entityRunStatus({ ...remote, serverDesiredRunState: 'stopped' }, 'Bob', 10_000).text, 'Stopped');
 });
 
@@ -42,8 +96,8 @@ test('icon status keeps executor/hosting captions and full tooltip descriptions'
   assert.equal(running.caption, 'Running · Alice', 'executor names are not parsed out of formatted status text');
   const waiting = entityRunStatus({ serverManaged: true, serverDesiredRunState: 'running', serverOwnerName: 'Alice' });
   assert.equal(waiting.icon, 'waiting');
-  assert.equal(waiting.caption, 'Alice');
-  assert.equal(waiting.text, 'Starting · waiting for Alice');
+  assert.equal(waiting.caption, 'Waiting for executor');
+  assert.equal(waiting.text, 'Starting · waiting for an execution endpoint');
   const paused = entityRunStatus({ serverManaged: true, serverExecutionMode: 'hosted', serverDesiredRunState: 'running' });
   assert.equal(paused.icon, 'pause');
   assert.equal(paused.caption, 'Server hosting');

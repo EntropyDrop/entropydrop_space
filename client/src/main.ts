@@ -289,7 +289,8 @@ class Game {
         },
         onTerrainUpdate: (chunks) => {
           this.world.queueRemoteChunkUpdates(chunks);
-        }
+        },
+        onEntityPose: pose => this.entitySync?.receivePose(pose),
       });
       this.multiplayerSync.getPlayerPosition = () => ({
         x: this.playerPhysics.position.x,
@@ -311,6 +312,15 @@ class Game {
         world: this.world,
         getPlayerPosition: () => this.playerPhysics.position,
         getEntityImpostorDistance: () => this.sceneRenderer.getEntityImpostorSettings().maxDistance,
+        realtime: this.multiplayerSync,
+        onHostingUpdate: state => this.uiStore.setHostingState(state),
+        onHostingError: () => this.uiStore.setHostingError('Hosting status is temporarily unavailable. Try refreshing.'),
+      });
+      this.uiStore.setEntityHostingHandlers({
+        host: (entity, budget) => this.entitySync!.hostEntity(entity, budget),
+        stop: entityId => this.entitySync!.stopHosting(entityId),
+        get: entityId => this.entitySync!.getHosting(entityId),
+        refresh: () => this.entitySync!.pollHosting(),
       });
       this.sceneRenderer.setEntityImpostorRetention(id => this.entitySync?.hasRetainedImpostor(id) ?? false);
       this.entitySync.start();
@@ -483,9 +493,10 @@ class Game {
     // Render-owned work remains responsive at the display refresh rate. Player
     // movement, entity code, and entity physics advance only on the immutable
     // 20 Hz simulation clock below.
-    this.controller.updateRender();
+    this.controller.updateRender(dt);
     const simulation = this.entitySimulationClock.advance(dt, simulationDt => {
       this.entitySync?.enforceExecutionLeases();
+      this.entitySync?.updateReplicaPoses(simulationDt);
       this.controller.updateSimulation(simulationDt);
 
       // Entity streaming consumes this exact active window, so chunks must be
@@ -495,6 +506,7 @@ class Game {
 
       const entityInput = this.controller.consumeEntityInputFrame();
       this.contraptionManager.update(simulationDt, entityInput);
+      this.entitySync?.publishPoses();
 
       // A contraption can move into the player after the player's own physics
       // step. Resolve that new overlap now. Mounted players are re-seated by
@@ -530,7 +542,8 @@ class Game {
     this.particleSystem.update(dt);
 
     // 5. Update Scene Lighting, Sky & Player Avatar
-    this.sceneRenderer.update(dt, playerPos, this.controller.viewYaw, {
+    this.sceneRenderer.update(dt, playerPos, this.controller.bodyYaw, {
+      bodyQuaternion: this.controller.bodyQuaternion,
       velocity: this.playerPhysics.velocity,
       grounded: this.playerPhysics.isOnGround,
       flying: this.playerPhysics.isFlying,

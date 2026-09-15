@@ -4,7 +4,7 @@ import { PlayerController } from '../src/engine/controls/PlayerController.ts';
 import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
 
 
-test('Wrench refuses to stop another owner’s server entity', async () => {
+test('Wrench refuses to stop another endpoint’s occupied server entity', async () => {
   const messages: string[] = [];
   const controller: any = Object.create(PlayerController.prototype);
   controller.hoveredContraption = {
@@ -22,10 +22,10 @@ test('Wrench refuses to stop another owner’s server entity', async () => {
   const result = await controller.toggleHoveredEntityPlayback();
 
   assert.equal(result, false);
-  assert.deepEqual(messages, ['Only this entity’s owner can start or stop it']);
+  assert.deepEqual(messages, ['This entity is read-only or occupied by another endpoint']);
 });
 
-test('Wrench asks the backend before changing an owned server entity', async () => {
+test('Wrench asks the backend before changing a locally held server entity', async () => {
   const calls: string[] = [];
   const controller: any = Object.create(PlayerController.prototype);
   const contraption = {
@@ -91,7 +91,7 @@ test('player tools cannot mutate a server entity locally, while its own script c
   assert.equal(contraption.physicsEnabled, false);
 });
 
-test('another owner’s server entity cannot be opened in the local code editor', () => {
+test('an occupied server entity cannot be opened in the local code editor', () => {
   const messages: string[] = [];
   const target: any = { serverManaged: true, scriptStatus: 'stopped' };
   const controller: any = Object.create(PlayerController.prototype);
@@ -105,14 +105,15 @@ test('another owner’s server entity cannot be opened in the local code editor'
   assert.equal(controller.openCodeEditorForTarget(), false);
   assert.equal(controller.canEditEntityInternals(target), false);
   assert.deepEqual(messages, [
-    'Only this entity’s owner can edit it',
+    'This entity is read-only or occupied by another endpoint',
   ]);
 });
 
-test('an owned server entity remains locally editable regardless of creation path', () => {
+test('a stopped server entity remains locally editable regardless of creator or creation path', () => {
   const target: any = {
     serverManaged: true,
     serverCanEdit: true,
+    serverOwnerUserId: 'someone-else',
     rootComponentId: 'root',
     scriptStatus: 'stopped',
     blocks: [{ localX: 0, localY: 0, localZ: 0, size: 1, color: 0x112233 }],

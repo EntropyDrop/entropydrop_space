@@ -89,8 +89,8 @@ message Seat {
   // rider faces the component's own forward axis (-Z). Absent is identical to
   // identity and keeps every pre-orientation file byte-compatible.
   optional Quaternion rotation = 2;
-  // When true a mounted rider's yaw follows this seat's solved world orientation
-  // instead of free mouse look. Absent means false (free look).
+  // When true the mounted rider's body follows this seat's solved world orientation.
+  // The camera always keeps free mouse look. Absent means false (free body yaw).
   optional bool fixed_orientation = 3;
 }
 

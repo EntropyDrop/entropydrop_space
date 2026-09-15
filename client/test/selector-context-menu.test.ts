@@ -136,6 +136,34 @@ function pointerFixture(t: any) {
     setBrowserLock(locked: boolean) { pointerLockElement = locked ? body : null; } };
 }
 
+test('mounted mouse look stays free beyond a full turn even with fixed body orientation', t => {
+  const { controller, listeners } = pointerFixture(t);
+  controller.isDriving = true;
+  controller.drivenSeatFixedOrientation = true;
+  listeners.get('mousemove')!({ movementX: 4000, movementY: -1500 });
+  assert.equal(controller.yaw, 0.3 - 8);
+  assert.equal(controller.viewYaw, 0.3 - 8);
+  assert.equal(controller.pitch, Math.PI / 2 - 0.01, 'only the normal vertical look limit remains');
+  assert.ok(Math.abs(controller.camera.rotation.y - controller.viewYaw) < 1e-9);
+});
+
+test('mouse look preserves the current eased camera orbit instead of snapping to first person', t => {
+  const { controller, listeners } = pointerFixture(t);
+  controller.physics = { getEyePosition: () => new THREE.Vector3() };
+  controller.processBulkEditFrame = () => {};
+  controller.thirdPersonDistance = 4;
+  controller.setPerspective('third_person_front');
+  controller.updateRender(0.14);
+  listeners.get('mousemove')!({ movementX: 120, movementY: 30 });
+  assert.equal(controller.yaw, 0.3 - 0.24);
+  assert.equal(controller.pitch, 0.2 - 0.06);
+  const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(controller.pitch, controller.yaw, 0, 'YXZ'));
+  const orbitDirection = new THREE.Vector3(1, 0, 0).applyQuaternion(look);
+  assert.ok(controller.camera.getWorldDirection(new THREE.Vector3()).distanceTo(orbitDirection.negate()) < 1e-8);
+  controller.updateCameraPosition();
+  assert.ok(Math.abs(controller.camera.position.length() - 2) < 1e-8, 'input does not advance or finish the transition');
+});
+
 test('opening a menu stops mouse look before an asynchronous pointer unlock completes', t => {
   const { controller, listeners, exits } = pointerFixture(t);
   controller.unlock();

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SpaceEntitySync } from '../src/engine/network/SpaceEntitySync.ts';
 import { TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { hostingList, hostingStatus } from './hosting-fixtures.ts';
 
 
 const definition = Uint8Array.from([8, 4, 26, 0]);
@@ -143,6 +144,7 @@ function harness(currentUserId: string, overrides: Record<string, unknown> = {})
           entity_id: record().id,
           granted: true,
           execution_epoch: 1,
+          executor_name: currentUserId === 'owner-1' ? overrides.owner_name || 'Alice' : 'Bob',
           lease_expires_at: new Date(Date.now() + 8_000).toISOString(),
         }],
       }), { status: 200 });
@@ -163,7 +165,7 @@ function harness(currentUserId: string, overrides: Record<string, unknown> = {})
   return { sync, created, actions, removed, restored, overrides };
 }
 
-test('the owner lease runs one browser entity at its exact quarter-turn construction origin', async () => {
+test('the holder lease runs one browser entity at its exact quarter-turn construction origin', async () => {
   const { sync, created, actions } = harness('owner-1');
 
   await sync.poll();
@@ -177,6 +179,44 @@ test('the owner lease runs one browser entity at its exact quarter-turn construc
   assert.ok(created[0].position.distanceTo(new THREE.Vector3(1, 32, 1)) < 1e-12);
 });
 
+test('a non-author endpoint may claim available running intent and displays its own executor name', async () => {
+  const { sync, created } = harness('operator-2', { owner_name: 'Alice', can_edit: true, execution_epoch: 0 });
+  await sync.poll();
+  assert.equal(created[0].serverOwnerUserId, 'owner-1');
+  assert.equal(created[0].serverOwnerName, 'Alice');
+  assert.equal(created[0].serverExecutorName, 'Bob');
+  assert.equal(created[0].serverExecutesLocally, true);
+  assert.equal(created[0].serverCanControl, true);
+  assert.equal(created[0].serverCanEdit, true);
+  assert.equal(created[0].isPhysicsSimulationEnabled(), true);
+});
+
+test('a non-author may edit a stopped entity and Start claims its own endpoint atomically', async () => {
+  const { sync, created } = harness('operator-2', { owner_name: 'Alice', desired_run_state: 'stopped',
+    execution_epoch: 1, can_edit: true });
+  await sync.poll();
+  const target = created[0];
+  assert.equal(target.serverCanEdit, true);
+  assert.equal(target.serverCanControl, true);
+  assert.equal(target.serverExecutesLocally, false);
+  const client = (sync as any).client;
+  client.claimExecutionLeases = async () => { throw new Error('atomic Start must not claim twice'); };
+  client.setRunState = async (id, state, revision, instance) => {
+    assert.equal(id, record().id);
+    assert.equal(state, 'running');
+    assert.equal(revision, 1);
+    assert.equal(instance, (sync as any).instanceId, 'not gated on creator identity');
+    return { ...record(), owner_name: 'Alice', executor_name: 'Bob', execution_user_id: 'operator-2',
+      execution_epoch: 2, can_edit: true, revision: 2,
+      execution_lease_expires_at: new Date(Date.now() + 8_000).toISOString() };
+  };
+  await (sync as any).setRunState(target, 'running');
+  assert.equal(target.serverExecutesLocally, true);
+  assert.equal(target.serverOwnerUserId, 'owner-1');
+  assert.equal(target.serverExecutorName, 'Bob');
+  assert.equal(target.isPhysicsSimulationEnabled(), true);
+});
+
 test('executor identity and lease expiry reach active mirrors and are excluded from authored snapshot uploads', async () => {
   const expiry = new Date(Date.now() + 12_000).toISOString();
   const { sync, created } = harness('other', { owner_name: 'Alice', executor_name: 'Alice', execution_lease_expires_at: expiry });
@@ -188,7 +228,7 @@ test('executor identity and lease expiry reach active mirrors and are excluded f
   for (const key of ['serverOwnerName', 'serverExecutorName', 'serverExecutionLeaseExpiresAt']) assert.equal(key in payload.snapshot, false);
   const local = harness('owner-1', { owner_name: 'Alice' });
   await local.sync.poll();
-  assert.equal(local.created[0].serverExecutorName, 'Alice', 'a freshly claimed lease uses the verified owner name immediately');
+  assert.equal(local.created[0].serverExecutorName, 'Alice', 'a freshly claimed lease uses the verified executor name immediately');
   assert.ok(Date.parse(local.created[0].serverExecutionLeaseExpiresAt) > Date.now());
 });
 
@@ -249,14 +289,16 @@ test('an obsolete Stop reply cannot delete a newer Start execution lease', async
   assert.equal((sync as any).leasedUntil.get(target.publicId), expiry);
 });
 
-test('a non-owner browser keeps the shared entity in stopped collision state', async () => {
-  const { sync, created, actions } = harness('observer-1');
+test('another endpoint keeps an occupied entity in stopped collision state', async () => {
+  const { sync, created, actions } = harness('observer-1', {
+    execution_user_id: 'owner-1', execution_lease_expires_at: new Date(Date.now() + 8_000).toISOString(),
+  });
 
   await sync.poll();
 
   assert.equal(created[0].serverExecutesLocally, false);
   assert.equal(created[0].isPhysicsSimulationEnabled(), false);
-  assert.deepEqual(actions, ['stop-scripts']);
+  assert.deepEqual(actions, [], 'a replica freezes execution without resetting the received child/runtime pose');
 });
 
 test('hosted entities preserve the server pose without browser execution or global Stop', async () => {
@@ -269,6 +311,86 @@ test('hosted entities preserve the server pose without browser execution or glob
   assert.equal(entity.isPhysicsSimulationEnabled(), false);
   assert.deepEqual(actions, [], 'global Stop would erase the saved runtime pose');
   assert.ok(entity.position.distanceTo(new THREE.Vector3(1, 32, 1)) < 1e-12);
+});
+
+test('confirmed hosting hands off only our own live executor after acknowledged Stop with its new epoch', async () => {
+  const { sync, created } = harness('owner-1', { can_edit: true, execution_epoch: 1 });
+  await sync.poll();
+  const entity = created[0];
+  const calls: string[] = [];
+  const client = (sync as any).client;
+  client.setRunState = async (_id, state) => {
+    calls.push(`browser ${state}`);
+    return { ...record(), revision: 2, desired_run_state: 'stopped', execution_epoch: 2 };
+  };
+  client.setHosting = async (id, enabled, budget, _operation, epoch) => {
+    calls.push('hosting');
+    assert.equal(entity.serverDesiredRunState, 'stopped');
+    assert.equal(epoch, 2);
+    assert.equal(budget, 3);
+    assert.equal(enabled, true);
+    return hostingStatus({ execution_epoch: 3, budget_remaining_credits: 3 });
+  };
+  client.get = async () => ({ ...record(), revision: 3, execution_epoch: 3, execution_mode: 'hosted',
+    hosting_enabled: true, hosting_core_id: 0, can_manage_hosting: true, can_control: false, can_edit: false });
+  client.listHosting = async () => hostingList();
+  await sync.hostEntity(entity, 3);
+  assert.deepEqual(calls, ['browser stopped', 'hosting']);
+  assert.equal(entity.serverExecutionMode, 'hosted');
+  assert.equal(entity.serverHostingCoreId, 0);
+  assert.equal(entity.serverCanManageHosting, true);
+  assert.equal(entity.serverExecutesLocally, false);
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+});
+
+test('hosting cannot auto-Stop another endpoint or an entity that has not finished saving', async () => {
+  const { sync, created } = harness('observer-1', { execution_user_id: 'owner-1',
+    execution_lease_expires_at: new Date(Date.now() + 8_000).toISOString() });
+  await sync.poll();
+  (sync as any).client.setHosting = () => { throw new Error('hosting request must not be made'); };
+  (sync as any).client.setRunState = () => { throw new Error('foreign executor must not be stopped'); };
+  await assert.rejects(sync.hostEntity(created[0], 1), /occupied/);
+  await assert.rejects(sync.hostEntity({ publicId: 'unsaved' }, 1), /finished saving/);
+});
+
+test('off-AOI early Stop uses fresh execution epoch and paid success survives later metadata failure', async () => {
+  const { sync } = harness('owner-1');
+  const client = (sync as any).client;
+  client.getHosting = async () => hostingStatus({ execution_epoch: 7 });
+  client.setHosting = async (id, enabled, budget, _operation, epoch) => {
+    assert.equal(id, 'outside-aoi');
+    assert.equal(enabled, false);
+    assert.equal(budget, 0);
+    assert.equal(epoch, 7);
+    return hostingStatus({ entity_id: id, enabled: false, state: 'paused', execution_mode: 'browser', core_id: null });
+  };
+  client.get = async () => { throw new Error('metadata offline'); };
+  client.listHosting = async () => { throw new Error('list offline'); };
+  assert.equal((await sync.stopHosting('outside-aoi')).enabled, false);
+});
+
+test('hosting list polling is AOI-independent, coalesces requests, reports failures and stops publishing after teardown', async () => {
+  let complete!: (value: any) => void;
+  let requests = 0, updates = 0, errors = 0;
+  const sync = new SpaceEntitySync({ apiOrigin: 'https://api.test', token: 'token', worldId: 'world-1', currentUserId: 'one',
+    controller: {}, world: {}, contraptions: { contraptions: [] }, getPlayerPosition: () => ({ x: 1, z: 2 }),
+    onHostingUpdate: () => { updates++; }, onHostingError: () => { errors++; } });
+  (sync as any).client.listHosting = () => { requests++; return new Promise(resolve => { complete = resolve; }); };
+  const first = sync.pollHosting();
+  assert.equal(sync.pollHosting(), first);
+  complete(hostingList());
+  await first;
+  assert.equal(requests, 1);
+  assert.equal(updates, 1);
+  (sync as any).client.listHosting = async () => { throw new Error('unavailable'); };
+  await assert.rejects(sync.pollHosting(), /unavailable/);
+  assert.equal(errors, 1);
+  (sync as any).client.listHosting = () => new Promise(resolve => { complete = resolve; });
+  const late = sync.pollHosting();
+  sync.stop();
+  complete(hostingList());
+  await late;
+  assert.equal(updates, 1);
 });
 
 test('entities grabbed by the wrench are not interrupted by server sync or polling playback', async () => {
@@ -311,8 +433,9 @@ test('entities stopped by wrench do not get restarted by polling after release',
 });
 
 test('a snapshot-only server change updates the entity in place instead of rebuilding it', async () => {
-  const overrides: Record<string, unknown> = { snapshot_digest: 'a'.repeat(64) };
-  const { sync, created, removed, restored } = harness('owner-1', overrides);
+  const overrides: Record<string, unknown> = { snapshot_digest: 'a'.repeat(64),
+    execution_user_id: 'owner-1', execution_lease_expires_at: new Date(Date.now() + 8_000).toISOString() };
+  const { sync, created, removed, restored } = harness('observer', overrides);
   await sync.poll();
   assert.equal(created.length, 1);
   const entity = created[0];
@@ -342,6 +465,63 @@ function savedRecord(entity: any) {
     serverDefinitionDigest: definitionDigest, position: [1, 32, 2],
     physicsSimulationEnabled: entity.isPhysicsSimulationEnabled(), scriptStatus: entity.scriptStatus };
 }
+
+test('browser Start uses the atomically granted epoch without a second claim request', async () => {
+  const { sync, created } = harness('owner-1', { desired_run_state: 'stopped', can_edit: true, execution_epoch: 1 });
+  await sync.poll();
+  const target = created[0];
+  let requestedInstance: string | undefined;
+  (sync as any).client.claimExecutionLeases = async () => { throw new Error('Start must not make a second claim'); };
+  (sync as any).client.setRunState = async (_id, state, _revision, instance) => {
+    assert.equal(state, 'running'); requestedInstance = instance;
+    return { ...record(), can_edit: true, revision: 2, execution_epoch: 2,
+      execution_lease_expires_at: new Date(Date.now() + 8000).toISOString() };
+  };
+  await (sync as any).setRunState(target, 'running');
+  assert.equal(requestedInstance, (sync as any).instanceId);
+  assert.equal((sync as any).executionEpochs.get(target.publicId), 2);
+  assert.equal(target.serverExecutesLocally, true);
+});
+
+test('another tab of the same author account is read-only while a live endpoint occupies the entity', async () => {
+  const { sync, created } = harness('owner-1', { can_edit: true, execution_epoch: 2,
+    execution_lease_expires_at: new Date(Date.now() + 8000).toISOString() });
+  (sync as any).client.claimExecutionLeases = async () => [{ entity_id: record().id, granted: false,
+    execution_epoch: 0, lease_expires_at: null }];
+  await sync.poll();
+  assert.equal(created[0].serverExecutesLocally, false);
+  assert.equal(created[0].serverCanEdit, false);
+  assert.equal(created[0].serverCanControl, false);
+});
+
+test('live pose takeover freezes the old executor and fences delayed older lease grants', async () => {
+  const { sync, created } = harness('owner-1', { can_edit: true, execution_epoch: 1 });
+  await sync.poll();
+  const entity = created[0];
+  (sync as any).contraptions.findActiveContraptionByPublicId = () => entity;
+  sync.receivePose({ entity_id: entity.publicId, execution_epoch: 2, sequence: 1,
+    revision: entity.serverRevision, definition_digest: entity.serverDefinitionDigest,
+    lease_expires_at: new Date(Date.now() + 8000).toISOString(), bodies: [{ id: 'root',
+      position: [1, 32, 2], quaternion: [0, 0, 0, 1], velocity: [0, 0, 0], angularVelocity: [0, 0, 0] }] });
+  assert.equal(entity.serverExecutesLocally, false);
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(entity.serverCanControl, false);
+  (sync as any).acceptLeases([{ entity_id: entity.publicId, granted: true, execution_epoch: 1,
+    lease_expires_at: new Date(Date.now() + 8000).toISOString() }], Date.now());
+  assert.equal((sync as any).leasedUntil.has(entity.publicId), false);
+});
+
+test('an executor checkpoint echo updates metadata without overwriting its current simulated pose', async () => {
+  const overrides = { snapshot_digest: 'a'.repeat(64) };
+  const { sync, created, restored } = harness('owner-1', overrides);
+  await sync.poll();
+  created[0].position.set(9, 40, 10);
+  overrides.snapshot_digest = 'b'.repeat(64);
+  (sync as any).client.getSnapshot = async () => ({ position: [1, 32, 2] });
+  await sync.poll();
+  assert.equal(restored.length, 0);
+  assert.deepEqual(created[0].position.toArray(), [9, 40, 10]);
+});
 
 test('an owner replica without a lease cannot autosave a stopped pose over a running entity', async t => {
   const { sync, created } = harness('owner-1');

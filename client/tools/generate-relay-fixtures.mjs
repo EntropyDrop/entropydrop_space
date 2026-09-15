@@ -16,7 +16,7 @@ const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const frames = {
   // Client -> server. The server accepts binary MessagePack maps only and
-  // rejects frames larger than 4096 bytes (SPACE_REALTIME_MAX_MESSAGE_BYTES).
+  // ordinary frames cap at 4096 bytes; entity pose frames cap at 64 KiB.
   hello_client: {
     direction: 'client',
     value: { type: 'hello', ticket: 'test-ticket-000000000000000000000000000000001' },
@@ -61,7 +61,23 @@ const frames = {
       input_hz: 20,
       snapshot_hz: 10,
       persistence_seconds: 5,
+      entity_pose_hz: 20,
     },
+  },
+  entity_pose_client: {
+    direction: 'client',
+    value: { type: 'entity_pose', entity_id: '3cd7daba-d196-44e8-a433-cf139258f617',
+      instance_id: '875c12dc-3bda-4c3a-970b-2fcb8d64e1b1', execution_epoch: 4, sequence: 42,
+      bodies: [{ id: 'root', position: [12.5, 20.5, 34.5], quaternion: [0, 0, 0, 1],
+        velocity: [2, 0, 0], angularVelocity: [0, 1, 0] }] },
+  },
+  entity_state_server: {
+    direction: 'server',
+    value: { type: 'entity_state', items: [{ entity_id: '3cd7daba-d196-44e8-a433-cf139258f617',
+      execution_epoch: 4, sequence: 42, revision: 2, definition_digest: 'a'.repeat(64),
+      lease_expires_at: '2026-09-15T08:00:08Z',
+      bodies: [{ id: 'root', position: [12.5, 20.5, 34.5], quaternion: [0, 0, 0, 1],
+        velocity: [2, 0, 0], angularVelocity: [0, 1, 0] }] }] },
   },
   // One state frame per observer containing only players inside the wrapped AOI
   // radius, sent at snapshot_hz. updated_at is an ISO string or null; empty
@@ -136,4 +152,5 @@ const fixture = {
 const target = join(appRoot, 'test', 'fixtures');
 mkdirSync(target, { recursive: true });
 writeFileSync(join(target, 'space-relay-v1.json'), `${JSON.stringify(fixture, null, 2)}\n`);
+writeFileSync(join(appRoot, '..', 'server', 'tests', 'fixtures', 'space-relay-v1.json'), `${JSON.stringify(fixture, null, 2)}\n`);
 console.log(`Wrote ${join(target, 'space-relay-v1.json')}`);

@@ -161,9 +161,10 @@ def validate_env(config, environment):
             "ENVIRONMENT": expected["environment"], "SPACE_STANDALONE": "true",
             "SPACE_ACCOUNT_API_URL": expected["account"],
             "SPACE_OBJECT_DIR": "/var/lib/space/objects",
+            # A live worker cannot serve hosting when its API still rejects it.
+            # Validate the opt-in on both roles; never silently enable purchases.
+            "SPACE_HOSTING_ENABLED": "true",
         }
-        if role == "worker":
-            checks["SPACE_HOSTING_ENABLED"] = "true"
         if environment == "dev":
             checks["SPACE_DEFAULT_WORLD_ID"] = DEV_WORLD
         for key, value in checks.items():
@@ -268,10 +269,9 @@ def ensure_dev_infrastructure(config):
 
 def remote_deploy(environment, branch="main", quiesce=False):
     settings = ENVIRONMENTS[environment]
-    if environment == "prod":
-        # The DS HTTP CONNECT proxy is mandatory for production Git traffic.
-        # Driver is streamed before checkout; use the standard Linux CONNECT client.
-        os.environ["GIT_SSH_COMMAND"] = "ssh -o ProxyCommand='nc -X connect -x 127.0.0.1:19100 %h %p'"
+    # Both deployments fetch through the DS HTTP CONNECT proxy. The driver is
+    # streamed before checkout; use the standard Linux CONNECT client.
+    os.environ["GIT_SSH_COMMAND"] = "ssh -o ProxyCommand='nc -X connect -x 127.0.0.1:19100 %h %p'"
     config, data = paths(environment, Path.home())
     release = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:12]}"
     directory = data / "releases" / release

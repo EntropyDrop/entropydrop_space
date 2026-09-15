@@ -11,6 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decode } from '@msgpack/msgpack';
 import { parseRealtimePlayers } from '../src/engine/network/MultiplayerSync.ts';
+import { parseEntityPose } from '../src/engine/network/EntityPoseBuffer.ts';
 import {
   DEFAULT_PLAYER_SKIN_URL,
   encodePlayerPosition,
@@ -39,6 +40,16 @@ function frame(name: string): Record<string, unknown> {
 }
 
 const Q15_RANGE = 32767;
+
+test('entity relay fixture separates private executor identity from public pose metadata', () => {
+  const input = frame('entity_pose_client');
+  const state = frame('entity_state_server') as any;
+  const pose = parseEntityPose(state.items[0]);
+  assert.ok(pose);
+  assert.deepEqual(pose.bodies, input.bodies);
+  assert.equal('instance_id' in pose, false);
+  assert.equal(typeof input.instance_id, 'string');
+});
 
 test('fixture targets the space-relay-v1 subprotocol', () => {
   assert.equal(FIXTURE.protocol, 'space-relay-v1');
@@ -83,6 +94,7 @@ test('server frames carry only the documented space-relay-v1 fields', () => {
     input_hz: 20,
     snapshot_hz: 10,
     persistence_seconds: 5,
+    entity_pose_hz: 20,
   });
 
   const terrain = frame('terrain_server');

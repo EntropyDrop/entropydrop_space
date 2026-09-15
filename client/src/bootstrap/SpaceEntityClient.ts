@@ -23,7 +23,14 @@ export interface SpaceEntityHostingStatus {
   world_id: string;
   execution_mode: 'browser' | 'hosted';
   enabled: boolean;
-  state: 'running' | 'starting' | 'paused';
+  state: 'running' | 'starting' | 'paused' | 'unavailable';
+  name: string;
+  position: { x_cm: number; y_cm: number; z_cm: number };
+  teleport_position?: { x_cm: number; y_cm: number; z_cm: number };
+  core_id: number | null;
+  can_manage: boolean;
+  revision: number;
+  execution_epoch: number;
   reason: string | null;
   error: string | null;
   credits_per_hour: 1;
@@ -35,13 +42,22 @@ export interface SpaceEntityHostingStatus {
   logs?: string[];
 }
 
+export interface SpaceHostingList {
+  enabled: boolean;
+  worker_available: boolean;
+  capacity: { limit: number; total: number; used: number; available: number };
+  items: SpaceEntityHostingStatus[];
+}
+
 export interface SpaceWorldEntityRecord {
   id: string;
   world_id: string;
   owner_user_id: string;
   owner_name?: string | null;
   executor_name?: string | null;
+  execution_user_id?: string | null;
   execution_lease_expires_at?: string | null;
+  execution_epoch?: number;
   name: string;
   schema_version: typeof INVENTORY_PROTOBUF_SCHEMA_VERSION;
   definition_digest: string;
@@ -55,6 +71,8 @@ export interface SpaceWorldEntityRecord {
   desired_run_state: SpaceEntityRunState;
   execution_mode?: 'browser' | 'hosted';
   hosting_enabled?: boolean;
+  hosting_core_id?: number | null;
+  can_manage_hosting?: boolean;
   revision: number;
   can_control: boolean;
   can_edit: boolean;
@@ -88,6 +106,7 @@ export interface SpaceEntityExecutionLease {
   granted: boolean;
   execution_epoch: number;
   lease_expires_at: string | null;
+  executor_name?: string | null;
 }
 
 export class SpaceEntityApiError extends Error {
@@ -108,16 +127,43 @@ function isInteger(value: unknown): value is number {
   return Number.isSafeInteger(value);
 }
 
+function parseHostingStatus(value: any): SpaceEntityHostingStatus {
+  const positionValid = (position: any) => [position?.x_cm, position?.y_cm, position?.z_cm].every(isInteger);
+  if (typeof value?.entity_id !== 'string' || typeof value?.world_id !== 'string'
+    || typeof value?.name !== 'string' || value.name.length > 80 || !positionValid(value.position)
+    || !(value.teleport_position === undefined || positionValid(value.teleport_position))
+    || typeof value.enabled !== 'boolean' || typeof value.can_manage !== 'boolean'
+    || !['browser', 'hosted'].includes(value.execution_mode)
+    || !['running', 'starting', 'paused', 'unavailable'].includes(value.state)
+    || !(value.core_id === null || (isInteger(value.core_id) && value.core_id >= 0 && value.core_id < 128))
+    || (value.enabled && (value.core_id === null || value.execution_mode !== 'hosted' || value.state === 'paused'))
+    || (!value.enabled && value.state !== 'paused')
+    || !isInteger(value.revision) || value.revision < 1 || !isInteger(value.execution_epoch) || value.execution_epoch < 0
+    || value.credits_per_hour !== 1 || !isInteger(value.remaining_ms) || value.remaining_ms < 0 || value.remaining_ms > 3_600_000
+    || !isInteger(value.budget_remaining_credits) || value.budget_remaining_credits < 0 || value.budget_remaining_credits > 168
+    || !isInteger(value.billed_hours) || value.billed_hours < 0
+    || !(value.last_tick_at === null || (typeof value.last_tick_at === 'string' && Number.isFinite(Date.parse(value.last_tick_at))))
+    || ![value.reason, value.error].every(text => text === null || (typeof text === 'string' && text.length <= 500))
+    || !isInteger(value.activity_radius_chunks) || value.activity_radius_chunks < 1) {
+    throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid hosting status response.', value);
+  }
+  return value;
+}
+
 function parseEntity(value: any): SpaceWorldEntityRecord {
   const position = value?.position;
   if (
     typeof value?.id !== 'string'
     || typeof value?.world_id !== 'string'
     || typeof value?.owner_user_id !== 'string'
+    || !(value?.execution_user_id === undefined || value?.execution_user_id === null || typeof value.execution_user_id === 'string')
     || ![value?.owner_name, value?.executor_name].every(name => name === undefined || name === null || (typeof name === 'string' && name.length <= 100))
     || !(value?.execution_lease_expires_at === undefined || value?.execution_lease_expires_at === null
       || (typeof value.execution_lease_expires_at === 'string' && Number.isFinite(Date.parse(value.execution_lease_expires_at))))
     || typeof value?.name !== 'string'
+    || !(value?.hosting_core_id === undefined || value?.hosting_core_id === null || (isInteger(value.hosting_core_id) && value.hosting_core_id >= 0 && value.hosting_core_id < 128))
+    || !(value?.can_manage_hosting === undefined || typeof value.can_manage_hosting === 'boolean')
+    || !(value?.execution_epoch === undefined || (isInteger(value.execution_epoch) && value.execution_epoch >= 0))
     || value?.schema_version !== INVENTORY_PROTOBUF_SCHEMA_VERSION
     || !/^[0-9a-f]{64}$/i.test(value?.definition_digest || '')
     || !isInteger(value?.definition_size_bytes)
@@ -240,6 +286,10 @@ export class SpaceEntityClient {
       body: envelope,
     });
     return parseEntity(body);
+  }
+
+  async get(entityId: string) {
+    return parseEntity(await this.request(`/${encodeURIComponent(entityId)}`));
   }
 
   async createBrowser(payload: PersistBrowserWorldEntity, createOperationId = operationId()) {
@@ -380,37 +430,58 @@ export class SpaceEntityClient {
     return parseEntity(body);
   }
 
-  async delete(entityId: string): Promise<void> {
-    const body = await this.request(`/${encodeURIComponent(entityId)}`, { method: 'DELETE' });
+  async delete(entityId: string, instanceId?: string, epoch?: number): Promise<void> {
+    const body = await this.request(`/${encodeURIComponent(entityId)}`, { method: 'DELETE',
+      ...(instanceId && epoch ? { headers: {
+        'X-Space-Execution-Instance': instanceId, 'X-Space-Execution-Epoch': String(epoch),
+      } } : {}),
+    });
     if (body?.deleted !== true || body?.entity_id !== entityId) {
       throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid entity deletion response.', body);
     }
   }
 
-  async setHosting(entityId: string, enabled: boolean, maxCredits = 1, operation = operationId()): Promise<SpaceEntityHostingStatus> {
+  async setHosting(entityId: string, enabled: boolean, maxCredits = 1, operation = operationId(), epoch?: number): Promise<SpaceEntityHostingStatus> {
     if (!SPACE_HOSTING_UI_ENABLED) {
       throw new SpaceEntityApiError(503, 'HOSTING_DISABLED', 'Entity hosting is not available.', null);
     }
-    return this.request(`/${encodeURIComponent(entityId)}/hosting`, {
+    return parseHostingStatus(await this.request(`/${encodeURIComponent(entityId)}/hosting`, {
       method: 'PUT',
-      body: JSON.stringify({ operation_id: operation, enabled, max_credits: maxCredits }),
-    });
+      body: JSON.stringify({ operation_id: operation, enabled, max_credits: maxCredits,
+        release_to_browser: !enabled, ...(epoch !== undefined ? { expected_execution_epoch: epoch } : {}) }),
+    }));
   }
 
   async getHosting(entityId: string): Promise<SpaceEntityHostingStatus> {
     if (!SPACE_HOSTING_UI_ENABLED) {
       throw new SpaceEntityApiError(503, 'HOSTING_DISABLED', 'Entity hosting is not available.', null);
     }
-    return this.request(`/${encodeURIComponent(entityId)}/hosting`);
+    return parseHostingStatus(await this.request(`/${encodeURIComponent(entityId)}/hosting`));
   }
 
-  async setRunState(entityId: string, desiredRunState: SpaceEntityRunState, expectedRevision: number) {
+  async listHosting(): Promise<SpaceHostingList> {
+    const body = await this.request('/hosting/list');
+    const capacity = body?.capacity;
+    if (typeof body?.enabled !== 'boolean' || typeof body?.worker_available !== 'boolean'
+      || !Array.isArray(body?.items) || body.items.length > 256
+      || ![capacity?.limit, capacity?.total, capacity?.used, capacity?.available].every(value => isInteger(value) && value >= 0 && value <= 128)
+      || capacity.limit !== 128 || capacity.used + capacity.available !== capacity.total) {
+      throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid hosting list response.', body);
+    }
+    return { ...body, items: body.items.map(parseHostingStatus) };
+  }
+
+  async setRunState(entityId: string, desiredRunState: SpaceEntityRunState, expectedRevision: number,
+    instanceId?: string, epoch?: number, stopPose?: { position: number[]; quaternion: number[] }) {
     const body = await this.request(`/${encodeURIComponent(entityId)}/run-state`, {
       method: 'PUT',
       body: JSON.stringify({
         operation_id: operationId(),
         desired_run_state: desiredRunState,
         expected_revision: expectedRevision,
+        ...(instanceId ? { execution_instance_id: instanceId } : {}),
+        ...(epoch ? { execution_epoch: epoch } : {}),
+        ...(stopPose ? { stop_pose: stopPose } : {}),
       }),
     });
     return parseEntity(body);
@@ -431,6 +502,7 @@ export class SpaceEntityClient {
         || typeof item?.granted !== 'boolean'
         || !isInteger(item?.execution_epoch)
         || !(item?.lease_expires_at === null || typeof item?.lease_expires_at === 'string')
+        || !(item?.executor_name === undefined || item?.executor_name === null || (typeof item.executor_name === 'string' && item.executor_name.length <= 100))
       ) {
         throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid execution lease item.', item);
       }

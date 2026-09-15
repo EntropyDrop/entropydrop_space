@@ -5,6 +5,7 @@ import {
   terrainStreamAreaForPosition,
 } from '../../bootstrap/SpaceBootstrap.ts';
 import { readJsonResponse } from '../../bootstrap/NetworkSafety.ts';
+import { parseEntityPose, type EntityPoseFrame } from './EntityPoseBuffer.ts';
 
 export interface RemotePlayerInfo {
   user_id: string;
@@ -41,6 +42,7 @@ export interface MultiplayerSyncOptions {
   heartbeatIntervalMs?: number;
   onPlayersUpdate?: (players: RemotePlayerInfo[]) => void;
   onTerrainUpdate?: (chunks: TerrainChunkUpdate[]) => void;
+  onEntityPose?: (pose: EntityPoseFrame) => void;
 }
 
 const SPACE_REALTIME_PROTOCOL = 'space-relay-v1';
@@ -134,6 +136,7 @@ export class MultiplayerSync {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private websocket: WebSocket | null = null;
   private websocketReady = false;
+  private entityPosesSupported = false;
   private terrainInFlight = false;
   private terrainPollRequested = false;
   private isRunning = false;
@@ -149,6 +152,7 @@ export class MultiplayerSync {
   public getPlayerPosition: (() => { x: number; y: number; z: number; yaw: number; pitch?: number }) | null = null;
   public onPlayersUpdate: ((players: RemotePlayerInfo[]) => void) | null = null;
   public onTerrainUpdate: ((chunks: TerrainChunkUpdate[]) => void) | null = null;
+  public onEntityPose: ((pose: EntityPoseFrame) => void) | null = null;
 
   constructor(options: MultiplayerSyncOptions) {
     this.apiOrigin = options.apiOrigin.replace(/\/+$/, '');
@@ -162,6 +166,7 @@ export class MultiplayerSync {
       ?? DEFAULT_TERRAIN_POLL_INTERVAL_MS;
     this.onPlayersUpdate = options.onPlayersUpdate || null;
     this.onTerrainUpdate = options.onTerrainUpdate || null;
+    this.onEntityPose = options.onEntityPose || null;
   }
 
   start() {
@@ -177,6 +182,7 @@ export class MultiplayerSync {
   stop() {
     this.isRunning = false;
     this.websocketReady = false;
+    this.entityPosesSupported = false;
     if (this.terrainTimer) clearTimeout(this.terrainTimer);
     if (this.poseTimer) clearInterval(this.poseTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -339,6 +345,7 @@ export class MultiplayerSync {
         if (this.websocket !== socket) return;
         this.websocket = null;
         this.websocketReady = false;
+        this.entityPosesSupported = false;
         if (this.isRunning) this.scheduleReconnect();
       };
     } catch (error) {
@@ -364,9 +371,18 @@ export class MultiplayerSync {
     const message = decoded as Record<string, any>;
     if (message.type === 'hello') {
       this.websocketReady = true;
+      this.entityPosesSupported = message.entity_pose_hz === 20;
       this.reconnectDelayMs = 500;
       this.lastPoseKey = '';
       this.sendLatestPose(true);
+      return;
+    }
+    if (message.type === 'entity_state') {
+      if (!Array.isArray(message.items) || message.items.length > 16) return;
+      for (const item of message.items) {
+        const pose = parseEntityPose(item);
+        if (pose) this.onEntityPose?.(pose);
+      }
       return;
     }
     if (message.type === 'terrain') {
@@ -408,5 +424,16 @@ export class MultiplayerSync {
       sequence: this.poseSequence,
       ...encoded
     }));
+  }
+
+  sendEntityPose(pose: { entity_id: string; instance_id: string; execution_epoch: number;
+    sequence: number; bodies: EntityPoseFrame['bodies'] }) {
+    const socket = this.websocket;
+    if (!this.entityPosesSupported || !this.websocketReady || !socket || socket.readyState !== WebSocket.OPEN
+      || socket.bufferedAmount > MAX_WEBSOCKET_BUFFERED_BYTES) return false;
+    const bytes = encode({ type: 'entity_pose', ...pose });
+    if (bytes.byteLength > 64 * 1024) return false;
+    socket.send(bytes);
+    return true;
   }
 }

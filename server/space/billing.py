@@ -28,6 +28,17 @@ def cancel_unused(db, entity):
 
 
 def authorize(db, creator, entity, payload):
+    if not payload.enabled:
+        # Stopping never purchases time and must work even if the account RPC
+        # or worker is down. Durable outbox reconciliation revokes/releases
+        # unused authorization/reservations after this local Stop commits.
+        cancel_unused(db, entity)
+        if entity.hosting_authorization_id:
+            authorization = db.get(models.SpaceHostingAuthorization, entity.hosting_authorization_id)
+            if authorization:
+                authorization.revoked, authorization.settled = True, False
+        entity.hosting_authorization_id = None
+        return
     response = call("authorizations", {"credential": creator.credential,
         "operation_id": str(payload.operation_id), "world_id": entity.world_id,
         "entity_id": entity.id, "enabled": payload.enabled, "max_credits": payload.max_credits})
@@ -114,6 +125,7 @@ def reconcile(world_id):
                     entity = db.get(models.SpaceWorldEntity, (world_id, grant.entity_id))
                     if entity and entity.hosting_authorization_id == aid:
                         entity.hosting_enabled = False
+                        entity.hosting_core_id = None
                         entity.desired_run_state = "stopped"
                         entity.hosting_reason = "budget_exhausted" if code == "HOSTING_BUDGET_EXHAUSTED" else "insufficient_credits" if error.status_code == 402 else code.lower()
                         entity.revision += 1
@@ -135,6 +147,7 @@ def reconcile(world_id):
                     entity = db.get(models.SpaceWorldEntity, (world_id, grant.entity_id))
                     if entity and entity.hosting_authorization_id == aid:
                         entity.hosting_enabled = False
+                        entity.hosting_core_id = None
                         entity.desired_run_state = "stopped"
                         entity.hosting_reason = grant.error
                         entity.revision += 1

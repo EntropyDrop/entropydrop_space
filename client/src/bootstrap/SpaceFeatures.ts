@@ -1,3 +1,2 @@
-// Keep paid hosting hidden until a production worker is deployed and verified.
-// This controls presentation only; backend authorization and execution leases still apply.
-export const SPACE_HOSTING_UI_ENABLED = false;
+// Show hosting controls; server capability/worker/core checks remain authoritative.
+export const SPACE_HOSTING_UI_ENABLED = true;

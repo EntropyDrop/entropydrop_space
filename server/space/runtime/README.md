@@ -3,6 +3,9 @@
 `hosting-runtime.ts` handles the private stdin/stdout protocol; `HostedSimulation.ts`
 applies hosting limits and runs the shared engine. The Python worker owns world
 leases, persistence and the account-service billing outbox.
+The coordinator uses one independent runtime process per entity/core, capped globally
+at 128 physical CPU reservations. Linux pins each process before sending guest input.
+See [hosting allocation, UI and deployment](../../docs/entity-hosting.md).
 
 Use Node 24+ and run from the Space workspace root:
 

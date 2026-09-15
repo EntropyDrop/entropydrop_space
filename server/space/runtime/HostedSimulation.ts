@@ -113,7 +113,7 @@ export class HostedSimulation {
         if (item.running) {
           c.physicsSimulationEnabled = true;
           if (c.scriptStatus !== 'error') c.scriptStatus = 'running';
-          const runtime = { c, item, elapsed: 0 };
+          const runtime = { c, item, elapsed: 0, poses: [] as any[] };
           hosted.set(item.id, runtime);
           const update = c.update.bind(c);
           c.update = (...args) => {
@@ -130,7 +130,7 @@ export class HostedSimulation {
       if (faults.length) return { faults };
       for (let step = 0; step < input.steps; step++) {
         manager.update(0.05, null);
-        for (const [id, { c, item }] of hosted) {
+        for (const [id, { c, item, poses }] of hosted) {
           let reason = c.scriptStatus === 'error' ? 'script_error' : null;
           const x = unwrapPeriodicNear(c.position.x, item.anchor[0], TORUS_SIZE_X);
           const z = unwrapPeriodicNear(c.position.z, item.anchor[1], TORUS_SIZE_Z);
@@ -138,10 +138,16 @@ export class HostedSimulation {
             || c.position.y < 0 || c.position.y > 255 || !manager.contraptions.includes(c)) reason = 'hosting_area_limit';
           if (c.blocks.length > 512 || c.entityNodes.size > 8) reason = 'hosting_entity_limit';
           if (reason) faults.push({ id, reason, message: String(c.scriptError || reason).slice(0, 500) });
+          poses.push([...c.rigidBodies.values()].sort((a: any, b: any) =>
+            Number(b.id === c.rootComponentId) - Number(a.id === c.rootComponentId)).map((body: any) => ({
+            id: body.id, position: body.position.toArray(), quaternion: body.quaternion.toArray(),
+            velocity: body.velocity.toArray(), angularVelocity: body.angularVelocity.toArray(),
+            collisionEnabled: c.getNodeCollisionEnabled(body.id),
+          })));
         }
         if (faults.length) return { faults }; // discard the entire candidate, including world edits
       }
-      const results = [...hosted].map(([id, { c, elapsed }]) => {
+      const results = [...hosted].map(([id, { c, elapsed, poses }]) => {
         const snapshot: any = manager.captureContraptionForStreaming(c, manager.getContraptionChunk(c));
         const slot = snapshot.slot;
         slot.blocks = slot.blocks.map(b => {
@@ -155,7 +161,7 @@ export class HostedSimulation {
         delete snapshot.slot;
         for (const key of Object.keys(snapshot)) if (key.startsWith('server')) delete snapshot[key];
         return { id, snapshot, definition_base64: Buffer.from(definition).toString('base64'),
-          stopped: !c.isPhysicsSimulationEnabled(), elapsed_ms: elapsed };
+          stopped: !c.isPhysicsSimulationEnabled(), elapsed_ms: elapsed, poses };
       });
       return { entities: results, mutations: this.mutations, faults: [] };
     } finally {

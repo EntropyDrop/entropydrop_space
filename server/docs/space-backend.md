@@ -4,13 +4,35 @@
 
 spaceAPI handles Agent/client HTTP requests; entityAPI is called by entity component code (`self` / `ctx`) inside the runtime.
 
-Entity responses also include public `owner_name`, `executor_name`, and
-`execution_lease_expires_at` display metadata. The browser executor is the owner,
-not the most recent control requester; executor metadata is returned only while
+Entity responses include creator attribution `owner_user_id`/`owner_name`, actual
+holder `execution_user_id`/`executor_name`, and `execution_lease_expires_at` display
+metadata. Any world member may operate an unoccupied entity regardless of author.
+Author/publisher permissions apply only to market resources, not placed copies.
+Browser executor metadata is returned only while
 a browser execution lease is live and the entity's desired state is running.
 Hosted entities identify their mode through `execution_mode`/`hosting_enabled`,
-never a browser executor. AOI listing batches owner-name lookup in one bounded
+never a browser executor. AOI listing batches creator/executor-name lookup in one bounded
 query. Execution instance IDs and other lease proofs are not included.
+
+The current execution contract is endpoint-exclusive per entity: Browser Start
+atomically acquires an eight-second instance lease, and only that endpoint runs
+its code/physics. Account ownership or administrator access does not bypass a live
+holder for Stop, Delete, configuration edits or checkpoint publication. Another tab
+of the same account remains a replica. Live body poses (position, quaternion,
+linear/angular velocity, sequence and execution epoch) use the fenced 20 Hz relay;
+replicas interpolate collidable trajectories rather than simulate scripts/forces.
+Six-second runtime checkpoints are recovery data, not the realtime pose channel.
+Hosted body trajectories are published only after the one-second snapshot/billing
+transaction commits and replayed at 20 Hz with one batch of intentional latency.
+Hosting is funded by the requesting account's own explicit credit authorization;
+that account controls its active server occupation, not the entity's author.
+Storage remains attributed to the creator; edit write-rate allowance and running
+capacity are charged to the actor/executor. Migration `space_0006` separates the
+holder account from creator attribution and preserves older creator-held leases.
+See [the current relay contract](../../client/docs/networking.md) for wire limits,
+interpolation, multi-endpoint admission and hosting fanout requirements. The zone
+worker sections below remain a future architecture, not the deployed browser
+execution policy.
 
 > Status: shared-user bootstrap, durable latest-player snapshots, paginated authored chunk
 > AOI-paged Zstd chunk overlays, bounded epoch-1 idempotent terrain mutation batches,
@@ -68,11 +90,11 @@ target ships; theoretical concurrency is not a promise.
 > `space_world_entities` as their only durable source. Account-level, long-lived spaceAPI
 > keys let external agents submit inline entity definitions to any world the owner can access;
 > the backend canonicalizes and validates the same Protobuf v7 contract used by browsers.
-> All created entities share one editable ownership model, with no market/browser source
+> All created entities share equal world-member operation rights, with no market/browser source
 > discriminator. The browser removes and never reads/writes its legacy per-world entity storage
 > online; offline mode keeps browser persistence. The API does not run physics. An
-> eight-second owner-browser execution lease prevents duplicate execution, while non-owner
-> browsers keep a stopped collision proxy. This remains narrower than the authoritative
+> eight-second endpoint-exclusive execution lease prevents duplicate execution, while other
+> browsers keep an interpolated, non-simulating collision proxy. This remains narrower than the authoritative
 > worker target below. See the [spaceAPI entity-create guide](../space/agent/references/entity-create.md).
 
 ## 2. Performance Targets
@@ -516,8 +538,8 @@ newer client wall-clock time never wins automatically.
 
 The current transitional deployment additionally has `space_api_keys` (hashed, revocable,
 account-level credentials with full Space permissions) and `space_world_entities` (canonical
-definition, optional browser runtime snapshot, AOI transform, owner run intent and browser
-execution lease). Online browsers persist no separate world-entity copy; all owned entity
+definition, optional browser runtime snapshot, AOI transform, run intent and browser
+execution lease). Online browsers persist no separate world-entity copy; all world entity
 definitions/snapshots are revision-checked here, while offline entities remain local.
 These two tables are not the final worker snapshot model.
 
@@ -527,6 +549,14 @@ and fenced `space_hosting_workers` leases. It costs 1 credit per hour of committ
 simulation. The bounded headless worker shares the frontend engine and atomically commits
 entity state, terrain events and credit deductions. This implementation does not replace
 the final zone-worker protocol below.
+Migration `space_0007` adds a durable global `space_hosting_cores` pool: 128 fixed
+slots, bounded by available physical CPUs. A fenced world coordinator starts one separate
+Linux CPU-pinned runtime per hosted entity; neighboring routine pose commits do not
+starve other cores. Stop invalidates the execution epoch immediately, but a started core
+is reclaimed only after its runtime exits (or its bounded lease expires). Hosted capacity
+is separate from browser running-entity quotas. The requester-only `/entities/hosting/list`
+endpoint includes off-AOI jobs, capacity, safe teleport destinations and early Stop
+availability. See [the implemented hosting contract](entity-hosting.md).
 
 There are deliberately no `player_inventories` or `player_inventory_slots` tables.
 `player_snapshots.state` also excludes backpack data. `build_assets` is world recovery
@@ -585,7 +615,8 @@ limits (all configurable) are:
 | Terrain batch footprint | 256 operations, 16 chunks, 4 surface zones, 16 MiB resulting event |
 | Terrain edit range | Within 8 wrapped chunks of the latest player checkpoint |
 | Owned world-entity bytes | 128 MiB per player/world |
-| Running world entities | 8 per player, 64 per world, 16 per chunk |
+| Browser-running world entities | 8 per executor, 64 per world, 16 per chunk |
+| Server-hosted entities | One physical core per entity; global maximum 128, bounded by available CPUs |
 | Entity checkpoint writes | 16 MiB per minute and 512 MiB per UTC day per player/world |
 | Market resources | 10 publishes and 64 MiB uploaded per UTC day; 100 live resources/256 MiB per player |
 
@@ -928,10 +959,10 @@ POST   /space/api/v2/worlds/{id}/entities/browser  Persist a browser-authored de
 GET    /space/api/v2/worlds/{id}/entities       List nearby instances across wrapped X/Z seams
 GET    /space/api/v2/worlds/{id}/entities/{entity}/definition  Fetch the canonical Protobuf definition
 GET    /space/api/v2/worlds/{id}/entities/{entity}/snapshot  Fetch and verify the runtime snapshot
-PUT    /space/api/v2/worlds/{id}/entities/{entity}/checkpoint  Owner/admin revisioned browser checkpoint
-DELETE /space/api/v2/worlds/{id}/entities/{entity}  Owner/admin permanent world-entity deletion
-PUT    /space/api/v2/worlds/{id}/entities/execution-leases  Claim/renew owner-browser execution
-PUT    /space/api/v2/worlds/{id}/entities/{entity}/run-state  Owner/admin durable Start/Stop intent
+PUT    /space/api/v2/worlds/{id}/entities/{entity}/checkpoint  Revisioned checkpoint, live holder proof when running
+DELETE /space/api/v2/worlds/{id}/entities/{entity}  Shared permanent deletion, live holder proof when occupied
+PUT    /space/api/v2/worlds/{id}/entities/execution-leases  Claim/renew endpoint-exclusive execution
+PUT    /space/api/v2/worlds/{id}/entities/{entity}/run-state  Shared Start/Stop with exclusive execution fencing
 POST   /space/api/v2/worlds/{id}/join-ticket    Issue a short-lived real-time ticket
 GET    /space/api/v2/worlds/{id}                Read metadata and membership permissions
 GET    /space/api/v2/worlds/{id}/members        List members with permission

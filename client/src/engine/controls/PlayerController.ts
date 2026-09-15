@@ -20,6 +20,7 @@ import { calculatePreviewDragForce, getInventoryPreviewBlocks } from '../render/
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
 import { type SelectorShape, computeSelectionCells } from './SelectorShapes.ts';
+import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
 import {
   decodeBackpack,
   decodeInventoryResource,
@@ -108,17 +109,12 @@ const WRENCH_GRAB_MAX_ACCELERATION = 36;
 const WRENCH_GRAB_MAX_TARGET_SPEED = 10;
 const WRENCH_GRAB_MAX_SPEED = 14;
 
-// A seat may pin the view yaw to the vehicle. The player keeps a small bounded
-// head-look arc so the cockpit still feels alive without letting them stare at
-// the world while the chassis swings underneath.
-const SEAT_LOOK_YAW_LIMIT = 0.6;
-
 /** Yaw of a rotation whose forward axis is -Z, using the camera's YXZ order. */
-function quaternionForwardYaw(quaternion: any): number {
-  if (!quaternion?.isQuaternion) return 0;
+function quaternionForwardYaw(quaternion: any, fallback = 0): number {
+  if (!quaternion?.isQuaternion) return fallback;
   const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion);
   const planar = Math.hypot(forward.x, forward.z);
-  return planar < 1e-6 ? 0 : Math.atan2(-forward.x, -forward.z);
+  return planar < 1e-6 ? fallback : Math.atan2(-forward.x, -forward.z);
 }
 
 function contraptionRootId(contraption: any): string {
@@ -426,15 +422,14 @@ export class PlayerController {
   fov: number;
   perspective: PlayerPerspective;
   thirdPersonDistance: number;
+  private cameraPerspectiveTransition?: CameraPerspectiveTransition;
 
   // --- Driving state ---
   isDriving: boolean;
   drivenContraption: any;
   drivenSeat: { componentId: string; seatIndex: number } | null;
-  /** True while the occupied seat drives the view yaw instead of free mouse look. */
-  drivenSeatLocksYaw: boolean;
-  /** Player yaw offset from the seat forward, clamped while the seat locks yaw. */
-  seatLookYaw: number;
+  /** The occupied seat fixes the rider's body orientation, never the camera. */
+  drivenSeatFixedOrientation: boolean;
   navigationSystem: any;
 
   constructor(
@@ -538,8 +533,7 @@ export class PlayerController {
     this.isDriving = false;
     this.drivenContraption = null;
     this.drivenSeat = null;
-    this.drivenSeatLocksYaw = false;
-    this.seatLookYaw = 0;
+    this.drivenSeatFixedOrientation = false;
 
     this.setupPointerLock();
     this.setupEventListeners();
@@ -653,23 +647,15 @@ export class PlayerController {
         return;
       }
 
-      // A yaw-locking seat owns the view direction: horizontal mouse motion
-      // only trims a bounded head-look arc inside the cockpit, while vertical
-      // motion stays free.
-      if (this.drivenSeatLocksYaw && this.isDriving) {
-        this.seatLookYaw = Math.max(
-          -SEAT_LOOK_YAW_LIMIT,
-          Math.min(SEAT_LOOK_YAW_LIMIT, this.seatLookYaw - e.movementX * this.mouseSensitivity)
-        );
-      } else {
-        this.yaw -= e.movementX * this.mouseSensitivity;
-      }
+      // Seat orientation belongs to the rider's body. Mouse look remains in
+      // world space, including unrestricted horizontal turns while mounted.
+      this.yaw -= e.movementX * this.mouseSensitivity;
       this.pitch -= e.movementY * this.mouseSensitivity;
 
       const maxPitch = Math.PI / 2 - 0.01;
       this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch));
 
-      this.camera.rotation.set(this.pitch, this.viewYaw, 0, 'YXZ');
+      this.updateCameraRotation();
     });
 
     document.addEventListener('mouseup', (e) => {
@@ -1091,7 +1077,7 @@ export class PlayerController {
       return false;
     }
     if (target.serverManaged === true && target.serverCanEdit !== true) {
-      this.ui?.showToast?.('Only this entity’s owner can edit it');
+      this.ui?.showToast?.('This entity is read-only or occupied by another endpoint');
       return false;
     }
 
@@ -1760,7 +1746,7 @@ export class PlayerController {
     if (contraption.serverManaged === true) {
       if (contraption.serverCanControl !== true || !this.serverEntityRunStateHandler) {
         this.ui?.showToast?.(contraption.serverCanControl !== true
-          ? 'Only this entity’s owner can stop it'
+          ? 'This entity is read-only or occupied by another endpoint'
           : 'Entity control is temporarily unavailable', { tone: 'warning' });
         return true;
       }
@@ -5639,6 +5625,10 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`, { tone: 'warning' });
       return false;
     }
+    if (contraption.serverManaged === true && contraption.serverCanControl !== true && this.isEntityRunning(contraption)) {
+      this.ui?.showToast?.('This entity is occupied by another endpoint', { tone: 'warning' });
+      return false;
+    }
     if (action === 'program') return this.openCodeEditorForTarget(contraption);
     if (action === 'copy') {
       const slot = contraption.serializeSubtree(contraptionRootId(contraption));
@@ -5660,7 +5650,7 @@ export class PlayerController {
     }
     if (!['start', 'stop', 'delete'].includes(action)) return false;
     if (contraption.serverManaged === true && contraption.serverCanControl !== true) {
-      this.ui?.showToast?.('Only this entity’s owner can control or delete it', { tone: 'warning' });
+      this.ui?.showToast?.('This entity is occupied by another endpoint', { tone: 'warning' });
       return false;
     }
     if (action === 'delete') {
@@ -5706,7 +5696,7 @@ export class PlayerController {
   async requestServerEntityRunState(contraption, desiredState, options: any = {}) {
     if (contraption.serverCanControl !== true) {
       if (!options?.silent) {
-        this.ui?.showToast?.('Only this entity’s owner can start or stop it');
+        this.ui?.showToast?.('This entity is read-only or occupied by another endpoint');
       }
       return false;
     }
@@ -5726,7 +5716,7 @@ export class PlayerController {
             ? `Entity #${contraption.id} stopped (state reset)`
             : executesHere
               ? `Entity #${contraption.id} started`
-              : `Entity #${contraption.id} start requested for its owner browser`
+              : `Entity #${contraption.id} waiting for an available execution endpoint`
         );
       }
       return true;
@@ -5734,8 +5724,8 @@ export class PlayerController {
       if (!options?.silent) {
         if (error?.code === 'ENTITY_REVISION_CONFLICT') {
           this.ui?.showToast?.('Entity state changed elsewhere; try again');
-        } else if (error?.code === 'ENTITY_CONTROL_FORBIDDEN') {
-          this.ui?.showToast?.('Only this entity’s owner can start or stop it');
+        } else if (error?.code === 'ENTITY_OCCUPIED') {
+          this.ui?.showToast?.('This entity is occupied by another endpoint');
         } else {
           this.ui?.showToast?.('Entity could not be updated');
         }
@@ -7990,18 +7980,11 @@ export class PlayerController {
     if (this.isDriving) {
       const vehicle = this.drivenContraption;
       const seat = this.drivenSeat;
-      // Read the seat-derived view before clearing the driving state; the
-      // getter needs the lock flags that the teardown below removes.
-      const dismountYaw = this.viewYaw;
       this.isDriving = false;
       this.contraptions.activeDrivable = null;
       this.drivenContraption = null;
       this.drivenSeat = null;
-      // Hand the seat-derived view direction back to free look so stepping out
-      // of a locked cockpit does not snap the camera.
-      this.yaw = dismountYaw;
-      this.seatLookYaw = 0;
-      this.drivenSeatLocksYaw = false;
+      this.drivenSeatFixedOrientation = false;
       this.resetEntityInputState();
 
       if (vehicle) {
@@ -8043,15 +8026,15 @@ export class PlayerController {
     const seat = target && focusPoint ? target.getNearestSeat?.(focusPoint) : null;
 
     if (target && seat) {
+      if (target.serverManaged === true && target.serverCanControl !== true) {
+        this.ui?.showToast?.('This entity is read-only or occupied by another endpoint', { tone: 'warning' });
+        return;
+      }
       this.resetEntityInputState();
       this.isDriving = true;
       this.drivenContraption = target;
       this.drivenSeat = { componentId: seat.componentId, seatIndex: seat.seatIndex };
-      this.drivenSeatLocksYaw = seat.fixedOrientation === true;
-      // Entering a locked seat snaps the view onto the seat forward axis and
-      // starts the head-look arc from center; `this.yaw` keeps tracking the
-      // free-look value so leaving the seat never whips the camera around.
-      this.seatLookYaw = 0;
+      this.drivenSeatFixedOrientation = seat.fixedOrientation === true;
       this.contraptions.activeDrivable = target;
       if (this.ui) this.ui.showToast(`Mounted! Key behavior is defined by the ctx.input script · [C] program [V] leave`);
     } else {
@@ -8069,9 +8052,7 @@ export class PlayerController {
 
   setSceneRenderer(sceneRenderer) {
     this.sceneRenderer = sceneRenderer;
-    if (this.sceneRenderer?.setPlayerAvatarVisible) {
-      this.sceneRenderer.setPlayerAvatarVisible(this.perspective !== 'first_person');
-    }
+    this.syncCameraViewVisibility();
   }
 
   setFov(fov: number) {
@@ -8082,15 +8063,15 @@ export class PlayerController {
     }
   }
 
-  setPerspective(perspective: PlayerPerspective) {
+  setPerspective(perspective: PlayerPerspective, animate = true) {
     const normalized: PlayerPerspective = perspective === 'third_person'
       || perspective === 'third_person_front'
       ? perspective
       : 'first_person';
+    const transition = this.getCameraPerspectiveTransition();
     this.perspective = normalized;
-    if (this.sceneRenderer?.setPlayerAvatarVisible) {
-      this.sceneRenderer.setPlayerAvatarVisible(normalized !== 'first_person');
-    }
+    transition.setPerspective(normalized, animate);
+    this.syncCameraViewVisibility();
   }
 
   setThirdPersonDistance(dist: number) {
@@ -8115,47 +8096,84 @@ export class PlayerController {
     }
   }
 
-  /**
-   * The yaw the view actually renders with. A yaw-locking seat overrides free
-   * look with its solved world orientation plus the player's bounded head-look
-   * arc, so camera, avatar, minimap, and movement all agree while riding.
-   */
+  /** Camera look stays independent of a mounted seat's body orientation. */
   get viewYaw(): number {
-    if (!this.isDriving || !this.drivenSeatLocksYaw) {
-      return Number.isFinite(this.yaw) ? this.yaw : 0;
+    return Number.isFinite(this.yaw) ? this.yaw : 0;
+  }
+
+  private refreshDrivenSeatOrientation() {
+    if (!this.isDriving || !this.drivenSeat || !this.drivenContraption) {
+      this.drivenSeatFixedOrientation = false;
+      return;
     }
-    const lookOffset = Math.max(-SEAT_LOOK_YAW_LIMIT, Math.min(SEAT_LOOK_YAW_LIMIT, this.seatLookYaw));
-    const seatWorld = this.drivenSeat
-      ? this.drivenContraption?.getSeatWorldQuaternion?.(
-        this.drivenSeat.componentId,
-        this.drivenSeat.seatIndex
-      )
-      : null;
-    if (!seatWorld?.isQuaternion) {
-      return (Number.isFinite(this.yaw) ? this.yaw : 0) + lookOffset;
+    // Read current metadata, not the getNearestSeat snapshot from mounting.
+    // self.setSeats can replace the configuration while the rider stays seated.
+    if (this.drivenContraption.getComponentSeats) {
+      const seats = this.drivenContraption.getComponentSeats(this.drivenSeat.componentId);
+      this.drivenSeatFixedOrientation = seats?.[this.drivenSeat.seatIndex]?.fixedOrientation === true;
     }
-    return quaternionForwardYaw(seatWorld) + lookOffset;
+  }
+
+  /** Full solved seat rotation for the avatar; null means normal free-look body yaw. */
+  get bodyQuaternion(): THREE.Quaternion | null {
+    this.refreshDrivenSeatOrientation();
+    if (!this.drivenSeatFixedOrientation || !this.drivenSeat) return null;
+    const seatWorld = this.drivenContraption?.getSeatWorldQuaternion?.(
+      this.drivenSeat.componentId,
+      this.drivenSeat.seatIndex
+    );
+    return seatWorld?.isQuaternion ? seatWorld : null;
+  }
+
+  get bodyYaw(): number {
+    return quaternionForwardYaw(this.bodyQuaternion, this.viewYaw);
+  }
+
+  private getCameraPerspectiveTransition(): CameraPerspectiveTransition {
+    const perspective = this.perspective || 'first_person';
+    if (!this.cameraPerspectiveTransition) {
+      this.cameraPerspectiveTransition = new CameraPerspectiveTransition(perspective);
+    } else if (this.cameraPerspectiveTransition.perspective !== perspective) {
+      // Legacy callers may assign perspective directly rather than using the setter.
+      this.cameraPerspectiveTransition.setPerspective(perspective, false);
+    }
+    return this.cameraPerspectiveTransition;
+  }
+
+  private syncCameraViewVisibility() {
+    const pose = this.getCameraPerspectiveTransition().pose;
+    const distance = pose.distance * this.thirdPersonDistance;
+    // Hide the body near the eye, and show the viewmodel only once back in
+    // first person. This avoids flying through the head or carrying a floating hand.
+    this.sceneRenderer?.setPlayerAvatarVisible?.(
+      distance >= 0.65,
+      this.perspective === 'first_person' && distance < 0.08 && Math.abs(pose.angle) < 0.08
+    );
+  }
+
+  private updateCameraRotation(): THREE.Vector3 {
+    const { angle } = this.getCameraPerspectiveTransition().pose;
+    // Derive every pose from current free look, never from the previous render
+    // quaternion (which is reversed in front view). Mouse look itself is not eased.
+    const pitch = Number.isFinite(this.pitch) ? this.pitch : this.camera.rotation.x;
+    const yaw = this.viewYaw;
+    const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+    const orbitDirection = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle)).applyQuaternion(look);
+    if (Math.abs(angle) < 1e-9) {
+      this.camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    } else {
+      const rotation = new THREE.Matrix4().lookAt(orbitDirection, new THREE.Vector3(), this.camera.up);
+      this.camera.quaternion.setFromRotationMatrix(rotation);
+    }
+    return orbitDirection;
   }
 
   updateCameraPosition() {
     const eyePos = this.physics.getEyePosition();
-    // Always rebuild the normal player look before deriving an offset. The
-    // front-facing third-person camera reverses its render orientation below,
-    // so reusing its quaternion on the next frame would make the two camera
-    // positions alternate.
-    const pitch = Number.isFinite(this.pitch) ? this.pitch : this.camera.rotation.x;
-    const yaw = this.viewYaw;
-    this.camera.rotation.set(pitch, yaw, 0, 'YXZ');
-    if (this.perspective === 'third_person') {
-      const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
-      this.camera.position.copy(eyePos).addScaledVector(backward, this.thirdPersonDistance);
-    } else if (this.perspective === 'third_person_front') {
-      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-      this.camera.position.copy(eyePos).addScaledVector(forward, this.thirdPersonDistance);
-      this.camera.lookAt(eyePos);
-    } else {
-      this.camera.position.copy(eyePos);
-    }
+    const orbitDirection = this.updateCameraRotation();
+    const { distance } = this.getCameraPerspectiveTransition().pose;
+    this.camera.position.copy(eyePos).addScaledVector(orbitDirection, distance * this.thirdPersonDistance);
+    this.syncCameraViewVisibility();
   }
 
   /**
@@ -8175,17 +8193,13 @@ export class PlayerController {
       this.contraptions.activeDrivable = null;
       this.drivenContraption = null;
       this.drivenSeat = null;
-      this.drivenSeatLocksYaw = false;
-      this.seatLookYaw = 0;
+      this.drivenSeatFixedOrientation = false;
       this.physics.ridingContraption = null;
       return false;
     }
     this.physics.position.copy(seatWorld);
     this.physics.velocity.set(0, 0, 0);
-    // Keep the free-look yaw tracking the locked view so dismounting, the
-    // minimap, the avatar, and the multiplayer snapshot all continue from the
-    // direction the player was actually facing.
-    if (this.drivenSeatLocksYaw) this.yaw = this.viewYaw;
+    this.refreshDrivenSeatOrientation();
     return true;
   }
 
@@ -8291,8 +8305,9 @@ export class PlayerController {
     }
   }
 
-  updateRender() {
+  updateRender(dt = 0) {
     this.processBulkEditFrame();
+    this.getCameraPerspectiveTransition().advance(dt);
     this.updateCameraPosition();
   }
 
@@ -8301,6 +8316,7 @@ export class PlayerController {
   update(dt) {
     this.processBulkEditFrame();
     this.updateSimulation(dt);
+    this.getCameraPerspectiveTransition().advance(dt);
     this.updateCameraPosition();
   }
 

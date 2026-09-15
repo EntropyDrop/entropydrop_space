@@ -2988,12 +2988,12 @@ export class SceneRenderer {
     }
   }
 
-  setPlayerAvatarVisible(visible: boolean) {
+  setPlayerAvatarVisible(visible: boolean, showFirstPersonHand = !visible) {
     if (this.playerAvatar) {
       this.playerAvatar.visible = !!visible;
     }
     if (this.playerFirstPersonHand) {
-      this.playerFirstPersonHand.visible = !visible;
+      this.playerFirstPersonHand.visible = !!showFirstPersonHand;
     }
   }
 
@@ -3003,7 +3003,11 @@ export class SceneRenderer {
       // Keep the avatar in logical flat-world coordinates. The same torus shader
       // that bends terrain bends every character vertex and its normals at render time.
       this.playerAvatar.position.copy(playerPos);
-      this.playerAvatar.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), playerYaw);
+      if (playerMotion?.bodyQuaternion?.isQuaternion) {
+        this.playerAvatar.quaternion.copy(playerMotion.bodyQuaternion);
+      } else {
+        this.playerAvatar.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), playerYaw);
+      }
     }
     if (this.playerAvatarCharacter) {
       if (this.playerAvatarCharacter.setHeldTool(playerMotion?.activeTool)) {

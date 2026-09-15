@@ -6,7 +6,7 @@ entityAPI is the runtime interface called by entity code through `self` / `ctx`;
 
 World entities have overhead nameplates: name, playback status, browser executor
 name, or a purple `Server hosting` badge. A live browser lease is distinguished
-from a start request waiting for its owner's browser. The `…` button opens the
+from a start request waiting for an available execution endpoint. The `…` button opens the
 same entity menu with every tool; locked input hit-tests the crosshair before
 tool actions. Menu commands target the clicked entity, not later hover state.
 Actions include Start/Stop, whole-entity copy to the backpack, programming, root
@@ -14,7 +14,7 @@ block Select All, ID copy, and confirmed whole-entity deletion. Whole-entity cop
 does not require a Selector A/B range and does not change the source's playback;
 block selection actions still require confirmed A/B. Online deletion waits for
 the backend acknowledgement and leaves the entity intact on failure. Existing
-ownership restrictions and the paid-hosting availability switch remain enforced.
+execution-occupancy restrictions and the paid-hosting availability switch remain enforced.
 Menu actions retain text rows with leading icons and shortened captions, descriptive
 hover titles and accessible labels. Nameplate playback uses filled green play/red
 stop icons matching the code editor to the right of the entity name.
@@ -23,6 +23,16 @@ the playback icon remains on the right and hosting retains its purple badge.
 The delete confirmation retains its explicit irreversible-action warning.
 Nameplates share the world render pass's bent camera and interpolated component
 transforms, caching authored extents rather than transforming every voxel per frame.
+
+Driver seats with `fixedOrientation:true` keep the rider's body aligned to the
+seat's solved world rotation, including articulated components. Camera mouse
+look stays free in all three perspectives. Mounting, dismounting and runtime
+`self.setSeats` changes preserve the camera's yaw and pitch.
+Perspective changes ease over 280 ms: first/third-person switches zoom relative
+to the current eye position, and rear/front third-person switches orbit around
+the rider instead of cutting through the body. Interrupted switches continue
+from the displayed pose. Mouse look and player/seat movement remain immediate;
+saved perspective settings restore without an initial animation.
 
 ## Documentation map
 
@@ -211,7 +221,7 @@ Selection and manual geometry edits require a stopped entity: the first attempt
 on a running entity immediately stops it and shows a notification. That
 interaction does not also perform the attempted edit or selection. Online
 entities request Stop immediately and remain non-editable until the server
-acknowledges it; owner-control permissions still apply.
+acknowledges it; other endpoints' live occupations cannot be stopped or modified.
 
 The bundled local Agent prototype currently understands English hover, follow,
 orbit, launch, spin, attitude-stabilization, and stop intents.
@@ -242,7 +252,7 @@ described below.
 Every world entity in online mode comes from the backend. The browser neither reads nor
 writes `entropydrop_space_entities.*`; entering an online world removes that world's legacy
 browser entity value. Creating or editing an entity uploads its canonical Protobuf definition
-and a bounded runtime snapshot, and active owned entities checkpoint changed
+and a bounded runtime snapshot, and locally held entities checkpoint changed
 state every six seconds. Removing one performs a backend hard delete. Offline mode keeps the
 version-4 browser persistence and never calls these entity endpoints; older
 entity data is intentionally ignored. This boundary applies
@@ -263,24 +273,33 @@ download is the raw canonical `InventoryResource`. JSON `definition_base64` requ
 accepted for existing external agents.
 
 External agents can submit canonical entity definitions directly with an account-level,
-long-lived spaceAPI key with full Space permissions (including existing keys); market publication is not required. They can read owned entities with `GET /entities/{id}/configuration`, edit component code/name/body defaults with `PATCH /entities/{id}/configuration`, and start/stop with `PUT /entities/{id}/run-state`, under the world API prefix. Edits require Stop and `expected_revision`; operation IDs make delayed retries safe. Entity playback has only running/stopped states. The browser polls the nearby
+long-lived spaceAPI key with full Space permissions (including existing keys); market publication is not required. They can read world entities with `GET /entities/{id}/configuration`, edit component code/name/body defaults with `PATCH /entities/{id}/configuration`, and start/stop with `PUT /entities/{id}/run-state`, under the world API prefix. Edits require Stop and `expected_revision`; operation IDs make delayed retries safe. Entity playback has only running/stopped states. The browser polls the nearby
 wrapped AOI, verifies the canonical Protobuf definition and optional
 snapshot, then restores the exact construction/runtime pose, including its quaternion. For browser-executed entities, only
-the owner's browser holding the current eight-second execution lease advances physics/scripts;
-observers retain a stopped collision pose. Wrench Start/Stop is accepted only for the owner
-or an administrator, so another ordinary player cannot stop the entity. Every instance may be
-edited or deleted only by its owner or an administrator; its updated definition and state return to the
+the endpoint holding the current eight-second execution lease advances physics/scripts;
+observers interpolate non-simulating collision proxies. Any world member may start,
+edit or delete an unoccupied entity regardless of author; nobody, including the author
+or an administrator, may interfere with another endpoint's live occupation. Creator
+attribution is unchanged, and market resources retain publisher permissions. Updated definition and state return to the
 backend instead of browser storage. Entity `self.*` actions continue to run only on the lease
 holder.
 
-Explicit paid hosting now runs bounded entities without an owner browser at **1 credit/hour**.
-The hosting API accepts an entity ID and a maximum credit budget; the independent worker
+Explicit paid hosting now runs bounded entities without a browser executor at **1 credit/hour**.
+The hosting API accepts an entity ID and a maximum credit budget funded by the requesting
+account, whose active server occupation is protected from other accounts; the independent worker
 commits simulation, terrain edits and billing atomically. Hosted entity viewers install
 server snapshots and never obtain a browser execution lease. The editor Authority panel
-shows the server executor. See the backend [hosting API and deployment guide](../../entropydrop_backend/docs/space-entity-hosting.md).
+shows the server executor. The entity menu exposes English `Host…` / `Stop hosting`
+controls with explicit budget confirmation. HUD **Hosted Entities** lists your hosting
+jobs across the world (outside the nearby AOI too), with `Teleport` and early `Stop`.
+Each entity uses a separate runtime process and one dedicated physical CPU reservation;
+the global pool is capped at 128 and by the worker's actual available physical cores.
+Capacity/worker/credit/occupancy failures are shown in English. Early Stop preserves
+unused prepaid time and releases the core after the process exits. See the
+[hosting API and deployment guide](../server/docs/entity-hosting.md).
 This bounded worker uses the current 20 Hz entity / 60 Hz physics engine and does not
 replace the full multiplayer authority protocol below.
-Its server-only source lives in `entropydrop_backend/space/runtime/`. The backend build
+Its server-only source lives in `server/space/runtime/`. The backend build
 bundles `@entropydrop/space-engine` from the `engine/` workspace package.
 Install that repository’s dependencies with `npm ci` before installing the frontend.
 The deployed worker needs neither frontend nor engine source files. Rebuild both consumers
@@ -320,14 +339,13 @@ locally (or in a future workflow) before merging.
 Settings is organized into Character, Graphics, Sound, and API tabs. Character previews
 its current skin with drag-to-rotate controls, retaining the setup guide when no skin
 is available. The API tab shows live credit balance, pricing, account/world allowances,
-and key management. Building and creation are free within quotas. Paid hosting pricing,
-allowances, and labels are temporarily hidden by `SPACE_HOSTING_UI_ENABLED = false` in
-`src/bootstrap/SpaceFeatures.ts` until a production worker is available. Backend hosting
-code and server-snapshot synchronization remain in place. The backend also defaults to
-`SPACE_HOSTING_ENABLED=false`: hosting calls are rejected, workers cannot run or bill,
-and hosting pricing/allowances are omitted. Client hosting methods reject without a
-network request while the UI flag is false. Ordinary browser execution and its API-key
-run permission are unchanged.
+and key management. Building and creation are free within quotas. Hosting controls are
+enabled by `SPACE_HOSTING_UI_ENABLED = true` in `src/bootstrap/SpaceFeatures.ts`.
+The backend still defaults to `SPACE_HOSTING_ENABLED=false`: new hosting purchases are
+rejected, workers cannot run or bill, and hosting pricing/allowances are omitted.
+The menu shows an English availability error rather than hiding the control; early
+Stop remains available even when hosting or the account RPC is down. Ordinary browser
+execution and its API-key run permission are unchanged.
 
 Keys with `space:blockset:build` can call
 `POST /space/api/v2/worlds/{world_id}/blocksets/build` to stamp a portable blockset at a

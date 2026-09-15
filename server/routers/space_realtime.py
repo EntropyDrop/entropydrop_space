@@ -23,6 +23,7 @@ from config import settings
 from space.database import SessionLocal, get_db
 from rate_limit import limiter
 from routers import space as space_api
+from space.entity_pose import MAX_ENTITY_POSE_BYTES, MAX_SESSION_ENTITY_POSES, parse_entity_pose, authorize_entity_poses, parse_hosted_trajectory
 
 
 logger = logging.getLogger(__name__)
@@ -306,6 +307,10 @@ class RealtimeSession:
     rate_window_packets: int = 0
     dirty: bool = False
     connection_id: str = field(default_factory=lambda: secrets.token_urlsafe(12))
+    entity_poses: dict[str, dict] = field(default_factory=dict)
+    entity_rate_started_at: float = field(default_factory=time.monotonic)
+    entity_rate_packets: int = 0
+    entity_rate_bytes: int = 0
 
 
 def _is_production() -> bool:
@@ -476,6 +481,10 @@ class SpaceRealtimeHub:
         self.terrain_revisions: dict[str, int] = {}
         self.sent_terrain_revisions: dict[str, int] = {}
         self.last_redis_warning_at = 0.0
+        self.entity_states: dict[str, dict[str, dict]] = {}
+        self.remote_entity_candidates: dict[str, dict[str, dict]] = {}
+        self.hosted_trajectories: dict[str, dict[str, dict]] = {}
+        self.pending_entity_events: dict[str, dict[str, dict]] = {}
         self.redis = AsyncRedis.from_url(
             settings.REDIS_URL,
             health_check_interval=20,
@@ -487,18 +496,14 @@ class SpaceRealtimeHub:
     async def register(self, session: RealtimeSession) -> None:
         self.loop = asyncio.get_running_loop()
         world_sessions = self.sessions.setdefault(session.identity.world_id, {})
-        previous = world_sessions.get(session.identity.user_id)
-        world_sessions[session.identity.user_id] = session
+        if sum(s.identity.user_id == session.identity.user_id for s in world_sessions.values()) >= 4:
+            raise HTTPException(429, detail={"code": "SPACE_ENDPOINT_LIMIT_REACHED"})
+        world_sessions[session.connection_id] = session
         await asyncio.to_thread(
             _renew_admission_leases,
             session.identity.world_id,
             [session.identity.user_id],
         )
-        if previous is not None and previous.websocket is not session.websocket:
-            try:
-                await previous.websocket.close(code=4409, reason="A newer Space session replaced this connection")
-            except Exception:
-                pass
         task = self.tasks.get(session.identity.world_id)
         if task is None or task.done():
             self.tasks[session.identity.world_id] = asyncio.create_task(
@@ -516,9 +521,9 @@ class SpaceRealtimeHub:
     async def unregister(self, session: RealtimeSession) -> None:
         world_sessions = self.sessions.get(session.identity.world_id)
         released_current = False
-        if world_sessions and world_sessions.get(session.identity.user_id) is session:
-            world_sessions.pop(session.identity.user_id, None)
-            released_current = True
+        if world_sessions and world_sessions.get(session.connection_id) is session:
+            world_sessions.pop(session.connection_id, None)
+            released_current = not any(s.identity.user_id == session.identity.user_id for s in world_sessions.values())
             if not world_sessions:
                 self.sessions.pop(session.identity.world_id, None)
         if released_current:
@@ -554,6 +559,20 @@ class SpaceRealtimeHub:
             "type": "terrain",
             "terrain_revision": revision,
         })
+
+    def notify_hosted_trajectory_from_thread(self, world_id, trajectory):
+        if self.loop and not self.loop.is_closed():
+            self.loop.call_soon_threadsafe(self._accept_hosted_trajectory, world_id, trajectory)
+
+    def _accept_hosted_trajectory(self, world_id, trajectory):
+        trajectory = parse_hosted_trajectory(trajectory)
+        states = self.hosted_trajectories.setdefault(world_id, {})
+        old = states.get(trajectory["entity_id"])
+        if old and (old["execution_epoch"], old["revision"]) >= (trajectory["execution_epoch"], trajectory["revision"]):
+            return
+        states[trajectory["entity_id"]] = {**trajectory, "received_at": time.monotonic()}
+        if len(states) > 4:
+            states.pop(next(iter(states)))
 
     def _record_terrain_revision(self, world_id: str, revision: int) -> None:
         self.terrain_revisions[world_id] = max(
@@ -598,6 +617,78 @@ class SpaceRealtimeHub:
             self._presence_payload(session),
         )
 
+    def update_entity_pose(self, session: RealtimeSession, payload: dict, size: int) -> None:
+        pose = parse_entity_pose(payload)
+        now = time.monotonic()
+        if now - session.entity_rate_started_at >= 1:
+            session.entity_rate_started_at = now
+            session.entity_rate_packets = session.entity_rate_bytes = 0
+        session.entity_rate_packets += 1
+        session.entity_rate_bytes += size
+        if session.entity_rate_packets > MAX_SESSION_ENTITY_POSES * 40 or session.entity_rate_bytes > 2 * 1024 * 1024:
+            return
+        current = session.entity_poses.get(pose["entity_id"])
+        if current and (pose["execution_epoch"], pose["sequence"]) <= (current["execution_epoch"], current["sequence"]):
+            return
+        if pose["entity_id"] not in session.entity_poses and len(session.entity_poses) >= MAX_SESSION_ENTITY_POSES:
+            oldest = min(session.entity_poses, key=lambda key: session.entity_poses[key]["received_at"])
+            session.entity_poses.pop(oldest)
+        session.entity_poses[pose["entity_id"]] = {**pose, "user_id": session.identity.user_id, "received_at": now}
+        session.last_packet_at = now
+
+    async def _entity_tick(self, world_id, sessions):
+        now = time.monotonic()
+        candidates = [p for s in sessions for p in s.entity_poses.values() if now - p["received_at"] < 0.5]
+        candidates += [p for p in self.remote_entity_candidates.get(world_id, {}).values() if now - p["received_at"] < 0.5]
+        for trajectory in self.hosted_trajectories.get(world_id, {}).values():
+            age = now - trajectory["received_at"]
+            if age > 2:
+                continue
+            index = min(len(trajectory["poses"]) - 1, max(0, int(age / 0.05)))
+            candidates.append({"source": "hosting", "entity_id": trajectory["entity_id"],
+                "execution_epoch": trajectory["execution_epoch"], "revision": trajectory["revision"],
+                "sequence": trajectory["first_sequence"] + index, "bodies": trajectory["poses"][index]})
+        previous = self.entity_states.get(world_id, {})
+        if not candidates and not previous:
+            return
+        def authorize():
+            with SessionLocal() as db:
+                return authorize_entity_poses(db, world_id, candidates)
+        authorized = await asyncio.to_thread(authorize)
+        states = {}
+        for p in authorized:
+            old = states.get(p["entity_id"])
+            if not old or (p["execution_epoch"], p["sequence"]) > (old["execution_epoch"], old["sequence"]):
+                states[p["entity_id"]] = p
+        self.entity_states[world_id] = states
+        local_ids = {s.identity.user_id for s in sessions}
+        for pose in states.values():
+            old = previous.get(pose["entity_id"])
+            if pose.get("user_id") in local_ids and (not old or (old["execution_epoch"], old["sequence"]) != (pose["execution_epoch"], pose["sequence"])):
+                self._queue_fanout_event(world_id, {**pose, "type": "entity_pose"})
+        radius = settings.SPACE_REALTIME_AOI_RADIUS_CHUNKS * space_api.SPACE_CHUNK_SIZE * 100
+        send_jobs = []
+        async def send_items(observer, items):
+            for item in items:
+                if not await self._send(observer, {"type": "entity_state", "items": [item]}):
+                    break
+        for observer in sessions:
+            if observer.pose is None:
+                continue
+            items = []
+            for pose in states.values():
+                x, _, z = pose["bodies"][0]["position"]
+                dx = self._wrapped_delta(observer.pose["x_cm"], round(x * 100) % observer.identity.world_width_cm, observer.identity.world_width_cm)
+                dz = self._wrapped_delta(observer.pose["z_cm"], round(z * 100) % observer.identity.world_length_cm, observer.identity.world_length_cm)
+                if dx * dx + dz * dz > radius * radius:
+                    continue
+                items.append({k: v for k, v in pose.items() if k not in {"instance_id", "user_id", "received_at", "type", "source"}})
+            # Cap each outbound message independently, even for complex entities.
+            if items:
+                send_jobs.append(send_items(observer, items))
+        if send_jobs:
+            await asyncio.gather(*send_jobs, return_exceptions=True)
+
     @staticmethod
     def _presence_payload(session: RealtimeSession) -> dict:
         pose = session.pose
@@ -641,6 +732,9 @@ class SpaceRealtimeHub:
         if payload.get("type") == "pose" and payload.get("user_id"):
             self.pending_pose_events.setdefault(world_id, {})[str(payload["user_id"])] = payload
             return
+        if payload.get("type") == "entity_pose":
+            self.pending_entity_events.setdefault(world_id, {})[payload["entity_id"]] = payload
+            return
         controls = self.pending_control_events.setdefault(world_id, [])
         controls.append(payload)
         if len(controls) > 256:
@@ -648,8 +742,9 @@ class SpaceRealtimeHub:
 
     async def _flush_fanout_events(self, world_id: str) -> None:
         poses = list(self.pending_pose_events.pop(world_id, {}).values())
+        entities = list(self.pending_entity_events.pop(world_id, {}).values())
         controls = self.pending_control_events.pop(world_id, [])
-        events = [*controls, *poses]
+        events = [*controls, *poses, *entities]
         if events:
             await asyncio.gather(
                 *(self._publish_event(world_id, payload) for payload in events),
@@ -684,6 +779,15 @@ class SpaceRealtimeHub:
                         self.remote_states[world_id].pop(user_id, None)
                 elif message_type == "terrain":
                     self._record_terrain_revision(world_id, int(payload.get("terrain_revision", 0)))
+                elif message_type == "entity_pose":
+                    pose = parse_entity_pose(payload)
+                    pose.update({"user_id": str(payload["user_id"]), "received_at": time.monotonic()})
+                    candidates = self.remote_entity_candidates.setdefault(world_id, {})
+                    candidates[pose["entity_id"]] = pose
+                    if len(candidates) > 256:
+                        candidates.pop(next(iter(candidates)))
+                elif message_type == "hosted_entity_poses":
+                    self._accept_hosted_trajectory(world_id, payload)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -706,6 +810,15 @@ class SpaceRealtimeHub:
             return []
         radius_cm = settings.SPACE_REALTIME_AOI_RADIUS_CHUNKS * space_api.SPACE_CHUNK_SIZE * 100
         players = []
+        # Multiple endpoint connections are allowed, but one account still has
+        # one presence avatar. The observer sees its own endpoint as self.
+        by_user = {}
+        for session in sessions:
+            old = by_user.get(session.identity.user_id)
+            if old is None or (session.pose_updated_at or "") > (old.pose_updated_at or ""):
+                by_user[session.identity.user_id] = session
+        by_user[observer.identity.user_id] = observer
+        sessions = list(by_user.values())
         for session in sessions:
             if session.pose is None:
                 continue
@@ -791,12 +904,13 @@ class SpaceRealtimeHub:
             return False
 
     async def _world_loop(self, world_id: str) -> None:
-        interval = 1 / max(1, settings.SPACE_REALTIME_SNAPSHOT_HZ)
+        interval = 1 / max(20, settings.SPACE_REALTIME_SNAPSHOT_HZ)
         persistence_interval = max(1, settings.SPACE_REALTIME_PERSIST_SECONDS)
         last_persisted_at = time.monotonic()
         last_admission_renewed_at = 0.0
         next_fanout_restart_at = 0.0
         server_tick = 0
+        next_player_state_at = 0.0
         try:
             while self.sessions.get(world_id):
                 started_at = time.monotonic()
@@ -831,8 +945,17 @@ class SpaceRealtimeHub:
                     except Exception:
                         pass
 
+                try:
+                    await self._entity_tick(world_id, sessions)
+                except Exception:
+                    self.entity_states.pop(world_id, None)
+                    if now - self.last_redis_warning_at >= 10:
+                        self.last_redis_warning_at = now
+                        logger.warning("Entity pose authority is temporarily unavailable; replicas hold their last pose", exc_info=True)
                 send_jobs = []
                 for observer in sessions:
+                    if now < next_player_state_at:
+                        continue
                     send_jobs.append(self._send(observer, {
                         "type": "state",
                         "server_tick": server_tick,
@@ -840,6 +963,7 @@ class SpaceRealtimeHub:
                     }))
                 if send_jobs:
                     await asyncio.gather(*send_jobs, return_exceptions=True)
+                    next_player_state_at = now + 1 / max(1, settings.SPACE_REALTIME_SNAPSHOT_HZ)
 
                 terrain_revision = self.terrain_revisions.get(world_id, 0)
                 if terrain_revision > self.sent_terrain_revisions.get(world_id, 0):
@@ -877,6 +1001,10 @@ class SpaceRealtimeHub:
                 self.remote_states.pop(world_id, None)
                 self.pending_pose_events.pop(world_id, None)
                 self.pending_control_events.pop(world_id, None)
+                self.entity_states.pop(world_id, None)
+                self.remote_entity_candidates.pop(world_id, None)
+                self.hosted_trajectories.pop(world_id, None)
+                self.pending_entity_events.pop(world_id, None)
 
 
 realtime_hub = SpaceRealtimeHub()
@@ -956,12 +1084,28 @@ def create_space_join_ticket(
 
 
 def _unpack_message(data: bytes) -> dict:
-    if len(data) > SPACE_REALTIME_MAX_MESSAGE_BYTES:
+    if len(data) > MAX_ENTITY_POSE_BYTES:
         raise ValueError("Space realtime message is too large")
     payload = msgpack.unpackb(data, raw=False, strict_map_key=False)
     if not isinstance(payload, dict):
         raise ValueError("Space realtime message must be a map")
+    if len(data) > SPACE_REALTIME_MAX_MESSAGE_BYTES and payload.get("type") not in {"entity_pose", "hosted_entity_poses"}:
+        raise ValueError("Space realtime message is too large")
     return payload
+
+
+def publish_hosted_trajectory(world_id, trajectory):
+    """Call only AFTER snapshot/billing commit. Redis bridges worker processes."""
+    trajectory = parse_hosted_trajectory(trajectory)
+    realtime_hub.notify_hosted_trajectory_from_thread(world_id, trajectory)
+    if settings.SPACE_REALTIME_REDIS_FANOUT_ENABLED:
+        try:
+            encoded = msgpack.packb({**trajectory, "type": "hosted_entity_poses"}, use_bin_type=True)
+            if len(encoded) > MAX_ENTITY_POSE_BYTES:
+                raise ValueError("Hosted trajectory too large")
+            _ticket_redis.publish(f"space:realtime:{world_id}", encoded)
+        except Exception:
+            logger.warning("Hosted trajectory fanout failed; durable snapshots remain available", exc_info=True)
 
 
 async def _receive_binary(websocket: WebSocket, timeout: float | None = None) -> bytes:
@@ -1001,10 +1145,12 @@ async def space_realtime(websocket: WebSocket):
             "input_hz": settings.SPACE_REALTIME_INPUT_HZ,
             "snapshot_hz": settings.SPACE_REALTIME_SNAPSHOT_HZ,
             "persistence_seconds": settings.SPACE_REALTIME_PERSIST_SECONDS,
+            "entity_pose_hz": 20,
         }, use_bin_type=True))
 
         while True:
-            payload = _unpack_message(await _receive_binary(websocket))
+            raw = await _receive_binary(websocket)
+            payload = _unpack_message(raw)
             message_type = payload.get("type")
             if message_type == "pose":
                 try:
@@ -1022,6 +1168,12 @@ async def space_realtime(websocket: WebSocket):
                     "type": "pong",
                     "client_time": payload.get("client_time"),
                 }, use_bin_type=True))
+            elif message_type == "entity_pose":
+                try:
+                    realtime_hub.update_entity_pose(session, payload, len(raw))
+                except (KeyError, TypeError, ValueError):
+                    await websocket.close(code=4400, reason="Invalid Space entity pose")
+                    return
             elif message_type == "leave":
                 # Persist before acknowledging a graceful close so callers can
                 # rely on the reconnect checkpoint being durable.

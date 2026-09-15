@@ -118,10 +118,27 @@ class CheckpointBrowserWorldEntityRequest(StrictEntityModel):
     execution_epoch: StrictInt | None = Field(default=None, ge=1)
 
 
+class StopEntityPose(StrictEntityModel):
+    position: list[StrictFloat | StrictInt] = Field(min_length=3, max_length=3)
+    quaternion: list[StrictFloat | StrictInt] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def finite_pose(self):
+        if (any(not math.isfinite(v) or abs(v) > 1e7 for v in self.position)
+                or not MIN_PLAYER_Y_CM <= self.position[1]*100 <= MAX_PLAYER_Y_CM
+                or any(not math.isfinite(v) or abs(v) > 1 for v in self.quaternion)
+                or abs(sum(v*v for v in self.quaternion) - 1) > 0.01):
+            raise ValueError("Invalid final entity pose")
+        return self
+
+
 class SetWorldEntityRunStateRequest(StrictEntityModel):
     operation_id: uuid.UUID
     desired_run_state: Literal["running", "stopped"]
     expected_revision: StrictInt | None = Field(default=None, ge=1)
+    execution_instance_id: uuid.UUID | None = None
+    execution_epoch: StrictInt | None = Field(default=None, ge=1)
+    stop_pose: StopEntityPose | None = None
 
 
 PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
@@ -532,7 +549,8 @@ def _validate_entity_build_height(position: EntityPosition, canonical: dict[str,
 
 
 def _lock_entity_quota_scope(db: Session, world: models.SpaceWorld, user: models.User) -> None:
-    db.query(models.User).filter(models.User.id == user.id).with_for_update().first()
+    # Entity capacity/storage is world-scoped. Lock world first, consistently
+    # with hosting commits, rather than deadlocking actor->world/world->actor.
     db.query(models.SpaceWorld).filter(models.SpaceWorld.id == world.id).with_for_update().first()
 
 
@@ -552,10 +570,13 @@ def _enforce_entity_storage_quota(
     *,
     incoming_bytes: int,
     replaced_bytes: int = 0,
+    storage_user_id: str | None = None,
 ) -> None:
     if user.is_admin:
         return
-    used = _owned_entity_storage_bytes(db, str(world.id), user.id)
+    # Shared edits replace storage attributed to the creator, not the actor's
+    # unrelated entities. Write-rate allowance still belongs to the actor.
+    used = _owned_entity_storage_bytes(db, str(world.id), storage_user_id or user.id)
     projected = used - max(0, int(replaced_bytes)) + max(0, int(incoming_bytes))
     if projected > SPACE_ENTITY_MAX_TOTAL_BYTES_PER_OWNER:
         raise HTTPException(status_code=429, detail={
@@ -577,6 +598,7 @@ def _running_entity_query(
     query = db.query(models.SpaceWorldEntity).filter(
         models.SpaceWorldEntity.world_id == world_id,
         models.SpaceWorldEntity.desired_run_state == "running",
+        models.SpaceWorldEntity.execution_mode == "browser",
     )
     if exclude_entity_id is not None:
         query = query.filter(models.SpaceWorldEntity.id != exclude_entity_id)
@@ -599,7 +621,7 @@ def _enforce_running_entity_quota(
         exclude_entity_id=exclude_entity_id,
     )
     owner_count = running.filter(
-        models.SpaceWorldEntity.owner_user_id == user.id,
+        func.coalesce(models.SpaceWorldEntity.execution_user_id, models.SpaceWorldEntity.owner_user_id) == user.id,
     ).count()
     if owner_count >= SPACE_ENTITY_MAX_RUNNING_PER_OWNER:
         raise HTTPException(status_code=429, detail={
@@ -635,15 +657,15 @@ def _enforce_running_entity_quota(
 
 def _entity_response(entity: models.SpaceWorldEntity, current_user: models.User,
                      owner_names: dict[str, str | None] | None = None) -> dict:
-    can_control = entity.owner_user_id == current_user.id or bool(current_user.is_admin)
-    if owner_names is not None:
-        owner_name = owner_names.get(entity.owner_user_id)
-    elif entity.owner_user_id == current_user.id:
-        owner_name = current_user.username
-    else:
+    def account_name(user_id):
+        if user_id == current_user.id:
+            return current_user.username
+        if owner_names is not None:
+            return owner_names.get(user_id)
         session = object_session(entity)
-        owner = session.get(models.User, entity.owner_user_id) if session else None
-        owner_name = owner.username if owner else None
+        account = session.get(models.User, user_id) if session and user_id else None
+        return account.username if account else None
+    owner_name = account_name(entity.owner_user_id)
     expiry = _utc(entity.execution_lease_expires_at)
     browser_running = (entity.execution_mode != "hosted" and entity.desired_run_state == "running"
                        and entity.execution_instance_id is not None and expiry is not None
@@ -653,8 +675,10 @@ def _entity_response(entity: models.SpaceWorldEntity, current_user: models.User,
         "world_id": str(entity.world_id),
         "owner_user_id": entity.owner_user_id,
         "owner_name": owner_name,
-        "executor_name": owner_name if browser_running else None,
+        "execution_user_id": entity.execution_user_id if browser_running or entity.execution_mode == "hosted" else None,
+        "executor_name": account_name(entity.execution_user_id) if browser_running else None,
         "execution_lease_expires_at": expiry.isoformat() if browser_running else None,
+        "execution_epoch": int(entity.execution_epoch or 0),
         "name": entity.name,
         "schema_version": entity.schema_version,
         "definition_digest": bytes(entity.content_digest).hex(),
@@ -679,9 +703,11 @@ def _entity_response(entity: models.SpaceWorldEntity, current_user: models.User,
         "desired_run_state": entity.desired_run_state,
         "execution_mode": entity.execution_mode,
         "hosting_enabled": entity.hosting_enabled,
+        "hosting_core_id": entity.hosting_core_id,
+        "can_manage_hosting": entity.execution_mode == 'hosted' and entity.execution_user_id == current_user.id,
         "revision": entity.revision,
-        "can_control": can_control,
-        "can_edit": can_control and entity.execution_mode != "hosted",
+        "can_control": entity.execution_mode != "hosted",
+        "can_edit": entity.execution_mode != "hosted",
         "created_at": entity.created_at.isoformat(),
         "updated_at": entity.updated_at.isoformat(),
     }
@@ -917,13 +943,25 @@ def list_world_entities(
     in_radius.sort(key=lambda item: (item[0], item[1].created_at, str(item[1].id)))
     truncated = len(candidates) > SPACE_ENTITY_MAX_AOI_CANDIDATES or len(in_radius) > limit
     # One bounded identity query for the entire AOI, not one query per label.
-    owner_ids = {entity.owner_user_id for _distance, entity in in_radius[:limit]}
+    owner_ids = {user_id for _distance, entity in in_radius[:limit]
+                 for user_id in (entity.owner_user_id, entity.execution_user_id) if user_id}
     owner_names = dict(db.query(models.User.id, models.User.username).filter(models.User.id.in_(owner_ids)).all())
     return {
         "items": [_entity_response(entity, current_user, owner_names) for _distance, entity in in_radius[:limit]],
         "truncated": truncated,
         "limit": limit,
     }
+
+
+@router.get("/{entity_id}")
+@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+def get_world_entity(request: Request, world_id: str, entity_id: str,
+                     db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    world = _require_world_membership(db, world_id, current_user)
+    entity = db.query(models.SpaceWorldEntity).filter_by(world_id=world.id, id=entity_id).first()
+    if entity is None:
+        raise HTTPException(404, detail={"code": "WORLD_ENTITY_NOT_FOUND"})
+    return _entity_response(entity, current_user)
 
 
 @router.get("/{entity_id}/definition")
@@ -991,12 +1029,10 @@ def get_world_entity_snapshot(
     )
 
 
-def _owned_entity(db, world, entity_id, user):
+def _world_entity_for_update(db, world, entity_id):
     entity = db.query(models.SpaceWorldEntity).filter_by(world_id=world.id, id=entity_id).with_for_update().first()
     if entity is None:
         raise HTTPException(404, detail={"code": "WORLD_ENTITY_NOT_FOUND"})
-    if entity.owner_user_id != user.id and not user.is_admin:
-        raise HTTPException(403, detail={"code": "ENTITY_EDIT_FORBIDDEN"})
     return entity
 
 
@@ -1044,8 +1080,27 @@ def _reset_entity_runtime_snapshot(entity, world, canonical):
         entity.snapshot, entity.snapshot_digest = encoded, digest
         entity.snapshot_size_bytes = len(encoded)
     entity.execution_instance_id = None
+    entity.execution_user_id = None
     entity.execution_lease_expires_at = None
     entity.execution_epoch = int(entity.execution_epoch or 0) + 1
+
+
+def _require_execution_holder(entity, instance_id, epoch, user_id, *, now=None):
+    """World members are equal; only the live holder may operate an occupied entity.
+
+    The random instance capability is returned only to its claimant, never in
+    public entity records. Expired browser leases do not block recovery.
+    Hosted execution is managed through the separately authorized hosting API.
+    """
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    expiry = _utc(entity.execution_lease_expires_at)
+    if (entity.execution_mode == "browser" and entity.execution_instance_id is not None
+            and expiry is not None and expiry > now):
+        if (str(instance_id or "") != str(entity.execution_instance_id)
+                or entity.execution_user_id != user_id
+                or epoch != entity.execution_epoch):
+            raise HTTPException(409, detail={"code": "ENTITY_OCCUPIED",
+                "message": "This entity is occupied by another execution endpoint."})
 
 
 @router.get("/{entity_id}/configuration")
@@ -1053,7 +1108,7 @@ def _reset_entity_runtime_snapshot(entity, world, canonical):
 def get_entity_configuration(request: Request, response: Response, world_id: str, entity_id: str,
                              db: Session = Depends(get_db), creator: EntityCreator = Depends(_entity_creator)):
     world = _require_world_membership(db, world_id, creator.user)
-    entity = _owned_entity(db, world, entity_id, creator.user)
+    entity = _world_entity_for_update(db, world, entity_id)
     _kind, definition = decode_inventory_resource(bytes(entity.definition))
     response.headers["Cache-Control"] = "private, no-store"
     result = {"entity": _entity_response(entity, creator.user), "definition": definition}
@@ -1068,7 +1123,7 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
                                 db: Session = Depends(get_db), creator: EntityCreator = Depends(_entity_creator)):
     world = _require_world_membership(db, world_id, creator.user)
     _lock_entity_quota_scope(db, world, creator.user)
-    entity = _owned_entity(db, world, entity_id, creator.user)
+    entity = _world_entity_for_update(db, world, entity_id)
     digest = _operation_digest(entity, creator.user, "configuration", payload)
     replay = _replay_entity_operation(db, entity, payload.operation_id, digest)
     if replay is not None:
@@ -1105,7 +1160,8 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
     replaced_bytes = int(entity.size_bytes) + int(entity.snapshot_size_bytes or 0)
     _reset_entity_runtime_snapshot(entity, world, canonical)
     _enforce_entity_storage_quota(db, world, creator.user,
-        incoming_bytes=len(encoded)+int(entity.snapshot_size_bytes or 0), replaced_bytes=replaced_bytes)
+        incoming_bytes=len(encoded)+int(entity.snapshot_size_bytes or 0), replaced_bytes=replaced_bytes,
+        storage_user_id=entity.owner_user_id)
     if not creator.user.is_admin:
         reserve_quota(db, principal_id=creator.user.id, scope_id=str(world.id), metric="entity_checkpoint_bytes",
                       amount=len(encoded)+int(entity.snapshot_size_bytes or 0), windows=(
@@ -1139,8 +1195,6 @@ def checkpoint_browser_world_entity(
     ).with_for_update().first()
     if entity is None:
         raise HTTPException(status_code=404, detail={"code": "WORLD_ENTITY_NOT_FOUND"})
-    if entity.owner_user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail={"code": "ENTITY_EDIT_FORBIDDEN"})
     if entity.execution_mode == "hosted":
         raise HTTPException(status_code=409, detail={"code": "ENTITY_HOSTED_CHECKPOINT_FORBIDDEN"})
     definition = None
@@ -1167,16 +1221,20 @@ def checkpoint_browser_world_entity(
             "current": _entity_response(entity, current_user),
         })
 
-    # Runtime publications belong to one live executor, even when the caller
-    # owns the entity or is an admin. Explicit Stop uses the run-state route.
+    # Runtime publications belong to one live executor, not the creator.
+    # Explicit Stop uses the run-state route.
     if entity.desired_run_state == "running" or payload.desired_run_state == "running":
         expiry = _utc(entity.execution_lease_expires_at)
         if (entity.desired_run_state != "running"
                 or payload.execution_instance_id is None
+                or entity.execution_user_id != current_user.id
                 or str(entity.execution_instance_id or "") != str(payload.execution_instance_id)
                 or entity.execution_epoch != payload.execution_epoch
                 or expiry is None or expiry <= datetime.datetime.now(datetime.timezone.utc)):
             raise HTTPException(409, detail={"code": "ENTITY_EXECUTION_LEASE_REQUIRED"})
+    if (definition_digest is not None and bytes(entity.content_digest) != definition_digest
+            and entity.desired_run_state == "running" and payload.desired_run_state == "running"):
+        raise HTTPException(409, detail={"code": "ENTITY_MUST_BE_STOPPED"})
 
     _enforce_entity_storage_quota(
         db,
@@ -1184,6 +1242,7 @@ def checkpoint_browser_world_entity(
         current_user,
         incoming_bytes=(len(definition) if definition is not None else int(entity.size_bytes)) + len(snapshot),
         replaced_bytes=int(entity.size_bytes) + int(entity.snapshot_size_bytes or 0),
+        storage_user_id=entity.owner_user_id,
     )
     if payload.desired_run_state == "running":
         _enforce_running_entity_quota(
@@ -1223,6 +1282,7 @@ def checkpoint_browser_world_entity(
     entity.desired_run_state = payload.desired_run_state
     if payload.desired_run_state == "stopped" and entity.execution_instance_id is not None:
         entity.execution_instance_id = None
+        entity.execution_user_id = None
         entity.execution_lease_expires_at = None
         entity.execution_epoch = int(entity.execution_epoch or 0) + 1
     entity.revision += 1
@@ -1250,8 +1310,11 @@ def delete_world_entity(
     ).with_for_update().first()
     if entity is None:
         raise HTTPException(status_code=404, detail={"code": "WORLD_ENTITY_NOT_FOUND"})
-    if entity.owner_user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail={"code": "ENTITY_DELETE_FORBIDDEN"})
+    raw_epoch = request.headers.get("x-space-execution-epoch", "")
+    _require_execution_holder(entity, request.headers.get("x-space-execution-instance"),
+                              int(raw_epoch) if raw_epoch.isdecimal() else None, current_user.id)
+    if entity.execution_mode == "hosted":
+        raise HTTPException(409, detail={"code": "ENTITY_HOSTED_EDIT_FORBIDDEN"})
     db.delete(entity)
     db.commit()
     return {"deleted": True, "entity_id": entity_id}
@@ -1267,6 +1330,7 @@ def claim_world_entity_execution_leases(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     world = _require_world_membership(db, world_id, current_user)
+    _lock_entity_quota_scope(db, world, current_user)
     requested_ids = [str(entity_id) for entity_id in payload.entity_ids]
     instance_id = str(payload.instance_id)
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -1283,18 +1347,30 @@ def claim_world_entity_execution_leases(
         epoch = 0
         if (
             entity is not None
-            and entity.owner_user_id == current_user.id
             and entity.execution_mode == "browser"
             and entity.desired_run_state == "running"
         ):
             current_expiry = _utc(entity.execution_lease_expires_at)
-            same_instance = str(entity.execution_instance_id or "") == instance_id
+            same_instance = (str(entity.execution_instance_id or "") == instance_id
+                             and entity.execution_user_id == current_user.id)
             available = current_expiry is None or current_expiry <= now
             if same_instance or available:
-                if not same_instance:
+                try:
+                    _enforce_running_entity_quota(db, world, current_user, EntityPosition(
+                        x_cm=entity.position_x_cm, y_cm=entity.position_y_cm, z_cm=entity.position_z_cm),
+                        exclude_entity_id=entity_id)
+                except HTTPException as error:
+                    if error.status_code != 429:
+                        raise
+                    results.append({"entity_id": entity_id, "granted": False,
+                                    "execution_epoch": 0, "lease_expires_at": None, "executor_name": None})
+                    continue
+                if not same_instance or available:
                     entity.execution_epoch = int(entity.execution_epoch or 0) + 1
                 entity.execution_instance_id = instance_id
+                entity.execution_user_id = current_user.id
                 entity.execution_lease_expires_at = expires_at
+                db.flush()
                 granted = True
                 epoch = entity.execution_epoch
         results.append({
@@ -1302,6 +1378,7 @@ def claim_world_entity_execution_leases(
             "granted": granted,
             "execution_epoch": epoch,
             "lease_expires_at": expires_at.isoformat() if granted else None,
+            "executor_name": current_user.username if granted else None,
         })
     db.commit()
     return {
@@ -1330,28 +1407,37 @@ def set_world_entity_run_state(
     ).with_for_update().first()
     if entity is None:
         raise HTTPException(status_code=404, detail={"code": "WORLD_ENTITY_NOT_FOUND"})
-    if entity.owner_user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail={
-            "code": "ENTITY_CONTROL_FORBIDDEN",
-            "message": "Only the entity owner or an administrator may start or stop it.",
-        })
     operation_id = str(payload.operation_id)
     digest = _operation_digest(entity, current_user, "run-state", payload)
     replay = _replay_entity_operation(db, entity, operation_id, digest)
     if replay is not None:
         return replay
+    _require_execution_holder(entity, payload.execution_instance_id, payload.execution_epoch, current_user.id)
     if entity.execution_mode == "hosted":
-        if payload.desired_run_state == "running":
-            raise HTTPException(409, detail={"code": "USE_ENTITY_HOSTING_API"})
-        entity.hosting_enabled = False
-        entity.hosting_budget_remaining = 0
-        entity.hosting_reason = "user_stopped"
+        raise HTTPException(409, detail={"code": "USE_ENTITY_HOSTING_API",
+            "message": "Manage server execution through the hosting controls."})
     if payload.expected_revision is not None and payload.expected_revision != entity.revision:
         raise HTTPException(status_code=409, detail={
             "code": "ENTITY_REVISION_CONFLICT",
             "current": _entity_response(entity, current_user),
         })
-    if entity.desired_run_state != "running" and payload.desired_run_state == "running":
+    if (payload.desired_run_state == "running" and payload.execution_instance_id is not None
+            and creator.api_key_scopes is not None):
+        raise HTTPException(403, detail={"code": "ENTITY_EXECUTION_CLAIM_FORBIDDEN"})
+    if payload.stop_pose is not None:
+        if payload.desired_run_state != "stopped":
+            raise HTTPException(422, detail={"code": "ENTITY_STOP_POSE_REQUIRES_STOP"})
+        x, y, z = payload.stop_pose.position
+        width, length = _world_dimensions_cm(world)
+        final_position = EntityPosition(x_cm=round(x*100) % width, y_cm=round(y*100), z_cm=round(z*100) % length)
+        previous = json.loads(bytes(entity.snapshot)) if entity.snapshot else {
+            "constructorOrigin": [entity.position_x_cm/100, entity.position_y_cm/100, entity.position_z_cm/100]}
+        previous.update({"position": payload.stop_pose.position, "quaternion": payload.stop_pose.quaternion})
+        encoded, pose_digest = _encode_snapshot(previous, world, final_position)
+        replaced_storage = int(entity.size_bytes) + int(entity.snapshot_size_bytes or 0)
+        entity.snapshot, entity.snapshot_digest, entity.snapshot_size_bytes = encoded, pose_digest, len(encoded)
+        entity.position_x_cm, entity.position_y_cm, entity.position_z_cm = final_position.x_cm, final_position.y_cm, final_position.z_cm
+    if payload.desired_run_state == "running":
         _lock_entity_quota_scope(db, world, current_user)
         _enforce_running_entity_quota(
             db,
@@ -1365,10 +1451,27 @@ def set_world_entity_run_state(
             exclude_entity_id=str(entity.id),
         )
     entity.desired_run_state = payload.desired_run_state
+    if payload.desired_run_state == "running":
+        entity.execution_user_id = current_user.id
+    if (payload.desired_run_state == "running" and payload.execution_instance_id is not None):
+        # Start and acquire are one row-locked transaction, not two racing HTTP
+        # requests. An API-key start may still queue intent for an available browser.
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if (str(entity.execution_instance_id or "") != str(payload.execution_instance_id)
+                or _utc(entity.execution_lease_expires_at) is None
+                or _utc(entity.execution_lease_expires_at) <= now):
+            entity.execution_epoch = int(entity.execution_epoch or 0) + 1
+        entity.execution_instance_id = str(payload.execution_instance_id)
+        entity.execution_user_id = current_user.id
+        entity.execution_lease_expires_at = now + datetime.timedelta(seconds=SPACE_ENTITY_EXECUTION_LEASE_SECONDS)
     entity.revision += 1
     if payload.desired_run_state == "stopped":
         _kind, canonical = decode_inventory_resource(bytes(entity.definition))
         _reset_entity_runtime_snapshot(entity, world, canonical)
+        if payload.stop_pose is not None:
+            _enforce_entity_storage_quota(db, world, current_user,
+                incoming_bytes=int(entity.size_bytes) + int(entity.snapshot_size_bytes or 0),
+                replaced_bytes=replaced_storage, storage_user_id=entity.owner_user_id)
     entity.last_control_operation_id = operation_id
     entity.updated_at = datetime.datetime.now(datetime.timezone.utc)
     return _commit_entity_operation(db, entity, current_user, operation_id, digest)

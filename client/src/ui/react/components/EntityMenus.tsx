@@ -7,15 +7,15 @@ import {
   LiaServerSolid, LiaTimesSolid, LiaTrashAltSolid, LiaVectorSquareSolid
 } from 'react-icons/lia';
 import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
-import { spaceUiStore } from '../store/SpaceUiStore.ts';
+import { spaceUiStore, hostingAvailabilityMessage } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
-import { entityDisplayName, entityRunStatus, EntityNameplateProjector } from '../utils/entityNameplate.ts';
+import { entityDisplayName, entityRunStatus, EntityNameplateProjector, EntityNameplateAimHighlighter } from '../utils/entityNameplate.ts';
 import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 
 const statusIcons = { play: FaPlay, stop: FaStop, pause: LiaPauseSolid, waiting: LiaHourglassHalfSolid };
 
-function EntityStatusBadge({ status, compact = true, showCaption = true }:
-  { status: ReturnType<typeof entityRunStatus>; compact?: boolean; showCaption?: boolean }) {
+function EntityStatusBadge({ status, compact = true, showCaption = true, nameplate = false }:
+  { status: ReturnType<typeof entityRunStatus>; compact?: boolean; showCaption?: boolean; nameplate?: boolean }) {
   const Icon = statusIcons[status.icon];
   const caption = compact ? status.caption : status.text;
   return <span className={`entity-run-status ${status.tone}`} role="img" aria-label={status.text} title={status.text}
@@ -23,7 +23,7 @@ function EntityStatusBadge({ status, compact = true, showCaption = true }:
     onMouseUp={event => event.stopPropagation()} onClick={event => event.stopPropagation()}
     onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}>
     {status.tone === 'hosted' && <LiaServerSolid size={16} aria-hidden="true" />}
-    <span className={`entity-playback-icon ${status.icon}`}><Icon size={12} aria-hidden="true" /></span>
+    <span className={`entity-playback-icon ${status.icon}`} data-entity-nameplate-control={nameplate ? 'playback' : undefined}><Icon size={12} aria-hidden="true" /></span>
     {showCaption && caption && <span className="entity-run-caption">{caption}</span>}
   </span>;
 }
@@ -37,13 +37,15 @@ function EntityActionButton({ label, caption = label, icon: Icon, title = label,
 }
 
 export function EntityNameplates() {
-  const { contraptions, sceneRenderer, hasStarted, activeModal, apiDocsOpen, currentUserName } = useSpaceUi(state => state);
+  const { contraptions, sceneRenderer, hasStarted, activeModal, apiDocsOpen, currentUserName, controller } = useSpaceUi(state => state);
+  const rootRef = useRef<HTMLDivElement>(null);
   const elements = useRef(new Map<any, HTMLDivElement>());
   const hidden = !hasStarted || !!activeModal || apiDocsOpen;
   useEffect(() => {
     if (!sceneRenderer?.subscribeWorldOverlay || hidden) return;
     const projector = new EntityNameplateProjector();
-    return sceneRenderer.subscribeWorldOverlay((camera: any) => {
+    const highlighter = new EntityNameplateAimHighlighter();
+    const unsubscribe = sceneRenderer.subscribeWorldOverlay((camera: any) => {
       const viewport = { width: window.innerWidth, height: window.innerHeight };
       const active = new Set(contraptions?.contraptions || []);
       for (const [entity, element] of elements.current) {
@@ -54,10 +56,19 @@ export function EntityNameplates() {
         element.style.top = `${position.y}px`;
         element.style.zIndex = String(Math.round((1 - position.depth) * 1000));
       }
+      // Pointer lock hides the OS cursor; CSS :hover alone cannot track aim.
+      // Hit-test once, after all projected labels have moved for this frame.
+      const root = rootRef.current;
+      if (root) {
+        const state = spaceUiStore.getSnapshot();
+        highlighter.update(root, !!(controller?.isLocked || state.pointerLocked || document.pointerLockElement), viewport,
+          !!(state.activeModal || state.apiDocsOpen || state.entityContextMenu || state.selectorContextMenu));
+      }
     });
-  }, [sceneRenderer, contraptions, hidden]);
+    return () => { unsubscribe(); highlighter.clear(rootRef.current); };
+  }, [sceneRenderer, contraptions, hidden, controller]);
   if (hidden) return null;
-  return <div id="entity-nameplates" className="entity-nameplates">
+  return <div id="entity-nameplates" className="entity-nameplates" ref={rootRef}>
     {(contraptions?.contraptions || []).map((entity: any) => {
       const status = entityRunStatus(entity, currentUserName);
       const name = entityDisplayName(entity);
@@ -73,8 +84,8 @@ export function EntityNameplates() {
           <span className="entity-nameplate-name" title={name}>{name}</span>
           {status.tone === 'running' && <span className="entity-nameplate-executor" title={`Executor: ${status.caption}`}>{status.caption}</span>}
         </div>
-        <EntityStatusBadge status={status} showCaption={status.tone !== 'running'} />
-        <button type="button" tabIndex={-1} className="entity-menu-trigger" data-entity-menu-id={String(entity.publicId || entity.id)}
+        <EntityStatusBadge status={status} showCaption={status.tone !== 'running'} nameplate />
+        <button type="button" tabIndex={-1} className="entity-menu-trigger" data-entity-menu-id={String(entity.publicId || entity.id)} data-entity-nameplate-control="menu"
           aria-label={`Entity actions: ${name}`} title="Entity actions · works with any tool"
           onMouseDown={event => { event.stopPropagation(); event.preventDefault(); }}
           onMouseUp={event => event.stopPropagation()} onClick={open} onContextMenu={open}><LiaEllipsisHSolid size={22} aria-hidden="true" /></button>
@@ -84,12 +95,14 @@ export function EntityNameplates() {
 }
 
 export function EntityContextMenu() {
-  const { entityContextMenu, controller, currentUserName } = useSpaceUi(state => state);
+  const { entityContextMenu, controller, currentUserName, hostingBusyIds, hosting } = useSpaceUi(state => state);
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => { setConfirmDelete(false); }, [entityContextMenu?.contraption]);
+  const [confirmHosting, setConfirmHosting] = useState(false);
+  const [hostingBudget, setHostingBudget] = useState('1');
+  useEffect(() => { setConfirmDelete(false); setConfirmHosting(false); setHostingBudget('1'); }, [entityContextMenu?.contraption]);
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu || !entityContextMenu) return;
@@ -106,6 +119,18 @@ export function EntityContextMenu() {
   const status = entityRunStatus(entity, currentUserName);
   const canControl = !entity.serverManaged || entity.serverCanControl === true;
   const canEdit = !entity.serverManaged || entity.serverCanEdit === true;
+  const hostingBusy = busy || hostingBusyIds.includes(String(entity.publicId));
+  const isHosted = entity.serverExecutionMode === 'hosted';
+  const hostingAction = async (enabled: boolean) => {
+    if (hostingBusy) return;
+    setBusy(true);
+    try {
+      const ok = enabled ? await spaceUiStore.hostEntity(entity, Number(hostingBudget))
+        : await spaceUiStore.stopHostedEntity(String(entity.publicId));
+      if (ok) setConfirmHosting(false);
+      spaceUiStore.refresh();
+    } finally { setBusy(false); }
+  };
   const close = () => { if (!busy) spaceUiStore.closeEntityContextMenu(true); };
   const run = async (action: string) => {
     if (busy) return;
@@ -130,6 +155,7 @@ export function EntityContextMenu() {
       </div>
       <EntityStatusBadge status={status} compact={false} />
       <div className="selector-context-details">ID: {entity.publicId || entity.id}{!canControl ? ' · read only' : ''}</div>
+      {entity.serverHostingCoreId != null && <div className="selector-context-details">Dedicated core {entity.serverHostingCoreId + 1}</div>}
       <div className="entity-context-actions">
         <EntityActionButton label="Start entity" caption="Start" icon={FaPlay} className="entity-action-start" disabled={busy || !canControl || status.running
           || (entity.serverExecutionMode === 'hosted' && !SPACE_HOSTING_UI_ENABLED)}
@@ -138,7 +164,22 @@ export function EntityContextMenu() {
           onClick={() => void run('start')} />
         <EntityActionButton label="Stop entity" caption="Stop" icon={FaStop} className="entity-action-stop"
           disabled={busy || !canControl || !status.running} onClick={() => void run('stop')} />
-        <EntityActionButton label="Copy entity to backpack" caption="Copy to backpack" icon={LiaCopySolid} disabled={busy} onClick={() => void run('copy')} />
+        {isHosted && entity.serverHostingEnabled ?
+          <EntityActionButton label="Stop hosting" icon={FaStop} className="entity-action-stop" disabled={hostingBusy || entity.serverCanManageHosting !== true}
+            title="Stop server execution early · preserve unused prepaid time" onClick={() => void hostingAction(false)} />
+          : <EntityActionButton label="Host on server" caption="Host…" icon={LiaServerSolid} disabled={hostingBusy}
+            title="One dedicated core · 1 credit/hour" onClick={() => { setConfirmHosting(value => !value); void spaceUiStore.refreshHosting(); }} />}
+        {confirmHosting && <div className="entity-hosting-confirm">
+          <div>Server hosting · 1 dedicated core · 1 credit/hour</div>
+          <div className="selector-context-details">{hostingAvailabilityMessage(hosting)}. Unused prepaid time is preserved.</div>
+          {status.running && !isHosted && <div className="selector-context-details">Execution in this browser will stop before hosting starts.</div>}
+          <label>Maximum credit budget <input type="number" min="1" max="168" step="1" value={hostingBudget}
+            aria-label="Hosting credit budget" disabled={hostingBusy} onChange={event => setHostingBudget(event.target.value)} /></label>
+          <EntityActionButton label="Confirm hosting" caption={hostingBusy ? 'Starting…' : 'Start hosting'} icon={LiaServerSolid}
+            disabled={hostingBusy} onClick={() => void hostingAction(true)} />
+          <EntityActionButton label="Cancel hosting" caption="Cancel" icon={LiaTimesSolid} disabled={hostingBusy} onClick={() => setConfirmHosting(false)} />
+        </div>}
+        <EntityActionButton label="Copy entity to backpack" caption="Copy to backpack" icon={LiaCopySolid} disabled={busy || (!canControl && status.running)} onClick={() => void run('copy')} />
         <EntityActionButton label="Open programming interface" caption="Program" icon={LiaCodeSolid} disabled={busy || !canEdit} onClick={() => void run('program')} />
         <EntityActionButton label="Select all root blocks" caption="Select all" icon={LiaVectorSquareSolid} disabled={busy || !canEdit} onClick={() => void run('select-all')} />
         <EntityActionButton label="Copy entity ID" caption="Copy ID" icon={LiaIdCardSolid} disabled={busy} onClick={async () => {

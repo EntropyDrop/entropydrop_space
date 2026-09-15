@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { Contraption, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
@@ -9,6 +10,7 @@ import {
   isPerspectiveToggleCode
 } from '../src/engine/controls/PlayerController.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 
 function inputProbe() {
   return {
@@ -78,6 +80,7 @@ test('perspective cycles first, third-person back, then third-person front', () 
   const controller = Object.create(PlayerController.prototype) as any;
   const avatarVisibility: boolean[] = [];
   controller.perspective = 'first_person';
+  controller.thirdPersonDistance = 4;
   controller.sceneRenderer = {
     setPlayerAvatarVisible(visible: boolean) { avatarVisibility.push(visible); }
   };
@@ -89,7 +92,7 @@ test('perspective cycles first, third-person back, then third-person front', () 
   assert.equal(controller.perspective, 'third_person_front');
   controller.togglePerspective();
   assert.equal(controller.perspective, 'first_person');
-  assert.deepEqual(avatarVisibility, [true, true, false]);
+  assert.deepEqual(avatarVisibility, [false, false, false], 'rapid toggles before a render keep the body hidden at the eye');
 });
 
 test('front third-person camera sits ahead of the player and looks back', () => {
@@ -147,13 +150,12 @@ test('mounted camera re-seats from the vehicle pose solved later in the frame', 
   assert.deepEqual(controller.physics.position.toArray(), [2.5, 3.25, -4]);
 });
 
-test('a yaw-locking seat swings the view with the vehicle and keeps a bounded head arc', () => {
+test('a fixed-orientation seat rotates the body without rotating or clamping the camera', () => {
   const controller = Object.create(PlayerController.prototype) as any;
   const seatWorldRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
   controller.isDriving = true;
   controller.drivenSeat = { componentId: 'arm', seatIndex: 1 };
-  controller.drivenSeatLocksYaw = true;
-  controller.seatLookYaw = 0;
+  controller.drivenSeatFixedOrientation = true;
   controller.yaw = 0.3;
   controller.pitch = -0.2;
   controller.contraptions = { activeDrivable: null };
@@ -167,28 +169,55 @@ test('a yaw-locking seat swings the view with the vehicle and keeps a bounded he
     }
   };
 
-  // A -Z forward rotated +90° about Y points at -X, so this yaw is +PI/2.
-  assert.ok(Math.abs(controller.viewYaw - Math.PI / 2) < 1e-9);
-  assert.ok(Math.abs(controller.pitch + 0.2) < 1e-9, 'pitch stays free while only yaw is locked');
+  assert.ok(Math.abs(controller.bodyYaw - Math.PI / 2) < 1e-9);
+  assert.ok(controller.bodyQuaternion.angleTo(seatWorldRotation) < 1e-9);
+  assert.equal(controller.viewYaw, 0.3);
+  assert.equal(controller.pitch, -0.2);
 
-  // The cockpit head arc is bounded, so the view still swings with the chassis.
-  controller.seatLookYaw = 4;
-  assert.ok(Math.abs(controller.viewYaw - (Math.PI / 2 + 0.6)) < 1e-9);
-
-  // Re-seating keeps the free-look yaw tracking the locked view.
-  controller.seatLookYaw = 0;
+  controller.yaw = 4 * Math.PI;
+  assert.equal(controller.viewYaw, 4 * Math.PI, 'camera can turn beyond a full circle');
+  seatWorldRotation.setFromEuler(new THREE.Euler(0.2, -0.7, 0.4, 'YXZ'));
   assert.equal(controller.syncDrivenVehiclePose(), true);
-  assert.ok(Math.abs(controller.yaw - Math.PI / 2) < 1e-9);
+  assert.equal(controller.yaw, 4 * Math.PI, 'rotating or tilting the seat never changes camera yaw');
+  assert.equal(controller.pitch, -0.2);
+  assert.ok(controller.bodyQuaternion.angleTo(seatWorldRotation) < 1e-7, 'body follows seat pitch and roll too');
 });
 
-test('leaving a yaw-locking seat preserves the view direction and resets the lock', () => {
+test('seat rotation leaves all three camera perspectives stable and independent', () => {
+  const seatRotation = new THREE.Quaternion();
+  const eye = new THREE.Vector3(1, 2, 3);
+  const controller: any = Object.assign(Object.create(PlayerController.prototype), {
+    isDriving: true, drivenSeat: { componentId: 'cab', seatIndex: 0 },
+    drivenSeatFixedOrientation: true,
+    drivenContraption: { getSeatWorldQuaternion: () => seatRotation.clone() },
+    camera: new THREE.PerspectiveCamera(),
+    physics: { getEyePosition: () => eye.clone() },
+    yaw: 0.3, pitch: -0.2, thirdPersonDistance: 4
+  });
+  for (const perspective of ['first_person', 'third_person', 'third_person_front']) {
+    controller.perspective = perspective;
+    controller.updateCameraPosition();
+    const position = controller.camera.position.clone();
+    const view = controller.camera.quaternion.clone();
+    seatRotation.setFromEuler(new THREE.Euler(0.4, 1.8, -0.3, 'YXZ'));
+    for (let frame = 0; frame < 3; frame++) {
+      controller.updateCameraPosition();
+      assert.ok(controller.camera.position.distanceTo(position) < 1e-9, perspective);
+      assert.ok(controller.camera.quaternion.angleTo(view) < 1e-7, perspective);
+      assert.ok(controller.bodyQuaternion.angleTo(seatRotation) < 1e-7, perspective);
+    }
+    seatRotation.identity();
+  }
+});
+
+test('leaving a fixed-orientation seat preserves free look and resets body orientation', () => {
   const controller = Object.create(PlayerController.prototype) as any;
   const seatWorldRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
   controller.isDriving = true;
   controller.drivenSeat = { componentId: 'cab', seatIndex: 0 };
-  controller.drivenSeatLocksYaw = true;
-  controller.seatLookYaw = 0;
-  controller.yaw = 0;
+  controller.drivenSeatFixedOrientation = true;
+  controller.yaw = -0.4;
+  controller.pitch = 0.2;
   controller.contraptions = { activeDrivable: null };
   controller.physics = {
     position: new THREE.Vector3(),
@@ -210,9 +239,80 @@ test('leaving a yaw-locking seat preserves the view direction and resets the loc
   controller.toggleDriveVehicle();
 
   assert.equal(controller.isDriving, false);
-  assert.equal(controller.drivenSeatLocksYaw, false);
+  assert.equal(controller.drivenSeatFixedOrientation, false);
   assert.equal(controller.drivenSeat, null);
-  assert.ok(Math.abs(controller.yaw - Math.PI / 2) < 1e-9, 'stepping out must not snap the camera');
+  assert.equal(controller.yaw, -0.4, 'stepping out must not snap the camera');
+  assert.equal(controller.pitch, 0.2);
+  assert.equal(controller.bodyQuaternion, null);
+  assert.equal(controller.bodyYaw, -0.4);
+});
+
+test('self.setSeats refreshes fixed orientation and rotation in both directions while mounted', () => {
+  const entity = new Contraption(
+    'seat-toggle',
+    [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
+    new THREE.Vector3(0, 3, 0), new THREE.Scene(), { seats: [[0, 1, 0]] }
+  );
+  const controller: any = Object.assign(Object.create(PlayerController.prototype), {
+    isDriving: false, yaw: -0.3, pitch: 0.2,
+    hoveredContraption: entity,
+    hoveredContraptionHit: { contraption: entity, point: entity.getSeatWorldPosition() },
+    contraptions: { activeDrivable: null },
+    physics: { position: new THREE.Vector3(), velocity: new THREE.Vector3() },
+    resetEntityInputState() {}
+  });
+  controller.toggleDriveVehicle();
+  assert.equal(controller.isDriving, true);
+  assert.equal(controller.viewYaw, -0.3, 'mounting preserves camera look');
+  assert.equal(controller.bodyQuaternion, null);
+  const api = entity.getComponentApi(entity.rootComponentId);
+  const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.1, 1.2, -0.3, 'YXZ'));
+  api.setSeats([{ position: [0, 1, 0], rotation: rotation.toArray(), fixedOrientation: true }]);
+  controller.syncDrivenVehiclePose();
+  assert.equal(controller.drivenSeatFixedOrientation, true);
+  assert.ok(controller.bodyQuaternion.angleTo(rotation) < 1e-7);
+
+  // Refresh also applies during rendering, before another simulation tick.
+  api.setSeats([{ position: [0, 1, 0], fixedOrientation: false }]);
+  assert.equal(controller.bodyQuaternion, null);
+  assert.equal(controller.bodyYaw, -0.3);
+  api.setSeats([{ position: [0, 1, 0], fixedOrientation: true }]);
+  assert.ok(controller.bodyQuaternion.angleTo(entity.getSeatWorldQuaternion()) < 1e-7);
+  assert.equal(controller.viewYaw, -0.3);
+  assert.equal(controller.pitch, 0.2);
+
+  api.setSeats([]);
+  assert.equal(controller.syncDrivenVehiclePose(), false);
+  assert.equal(controller.isDriving, false);
+  assert.equal(controller.contraptions.activeDrivable, null);
+  assert.equal(controller.bodyQuaternion, null);
+  assert.equal(controller.viewYaw, -0.3, 'removing the occupied seat does not reset camera look');
+  entity.dispose();
+});
+
+test('the local avatar uses seat body rotation while first-person projection uses the free camera', () => {
+  const camera = new THREE.PerspectiveCamera();
+  camera.rotation.set(-0.2, 0.3, 0, 'YXZ');
+  const view = camera.quaternion.clone();
+  const body = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.2, 1.4, -0.3, 'YXZ'));
+  let projectedCamera: any;
+  const renderer: any = Object.assign(Object.create(SceneRenderer.prototype), {
+    camera, playerAvatar: new THREE.Group(),
+    playerAvatarCharacter: {
+      setHeldTool() { return false; }, update() {},
+      updateFirstPersonProjection(value) { projectedCamera = value; }
+    }
+  });
+  renderer.updatePlayerAvatar(new THREE.Vector3(1, 2, 3), 1.4, 1 / 60, { bodyQuaternion: body });
+  assert.ok(renderer.playerAvatar.quaternion.angleTo(body) < 1e-7);
+  assert.deepEqual(renderer.playerAvatar.position.toArray(), [1, 2, 3]);
+  assert.ok(camera.quaternion.angleTo(view) < 1e-7);
+  assert.equal(projectedCamera, camera);
+  renderer.updatePlayerAvatar(new THREE.Vector3(), 0.3);
+  assert.ok(renderer.playerAvatar.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.3)) < 1e-7);
+
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /sceneRenderer\.update\(dt, playerPos, this\.controller\.bodyYaw,\s*\{\s*bodyQuaternion: this\.controller\.bodyQuaternion/);
 });
 
 test('V mounts the seat nearest the aimed entity block', () => {

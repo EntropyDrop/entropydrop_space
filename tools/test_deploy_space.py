@@ -180,6 +180,19 @@ class IsolationTests(SpaceTestCase):
         with self.assertRaisesRegex(RuntimeError, "DATABASE_URL"):
             deploy.validate_env(self.temporary, "dev")
 
+    def test_hosting_opt_in_is_required_on_both_api_and_worker(self):
+        for environment in ("dev", "prod"):
+            for role in ("app", "worker"):
+                for value in ("false", ""):
+                    with self.subTest(environment=environment, role=role, value=value):
+                        self.write_env(environment)
+                        file = self.temporary / f"{role}.env"
+                        file.write_text(file.read_text().replace("SPACE_HOSTING_ENABLED=true", f"SPACE_HOSTING_ENABLED={value}"))
+                        with self.assertRaisesRegex(RuntimeError, "SPACE_HOSTING_ENABLED") as error:
+                            deploy.validate_env(self.temporary, environment)
+                        self.assertNotIn("SECRET", str(error.exception))
+                        self.assertIn(f"{role}.env", str(error.exception))
+
     def test_container_names_ports_and_volumes_are_isolated(self):
         for environment in ("dev", "prod"):
             config, data = deploy.paths(environment)

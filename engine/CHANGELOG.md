@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09 — Endpoint-owned entity trajectories
+
+- Replicas project authoritative root and child body poses without advancing
+  scripts, forces, constraints or gravity, while retaining collision/render history.
+- Moving-platform contact velocities follow the interpolated path and become zero
+  when it stops. Teleports reset sweep history instead of sweeping across the world.
+- Browser Start atomically acquires execution; live Stop/Delete require the same
+  endpoint and epoch. Account permissions alone cannot take over another tab.
+- Fenced 20 Hz body-pose relay is separate from six-second recovery checkpoints;
+  committed hosting trajectories retain the existing one-second transaction cadence.
+
 ## 2026-09 — Seat rider orientation
 
 - `inventory.proto` v7 stays wire-compatible: `Seat` gains optional `rotation`
@@ -10,9 +21,10 @@
   `{position,rotation?,fixedOrientation?}` entries; `self.getSeats()` reports the
   three-field record, which is a breaking read change for scripts that destructured
   the old bare position arrays.
-- A seat with `fixedOrientation:true` drives the mounted player's view yaw from its
-  solved world quaternion, so riding a vehicle swings the camera with the chassis
-  while mouse look keeps a bounded head-look arc and free pitch.
+- A seat with `fixedOrientation:true` drives the mounted player's body from its
+  solved world quaternion. The camera keeps free horizontal mouse look and
+  independent pitch; mounting, dismounting and seat rotation do not reset it.
+  Runtime `self.setSeats` changes apply immediately to an already mounted rider.
 
 ## 2026-09 — Contracts
 

@@ -2,6 +2,7 @@
 import os
 import uuid
 import base64
+import datetime as dt
 from pathlib import Path
 import pytest
 from fastapi import HTTPException
@@ -16,7 +17,9 @@ from space.main import app
 from space.auth import get_current_user
 from routers.space_entities import EntityCreator, _entity_creator
 from space.inventory_codec import encode_inventory_resource
+from space.hosting_cores import initialize_core_pool, reserve_core
 
+WORKER_INSTANCE = '00000000-0000-4000-8000-00000000000a'
 
 @pytest.fixture
 def local(monkeypatch):
@@ -46,12 +49,20 @@ def local(monkeypatch):
         assert result.status_code == 201, result.text
         entity = db.get(models.SpaceWorldEntity, (world, result.json()['id']))
         entity.execution_mode = "hosted"
+        entity.execution_user_id = user.id
         entity.desired_run_state = "running"
         entity.hosting_anchor = [8000, 8000]
         entity.hosting_enabled = True
         entity.hosting_budget_remaining = 2
         entity.hosting_authorization_id = str(uuid.uuid4())
         db.add(models.SpaceHostingAuthorization(id=entity.hosting_authorization_id,world_id=world,entity_id=entity.id))
+        initialize_core_pool(db)
+        worker = models.SpaceHostingWorker(world_id=world, instance_id=WORKER_INSTANCE, epoch=1,
+            core_cpu_ids=[0], lease_expires_at=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=60))
+        db.add(worker)
+        core = reserve_core(db, entity, worker)
+        core.execution_epoch = entity.execution_epoch
+        entity.hosting_core_id = core.id
         db.commit()
         yield db, entity, world, sessions
     app.dependency_overrides.clear()
@@ -147,8 +158,10 @@ def test_actual_worker_commit_consumes_grant_with_snapshot(local, monkeypatch):
     db.commit()
     monkeypatch.setattr(billing, 'call', lambda path, body: {'state':'reserved' if path=='reservations' else 'captured'})
     billing.reconcile(world)
-    payload = prepare(db, world, 'standalone-test-worker')
+    payload = prepare(db, world, WORKER_INSTANCE)
     assert payload and payload['entities']
+    assert payload['core_id'] == entity.hosting_core_id
+    assert len([item for item in payload['entities'] if item['running']]) == 1
     async def simulate():
         runtime = NodeRuntime()
         try:
@@ -157,11 +170,11 @@ def test_actual_worker_commit_consumes_grant_with_snapshot(local, monkeypatch):
             await runtime.close()
     result = asyncio.run(simulate())
     assert not result.get('error') and not result.get('faults'), result
-    assert commit_result(db, world, 'standalone-test-worker', payload, result)
+    assert commit_result(db, world, WORKER_INSTANCE, payload, result)
     db.refresh(entity)
     assert entity.hosting_remaining_ms == 3599000
     assert entity.hosting_billed_hours == 1
     grant = db.query(models.SpaceHostingGrant).one()
     assert grant.state == 'consumed' and grant.settlement == 'capture'
-    assert not commit_result(db, world, 'standalone-test-worker', payload, result), 'a duplicate simulation result is fenced out'
+    assert not commit_result(db, world, WORKER_INSTANCE, payload, result), 'a duplicate simulation result is fenced out'
     db.rollback()

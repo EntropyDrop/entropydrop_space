@@ -8,6 +8,7 @@ import {
   SpaceEntityApiError,
   SpaceEntityClient,
 } from '../src/bootstrap/SpaceEntityClient.ts';
+import { hostingList, hostingStatus } from './hosting-fixtures.ts';
 
 
 const definition = Uint8Array.from([8, 4, 26, 0]);
@@ -190,13 +191,46 @@ test('SpaceEntityClient rejects a definition whose exact-byte digest does not ma
   );
 });
 
-test('disabled hosting methods never issue a network request', async () => {
+test('hosting UI forwards backend unavailability without silently hiding its actions', async () => {
   let requests = 0;
   const client = new SpaceEntityClient('https://api.example.test', 'token', 'world-1', (async () => {
     requests++;
-    return Response.json({});
+    return Response.json({ detail: { code: 'HOSTING_DISABLED' } }, { status: 503 });
   }) as typeof fetch);
   await assert.rejects(client.setHosting('entity-1', true), { code: 'HOSTING_DISABLED' });
   await assert.rejects(client.getHosting('entity-1'), { code: 'HOSTING_DISABLED' });
-  assert.equal(requests, 0);
+  assert.equal(requests, 2);
+});
+
+test('hosting methods retain operation IDs, epoch fencing, and release on early Stop', async () => {
+  const calls: any[] = [];
+  const client = new SpaceEntityClient('https://api.test', 'token', 'world-1', (async (url, options) => {
+    calls.push({ url: String(url), body: options?.body ? JSON.parse(String(options.body)) : null });
+    return Response.json(String(url).endsWith('/hosting/list') ? hostingList() : hostingStatus());
+  }) as typeof fetch);
+  const operation = '55437452-a51f-4d26-93b9-24c6a41f5e1a';
+  assert.equal((await client.setHosting('one', true, 3, operation, 7)).core_id, 0);
+  assert.deepEqual(calls[0].body, { operation_id: operation, enabled: true, max_credits: 3,
+    release_to_browser: false, expected_execution_epoch: 7 });
+  await client.setHosting('one', false, 0, operation, 8);
+  assert.equal(calls[1].body.release_to_browser, true);
+  assert.equal(calls[1].body.expected_execution_epoch, 8);
+  assert.equal((await client.listHosting()).capacity.limit, 128);
+  assert.match(calls[2].url, /\/entities\/hosting\/list$/);
+});
+
+test('hosting responses validate budgets, safe teleport poses, and the fixed global capacity', async () => {
+  let response: any = hostingList();
+  const client = new SpaceEntityClient('https://api.test', 'token', 'world-1',
+    (async () => Response.json(response)) as typeof fetch);
+  for (const bad of [hostingList({ capacity: { limit: 129, total: 129, used: 1, available: 128 } }),
+    hostingList({ capacity: { limit: 128, total: 128, used: 2, available: 127 } }),
+    hostingList({ items: [hostingStatus({ core_id: 128 })] }),
+    hostingList({ items: [hostingStatus({ budget_remaining_credits: 169 })] }),
+    hostingList({ items: [hostingStatus({ teleport_position: { x_cm: 'bad', y_cm: 2, z_cm: 2 } })] })]) {
+    response = bad;
+    await assert.rejects(client.listHosting(), /Invalid hosting/);
+  }
+  response = hostingList({ items: [hostingStatus({ state: 'unavailable' })] });
+  assert.equal((await client.listHosting()).items[0].state, 'unavailable');
 });

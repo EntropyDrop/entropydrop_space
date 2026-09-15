@@ -8,7 +8,7 @@ Use the backend origin and `edapi_…` API key supplied by the user. A complete 
 
 `localhost` means the machine executing the request. A remote Agent needs a backend address it can reach. Preserve the user's intended server; do not substitute another server when a connection fails.
 
-All valid spaceAPI keys, including existing keys, have full Space permissions. Create keys under **Space → API Keys** or **Settings → API** using only a name; no permission selection or reissue is needed. World membership, entity ownership, quotas and any hosting budget still apply.
+All valid spaceAPI keys, including existing keys, have full Space permissions. Create keys under **Space → API Keys** or **Settings → API** using only a name; no permission selection or reissue is needed. World membership, exclusive execution occupancy, quotas and any hosting budget still apply. World-entity operations do not check authorship; market resources retain publisher permissions.
 
 ## Find the player's position first
 
@@ -56,13 +56,13 @@ Both position routes are self-only. All existing keys work without reissuing the
 6. Place the object a few metres away from the player's coordinates, leaving room for its full bounds. Player Y is not a terrain-height query. Account for terrain clearance, gravity, and wrapped coordinates.
 7. Submit `POST /space/api/v2/worlds/{world_id}/entities`. Retain the request and `operation_id`; retry an uncertain submission with exactly the same body. A successful response includes the entity ID, requested run state and execution mode.
 
-All keys can create entities (stopped or running), read their owner's position, read and edit owned entity configurations, start/stop entities, and stamp blocksets through `POST /space/api/v2/worlds/{world_id}/blocksets/build`.
+All keys can create entities (stopped or running), read their account's position, read world-entity configurations, edit stopped/unoccupied entities, start/stop unoccupied entities, and stamp blocksets through `POST /space/api/v2/worlds/{world_id}/blocksets/build`.
 
-Creation and blockset building are free within quotas. `running` uses the owner's browser execution lease; it does not buy hosting and cannot run while that browser is absent. Ordinary nearby browsers discover entities through a roughly two-second poll. If the owner is not viewing the area, creation can succeed before the object is visible or simulating.
+Creation and blockset building are free within quotas. `running` uses an exclusive browser execution lease; it does not buy hosting and needs an online endpoint. Any nearby world participant may claim available running intent, regardless of author. Ordinary nearby browsers discover entities through a roughly two-second poll. Creation can succeed before the object is visible or simulating.
 
 ## Read and edit an existing entity
 
-Use the entity ID returned by creation or copied from the Entity Editor. The following paths share the prefix `/space/api/v2/worlds/{world_id}/entities/{entity_id}`. They accept a player login token or a spaceAPI key and enforce world membership and entity ownership (administrators may also operate).
+Use the entity ID returned by creation or copied from the Entity Editor. The following paths share the prefix `/space/api/v2/worlds/{world_id}/entities/{entity_id}`. They accept a player login token or a spaceAPI key and enforce world membership and exclusive execution occupancy, not authorship. All world participants are equal, including authors and administrators.
 
 | Request | Purpose |
 | --- | --- |
@@ -72,9 +72,9 @@ Use the entity ID returned by creation or copied from the Entity Editor. The fol
 
 Configuration reads are private and not cached. Binary definition/snapshot, AOI listing, checkpoint and execution-lease endpoints remain browser login interfaces. Use the JSON configuration endpoint for Agent reads; a spaceAPI key is not a general login credential.
 
-**There are only two entity states: running and stopped.** Start enables physics and all component scripts. Stop disables both, restores authored BodyConfig defaults and child construction poses, and clears state, clocks, forces and velocities. It preserves the last saved root position and orientation. Individual component code switches do not create an entity Pause state. Browser execution still needs the owner's online browser and lease.
+**There are only two entity states: running and stopped.** Start enables physics and all component scripts. Stop disables both, restores authored BodyConfig defaults and child construction poses, and clears state, clocks, forces and velocities. It preserves the last saved root position and orientation. Individual component code switches do not create an entity Pause state. Browser execution needs one online endpoint holding its lease.
 
-Read the current configuration, stop the entity if running, edit it, then start it if requested. Each write returns entity metadata with a new `revision`; use that returned revision for the next write. Stop and edits invalidate old execution leases and prevent stale browser checkpoints from overwriting the result.
+Read the current configuration, edit a stopped/unoccupied entity, then start it if requested. A live browser executor is exclusive to its endpoint, not merely its account: an Agent, another tab, the author or an administrator cannot stop, modify or take over it (`409 ENTITY_OCCUPIED`). Ask the occupying browser to stop/release it first, or wait for its lease to expire. Agent Start queues unoccupied running intent for an available browser; browser Start atomically acquires its execution lease. Creator attribution `owner_user_id` remains unchanged; `execution_user_id`/`executor_name` identify the actual holder. Each write returns entity metadata with a new `revision`; use that returned revision for the next write. Stop and edits invalidate old execution leases and prevent stale browser checkpoints and pose packets from overwriting the result.
 
 ```sh
 SPACE_ENTITY_URL="$SPACE_BASE_URL/space/api/v2/worlds/$WORLD_ID/entities/$ENTITY_ID"
@@ -83,6 +83,8 @@ curl --fail-with-body "$SPACE_ENTITY_URL/configuration" \
 ```
 
 Stop with `PUT /run-state` and a JSON body like the following (replace the UUID and revision with your operation ID and current revision):
+
+This example applies only when no browser endpoint holds a live lease. Hosted execution must be paused/released through its separate hosting API.
 
 ```json
 {"operation_id":"43b0697b-62fc-43f2-a572-2c74551a9df7","expected_revision":1,"desired_run_state":"stopped"}

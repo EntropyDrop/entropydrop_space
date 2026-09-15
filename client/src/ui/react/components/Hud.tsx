@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EntityContextMenu, EntityNameplates } from './EntityMenus.tsx';
+import { HostedEntities } from './HostedEntities.tsx';
 import {
   LiaCubeSolid,
   LiaUtensilSpoonSolid,
@@ -589,6 +590,7 @@ export function Hud() {
             <div className="hud-metrics-row"><span id="fps-val">{state.fpsText}</span><span className="hud-metric-sep">·</span><span id="ping-val" className={state.pingClass}>{state.pingText}</span></div>
             <div id="pos-val">{state.positionText}</div>
             <NearbyEntities />
+            <HostedEntities />
           </div>
           <div className="hud-actions">
             <button

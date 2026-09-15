@@ -157,12 +157,12 @@ export function SpaceApiKeysSettings() {
             ['API keys · account', usage.quotas.api_keys, false],
             ['Entities · this world', usage.quotas.entities, false],
             ['Running entities · you', usage.quotas.running_entities, usage.admin_quota_exemptions],
-            ...(hostingAvailable ? [['Hosted entities · entire world', usage.quotas.hosted_entities_world, false] as const] : []),
             ['Terrain changes · this UTC hour', usage.quotas.terrain.hour, usage.admin_quota_exemptions],
             ['Terrain changes · today (UTC)', usage.quotas.terrain.day, usage.admin_quota_exemptions],
           ] as const).map(([label, quota, exempt]) => <div key={label}>
             <dt>{label}</dt><dd><strong>{exempt ? 'Unlimited · administrator' : `${quota.remaining.toLocaleString()} remaining`}</strong><span>{exempt ? `${quota.used.toLocaleString()} used · quota exempt` : `${quota.used.toLocaleString()} / ${quota.limit.toLocaleString()} used`}</span></dd>
           </div>)}
+          {hostingAvailable ? <div><dt>Hosted entities · entire world</dt><dd>{usage.quotas.hosted_entities_world.used.toLocaleString()} running</dd></div> : null}
           <div><dt>Entity storage · this world</dt><dd>{(usage.quotas.entity_storage_bytes.used / 1048576).toFixed(1)} MiB used{usage.admin_quota_exemptions ? ' · Unlimited (administrator)' : ` / ${(usage.quotas.entity_storage_bytes.limit / 1048576).toFixed(0)} MiB`}</dd></div>
         </dl>
         <div className="settings-desc">Terrain allowance is shared by manual edits and API builds{hostingAvailable ? ', including hosted scripts' : ''}. Daily reset: {new Date(usage.quotas.terrain.day.reset_at).toLocaleString()}.</div>

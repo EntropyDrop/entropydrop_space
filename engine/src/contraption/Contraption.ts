@@ -476,6 +476,8 @@ export class Contraption {
   serverCanControl?: boolean;
   serverCanEdit?: boolean;
   serverExecutesLocally?: boolean;
+  serverExecutionEpoch?: number;
+  serverReplicaEpoch?: number;
   serverRevision?: number;
   serverPlaybackRevision?: number;
   serverDesiredRunState?: 'running' | 'stopped' | null;
@@ -4880,6 +4882,13 @@ export class Contraption {
   // =========================================================================
 
   update(dt, inputState = null, runtimeContext = null) {
+    if (this.serverManaged === true && this.serverExecutesLocally !== true) {
+      // A replica is a moving collider, not an independent simulation. Its
+      // history and transforms come from applyReplicaBodyPoses, and must not
+      // be recaptured here before swept collision/render interpolation.
+      this.updateTransform();
+      return;
+    }
     this.capturePreviousEntityTransforms();
     this.totalRuntime += dt;
 
@@ -4985,6 +4994,58 @@ export class Contraption {
       node.previousWorldMatrix.copy(node.group.matrixWorld);
     }
     this.invalidateCollisionPoseCache();
+  }
+
+  /** Project a received trajectory without running code, forces or constraints.
+   * Contact velocity derives from the actual interpolated path, so a stopped
+   * stream cannot keep pushing riders with a stale published velocity.
+   */
+  applyReplicaBodyPoses(poses, dt, options: any = {}) {
+    if (this.serverManaged !== true || this.serverExecutesLocally === true) return false;
+    if (this.physicsSimulationEnabled !== false) this.setPhysicsSimulationEnabled(false);
+    this.scriptStatus = 'stopped';
+    this.capturePreviousEntityTransforms();
+    const previous = new Map([...this.rigidBodies.values()].map(body => [body.id, {
+      position: body.position.clone(), quaternion: body.quaternion.clone(),
+    }]));
+    let resetCollisionHistory = options.resetHistory === true;
+    for (const pose of poses) {
+      const body = this.getRigidBody(pose.id);
+      if (!body) continue;
+      if (typeof pose.collisionEnabled === 'boolean') {
+        this.setNodeCollisionEnabled(body.id, pose.collisionEnabled, { runtimeOnly: true });
+      }
+      body.position.fromArray(pose.position);
+      body.quaternion.fromArray(pose.quaternion).normalize();
+      body.simulationEnabled = false;
+      body.appliedForces.set(0, 0, 0);
+      body.appliedTorques.set(0, 0, 0);
+      const old = previous.get(body.id)!;
+      const reset = options.resetHistory === true || !(dt > 0) || body.position.distanceTo(old.position) > 8;
+      resetCollisionHistory ||= reset;
+      body.velocity.copy(body.position).sub(old.position).multiplyScalar(reset ? 0 : 1 / dt);
+      const rotation = body.quaternion.clone().multiply(old.quaternion.clone().invert()).normalize();
+      if (rotation.w < 0) rotation.set(-rotation.x, -rotation.y, -rotation.z, -rotation.w);
+      const sine = Math.hypot(rotation.x, rotation.y, rotation.z);
+      const scale = reset || sine < 1e-8 ? 0 : 2 * Math.atan2(sine, rotation.w) / (sine * dt);
+      body.angularVelocity.set(rotation.x, rotation.y, rotation.z).multiplyScalar(scale);
+      body.previousKinematicPosition.copy(reset ? body.position : old.position);
+      body.previousKinematicQuaternion.copy(reset ? body.quaternion : old.quaternion);
+    }
+    // Kinematic children also have received poses (bearings, pistons, seats).
+    // The ordinary solver projects only dynamic children; replicas must
+    // project every child in parent-first hierarchy order instead.
+    this.updateTransform();
+    const project = (id: string) => {
+      const node = this.entityNodes.get(id);
+      if (!node) return;
+      if (id !== this.rootComponentId) this.syncBodyToNode(this.getRigidBody(id));
+      for (const childId of node.children) project(childId);
+    };
+    project(this.rootComponentId);
+    this.updateTransform();
+    if (resetCollisionHistory) this.capturePreviousEntityTransforms();
+    return true;
   }
 
   getSerializableComponentStates() {

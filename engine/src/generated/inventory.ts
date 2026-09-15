@@ -138,8 +138,8 @@ export interface Seat {
     | Quaternion
     | undefined;
   /**
-   * When true a mounted rider's yaw follows this seat's solved world orientation
-   * instead of free mouse look. Absent means false (free look).
+   * When true the mounted rider's body follows this seat's solved world orientation.
+   * The camera always keeps free mouse look. Absent means false (free body yaw).
    */
   fixedOrientation?: boolean | undefined;
 }
