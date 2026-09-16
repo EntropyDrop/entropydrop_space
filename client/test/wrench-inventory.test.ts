@@ -551,31 +551,54 @@ test('pivot reset returns root and child pivots to their default centers without
   }
 });
 
-test('Wrench pivot gizmo is a fixed, non-interactive XYZ display', () => {
+test('Wrench COM gizmo exposes three translation and three rotation handles', () => {
   const renderer: any = Object.create(SceneRenderer.prototype);
   renderer.scene = new THREE.Scene();
   renderer.setupWrenchPivotGizmo();
   assert.equal(renderer.wrenchPivotArrows.size, 3);
+  assert.deepEqual([...renderer.wrenchPivotHandles.keys()].sort(), [
+    'move-x', 'move-y', 'move-z', 'rotate-x', 'rotate-y', 'rotate-z'
+  ]);
 
   renderer.setWrenchPivotGizmo(
     new THREE.Vector3(1, 2, 3),
     new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.4),
-    2
+    2,
+    'move-x',
+    'rotate-y'
   );
   assert.equal(renderer.wrenchPivotGizmo.visible, true);
   assert.deepEqual(renderer.wrenchPivotGizmo.position.toArray(), [1, 2, 3]);
   assert.deepEqual(renderer.wrenchPivotGizmo.scale.toArray(), [2, 2, 2]);
-  assert.equal(renderer.wrenchPivotArrows.get('x').line.material.color.getHex(), 0xff3b30);
+  assert.equal(renderer.wrenchPivotArrows.get('x').line.material.color.getHex(), 0xffffff);
   assert.equal(renderer.wrenchPivotArrows.get('y').line.material.color.getHex(), 0x34c759);
   assert.equal(renderer.wrenchPivotArrows.get('z').line.material.color.getHex(), 0x248aff);
+  const activeRotation = renderer.wrenchPivotHandles.get('rotate-y')
+    .getObjectByName('WrenchPivotRotationArc_Y');
+  assert.equal(activeRotation.material.color.getHex(), 0xffea00);
   assert.equal(renderer.wrenchPivotOrigin.material.color.getHex(), 0xffffff);
   assert.equal(renderer.wrenchPivotOrigin.scale.x, 1);
+
+  const pickBentHandle = (key: string) => {
+    const handle = renderer.wrenchPivotHandles.get(key);
+    const samples = handle.userData.pickLocalPoints;
+    const worldPoint = samples[Math.floor(samples.length / 2)].clone();
+    renderer.wrenchPivotGizmo.localToWorld(worldPoint);
+    const target = bendPoint(worldPoint.x, worldPoint.y, worldPoint.z, new THREE.Vector3());
+    const origin = target.clone().add(new THREE.Vector3(0.23, 0.31, 3));
+    return renderer.raycastWrenchPivotGizmoBent(
+      origin,
+      target.clone().sub(origin).normalize()
+    );
+  };
+  assert.equal(pickBentHandle('move-x')?.handleKey, 'move-x');
+  assert.equal(pickBentHandle('rotate-z')?.handleKey, 'rotate-z');
 
   renderer.clearWrenchPivotGizmo();
   assert.equal(renderer.wrenchPivotGizmo.visible, false);
 });
 
-test('Wrench displays the pointed component pivot but left-click still starts a grab', () => {
+test('Wrench displays the entity COM even when pointing at a child, while body clicks still point-grab', () => {
   const entity = makeContraptionWithChildren();
   entity.stopAllNodeScripts();
   entity.setComponentPivot('arm', [1.8, 0.2, -0.6], {
@@ -602,13 +625,116 @@ test('Wrench displays the pointed component pivot but left-click still starts a 
   });
 
   const displayed = controller.updateWrenchPivotGizmo({ contraption: entity, entityId: 'arm' });
-  assert.equal(displayed.nodeId, 'arm');
+  assert.equal(displayed.nodeId, 'root');
+  assert.ok(displayed.position.distanceTo(entity.position) < 1e-9);
   assert.equal(gizmoCalls.length, 1);
-  assert.equal(gizmoCalls[0].length, 3, 'display has no hover or active handle state');
+  assert.equal(gizmoCalls[0].length, 5, 'display carries hover and active handle state');
   controller.handleLeftClick();
 
   assert.equal(grabs, 1);
   assert.ok(node.pivotLocal.distanceTo(originalPivot) < 1e-9);
+});
+
+function makeWrenchGizmoController(entity, manager, camera) {
+  const controller: any = Object.create(PlayerController.prototype);
+  Object.assign(controller, {
+    _activeTool: SpecialTool.WRENCH,
+    contraptions: manager,
+    camera,
+    physics: { getEyePosition: () => camera.position.clone() },
+    sceneRenderer: {
+      setWrenchPivotGizmo() {},
+      clearWrenchPivotGizmo() {},
+      setWrenchTether() {}
+    },
+    sound: { playWrenchClick() {} },
+    ui: { showToast() {} },
+    wrenchGrab: null,
+    wrenchPivotTarget: null,
+    hoveredWrenchGizmoHandle: null,
+    activeWrenchGizmoDrag: null,
+    isLocked: false
+  });
+  controller.performBasicAction = PlayerController.prototype.performBasicAction.bind(controller);
+  controller.updateWrenchPivotGizmo({ contraption: entity, entityId: 'root' });
+  return controller;
+}
+
+test('Wrench COM translation handle drags the whole stopped entity on its local axis', () => {
+  const scene = new THREE.Scene();
+  const manager = new ContraptionManager(scene, {}, null, null);
+  const entity = makeContraptionWithChildren();
+  manager.registerContraption(entity);
+  entity.stopAllNodeScripts();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.position.copy(entity.position).add(new THREE.Vector3(0, 0, 10));
+  camera.lookAt(entity.position);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  const controller = makeWrenchGizmoController(entity, manager, camera);
+  const start = entity.position.clone();
+  const blockStarts = entity.blocks.map(block => entity.getBlockWorldCenter(block));
+  const axisLength = controller.wrenchPivotTarget.axisLength;
+
+  assert.equal(controller.startWrenchGizmoDrag({
+    handleKey: 'move-x',
+    kind: 'move',
+    axis: 'x',
+    worldPoint: start.clone().add(new THREE.Vector3(axisLength, 0, 0))
+  }, { clientX: 200, clientY: 200 }), true);
+  controller.updateWrenchGizmoDrag({ clientX: 280, clientY: 200 });
+
+  assert.ok(entity.position.x > start.x, 'horizontal drag should move along local +X');
+  assert.ok(Math.abs(entity.position.y - start.y) < 1e-9);
+  assert.ok(Math.abs(entity.position.z - start.z) < 1e-9);
+  const translation = entity.position.clone().sub(start);
+  for (let index = 0; index < entity.blocks.length; index++) {
+    const expected = blockStarts[index].clone().add(translation);
+    assert.ok(entity.getBlockWorldCenter(entity.blocks[index]).distanceTo(expected) < 1e-7);
+  }
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(entity.isCollisionSimulationEnabled(), false);
+  assert.equal(controller.releaseWrenchGizmoDrag(), true);
+  assert.equal(entity.isCollisionSimulationEnabled(), true);
+  assert.equal(entity.scriptStatus, 'stopped');
+});
+
+test('Wrench COM rotation arrow rotates the whole stopped entity around its local axis', () => {
+  const scene = new THREE.Scene();
+  const manager = new ContraptionManager(scene, {}, null, null);
+  const entity = makeContraptionWithChildren();
+  manager.registerContraption(entity);
+  entity.stopAllNodeScripts();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.position.copy(entity.position).add(new THREE.Vector3(0, 0, 10));
+  camera.lookAt(entity.position);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  const controller = makeWrenchGizmoController(entity, manager, camera);
+  const startPosition = entity.position.clone();
+  const startQuaternion = entity.quaternion.clone();
+  const blockStarts = entity.blocks.map(block => entity.getBlockWorldCenter(block));
+  const radius = controller.wrenchPivotTarget.axisLength * 0.72;
+
+  assert.equal(controller.startWrenchGizmoDrag({
+    handleKey: 'rotate-z',
+    kind: 'rotate',
+    axis: 'z',
+    worldPoint: startPosition.clone().add(new THREE.Vector3(radius, 0, 0))
+  }, { clientX: 200, clientY: 200 }), true);
+  controller.updateWrenchGizmoDrag({ clientX: 200, clientY: 120 });
+
+  assert.ok(startQuaternion.angleTo(entity.quaternion) > 0.01, 'drag should rotate around local Z');
+  assert.ok(entity.position.distanceTo(startPosition) < 1e-9, 'rotation keeps the COM fixed');
+  const deltaRotation = entity.quaternion.clone().multiply(startQuaternion.clone().invert());
+  for (let index = 0; index < entity.blocks.length; index++) {
+    const expected = blockStarts[index].clone().sub(startPosition)
+      .applyQuaternion(deltaRotation).add(startPosition);
+    assert.ok(entity.getBlockWorldCenter(entity.blocks[index]).distanceTo(expected) < 1e-7);
+  }
+  assert.equal(controller.releaseWrenchGizmoDrag(), true);
+  assert.equal(entity.isCollisionSimulationEnabled(), true);
+  assert.equal(entity.scriptStatus, 'stopped');
 });
 
 test('Wrench grab does not push a target that is closer than 1.5 metres', () => {

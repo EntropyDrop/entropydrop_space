@@ -278,7 +278,7 @@ const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
   { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: 'Select and copy world/entity regions (max 64×64×64); no build action' },
   { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · RMB / Arrows rotate' },
-  { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Show pivot XYZ axes · hold left-click to stop & lift · right-click to start' },
+  { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag COM XYZ axes to move · drag arrows to rotate · hold entity to lift · right-click to start' },
   { type: 'tool', value: SpecialTool.BRUSH, name: 'Brush', icon: '', desc: 'LMB paint · RMB 2-point dye · Tab micro/std' }
 ];
 

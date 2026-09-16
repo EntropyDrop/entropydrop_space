@@ -667,7 +667,7 @@ export function PauseScreen() {
           <span><kbd className="key-badge">2</kbd> Spoon: micro-carve 8x8x8</span>
           <span><kbd className="key-badge">3</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy</span>
           <span><kbd className="key-badge">4</kbd> Hammer: LMB build / attach to entity · RMB / Arrows rotate</span>
-          <span><kbd className="key-badge">5</kbd> Wrench: show pivot XYZ axes · hold LMB to stop & lift · RMB to start</span>
+          <span><kbd className="key-badge">5</kbd> Wrench: drag COM axes to move · drag arrows to rotate · hold entity to lift · RMB to start</span>
           <span><kbd className="key-badge">6</kbd> Brush: paint / right-click 2-point dye · Tab micro/standard</span>
           <span><kbd className="key-badge">Shift+Click</kbd> Multi-select component blocks</span>
           <span><kbd className="key-badge">C</kbd> Entity editor</span>

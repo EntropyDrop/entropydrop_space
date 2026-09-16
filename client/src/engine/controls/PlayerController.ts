@@ -350,6 +350,7 @@ export class PlayerController {
       this.clearBrushSelection();
     }
     if (prev === SpecialTool.WRENCH && tool !== SpecialTool.WRENCH) {
+      this.releaseWrenchGizmoDrag();
       this.releaseWrenchGrab();
       this.clearWrenchPivotDisplay();
     }
@@ -363,6 +364,8 @@ export class PlayerController {
   pendingInteractionStops: WeakSet<object>;
   wrenchGrab: any;
   wrenchPivotTarget: any;
+  hoveredWrenchGizmoHandle: any;
+  activeWrenchGizmoDrag: any;
   microCarvePreview: any;
   focusBlockPreview: any;
   boxSelectionPreview: any;
@@ -370,6 +373,7 @@ export class PlayerController {
   hoveredGizmoHandle: any;
   activeGizmoDrag: any;
   private selectionGizmoRaycaster: THREE.Raycaster | null = null;
+  private wrenchGizmoRaycaster: THREE.Raycaster | null = null;
 
   // --- Entity/component selector + inventory clipboard ---
   selectedSubtree: any;
@@ -495,6 +499,8 @@ export class PlayerController {
     this.pendingInteractionStops = new WeakSet();
     this.wrenchGrab = null;
     this.wrenchPivotTarget = null;
+    this.hoveredWrenchGizmoHandle = null;
+    this.activeWrenchGizmoDrag = null;
     this.microCarvePreview = null;
     // Selector focus block guide: { cellOrigin, active } | null
     this.focusBlockPreview = null;
@@ -555,6 +561,7 @@ export class PlayerController {
       if (!locked) {
         this.pointerLockDesired = false;
         this.resetEntityInputState();
+        this.releaseWrenchGizmoDrag();
         this.releaseWrenchGrab();
         this.clearWrenchPivotDisplay();
       }
@@ -630,6 +637,10 @@ export class PlayerController {
   setupEventListeners() {
     // Mouse Look
     document.addEventListener('mousemove', (e) => {
+      if (this.activeWrenchGizmoDrag) {
+        this.updateWrenchGizmoDrag(e);
+        return;
+      }
       if (this.activeGizmoDrag) {
         this.updateGizmoDrag(e);
         return;
@@ -637,6 +648,8 @@ export class PlayerController {
       if (!this.isLocked || !this.pointerLockDesired || document.pointerLockElement !== document.body) {
         if (this.activeTool === SpecialTool.SELECTOR) {
           this.updateSelectionGizmoPointerHover(e);
+        } else if (this.activeTool === SpecialTool.WRENCH) {
+          this.updateWrenchGizmoPointerHover(e);
         }
         return;
       }
@@ -660,6 +673,7 @@ export class PlayerController {
 
     document.addEventListener('mouseup', (e) => {
       if (e.button !== 0) return;
+      this.releaseWrenchGizmoDrag();
       this.releaseWrenchGrab();
       this.releaseGizmoDrag();
     });
@@ -671,6 +685,10 @@ export class PlayerController {
           e.preventDefault();
           e.stopPropagation();
           this.startGizmoDrag(this.hoveredGizmoHandle, e);
+        } else if (this.activeTool === SpecialTool.WRENCH && e.button === 0 && this.hoveredWrenchGizmoHandle) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.startWrenchGizmoDrag(this.hoveredWrenchGizmoHandle, e);
         }
         return;
       }
@@ -727,6 +745,7 @@ export class PlayerController {
 
     window.addEventListener('blur', () => {
       this.resetEntityInputState();
+      this.releaseWrenchGizmoDrag();
       this.releaseWrenchGrab();
       this.clearWrenchPivotDisplay();
     });
@@ -972,6 +991,7 @@ export class PlayerController {
 
   /** Switch tools from an interaction flow such as a successful selection copy. */
   activateTool(tool) {
+    if (this.activeWrenchGizmoDrag) this.releaseWrenchGizmoDrag();
     if (this.wrenchGrab) this.releaseWrenchGrab();
     if (tool !== SpecialTool.SELECTOR) {
       this.hoveredGizmoHandle = null;
@@ -1117,9 +1137,11 @@ export class PlayerController {
       return;
     }
 
-    // The pivot axes are informational only. Wrench left-click always keeps
-    // its single interaction: charged point grabbing while the button is held.
     if (this.activeTool === SpecialTool.WRENCH) {
+      if (this.hoveredWrenchGizmoHandle) {
+        this.startWrenchGizmoDrag(this.hoveredWrenchGizmoHandle, e);
+        return;
+      }
       this.startWrenchGrab();
       return;
     }
@@ -5288,14 +5310,13 @@ export class PlayerController {
     const contraption = target.contraption;
     if (this.contraptions?.contraptions
       && !this.contraptions.contraptions.includes(contraption)) return null;
-    const node = contraption.getEntityNode?.(target.nodeId)
-      || contraption.entityNodes?.get?.(target.nodeId);
-    if (!node?.group) return null;
-    node.group.updateWorldMatrix?.(true, false);
-    target.position = contraption.getEntityNodeWorldPosition?.(target.nodeId)
-      || node.group.getWorldPosition(new THREE.Vector3());
-    target.quaternion = contraption.getEntityNodeWorldQuaternion?.(target.nodeId)
-      || node.group.getWorldQuaternion(new THREE.Quaternion());
+    const rootId = contraptionRootId(contraption);
+    const rootBody = contraption.getRigidBody?.(rootId);
+    target.nodeId = rootId;
+    target.bodyId = rootId;
+    target.position = (rootBody?.position || contraption.position)?.clone?.();
+    target.quaternion = (rootBody?.quaternion || contraption.quaternion)?.clone?.();
+    if (!target.position?.isVector3 || !target.quaternion?.isQuaternion) return null;
     const eye = this.physics?.getEyePosition?.() || this.camera?.position || new THREE.Vector3();
     const eyeBent = bendPoint(eye.x, eye.y, eye.z, new THREE.Vector3());
     const pivotBent = bendPoint(
@@ -5319,23 +5340,91 @@ export class PlayerController {
     this.sceneRenderer?.setWrenchPivotGizmo?.(
       target.position,
       target.quaternion,
-      target.axisLength
+      target.axisLength,
+      this.hoveredWrenchGizmoHandle?.handleKey || null,
+      this.activeWrenchGizmoDrag?.handleKey || null
     );
     return true;
   }
 
+  private getWrenchGizmoCrosshairHit() {
+    if (!this.wrenchPivotTarget || !this.sceneRenderer) return null;
+    const eyePos = this.physics?.getEyePosition?.() || this.camera?.position;
+    if (!eyePos || !this.camera?.quaternion) return null;
+    const forwardFlat = PlayerController._forwardFlat
+      .set(0, 0, -1)
+      .applyQuaternion(this.camera.quaternion);
+    const eyeBent = bendPoint(eyePos.x, eyePos.y, eyePos.z, PlayerController._bentEye);
+    const forwardBent = bendDirection(
+      eyePos.x, eyePos.y, eyePos.z, forwardFlat, PlayerController._forwardBent
+    );
+    return this.sceneRenderer.raycastWrenchPivotGizmoBent?.(eyeBent, forwardBent) || null;
+  }
+
+  updateWrenchGizmoPointerHover(e: MouseEvent) {
+    if (this.activeTool !== SpecialTool.WRENCH || !this.wrenchPivotTarget || !this.sceneRenderer) {
+      this.hoveredWrenchGizmoHandle = null;
+      return null;
+    }
+    if (!this.wrenchGizmoRaycaster) this.wrenchGizmoRaycaster = new THREE.Raycaster();
+    const width = Math.max(1, globalThis.innerWidth || 1);
+    const height = Math.max(1, globalThis.innerHeight || 1);
+    const pointer = new THREE.Vector2(
+      (e.clientX / width) * 2 - 1,
+      -(e.clientY / height) * 2 + 1
+    );
+    this.wrenchGizmoRaycaster.setFromCamera(pointer, this.camera);
+    const flatOrigin = this.wrenchGizmoRaycaster.ray.origin;
+    const flatDirection = this.wrenchGizmoRaycaster.ray.direction;
+    const eyeBent = bendPoint(flatOrigin.x, flatOrigin.y, flatOrigin.z, PlayerController._bentEye);
+    const directionBent = bendDirection(
+      flatOrigin.x, flatOrigin.y, flatOrigin.z, flatDirection, PlayerController._forwardBent
+    );
+    const hit = this.sceneRenderer.raycastWrenchPivotGizmoBent
+      ? this.sceneRenderer.raycastWrenchPivotGizmoBent(eyeBent, directionBent)
+      : this.sceneRenderer.raycastWrenchPivotGizmo?.(this.wrenchGizmoRaycaster);
+    this.hoveredWrenchGizmoHandle = hit || null;
+    this.renderWrenchPivotTarget();
+    return this.hoveredWrenchGizmoHandle;
+  }
+
   updateWrenchPivotGizmo(entityHit) {
-    if (this.activeTool !== SpecialTool.WRENCH || !entityHit?.contraption) {
+    if (this.activeTool !== SpecialTool.WRENCH) {
+      this.wrenchPivotTarget = null;
+      this.hoveredWrenchGizmoHandle = null;
+      this.sceneRenderer?.clearWrenchPivotGizmo?.();
+      return null;
+    }
+
+    if (this.activeWrenchGizmoDrag) {
+      const active = this.refreshWrenchPivotTargetPose();
+      if (active) this.renderWrenchPivotTarget();
+      return active;
+    }
+
+    // Once the crosshair leaves the entity surface for one of the handles, keep
+    // the current target alive and pick the already-rendered gizmo first.
+    const handleHit = this.isLocked ? this.getWrenchGizmoCrosshairHit() : this.hoveredWrenchGizmoHandle;
+    if (handleHit && this.wrenchPivotTarget) {
+      this.hoveredWrenchGizmoHandle = handleHit;
+      const current = this.refreshWrenchPivotTargetPose();
+      if (current) this.renderWrenchPivotTarget();
+      return current;
+    }
+
+    this.hoveredWrenchGizmoHandle = null;
+    if (!entityHit?.contraption) {
       this.wrenchPivotTarget = null;
       this.sceneRenderer?.clearWrenchPivotGizmo?.();
       return null;
     }
-    const nodeId = String(entityHit.entityId ?? contraptionRootId(entityHit.contraption));
-    if (
-      this.wrenchPivotTarget?.contraption !== entityHit.contraption
-      || this.wrenchPivotTarget?.nodeId !== nodeId
-    ) {
-      this.wrenchPivotTarget = { contraption: entityHit.contraption, nodeId };
+    const rootId = contraptionRootId(entityHit.contraption);
+    if (this.wrenchPivotTarget?.contraption !== entityHit.contraption) {
+      this.wrenchPivotTarget = {
+        contraption: entityHit.contraption,
+        nodeId: rootId,
+        bodyId: rootId
+      };
     }
     const current = this.refreshWrenchPivotTargetPose();
     if (!current) {
@@ -5344,12 +5433,195 @@ export class PlayerController {
       return null;
     }
     this.renderWrenchPivotTarget();
+    if (this.isLocked) {
+      this.hoveredWrenchGizmoHandle = this.getWrenchGizmoCrosshairHit();
+      this.renderWrenchPivotTarget();
+    }
     return current;
   }
 
   clearWrenchPivotDisplay() {
     this.wrenchPivotTarget = null;
+    this.hoveredWrenchGizmoHandle = null;
     this.sceneRenderer?.clearWrenchPivotGizmo?.();
+  }
+
+  private beginWrenchManipulation(contraption, simulationEnabled: boolean) {
+    this.releaseWrenchGrab();
+    const wasRunning = contraption.scriptStatus !== 'stopped'
+      || contraption.isPhysicsSimulationEnabled?.() !== false;
+    contraption.isWrenchGrabbed = true;
+    if (contraption.scriptStatus !== 'stopped') {
+      this.performBasicAction({
+        domain: ActionDomain.ENTITY,
+        action: 'stop-scripts',
+        target: { contraption }
+      });
+    } else {
+      contraption.stopAllNodeScripts?.();
+    }
+    if (contraption.serverManaged === true) {
+      contraption.serverDesiredRunState = 'stopped';
+      this.requestServerEntityRunState(contraption, 'stopped', { silent: true });
+    }
+    contraption.setPhysicsSimulationEnabled?.(simulationEnabled);
+    if (typeof contraption.setCollisionSimulationEnabled === 'function') {
+      contraption.setCollisionSimulationEnabled(false);
+    } else {
+      contraption.collisionSimulationEnabled = false;
+      contraption.invalidateCollisionPoseCache?.();
+    }
+    return wasRunning;
+  }
+
+  private wrenchScreenVector(origin: THREE.Vector3, vector: THREE.Vector3) {
+    this.camera?.updateMatrixWorld?.(true);
+    const start = origin.clone().project(this.camera);
+    const end = origin.clone().add(vector).project(this.camera);
+    return new THREE.Vector2(
+      (end.x - start.x) * Math.max(1, globalThis.innerWidth || 1) * 0.5,
+      -(end.y - start.y) * Math.max(1, globalThis.innerHeight || 1) * 0.5
+    );
+  }
+
+  startWrenchGizmoDrag(hit: any, e: MouseEvent | null = null) {
+    const target = this.refreshWrenchPivotTargetPose();
+    if (!hit || !target?.contraption || !['move', 'rotate'].includes(hit.kind)) return false;
+    const contraption = target.contraption;
+    const bodyId = target.bodyId || contraptionRootId(contraption);
+    const axis = String(hit.axis) as 'x' | 'y' | 'z';
+    if (!['x', 'y', 'z'].includes(axis)) return false;
+    if (!contraption.getRigidBody?.(bodyId)) return false;
+    const wasRunning = this.beginWrenchManipulation(contraption, false);
+    const rootBody = contraption.getRigidBody(bodyId);
+    const localAxis = new THREE.Vector3(
+      axis === 'x' ? 1 : 0,
+      axis === 'y' ? 1 : 0,
+      axis === 'z' ? 1 : 0
+    );
+    const startPosition = rootBody.position.clone();
+    const startQuaternion = rootBody.quaternion.clone();
+    const worldAxis = localAxis.clone().applyQuaternion(startQuaternion).normalize();
+    const hitPoint = hit.worldPoint?.isVector3 ? hit.worldPoint.clone() : startPosition.clone();
+    let radialWorld = hitPoint.sub(startPosition)
+      .addScaledVector(worldAxis, -hitPoint.dot(worldAxis));
+    if (radialWorld.lengthSq() < 1e-8) {
+      radialWorld = (axis === 'x' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0))
+        .applyQuaternion(startQuaternion);
+    }
+    radialWorld.normalize().multiplyScalar((target.axisLength || 1) * 0.72);
+
+    const inverseStart = startQuaternion.clone().invert();
+    const bodyFrames = [...(contraption.rigidBodies?.values?.() || [])].map((body: any) => ({
+      body,
+      localPosition: body.position.clone().sub(startPosition).applyQuaternion(inverseStart),
+      localQuaternion: inverseStart.clone().multiply(body.quaternion).normalize()
+    }));
+    this.wrenchGrab = { contraption, bodyId, active: false, mode: 'gizmo' };
+    this.activeWrenchGizmoDrag = {
+      handleKey: hit.handleKey,
+      kind: hit.kind,
+      axis,
+      contraption,
+      bodyId,
+      startPosition,
+      startQuaternion,
+      localAxis,
+      worldAxis,
+      radialWorld,
+      bodyFrames,
+      totalDistance: 0,
+      totalAngle: 0,
+      lastX: Number(e?.clientX) || 0,
+      lastY: Number(e?.clientY) || 0
+    };
+    this.sound?.playWrenchClick?.();
+    const operation = hit.kind === 'move' ? 'move' : 'rotate';
+    const prefix = wasRunning ? 'stopped · ' : '';
+    this.ui?.showToast?.(`Wrench: ${prefix}drag ${axis.toUpperCase()} to ${operation} Entity #${contraption.id}`);
+    this.renderWrenchPivotTarget();
+    return true;
+  }
+
+  updateWrenchGizmoDrag(e: MouseEvent) {
+    const drag = this.activeWrenchGizmoDrag;
+    if (!drag?.contraption) return false;
+    const dx = this.isLocked
+      ? Number(e.movementX) || 0
+      : (Number(e.clientX) || 0) - drag.lastX;
+    const dy = this.isLocked
+      ? Number(e.movementY) || 0
+      : (Number(e.clientY) || 0) - drag.lastY;
+    if (!this.isLocked) {
+      drag.lastX = Number(e.clientX) || 0;
+      drag.lastY = Number(e.clientY) || 0;
+    }
+
+    let nextPosition = drag.startPosition.clone();
+    let nextQuaternion = drag.startQuaternion.clone();
+    if (drag.kind === 'move') {
+      const screenAxis = this.wrenchScreenVector(drag.startPosition, drag.worldAxis);
+      const pixelsPerMeter = screenAxis.length();
+      if (pixelsPerMeter < 1e-4) return false;
+      const screenDirection = screenAxis.divideScalar(pixelsPerMeter);
+      const delta = THREE.MathUtils.clamp(
+        (dx * screenDirection.x + dy * screenDirection.y) / pixelsPerMeter,
+        -2,
+        2
+      );
+      drag.totalDistance += delta;
+      nextPosition.addScaledVector(drag.worldAxis, drag.totalDistance);
+    } else {
+      const ringPoint = drag.startPosition.clone().add(drag.radialWorld);
+      const tangentWorld = new THREE.Vector3()
+        .crossVectors(drag.worldAxis, drag.radialWorld)
+        .normalize();
+      const screenTangent = this.wrenchScreenVector(ringPoint, tangentWorld);
+      const tangentLength = screenTangent.length();
+      if (tangentLength < 1e-4) return false;
+      const tangentDirection = screenTangent.divideScalar(tangentLength);
+      const radiusPixels = Math.max(
+        24,
+        this.wrenchScreenVector(drag.startPosition, drag.radialWorld).length()
+      );
+      drag.totalAngle += THREE.MathUtils.clamp(
+        (dx * tangentDirection.x + dy * tangentDirection.y) / radiusPixels,
+        -0.35,
+        0.35
+      );
+      nextQuaternion.multiply(
+        new THREE.Quaternion().setFromAxisAngle(drag.localAxis, drag.totalAngle)
+      ).normalize();
+    }
+
+    drag.contraption.capturePreviousEntityTransforms?.();
+    for (const frame of drag.bodyFrames) {
+      frame.body.position.copy(frame.localPosition).applyQuaternion(nextQuaternion).add(nextPosition);
+      frame.body.quaternion.copy(nextQuaternion).multiply(frame.localQuaternion).normalize();
+      frame.body.velocity?.set?.(0, 0, 0);
+      frame.body.angularVelocity?.set?.(0, 0, 0);
+      frame.body.appliedForces?.set?.(0, 0, 0);
+      frame.body.appliedTorques?.set?.(0, 0, 0);
+      frame.body.previousKinematicPosition?.copy?.(frame.body.position);
+      frame.body.previousKinematicQuaternion?.copy?.(frame.body.quaternion);
+    }
+    drag.contraption.position.copy(nextPosition);
+    drag.contraption.quaternion.copy(nextQuaternion);
+    drag.contraption.syncAllBodyTransforms?.();
+    drag.contraption.updateTransform?.();
+    drag.contraption.invalidateCollisionPoseCache?.();
+    this.refreshWrenchPivotTargetPose();
+    this.renderWrenchPivotTarget();
+    return true;
+  }
+
+  releaseWrenchGizmoDrag() {
+    if (!this.activeWrenchGizmoDrag) return false;
+    this.activeWrenchGizmoDrag = null;
+    this.hoveredWrenchGizmoHandle = null;
+    this.releaseWrenchGrab();
+    if (this.refreshWrenchPivotTargetPose()) this.renderWrenchPivotTarget();
+    return true;
   }
 
   getWrenchGrabBodyId(contraption, nodeId = contraptionRootId(contraption)) {
@@ -5388,37 +5660,8 @@ export class PlayerController {
       return false;
     }
 
-    if (this.wrenchGrab?.contraption === contraption) {
+    if (this.wrenchGrab?.contraption === contraption && this.wrenchGrab.active === true) {
       return true;
-    }
-    this.releaseWrenchGrab();
-
-    // 1. Unconditionally mark grabbed and stopped so background sync or physics cannot start scripts
-    contraption.isWrenchGrabbed = true;
-    const wasRunning = contraption.scriptStatus !== 'stopped' || contraption.isPhysicsSimulationEnabled?.() !== false;
-    if (contraption.scriptStatus !== 'stopped') {
-      this.performBasicAction({
-        domain: ActionDomain.ENTITY,
-        action: 'stop-scripts',
-        target: { contraption }
-      });
-    } else {
-      contraption.stopAllNodeScripts?.();
-    }
-    if (contraption.serverManaged === true) {
-      contraption.serverDesiredRunState = 'stopped';
-      this.requestServerEntityRunState(contraption, 'stopped', { silent: true });
-    }
-
-    // 2. Enable physics simulation so the velocity servo can lift and move the rigid body
-    contraption.setPhysicsSimulationEnabled?.(true);
-
-    // 3. Disable physical collision during grab so entity moves freely without collision snagging
-    if (typeof contraption.setCollisionSimulationEnabled === 'function') {
-      contraption.setCollisionSimulationEnabled(false);
-    } else {
-      contraption.collisionSimulationEnabled = false;
-      contraption.invalidateCollisionPoseCache?.();
     }
 
     const bodyId = this.getWrenchGrabBodyId(
@@ -5426,11 +5669,12 @@ export class PlayerController {
       this.hoveredContraptionHit?.entityId ?? contraptionRootId(contraption)
     );
     if (!bodyId) {
-      contraption.isWrenchGrabbed = false;
-      contraption.setPhysicsSimulationEnabled?.(false);
       this.ui?.showToast?.('Wrench: this entity has no dynamic body to grab');
       return false;
     }
+    // Point-grabbing uses the existing velocity servo, unlike the COM gizmo's
+    // direct stopped transform. Validate the body before changing entity state.
+    const wasRunning = this.beginWrenchManipulation(contraption, true);
     const eyePos = this.physics?.getEyePosition ? this.physics.getEyePosition() : (this.camera?.position ? this.camera.position.clone() : new THREE.Vector3());
     const hitPoint = this.hoveredContraptionHit?.point
       ? (this.hoveredContraptionHit.point.isVector3

@@ -491,7 +491,7 @@ function WrenchPanel() {
           </span>
           <span className="mode-badge std">PHYSICS & CONTROL</span>
         </div>
-        <span className="palette-hotkey-hint"><b>XYZ</b> pivot · <b>Hold LMB</b> stop & lift · <b>RMB</b> start</span>
+        <span className="palette-hotkey-hint"><b>XYZ</b> move · <b>Arrows</b> rotate · <b>Hold entity</b> lift · <b>RMB</b> start</span>
       </div>
       <div className="selector-toolbox-content" id="wrench-toolbox-content">
         <div className="wrench-action-buttons">
