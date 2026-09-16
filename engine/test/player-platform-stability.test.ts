@@ -136,7 +136,7 @@ test('a rider follows solved translation and yaw exactly once, independent of ve
   }
 });
 
-test('transported platform velocity is not subtracted a second time from standing momentum', () => {
+test('a transported rider never applies standing momentum to the platform', () => {
   const { platform, player, physics } = platformFixture();
   landOn(player, platform);
   const impulses: THREE.Vector3[] = [];
@@ -147,8 +147,7 @@ test('transported platform velocity is not subtracted a second time from standin
   platform.updateTransform();
   player.resolveDynamicContraptionOverlaps();
   player.update(0.05, idle, 0);
-  assert.equal(impulses.length, 1);
-  assert.ok(impulses[0].distanceTo(new THREE.Vector3(0, -player.weight * 0.05, 0)) < 1e-8);
+  assert.equal(impulses.length, 0);
 });
 
 test('platform carriage respects a swept terrain wall and ceiling', () => {
@@ -229,14 +228,14 @@ test('standing stabilization cannot retain a removed floor or disabled collision
   }
 });
 
-test('a grounded platform still reacts to jump and lift impulses rather than being frozen', () => {
+test('a grounded platform ignores player jump reaction but still accepts authoritative impulses', () => {
   const { manager, platform, player, physics } = platformFixture();
   for (let tick = 0; tick < 25; tick++) manager.update(0.05, null);
   landOn(player, platform);
   player.update(0.05, { ...idle, jump: true }, 0);
   assert.equal(player.ridingContraption, null);
   assert.equal(player.velocity.y, player.jumpForce);
-  assert.ok(platform.velocity.y < 0, 'jump transfers a real downward reaction');
+  assert.equal(platform.velocity.y, 0, 'one-way player collision must not transfer a jump reaction');
   const before = platform.position.y;
   physics.applyImpulse(platform, new THREE.Vector3(0, 2500, 0));
   manager.update(0.05, null);

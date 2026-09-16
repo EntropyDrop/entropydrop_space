@@ -250,17 +250,6 @@ export class PlayerPhysics {
 
     // Jump
     if (moveInput.jump && this.isOnGround) {
-      if (this.ridingContraption) {
-        // The character controller owns the requested jump velocity. Transfer
-        // its equal-and-opposite momentum change to the supporting dynamic body.
-        const jumpDeltaVelocity = Math.max(0, this.jumpForce - this.velocity.y);
-        this.applyContraptionImpulse(
-          this.ridingContraption,
-          entityBodyId(this.ridingContraption, this.ridingBodyId),
-          new THREE.Vector3(0, -this.mass * jumpDeltaVelocity, 0),
-          this.position.clone()
-        );
-      }
       this.velocity.y = this.jumpForce;
       this.isOnGround = false;
       this.ridingContraption = null;
@@ -485,7 +474,7 @@ export class PlayerPhysics {
         contactPoint[hitAxis] = surface;
         const closingSpeed = this.getContraptionBodyPointVelocity(contraption,
           entityBodyId(contraption, box.bodyId ?? box.entityId), contactPoint).sub(this.velocity).dot(normal);
-        this.applyPlayerContactImpulse(box, normal.clone().negate(), closingSpeed, contactPoint);
+        this.recordPlayerContact(box, normal.clone().negate(), closingSpeed, contactPoint);
         const target = surface + (hitAxis === 'y'
           ? (hitSign > 0 ? 0 : -(this.isCrouching ? 1.45 : this.height))
           : hitSign * this.width / 2);
@@ -557,30 +546,13 @@ export class PlayerPhysics {
     return body.velocity.clone().add(body.angularVelocity.clone().cross(lever));
   }
 
-  /** Apply a world-space impulse to one dynamic entity body. A contact on a
-   * kinematic component is absorbed by its nearest dynamic ancestor, mirroring
-   * entity-entity resolution: the component is a scene-graph child, so the
-   * entity must still react when its arm is hit. */
-  applyContraptionImpulse(contraption, bodyId, impulse, worldPoint) {
-    if (!contraption || !impulse || impulse.lengthSq() <= 1e-12) return false;
-    const owner = contraption.getRigidBody?.(entityBodyId(contraption, bodyId));
-    if (!owner) return false;
-    const physics = this.contraptionManager?.physics;
-    if (typeof physics?.applyImpulse !== 'function') return false;
-    const body = typeof physics.contactBodyFor === 'function'
-      ? physics.contactBodyFor(contraption, owner)
-      : owner;
-    if (body.type !== 'dynamic' || body.simulationEnabled === false) return false;
-    physics.applyImpulse(contraption, impulse, worldPoint, body.id);
-    return true;
-  }
-
   /**
-   * The player is an authoritative character controller, but presents a finite
-   * 50kg contact mass to dynamic entities. Whenever collision resolution removes
-   * relative closing velocity from the player, transfer that momentum to the body.
+   * Player/entity collision is deliberately one-way. Every endpoint can resolve
+   * its local character against the authoritative entity pose, but only one
+   * endpoint advances entity physics. Record the contact for scripts without
+   * allowing the local player to mutate entity velocity or wake sleeping bodies.
    */
-  applyPlayerContactImpulse(box, direction, relativeClosingSpeed, worldPoint) {
+  recordPlayerContact(box, direction, relativeClosingSpeed, worldPoint) {
     if (!box) return false;
     const normal = direction.clone().normalize();
     box.contraption?.recordScriptContact?.({
@@ -592,15 +564,9 @@ export class PlayerPhysics {
       position: worldPoint?.toArray?.() || [0, 0, 0],
       normal: normal.toArray(),
       relativeVelocity: normal.clone().multiplyScalar(Number(relativeClosingSpeed) || 0).toArray(),
-      impulse: Math.max(0, Number(relativeClosingSpeed) || 0) * this.mass
+      impulse: 0
     });
-    if (!(relativeClosingSpeed > 0)) return false;
-    return this.applyContraptionImpulse(
-      box.contraption,
-      entityBodyId(box.contraption, box.bodyId ?? box.entityId),
-      normal.multiplyScalar(this.mass * relativeClosingSpeed),
-      worldPoint
-    );
+    return true;
   }
 
   intervalsOverlap(minA, maxA, minB, maxB) {
@@ -731,7 +697,7 @@ export class PlayerPhysics {
     // An attached rider's velocity is already relative to the transported
     // platform pose. Subtracting carrier velocity again invents extra impacts.
     const relativeClosingSpeed = (attached ? this.velocity : this.velocity.clone().sub(bodyVelocity)).dot(impulseDirection);
-    this.applyPlayerContactImpulse(hit.box, impulseDirection, relativeClosingSpeed, contactPoint);
+    this.recordPlayerContact(hit.box, impulseDirection, relativeClosingSpeed, contactPoint);
 
     if (dy < 0) {
       this.position.y = hit.surface;
@@ -792,7 +758,7 @@ export class PlayerPhysics {
       contactPoint
     );
     const relativeClosingSpeed = this.velocity.clone().sub(bodyVelocity).dot(direction);
-    this.applyPlayerContactImpulse(hit.box, direction, relativeClosingSpeed, contactPoint);
+    this.recordPlayerContact(hit.box, direction, relativeClosingSpeed, contactPoint);
 
     this.position[axis] = hit.stop;
     this.velocity[axis] = 0;
@@ -855,9 +821,8 @@ export class PlayerPhysics {
       correctionCandidates.sort((a, b) => Math.abs(a.amount) - Math.abs(b.amount));
       const correction = correctionCandidates[0];
 
-      // If a moving dynamic body created the overlap, treat the correction
-      // direction as the contact normal from body to player and apply the
-      // opposite 50kg collision impulse back to the body.
+      // If a moving body created the overlap, retain its closing velocity in
+      // the one-way player contact record without mutating entity dynamics.
       const playerNormal = new THREE.Vector3();
       playerNormal[correction.axis] = Math.sign(correction.amount) || 1;
       const contactPoint = new THREE.Vector3(
@@ -880,7 +845,7 @@ export class PlayerPhysics {
         }
       }
       if (impactBox) {
-        this.applyPlayerContactImpulse(
+        this.recordPlayerContact(
           impactBox,
           playerNormal.clone().multiplyScalar(-1),
           impactSpeed,

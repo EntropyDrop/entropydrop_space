@@ -84,7 +84,7 @@ test('PlayerController exposes 50kg mass and weight in newtons', () => {
   assert.equal(controller.weight, 1200);
 });
 
-test('a landing player transfers 50kg of downward momentum to a dynamic entity', () => {
+test('a landing player does not transfer downward momentum to a dynamic entity', () => {
   const { player, body } = makeContactFixture();
   player.position.set(0.5, 1.2, 0.5);
   player.velocity.set(0, -4, 0);
@@ -93,11 +93,10 @@ test('a landing player transfers 50kg of downward momentum to a dynamic entity',
 
   assert.equal(player.position.y, 1);
   assert.equal(player.isOnGround, true);
-  assert.ok(Math.abs(body.velocity.y - (-20)) < 1e-9,
-    '50kg × 4m/s transfers a 200N·s downward impulse to the 10kg body');
+  assert.equal(body.velocity.y, 0, 'one-way character collision must not change entity velocity');
 });
 
-test('horizontal character collision transfers momentum using the 50kg contact mass', () => {
+test('horizontal character collision stops the player without moving the entity', () => {
   const { player, body } = makeContactFixture();
   player.position.set(-2, 0.1, 0.5);
   player.velocity.set(30, 0, 0);
@@ -105,11 +104,10 @@ test('horizontal character collision transfers momentum using the 50kg contact m
   player.moveWithCollision(0.1);
 
   assert.equal(player.velocity.x, 0, 'the authoritative character controller still stops at the solid face');
-  assert.ok(Math.abs(body.velocity.x * body.mass - player.mass * 30) < 1e-9,
-    'the dynamic body should receive the character momentum removed by collision resolution');
+  assert.equal(body.velocity.x, 0, 'the entity must remain under its single physics authority');
 });
 
-test('a standing player continuously loads a dynamic platform with physical weight', () => {
+test('a standing player does not physically load a dynamic platform', () => {
   const { player, contraption, body } = makeContactFixture();
   player.position.set(0.5, 1, 0.5);
   player.velocity.set(0, 0, 0);
@@ -127,12 +125,10 @@ test('a standing player continuously loads a dynamic platform with physical weig
     sprint: false
   }, 0);
 
-  const expectedDeltaVelocity = -(player.weight * 0.05) / body.mass;
-  assert.ok(Math.abs(body.velocity.y - expectedDeltaVelocity) < 1e-9,
-    'ground contact should transfer weight × dt to the supporting body');
+  assert.equal(body.velocity.y, 0, 'standing weight must not mutate entity dynamics');
 });
 
-test('jumping applies the equal-and-opposite 50kg launch impulse to the platform', () => {
+test('jumping from a platform does not apply a launch reaction to the platform', () => {
   const { player, contraption, body } = makeContactFixture();
   player.position.set(0.5, 1, 0.5);
   player.velocity.set(0, 0, 0);
@@ -151,5 +147,5 @@ test('jumping applies the equal-and-opposite 50kg launch impulse to the platform
   }, 0);
 
   assert.equal(player.velocity.y, player.jumpForce);
-  assert.ok(body.velocity.y < 0, 'the dynamic platform should receive the downward jump reaction');
+  assert.equal(body.velocity.y, 0, 'jumping must not mutate entity dynamics');
 });

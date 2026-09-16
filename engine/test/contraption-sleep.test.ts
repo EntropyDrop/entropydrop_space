@@ -45,7 +45,7 @@ test('settled bodies sleep, skip terrain and pair work, and retain their collisi
   assert.equal(physics.prepareContraptionPairFrame([entity]).collisionCandidates.length, 0);
 });
 
-test('forces, player impulses, pose edits, gravity changes and Stop/Play wake sleeping bodies', () => {
+test('forces, impulses, pose edits, gravity changes and Stop/Play wake sleeping bodies', () => {
   for (const mutation of [
     (entity, physics) => entity.appliedForces.set(100, 0, 0),
     (entity, physics) => physics.applyImpulse(entity, new THREE.Vector3(5, 0, 0)),

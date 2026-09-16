@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { BodyType, Contraption, ContraptionMode } from '../src/contraption/Contraption.ts';
-import { ContraptionManager } from '../src/contraption/ContraptionManager.ts';
-import { ContraptionPhysics } from '../src/physics/ContraptionPhysics.ts';
+import { Contraption } from '../src/contraption/Contraption.ts';
 import { PlayerPhysics } from '../src/physics/PlayerPhysics.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 
@@ -152,7 +150,7 @@ test('a downward face crossing still lands on top of an entity cell', () => {
   assert.equal(contact.playerId, 'local');
   assert.equal(contact.selfNodeId, 'root');
   assert.deepEqual(contact.normal, [0, -1, 0]);
-  assert.ok(contact.impulse > 0);
+  assert.equal(contact.impulse, 0, 'one-way player contacts must not report an applied entity impulse');
 });
 
 // ===========================================================================
@@ -215,52 +213,4 @@ test('deep penetration after entity teleport still resolves horizontally', () =>
 
   assert.equal(moved, true);
   assert.ok(player.position.x !== 0.5 || player.position.z !== 0.5, 'deep penetration should move the player horizontally');
-});
-
-// ===========================================================================
-// Player shoves a kinematic component of an entity: the impulse must route to
-// the entity's dynamic body (the component's nearest dynamic ancestor), not be
-// dropped because the component body itself is kinematic.
-// ===========================================================================
-
-test('a shove on a kinematic component routes its impulse to the entity dynamic body', () => {
-  const world = {
-    getBlock: () => BlockTypes.AIR,
-    getMicroBlocksInAABB: () => [],
-    activeChunkKeys: new Set(['0,0']),
-    worldToChunkCoords: (x, z) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
-  };
-  const physics = new ContraptionPhysics(world);
-  const manager = new ContraptionManager(new THREE.Scene(), world, null, null);
-  manager.setPhysics(physics);
-
-  const reacher = new Contraption(
-    1,
-    [
-      { localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK },
-      { localX: 4, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, entityId: 'arm' }
-    ],
-    new THREE.Vector3(0, 0, 0),
-    manager.scene,
-    {
-      mode: ContraptionMode.FREE_PHYSICS,
-      bodyType: BodyType.DYNAMIC,
-      childEntities: [{ id: 'arm', parentId: 'root', bodyType: BodyType.KINEMATIC }]
-    }
-  );
-  manager.registerContraption(reacher);
-
-  const armBody = reacher.getRigidBody('arm');
-  assert.equal(armBody.type, BodyType.KINEMATIC, 'test setup: the arm must be kinematic');
-
-  const player = new PlayerPhysics(world, manager) as any;
-  const impulse = new THREE.Vector3(20, 0, 0);
-  const contactPoint = new THREE.Vector3(4.5, 0.5, 0.5);
-  const applied = player.applyContraptionImpulse(reacher, 'arm', impulse, contactPoint);
-
-  assert.equal(applied, true, 'the impulse must not be dropped for a kinematic component');
-  const rootBody = reacher.getRigidBody('root');
-  assert.ok(rootBody.velocity.x > 0, `the dynamic root must receive the shove, vx=${rootBody.velocity.x}`);
 });

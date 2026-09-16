@@ -91,7 +91,9 @@ including translation, yaw and collision push-outs, exactly once. Swept bounds a
 only candidate envelopes: linear moving-face sweeps and current-pose recovery are
 separate, so vacated volumes cannot become ghost floors. Repeated local player
 queries reuse transformed voxel candidates until pose or geometry invalidation.
-The character's 50kg contact mass, standing weight and jump reactions are retained.
+Player/entity collision is one-way: entities carry, block and push characters,
+while character weight, landing, side impacts and jump reactions never mutate
+the single-authority entity simulation.
 
 An existing flat terrain support manifold is solved before advancing the body's
 pose, with no restitution for a resting load. Its cached contact cells, shape,

@@ -56,7 +56,7 @@ Use the entityAPI below when generating entity code. API facts come from the sam
 - `ctx.blocks` — Block-edit snapshot: `pressed(type?)` and `event()`; types are `'place'|'remove'|'color'|'subdivide'`.
 - `ctx.players` — Frozen player observations. `position` remains the eye-position compatibility alias; records also expose `eyePosition`, nullable `feetPosition`/`velocity`/pose and movement flags, riding IDs, `isLocal`, and fixed 50 kg mass.
 - `ctx.driver` — Current local driver for this entity as `{playerId,componentId,seatIndex}`, or `null` when it is not mounted.
-- `ctx.contacts` — Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain|entity|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity.
+- `ctx.contacts` — Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain|entity|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Player contacts are one-way observations with zero impulse and never modify entity dynamics. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity.
 - `ctx.world` — World query and mutation API described below.
 - `ctx.selection` — Shared engine selection command API described below.
 - `ctx.commands` — Final main-thread command results from the previous submitted frame: `get(commandId)` and `all()`.
