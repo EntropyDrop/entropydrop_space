@@ -191,7 +191,12 @@ export class SpaceEntitySync {
     if (active) {
       active.serverExecutionEpoch = frame.execution_epoch;
       active.serverCanControl = active.serverCanEdit = false;
-      active.serverDesiredRunState = 'running';
+      // Packets sent before Stop may arrive during or after a local drag.
+      // Only a newer server intent may resume a released, stopped entity.
+      if (!this.isWrenchManipulating(active)
+        && !(active.serverDesiredRunState === 'stopped' && frame.revision <= (active.serverRevision || 0))) {
+        active.serverDesiredRunState = 'running';
+      }
       active.serverExecutionLeaseExpiresAt = frame.lease_expires_at;
     } else if (this.metadataLoading.size < 8 && !this.metadataLoading.has(frame.entity_id)
       && Date.now() >= (this.metadataRetryAt.get(frame.entity_id) || 0)) {
@@ -215,7 +220,7 @@ export class SpaceEntitySync {
   updateReplicaPoses(dt: number) {
     const now = Date.now();
     for (const entity of this.contraptions.contraptions || []) {
-      if (!entity.serverManaged || entity.serverExecutesLocally) continue;
+      if (!entity.serverManaged || entity.serverExecutesLocally || this.isWrenchManipulating(entity)) continue;
       const entry = this.poseBuffers.get(String(entity.publicId));
       if (!entry || entry.frame.execution_epoch < (entity.serverExecutionEpoch || 0)
         || entry.frame.revision < (entity.serverRevision || 0)
@@ -437,8 +442,12 @@ export class SpaceEntitySync {
     }
   }
 
+  private isWrenchManipulating(entity: any) {
+    return !!entity && (entity.isWrenchGrabbed || this.controller?.wrenchGrab?.contraption === entity);
+  }
+
   private applyPlayback(contraption: any, entity: SpaceWorldEntityRecord) {
-    if (contraption.isWrenchGrabbed || this.controller?.wrenchGrab?.contraption === contraption) {
+    if (this.isWrenchManipulating(contraption)) {
       return;
     }
     if (entity.execution_mode === 'hosted') {
@@ -475,9 +484,13 @@ export class SpaceEntitySync {
     this.latestRevisions.set(entity.id, entity.revision);
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
       || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
+    const manipulationRevision = active?.wrenchManipulationRevision || 0;
     if (active) {
       const remoteSnapshotChanged = active.serverSnapshotDigest !== entity.snapshot_digest;
       const remoteDefinitionChanged = active.serverDefinitionDigest !== entity.definition_digest;
+      // Keep the actual held object alive. Leave the definition digest pending
+      // so a later poll can reconcile it once manipulation has finished.
+      if (remoteDefinitionChanged && this.isWrenchManipulating(active)) return;
       if (remoteSnapshotChanged && !remoteDefinitionChanged) {
         // A snapshot-only update (a running entity's periodic pose/physics
         // publication, or our own checkpoint echo) must be applied IN PLACE.
@@ -490,6 +503,8 @@ export class SpaceEntitySync {
         return;
       }
     }
+    if (active && (this.isWrenchManipulating(active)
+      || (active.wrenchManipulationRevision || 0) !== manipulationRevision)) return;
     if (this.contraptions.updateDormantServerEntity?.(entity.id, this.dormantMetadata(entity))) return;
     if (this.loading.has(entity.id)) return;
 
@@ -500,6 +515,8 @@ export class SpaceEntitySync {
         this.client.getSnapshot(entity),
       ]);
       if (this.stopped || this.isStale(entity)) return;
+      if (active && (this.isWrenchManipulating(active)
+        || (active.wrenchManipulationRevision || 0) !== manipulationRevision)) return;
       const parsed = this.controller.parseInventoryImport?.(definition, 'entity');
       if (!parsed?.ok) throw new Error(parsed?.error || 'Server entity failed local validation.');
 
@@ -548,15 +565,21 @@ export class SpaceEntitySync {
    */
   private async applySnapshotInPlace(active: any, entity: SpaceWorldEntityRecord) {
     if (typeof this.contraptions.restoreContraptionStreamingState !== 'function') return false;
-    if (active.isWrenchGrabbed || this.controller?.wrenchGrab?.contraption === active) {
+    if (this.isWrenchManipulating(active)) {
       // Never fight an active wrench drag with a remote pose: accept the digest
       // (so the revision is not retried) but keep the locally held transform.
       this.applyRecordMetadata(active, entity);
       return true;
     }
+    const manipulationRevision = active.wrenchManipulationRevision || 0;
     try {
       const snapshot = await this.client.getSnapshot(entity);
       if (this.stopped || this.isStale(entity)) return true;
+      if (this.isWrenchManipulating(active)
+        || (active.wrenchManipulationRevision || 0) !== manipulationRevision) {
+        this.applyRecordMetadata(active, entity, { preserveStoppedIntent: true });
+        return true;
+      }
       if (!snapshot) return false;
       // Durable checkpoints are recovery data, not a second pose timeline.
       // Applying an older six-second save over a live stream causes jumps.
@@ -580,16 +603,16 @@ export class SpaceEntitySync {
   }
 
   /** Merge server metadata and re-apply playback only when the revision changed. */
-  private applyRecordMetadata(active: any, entity: SpaceWorldEntityRecord) {
+  private applyRecordMetadata(active: any, entity: SpaceWorldEntityRecord,
+    options: { preserveStoppedIntent?: boolean } = {}) {
     if (this.isStale(entity)) return;
     this.latestRevisions.set(entity.id, entity.revision);
     const revisionChanged = Number(active.serverPlaybackRevision) !== entity.revision;
     const metadata = this.metadata(entity);
     const executionChanged = active.serverExecutesLocally !== metadata.serverExecutesLocally;
-    if (active.isWrenchGrabbed || this.controller?.wrenchGrab?.contraption === active || active.serverDesiredRunState === 'stopped') {
-      if (entity.desired_run_state !== 'stopped' && Number(active.serverRevision) >= entity.revision) {
-        metadata.serverDesiredRunState = 'stopped';
-      }
+    if (options.preserveStoppedIntent || this.isWrenchManipulating(active)
+      || (active.serverDesiredRunState === 'stopped' && Number(active.serverRevision) >= entity.revision)) {
+      metadata.serverDesiredRunState = 'stopped';
     }
     Object.assign(active, metadata);
     // An entity may stop itself without changing the owner's durable Wrench

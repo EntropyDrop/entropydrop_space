@@ -5451,6 +5451,9 @@ export class PlayerController {
     const wasRunning = contraption.scriptStatus !== 'stopped'
       || contraption.isPhysicsSimulationEnabled?.() !== false;
     contraption.isWrenchGrabbed = true;
+    // Fence remote downloads that began before this manual edit, including
+    // replies arriving after the mouse has already been released.
+    contraption.wrenchManipulationRevision = (contraption.wrenchManipulationRevision || 0) + 1;
     if (contraption.scriptStatus !== 'stopped') {
       this.performBasicAction({
         domain: ActionDomain.ENTITY,
@@ -5594,7 +5597,6 @@ export class PlayerController {
       ).normalize();
     }
 
-    drag.contraption.capturePreviousEntityTransforms?.();
     for (const frame of drag.bodyFrames) {
       frame.body.position.copy(frame.localPosition).applyQuaternion(nextQuaternion).add(nextPosition);
       frame.body.quaternion.copy(nextQuaternion).multiply(frame.localQuaternion).normalize();
@@ -5609,7 +5611,9 @@ export class PlayerController {
     drag.contraption.quaternion.copy(nextQuaternion);
     drag.contraption.syncAllBodyTransforms?.();
     drag.contraption.updateTransform?.();
-    drag.contraption.invalidateCollisionPoseCache?.();
+    // Gizmo input directly sets the pose between fixed ticks. Interpolating
+    // from the previous mouse event with the physics alpha rewinds on ticks.
+    drag.contraption.capturePreviousEntityTransforms?.();
     this.refreshWrenchPivotTargetPose();
     this.renderWrenchPivotTarget();
     return true;
@@ -5738,6 +5742,8 @@ export class PlayerController {
       contraption.velocity?.set?.(0, 0, 0);
       contraption.angularVelocity?.set?.(0, 0, 0);
       contraption.setPhysicsSimulationEnabled?.(false);
+      // A stopped network replica receives no further local history updates.
+      contraption.capturePreviousEntityTransforms?.();
       if (typeof contraption.setCollisionSimulationEnabled === 'function') {
         contraption.setCollisionSimulationEnabled(true);
       } else {

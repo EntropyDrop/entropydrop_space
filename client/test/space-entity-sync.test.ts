@@ -640,3 +640,101 @@ test('failed definition downloads retain the existing entity and its local edits
   assert.equal(created.length, 1);
   assert.equal(created[0].position.y, 45);
 });
+
+for (const releasedBeforeDownload of [false, true]) {
+  test(`a snapshot started before a wrench drag cannot overwrite it (${releasedBeforeDownload ? 'released' : 'held'})`, async t => {
+    const { sync, created, restored, overrides } = harness('owner-1', { desired_run_state: 'stopped' });
+    t.after(() => sync.stop());
+    await sync.poll();
+    const internal = sync as any;
+    const entity = created[0];
+    let complete!: (value: any) => void;
+    let downloading!: () => void;
+    const started = new Promise<void>(resolve => { downloading = resolve; });
+    internal.client.getSnapshot = () => { downloading(); return new Promise(resolve => { complete = resolve; }); };
+    overrides.revision = 2;
+    overrides.snapshot_digest = 'b'.repeat(64);
+    overrides.desired_run_state = 'running';
+    const pending = sync.poll();
+    await started;
+    entity.isWrenchGrabbed = !releasedBeforeDownload;
+    entity.wrenchManipulationRevision = 1;
+    entity.scriptStatus = 'stopped';
+    entity.position.set(9, 40, 10);
+    complete({ position: [999, 32, 2] });
+    await pending;
+    assert.equal(restored.length, 0);
+    assert.deepEqual(entity.position.toArray(), [9, 40, 10]);
+    assert.equal(entity.serverSnapshotDigest, overrides.snapshot_digest, 'the ignored old checkpoint is not retried');
+    assert.equal(entity.serverDesiredRunState, 'stopped', 'the old checkpoint must not restart the released entity');
+    assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  });
+}
+
+test('a definition download defers replacement while its entity is held by the wrench', async t => {
+  const { sync, created, removed, overrides } = harness('owner-1', { desired_run_state: 'stopped' });
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  const entity = created[0];
+  let complete!: (value: any) => void;
+  let downloading!: () => void;
+  const started = new Promise<void>(resolve => { downloading = resolve; });
+  internal.client.getDefinition = () => { downloading(); return new Promise(resolve => { complete = resolve; }); };
+  overrides.revision = 2;
+  overrides.definition_digest = 'b'.repeat(64);
+  const pending = sync.poll();
+  await started;
+  entity.isWrenchGrabbed = true;
+  entity.wrenchManipulationRevision = 1;
+  complete(definition);
+  await pending;
+  assert.equal(removed.length, 0);
+  assert.equal(created.length, 1);
+  assert.equal(entity.serverDefinitionDigest, definitionDigest, 'a deferred definition must not be marked applied');
+  internal.client.getDefinition = async () => definition;
+  await sync.poll();
+  assert.equal(removed.length, 0, 'subsequent polls must also retain a held entity');
+  entity.isWrenchGrabbed = false;
+  await sync.poll();
+  assert.equal(removed.length, 1, 'the definition can be reconciled after release');
+});
+
+test('delayed realtime poses cannot restart or move a locally stopped wrench target', async t => {
+  const { sync, created } = harness('owner-1', { desired_run_state: 'stopped', execution_epoch: 2 });
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  const entity = created[0];
+  internal.contraptions.findActiveContraptionByPublicId = () => entity;
+  let applied = 0;
+  entity.applyReplicaBodyPoses = () => { applied++; };
+  const pose = {
+    entity_id: entity.publicId, execution_epoch: 2, sequence: 1,
+    revision: entity.serverRevision, definition_digest: entity.serverDefinitionDigest,
+    lease_expires_at: new Date(Date.now() + 8000).toISOString(), bodies: [{ id: 'root',
+      position: [999, 32, 2], quaternion: [0, 0, 0, 1], velocity: [0, 0, 0], angularVelocity: [0, 0, 0] }]
+  };
+  entity.isWrenchGrabbed = true;
+  entity.setPhysicsSimulationEnabled(true);
+  sync.receivePose(pose);
+  sync.updateReplicaPoses(0.05);
+  sync.enforceExecutionLeases();
+  assert.equal(applied, 0);
+  assert.equal(entity.serverDesiredRunState, 'stopped');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'manual physics must stay active while held');
+  // A newer running record arriving while held must not change local drag intent.
+  internal.applyRecordMetadata(entity, { ...record(), revision: 2, execution_epoch: 2 });
+  sync.enforceExecutionLeases();
+  assert.equal(entity.serverDesiredRunState, 'stopped');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  entity.isWrenchGrabbed = false;
+  entity.setPhysicsSimulationEnabled(false);
+  sync.receivePose({ ...pose, sequence: 2, revision: 2 });
+  sync.updateReplicaPoses(0.05);
+  assert.equal(applied, 0, 'late packets must not rewind the released pose either');
+  // A genuinely newer server start is still allowed once manual editing ends.
+  sync.receivePose({ ...pose, sequence: 3, revision: 3 });
+  sync.updateReplicaPoses(0.05);
+  assert.equal(applied, 1);
+});

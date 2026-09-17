@@ -660,6 +660,105 @@ function makeWrenchGizmoController(entity, manager, camera) {
   return controller;
 }
 
+for (const serverManaged of [false, true]) {
+  test(`Wrench gizmo poses stay fixed across render phases (${serverManaged ? 'network' : 'local'})`, () => {
+    const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+    const entity = makeContraptionWithChildren();
+    manager.registerContraption(entity);
+    entity.serverManaged = serverManaged;
+    entity.serverExecutesLocally = false;
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+    camera.position.copy(entity.position).add(new THREE.Vector3(0, 0, 10));
+    camera.lookAt(entity.position);
+    camera.updateMatrixWorld(true);
+    const controller = makeWrenchGizmoController(entity, manager, camera);
+
+    for (const kind of ['move', 'rotate']) {
+      const axis = kind === 'move' ? 'x' : 'z';
+      controller.startWrenchGizmoDrag({
+        handleKey: `${kind}-${axis}`, kind, axis,
+        worldPoint: entity.position.clone().add(new THREE.Vector3(1, 0, 0))
+      }, { clientX: 200, clientY: 200 });
+      controller.updateWrenchGizmoDrag({ clientX: 260, clientY: 140 });
+      const expected = [...entity.entityNodes.values()].map(node => node.group.matrixWorld.clone());
+      const assertPresentation = () => {
+        // Mouse events are not synchronized with the 20 Hz simulation clock.
+        for (const alpha of [0.8, 0.95, 0, 0.25, 0.5]) {
+          manager.beginRenderInterpolation(alpha);
+          [...entity.entityNodes.values()].forEach((node, index) => {
+            node.group.matrixWorld.elements.forEach((value, element) => {
+              assert.ok(Math.abs(value - expected[index].elements[element]) < 1e-8,
+                `${kind} dragged geometry must not rewind at render alpha ${alpha}`);
+            });
+          });
+          manager.endRenderInterpolation();
+        }
+      };
+      assertPresentation();
+      controller.releaseWrenchGizmoDrag();
+      assertPresentation();
+    }
+  });
+}
+
+test('a locally grabbed network replica renders consecutive physics ticks without rewinding', () => {
+  const scene = new THREE.Scene();
+  const world = {
+    getBlock: () => BlockTypes.AIR,
+    raycast: () => ({ hit: false, distance: 0 }),
+    raycastMicro: () => ({ hit: false, distance: 0 }),
+    microVoxels: { get: () => null }
+  };
+  const manager = new ContraptionManager(scene, world, null, null);
+  manager.setPhysics(new ContraptionPhysics(world as any));
+  const entity = new Contraption(2,
+    [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
+    new THREE.Vector3(0, 0, -5), scene,
+    { rootComponentId: 'root', bodyType: 'dynamic', friction: 0 });
+  entity.useGravity = false;
+  entity.serverManaged = true;
+  entity.serverExecutesLocally = false;
+  manager.registerContraption(entity);
+  const eye = new THREE.Vector3();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(entity.position);
+  const controller: any = Object.create(PlayerController.prototype);
+  Object.assign(controller, {
+    _activeTool: SpecialTool.WRENCH, contraptions: manager, camera,
+    hoveredContraptionHit: { contraption: entity, entityId: 'root', point: entity.position.clone() },
+    sound: { playWrenchClick() {} }, ui: { showToast() {} },
+    physics: { update() {}, getEyePosition: () => eye.clone(), position: eye, velocity: new THREE.Vector3() },
+    updateCameraPosition() {}
+  });
+  controller.startWrenchGrab();
+  eye.x = 4;
+  assert.equal(entity.wrenchManipulationRevision, 1, 'starting a drag must fence in-flight remote downloads');
+  let previousRenderedX = entity.position.x;
+  for (let tick = 0; tick < 30; tick++) {
+    controller.updateSimulation(0.05);
+    manager.update(0.05, {});
+    for (let frame = 0; frame < 6; frame++) {
+      manager.beginRenderInterpolation(frame / 6);
+      const x = entity.rootGroup.position.x;
+      assert.ok(x >= previousRenderedX - 1e-8,
+        `the next render must not rewind to an old network pose: ${previousRenderedX} -> ${x}`);
+      previousRenderedX = x;
+      manager.endRenderInterpolation();
+    }
+  }
+  assert.ok(entity.position.x > 3.5, 'the test must actually move the entity');
+  assert.equal(entity.serverExecutesLocally, false, 'manual dragging must not grant script execution');
+  controller.releaseWrenchGrab();
+  manager.beginRenderInterpolation(0);
+  assert.ok(entity.rootGroup.position.distanceTo(entity.position) < 1e-8, 'release freezes the final pose');
+  manager.endRenderInterpolation();
+  // Once released, remote interpolation history belongs to the pose stream again.
+  entity.previousPosition.x -= 1;
+  const replicaHistory = entity.previousPosition.clone();
+  entity.update(0.05);
+  assert.deepEqual(entity.previousPosition, replicaHistory);
+});
+
 test('Wrench COM translation handle drags the whole stopped entity on its local axis', () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, {}, null, null);

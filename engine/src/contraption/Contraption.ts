@@ -638,6 +638,7 @@ export class Contraption {
   // --- Operational mode ---
   mode: string;
   isWrenchGrabbed: boolean;
+  wrenchManipulationRevision = 0;
 
   // --- Programmable script state ---
   scriptCode: string;
@@ -4886,6 +4887,9 @@ export class Contraption {
       // A replica is a moving collider, not an independent simulation. Its
       // history and transforms come from applyReplicaBodyPoses, and must not
       // be recaptured here before swept collision/render interpolation.
+      // A stopped replica held by the wrench is integrated locally instead.
+      // Capture each manual physics tick without granting script execution.
+      if (this.isWrenchGrabbed) this.capturePreviousEntityTransforms();
       this.updateTransform();
       return;
     }
