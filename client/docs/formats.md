@@ -8,7 +8,7 @@ migrating it, and a release that changes a format resets the affected Space cont
 | Portable `InventoryResource` | **7** | `entropydrop_space/proto/inventory.proto` |
 | Browser backpack | **8** | `entropydrop_space/proto/backpack.proto`; stored at `space.backpack.v8.pb` |
 | REST request envelopes | **2** | `entropydrop_space/proto/space_api.proto` (`entropydrop.space.api.v2`) |
-| Far-surface zone snapshot | **3** | `EDSZ` binary, parsed in `src/bootstrap/SpaceSurfaceSnapshot.ts` |
+| Far-surface zone snapshot | **5** | `EDSZ` binary, parsed in `src/bootstrap/SpaceSurfaceSnapshot.ts` |
 | Local terrain outbox | **3** | `space.world-edits.v3.*` (`entropydrop_space/engine/src/voxel/WorldEditPersistence.ts`) |
 | Offline entities (browser-local, offline mode only) | **4** | JSON `entropydrop_space_entities.*` (`entropydrop_space/engine/src/contraption/ContraptionManager.ts`, `ENTITY_STORAGE_VERSION`) |
 | Offline player position | **1** | `space.offline.player-position.v1` JSON (`src/bootstrap/SpaceBootstrap.ts`) |
@@ -76,29 +76,45 @@ it stays JSON until a typed snapshot schema exists. Requests use
 (base64 of the same bytes) is still accepted for existing agents. Definitions are always
 downloaded as raw `application/x-protobuf`.
 
-## Far-surface zone snapshot (`EDSZ`, v3)
+## Far-surface zone snapshot (`EDSZ`, v5)
 
-A 32-byte little-endian header followed by fixed 5-byte records, produced by the backend
-and parsed in `src/bootstrap/SpaceSurfaceSnapshot.ts`:
+The backend publishes independently compressed 2/4/8/16/32/64m levels. Each download
+has a 32-byte little-endian header, a zone-wide X-major lattice, and an authored-solid
+trailer. The browser also reads legacy v3 (chunk-major) and v4 (coarse lattice) data
+while the server rebuilds its cache.
 
 | Offset | Field | Type |
 | --- | --- | --- |
 | 0 | magic `EDSZ` | 4 bytes |
-| 4 | schema version (`3`) | uint8 |
-| 5 | samples per chunk axis (`8`) | uint8 |
+| 4 | schema version (`5`) | uint8 |
+| 5 | sample width in metres (`2/4/8/16/32/64`) | uint8 |
 | 6 | zone size in chunks (`32`) | uint8 |
-| 7 | record bytes (`5`) | uint8 |
+| 7 | lattice record bytes (`8`) | uint8 |
 | 8 | zone X | uint16 LE |
 | 10 | zone Z | uint16 LE |
 | 12 | terrain seed | int32 LE |
 | 16 | terrain generator version | uint32 LE |
 | 20 | source terrain revision | uint64 LE |
-| 28 | record count (65,536) | uint32 LE |
+| 28 | record count (`(512 / sample_width)^2`) | uint32 LE |
 
-Each record is `uint16 LE height_micro`, `R`, `G`, `B`, so a zone is
-`32 + 65536 * 5 = 327,712` bytes. A JSON manifest lists zone digests, byte lengths and
-URLs; the browser verifies the SHA-256 before installing a zone. The browser derives
-2/4/8/16/32/64 m mip levels from the 8×8 two-metre summary per chunk.
+Each lattice record contains maximum height (`uint16`), minimum source height
+(`uint16`), RGB (`3 * uint8`) and conservative colour error (`uint8`). Heights use
+1/8m micro units. Errors survive downsampling so coarse data can request sufficient
+source detail for the screen-error budget. Procedural terrain and authored solids
+are separate, preventing a high beam from raising the surrounding terrain mip.
+
+The trailer begins with `uint32 chunk_count`. Each authored chunk has local chunk X/Z
+(`2 * uint8`), accepted chunk revision (`uint64`), box count (`uint32`), then 15-byte
+solid records: `x, bottom, z, width, height, depth` (`6 * uint16`) in chunk-local micro
+units, followed by RGB (`3 * uint8`). Vertical runs and air gaps remain separate. The
+same authored trailer accompanies every data mip; a 64m overview still preserves
+thin structures. A zero-box chunk is valid and masks an entirely excavated chunk.
+
+A fine zone without authored solids is 524,324 bytes; its 64m overview is 548 bytes.
+The parser caps each payload at 16 MiB, validates exact lengths, dimensions, solid
+bounds, unique chunk ownership and safe revisions, and verifies SHA-256 and manifest
+identity before installation. Unavailable/dirty zones retain their last valid data;
+`complete: false` means more generation is pending, not that absent zones were deleted.
 
 ## Local terrain outbox (v3)
 

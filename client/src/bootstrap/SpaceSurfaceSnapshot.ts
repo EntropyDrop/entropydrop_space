@@ -1,4 +1,4 @@
-import type { SurfaceZoneSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
+import type { SurfaceZoneSnapshot, DistantChunkSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 export type { SurfaceZoneSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 
 import {
@@ -8,16 +8,16 @@ import {
   sha256Hex,
 } from './NetworkSafety.ts';
 
-export const SURFACE_ZONE_SCHEMA_VERSION = 3;
+export const SURFACE_ZONE_SCHEMA_VERSION = 5;
 export const SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS = 8;
 export const SURFACE_ZONE_SIZE_CHUNKS = 32;
 export const SURFACE_ZONE_HEADER_BYTES = 32;
-export const SURFACE_ZONE_RECORD_BYTES = 5;
-export const MAX_SURFACE_ZONE_BYTES = 384 * 1024;
+export const SURFACE_ZONE_RECORD_BYTES = 8;
+export const LEGACY_SURFACE_ZONE_RECORD_BYTES = 5;
+export const MAX_SURFACE_ZONE_BYTES = 16 * 1024 * 1024;
 const MAX_SURFACE_MANIFEST_BYTES = 256 * 1024;
 const MAX_SURFACE_ZONES = 128;
 const SURFACE_DOWNLOAD_CONCURRENCY = 6;
-const SURFACE_MANIFEST_POLL_MS = 2_500;
 const SURFACE_LOD_SIZES = [4, 8, 16, 32, 64];
 const SURFACE_REFINEMENT_BUDGET_BYTES = 4 * 1024 * 1024;
 
@@ -64,7 +64,7 @@ function resolveSurfaceApiUrl(input: string, apiOrigin: string): URL {
 function parseManifest(value: unknown): SurfaceZoneManifest {
   const manifest = value as any;
   if (
-    manifest?.schema_version !== SURFACE_ZONE_SCHEMA_VERSION
+    ![3, SURFACE_ZONE_SCHEMA_VERSION].includes(manifest?.schema_version)
     || manifest?.samples_per_chunk_axis !== SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS
     || manifest?.zone_size_chunks !== SURFACE_ZONE_SIZE_CHUNKS
     || !boundedInteger(manifest?.width_chunks, SURFACE_ZONE_SIZE_CHUNKS, 2048)
@@ -113,7 +113,7 @@ function parseManifest(value: unknown): SurfaceZoneManifest {
         if (!SURFACE_LOD_SIZES.includes(level?.sample_size)
           || levels.has(level.sample_size)
           || typeof level.digest !== 'string' || !/^[0-9a-f]{64}$/.test(level.digest)
-          || level.byte_length !== SURFACE_ZONE_HEADER_BYTES + (512 / level.sample_size) ** 2 * SURFACE_ZONE_RECORD_BYTES
+          || !boundedInteger(level.byte_length, SURFACE_ZONE_HEADER_BYTES + (512 / level.sample_size) ** 2 * LEGACY_SURFACE_ZONE_RECORD_BYTES, MAX_SURFACE_ZONE_BYTES)
           || typeof level.url !== 'string' || level.url.length < 1 || level.url.length > 4096) {
           throw new Error('Invalid Space surface LOD manifest entry.');
         }
@@ -131,7 +131,7 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
   const schemaVersion = view.getUint8(4);
-  const sampleSize = schemaVersion === 4 ? view.getUint8(5) : undefined;
+  const sampleSize = schemaVersion >= 4 ? view.getUint8(5) : undefined;
   const samplesPerChunkAxis = sampleSize ? 16 / sampleSize : view.getUint8(5);
   const zoneSizeChunks = view.getUint8(6);
   const recordBytes = view.getUint8(7);
@@ -142,31 +142,71 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
   const sourceTerrainRevision = Number(view.getBigUint64(20, true));
   const recordCount = view.getUint32(28, true);
   const expectedRecords = zoneSizeChunks * zoneSizeChunks * samplesPerChunkAxis ** 2;
-  const expectedBytes = SURFACE_ZONE_HEADER_BYTES + recordCount * SURFACE_ZONE_RECORD_BYTES;
+  const expectedBytes = SURFACE_ZONE_HEADER_BYTES + recordCount * recordBytes;
   if (
     magic !== 'EDSZ'
-    || (schemaVersion !== SURFACE_ZONE_SCHEMA_VERSION && schemaVersion !== 4)
-    || (schemaVersion === 4 ? !SURFACE_LOD_SIZES.includes(sampleSize!)
+    || ![3, 4, 5].includes(schemaVersion)
+    || (schemaVersion >= 4 ? ![2, ...SURFACE_LOD_SIZES].includes(sampleSize!)
       : samplesPerChunkAxis !== SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS)
     || zoneSizeChunks !== SURFACE_ZONE_SIZE_CHUNKS
-    || recordBytes !== SURFACE_ZONE_RECORD_BYTES
+    || recordBytes !== (schemaVersion === 5 ? SURFACE_ZONE_RECORD_BYTES : LEGACY_SURFACE_ZONE_RECORD_BYTES)
     || !Number.isSafeInteger(sourceTerrainRevision)
     || recordCount !== expectedRecords
-    || bytes.byteLength !== expectedBytes
-    || expectedBytes > MAX_SURFACE_ZONE_BYTES
+    || (schemaVersion === 5 ? bytes.byteLength < expectedBytes + 4 : bytes.byteLength !== expectedBytes)
+    || bytes.byteLength > MAX_SURFACE_ZONE_BYTES
   ) {
     throw new Error('Invalid Space surface-zone snapshot.');
   }
 
   const heightsMicro = new Uint16Array(recordCount);
   const colors = new Uint8Array(recordCount * 3);
+  const minHeightsMicro = schemaVersion === 5 ? new Uint16Array(recordCount) : undefined;
+  const colorErrors = schemaVersion === 5 ? new Uint8Array(recordCount) : undefined;
   let offset = SURFACE_ZONE_HEADER_BYTES;
   for (let index = 0; index < recordCount; index++) {
     heightsMicro[index] = view.getUint16(offset, true);
-    colors[index * 3] = view.getUint8(offset + 2);
-    colors[index * 3 + 1] = view.getUint8(offset + 3);
-    colors[index * 3 + 2] = view.getUint8(offset + 4);
-    offset += SURFACE_ZONE_RECORD_BYTES;
+    if (heightsMicro[index] > 2048) throw new Error('Invalid surface height.');
+    const colorOffset = offset + (schemaVersion === 5 ? 4 : 2);
+    colors.set(bytes.subarray(colorOffset, colorOffset + 3), index * 3);
+    if (minHeightsMicro && colorErrors) {
+      minHeightsMicro[index] = view.getUint16(offset + 2, true);
+      colorErrors[index] = bytes[offset + 7];
+      if (minHeightsMicro[index] > heightsMicro[index]) throw new Error('Invalid surface error bound.');
+    }
+    offset += recordBytes;
+  }
+  let detailChunks: DistantChunkSnapshot[] | undefined;
+  if (schemaVersion === 5) {
+    detailChunks = [];
+    const count = view.getUint32(offset, true);
+    offset += 4;
+    if (count > 1024) throw new Error('Invalid surface chunk count.');
+    const seen = new Set<number>();
+    for (let i = 0; i < count; i++) {
+      if (offset + 14 > bytes.length) throw new Error('Truncated surface chunk.');
+      const cx = bytes[offset], cz = bytes[offset + 1];
+      const revision = Number(view.getBigUint64(offset + 2, true));
+      const boxesCount = view.getUint32(offset + 10, true);
+      offset += 14;
+      if (cx >= 32 || cz >= 32 || seen.has(cx * 32 + cz)
+        || !Number.isSafeInteger(revision) || offset + boxesCount * 15 > bytes.length) {
+        throw new Error('Invalid surface chunk.');
+      }
+      seen.add(cx * 32 + cz);
+      const boxes = new Uint16Array(boxesCount * 6), boxColors = new Uint8Array(boxesCount * 3);
+      for (let b = 0; b < boxesCount; b++) {
+        for (let c = 0; c < 6; c++) boxes[b * 6 + c] = view.getUint16(offset + c * 2, true);
+        const [x, y, z, w, h, d] = boxes.subarray(b * 6, b * 6 + 6);
+        if (!w || !h || !d || x + w > 128 || z + d > 128 || y + h > 2048) {
+          throw new Error('Invalid surface solid bounds.');
+        }
+        boxColors.set(bytes.subarray(offset + 12, offset + 15), b * 3);
+        offset += 15;
+      }
+      detailChunks.push({ chunkX: zoneX * 32 + cx, chunkZ: zoneZ * 32 + cz,
+        revision, boxes, colors: boxColors });
+    }
+    if (offset !== bytes.length) throw new Error('Unexpected surface snapshot trailer.');
   }
   return {
     ...(sampleSize === undefined ? {} : { sampleSize }),
@@ -179,6 +219,7 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
     samplesPerChunkAxis,
     heightsMicro,
     colors,
+    minHeightsMicro, colorErrors, detailChunks,
   };
 }
 
@@ -194,6 +235,7 @@ export interface SpaceSurfaceSnapshotRemote {
 }
 
 export interface SurfaceStreamOptions {
+  getDataBudgetBytes?: () => number;
   /** Camera demand is evaluated on each pass; 64 keeps only the overview. */
   getZoneDemand(zoneX: number, zoneZ: number): { sampleSize: number; priority: number };
 }
@@ -228,16 +270,9 @@ export function createSpaceSurfaceSnapshotRemote(
         manifestFetchedAt = Date.now();
       }
       const manifest = cachedManifest;
-      const readyZoneKeys = new Set(
-        manifest.zones.map(entry => `${entry.zone_x},${entry.zone_z}`)
-      );
-      for (const key of installed.keys()) {
-        if (readyZoneKeys.has(key)) continue;
-        installed.delete(key);
-        overviews.delete(key);
-        const [zoneX, zoneZ] = key.split(',').map(Number);
-        onZoneRemoved?.(zoneX, zoneZ);
-      }
+      // An absent zone is unavailable (initial build, migration, or a legacy
+      // dirty manifest), never a deletion. Retain last-good coverage until an
+      // authenticated replacement arrives. The world has a fixed zone domain.
       const zones = manifest.zones.map(entry => ({
         entry, demand: options?.getZoneDemand(entry.zone_x, entry.zone_z)
           ?? { sampleSize: 2, priority: entry.zone_x * 32 + entry.zone_z },
@@ -251,10 +286,11 @@ export function createSpaceSurfaceSnapshotRemote(
         while (index + 1 < available.length && available[index + 1].sample_size <= demand.sampleSize) index++;
         if (options && available.at(-1)?.sample_size === 64) {
           while (index < available.length - 1
-            && refinementBytes + available[index].byte_length > SURFACE_REFINEMENT_BUDGET_BYTES) index++;
+            && refinementBytes + available[index].byte_length - available.at(-1)!.byte_length
+              > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) index++;
         }
         const level = available[index];
-        if (level.sample_size < 64) refinementBytes += level.byte_length;
+        if (level.sample_size < 64) refinementBytes += level.byte_length - (available.at(-1)?.byte_length ?? 0);
         targets.set(`${entry.zone_x},${entry.zone_z}`, level);
       }
       const download = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
@@ -327,10 +363,7 @@ export function createSpaceSurfaceSnapshotRemote(
       };
       await pass(true);
       await pass(false);
-      if (manifest.complete) {
-        return { loaded, complete: true };
-      }
-      await new Promise(resolve => setTimeout(resolve, SURFACE_MANIFEST_POLL_MS));
+      return { loaded, complete: manifest.complete };
     }
   };
   return {

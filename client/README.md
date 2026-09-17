@@ -40,7 +40,7 @@ saved perspective settings restore without an initial animation.
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | Three-repository split, module map and runtime data flow. |
 | [docs/networking.md](docs/networking.md) | REST boundaries, credentials and the `space-relay-v1` MessagePack schema. |
-| [docs/formats.md](docs/formats.md) | Inventory v7, backpack v8, API envelopes v2, `EDSZ` v3 and the world-edit outbox. |
+| [docs/formats.md](docs/formats.md) | Inventory v7, backpack v8, API envelopes v2, `EDSZ` v5 and the world-edit outbox. |
 | [docs/ai-builder.md](docs/ai-builder.md) | Agent Build external-agent workflow and retired BuildPlan reference. |
 | [docs/micro-grid-p0.md](docs/micro-grid-p0.md) | 8×8×8 micro grid, collision caching and physics benchmarks. |
 | [docs/agent-access-design.md](docs/agent-access-design.md) | Agent access architecture and migration plan (design, not shipped status). |

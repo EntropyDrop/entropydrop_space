@@ -1,3 +1,4 @@
+import { DistantChunkLayer } from './DistantChunkLayer.ts';
 import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
@@ -12,140 +13,45 @@ const ZONE_WORLD_SIZE = CHUNK_SIZE * ZONE_SIZE_CHUNKS;
 const FINE_SAMPLE_SIZE = 2;
 const FINE_SAMPLES_PER_CHUNK_AXIS = CHUNK_SIZE / FINE_SAMPLE_SIZE;
 const MAX_SURFACE_INSTANCES = 512 * 1024;
-const MAX_SURFACE_CONNECTIONS = 1024 * 1024;
+const MAX_SURFACE_CONNECTIONS = 4 * MAX_SURFACE_INSTANCES;
 const LOD_SAMPLE_SIZES = [2, 4, 8, 16, 32, 64] as const;
 const FINE_WORLD_Z_AXIS = TORUS_SIZE_Z / FINE_SAMPLE_SIZE;
 const WORLD_CHUNKS_X = TORUS_SIZE_X / CHUNK_SIZE;
 const WORLD_CHUNKS_Z = TORUS_SIZE_Z / CHUNK_SIZE;
-const DISTANCE_STEP = 50;
-
 export interface DistantSurfaceSettings {
-  lod2Distance: number;
-  lod4Distance: number;
-  lod8Distance: number;
-  lod16Distance: number;
-  lod32Distance: number;
+  screenErrorPx: number;
   maxDistance: number;
-  connectionDistance: number;
-  lod2Enabled: boolean;
-  lod4Enabled: boolean;
-  lod8Enabled: boolean;
-  lod16Enabled: boolean;
-  lod32Enabled: boolean;
-  lod64Enabled: boolean;
+  dataBudgetMiB: number;
 }
-
 export type DistantSurfaceSettingKey = keyof DistantSurfaceSettings;
-export type DistantSurfaceDistanceSettingKey =
-  | 'lod2Distance'
-  | 'lod4Distance'
-  | 'lod8Distance'
-  | 'lod16Distance'
-  | 'lod32Distance'
-  | 'maxDistance'
-  | 'connectionDistance';
-export type DistantSurfaceEnabledSettingKey =
-  | 'lod2Enabled'
-  | 'lod4Enabled'
-  | 'lod8Enabled'
-  | 'lod16Enabled'
-  | 'lod32Enabled'
-  | 'lod64Enabled';
-
 export const DEFAULT_DISTANT_SURFACE_SETTINGS: Readonly<DistantSurfaceSettings> = Object.freeze({
-  lod2Distance: 400,
-  lod4Distance: 600,
-  lod8Distance: 800,
-  lod16Distance: 1000,
-  lod32Distance: 1600,
-  maxDistance: 8500,
-  connectionDistance: 4000,
-  lod2Enabled: true,
-  lod4Enabled: true,
-  lod8Enabled: true,
-  lod16Enabled: true,
-  lod32Enabled: true,
-  lod64Enabled: true,
+  screenErrorPx: 2, maxDistance: 8500, dataBudgetMiB: 16,
 });
-
 export const DISTANT_SURFACE_SETTING_LIMITS = Object.freeze({
-  lod2Distance: Object.freeze({ min: 100, max: 500, step: DISTANCE_STEP }),
-  lod4Distance: Object.freeze({ min: 150, max: 1000, step: DISTANCE_STEP }),
-  lod8Distance: Object.freeze({ min: 200, max: 1600, step: DISTANCE_STEP }),
-  lod16Distance: Object.freeze({ min: 250, max: 3000, step: DISTANCE_STEP }),
-  lod32Distance: Object.freeze({ min: 300, max: 8450, step: DISTANCE_STEP }),
-  maxDistance: Object.freeze({ min: 350, max: 8500, step: DISTANCE_STEP }),
-  connectionDistance: Object.freeze({ min: 0, max: 8500, step: 250 }),
+  screenErrorPx: Object.freeze({ min: 0.5, max: 8, step: 0.5 }),
+  maxDistance: Object.freeze({ min: 500, max: 8500, step: 250 }),
+  dataBudgetMiB: Object.freeze({ min: 4, max: 64, step: 4 }),
 });
-
-const LOD_SETTING_KEYS = [
-  'lod2Distance',
-  'lod4Distance',
-  'lod8Distance',
-  'lod16Distance',
-  'lod32Distance',
-] as const;
-const LOD_ENABLED_KEYS = [
-  'lod2Enabled',
-  'lod4Enabled',
-  'lod8Enabled',
-  'lod16Enabled',
-  'lod32Enabled',
-  'lod64Enabled',
-] as const;
-const ORDERED_DISTANCE_KEYS = [...LOD_SETTING_KEYS, 'maxDistance'] as const;
-
-function snapDistance(value: unknown, fallback: number, step: number) {
-  const numeric = Number(value);
-  return Math.round((Number.isFinite(numeric) ? numeric : fallback) / step) * step;
-}
-
+/** Legacy tier keys are deliberately ignored when reading persisted settings. */
 export function normalizeDistantSurfaceSettings(
   value: Partial<DistantSurfaceSettings> | null | undefined,
 ): DistantSurfaceSettings {
-  const normalized = {} as DistantSurfaceSettings;
-  let previous = -DISTANCE_STEP;
-  for (const key of ORDERED_DISTANCE_KEYS) {
+  const normalized = { ...DEFAULT_DISTANT_SURFACE_SETTINGS };
+  for (const key of Object.keys(normalized) as DistantSurfaceSettingKey[]) {
     const limits = DISTANT_SURFACE_SETTING_LIMITS[key];
-    const candidate = snapDistance(
-      value?.[key],
-      DEFAULT_DISTANT_SURFACE_SETTINGS[key],
-      limits.step,
-    );
-    normalized[key] = Math.max(
-      limits.min,
-      previous + DISTANCE_STEP,
-      Math.min(limits.max, candidate),
-    );
-    previous = normalized[key];
+    const candidate = value?.[key];
+    if (typeof candidate !== 'number' || !Number.isFinite(candidate)) continue;
+    normalized[key] = Math.max(limits.min, Math.min(limits.max,
+      Math.round(candidate / limits.step) * limits.step));
   }
-  for (const key of LOD_ENABLED_KEYS) {
-    normalized[key] = typeof value?.[key] === 'boolean'
-      ? value[key]
-      : DEFAULT_DISTANT_SURFACE_SETTINGS[key];
-  }
-  const connectionLimits = DISTANT_SURFACE_SETTING_LIMITS.connectionDistance;
-  normalized.connectionDistance = Math.max(
-    connectionLimits.min,
-    Math.min(
-      connectionLimits.max,
-      snapDistance(
-        value?.connectionDistance,
-        DEFAULT_DISTANT_SURFACE_SETTINGS.connectionDistance,
-        connectionLimits.step,
-      ),
-    ),
-  );
   return normalized;
 }
-// Move the legacy distance-only topology anchor in 64 m increments. Chunk crossings
-// then avoid rebuilding roughly 190k surface cells; a separate ready mask
-// handles the exact per-chunk transition to detailed terrain.
+// Keep the pre-camera fallback anchor stable during bootstrap. Once the bent
+// camera is available, subdivision uses its projection and actual position.
 const LOD_CENTER_STEP_CHUNKS = 4;
-// A topology move may inspect roughly 190k cells. Work in short macrotasks so
+// Work in short macrotasks so
 // connection generation cannot consume a complete 8.33 ms frame at 120 Hz.
 const CONNECTION_BUILD_BUDGET_MS = 2;
-const MAX_SCREEN_ERROR_PX = 2;
 const REFERENCE_PIXEL_SCALE = 720;
 // Voxel colors are authored and serialized as sRGB hex values. Three.Color.setHex,
 // used by the detailed chunk mesher, converts those values to linear RGB before
@@ -205,7 +111,7 @@ vec3 transformed = vec3(
   mix(surfaceBottomHeight, surfaceHeight, position.y) * ${MICRO_SIZE},
   surfaceFlatPosition.y
 );
-vSurfaceFlatPosition = transformed.xz;
+vSurfaceFlatPosition = transformed.xz - surfaceNormal * 0.01;
 vSurfaceHeight = surfaceHeight;
 `;
 
@@ -225,7 +131,7 @@ vec2 surfaceWrapped = mod(
 );
 vec2 surfaceChunk = floor(surfaceWrapped / ${CHUNK_SIZE.toFixed(1)});
 vec2 surfaceMaskUv = (surfaceChunk + 0.5) / uSurfaceWorldChunks;
-if (texture2D(uSurfaceDetailMask, surfaceMaskUv).r > 0.5) discard;
+if (texture2D(uSurfaceDetailMask, surfaceMaskUv).r > 0.25) discard;
 #include <color_fragment>
 `;
 
@@ -236,6 +142,7 @@ interface SurfaceMip {
   colors: Uint8Array;
   minHeights: Uint16Array;
   colorErrors: Float32Array;
+  maxResidual?: number;
 }
 
 interface StoredSurfaceZone {
@@ -312,11 +219,11 @@ function createMaterial(detailMask: THREE.DataTexture, side = false) {
   // otherwise visible Lambert/PBR color step at the seam.
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    flatShading: true,
+    flatShading: side,
     roughness: 0.65,
     metalness: 0.15,
     shadowSide: THREE.DoubleSide,
-    side: THREE.FrontSide,
+    side: side ? THREE.DoubleSide : THREE.FrontSide,
   });
   material.onBeforeCompile = shader => {
     shader.uniforms.uSurfaceWorldSize = { value: new THREE.Vector2(TORUS_SIZE_X, TORUS_SIZE_Z) };
@@ -335,7 +242,7 @@ function createMaterial(detailMask: THREE.DataTexture, side = false) {
       .replace('#include <color_fragment>', SURFACE_COLOR_FRAGMENT);
   };
   material.customProgramCacheKey = () => (
-    side ? 'distant-surface-zone-v4-connections' : 'distant-surface-zone-v4-tops'
+    side ? 'distant-surface-zone-v5-connections' : 'distant-surface-zone-v5-tops'
   );
   return material;
 }
@@ -374,8 +281,9 @@ function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
     axis: fineAxis,
     heights: finestHeights,
     colors: finestColors,
-    minHeights: finestHeights.slice(),
-    colorErrors: new Float32Array(fineAxis * fineAxis),
+    minHeights: zone.minHeightsMicro?.slice() ?? finestHeights.slice(),
+    colorErrors: zone.colorErrors ? Float32Array.from(zone.colorErrors, value => Math.min(1, value / 255 * 2.4))
+      : new Float32Array(fineAxis * fineAxis),
   };
   mips.set(current.cellSize, current);
   while (current.cellSize < 64) {
@@ -428,6 +336,14 @@ function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
     };
     mips.set(current.cellSize, current);
   }
+  for (const mip of mips.values()) {
+    let maximum = 0;
+    for (let index = 0; index < mip.heights.length; index++) {
+      maximum = Math.max(maximum, (mip.heights[index] - mip.minHeights[index]) * MICRO_SIZE
+        + mip.cellSize * mip.colorErrors[index] * 0.25);
+    }
+    mip.maxResidual = maximum;
+  }
   return mips;
 }
 
@@ -441,16 +357,6 @@ function wrappedAxisDistanceToCell(
   const direct = Math.abs(center - player);
   const centerDistance = Math.min(direct, worldSize - direct);
   return Math.max(0, centerDistance - cellSize / 2);
-}
-
-function desiredSampleSize(distance: number, settings: DistantSurfaceSettings): number | null {
-  const bands = ORDERED_DISTANCE_KEYS.map(key => settings[key]);
-  for (let index = 0; index < bands.length; index++) {
-    if (distance <= bands[index] && settings[LOD_ENABLED_KEYS[index]]) {
-      return LOD_SAMPLE_SIZES[index];
-    }
-  }
-  return null;
 }
 
 function quantizedChunkCenter(chunk: number, worldChunks: number) {
@@ -467,17 +373,18 @@ export class DistantSurfaceLayer {
   readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
   readonly sideMesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
   readonly detailMaskTexture: THREE.DataTexture;
+  readonly authoredChunks: DistantChunkLayer;
   readonly loadedZones = new Set<string>();
   private readonly detailMaskData = new Uint8Array(WORLD_CHUNKS_X * WORLD_CHUNKS_Z);
   private readonly zones = new Map<string, StoredSurfaceZone>();
   private settings = normalizeDistantSurfaceSettings(DEFAULT_DISTANT_SURFACE_SETTINGS);
   private offsets: Uint16Array | null = null;
-  private heights: Uint16Array | null = null;
+  private heights: Float32Array | null = null;
   private sizes: Uint8Array | null = null;
   private colors: Uint8Array | null = null;
   private sideOffsets: Uint16Array | null = null;
-  private sideHeights: Uint16Array | null = null;
-  private sideBottomHeights: Uint16Array | null = null;
+  private sideHeights: Float32Array | null = null;
+  private sideBottomHeights: Float32Array | null = null;
   private sideSizes: Uint8Array | null = null;
   private sideAxes: Uint8Array | null = null;
   private sideNormals: Int8Array | null = null;
@@ -509,6 +416,8 @@ export class DistantSurfaceLayer {
   private readonly cellBounds = new THREE.Sphere();
   private readonly recentlyVisible = new Map<string, number>();
   private readonly zoneDemandSizes = new Map<string, number>();
+  private readonly splitCells = new Set<string>();
+  private rebuildQueued = false;
   private hasView = false;
   private pixelScale = REFERENCE_PIXEL_SCALE;
   private lodViewKey = '';
@@ -530,6 +439,13 @@ export class DistantSurfaceLayer {
     this.detailMaskTexture.wrapT = THREE.RepeatWrapping;
     this.detailMaskTexture.generateMipmaps = false;
     this.detailMaskTexture.needsUpdate = true;
+    this.authoredChunks = new DistantChunkLayer(this.detailMaskTexture, (cx, cz) => {
+      const index = cz * WORLD_CHUNKS_X + cx;
+      if (this.detailMaskData[index] !== 255) this.detailMaskData[index] = 128;
+      this.detailMaskTexture.needsUpdate = true;
+      if (this.zones.size > 0) this.requestRebuild();
+      this.syncVisibility();
+    });
 
     this.mesh = new THREE.Mesh(createTopGeometry(), createMaterial(this.detailMaskTexture));
     this.mesh.name = 'DistantSurfaceZones';
@@ -549,12 +465,12 @@ export class DistantSurfaceLayer {
     // Child batches use the default camera layer independently of the parent.
     this.mesh.layers.disableAll();
     this.sideMesh.layers.disableAll();
-    this.mesh.add(this.sideMesh);
+    this.mesh.add(this.sideMesh, this.authoredChunks.group);
     hookSceneMaterials(this.mesh);
   }
 
   private syncVisibility() {
-    this.mesh.visible = this.enabled && this.mesh.geometry.instanceCount > 0;
+    this.mesh.visible = this.enabled && (this.mesh.geometry.instanceCount > 0 || this.authoredChunks.group.children.length > 0);
     this.sideMesh.visible = this.enabled && this.sideMesh.geometry.instanceCount > 0;
   }
 
@@ -575,6 +491,7 @@ export class DistantSurfaceLayer {
     this.cameraPosition.copy(camera.position);
     this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projection);
+    this.authoredChunks.updateView(this.frustum, this.cameraPosition, this.settings.maxDistance);
     const now = performance.now();
     for (const [key, batch] of this.batches) {
       const visible = this.frustum.intersectsSphere(batch.bounds);
@@ -583,10 +500,9 @@ export class DistantSurfaceLayer {
       if (visible) this.recentlyVisible.set(key, now);
     }
     const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
-    // A stable 64 m cell and a 10% projection step avoid rebuilding for small
-    // motion, zoom changes, or adaptive-resolution fluctuations.
-    if (this.lodViewKey && this.lodPosition.distanceTo(camera.position) < 64
-      && scale < this.pixelScale * 1.1 && scale > this.pixelScale / 1.1) return;
+    // Hysteresis avoids rebuilding for sub-pixel motion or tiny resolution changes.
+    if (this.lodViewKey && this.lodPosition.distanceTo(camera.position) < 8
+      && scale < this.pixelScale * 1.05 && scale > this.pixelScale / 1.05) return;
     this.lodViewKey = 'active';
     this.lodPosition.copy(camera.position);
     this.pixelScale = scale;
@@ -603,12 +519,23 @@ export class DistantSurfaceLayer {
     const distance = Math.max(0, this.cameraPosition.distanceTo(sphere.center) - sphere.radius);
     const visible = this.frustum.intersectsSphere(sphere)
       || performance.now() - (this.recentlyVisible.get(key) ?? -Infinity) < 2000;
-    const projectedDistance = distance * REFERENCE_PIXEL_SCALE / this.pixelScale;
-    let sampleSize = visible ? desiredSampleSize(projectedDistance, this.settings) ?? 64 : 64;
-    const previous = this.zoneDemandSizes.get(key);
-    if (visible && previous !== undefined && sampleSize !== previous) {
-      const margin = sampleSize < previous ? 1.1 : 0.9;
-      sampleSize = desiredSampleSize(projectedDistance * margin, this.settings) ?? 64;
+    let sampleSize = 64;
+    const zone = this.zones.get(key);
+    if (visible && distance <= this.settings.maxDistance) {
+      // Source mips carry their original height/colour residual, rather than
+      // pretending a downloaded 64m tile has zero error. Refine the data until
+      // the projected residual fits, even across the opposite side of the ring.
+      for (const size of [...LOD_SAMPLE_SIZES].reverse()) {
+        sampleSize = size;
+        let error: number = size;
+        if (zone) {
+          const mip = zone.mips.get(Math.max(size, zone.sampleSize))!;
+          error = mip.maxResidual! * Math.min(1, size / zone.sampleSize);
+        }
+        const previous = this.zoneDemandSizes.get(key) ?? 64;
+        const hysteresis = size > previous ? 0.8 : 1;
+        if (error * this.pixelScale / Math.max(1, distance) <= this.settings.screenErrorPx * hysteresis) break;
+      }
     }
     this.zoneDemandSizes.set(key, sampleSize);
     return { sampleSize, priority: distance + (visible ? 0 : 20_000) };
@@ -617,7 +544,7 @@ export class DistantSurfaceLayer {
   private requestRebuild() {
     // Coalesce downloads and camera updates. Keep the uploaded batches alive
     // until one complete top/side replacement can be published atomically.
-    this.connectionBuildGeneration++;
+    if (this.connectionBuildPending) { this.rebuildQueued = true; return; }
     if (this.rebuildTimer !== null) return;
     this.rebuildTimer = setTimeout(() => {
       this.rebuildTimer = null;
@@ -716,10 +643,25 @@ export class DistantSurfaceLayer {
     const wrappedX = ((chunkX % WORLD_CHUNKS_X) + WORLD_CHUNKS_X) % WORLD_CHUNKS_X;
     const wrappedZ = ((chunkZ % WORLD_CHUNKS_Z) + WORLD_CHUNKS_Z) % WORLD_CHUNKS_Z;
     const index = wrappedZ * WORLD_CHUNKS_X + wrappedX;
-    const value = ready ? 255 : 0;
+    const value = ready ? 255 : this.authoredChunks.has(wrappedX, wrappedZ) ? 128 : 0;
     if (this.detailMaskData[index] === value) return;
     this.detailMaskData[index] = value;
     this.detailMaskTexture.needsUpdate = true;
+    if (this.zones.size > 0) this.requestRebuild();
+  }
+
+  private nearDetail(worldX: number, worldZ: number, size: number, nearOnly = false) {
+    // Match chunk ownership boundaries before the fragment mask cuts a hole.
+    // Include one neighbouring chunk for a closed, fine-resolution handoff.
+    for (let x = Math.floor(worldX / 16) - 1; x <= Math.floor((worldX + size - 1) / 16) + 1; x++) {
+      for (let z = Math.floor(worldZ / 16) - 1; z <= Math.floor((worldZ + size - 1) / 16) + 1; z++) {
+        const cx = (x + WORLD_CHUNKS_X) % WORLD_CHUNKS_X;
+        const cz = (z + WORLD_CHUNKS_Z) % WORLD_CHUNKS_Z;
+        const ownership = this.detailMaskData[cz * WORLD_CHUNKS_X + cx];
+        if (nearOnly ? ownership === 255 : ownership !== 0) return true;
+      }
+    }
+    return false;
   }
 
   private ensureStorage() {
@@ -729,12 +671,12 @@ export class DistantSurfaceLayer {
       && this.sideSizes && this.sideAxes && this.sideNormals && this.sideColors
     ) return;
     this.offsets = new Uint16Array(MAX_SURFACE_INSTANCES * 2);
-    this.heights = new Uint16Array(MAX_SURFACE_INSTANCES);
+    this.heights = new Float32Array(MAX_SURFACE_INSTANCES);
     this.sizes = new Uint8Array(MAX_SURFACE_INSTANCES);
     this.colors = new Uint8Array(MAX_SURFACE_INSTANCES * 3);
     this.sideOffsets = new Uint16Array(MAX_SURFACE_CONNECTIONS * 2);
-    this.sideHeights = new Uint16Array(MAX_SURFACE_CONNECTIONS);
-    this.sideBottomHeights = new Uint16Array(MAX_SURFACE_CONNECTIONS);
+    this.sideHeights = new Float32Array(MAX_SURFACE_CONNECTIONS);
+    this.sideBottomHeights = new Float32Array(MAX_SURFACE_CONNECTIONS);
     this.sideSizes = new Uint8Array(MAX_SURFACE_CONNECTIONS);
     this.sideAxes = new Uint8Array(MAX_SURFACE_CONNECTIONS);
     this.sideNormals = new Int8Array(MAX_SURFACE_CONNECTIONS * 2);
@@ -783,19 +725,29 @@ export class DistantSurfaceLayer {
     const sampleX = Math.floor(localX / mip.cellSize);
     const sampleZ = Math.floor(localZ / mip.cellSize);
     const sourceIndex = sampleX * mip.axis + sampleZ;
-    const height = mip.heights[sourceIndex];
+    let height = mip.heights[sourceIndex];
     const worldX = zone.zoneX * ZONE_WORLD_SIZE + localX;
     const worldZ = zone.zoneZ * ZONE_WORLD_SIZE + localZ;
-    const red = mip.colors[sourceIndex * 3];
-    const green = mip.colors[sourceIndex * 3 + 1];
-    const blue = mip.colors[sourceIndex * 3 + 2];
-    const zoneKey = `${zone.zoneX},${zone.zoneZ}`;
-    if (
-      this.settings.connectionDistance > 0
-      && distance <= this.settings.connectionDistance
-    ) {
-      this.connectedCells.push({ zoneKey, worldX, worldZ, cellSize, height, red, green, blue });
+    let red = mip.colors[sourceIndex * 3];
+    let green = mip.colors[sourceIndex * 3 + 1];
+    let blue = mip.colors[sourceIndex * 3 + 2];
+    // Start each split at its parent's height/colour, then continuously resolve
+    // the children as projected error grows. Ownership boundaries stay exact.
+    if (this.hasView && cellSize >= zone.sampleSize && cellSize < 64
+      && height > 0 && !this.nearDetail(worldX, worldZ, cellSize)) {
+      const parent = zone.mips.get(cellSize * 2)!;
+      const pi = Math.floor(localX / parent.cellSize) * parent.axis + Math.floor(localZ / parent.cellSize);
+      const error = (parent.heights[pi] - parent.minHeights[pi]) * MICRO_SIZE
+        + curvatureError(parent.cellSize, parent.heights[pi]) + parent.cellSize * parent.colorErrors[pi] * 0.25;
+      const blend = THREE.MathUtils.smoothstep(error * this.pixelScale / Math.max(1, distance)
+        / this.settings.screenErrorPx, 0.85, 1.3);
+      height = THREE.MathUtils.lerp(parent.heights[pi], height, blend);
+      red = Math.round(THREE.MathUtils.lerp(parent.colors[pi * 3], red, blend));
+      green = Math.round(THREE.MathUtils.lerp(parent.colors[pi * 3 + 1], green, blend));
+      blue = Math.round(THREE.MathUtils.lerp(parent.colors[pi * 3 + 2], blue, blend));
     }
+    const zoneKey = `${zone.zoneX},${zone.zoneZ}`;
+    this.connectedCells.push({ zoneKey, worldX, worldZ, cellSize, height, red, green, blue });
     if (height === 0) return;
     if (this.writeIndex >= MAX_SURFACE_INSTANCES) {
       throw new Error('Adaptive Space surface instance budget exceeded.');
@@ -821,34 +773,28 @@ export class DistantSurfaceLayer {
     const dx = wrappedAxisDistanceToCell(playerX, worldX, cellSize, TORUS_SIZE_X);
     const dz = wrappedAxisDistanceToCell(playerZ, worldZ, cellSize, TORUS_SIZE_Z);
     let distance = Math.hypot(dx, dz);
-    let mustSplit = true;
+    const mip = zone.mips.get(Math.max(cellSize, zone.sampleSize))!;
+    const index = Math.floor(localX / mip.cellSize) * mip.axis + Math.floor(localZ / mip.cellSize);
+    const height = mip.heights[index], minHeight = mip.minHeights[index];
     if (this.hasView) {
-      const mip = zone.mips.get(Math.max(cellSize, zone.sampleSize))!;
-      const index = Math.floor(localX / mip.cellSize) * mip.axis + Math.floor(localZ / mip.cellSize);
-      const height = mip.heights[index];
-      const minHeight = mip.minHeights[index];
       computeBentBoundsSphere({ minX: worldX, maxX: worldX + cellSize,
         minZ: worldZ, maxZ: worldZ + cellSize,
         minY: minHeight * MICRO_SIZE, maxY: height * MICRO_SIZE }, this.cellBounds);
       distance = Math.max(1, this.lodPosition.distanceTo(this.cellBounds.center) - this.cellBounds.radius);
-      const error = (height - minHeight) * MICRO_SIZE
-        + curvatureError(cellSize, height) + cellSize * mip.colorErrors[index] * 0.25;
-      mustSplit = error * this.pixelScale / distance > MAX_SCREEN_ERROR_PX;
     }
     if (distance > this.settings.maxDistance) return;
-    const sampleSize = desiredSampleSize(this.hasView
-      ? Math.min(this.settings.maxDistance, distance * REFERENCE_PIXEL_SCALE / this.pixelScale)
-      : distance, this.settings);
-    if (sampleSize === null) return;
-    // Coarse data may still need extra vertices to follow the tube's curvature.
-    // Conversely a flat, uniform patch can stay coarse even near the camera.
-    // Reserve a coarse cell for every remaining root even at extreme zoom.
-    // Exceeding the budget reduces refinement instead of dropping terrain.
-    const canRefine = !this.hasView || this.writeIndex < MAX_SURFACE_INSTANCES - 4 * 8192;
-    const tierIndex = LOD_SAMPLE_SIZES.indexOf(cellSize as typeof LOD_SAMPLE_SIZES[number]);
-    const tierEnabled = this.settings[LOD_ENABLED_KEYS[tierIndex]];
-    if (cellSize > sampleSize && (mustSplit || !tierEnabled) && canRefine
-      && (this.hasView || cellSize > zone.sampleSize)) {
+    const error = (height - minHeight) * MICRO_SIZE + curvatureError(cellSize, height)
+      + cellSize * mip.colorErrors[index] * 0.25;
+    const key = `${worldX},${worldZ},${cellSize}`;
+    const threshold = this.settings.screenErrorPx * (this.splitCells.has(key) ? 0.85 : 1);
+    const mustSplit = error * this.pixelScale / Math.max(1, distance) > threshold
+      || (cellSize > 16 && this.nearDetail(worldX, worldZ, cellSize))
+      || this.nearDetail(worldX, worldZ, cellSize, true);
+    // Reserve coverage for every remaining root; under pressure reduce quality,
+    // never omit a tile. Data and geometry resolution are independent.
+    const canRefine = this.writeIndex < MAX_SURFACE_INSTANCES - 4 * 8192;
+    if (cellSize > 2 && mustSplit && canRefine) {
+      this.splitCells.add(key);
       const childSize = cellSize / 2;
       this.visitCell(zone, localX, localZ, childSize);
       this.visitCell(zone, localX + childSize, localZ, childSize);
@@ -856,6 +802,7 @@ export class DistantSurfaceLayer {
       this.visitCell(zone, localX + childSize, localZ + childSize, childSize);
       return;
     }
+    this.splitCells.delete(key);
     this.emit(zone, localX, localZ, cellSize, distance);
   }
 
@@ -932,6 +879,7 @@ export class DistantSurfaceLayer {
   }
 
   private emitCellConnections(cell: ConnectedSurfaceCell) {
+    const detailBoundary = this.nearDetail(cell.worldX, cell.worldZ, cell.cellSize);
     const ownerAt = (worldX: number, worldZ: number) => {
       return this.connectionOwnerAt(worldX, worldZ, cell.cellSize);
     };
@@ -964,9 +912,14 @@ export class DistantSurfaceLayer {
         let bottom = neighbor && cell.height > neighbor.height ? neighbor.height : -1;
         // Fine edges follow the arc above the coarse chord. Extend the fine
         // boundary below it, including equal-height patches, to close cracks.
-        if (this.hasView && neighbor && cell.cellSize < neighbor.cellSize && cell.height >= neighbor.height) {
+        if (neighbor && cell.cellSize < neighbor.cellSize) {
           const skirt = Math.ceil((curvatureError(neighbor.cellSize, cell.height) + MICRO_SIZE) / MICRO_SIZE);
           bottom = Math.max(0, Math.min(neighbor.height, cell.height - skirt));
+        }
+        if (offset < cell.cellSize && (!neighbor || detailBoundary)) {
+          // A near mesh / authored solid can replace either neighbour without
+          // sharing our maximum height. Closed skirts cover that vertical gap.
+          bottom = 0;
         }
         if (bottom >= 0 && bottom === runBottom) {
           if (runStart < 0) runStart = offset;
@@ -1010,6 +963,7 @@ export class DistantSurfaceLayer {
     this.connectionsDirty = false;
     this.connectionBuildPending = false;
     this.publishBatches();
+    if (this.rebuildQueued) { this.rebuildQueued = false; this.requestRebuild(); }
   }
 
   private rebuildConnections() {
@@ -1093,7 +1047,13 @@ export class DistantSurfaceLayer {
     const generation = ++this.connectionBuildGeneration;
     const previousTopCount = this.mesh.geometry.instanceCount;
     const previousCount = this.sideMesh.geometry.instanceCount;
-    const rootCells = [...this.zones.values()].flatMap(zone => {
+    const orderedZones = [...this.zones.values()];
+    if (this.hasView) orderedZones.sort((a, b) => {
+      const priority = (zone: StoredSurfaceZone) => this.lodPosition.distanceTo(zone.bounds.center)
+        - zone.bounds.radius + (this.frustum.intersectsSphere(zone.bounds) ? 0 : 20000);
+      return priority(a) - priority(b);
+    });
+    const rootCells = orderedZones.flatMap(zone => {
       const roots: { zone: StoredSurfaceZone; localX: number; localZ: number }[] = [];
       for (let localX = 0; localX < ZONE_WORLD_SIZE; localX += 64) {
         for (let localZ = 0; localZ < ZONE_WORLD_SIZE; localZ += 64) {
@@ -1220,6 +1180,7 @@ export class DistantSurfaceLayer {
     const key = `${zone.zoneX},${zone.zoneZ}`;
     const replacing = this.zones.has(key);
     if ((this.zones.get(key)?.sourceTerrainRevision ?? -1) > zone.sourceTerrainRevision) return;
+    for (const chunk of zone.detailChunks ?? []) this.authoredChunks.install(chunk);
     const mips = buildMipPyramid(zone);
     const coarsest = mips.get(64)!;
     const stored = { zoneX: zone.zoneX, zoneZ: zone.zoneZ, mips, sampleSize,
@@ -1232,7 +1193,7 @@ export class DistantSurfaceLayer {
     this.loadedZones.add(key);
     this.connectionsDirty = true;
     if (!this.enabled) return;
-    if (replacing || this.connectionBuildPending || this.rebuildTimer !== null) {
+    if (replacing || this.hasView || this.connectionBuildPending || this.rebuildTimer !== null) {
       this.connectionsReady = true;
       this.requestRebuild();
       return;
@@ -1249,17 +1210,17 @@ export class DistantSurfaceLayer {
   async finalizeConnections() {
     this.connectionsReady = true;
     if (!this.enabled) return;
-    if (this.rebuildTimer !== null) {
-      clearTimeout(this.rebuildTimer);
-      this.rebuildTimer = null;
-      this.scheduleRebuild();
-    }
-    if (this.connectionBuildPending) {
-      await this.pendingBuild;
-      return;
-    }
-    if (!this.connectionsDirty) return;
-    await this.scheduleConnectionRebuild();
+    // Drain coalesced work too, including installs arriving during a build.
+    do {
+      if (this.connectionBuildPending) await this.pendingBuild;
+      else if (this.rebuildTimer !== null) {
+        clearTimeout(this.rebuildTimer);
+        this.rebuildTimer = null;
+        this.scheduleRebuild();
+        await this.pendingBuild;
+      } else if (this.connectionsDirty) await this.scheduleConnectionRebuild();
+      else break;
+    } while (this.enabled);
   }
 
   removeZone(zoneX: number, zoneZ: number) {
@@ -1293,7 +1254,7 @@ export class DistantSurfaceLayer {
     if (!changed) return this.getSettings();
     this.settings = next;
     if (this.enabled && this.zones.size > 0) {
-      if (this.connectionsReady) this.scheduleRebuild();
+      if (this.connectionsReady) this.requestRebuild();
       else this.rebuild();
     }
     return this.getSettings();
@@ -1310,7 +1271,7 @@ export class DistantSurfaceLayer {
     if (this.enabled && !this.hasView && this.zones.size > 0) {
       // Progressive zone installation writes into the same staging arrays, so
       // only defer topology moves after the initial snapshot set is complete.
-      if (this.connectionsReady) this.scheduleRebuild();
+      if (this.connectionsReady) this.requestRebuild();
       else this.rebuild();
     }
   }

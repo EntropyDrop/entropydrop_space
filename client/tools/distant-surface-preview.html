@@ -3,131 +3,90 @@
 <meta charset="utf-8">
 <title>Torus far-surface verification</title>
 <style>
-  body { margin: 0; background: #101825; color: #e8edf7; font: 14px system-ui; }
-  header { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 12px 18px; }
-  label { display: flex; align-items: center; gap: 8px; }
-  select, button { font: inherit; padding: 5px; }
-  canvas { display: block; width: 100%; height: calc(100vh - 104px); }
-  output { display: block; padding: 10px 18px; font-variant-numeric: tabular-nums; }
+body{margin:0;background:#18202c;color:#eee;font:14px system-ui}header{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:12px}label{display:flex;align-items:center;gap:6px}select,button{font:inherit}canvas{display:block;width:100%;height:calc(100vh - 112px)}output{display:block;padding:10px}
 </style>
 <header>
-  <strong>Torus far-surface verification</strong>
-  <label>View <select id="view"><option value="hole">Across the hole</option><option value="seam">Wrapped seam</option><option value="orbit">Orbit</option></select></label>
-  <label>Terrain <select id="terrain"><option value="hills">Synthetic hills</option><option value="uniform">Uniform surface</option></select></label>
-  <label><input type="checkbox" id="adaptive" checked> Screen error and batch culling</label>
-  <button id="turn">Turn around</button>
+<strong>Torus / authored LOD verification</strong>
+<label>View <select id="view"><option value="near">Near · detailed voxels</option><option value="handoff">Handoff · 145m</option><option value="far">Far · 450m</option><option value="hole">Across the hole</option><option value="seam">Wrapped seam</option></select></label>
+<label>Source <select id="source"><option value="2">2m + solids</option><option value="64">64m + solids</option></select></label>
+<label>Pixel error <select id="error"><option>0.5</option><option>1</option><option selected>2</option><option>4</option><option>8</option></select></label>
+<button id="move">Fly out and back</button><button id="refresh">Server refresh</button>
 </header>
-<canvas id="scene"></canvas>
-<output id="stats">Loading deterministic test terrain...</output>
+<canvas id="scene"></canvas><output id="stats">Loading v5 fixture…</output>
 <script type="module">
-  import * as THREE from 'three';
-  import { DistantSurfaceLayer } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
-  import { bendPoint, setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
-  import { MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-  setWorldShapeMode('torus');
-  const canvas = document.getElementById('scene');
-  const stats = document.getElementById('stats');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(1);
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#a5c7e6');
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x687055, 2));
-  const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-  sun.position.set(-3000, 5000, 2000);
-  scene.add(sun);
-  const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 12000);
-  let layer;
-  let loading = false;
-  let ready = false;
-  let rebuilds = 0;
-  const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
-  function resize() {
-    const width = canvas.clientWidth, height = canvas.clientHeight;
-    renderer.setSize(width, height, false);
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
+import * as THREE from 'three';
+import { World } from '@entropydrop/space-engine/voxel/World.ts';
+import { bendPoint, setWorldShapeMode, cullChunks, hookSceneMaterials } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { parseSurfaceZoneSnapshot } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
+setWorldShapeMode('torus');
+const $ = id => document.getElementById(id), canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(1);
+const scene = new THREE.Scene();scene.background=new THREE.Color('#a5c7e6');
+scene.add(new THREE.HemisphereLight(0xffffff,0x687055,2));
+const sun=new THREE.DirectionalLight(0xffffff,2.2);sun.position.set(-3000,5000,2000);scene.add(sun);
+const world=new World(scene,20260827);world.setRenderDistance(4);
+const layer=world.distantSurface;
+const camera=new THREE.PerspectiveCamera(65,1,0.1,12000);
+let px=8190,py=40,pz=1090, ready=false, flying=false, flightStart=0;
+function resize(){renderer.setSize(canvas.clientWidth,canvas.clientHeight,false);camera.aspect=canvas.clientWidth/canvas.clientHeight;camera.updateProjectionMatrix();}
+function pose(distance){
+  const view=$('view').value;
+  if(distance!==undefined){px=8190-distance*.35;py=40+distance*.28;pz=1090+distance;}
+  else if(view==='near'){px=8190;py=40;pz=1090;}
+  else if(view==='handoff'){px=8170;py=68;pz=1180;}
+  else if(view==='far'){px=8000;py=360;pz=1130;}
+  else if(view==='seam'){px=16370;py=70;pz=2030;}
+  else {px=8192;py=120;pz=1024;}
+  camera.position.copy(bendPoint(px,py,pz));
+  camera.up.copy(bendPoint(px,py+1,pz).sub(camera.position)).normalize();
+  camera.lookAt(view==='hole'?new THREE.Vector3(0,0,0):view==='seam'?bendPoint(70,17,50):bendPoint(8220,36,1033));
+  camera.updateMatrixWorld(true);
+}
+async function install(){
+  const response=await fetch(`./generated-surface/${$('source').value}.bin`);
+  if(!response.ok)throw new Error('Run server/tools/generate_distant_surface_fixture.py first.');
+  layer.installZone(parseSurfaceZoneSnapshot(new Uint8Array(await response.arrayBuffer())));
+  await layer.finalizeConnections();
+}
+async function init(){
+  resize();pose();layer.updateView(camera,canvas.height);
+  // Global low-cost overview keeps the curved background visible; the edited
+  // zone is the actual server generator and binary decoder, not a mock mesher.
+  for(let x=0;x<32;x++)for(let z=0;z<4;z++){
+    const heightsMicro=new Uint16Array(64).fill(136),colors=new Uint8Array(64*3);
+    for(let i=0;i<64;i++)colors.set([113,143,97],i*3);
+    layer.installZone({zoneX:x,zoneZ:z,seed:20260827,terrainGeneratorVersion:1,sourceTerrainRevision:0,
+      sampleSize:64,samplesPerChunkAxis:.25,zoneSizeChunks:32,heightsMicro,colors});
   }
-  function pose() {
-    const view = document.getElementById('view').value;
-    if (view === 'orbit') {
-      camera.position.set(-3500, 2400, 3500);
-      camera.up.set(0, 1, 0);
-      camera.lookAt(0, 0, 0);
-    } else {
-      const x = view === 'seam' ? 16370 : 8192;
-      const z = view === 'seam' ? 2030 : 1024;
-      camera.position.copy(bendPoint(x, view === 'seam' ? 60 : 180, z));
-      camera.up.set(0, 1, 0);
-      camera.lookAt(view === 'seam' ? bendPoint(100, 17, 60) : new THREE.Vector3(0, 0, 0));
-      layer?.setNearField(Math.floor(x / 16), Math.floor(z / 16), 8);
-    }
-    camera.updateMatrixWorld(true);
+  await install();
+  const edits=await (await fetch('./generated-surface/edits.json')).json();
+  for(const [[cx,cz],overlay] of edits){
+    for(const [x,y,z,b,c] of overlay.standard)world.setBlock(x,y,z,b,false,c);
+    for(const [x,y,z,c] of overlay.micro)world.setMicroBlock(x,y,z,c);
   }
-  function zone(x, z, uniform) {
-    const heightsMicro = new Uint16Array(65536);
-    const colors = new Uint8Array(65536 * 3);
-    let i = 0;
-    for (let cx = 0; cx < 32; cx++) for (let cz = 0; cz < 32; cz++) {
-      for (let sx = 0; sx < 8; sx++) for (let sz = 0; sz < 8; sz++) {
-        const wx = x * 512 + cx * 16 + sx * 2;
-        const wz = z * 512 + cz * 16 + sz * 2;
-        const height = uniform ? 17 : 17 + Math.round(3 * Math.sin(wx * Math.PI / 64) * Math.cos(wz * Math.PI / 64));
-        heightsMicro[i] = Math.round(height / MICRO_SIZE);
-        colors.set([113, 143, 97], i * 3);
-        i++;
-      }
-    }
-    return { zoneX: x, zoneZ: z, seed: 42, terrainGeneratorVersion: 1, sourceTerrainRevision: 1,
-      zoneSizeChunks: 32, samplesPerChunkAxis: 8, heightsMicro, colors };
+  await world.preloadTerrainAoi(px,pz);
+  world.microVoxels.updateMesh();
+  hookSceneMaterials(world.worldGroup);
+  ready=true;
+}
+$('view').onchange=()=>{flying=false;pose();};
+$('error').onchange=()=>layer.setSettings({screenErrorPx:Number($('error').value)});
+$('source').onchange=()=>install().catch(console.error);
+$('refresh').onclick=()=>install().catch(console.error);
+$('move').onclick=()=>{flying=!flying;flightStart=performance.now();$('view').value='near';};
+window.addEventListener('resize',resize);
+renderer.setAnimationLoop(()=>{
+  if(ready){
+    if(flying){const phase=(performance.now()-flightStart)/10000;pose((1-Math.cos(phase*Math.PI*2))*175);}
+    world.updateChunksAround(px,pz);
+    world.microVoxels.updateMesh();
+    cullChunks(camera,world);
+    layer.updateView(camera,canvas.height);
   }
-  async function rebuild() {
-    if (loading) return;
-    loading = true;
-    ready = false;
-    document.querySelectorAll('select, input, button').forEach(control => control.disabled = true);
-    if (layer) {
-      layer.setEnabled(false);
-      scene.remove(layer.mesh);
-      layer.mesh.traverse(object => object.geometry?.dispose());
-      layer.mesh.material.dispose();
-      layer.sideMesh.material.dispose();
-      layer.detailMaskTexture.dispose();
-    }
-    layer = new DistantSurfaceLayer();
-    scene.add(layer.mesh);
-    resize();
-    pose();
-    const adaptive = document.getElementById('adaptive').checked;
-    const uniform = document.getElementById('terrain').value === 'uniform';
-    if (adaptive) layer.updateView(camera, canvas.height);
-    for (let x = 0; x < 32; x++) {
-      for (let z = 0; z < 4; z++) layer.installZone(zone(x, z, uniform));
-      stats.textContent = `Building test terrain: ${(x + 1) * 4}/128 zones`;
-      await nextFrame();
-    }
-    await layer.finalizeConnections();
-    loading = false;
-    ready = true;
-    rebuilds++;
-    document.querySelectorAll('select, input, button').forEach(control => control.disabled = false);
-  }
-  document.getElementById('adaptive').addEventListener('change', rebuild);
-  document.getElementById('terrain').addEventListener('change', rebuild);
-  document.getElementById('view').addEventListener('change', pose);
-  document.getElementById('turn').addEventListener('click', () => {
-    camera.lookAt(camera.position.clone().sub(camera.getWorldDirection(new THREE.Vector3())));
-    camera.updateMatrixWorld(true);
-  });
-  window.addEventListener('resize', resize);
-  renderer.setAnimationLoop(() => {
-    if (!layer) return;
-    if (document.getElementById('adaptive').checked) layer.updateView(camera, canvas.height);
-    renderer.render(scene, camera);
-    if (ready) {
-      const batches = layer.mesh.children.filter(object => object.name.endsWith(':tops'));
-      stats.textContent = `Ready ${rebuilds} | Surface cells: ${layer.mesh.geometry.instanceCount.toLocaleString()} | Visible zones: ${batches.filter(mesh => mesh.visible).length}/128 | Draw calls: ${renderer.info.render.calls} | Triangles: ${renderer.info.render.triangles.toLocaleString()}`;
-    }
-  });
-  rebuild().catch(error => { stats.textContent = String(error); console.error(error); });
+  renderer.render(scene,camera);
+  if(ready)$('stats').textContent=`Ready | ${$('view').value} | Source ${$('source').value}m | Error ${layer.getSettings().screenErrorPx}px | Terrain cells ${layer.mesh.geometry.instanceCount.toLocaleString()} | Authored chunks ${layer.authoredChunks.group.children.length} | Draws ${renderer.info.render.calls} | Triangles ${renderer.info.render.triangles.toLocaleString()}`;
+});
+init().catch(e=>{$('stats').textContent=String(e);console.error(e);});
 </script>
 </html>

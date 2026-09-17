@@ -440,67 +440,51 @@ objects in hot loops. Edits mark chunks dirty; background threads compress and h
 
 ### 7.1 Distant Toroidal LOD Bootstrap Cache
 
-The implemented far field is a shared **versioned surface snapshot**, never a per-join
-scan or browser-generated low-poly torus. The `1024x128`-chunk world is divided into its
-existing 128 `32x32`-chunk zones. Each zone stores an `8x8` height/color lattice per chunk,
-or 65,536 finest-level records. A record is five bytes: `uint16` height in eighth-block units plus RGB.
-The fixed 32-byte `EDSZ` header binds the payload to its zone, world seed, terrain-generator
-version, source terrain revision, schema, and dimensions.
+The torus far field is a shared **versioned render cache** over the 128 existing
+`32x32`-chunk zones. It does not load or simulate distant gameplay chunks. EDSZ v5
+keeps a 32-byte identity header and an X-major procedural lattice at 2/4/8/16/32/64m.
+Each eight-byte record contains maximum/minimum source height in eighth-block units,
+RGB and a conservative colour residual. All levels also carry the same sparse authored
+chunk trailer: accepted per-chunk revision and solid boxes derived from vertical runs.
+This preserves suspended structures, excavations, material boundaries and microcell
+footprints; it never fills all space beneath an authored highest point.
 
-- The singleton background worker builds missing zones and rebuilds dirty zones from the
-  deterministic terrain generator plus committed authored chunk overlays. Terrain edits
-  mark only their affected zones dirty. If the singleton is temporarily absent, an
-  incomplete manifest also starts a database-locked daemon backfill in the API process;
-  this keeps API-only local development usable without allowing duplicate zone writers.
-- PostgreSQL currently stores the Zstd-compressed source payload, SHA-256 and revision in
-  `space_surface_zone_snapshots`. The authenticated download expands it to the bounded raw
-  `EDSZ` form and serves a digest-addressed URL with ETag and immutable private caching.
-  Moving payload bytes to object storage/CDN later does not change the manifest or codec.
-- Bootstrap supplies the manifest URL. Browsers poll it while initial generation is still
-  progressing, verify every payload's length, SHA-256, seed, generator version and zone
-  identity, and install new revisions progressively.
-- Migration `space_0008` adds nullable `lod_manifest` and `lod_payload` columns. The
-  background builder publishes 4/8/16/32/64m levels atomically with the 2m source and
-  its revision. Existing rows and v3 clients remain readable during backfill. Each
-  level is independently Zstd-compressed; the manifest query reads metadata without
-  loading either payload blob. No terrain scan or downsampling occurs on download.
-  Coarse EDSZ v4 keeps the 32-byte header, uses byte 5 for sample width in metres,
-  and stores a zone-wide X-major lattice. Heights retain the current micro-grid
-  units; colours follow the stable first maximum used by the client pyramid.
-- Donut clients install all ready 64m overviews before requesting refinements. A
-  full 128-zone overview is 44 KiB of raw records plus headers, excluding manifest
-  and HTTP overhead. Visible zones refine first; a 4 MiB raw refinement budget and
-  coarse replacement bound the working set. Camera demand refreshes every second,
-  with cached metadata refreshed every ten seconds. Old servers without coarse
-  levels retain the original v3 download path. Earth rendering remains disabled.
-- The renderer derives a quadtree mip pyramid from each downloaded level and emits
-  per-zone instanced top/side batches. The original distance settings remain detail
-  limits: 2m samples through 400m,
-  4m through 600m, 8m through 800m, 16m through 1000m, 32m through 1600m, and
-  64m beyond that. Donut mode evaluates these limits in bent space and uses a 2px
-  screen-error target (height, colour and curvature) to merge uniform patches within
-  the configured limits. It can refine geometry even while only coarse samples are
-  available. A 64m camera-motion threshold and 10% projection hysteresis avoid small
-  movements rebuilding topology. Bent zone bounds cull batches immediately on turns;
-  no spherical horizon test is applied to the torus. Height discontinuities through
-  4000m receive merged vertical connection faces; fine/coarse boundaries also extend
-  below the coarse chord to close curvature cracks. The shader bends the
-  flat sample quads onto the torus. A 128 KiB per-chunk GPU readiness mask discards far
-  samples only after each detailed 16m chunk mesh is attached, and restores the far sample
-  before that mesh is evicted, preventing holes or z-fighting during progressive streaming.
-  Browsers may locally tune the five increasing LOD thresholds, final visibility limit,
-  per-tier enable switches, and connection radius within client-enforced instance-budget
-  limits; this changes only rendering and never snapshot or terrain authority. Disabled
-  tiers fall through to the next enabled coarser tier. Defaults keep all tiers enabled,
-  cover the full world, use 400/600/800/1000/1600m transitions, and connect through 4000m.
-  Topology and connections build in short tasks and publish copied zone buffers
-  together, retaining the active batches throughout streaming and camera movement.
-- A dirty snapshot is never listed. Until its replacement commits, detailed AOI terrain is
-  authoritative and the corresponding far zone is absent rather than stale.
+- The singleton worker rebuilds missing, dirty or obsolete-schema snapshots from the
+  deterministic generator and committed overlays. Source revisions are checked before
+  and after publication. Migration `space_0008` already provides the nullable LOD blob
+  and manifest columns; v5 requires no additional database migration.
+- Each level is independently Zstd-compressed with SHA-256, byte length and immutable
+  digest URL. Authenticated reads preserve membership checks, validate integrity and
+  cap raw payloads at 16 MiB. Manifest queries defer the large payload columns.
+- Dirty rows remain available as last-good coverage with `updating: true`. Legacy v3/v4
+  rows also remain readable while v5 is built. `complete` stays false during generation
+  or schema upgrades, and polling starts the existing background backfill when needed.
+  Clients retain absent/unavailable zones and atomically replace complete draw batches.
+- Clients fetch 64m coverage first, then refine visible zones according to conservative
+  projected source error. A uniform overview without authored solids is 548 bytes per
+  zone. The default 16 MiB refinement budget excludes that overview and the shared
+  authored trailer; settings permit 4–64 MiB. Completed manifest metadata is cached for
+  ten seconds; camera demand is revisited every second.
+- LOD selection uses bent-world distance, camera FOV, drawing-buffer height, source
+  height/colour error and torus chord error. Settings expose a 0.5–8px target (default
+  2px), viewing distance and source-data budget. Fixed distance tiers and optional
+  side-connection radii are removed. Geometry/data ceilings can limit achieved quality.
+  Height morphing, refinement hysteresis and per-vertex curved top normals reduce
+  transitions and lighting bands. Torus culling uses conservative bent bounds, never a
+  spherical horizon test that would hide the opposite ring.
+- A 128 KiB chunk ownership texture distinguishes procedural far surface (0), authored
+  far solids (128) and a ready detailed mesh (255). Connections close all rendered
+  distances, including the wrapped boundaries. Near ownership forces fine boundary
+  cells; authored ownership aligns tiles to chunk boundaries. Local edited chunks are
+  captured before near eviction and cannot be overwritten by an older server revision.
+  Camera updates queue a subsequent build rather than starving a build in progress.
 
-The base format deliberately summarizes only the visible top surface. Full collision,
-standard-block, and microblock state continues to come from procedural generation plus
-`chunk_snapshots`; surface snapshots are render acceleration, not terrain authority.
+Earth mode still disables the far layer. These snapshots are render acceleration;
+collision and editing authority remain procedural generation plus `chunk_snapshots`.
+The reproducible browser fixture is generated by
+`python tools/generate_distant_surface_fixture.py` from `server/` and viewed at the
+client dev URL `/space/app/tools/distant-surface-preview.html`. It exercises real v5
+serialization, a suspended beam, excavation, microcells, near/far ownership and refresh.
 
 ## 8. Commands, Consistency, and Conflicts
 

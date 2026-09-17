@@ -492,21 +492,19 @@ const TORUS_NORMAL_VERTEX = `
 vec4 torusWp = modelMatrix * vec4( position, 1.0 );
 vec3 torusObjectNormal = objectNormal;
 #ifdef TORUS_SURFACE_POSITION
-	#ifdef TORUS_SURFACE_AXIS
-		vec2 torusSurfaceCenterOffset = mix(
-			vec2(surfaceSize * 0.5, 0.0),
-			vec2(0.0, surfaceSize * 0.5),
-			surfaceAxis
-		);
-	#else
-		vec2 torusSurfaceCenterOffset = vec2(surfaceSize * 0.5);
-	#endif
-	torusWp = modelMatrix * vec4(
-		surfaceOffset.x + torusSurfaceCenterOffset.x,
-		surfaceHeight * ${MICRO_SIZE},
-		surfaceOffset.y + torusSurfaceCenterOffset.y,
-		1.0
-	);
+    // Interpolate the curved surface normal per vertex. A constant normal at
+    // each LOD cell centre produces visible rings even below the pixel budget.
+    #ifdef TORUS_SURFACE_AXIS
+        vec2 torusAlong = mix(vec2(1.0, 0.0), vec2(0.0, 1.0), surfaceAxis);
+        float torusWinding = mix(surfaceNormal.y, -surfaceNormal.x, surfaceAxis);
+        float torusAlongPosition = torusWinding >= 0.0 ? position.x : 1.0 - position.x;
+        vec2 torusSurfaceXZ = surfaceOffset + torusAlong * torusAlongPosition * surfaceSize;
+        float torusSurfaceY = mix(surfaceBottomHeight, surfaceHeight, position.y) * ${MICRO_SIZE};
+    #else
+        vec2 torusSurfaceXZ = surfaceOffset + position.xz * surfaceSize;
+        float torusSurfaceY = surfaceHeight * ${MICRO_SIZE};
+    #endif
+    torusWp = modelMatrix * vec4(torusSurfaceXZ.x, torusSurfaceY, torusSurfaceXZ.y, 1.0);
 #endif
 #ifdef TORUS_SURFACE_NORMAL
 	torusObjectNormal = vec3(surfaceNormal.x, 0.0, surfaceNormal.y);

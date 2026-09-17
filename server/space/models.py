@@ -259,7 +259,7 @@ class SpaceChunkSnapshot(Base):
 
 
 class SpaceSurfaceZoneSnapshot(Base):
-    """Compressed 8x8-per-chunk far-surface summary for one world zone."""
+    """Revisioned far terrain, conservative LOD errors and authored vertical solids."""
     __tablename__ = "space_surface_zone_snapshots"
     __table_args__ = (
         Index("ix_space_surface_zones_world_revision", "world_id", "revision"),
@@ -271,7 +271,7 @@ class SpaceSurfaceZoneSnapshot(Base):
     revision = Column(BigInteger, nullable=False, default=1)
     source_terrain_revision = Column(BigInteger, nullable=False, default=0)
     terrain_generator_version = Column(Integer, nullable=False)
-    schema_version = Column(SmallInteger, nullable=False, default=3)
+    schema_version = Column(SmallInteger, nullable=False, default=5)
     samples_per_chunk_axis = Column(SmallInteger, nullable=False, default=8)
     codec = Column(SmallInteger, nullable=False, default=1)
     uncompressed_size = Column(Integer, nullable=False)

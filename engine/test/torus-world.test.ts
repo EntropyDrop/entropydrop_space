@@ -734,8 +734,8 @@ test('chunk streaming evicts procedural arrays but retains authored edits', () =
 
   world.updateChunksAround(TORUS_SPAWN_X + 10 * 16, TORUS_SPAWN_Z);
   world.updateChunksAround(TORUS_SPAWN_X + 10 * 16, TORUS_SPAWN_Z);
-  assert.equal(detailMask[centerMaskIndex], 0,
-    'far terrain must resume before an old detailed chunk leaves the active window');
+  assert.equal(detailMask[centerMaskIndex], 128,
+    'authored far terrain must resume before an old detailed chunk leaves the active window');
   assert.equal(world.chunks.has(editedKey), true, 'authored chunks must remain available for persistence/re-entry');
   assert.equal(world.chunks.has(uneditedKey), false, 'procedural chunks should be regenerated instead of retained');
   assert.ok(world.chunks.size <= world.activeChunkKeys.size + 1,

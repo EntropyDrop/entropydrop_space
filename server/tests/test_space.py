@@ -612,7 +612,7 @@ def test_space_surface_zone_snapshot_matches_browser_generator_and_serves_immuta
 
     row = space_surface.generate_surface_zone(db, world, 0, 0)
     assert row is not None
-    assert row.uncompressed_size == 32 + 32 * 32 * 8 * 8 * 5
+    assert row.uncompressed_size == 36 + 32 * 32 * 8 * 8 * 8
     manifest = client.get(bootstrap["world"]["surface_snapshot_url"])
     assert manifest.status_code == 200
     body = manifest.json()
@@ -632,7 +632,7 @@ def test_space_surface_zone_snapshot_matches_browser_generator_and_serves_immuta
         coarse = client.get(level['url'])
         assert coarse.status_code == 200
         assert len(coarse.content) == level['byte_length']
-        assert coarse.content[4:6] == bytes([4, level['sample_size']])
+        assert coarse.content[4:6] == bytes([5, level['sample_size']])
         assert coarse.headers['etag'] == f'"{level["digest"]}"'
     assert client.get(levels[-1]['url'].replace(levels[-1]['digest'], '0' * 64)).status_code == 409
     assert client.get(body['zones'][0]['url'] + '&sample_size=3').status_code == 422
@@ -661,24 +661,24 @@ def test_terrain_edits_mark_their_surface_zone_snapshot_dirty(client, db):
         world_id=world.id, zone_x=0, zone_z=0
     ).one()
     assert row.dirty is True
-    assert client.get(old_lod_url).status_code == 404
-    assert client.get(bootstrap["world"]["surface_snapshot_url"]).json()["zones"] == []
+    assert client.get(old_lod_url).status_code == 200
+    assert client.get(bootstrap["world"]["surface_snapshot_url"]).json()["zones"][0]["updating"] is True
 
     rebuilt = space_surface.generate_surface_zone(db, world, 0, 0)
     assert rebuilt is not None
     assert rebuilt.dirty is False
     assert client.get(old_lod_url).status_code == 409
     coarse = space_surface.decode_surface_lod(rebuilt, rebuilt.lod_manifest[-1])
-    assert struct.unpack_from('<HBBB', coarse, 32) == (256 * space_surface.MICRO_DIVISIONS, 0x12, 0x34, 0x56)
+    # Buildings are separate vertical solids, not a 64m-wide max-height pillar.
+    assert struct.unpack_from('<H', coarse, 32)[0] < 256 * space_surface.MICRO_DIVISIONS
+    trailer = coarse[32 + 64 * 8:]
+    chunk_count, cx, cz, revision, count = struct.unpack_from('<IBBQI', trailer)
+    assert (chunk_count, cx, cz, revision) == (1, 0, 0, 1)
+    boxes = list(struct.iter_unpack('<6H3B', trailer[18:]))
+    assert len(boxes) == count
+    assert (24, 2040, 24, 8, 8, 8, 0x12, 0x34, 0x56) in boxes
     raw = space_surface.decode_surface_zone_row(rebuilt)
-    record_index = 1 * space_surface.SURFACE_SAMPLES_PER_CHUNK_AXIS + 1
-    assert struct.unpack_from(
-        "<HBBB",
-        raw,
-        space_surface.SURFACE_HEADER_BYTES + record_index * space_surface.SURFACE_RECORD_BYTES,
-    ) == (
-        2048, 0x12, 0x34, 0x56
-    )
+    assert raw[32 + 65536 * 8:] == trailer
 
 
 def test_space_terrain_batch_rejects_more_than_256_mutations(client, db):
@@ -1095,3 +1095,34 @@ def test_heartbeat_pages_without_skipping_partial_events(client, db, monkeypatch
     else:
         assert pages[0]['max_terrain_revision'] > 0
         assert pages[0]['terrain_cursor'] is None
+
+
+def test_surface_upgrade_serves_last_good_legacy_snapshot_until_v5_is_ready(client, db):
+    import hashlib
+    import zstandard as zstd
+    user = _user(db, 'space-surface-upgrade', None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    bootstrap = client.post('/space/api/v2/bootstrap').json()
+    world = db.query(SpaceWorld).filter_by(id=bootstrap['world']['id']).one()
+    fine = struct.pack('<4sBBBBHHiIQI', b'EDSZ', 3, 8, 32, 5, 0, 0,
+                       world.seed, world.terrain_generator_version, 0, 65536)
+    fine += struct.pack('<HBBB', 136, 113, 143, 97) * 65536
+    coarse = struct.pack('<4sBBBBHHiIQI', b'EDSZ', 4, 64, 32, 5, 0, 0,
+                         world.seed, world.terrain_generator_version, 0, 64)
+    coarse += struct.pack('<HBBB', 136, 113, 143, 97) * 64
+    compressed = zstd.ZstdCompressor().compress(coarse)
+    row = SpaceSurfaceZoneSnapshot(world_id=world.id, zone_x=0, zone_z=0,
+        schema_version=3, terrain_generator_version=world.terrain_generator_version,
+        uncompressed_size=len(fine), content_hash=hashlib.sha256(fine).digest(),
+        payload=zstd.ZstdCompressor().compress(fine), lod_payload=compressed,
+        lod_manifest=[{'sample_size':64, 'byte_length':len(coarse),
+                       'digest':hashlib.sha256(coarse).hexdigest(),
+                       'offset':0, 'compressed_size':len(compressed)}])
+    db.add(row)
+    db.commit()
+    manifest = client.get(bootstrap['world']['surface_snapshot_url']).json()
+    assert manifest['schema_version'] == 5
+    assert manifest['complete'] is False
+    assert manifest['zones'][0]['updating'] is True
+    assert client.get(manifest['zones'][0]['url']).content == fine
+    assert client.get(manifest['zones'][0]['lods'][0]['url']).content == coarse

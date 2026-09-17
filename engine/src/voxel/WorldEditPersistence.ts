@@ -345,6 +345,11 @@ export class WorldEditPersistence {
     };
   }
 
+  hasPendingEditsForChunk(cx: number, cz: number): boolean {
+    const key = `${cx},${cz}`;
+    return this.pendingBatches.some(batch => batch.mutations.some(mutation => chunkKeyForMutation(mutation) === key));
+  }
+
   getStandardEditsForChunk(cx: number, cz: number) {
     return this.standardEditsByChunk.get(`${cx},${cz}`)?.values() ?? [][Symbol.iterator]();
   }

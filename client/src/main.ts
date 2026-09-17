@@ -122,6 +122,7 @@ class Game {
           zone => this.world.installSurfaceZone(zone),
           (zoneX, zoneZ) => this.world.removeSurfaceZone(zoneX, zoneZ),
           this.sceneRenderer.getWorldShapeMode() === 'torus' ? {
+            getDataBudgetBytes: () => this.world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024,
             getZoneDemand: (zoneX, zoneZ) => this.world.distantSurface.getZoneDemand(zoneX, zoneZ),
           } : undefined,
         ).then(() => this.world.finalizeSurfaceConnections()).catch(error => {

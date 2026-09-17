@@ -18,11 +18,12 @@ from space.database import SessionLocal
 
 
 SURFACE_MAGIC = b"EDSZ"
-SURFACE_SCHEMA_VERSION = 3
-SURFACE_LOD_SCHEMA_VERSION = 4
+SURFACE_SCHEMA_VERSION = 5
+SURFACE_LOD_SCHEMA_VERSION = 5
 SURFACE_LOD_SIZES = (4, 8, 16, 32, 64)
 SURFACE_SAMPLES_PER_CHUNK_AXIS = 8
-SURFACE_RECORD_BYTES = 5
+SURFACE_RECORD_BYTES = 8
+MAX_SURFACE_BYTES = 16 * 1024 * 1024
 SURFACE_HEADER_BYTES = 32
 SURFACE_CODEC_ZSTD = 1
 SURFACE_COLOR = 0x718F61
@@ -157,121 +158,105 @@ def _procedural_color(block_y: int, base_height: int) -> int:
     return DEEP_COLOR
 
 
-def _surface_records_for_chunk(
-    generator: TerrainSurfaceGenerator,
-    chunk_x: int,
-    chunk_z: int,
-    overlay: dict | None,
-) -> list[tuple[int, int]]:
-    axis = SURFACE_SAMPLES_PER_CHUNK_AXIS
-    sample_width = 16 // axis
-    standard_by_column: dict[tuple[int, int], dict[int, tuple[int, int]]] = {}
-    standard_candidates: dict[int, list[tuple[int, int]]] = {}
-    micro_candidates: dict[int, list[tuple[int, int]]] = {}
-    if overlay:
-        for edit in overlay["standard"]:
-            if not isinstance(edit, list) or len(edit) < 5:
+def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay):
+    """Keep air gaps and material boundaries; merge only identical solid runs.
+
+    Standard columns are exact at 1m. Micro columns retain their 1/8m footprint,
+    including cells below a bridge or above an excavated standard cell.
+    """
+    edits = {(int(e[0]), int(e[1]), int(e[2])): (int(e[3]), int(e[4]))
+             for e in overlay.get('standard', []) if isinstance(e, list) and len(e) >= 5}
+    tops = {}
+    for (x, y, z) in edits:
+        tops[x, z] = max(tops.get((x, z), 0), y)
+    boxes = []
+    for x in range(16):
+        for z in range(16):
+            wx, wz = chunk_x * 16 + x, chunk_z * 16 + z
+            base = generator.sample_height(wx, wz)
+            end = min(255, max(base, tops.get((wx, wz), 0)))
+            start, previous = 0, None
+            for y in range(end + 2):
+                block, color = edits.get((wx, y, wz),
+                    (1, _procedural_color(y, base)) if y <= base else (0, 0))
+                color = color if block == 1 and y <= end else None
+                if color == previous:
+                    continue
+                if previous is not None:
+                    boxes.append((x * 8, start * 8, z * 8, 8, (y - start) * 8, 8, previous))
+                start, previous = y, color
+    micro_columns = {}
+    for e in overlay.get('micro', []):
+        if not isinstance(e, list) or len(e) < 4:
+            continue
+        x, y, z, color = map(int, e[:4])
+        x, z = x - chunk_x * 128, z - chunk_z * 128
+        if 0 <= x < 128 and 0 <= z < 128 and 0 <= y < 2048:
+            micro_columns.setdefault((x, z), {})[y] = color
+    for (x, z), column in micro_columns.items():
+        start = last = -1
+        previous = None
+        for y, color in sorted(column.items()):
+            if y == last + 1 and color == previous:
+                last = y
                 continue
-            world_x, y, world_z, block, color = map(int, edit[:5])
-            standard_by_column.setdefault((world_x, world_z), {})[y] = (block, color)
-            local_x, local_z = world_x - chunk_x * 16, world_z - chunk_z * 16
-            if 0 <= local_x < 16 and 0 <= local_z < 16 and block == 1:
-                patch = (local_x // sample_width) * axis + local_z // sample_width
-                standard_candidates.setdefault(patch, []).append(((y + 1) * MICRO_DIVISIONS, color))
-        for edit in overlay["micro"]:
-            if not isinstance(edit, list) or len(edit) < 4:
-                continue
-            micro_x, micro_y, micro_z, color = map(int, edit[:4])
-            world_x, world_z = micro_x // MICRO_DIVISIONS, micro_z // MICRO_DIVISIONS
-            local_x, local_z = world_x - chunk_x * 16, world_z - chunk_z * 16
-            if 0 <= local_x < 16 and 0 <= local_z < 16:
-                patch = (local_x // sample_width) * axis + local_z // sample_width
-                micro_candidates.setdefault(patch, []).append((micro_y + 1, color))
-
-    records: list[tuple[int, int]] = []
-    for sample_x in range(axis):
-        for sample_z in range(axis):
-            world_x = chunk_x * 16 + sample_x * sample_width + sample_width // 2
-            world_z = chunk_z * 16 + sample_z * sample_width + sample_width // 2
-            base_height = generator.sample_height(world_x, world_z)
-            column_edits = standard_by_column.get((world_x, world_z), {})
-            top_block_y = base_height
-            while top_block_y >= 0 and column_edits.get(top_block_y, (1, 0))[0] == 0:
-                top_block_y -= 1
-            explicit_top = column_edits.get(top_block_y)
-            top_color = (
-                explicit_top[1]
-                if explicit_top is not None and explicit_top[0] == 1
-                else _procedural_color(top_block_y, base_height)
-            )
-            for edited_y, (block, color) in column_edits.items():
-                if block == 1 and edited_y >= top_block_y:
-                    top_block_y, top_color = edited_y, color
-            height_micro = (top_block_y + 1) * MICRO_DIVISIONS if top_block_y >= 0 else 0
-            patch = sample_x * axis + sample_z
-            for candidate_height, candidate_color in standard_candidates.get(patch, ()):
-                if candidate_height >= height_micro:
-                    height_micro, top_color = candidate_height, candidate_color
-            for candidate_height, candidate_color in micro_candidates.get(patch, ()):
-                if candidate_height >= height_micro:
-                    height_micro, top_color = candidate_height, candidate_color
-            records.append((height_micro, top_color))
-    return records
+            if previous is not None:
+                boxes.append((x, start, z, 1, last + 1 - start, 1, previous))
+            start = last = y
+            previous = color
+        if previous is not None:
+            boxes.append((x, start, z, 1, last + 1 - start, 1, previous))
+    # Greedy horizontal merging never crosses an air gap or a colour boundary.
+    for axis, width in ((0, 3), (2, 5)):
+        groups = {}
+        for box in boxes:
+            key = tuple(v for i, v in enumerate(box) if i not in (axis, width))
+            groups.setdefault(key, []).append(box)
+        merged = []
+        for group in groups.values():
+            current = None
+            for box in sorted(group, key=lambda b: b[axis]):
+                if current is not None and current[axis] + current[width] == box[axis] and current[width] + box[width] <= 16:
+                    current[width] += box[width]
+                else:
+                    if current is not None:
+                        merged.append(tuple(current))
+                    current = list(box)
+            if current is not None:
+                merged.append(tuple(current))
+        boxes = merged
+    return boxes
 
 
-def build_surface_zone_payload(
-    world: models.SpaceWorld,
-    zone_x: int,
-    zone_z: int,
-    source_terrain_revision: int,
-    overlays: dict[tuple[int, int], dict] | None = None,
-) -> bytes:
-    zone_size = int(world.zone_size_chunks)
-    record_count = zone_size * zone_size * SURFACE_SAMPLES_PER_CHUNK_AXIS ** 2
-    payload = bytearray(SURFACE_HEADER_BYTES + record_count * SURFACE_RECORD_BYTES)
-    struct.pack_into(
-        "<4sBBBBHHiIQI",
-        payload,
-        0,
-        SURFACE_MAGIC,
-        SURFACE_SCHEMA_VERSION,
-        SURFACE_SAMPLES_PER_CHUNK_AXIS,
-        zone_size,
-        SURFACE_RECORD_BYTES,
-        zone_x,
-        zone_z,
-        int(world.seed),
-        int(world.terrain_generator_version),
-        int(source_terrain_revision),
-        record_count,
-    )
-    generator = TerrainSurfaceGenerator(
-        int(world.seed),
-        int(world.width_chunks) * 16,
-        int(world.length_chunks) * 16,
-    )
-    offset = SURFACE_HEADER_BYTES
-    for local_chunk_x in range(zone_size):
-        chunk_x = zone_x * zone_size + local_chunk_x
-        for local_chunk_z in range(zone_size):
-            chunk_z = zone_z * zone_size + local_chunk_z
-            records = _surface_records_for_chunk(
-                generator,
-                chunk_x,
-                chunk_z,
-                (overlays or {}).get((chunk_x, chunk_z)),
-            )
-            for height_micro, color in records:
-                struct.pack_into(
-                    "<HBBB",
-                    payload,
-                    offset,
-                    height_micro,
-                    (color >> 16) & 0xFF,
-                    (color >> 8) & 0xFF,
-                    color & 0xFF,
-                )
-                offset += SURFACE_RECORD_BYTES
+def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, overlays=None):
+    # v5: X-major base lattice (height, minimum, sRGB, colour error), followed by
+    # authored chunk solids. The same solids accompany every mip, so zooming out
+    # can never turn a bridge into a pillar or erase a thin build.
+    axis = 256
+    payload = bytearray(struct.pack('<4sBBBBHHiIQI', SURFACE_MAGIC, 5, 2, 32, 8,
+        zone_x, zone_z, int(world.seed), int(world.terrain_generator_version),
+        int(source_terrain_revision), axis * axis))
+    generator = TerrainSurfaceGenerator(int(world.seed), int(world.width_chunks) * 16,
+                                      int(world.length_chunks) * 16)
+    for x in range(axis):
+        for z in range(axis):
+            heights = [(generator.sample_height(zone_x * 512 + x * 2 + dx,
+                       zone_z * 512 + z * 2 + dz) + 1) * MICRO_DIVISIONS
+                       for dx in range(2) for dz in range(2)]
+            payload.extend(struct.pack('<HHBBBB', max(heights), min(heights),
+                                      0x71, 0x8f, 0x61, 0))
+    authored = [(key, value) for key, value in sorted((overlays or {}).items())
+                if value.get('standard') or value.get('micro') or value.get('revision')]
+    payload.extend(struct.pack('<I', len(authored)))
+    for (cx, cz), overlay in authored:
+        boxes = _chunk_solid_runs(generator, cx, cz, overlay)
+        payload.extend(struct.pack('<BBQI', cx - zone_x * 32, cz - zone_z * 32,
+                                   int(overlay.get('revision', 0)), len(boxes)))
+        for x, y, z, w, h, d, color in boxes:
+            payload.extend(struct.pack('<6H3B', x, y, z, w, h, d,
+                            (color >> 16) & 255, (color >> 8) & 255, color & 255))
+    if len(payload) > MAX_SURFACE_BYTES:
+        raise ValueError('surface snapshot exceeds the authored detail budget')
     return bytes(payload)
 
 
@@ -291,51 +276,51 @@ def decode_surface_zone_row(row: models.SpaceSurfaceZoneSnapshot) -> bytes:
 
 
 def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
-    """Build the same max-height pyramid as the client, once per revision.
-
-    v3 is chunk-major. v4 is a zone-wide X-major lattice and header byte 5
-    stores the sample width in metres. Each level is independently compressed
-    so a coarse request never decompresses or transfers the finest lattice.
-    """
+    """Conservative error pyramid; retain authored solids at every data LOD."""
     if len(raw) < SURFACE_HEADER_BYTES:
-        raise ValueError("truncated surface source")
+        raise ValueError('truncated surface source')
     magic, schema, samples, zone_size, record_bytes, *_ = struct.unpack_from('<4sBBBBHHiIQI', raw)
-    axis = zone_size * samples
-    if (magic != SURFACE_MAGIC or schema != SURFACE_SCHEMA_VERSION
-            or samples != 8 or zone_size != 32 or record_bytes != 5
-            or len(raw) != SURFACE_HEADER_BYTES + axis * axis * record_bytes):
-        raise ValueError("invalid surface source")
-    grid = [None] * (axis * axis)
-    records = struct.iter_unpack('<HBBB', raw[SURFACE_HEADER_BYTES:])
-    for cx in range(zone_size):
-        for cz in range(zone_size):
-            for sx in range(samples):
-                for sz in range(samples):
-                    grid[(cx * samples + sx) * axis + cz * samples + sz] = next(records)
-    manifest = []
-    chunks = []
-    offset = 0
+    axis = 256
+    end = 32 + axis * axis * record_bytes
+    if magic != SURFACE_MAGIC or zone_size != 32 or len(raw) < end:
+        raise ValueError('invalid surface source')
+    if schema == 3 and samples == 8 and record_bytes == 5 and len(raw) == end:
+        grid = [None] * (axis * axis)
+        records = struct.iter_unpack('<HBBB', raw[32:])
+        for cx in range(32):
+            for cz in range(32):
+                for sx in range(8):
+                    for sz in range(8):
+                        h, r, g, b = next(records)
+                        grid[(cx * 8 + sx) * axis + cz * 8 + sz] = (h, h, r, g, b, 0)
+        trailer = struct.pack('<I', 0)
+    elif schema == 5 and samples == 2 and record_bytes == 8 and len(raw) >= end + 4:
+        grid = list(struct.iter_unpack('<HHBBBB', raw[32:end]))
+        trailer = raw[end:]
+    else:
+        raise ValueError('invalid surface source')
+    manifest, chunks, offset = [], [], 0
     compressor = zstd.ZstdCompressor(level=6)
     for size in SURFACE_LOD_SIZES:
-        next_axis = axis // 2
-        reduced = []
+        next_axis, reduced = axis // 2, []
         for x in range(next_axis):
             for z in range(next_axis):
-                # Stable first maximum matches the browser's colour tie-break.
-                reduced.append(max((grid[(x * 2 + dx) * axis + z * 2 + dz]
-                                    for dx in range(2) for dz in range(2)), key=lambda r: r[0]))
-        payload = bytearray(raw[:SURFACE_HEADER_BYTES])
-        payload[4] = SURFACE_LOD_SCHEMA_VERSION
-        payload[5] = size
+                children = [grid[(x * 2 + dx) * axis + z * 2 + dz]
+                            for dx in range(2) for dz in range(2)]
+                peak = max(children, key=lambda r: r[0])
+                error = min(255, max(c[5] + max(abs(c[i] - peak[i]) for i in (2, 3, 4))
+                                     for c in children))
+                reduced.append((peak[0], min(c[1] for c in children), *peak[2:5], error))
+        payload = bytearray(raw[:32])
+        payload[4:8] = bytes((5, size, 32, 8))
         struct.pack_into('<I', payload, 28, len(reduced))
         for record in reduced:
-            payload.extend(struct.pack('<HBBB', *record))
+            payload.extend(struct.pack('<HHBBBB', *record))
+        payload.extend(trailer)
         compressed = compressor.compress(payload)
-        manifest.append({
-            'sample_size': size, 'byte_length': len(payload),
+        manifest.append({'sample_size': size, 'byte_length': len(payload),
             'digest': hashlib.sha256(payload).hexdigest(),
-            'offset': offset, 'compressed_size': len(compressed),
-        })
+            'offset': offset, 'compressed_size': len(compressed)})
         chunks.append(compressed)
         offset += len(compressed)
         grid, axis = reduced, next_axis
@@ -344,9 +329,10 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
 
 def decode_surface_lod(row: models.SpaceSurfaceZoneSnapshot, level: dict) -> bytes:
     size = int(level['sample_size'])
-    expected = SURFACE_HEADER_BYTES + (512 // size) ** 2 * SURFACE_RECORD_BYTES if size in SURFACE_LOD_SIZES else 0
+    expected = int(level['byte_length'])
+    minimum = 32 + (512 // size) ** 2 * 5 if size in SURFACE_LOD_SIZES else MAX_SURFACE_BYTES + 1
     start, length = int(level['offset']), int(level['compressed_size'])
-    if (not expected or int(level['byte_length']) != expected or start < 0 or length <= 0
+    if (not minimum <= expected <= MAX_SURFACE_BYTES or start < 0 or length <= 0
             or row.lod_payload is None or start + length > len(row.lod_payload)):
         raise ValueError('invalid surface LOD metadata')
     payload = zstd.ZstdDecompressor().decompress(
@@ -369,7 +355,7 @@ def generate_surface_zone(db, world: models.SpaceWorld, zone_x: int, zone_z: int
     ).all()
     source_revision = max((int(row.last_event_id or 0) for row in overlay_rows), default=0)
     overlays = {
-        (int(row.chunk_x), int(row.chunk_z)): _decode_overlay(row)
+        (int(row.chunk_x), int(row.chunk_z)): {**_decode_overlay(row), 'revision': int(row.revision)}
         for row in overlay_rows
     }
     raw = build_surface_zone_payload(world, zone_x, zone_z, source_revision, overlays)

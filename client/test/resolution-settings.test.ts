@@ -193,7 +193,7 @@ test('world shape setting is applied immediately through the renderer bridge', (
   assert.deepEqual(lodEnabled, [false, false, false, true]);
 });
 
-test('distant terrain thresholds apply immediately through settings state', () => {
+test('distant terrain pixel budgets apply immediately through settings state', () => {
   const applied: any[] = [];
   const world = {
     renderDistance: 8,
@@ -206,12 +206,12 @@ test('distant terrain thresholds apply immediately through settings state', () =
   };
   const store = new SpaceUiStore();
   store.setWorld(world);
-  store.setDistantSurfaceSetting('lod32Distance', 3000, false);
-  store.setDistantSurfaceSetting('connectionDistance', 0, false);
-  store.setDistantSurfaceSetting('lod16Enabled', false, false);
+  store.setDistantSurfaceSetting('screenErrorPx', 1, false);
+  store.setDistantSurfaceSetting('maxDistance', 8000, false);
+  store.setDistantSurfaceSetting('dataBudgetMiB', 32, false);
 
   assert.equal(applied.length, 3);
-  assert.equal(store.getSnapshot().distantSurfaceSettings.lod32Distance, 3000);
-  assert.equal(store.getSnapshot().distantSurfaceSettings.connectionDistance, 0);
-  assert.equal(store.getSnapshot().distantSurfaceSettings.lod16Enabled, false);
+  assert.equal(store.getSnapshot().distantSurfaceSettings.screenErrorPx, 1);
+  assert.equal(store.getSnapshot().distantSurfaceSettings.maxDistance, 8000);
+  assert.equal(store.getSnapshot().distantSurfaceSettings.dataBudgetMiB, 32);
 });

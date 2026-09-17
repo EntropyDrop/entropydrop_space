@@ -7,7 +7,7 @@ import {
   createSpaceSurfaceSnapshotRemote,
   parseSurfaceZoneSnapshot,
   SURFACE_ZONE_HEADER_BYTES,
-  SURFACE_ZONE_RECORD_BYTES,
+  LEGACY_SURFACE_ZONE_RECORD_BYTES as SURFACE_ZONE_RECORD_BYTES,
 } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
@@ -78,73 +78,39 @@ test('surface-zone binary parsing preserves identity, heights and colors', () =>
   assert.throws(() => parseSurfaceZoneSnapshot(makeZoneBytes().subarray(0, 40)), /snapshot/);
 });
 
-test('distant-surface settings snap to safe ordered thresholds', () => {
-  assert.deepEqual(normalizeDistantSurfaceSettings({
-    lod2Distance: 999,
-    lod4Distance: 100,
-    lod8Distance: 100,
-    lod16Distance: 100,
-    lod32Distance: 100,
-    maxDistance: 100,
-    connectionDistance: -100,
-    lod4Enabled: false,
-  }), {
-    lod2Distance: 500,
-    lod4Distance: 550,
-    lod8Distance: 600,
-    lod16Distance: 650,
-    lod32Distance: 700,
-    maxDistance: 750,
-    connectionDistance: 0,
-    lod2Enabled: true,
-    lod4Enabled: false,
-    lod8Enabled: true,
-    lod16Enabled: true,
-    lod32Enabled: true,
-    lod64Enabled: true,
-  });
+test('screen error settings clamp safely and migrate legacy distance tiers', () => {
+  assert.deepEqual(normalizeDistantSurfaceSettings({ screenErrorPx: 0, maxDistance: 100,
+    dataBudgetMiB: Infinity, lod32Distance: 3000, connectionDistance: 0 } as any),
+  { screenErrorPx: 0.5, maxDistance: 500, dataBudgetMiB: 16 });
+  assert.deepEqual(normalizeDistantSurfaceSettings({ lod2Enabled: false } as any),
+    { screenErrorPx: 2, maxDistance: 8500, dataBudgetMiB: 16 });
 });
 
-test('disabled LOD tiers fall through to the next enabled tier and the limit culls farther cells', () => {
-  const layer = new DistantSurfaceLayer();
-  layer.setNearField(0, 0, 8);
-  layer.setSettings({ lod2Enabled: false, lod4Enabled: false, maxDistance: 1650 });
-  layer.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true)));
-  assert.equal(layer.mesh.geometry.getAttribute('surfaceSize').getX(0), 8);
-
-  const limited = new DistantSurfaceLayer();
-  limited.setNearField(0, 0, 8);
-  limited.setSettings({ maxDistance: 1650 });
-  limited.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(4, 0, true)));
-  assert.equal(limited.mesh.geometry.instanceCount, 0);
-});
-
-test('settings can extend the 32 metre tier and rebuild the live topology', async () => {
-  const layer = new DistantSurfaceLayer();
-  layer.setNearField(0, 0, 8);
-  const settings = layer.setSettings({ lod32Distance: 3000, connectionDistance: 0 });
-  assert.equal(settings.lod32Distance, 3000);
-  assert.equal(settings.connectionDistance, 0);
-  layer.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(4, 0, true)));
-  await layer.finalizeConnections();
-
-  const sizes = layer.mesh.geometry.getAttribute('surfaceSize');
-  assert.equal(sizes.getX(0), 32);
-  assert.equal(layer.sideMesh.geometry.instanceCount, 0);
+test('pixel budget controls refinement without fixed distance gates', async () => {
+  setWorldShapeMode('torus');
+  try {
+    const layer = new DistantSurfaceLayer();
+    const zone = parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true));
+    layer.updateView(torusCamera(0, 300, 0), 1000);
+    layer.setSettings({ screenErrorPx: 8 });
+    layer.installZone(zone);
+    await layer.finalizeConnections();
+    const relaxed = layer.mesh.geometry.instanceCount;
+    layer.setSettings({ screenErrorPx: 0.5 });
+    await layer.finalizeConnections();
+    assert.ok(layer.mesh.geometry.instanceCount > relaxed * 2);
+    const limited = new DistantSurfaceLayer();
+    limited.setSettings({ maxDistance: 500 });
+    limited.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(4, 0, true)));
+    assert.equal(limited.mesh.geometry.instanceCount, 0);
+  } finally { setWorldShapeMode('earth'); }
 });
 
 test('maximum exposed LOD controls remain within the surface instance budget', async () => {
   const layer = new DistantSurfaceLayer();
   layer.setNearField(512, 64, 8);
-  layer.setSettings({
-    lod2Distance: DISTANT_SURFACE_SETTING_LIMITS.lod2Distance.max,
-    lod4Distance: DISTANT_SURFACE_SETTING_LIMITS.lod4Distance.max,
-    lod8Distance: DISTANT_SURFACE_SETTING_LIMITS.lod8Distance.max,
-    lod16Distance: DISTANT_SURFACE_SETTING_LIMITS.lod16Distance.max,
-    lod32Distance: DISTANT_SURFACE_SETTING_LIMITS.lod32Distance.max,
-    maxDistance: DISTANT_SURFACE_SETTING_LIMITS.maxDistance.max,
-    connectionDistance: 0,
-  });
+  layer.setSettings({ screenErrorPx: DISTANT_SURFACE_SETTING_LIMITS.screenErrorPx.min,
+    maxDistance: DISTANT_SURFACE_SETTING_LIMITS.maxDistance.max });
   const template = parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true));
   for (let zoneX = 0; zoneX < 32; zoneX++) {
     for (let zoneZ = 0; zoneZ < 4; zoneZ++) {
@@ -168,7 +134,8 @@ test('adaptive surface emits 2/4/8/16/32/64 metre tiers instead of every fine sa
   const sizeAttribute = layer.mesh.geometry.getAttribute('surfaceSize');
   const usedSizes = new Set<number>();
   for (let index = 0; index < count; index++) usedSizes.add(sizeAttribute.getX(index));
-  assert.deepEqual([...usedSizes].sort((a, b) => a - b), [2, 4, 8, 16, 32, 64]);
+  assert.ok(usedSizes.size >= 3);
+  assert.ok(usedSizes.has(64));
   assert.ok(count < 7 * 65_536);
   assert.ok(layer.sideMesh.geometry.instanceCount < count);
 });
@@ -185,7 +152,7 @@ test('a fully populated torus stays inside the adaptive instance budget', async 
   await layer.finalizeConnections();
 
   assert.equal(layer.loadedZones.size, 128);
-  assert.ok(layer.mesh.geometry.instanceCount > 150_000);
+  assert.ok(layer.mesh.geometry.instanceCount >= 8192);
   assert.ok(layer.mesh.geometry.instanceCount < 350_000);
   assert.ok(layer.sideMesh.geometry.instanceCount < layer.mesh.geometry.instanceCount);
 });
@@ -201,12 +168,10 @@ test('moving quantizes and frame-slices far topology without dropping the active
   assert.equal((layer as any).connectionBuildPending, false);
 
   layer.setNearField(2, 0, 8);
-  assert.equal((layer as any).connectionBuildPending, true);
+  assert.ok((layer as any).connectionBuildPending || (layer as any).rebuildTimer);
   assert.equal(layer.mesh.geometry.instanceCount, activeCount);
 
-  for (let attempt = 0; attempt < 200 && (layer as any).connectionBuildPending; attempt++) {
-    await new Promise(resolve => setTimeout(resolve, 2));
-  }
+  await layer.finalizeConnections();
   assert.equal((layer as any).connectionBuildPending, false);
   assert.ok(layer.mesh.geometry.instanceCount > 0);
 });
@@ -242,7 +207,7 @@ test('backend zones populate one instanced far layer and retain a near-field cut
 
   const material = layer.mesh.material;
   assert.equal(material.isMeshStandardMaterial, true);
-  assert.equal(material.flatShading, true);
+  assert.equal(material.flatShading, false, 'curved tops interpolate normals across LOD boundaries');
   assert.equal(material.roughness, 0.65);
   assert.equal(material.metalness, 0.15);
   assert.equal(material.side, THREE.FrontSide);
@@ -292,40 +257,40 @@ test('backend zones populate one instanced far layer and retain a near-field cut
   assert.equal(layer.mesh.geometry.getAttribute('surfaceHeight').getX(0), 0);
 });
 
-test('surface connections extend through 4000 metres while the 32 metre tier stops at 1600', async () => {
+test('surface connections close sparse terrain at 2000 metres', async () => {
   const layer = new DistantSurfaceLayer();
   layer.setNearField(0, 0, 8);
   layer.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(4, 0)));
   await layer.finalizeConnections();
 
   assert.equal(layer.mesh.geometry.instanceCount, 1);
-  assert.equal(layer.mesh.geometry.getAttribute('surfaceSize').getX(0), 64);
+  assert.ok(layer.mesh.geometry.getAttribute('surfaceSize').getX(0) <= 64);
   assert.ok(layer.sideMesh.geometry.instanceCount > 0);
   assert.equal(layer.sideMesh.visible, true);
 });
 
-test('surface connections remain active for 64 metre samples around 3000 metres', async () => {
+test('surface connections remain active around 3000 metres', async () => {
   const layer = new DistantSurfaceLayer();
   layer.setNearField(0, 0, 8);
   layer.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(6, 0)));
   await layer.finalizeConnections();
 
   assert.equal(layer.mesh.geometry.instanceCount, 1);
-  assert.equal(layer.mesh.geometry.getAttribute('surfaceSize').getX(0), 64);
+  assert.ok(layer.mesh.geometry.getAttribute('surfaceSize').getX(0) <= 64);
   assert.ok(layer.sideMesh.geometry.instanceCount > 0);
   assert.equal(layer.sideMesh.visible, true);
 });
 
-test('surface connections stop beyond 4000 metres', async () => {
+test('surface connections remain closed beyond the old 4000 metre cutoff', async () => {
   const layer = new DistantSurfaceLayer();
   layer.setNearField(0, 0, 8);
   layer.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(8, 0)));
   await layer.finalizeConnections();
 
   assert.equal(layer.mesh.geometry.instanceCount, 1);
-  assert.equal(layer.mesh.geometry.getAttribute('surfaceSize').getX(0), 64);
-  assert.equal(layer.sideMesh.geometry.instanceCount, 0);
-  assert.equal(layer.sideMesh.visible, false);
+  assert.ok(layer.mesh.geometry.getAttribute('surfaceSize').getX(0) <= 64);
+  assert.ok(layer.sideMesh.geometry.instanceCount > 0);
+  assert.equal(layer.sideMesh.visible, true);
 });
 
 test('surface-zone remote verifies and progressively installs manifest entries', async () => {
@@ -441,7 +406,7 @@ test('coarse snapshots validate their lattice and can refine curvature without f
   } finally { setWorldShapeMode('earth'); }
 });
 
-test('torus screen error reduces a uniform full world and culls batches immediately on turns', async () => {
+test('torus screen error preserves full world coverage and culls batches immediately on turns', async () => {
   setWorldShapeMode('torus');
   try {
     const layer = new DistantSurfaceLayer();
@@ -451,12 +416,10 @@ test('torus screen error reduces a uniform full world and culls batches immediat
       layer.installZone({ ...template, zoneX: x, zoneZ: z });
     }
     await layer.finalizeConnections();
-    const previousCount = layer.mesh.geometry.instanceCount;
     const camera = torusCamera();
     layer.updateView(camera, 800);
     await layer.finalizeConnections();
-    assert.ok(layer.mesh.geometry.instanceCount < previousCount / 2,
-      `expected fewer uniform cells, got ${layer.mesh.geometry.instanceCount}/${previousCount}`);
+    assert.ok(layer.mesh.geometry.instanceCount < 128 * 65536 / 10);
     const sizes = layer.mesh.geometry.getAttribute('surfaceSize');
     let area = 0;
     for (let index = 0; index < layer.mesh.geometry.instanceCount; index++) area += sizes.getX(index) ** 2;
@@ -585,7 +548,6 @@ test('extreme zoom preserves whole-torus coverage within the geometry budget', a
   setWorldShapeMode('torus');
   try {
     const layer = new DistantSurfaceLayer();
-    layer.setSettings({ connectionDistance: 0 });
     const template = parseSurfaceZoneSnapshot(makeCoarseBytes());
     for (let x = 0; x < 32; x++) for (let z = 0; z < 4; z++) {
       layer.installZone({ ...template, zoneX: x, zoneZ: z });
@@ -622,4 +584,104 @@ test('reenabling the torus stages current data and never resurrects a removed zo
     assert.equal(layer.mesh.geometry.instanceCount, 0);
     assert.equal(layer.mesh.children.filter(mesh => mesh.name.startsWith('DistantSurface:')).length, 0);
   } finally { setWorldShapeMode('earth'); }
+});
+
+function v5Bytes() {
+  const bytes = new Uint8Array(32 + 64 * 8 + 4 + 14 + 15);
+  bytes.set(makeCoarseBytes(31, 3).subarray(0, 32));
+  const view = new DataView(bytes.buffer);
+  view.setUint8(4, 5); view.setUint8(7, 8);
+  for (let i = 0; i < 64; i++) {
+    view.setUint16(32 + i * 8, 160, true);
+    view.setUint16(34 + i * 8, 128, true);
+    bytes.set([113, 143, 97, 20], 36 + i * 8);
+  }
+  let offset = 32 + 64 * 8;
+  view.setUint32(offset, 1, true); offset += 4;
+  bytes.set([31, 31], offset);
+  view.setBigUint64(offset + 2, 123n, true);
+  view.setUint32(offset + 10, 1, true); offset += 14;
+  [120, 320, 120, 8, 16, 8].forEach((v, i) => view.setUint16(offset + i * 2, v, true));
+  bytes.set([255, 0, 0], offset + 12);
+  return bytes;
+}
+
+test('v5 transmits conservative source errors and vertical solids even in the 64m overview', () => {
+  const zone = parseSurfaceZoneSnapshot(v5Bytes());
+  assert.equal(zone.sampleSize, 64);
+  assert.equal(zone.minHeightsMicro![0], 128);
+  assert.equal(zone.colorErrors![0], 20);
+  const chunk = zone.detailChunks![0];
+  assert.deepEqual([chunk.chunkX, chunk.chunkZ, chunk.revision], [1023, 127, 123]);
+  assert.deepEqual([...chunk.boxes], [120, 320, 120, 8, 16, 8]);
+  assert.deepEqual([...chunk.colors], [255, 0, 0]);
+  assert.throws(() => parseSurfaceZoneSnapshot(v5Bytes().subarray(0, -1)), /surface chunk/);
+  const invalid = v5Bytes();
+  new DataView(invalid.buffer).setUint16(invalid.length - 15 + 6, 16, true);
+  assert.throws(() => parseSurfaceZoneSnapshot(invalid), /solid bounds/);
+});
+
+test('downloaded residual error drives data refinement across the ring', async () => {
+  setWorldShapeMode('torus');
+  try {
+    const layer = new DistantSurfaceLayer();
+    const zone = parseSurfaceZoneSnapshot(makeCoarseBytes(0, 2));
+    zone.minHeightsMicro = new Uint16Array(64).fill(40);
+    layer.updateView(torusCamera(8192, 100, 1024), 1600);
+    layer.installZone(zone);
+    assert.ok(layer.getZoneDemand(0, 2).sampleSize < 64);
+    layer.setSettings({ screenErrorPx: 8 });
+    const relaxed = layer.getZoneDemand(0, 2).sampleSize;
+    layer.setSettings({ screenErrorPx: 0.5 });
+    assert.ok(layer.getZoneDemand(0, 2).sampleSize < relaxed);
+    await layer.finalizeConnections();
+  } finally { setWorldShapeMode('earth'); }
+});
+
+test('dirty or temporarily absent manifest entries retain last-good geometry', async () => {
+  const bytes = makeCoarseBytes();
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const manifest = { schema_version: 3, samples_per_chunk_axis: 8, zone_size_chunks: 32,
+    width_chunks: 32, length_chunks: 32, complete: false,
+    zones: [{ zone_x: 0, zone_z: 0, revision: 1, source_terrain_revision: 7,
+      digest: '0'.repeat(64), byte_length: 327712, url: '/fine',
+      lods: [{ sample_size: 64, digest, byte_length: bytes.length, url: '/coarse' }] }] };
+  let present = true;
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/surface-zones', 20260827, 1,
+    (async input => String(input).endsWith('/surface-zones')
+      ? Response.json({ ...manifest, zones: present ? manifest.zones : [] }) : new Response(bytes)) as typeof fetch);
+  const options = { getZoneDemand: () => ({ sampleSize: 64, priority: 0 }) };
+  let installed = 0;
+  const first = await remote.loadAll(() => installed++, () => assert.fail('dirty is not a deletion'), options);
+  assert.equal(first.complete, false);
+  present = false;
+  await remote.loadAll(() => installed++, () => assert.fail('missing is not a deletion'), options);
+  assert.equal(installed, 1);
+});
+
+test('authored distant geometry survives coarse replacement, near handoff and stale responses', async () => {
+  const layer = new DistantSurfaceLayer();
+  const zone = parseSurfaceZoneSnapshot(v5Bytes());
+  layer.installZone(zone);
+  await layer.finalizeConnections();
+  const group = layer.authoredChunks.group;
+  assert.equal(group.children.length, 1);
+  const first = group.children[0];
+  const mask = layer.detailMaskTexture.image.data as Uint8Array;
+  assert.equal(mask.at(-1), 128);
+  layer.setDetailChunkReady(-1, -1, true);
+  assert.equal(mask.at(-1), 255);
+  layer.setDetailChunkReady(-1, -1, false);
+  assert.equal(mask.at(-1), 128, 'far solids own the chunk immediately after near eviction');
+  layer.authoredChunks.install({ ...zone.detailChunks![0], revision: Infinity }, true);
+  const local = group.children[0];
+  layer.installZone(zone);
+  assert.equal(group.children[0], local, 'unacknowledged edits must survive server refresh');
+  layer.authoredChunks.acknowledge(1023, 127, 124);
+  layer.authoredChunks.install(zone.detailChunks![0]);
+  assert.equal(group.children[0], local, 'an earlier accepted revision is still stale');
+  layer.authoredChunks.install({ ...zone.detailChunks![0], revision: 124 });
+  assert.notEqual(group.children[0], local);
+  assert.notEqual(group.children[0], first);
+  await layer.finalizeConnections();
 });

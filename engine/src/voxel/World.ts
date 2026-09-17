@@ -1,3 +1,4 @@
+import { captureDistantChunk } from '../render/DistantChunkLayer.ts';
 import * as THREE from 'three';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from './Chunk.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
@@ -1070,6 +1071,7 @@ export class World {
         this.suspendCrossLayerPublication(key);
         this.dirtyChunks.delete(chunk);
         this.interactiveDirtyChunks.delete(chunk);
+        this.captureDistantChunk(chunk);
         this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, false);
         if (chunk.mesh) chunk.mesh.visible = false;
         this.pendingChunkEvictions.set(key, chunk);
@@ -1739,8 +1741,25 @@ export class World {
     this.distantSurface.removeZone(zoneX, zoneZ);
   }
 
+  private readonly distantChunkVersions = new WeakMap<Chunk, string>();
+  private readonly distantChunkRevisions = new Map<string, number>();
+
+  private captureDistantChunk(chunk: Chunk) {
+    const microRevision = this.microVoxels.getChunkRevision(chunk.cx, chunk.cz);
+    if (!chunk.hasUserEdits && microRevision === 0) return;
+    const pending = !this.editPersistence || this.editPersistence.hasPendingEditsForChunk(chunk.cx, chunk.cz);
+    const key = World.getChunkKey(chunk.cx, chunk.cz);
+    const revision = pending ? Infinity : Math.max(this.remoteChunkRevisions.get(key) ?? 0,
+      this.distantChunkRevisions.get(key) ?? 0);
+    const version = `${chunk.dataVersion}:${microRevision}:${revision}`;
+    if (this.distantChunkVersions.get(chunk) === version) return;
+    this.distantSurface.authoredChunks.install(captureDistantChunk(chunk, this.microVoxels, revision), true);
+    this.distantChunkVersions.set(chunk, version);
+  }
+
   disposeChunkMesh(chunk) {
     if (!chunk?.mesh) return;
+    this.captureDistantChunk(chunk);
     this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, false);
     this.disposeDetachedChunkMesh(chunk.mesh);
     chunk.mesh = null;
@@ -2002,7 +2021,15 @@ export class World {
       const revision = Number(value?.revision);
       if (![cx, cz, revision].every(Number.isSafeInteger) || revision < 1) continue;
       const key = World.getChunkKey(cx, cz);
-      if (!touched.has(key) || !this.chunks.get(key)?.mesh) continue;
+      if (!touched.has(key)) continue;
+      this.distantChunkRevisions.set(key, Math.max(this.distantChunkRevisions.get(key) ?? 0, revision));
+      setTimeout(() => {
+        if (!this.editPersistence?.hasPendingEditsForChunk(cx, cz)) {
+          this.distantSurface.authoredChunks.acknowledge(cx, cz, Math.max(revision,
+            this.remoteChunkRevisions.get(key) ?? 0, this.distantChunkRevisions.get(key) ?? 0));
+        }
+      }, 0);
+      if (!this.chunks.get(key)?.mesh) continue;
       const previous = this.remoteChunkRevisions.get(key);
       // A consecutive per-chunk revision proves no other writer changed this
       // chunk between the installed baseline and our accepted edit. A gap must
@@ -2253,6 +2280,7 @@ export class World {
       this.pendingStreamChunks.unshift({ cx: job.cx, cz: job.cz, distanceSq: 0 });
     }
     this.remoteChunkRevisions.set(job.key, job.revision);
+    if (job.chunk && !this.activeChunkKeys.has(job.key)) this.captureDistantChunk(job.chunk);
     this.terrainVersion++;
     this.microMeshBuildBlockedChunks.delete(job.key);
     this.microVoxels.finalizeCollisionSnapshots(job.microClearCursor!.targetMeshChunks);
@@ -2389,6 +2417,7 @@ export class World {
       }
     }
     this.remoteChunkRevisions.set(key, revision);
+    if (chunk && !this.activeChunkKeys.has(key)) this.captureDistantChunk(chunk);
     this.terrainVersion++;
   }
 }

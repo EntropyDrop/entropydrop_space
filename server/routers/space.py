@@ -1127,16 +1127,15 @@ def list_surface_zones(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    """Return immutable URLs for every ready, revisioned far-surface zone."""
+    """Return last-good coverage while dirty or legacy zones rebuild."""
     world = _require_world_membership(db, str(world_id), current_user)
     rows = db.query(models.SpaceSurfaceZoneSnapshot).options(
         defer(models.SpaceSurfaceZoneSnapshot.payload),
         defer(models.SpaceSurfaceZoneSnapshot.lod_payload),
     ).filter(
         models.SpaceSurfaceZoneSnapshot.world_id == world.id,
-        models.SpaceSurfaceZoneSnapshot.dirty.is_(False),
         models.SpaceSurfaceZoneSnapshot.terrain_generator_version == world.terrain_generator_version,
-        models.SpaceSurfaceZoneSnapshot.schema_version == space_surface.SURFACE_SCHEMA_VERSION,
+        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, space_surface.SURFACE_SCHEMA_VERSION)),
         models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis
         == space_surface.SURFACE_SAMPLES_PER_CHUNK_AXIS,
     ).order_by(
@@ -1147,7 +1146,9 @@ def list_surface_zones(
         int(world.width_chunks) // int(world.zone_size_chunks)
         * (int(world.length_chunks) // int(world.zone_size_chunks))
     )
-    if (len(rows) < expected or any(row.lod_manifest is None for row in rows)) and db.get_bind().dialect.name == "postgresql":
+    pending = any(row.dirty or row.schema_version != space_surface.SURFACE_SCHEMA_VERSION
+                  or row.lod_manifest is None for row in rows)
+    if (len(rows) < expected or pending) and db.get_bind().dialect.name == "postgresql":
         # Production normally has the Redis-singleton background process. This
         # makes API-only local deployments and temporarily missing workers
         # self-heal without delaying the manifest response.
@@ -1160,6 +1161,7 @@ def list_surface_zones(
             "zone_z": int(row.zone_z),
             "revision": int(row.revision),
             "source_terrain_revision": int(row.source_terrain_revision),
+            "updating": bool(row.dirty or row.schema_version != space_surface.SURFACE_SCHEMA_VERSION),
             "digest": digest,
             "byte_length": int(row.uncompressed_size),
             "url": (
@@ -1182,7 +1184,7 @@ def list_surface_zones(
         "zone_size_chunks": int(world.zone_size_chunks),
         "width_chunks": int(world.width_chunks),
         "length_chunks": int(world.length_chunks),
-        "complete": len(zones) == expected,
+        "complete": len(zones) == expected and not pending,
         "zones": zones,
     }
 
@@ -1214,9 +1216,8 @@ def get_surface_zone(
         models.SpaceSurfaceZoneSnapshot.world_id == world.id,
         models.SpaceSurfaceZoneSnapshot.zone_x == zone_x,
         models.SpaceSurfaceZoneSnapshot.zone_z == zone_z,
-        models.SpaceSurfaceZoneSnapshot.dirty.is_(False),
         models.SpaceSurfaceZoneSnapshot.terrain_generator_version == world.terrain_generator_version,
-        models.SpaceSurfaceZoneSnapshot.schema_version == space_surface.SURFACE_SCHEMA_VERSION,
+        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, space_surface.SURFACE_SCHEMA_VERSION)),
         models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis
         == space_surface.SURFACE_SAMPLES_PER_CHUNK_AXIS,
     ).first()

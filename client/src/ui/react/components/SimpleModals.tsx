@@ -7,25 +7,22 @@ import { LIGHTING_PRESETS, LIGHTING_QUALITY_LEVELS } from '../../../engine/rende
 import type { SpaceApiKeyRecord, SpaceApiUsage } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
-  type DistantSurfaceDistanceSettingKey,
-  type DistantSurfaceEnabledSettingKey,
+  type DistantSurfaceSettingKey,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
 import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 
 const DISTANT_LOD_CONTROLS: ReadonlyArray<{
-  distanceKey: DistantSurfaceDistanceSettingKey;
-  enabledKey: DistantSurfaceEnabledSettingKey;
-  label: string;
-  description: string;
+  key: DistantSurfaceSettingKey; label: string; description: string; unit: string;
 }> = [
-    { distanceKey: 'lod2Distance', enabledKey: 'lod2Enabled', label: '2m Samples', description: 'Highest-detail snapshot radius' },
-    { distanceKey: 'lod4Distance', enabledKey: 'lod4Enabled', label: '4m Samples', description: '4m → 8m transition distance' },
-    { distanceKey: 'lod8Distance', enabledKey: 'lod8Enabled', label: '8m Samples', description: '8m → 16m transition distance' },
-    { distanceKey: 'lod16Distance', enabledKey: 'lod16Enabled', label: '16m Samples', description: '16m → 32m transition distance' },
-    { distanceKey: 'lod32Distance', enabledKey: 'lod32Enabled', label: '32m Samples', description: '32m → 64m transition distance' },
-  ];
+  { key: 'screenErrorPx', label: 'Screen Error Budget', unit: 'px',
+    description: 'Lower values retain more detail. Adapts to terrain, field of view and resolution.' },
+  { key: 'maxDistance', label: 'Far Terrain Distance', unit: 'm',
+    description: 'View distance through the curved world, including the opposite side of the ring.' },
+  { key: 'dataBudgetMiB', label: 'Terrain Detail Cache', unit: 'MiB',
+    description: 'Additional surface detail beyond the global overview and authored structures.' },
+];
 
 function ModalBackdrop({ id, className = '', children, onClose }: { id: string; className?: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -451,110 +448,25 @@ export function GlobalSettingsModal() {
               <div className="settings-section-title">
                 DISTANT TERRAIN LOD{distantLodDisabled ? ' · OFF IN EARTH MODE' : ''}
               </div>
-              {DISTANT_LOD_CONTROLS.map(({ distanceKey, enabledKey, label, description }) => {
-                const limits = DISTANT_SURFACE_SETTING_LIMITS[distanceKey];
-                const enabled = !distantLodDisabled && state.distantSurfaceSettings[enabledKey];
-                return (
-                  <div className="settings-row" key={distanceKey}>
-                    <div className="settings-label-group">
-                      <span className="settings-label">{label}</span>
-                      <span className="settings-desc">{description} · thresholds remain at least 50m apart</span>
-                    </div>
-                    <div className="settings-control-group">
-                      <button
-                        className={`mini-toggle-btn ${enabled ? 'active' : ''}`}
-                        aria-pressed={enabled}
-                        disabled={distantLodDisabled}
-                        onClick={() => spaceUiStore.setDistantSurfaceSetting(enabledKey, !enabled)}
-                      >
-                        {enabled ? 'ON' : 'OFF'}
-                      </button>
-                      <input
-                        id={`setting-${distanceKey}-slider`}
-                        className="settings-slider"
-                        type="range"
-                        min={limits.min}
-                        max={limits.max}
-                        step={limits.step}
-                        value={state.distantSurfaceSettings[distanceKey]}
-                        disabled={!enabled || distantLodDisabled}
-                        onChange={event => spaceUiStore.setDistantSurfaceSetting(distanceKey, Number(event.target.value))}
-                      />
-                      <span className="settings-value-badge">{state.distantSurfaceSettings[distanceKey]} m</span>
-                    </div>
+              {DISTANT_LOD_CONTROLS.map(({ key, label, description, unit }) => {
+                const limits = DISTANT_SURFACE_SETTING_LIMITS[key];
+                return <div className="settings-row" key={key}>
+                  <div className="settings-label-group">
+                    <span className="settings-label">{label}</span>
+                    <span className="settings-desc">{description}</span>
                   </div>
-                );
+                  <div className="settings-control-group">
+                    <input id={`setting-${key}-slider`} aria-label={label}
+                      className="settings-slider" type="range" min={limits.min} max={limits.max}
+                      step={limits.step} value={state.distantSurfaceSettings[key]} disabled={distantLodDisabled}
+                      onChange={event => spaceUiStore.setDistantSurfaceSetting(key, Number(event.target.value))} />
+                    <span className="settings-value-badge">{state.distantSurfaceSettings[key]} {unit}</span>
+                  </div>
+                </div>;
               })}
               <div className="settings-row">
                 <div className="settings-label-group">
-                  <span className="settings-label">64m Samples</span>
-                  <span className="settings-desc">Coarsest tier, used after the 32m threshold up to the surface limit</span>
-                </div>
-                <div className="settings-control-group">
-                  <button
-                    className={`mini-toggle-btn ${!distantLodDisabled && state.distantSurfaceSettings.lod64Enabled ? 'active' : ''}`}
-                    aria-pressed={!distantLodDisabled && state.distantSurfaceSettings.lod64Enabled}
-                    disabled={distantLodDisabled}
-                    onClick={() => spaceUiStore.setDistantSurfaceSetting(
-                      'lod64Enabled',
-                      !state.distantSurfaceSettings.lod64Enabled,
-                    )}
-                  >
-                    {!distantLodDisabled && state.distantSurfaceSettings.lod64Enabled ? 'ON' : 'OFF'}
-                  </button>
-                  <span className="settings-value-badge">64 m</span>
-                </div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <span className="settings-label">Far Surface Limit</span>
-                  <span className="settings-desc">Render no snapshot terrain beyond this distance</span>
-                </div>
-                <div className="settings-control-group">
-                  <input
-                    id="setting-far-surface-limit-slider"
-                    className="settings-slider"
-                    type="range"
-                    min={Math.max(
-                      DISTANT_SURFACE_SETTING_LIMITS.maxDistance.min,
-                      state.distantSurfaceSettings.lod32Distance + 50,
-                    )}
-                    max={DISTANT_SURFACE_SETTING_LIMITS.maxDistance.max}
-                    step={DISTANT_SURFACE_SETTING_LIMITS.maxDistance.step}
-                    value={state.distantSurfaceSettings.maxDistance}
-                    disabled={distantLodDisabled}
-                    onChange={event => spaceUiStore.setDistantSurfaceSetting('maxDistance', Number(event.target.value))}
-                  />
-                  <span className="settings-value-badge">{state.distantSurfaceSettings.maxDistance} m</span>
-                </div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <span className="settings-label">Neighbor Connections</span>
-                  <span className="settings-desc">Connect height differences up to this distance; 0 disables connections</span>
-                </div>
-                <div className="settings-control-group">
-                  <input
-                    id="setting-connection-distance-slider"
-                    className="settings-slider"
-                    type="range"
-                    min={DISTANT_SURFACE_SETTING_LIMITS.connectionDistance.min}
-                    max={DISTANT_SURFACE_SETTING_LIMITS.connectionDistance.max}
-                    step={DISTANT_SURFACE_SETTING_LIMITS.connectionDistance.step}
-                    value={state.distantSurfaceSettings.connectionDistance}
-                    disabled={distantLodDisabled}
-                    onChange={event => spaceUiStore.setDistantSurfaceSetting('connectionDistance', Number(event.target.value))}
-                  />
-                  <span className="settings-value-badge">
-                    {state.distantSurfaceSettings.connectionDistance === 0
-                      ? 'Off'
-                      : `${state.distantSurfaceSettings.connectionDistance} m`}
-                  </span>
-                </div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <span className="settings-desc">Recommended: all tiers on · 400 / 600 / 800 / 1000 / 1600m · full-world limit · connections 4000m</span>
+                  <span className="settings-desc">Automatic surface detail · solid terrain connections · persistent distant structures</span>
                 </div>
                 <button className="small-btn" disabled={distantLodDisabled} onClick={() => spaceUiStore.resetDistantSurfaceSettings()}>
                   Reset Recommended
