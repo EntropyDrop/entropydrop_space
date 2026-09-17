@@ -83,14 +83,21 @@ def prepare(release):
     behaviors.append(asset)
     config = {'CallerReference': 'space-app-' + str(time.time_ns()), 'Comment': 'Standalone Space client and API', 'Aliases': {'Quantity': 1, 'Items': [HOST]},
         'Enabled': True, 'IsIPV6Enabled': True, 'HttpVersion': 'http2and3', 'PriceClass': 'PriceClass_All', 'DefaultRootObject': 'index.html',
-        'Origins': {'Quantity': 2, 'Items': [origin, api_origin]}, 'DefaultCacheBehavior': static,
+        'Origins': {'Quantity': 2, 'Items': [origin, api_origin]}, 'OriginGroups': {'Quantity': 0}, 'DefaultCacheBehavior': static,
         'CacheBehaviors': {'Quantity': len(behaviors), 'Items': behaviors}, 'ViewerCertificate': main['ViewerCertificate'],
-        'CustomErrorResponses': {'Quantity': 5, 'Items': [{'ErrorCode': c, 'ErrorCachingMinTTL': 0} for c in [400,403,404,500,503]]}}
+        'CustomErrorResponses': {'Quantity': 5, 'Items': [{'ErrorCode': c, 'ResponsePagePath': '', 'ResponseCode': '', 'ErrorCachingMinTTL': 0} for c in [400,403,404,500,503]]},
+        'Logging': {'Enabled': False, 'IncludeCookies': False, 'Bucket': '', 'Prefix': ''},
+        'Restrictions': {'GeoRestriction': {'RestrictionType': 'none', 'Quantity': 0}},
+        'WebACLId': ''}
     existing = distribution()
     if existing:
         previous = cf.get_distribution_config(Id=existing['Id'])
         save('space-distribution-before.json', previous)
-        config['CallerReference'] = previous['DistributionConfig']['CallerReference']
+        prev_cfg = previous['DistributionConfig']
+        config['CallerReference'] = prev_cfg['CallerReference']
+        for key in ('Logging', 'Restrictions', 'WebACLId', 'OriginGroups', 'CustomErrorResponses', 'ContinuousDeploymentPolicyId'):
+            if key in prev_cfg:
+                config[key] = prev_cfg[key]
         result = cf.update_distribution(Id=existing['Id'], IfMatch=previous['ETag'], DistributionConfig=config)['Distribution']
     else:
         result = cf.create_distribution(DistributionConfig=config)['Distribution']
