@@ -6,9 +6,6 @@ import {
   normalizeDistantSurfaceSettings,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
-import {
-  DEFAULT_ENTITY_IMPOSTOR_SETTINGS, ENTITY_IMPOSTOR_SETTING_KEY, normalizeEntityImpostorSettings,
-} from '../src/engine/render/EntityImpostorSettings.ts';
 
 test('restoring Ultra publishes the final 60 FPS target after initial resolution setup', t => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
@@ -217,40 +214,4 @@ test('distant terrain thresholds apply immediately through settings state', () =
   assert.equal(store.getSnapshot().distantSurfaceSettings.lod32Distance, 3000);
   assert.equal(store.getSnapshot().distantSurfaceSettings.connectionDistance, 0);
   assert.equal(store.getSnapshot().distantSurfaceSettings.lod16Enabled, false);
-});
-
-test('entity plane settings persist and stay independent of terrain, AOI and world shape', t => {
-  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-  const values = new Map<string, string>();
-  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-  } });
-  t.after(() => {
-    if (original) Object.defineProperty(globalThis, 'localStorage', original);
-    else delete (globalThis as any).localStorage;
-  });
-  const renderer = Object.create(SceneRenderer.prototype) as SceneRenderer;
-  const bridge = {
-    getEntityImpostorSettings: () => renderer.getEntityImpostorSettings(),
-    setEntityImpostorSettings: value => renderer.setEntityImpostorSettings(value),
-  };
-  const store = new SpaceUiStore();
-  store.setSceneRenderer(bridge);
-  store.setEntityImpostorSetting('startDistance', 120);
-  store.setEntityImpostorSetting('maxDistance', 3400);
-  assert.deepEqual(renderer.getEntityImpostorSettings(), { startDistance: 120, maxDistance: 3400 });
-  assert.deepEqual(JSON.parse(values.get(ENTITY_IMPOSTOR_SETTING_KEY)), renderer.getEntityImpostorSettings());
-  store.setWorld({ renderDistance: 4, getDistantSurfaceSettings: () => ({ maxDistance: 750 }) });
-  store.setDistantSurfaceSetting('maxDistance', 8500, false);
-  store.setRenderDistance(20, false);
-  store.setWorldShapeMode('earth', false);
-  assert.deepEqual(store.getSnapshot().entityImpostorSettings, { startDistance: 120, maxDistance: 3400 });
-  const restored = new SpaceUiStore();
-  restored.setSceneRenderer(bridge);
-  assert.deepEqual(restored.getSnapshot().entityImpostorSettings, { startDistance: 120, maxDistance: 3400 });
-  restored.resetEntityImpostorSettings();
-  assert.deepEqual(renderer.getEntityImpostorSettings(), DEFAULT_ENTITY_IMPOSTOR_SETTINGS);
-  assert.deepEqual(normalizeEntityImpostorSettings({ startDistance: Infinity, maxDistance: NaN }), DEFAULT_ENTITY_IMPOSTOR_SETTINGS);
-  assert.deepEqual(normalizeEntityImpostorSettings({ startDistance: 99999, maxDistance: -1 }), { startDistance: 1000, maxDistance: 1100 });
 });

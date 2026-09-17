@@ -22,9 +22,6 @@ import {
 import { AdaptiveResolutionController } from './AdaptiveResolution.ts';
 import type { AdaptiveEffectsQuality } from './AdaptiveResolution.ts';
 import { CinematicEffects } from './CinematicEffects.ts';
-import { CrossPlaneImpostorLod } from './CrossPlaneImpostor.ts';
-import { normalizeEntityImpostorSettings, type EntityImpostorSettings } from './EntityImpostorSettings.ts';
-import { VoxelImpostorSources } from './VoxelImpostorSources.ts';
 import { CINEMATIC_SKY_GLSL } from './CinematicSky.ts';
 import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, normalizeLightingQuality,
@@ -708,11 +705,6 @@ export class SceneRenderer {
   declare selectionMicroCellsSignature: string;
   declare timeOfDay: number;
   declare world: any;
-  private contraptionManager: any = null;
-  private impostorLod: CrossPlaneImpostorLod | null = null;
-  private impostorSources: VoxelImpostorSources | null = null;
-  private entityImpostorSettings = normalizeEntityImpostorSettings();
-  private retainRemoteEntityImpostor?: (publicId: string) => boolean;
   declare flatCameraPosition: THREE.Vector3;
   declare flatCameraQuaternion: THREE.Quaternion;
   declare bentLightTarget: THREE.Vector3;
@@ -3262,27 +3254,7 @@ export class SceneRenderer {
   }
 
   setWorld(world) {
-    this.impostorLod?.dispose();
-    this.impostorSources?.dispose();
     this.world = world;
-  }
-
-  setContraptions(manager) {
-    this.contraptionManager = manager;
-  }
-
-  getEntityImpostorSettings(): EntityImpostorSettings {
-    return normalizeEntityImpostorSettings(this.entityImpostorSettings);
-  }
-
-  setEntityImpostorRetention(retain: (publicId: string) => boolean): void {
-    this.retainRemoteEntityImpostor = retain;
-  }
-
-  setEntityImpostorSettings(settings: Partial<EntityImpostorSettings>): EntityImpostorSettings {
-    this.entityImpostorSettings = normalizeEntityImpostorSettings({ ...this.entityImpostorSettings, ...settings });
-    this.impostorLod?.setEntitySettings(this.entityImpostorSettings);
-    return this.getEntityImpostorSettings();
   }
 
   setWorldShapeMode(mode: WorldShapeMode) {
@@ -3322,7 +3294,7 @@ export class SceneRenderer {
     }
   }
 
-  render(protectedEntities: any[] = []) {
+  render() {
     this.updateAdaptiveResolution();
     if (!this.world) {
       this.renderWorld();
@@ -3348,23 +3320,13 @@ export class SceneRenderer {
     try {
       applyCameraBend(this.camera);
       cullChunks(this.camera, this.world);
-      if (!this.impostorLod) {
-        this.impostorLod = new CrossPlaneImpostorLod(this.scene);
-        this.impostorLod.setEntitySettings(this.entityImpostorSettings);
-      }
-      this.impostorSources ??= new VoxelImpostorSources();
-      const protectedSet = new Set([...protectedEntities, this.previewTarget]);
-      this.impostorLod.beginRender(this.impostorSources.sources(
-        this.world, this.contraptionManager?.contraptions || [], this.flatCameraPosition, protectedSet, this.contraptionManager,
-        this.retainRemoteEntityImpostor,
-      ), this.flatCameraPosition);
+      this.world.distantSurface?.updateView(this.camera, this.renderer.domElement.height);
       this.updateSkyDome(this.camera.position);
       // Overlays use the same bent camera and interpolated component transforms
       // as this world pass, not the flat simulation pose or the editor preview.
       for (const listener of this.worldOverlayListeners || []) listener(this.camera);
       this.renderWorld();
     } finally {
-      this.impostorLod?.endRender();
       this.camera.position.copy(this.flatCameraPosition);
       this.camera.quaternion.copy(this.flatCameraQuaternion);
       this.camera.updateMatrixWorld(true);

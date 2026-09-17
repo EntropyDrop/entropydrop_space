@@ -626,6 +626,16 @@ def test_space_surface_zone_snapshot_matches_browser_generator_and_serves_immuta
     assert len(downloaded.content) == row.uncompressed_size
     assert downloaded.headers["etag"] == f'"{row.content_hash.hex()}"'
     assert "immutable" in downloaded.headers["cache-control"]
+    levels = body['zones'][0]['lods']
+    assert [level['sample_size'] for level in levels] == [4, 8, 16, 32, 64]
+    for level in levels:
+        coarse = client.get(level['url'])
+        assert coarse.status_code == 200
+        assert len(coarse.content) == level['byte_length']
+        assert coarse.content[4:6] == bytes([4, level['sample_size']])
+        assert coarse.headers['etag'] == f'"{level["digest"]}"'
+    assert client.get(levels[-1]['url'].replace(levels[-1]['digest'], '0' * 64)).status_code == 409
+    assert client.get(body['zones'][0]['url'] + '&sample_size=3').status_code == 422
 
 
 def test_terrain_edits_mark_their_surface_zone_snapshot_dirty(client, db):
@@ -634,6 +644,8 @@ def test_terrain_edits_mark_their_surface_zone_snapshot_dirty(client, db):
     bootstrap = client.post("/space/api/v2/bootstrap").json()
     world = db.query(SpaceWorld).filter_by(id=bootstrap["world"]["id"]).one()
     space_surface.generate_surface_zone(db, world, 0, 0)
+
+    old_lod_url = client.get(bootstrap['world']['surface_snapshot_url']).json()['zones'][0]['lods'][-1]['url']
 
     applied = client.post(
         f'/space/api/v2/worlds/{world.id}/terrain-edits/batches',
@@ -649,11 +661,15 @@ def test_terrain_edits_mark_their_surface_zone_snapshot_dirty(client, db):
         world_id=world.id, zone_x=0, zone_z=0
     ).one()
     assert row.dirty is True
+    assert client.get(old_lod_url).status_code == 404
     assert client.get(bootstrap["world"]["surface_snapshot_url"]).json()["zones"] == []
 
     rebuilt = space_surface.generate_surface_zone(db, world, 0, 0)
     assert rebuilt is not None
     assert rebuilt.dirty is False
+    assert client.get(old_lod_url).status_code == 409
+    coarse = space_surface.decode_surface_lod(rebuilt, rebuilt.lod_manifest[-1])
+    assert struct.unpack_from('<HBBB', coarse, 32) == (256 * space_surface.MICRO_DIVISIONS, 0x12, 0x34, 0x56)
     raw = space_surface.decode_surface_zone_row(rebuilt)
     record_index = 1 * space_surface.SURFACE_SAMPLES_PER_CHUNK_AXIS + 1
     assert struct.unpack_from(

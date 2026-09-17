@@ -4,7 +4,6 @@ import { SpaceAgentInstructions } from './SpaceAgentInstructions.tsx';
 import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
 import { CharacterSkinPreview } from './CharacterSkinPreview.tsx';
 import { LIGHTING_PRESETS, LIGHTING_QUALITY_LEVELS } from '../../../engine/render/LightingQuality.ts';
-import { ENTITY_IMPOSTOR_SETTING_LIMITS } from '../../../engine/render/EntityImpostorSettings.ts';
 import type { SpaceApiKeyRecord, SpaceApiUsage } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
@@ -446,41 +445,6 @@ export function GlobalSettingsModal() {
               <div className="settings-row">
                 <div className="settings-label-group"><span className="settings-label">Chunk Render Distance</span><span className="settings-desc">Voxel terrain mesh streaming radius (4 ~ 20 chunks)</span></div>
                 <div className="settings-control-group"><input id="setting-render-dist-slider" className="settings-slider" type="range" min="4" max="20" step="1" value={state.renderDistance} onChange={event => spaceUiStore.setRenderDistance(Number(event.target.value))} /><span id="setting-render-dist-val" className="settings-value-badge">{state.renderDistance} Chunks</span></div>
-              </div>
-            </div>
-            <div className="settings-section">
-              <div className="settings-section-title">
-                ENTITY CROSS-PLANE LOD
-              </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <label className="settings-label" htmlFor="setting-entity-impostor-start-slider">Entity Plane Start Distance</label>
-                  <span className="settings-desc">Switch loaded entities to crossed planes beyond this distance; editing keeps full detail</span>
-                </div>
-                <div className="settings-control-group">
-                  <input id="setting-entity-impostor-start-slider" className="settings-slider" type="range"
-                    {...ENTITY_IMPOSTOR_SETTING_LIMITS.startDistance} value={state.entityImpostorSettings.startDistance}
-                    onChange={event => spaceUiStore.setEntityImpostorSetting('startDistance', Number(event.target.value))} />
-                  <span className="settings-value-badge">{state.entityImpostorSettings.startDistance} m</span>
-                </div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <label className="settings-label" htmlFor="setting-entity-impostor-limit-slider">Entity Plane View Distance</label>
-                  <span className="settings-desc">Keep previously loaded entity silhouettes beyond the chunk AOI; independent of terrain LOD</span>
-                </div>
-                <div className="settings-control-group">
-                  <input id="setting-entity-impostor-limit-slider" className="settings-slider" type="range"
-                    {...ENTITY_IMPOSTOR_SETTING_LIMITS.maxDistance}
-                    min={Math.max(ENTITY_IMPOSTOR_SETTING_LIMITS.maxDistance.min, Math.ceil((state.entityImpostorSettings.startDistance + 100) / 100) * 100)}
-                    value={state.entityImpostorSettings.maxDistance}
-                    onChange={event => spaceUiStore.setEntityImpostorSetting('maxDistance', Number(event.target.value))} />
-                  <span className="settings-value-badge">{state.entityImpostorSettings.maxDistance} m</span>
-                </div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-label-group"><span className="settings-desc">Works in Earth and Donut modes · takes effect immediately and saves automatically</span></div>
-                <button className="small-btn" onClick={() => spaceUiStore.resetEntityImpostorSettings()}>Reset Entity LOD</button>
               </div>
             </div>
             <div className="settings-section">

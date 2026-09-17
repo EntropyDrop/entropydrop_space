@@ -443,7 +443,7 @@ objects in hot loops. Edits mark chunks dirty; background threads compress and h
 The implemented far field is a shared **versioned surface snapshot**, never a per-join
 scan or browser-generated low-poly torus. The `1024x128`-chunk world is divided into its
 existing 128 `32x32`-chunk zones. Each zone stores an `8x8` height/color lattice per chunk,
-or 65,536 finest-level records. A record is five bytes: `uint16` height in fifth-block units plus RGB.
+or 65,536 finest-level records. A record is five bytes: `uint16` height in eighth-block units plus RGB.
 The fixed 32-byte `EDSZ` header binds the payload to its zone, world seed, terrain-generator
 version, source terrain revision, schema, and dimensions.
 
@@ -459,12 +459,32 @@ version, source terrain revision, schema, and dimensions.
 - Bootstrap supplies the manifest URL. Browsers poll it while initial generation is still
   progressing, verify every payload's length, SHA-256, seed, generator version and zone
   identity, and install new revisions progressively.
-- The renderer derives a quadtree mip pyramid from the finest records and emits one
-  instanced far-surface layer. Outside the detailed AOI it uses 2m samples through 400m,
+- Migration `space_0008` adds nullable `lod_manifest` and `lod_payload` columns. The
+  background builder publishes 4/8/16/32/64m levels atomically with the 2m source and
+  its revision. Existing rows and v3 clients remain readable during backfill. Each
+  level is independently Zstd-compressed; the manifest query reads metadata without
+  loading either payload blob. No terrain scan or downsampling occurs on download.
+  Coarse EDSZ v4 keeps the 32-byte header, uses byte 5 for sample width in metres,
+  and stores a zone-wide X-major lattice. Heights retain the current micro-grid
+  units; colours follow the stable first maximum used by the client pyramid.
+- Donut clients install all ready 64m overviews before requesting refinements. A
+  full 128-zone overview is 44 KiB of raw records plus headers, excluding manifest
+  and HTTP overhead. Visible zones refine first; a 4 MiB raw refinement budget and
+  coarse replacement bound the working set. Camera demand refreshes every second,
+  with cached metadata refreshed every ten seconds. Old servers without coarse
+  levels retain the original v3 download path. Earth rendering remains disabled.
+- The renderer derives a quadtree mip pyramid from each downloaded level and emits
+  per-zone instanced top/side batches. The original distance settings remain detail
+  limits: 2m samples through 400m,
   4m through 600m, 8m through 800m, 16m through 1000m, 32m through 1600m, and
-  64m beyond that. Only actual height discontinuities through 4000m
-  receive merged vertical connection faces; farther tiers render tops only. It does not
-  create one mesh per zone and does not generate a synthetic donut. The shader bends the
+  64m beyond that. Donut mode evaluates these limits in bent space and uses a 2px
+  screen-error target (height, colour and curvature) to merge uniform patches within
+  the configured limits. It can refine geometry even while only coarse samples are
+  available. A 64m camera-motion threshold and 10% projection hysteresis avoid small
+  movements rebuilding topology. Bent zone bounds cull batches immediately on turns;
+  no spherical horizon test is applied to the torus. Height discontinuities through
+  4000m receive merged vertical connection faces; fine/coarse boundaries also extend
+  below the coarse chord to close curvature cracks. The shader bends the
   flat sample quads onto the torus. A 128 KiB per-chunk GPU readiness mask discards far
   samples only after each detailed 16m chunk mesh is attached, and restores the far sample
   before that mesh is evicted, preventing holes or z-fighting during progressive streaming.
@@ -473,6 +493,8 @@ version, source terrain revision, schema, and dimensions.
   limits; this changes only rendering and never snapshot or terrain authority. Disabled
   tiers fall through to the next enabled coarser tier. Defaults keep all tiers enabled,
   cover the full world, use 400/600/800/1000/1600m transitions, and connect through 4000m.
+  Topology and connections build in short tasks and publish copied zone buffers
+  together, retaining the active batches throughout streaming and camera movement.
 - A dirty snapshot is never listed. Until its replacement commits, detailed AOI terrain is
   authoritative and the corresponding far zone is absent rather than stale.
 

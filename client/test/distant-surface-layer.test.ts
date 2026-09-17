@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
+import { bendPoint, setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import {
   createSpaceSurfaceSnapshotRemote,
   parseSurfaceZoneSnapshot,
@@ -40,6 +41,29 @@ function makeZoneBytes(zoneX = 0, zoneZ = 0, filled = false) {
     fillRecord(0);
   }
   return bytes;
+}
+
+function makeCoarseBytes(zoneX = 0, zoneZ = 0, size = 64, revision = 7) {
+  const bytes = new Uint8Array(32 + (512 / size) ** 2 * 5);
+  bytes.set(makeZoneBytes(zoneX, zoneZ).subarray(0, 32));
+  const view = new DataView(bytes.buffer);
+  view.setUint8(4, 4);
+  view.setUint8(5, size);
+  view.setBigUint64(20, BigInt(revision), true);
+  view.setUint32(28, (512 / size) ** 2, true);
+  for (let offset = 32; offset < bytes.length; offset += 5) {
+    view.setUint16(offset, 136, true);
+    bytes.set([0x71, 0x8f, 0x61], offset + 2);
+  }
+  return bytes;
+}
+
+function torusCamera(x = 8192, y = 100, z = 1024) {
+  const camera = new THREE.PerspectiveCamera(75, 1.6, 0.1, 10_000);
+  camera.position.copy(bendPoint(x, y, z));
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld(true);
+  return camera;
 }
 
 test('surface-zone binary parsing preserves identity, heights and colors', () => {
@@ -390,4 +414,212 @@ test('surface-zone remote never forwards login credentials to a manifest-selecte
 
   await assert.rejects(() => remote.loadAll(() => undefined), /authenticated API origin/);
   assert.equal(calls, 1);
+});
+
+test('coarse snapshots validate their lattice and can refine curvature without fine data', async () => {
+  setWorldShapeMode('torus');
+  try {
+    const bytes = makeCoarseBytes(16, 2);
+    const zone = parseSurfaceZoneSnapshot(bytes);
+    assert.equal(zone.sampleSize, 64);
+    assert.equal(zone.heightsMicro.length, 64);
+    const invalid = bytes.slice();
+    invalid[5] = 63;
+    assert.throws(() => parseSurfaceZoneSnapshot(invalid), /snapshot/);
+    assert.throws(() => parseSurfaceZoneSnapshot(bytes.subarray(0, bytes.length - 1)), /snapshot/);
+    const layer = new DistantSurfaceLayer();
+    const camera = torusCamera(8192, 32, 1024);
+    layer.updateView(camera, 800);
+    layer.installZone(zone);
+    await layer.finalizeConnections();
+    const sizes = layer.mesh.geometry.getAttribute('surfaceSize');
+    const count = layer.mesh.geometry.instanceCount;
+    assert.ok(count > 64, 'the curved mesh needs more vertices than the 64 coarse records');
+    let area = 0;
+    for (let index = 0; index < count; index++) area += sizes.getX(index) ** 2;
+    assert.equal(area, 512 ** 2, 'refining the mesh must preserve full zone coverage');
+  } finally { setWorldShapeMode('earth'); }
+});
+
+test('torus screen error reduces a uniform full world and culls batches immediately on turns', async () => {
+  setWorldShapeMode('torus');
+  try {
+    const layer = new DistantSurfaceLayer();
+    layer.setNearField(512, 64, 8);
+    const template = parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true));
+    for (let x = 0; x < 32; x++) for (let z = 0; z < 4; z++) {
+      layer.installZone({ ...template, zoneX: x, zoneZ: z });
+    }
+    await layer.finalizeConnections();
+    const previousCount = layer.mesh.geometry.instanceCount;
+    const camera = torusCamera();
+    layer.updateView(camera, 800);
+    await layer.finalizeConnections();
+    assert.ok(layer.mesh.geometry.instanceCount < previousCount / 2,
+      `expected fewer uniform cells, got ${layer.mesh.geometry.instanceCount}/${previousCount}`);
+    const sizes = layer.mesh.geometry.getAttribute('surfaceSize');
+    let area = 0;
+    for (let index = 0; index < layer.mesh.geometry.instanceCount; index++) area += sizes.getX(index) ** 2;
+    assert.equal(area, 16384 * 2048);
+    const visible = () => new Set(layer.mesh.children.filter(mesh => mesh.name.endsWith(':tops') && mesh.visible).map(mesh => mesh.name));
+    const forward = visible();
+    assert.ok(forward.size > 0 && forward.size < 128);
+    assert.ok([...forward].some(name => name.startsWith('DistantSurface:0,')), 'the opposite ring across the hole stays visible');
+    const direction = camera.getWorldDirection(new THREE.Vector3());
+    camera.lookAt(camera.position.clone().sub(direction));
+    camera.updateMatrixWorld(true);
+    layer.updateView(camera, 800);
+    assert.notDeepEqual(visible(), forward, 'turning changes draw visibility before any asynchronous rebuild');
+    assert.equal(layer.mesh.geometry.drawRange.count, 0, 'aggregate buffers must not be drawn again');
+    const batches = layer.mesh.children.filter(mesh => mesh.name.endsWith(':tops')) as THREE.Mesh<THREE.InstancedBufferGeometry>[];
+    assert.equal(batches.reduce((sum, mesh) => sum + mesh.geometry.instanceCount, 0), layer.mesh.geometry.instanceCount);
+  } finally { setWorldShapeMode('earth'); }
+});
+
+test('replacing coarse data publishes complete batches and rejects an older terrain revision', async () => {
+  setWorldShapeMode('torus');
+  try {
+    const layer = new DistantSurfaceLayer();
+    layer.updateView(torusCamera(8192, 32, 1024), 800);
+    layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2)));
+    await layer.finalizeConnections();
+    const original = layer.mesh.children.find(mesh => mesh.name === 'DistantSurface:16,2:tops') as THREE.Mesh;
+    const originalHeights = original.geometry.getAttribute('surfaceHeight').array.slice();
+    const fine = parseSurfaceZoneSnapshot(makeZoneBytes(16, 2, true));
+    fine.sourceTerrainRevision = 8;
+    fine.heightsMicro.fill(160);
+    layer.installZone(fine);
+    assert.ok(layer.mesh.children.includes(original), 'the old draw stays attached during staging');
+    await layer.finalizeConnections();
+    assert.deepEqual(original.geometry.getAttribute('surfaceHeight').array, originalHeights,
+      'staging must not mutate active buffer storage');
+    const replacement = layer.mesh.children.find(mesh => mesh.name === 'DistantSurface:16,2:tops') as THREE.Mesh;
+    assert.notEqual(replacement, original);
+    assert.equal(replacement.geometry.getAttribute('surfaceHeight').getX(0), 160);
+    layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2, 64, 7)));
+    assert.equal(layer.mesh.children.find(mesh => mesh.name === replacement.name), replacement);
+  } finally { setWorldShapeMode('earth'); }
+});
+
+test('streaming installs every overview before refinement, then evicts offscreen fine data', async () => {
+  const payloads = new Map<string, Uint8Array>();
+  const manifest = {
+    schema_version: 3, samples_per_chunk_axis: 8, zone_size_chunks: 32,
+    width_chunks: 64, length_chunks: 32, complete: true,
+    zones: [0, 1].map(x => {
+      const fine = makeZoneBytes(x, 0, true);
+      const coarse = makeCoarseBytes(x, 0);
+      const entry = (bytes: Uint8Array, size: number) => {
+        const url = `/zones/${x}/${size}`;
+        payloads.set(url, bytes);
+        return { sample_size: size, url, byte_length: bytes.length, digest: createHash('sha256').update(bytes).digest('hex') };
+      };
+      return { zone_x: x, zone_z: 0, revision: 1, source_terrain_revision: 7,
+        ...entry(fine, 2), lods: [entry(coarse, 64)] };
+    }),
+  };
+  const requests: string[] = [];
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/surface-zones', 20260827, 1,
+    (async input => {
+      const path = new URL(String(input)).pathname;
+      requests.push(path);
+      return path === '/surface-zones' ? Response.json(manifest) : new Response(payloads.get(path)!.slice().buffer);
+    }) as typeof fetch);
+  let focus = 0;
+  const installed: string[] = [];
+  const options = { getZoneDemand: (x: number) => ({ sampleSize: x === focus ? 2 : 64, priority: x === focus ? 0 : 1 }) };
+  await remote.loadAll(zone => installed.push(`${zone.zoneX}:${zone.sampleSize ?? 2}`), undefined, options);
+  assert.deepEqual(installed.slice(0, 2).sort(), ['0:64', '1:64']);
+  assert.deepEqual(installed.slice(2), ['0:2']);
+  focus = 1;
+  await remote.loadAll(zone => installed.push(`${zone.zoneX}:${zone.sampleSize ?? 2}`), undefined, options);
+  assert.deepEqual(installed.slice(3).sort(), ['0:64', '1:2']);
+  assert.equal(requests.filter(path => path === '/surface-zones').length, 1, 'camera demand must not poll metadata every second');
+  assert.equal(requests.filter(path => path === '/zones/0/64').length, 1, 'eviction reuses the bounded coarse cache');
+  assert.equal(requests.filter(path => path.endsWith('/2')).length, 2);
+});
+
+test('LOD snapshots cannot spoof the manifest terrain revision', async () => {
+  const bytes = makeCoarseBytes(0, 0, 64, 6);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/surface-zones', 20260827, 1,
+    (async input => String(input).endsWith('/surface-zones') ? Response.json({
+      schema_version: 3, samples_per_chunk_axis: 8, zone_size_chunks: 32,
+      width_chunks: 32, length_chunks: 32, complete: true,
+      zones: [{ zone_x: 0, zone_z: 0, revision: 1, source_terrain_revision: 7,
+        digest: '0'.repeat(64), byte_length: 327712, url: '/fine',
+        lods: [{ sample_size: 64, digest, byte_length: bytes.length, url: '/coarse' }] }],
+    }) : new Response(bytes)) as typeof fetch);
+  await assert.rejects(remote.loadAll(() => assert.fail('untrusted snapshot installed'), undefined,
+    { getZoneDemand: () => ({ sampleSize: 64, priority: 0 }) }), /identity mismatch/);
+});
+
+test('visible refinements stay within the raw working-set budget', async () => {
+  const payloads = new Map<string, Uint8Array>();
+  const zones = Array.from({ length: 16 }, (_, x) => {
+    const entry = (size: number) => {
+      const bytes = size === 2 ? makeZoneBytes(x, 0, true) : makeCoarseBytes(x, 0);
+      const url = `/zones/${x}/${size}`;
+      payloads.set(url, bytes);
+      return { sample_size: size, url, byte_length: bytes.length, digest: createHash('sha256').update(bytes).digest('hex') };
+    };
+    return { zone_x: x, zone_z: 0, revision: 1, source_terrain_revision: 7, ...entry(2), lods: [entry(64)] };
+  });
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/surface-zones', 20260827, 1,
+    (async input => {
+      const path = new URL(String(input)).pathname;
+      return path === '/surface-zones' ? Response.json({ schema_version: 3, samples_per_chunk_axis: 8,
+        zone_size_chunks: 32, width_chunks: 512, length_chunks: 32, complete: true, zones,
+      }) : new Response(payloads.get(path)!.slice().buffer);
+    }) as typeof fetch);
+  const installed = new Map<number, number>();
+  await remote.loadAll(zone => installed.set(zone.zoneX, zone.sampleSize ?? 2), undefined,
+    { getZoneDemand: x => ({ sampleSize: 2, priority: x }) });
+  assert.equal(installed.size, 16, 'every zone must retain an overview');
+  assert.equal([...installed.values()].filter(size => size === 2).length, 12);
+  assert.equal(installed.get(0), 2, 'nearer zones get the budget first');
+  assert.equal(installed.get(15), 64);
+});
+
+test('extreme zoom preserves whole-torus coverage within the geometry budget', async () => {
+  setWorldShapeMode('torus');
+  try {
+    const layer = new DistantSurfaceLayer();
+    layer.setSettings({ connectionDistance: 0 });
+    const template = parseSurfaceZoneSnapshot(makeCoarseBytes());
+    for (let x = 0; x < 32; x++) for (let z = 0; z < 4; z++) {
+      layer.installZone({ ...template, zoneX: x, zoneZ: z });
+    }
+    layer.updateView(torusCamera(), 1_000_000);
+    await layer.finalizeConnections();
+    const count = layer.mesh.geometry.instanceCount;
+    assert.ok(count <= 512 * 1024 && count > 8192);
+    const sizes = layer.mesh.geometry.getAttribute('surfaceSize');
+    let area = 0;
+    for (let i = 0; i < count; i++) area += sizes.getX(i) ** 2;
+    assert.equal(area, 16384 * 2048, 'budget fallback must coarsen, never leave missing roots');
+  } finally { setWorldShapeMode('earth'); }
+});
+
+test('reenabling the torus stages current data and never resurrects a removed zone', async () => {
+  setWorldShapeMode('torus');
+  try {
+    const layer = new DistantSurfaceLayer();
+    layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes()));
+    await layer.finalizeConnections();
+    layer.setEnabled(false);
+    layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(1, 0)));
+    layer.setEnabled(true);
+    assert.equal(layer.mesh.visible, false, 'enabling must wait for current data instead of blocking on a rebuild');
+    layer.updateView(torusCamera(), 800);
+    await layer.finalizeConnections();
+    assert.equal(layer.mesh.visible, true);
+    layer.setEnabled(false);
+    layer.removeZone(0, 0);
+    layer.removeZone(1, 0);
+    layer.setEnabled(true);
+    assert.equal(layer.mesh.visible, false);
+    assert.equal(layer.mesh.geometry.instanceCount, 0);
+    assert.equal(layer.mesh.children.filter(mesh => mesh.name.startsWith('DistantSurface:')).length, 0);
+  } finally { setWorldShapeMode('earth'); }
 });

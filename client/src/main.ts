@@ -121,13 +121,17 @@ class Game {
         void session.surface_snapshot_remote!.loadAll(
           zone => this.world.installSurfaceZone(zone),
           (zoneX, zoneZ) => this.world.removeSurfaceZone(zoneX, zoneZ),
+          this.sceneRenderer.getWorldShapeMode() === 'torus' ? {
+            getZoneDemand: (zoneX, zoneZ) => this.world.distantSurface.getZoneDemand(zoneX, zoneZ),
+          } : undefined,
         ).then(() => this.world.finalizeSurfaceConnections()).catch(error => {
           console.warn('Space far-surface snapshots are temporarily unavailable.', error);
         }).finally(() => {
-          window.setTimeout(syncSurfaceSnapshots, 10_000);
+          window.setTimeout(syncSurfaceSnapshots, this.sceneRenderer.getWorldShapeMode() === 'torus' ? 1000 : 10_000);
         });
       };
-      syncSurfaceSnapshots();
+      // Let saved world-shape settings and the initial camera finish setup.
+      window.setTimeout(syncSurfaceSnapshots, 0);
     }
     this.sceneRenderer.setWorld(this.world);
     this.soundManager = new SoundManager();
@@ -141,7 +145,6 @@ class Game {
       persistentStorage
     );
     this.contraptionManager.setPhysics(this.contraptionPhysics);
-    this.sceneRenderer.setContraptions(this.contraptionManager);
     this.contraptionManager.setWorldId(session.world.id);
     this.contraptionManager.setEntityPersistenceMode('remote');
 
@@ -311,7 +314,6 @@ class Game {
         contraptions: this.contraptionManager,
         world: this.world,
         getPlayerPosition: () => this.playerPhysics.position,
-        getEntityImpostorDistance: () => this.sceneRenderer.getEntityImpostorSettings().maxDistance,
         realtime: this.multiplayerSync,
         onHostingUpdate: state => this.uiStore.setHostingState(state),
         onHostingError: () => this.uiStore.setHostingError('Hosting status is temporarily unavailable. Try refreshing.'),
@@ -322,7 +324,6 @@ class Game {
         get: entityId => this.entitySync!.getHosting(entityId),
         refresh: () => this.entitySync!.pollHosting(),
       });
-      this.sceneRenderer.setEntityImpostorRetention(id => this.entitySync?.hasRetainedImpostor(id) ?? false);
       this.entitySync.start();
 
     // The entry gate owns when gameplay starts. It waits for preloadTerrainAoi
@@ -613,13 +614,7 @@ class Game {
     // 7c. Navigation System is updated in controller.updateSimulation()
 
     // 8. Draw, then request idle-budgeted background chunk streaming.
-    this.sceneRenderer.render([
-      this.controller.hoveredContraption,
-      this.controller.selectedBlockSelection?.contraption,
-      this.controller.selectedSubtree?.contraption,
-      this.controller.selectorLevel?.contraption,
-      this.controller.drivenContraption,
-    ]);
+    this.sceneRenderer.render();
     this.world.scheduleStreamingWork();
     this.playerPhysics.endRenderInterpolation();
     this.contraptionManager.endRenderInterpolation();

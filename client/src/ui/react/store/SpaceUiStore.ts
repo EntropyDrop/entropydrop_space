@@ -41,10 +41,6 @@ import {
 import { triggerColorPickerInput } from '../utils/colorPickerInput.ts';
 import { entityRunStatus } from '../utils/entityNameplate.ts';
 import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
-import {
-  DEFAULT_ENTITY_IMPOSTOR_SETTINGS, ENTITY_IMPOSTOR_SETTING_KEY,
-  normalizeEntityImpostorSettings, type EntityImpostorSettings,
-} from '../../../engine/render/EntityImpostorSettings.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
@@ -251,7 +247,6 @@ export interface SpaceUiSnapshot {
   renderDistance: number;
   minimapEnabled: boolean;
   distantSurfaceSettings: DistantSurfaceSettings;
-  entityImpostorSettings: EntityImpostorSettings;
   resolutionScaleMode: ResolutionScaleSetting;
   resolutionScale: number;
   resolutionPixelRatio: number;
@@ -417,7 +412,6 @@ export class SpaceUiStore {
     renderDistance: 12,
     minimapEnabled: false,
     distantSurfaceSettings: { ...DEFAULT_DISTANT_SURFACE_SETTINGS },
-    entityImpostorSettings: { ...DEFAULT_ENTITY_IMPOSTOR_SETTINGS },
     resolutionScaleMode: 'auto',
     resolutionScale: 1,
     resolutionPixelRatio: 1,
@@ -683,18 +677,12 @@ export class SpaceUiStore {
     let worldShapeMode = getWorldShapeMode();
     let shadowsEnabled = true;
     let lightingQuality = DEFAULT_LIGHTING_QUALITY;
-    let entityImpostorSettings = normalizeEntityImpostorSettings(this.snapshot.entityImpostorSettings);
     try {
       setting = normalizeResolutionScaleSetting(localStorage.getItem('space_setting_resolution_scale'));
       worldShapeMode = normalizeWorldShapeMode(localStorage.getItem('space_setting_world_shape'));
       shadowsEnabled = localStorage.getItem('space_setting_shadows') !== 'false';
       lightingQuality = normalizeLightingQuality(localStorage.getItem(LIGHTING_QUALITY_SETTING_KEY));
     } catch { }
-    try {
-      const saved = localStorage.getItem(ENTITY_IMPOSTOR_SETTING_KEY);
-      if (saved) entityImpostorSettings = normalizeEntityImpostorSettings(JSON.parse(saved));
-    } catch { }
-    entityImpostorSettings = sceneRenderer?.setEntityImpostorSettings?.(entityImpostorSettings) || entityImpostorSettings;
     setGlobalWorldShapeMode(worldShapeMode);
     sceneRenderer?.setWorldShapeMode?.(worldShapeMode);
     this.snapshot.world?.setDistantSurfaceEnabled?.(worldShapeMode !== 'earth');
@@ -704,7 +692,7 @@ export class SpaceUiStore {
     shadowsEnabled = sceneRenderer?.setShadowsEnabled?.(shadowsEnabled) ?? shadowsEnabled;
     lightingQuality = sceneRenderer?.setLightingQuality?.(lightingQuality) ?? lightingQuality;
     this.patch({
-      sceneRenderer, worldShapeMode, shadowsEnabled, lightingQuality, entityImpostorSettings,
+      sceneRenderer, worldShapeMode, shadowsEnabled, lightingQuality,
       ...resolutionSnapshot(sceneRenderer?.getResolutionScaleState?.() || state)
     });
   }
@@ -1660,9 +1648,6 @@ export class SpaceUiStore {
       distantSurfaceSettings: normalizeDistantSurfaceSettings(
         world?.getDistantSurfaceSettings?.() || this.snapshot.distantSurfaceSettings,
       ),
-      entityImpostorSettings: normalizeEntityImpostorSettings(
-        sceneRenderer?.getEntityImpostorSettings?.() || this.snapshot.entityImpostorSettings,
-      ),
       minimapEnabled: minimap?.isEnabled?.() ?? this.snapshot.minimapEnabled,
       shadowsEnabled: sceneRenderer?.getShadowsEnabled?.() ?? this.snapshot.shadowsEnabled,
       lightingQuality: sceneRenderer?.getLightingQuality?.() ?? this.snapshot.lightingQuality,
@@ -1768,22 +1753,6 @@ export class SpaceUiStore {
     if (persist) {
       try { localStorage.setItem('space_setting_distant_surface', JSON.stringify(value)); } catch { }
     }
-  }
-
-  setEntityImpostorSetting(key: keyof EntityImpostorSettings, setting: number, persist = true): void {
-    const candidate = normalizeEntityImpostorSettings({ ...this.snapshot.entityImpostorSettings, [key]: setting });
-    const value = this.snapshot.sceneRenderer?.setEntityImpostorSettings?.(candidate) || candidate;
-    this.patch({ entityImpostorSettings: value });
-    if (persist) {
-      try { localStorage.setItem(ENTITY_IMPOSTOR_SETTING_KEY, JSON.stringify(value)); } catch { }
-    }
-  }
-
-  resetEntityImpostorSettings(): void {
-    const value = this.snapshot.sceneRenderer?.setEntityImpostorSettings?.(DEFAULT_ENTITY_IMPOSTOR_SETTINGS)
-      || { ...DEFAULT_ENTITY_IMPOSTOR_SETTINGS };
-    this.patch({ entityImpostorSettings: value });
-    try { localStorage.setItem(ENTITY_IMPOSTOR_SETTING_KEY, JSON.stringify(value)); } catch { }
   }
 
   resetDistantSurfaceSettings(): void {

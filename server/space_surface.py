@@ -19,6 +19,8 @@ from space.database import SessionLocal
 
 SURFACE_MAGIC = b"EDSZ"
 SURFACE_SCHEMA_VERSION = 3
+SURFACE_LOD_SCHEMA_VERSION = 4
+SURFACE_LOD_SIZES = (4, 8, 16, 32, 64)
 SURFACE_SAMPLES_PER_CHUNK_AXIS = 8
 SURFACE_RECORD_BYTES = 5
 SURFACE_HEADER_BYTES = 32
@@ -288,6 +290,72 @@ def decode_surface_zone_row(row: models.SpaceSurfaceZoneSnapshot) -> bytes:
     return payload
 
 
+def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
+    """Build the same max-height pyramid as the client, once per revision.
+
+    v3 is chunk-major. v4 is a zone-wide X-major lattice and header byte 5
+    stores the sample width in metres. Each level is independently compressed
+    so a coarse request never decompresses or transfers the finest lattice.
+    """
+    if len(raw) < SURFACE_HEADER_BYTES:
+        raise ValueError("truncated surface source")
+    magic, schema, samples, zone_size, record_bytes, *_ = struct.unpack_from('<4sBBBBHHiIQI', raw)
+    axis = zone_size * samples
+    if (magic != SURFACE_MAGIC or schema != SURFACE_SCHEMA_VERSION
+            or samples != 8 or zone_size != 32 or record_bytes != 5
+            or len(raw) != SURFACE_HEADER_BYTES + axis * axis * record_bytes):
+        raise ValueError("invalid surface source")
+    grid = [None] * (axis * axis)
+    records = struct.iter_unpack('<HBBB', raw[SURFACE_HEADER_BYTES:])
+    for cx in range(zone_size):
+        for cz in range(zone_size):
+            for sx in range(samples):
+                for sz in range(samples):
+                    grid[(cx * samples + sx) * axis + cz * samples + sz] = next(records)
+    manifest = []
+    chunks = []
+    offset = 0
+    compressor = zstd.ZstdCompressor(level=6)
+    for size in SURFACE_LOD_SIZES:
+        next_axis = axis // 2
+        reduced = []
+        for x in range(next_axis):
+            for z in range(next_axis):
+                # Stable first maximum matches the browser's colour tie-break.
+                reduced.append(max((grid[(x * 2 + dx) * axis + z * 2 + dz]
+                                    for dx in range(2) for dz in range(2)), key=lambda r: r[0]))
+        payload = bytearray(raw[:SURFACE_HEADER_BYTES])
+        payload[4] = SURFACE_LOD_SCHEMA_VERSION
+        payload[5] = size
+        struct.pack_into('<I', payload, 28, len(reduced))
+        for record in reduced:
+            payload.extend(struct.pack('<HBBB', *record))
+        compressed = compressor.compress(payload)
+        manifest.append({
+            'sample_size': size, 'byte_length': len(payload),
+            'digest': hashlib.sha256(payload).hexdigest(),
+            'offset': offset, 'compressed_size': len(compressed),
+        })
+        chunks.append(compressed)
+        offset += len(compressed)
+        grid, axis = reduced, next_axis
+    return manifest, b''.join(chunks)
+
+
+def decode_surface_lod(row: models.SpaceSurfaceZoneSnapshot, level: dict) -> bytes:
+    size = int(level['sample_size'])
+    expected = SURFACE_HEADER_BYTES + (512 // size) ** 2 * SURFACE_RECORD_BYTES if size in SURFACE_LOD_SIZES else 0
+    start, length = int(level['offset']), int(level['compressed_size'])
+    if (not expected or int(level['byte_length']) != expected or start < 0 or length <= 0
+            or row.lod_payload is None or start + length > len(row.lod_payload)):
+        raise ValueError('invalid surface LOD metadata')
+    payload = zstd.ZstdDecompressor().decompress(
+        bytes(row.lod_payload[start:start + length]), max_output_size=expected)
+    if len(payload) != expected or hashlib.sha256(payload).hexdigest() != level['digest']:
+        raise ValueError('surface LOD checksum mismatch')
+    return payload
+
+
 def generate_surface_zone(db, world: models.SpaceWorld, zone_x: int, zone_z: int):
     zone_size = int(world.zone_size_chunks)
     min_x, min_z = zone_x * zone_size, zone_z * zone_size
@@ -305,6 +373,7 @@ def generate_surface_zone(db, world: models.SpaceWorld, zone_x: int, zone_z: int
         for row in overlay_rows
     }
     raw = build_surface_zone_payload(world, zone_x, zone_z, source_revision, overlays)
+    lod_manifest, lod_payload = build_surface_lods(raw)
     compressed = zstd.ZstdCompressor(level=6).compress(raw)
     digest = hashlib.sha256(raw).digest()
 
@@ -344,6 +413,8 @@ def generate_surface_zone(db, world: models.SpaceWorld, zone_x: int, zone_z: int
     row.uncompressed_size = len(raw)
     row.content_hash = digest
     row.payload = compressed
+    row.lod_manifest = lod_manifest
+    row.lod_payload = lod_payload
     row.dirty = False
     db.commit()
     db.refresh(row)
@@ -384,6 +455,7 @@ def generate_next_surface_zone() -> bool:
                         != SURFACE_SAMPLES_PER_CHUNK_AXIS
                     )
                     | (models.SpaceSurfaceZoneSnapshot.codec != SURFACE_CODEC_ZSTD)
+                    | (models.SpaceSurfaceZoneSnapshot.lod_payload.is_(None))
                 ),
             ).order_by(models.SpaceSurfaceZoneSnapshot.updated_at.asc()).first()
             if dirty is not None:

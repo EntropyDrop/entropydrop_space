@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from space import auth
 from space import models
@@ -1129,7 +1129,10 @@ def list_surface_zones(
 ):
     """Return immutable URLs for every ready, revisioned far-surface zone."""
     world = _require_world_membership(db, str(world_id), current_user)
-    rows = db.query(models.SpaceSurfaceZoneSnapshot).filter(
+    rows = db.query(models.SpaceSurfaceZoneSnapshot).options(
+        defer(models.SpaceSurfaceZoneSnapshot.payload),
+        defer(models.SpaceSurfaceZoneSnapshot.lod_payload),
+    ).filter(
         models.SpaceSurfaceZoneSnapshot.world_id == world.id,
         models.SpaceSurfaceZoneSnapshot.dirty.is_(False),
         models.SpaceSurfaceZoneSnapshot.terrain_generator_version == world.terrain_generator_version,
@@ -1144,7 +1147,7 @@ def list_surface_zones(
         int(world.width_chunks) // int(world.zone_size_chunks)
         * (int(world.length_chunks) // int(world.zone_size_chunks))
     )
-    if len(rows) < expected and db.get_bind().dialect.name == "postgresql":
+    if (len(rows) < expected or any(row.lod_manifest is None for row in rows)) and db.get_bind().dialect.name == "postgresql":
         # Production normally has the Redis-singleton background process. This
         # makes API-only local deployments and temporarily missing workers
         # self-heal without delaying the manifest response.
@@ -1163,6 +1166,15 @@ def list_surface_zones(
                 f"/space/api/v2/worlds/{world.id}/surface-zones/"
                 f"{row.zone_x}/{row.zone_z}?digest={digest}"
             ),
+            "lods": [{
+                "sample_size": level["sample_size"],
+                "byte_length": level["byte_length"],
+                "digest": level["digest"],
+                "url": (
+                    f"/space/api/v2/worlds/{world.id}/surface-zones/{row.zone_x}/{row.zone_z}"
+                    f"?sample_size={level['sample_size']}&digest={level['digest']}"
+                ),
+            } for level in (row.lod_manifest or [])],
         })
     return {
         "schema_version": space_surface.SURFACE_SCHEMA_VERSION,
@@ -1183,16 +1195,22 @@ def get_surface_zone(
     zone_x: int,
     zone_z: int,
     digest: str | None = Query(default=None, min_length=64, max_length=64),
+    sample_size: int = Query(default=2),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """Return one validated raw EDSZ payload; HTTP compression handles transfer size."""
     world = _require_world_membership(db, str(world_id), current_user)
+    if sample_size not in (2, *space_surface.SURFACE_LOD_SIZES):
+        raise HTTPException(status_code=422, detail={"code": "INVALID_SURFACE_SAMPLE_SIZE"})
     max_zone_x = int(world.width_chunks) // int(world.zone_size_chunks)
     max_zone_z = int(world.length_chunks) // int(world.zone_size_chunks)
     if not (0 <= zone_x < max_zone_x and 0 <= zone_z < max_zone_z):
         raise HTTPException(status_code=404, detail={"code": "SURFACE_ZONE_NOT_FOUND"})
-    row = db.query(models.SpaceSurfaceZoneSnapshot).filter(
+    row = db.query(models.SpaceSurfaceZoneSnapshot).options(
+        defer(models.SpaceSurfaceZoneSnapshot.payload if sample_size != 2
+              else models.SpaceSurfaceZoneSnapshot.lod_payload),
+    ).filter(
         models.SpaceSurfaceZoneSnapshot.world_id == world.id,
         models.SpaceSurfaceZoneSnapshot.zone_x == zone_x,
         models.SpaceSurfaceZoneSnapshot.zone_z == zone_z,
@@ -1204,11 +1222,16 @@ def get_surface_zone(
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "SURFACE_ZONE_NOT_READY"})
-    actual_digest = bytes(row.content_hash).hex()
+    level = next((entry for entry in (row.lod_manifest or [])
+                  if entry['sample_size'] == sample_size), None)
+    if sample_size != 2 and level is None:
+        raise HTTPException(status_code=404, detail={"code": "SURFACE_LOD_NOT_READY"})
+    actual_digest = level['digest'] if level is not None else bytes(row.content_hash).hex()
     if digest is not None and not secrets.compare_digest(digest.lower(), actual_digest):
         raise HTTPException(status_code=409, detail={"code": "SURFACE_ZONE_REVISION_CHANGED"})
     try:
-        payload = space_surface.decode_surface_zone_row(row)
+        payload = (space_surface.decode_surface_lod(row, level) if level is not None
+                   else space_surface.decode_surface_zone_row(row))
     except (ValueError, zstd.ZstdError) as exc:
         raise HTTPException(
             status_code=500,

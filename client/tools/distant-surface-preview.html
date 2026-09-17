@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Torus far-surface verification</title>
+<style>
+  body { margin: 0; background: #101825; color: #e8edf7; font: 14px system-ui; }
+  header { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 12px 18px; }
+  label { display: flex; align-items: center; gap: 8px; }
+  select, button { font: inherit; padding: 5px; }
+  canvas { display: block; width: 100%; height: calc(100vh - 104px); }
+  output { display: block; padding: 10px 18px; font-variant-numeric: tabular-nums; }
+</style>
+<header>
+  <strong>Torus far-surface verification</strong>
+  <label>View <select id="view"><option value="hole">Across the hole</option><option value="seam">Wrapped seam</option><option value="orbit">Orbit</option></select></label>
+  <label>Terrain <select id="terrain"><option value="hills">Synthetic hills</option><option value="uniform">Uniform surface</option></select></label>
+  <label><input type="checkbox" id="adaptive" checked> Screen error and batch culling</label>
+  <button id="turn">Turn around</button>
+</header>
+<canvas id="scene"></canvas>
+<output id="stats">Loading deterministic test terrain...</output>
+<script type="module">
+  import * as THREE from 'three';
+  import { DistantSurfaceLayer } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
+  import { bendPoint, setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+  import { MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+  setWorldShapeMode('torus');
+  const canvas = document.getElementById('scene');
+  const stats = document.getElementById('stats');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(1);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#a5c7e6');
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x687055, 2));
+  const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+  sun.position.set(-3000, 5000, 2000);
+  scene.add(sun);
+  const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 12000);
+  let layer;
+  let loading = false;
+  let ready = false;
+  let rebuilds = 0;
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+  function resize() {
+    const width = canvas.clientWidth, height = canvas.clientHeight;
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  }
+  function pose() {
+    const view = document.getElementById('view').value;
+    if (view === 'orbit') {
+      camera.position.set(-3500, 2400, 3500);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(0, 0, 0);
+    } else {
+      const x = view === 'seam' ? 16370 : 8192;
+      const z = view === 'seam' ? 2030 : 1024;
+      camera.position.copy(bendPoint(x, view === 'seam' ? 60 : 180, z));
+      camera.up.set(0, 1, 0);
+      camera.lookAt(view === 'seam' ? bendPoint(100, 17, 60) : new THREE.Vector3(0, 0, 0));
+      layer?.setNearField(Math.floor(x / 16), Math.floor(z / 16), 8);
+    }
+    camera.updateMatrixWorld(true);
+  }
+  function zone(x, z, uniform) {
+    const heightsMicro = new Uint16Array(65536);
+    const colors = new Uint8Array(65536 * 3);
+    let i = 0;
+    for (let cx = 0; cx < 32; cx++) for (let cz = 0; cz < 32; cz++) {
+      for (let sx = 0; sx < 8; sx++) for (let sz = 0; sz < 8; sz++) {
+        const wx = x * 512 + cx * 16 + sx * 2;
+        const wz = z * 512 + cz * 16 + sz * 2;
+        const height = uniform ? 17 : 17 + Math.round(3 * Math.sin(wx * Math.PI / 64) * Math.cos(wz * Math.PI / 64));
+        heightsMicro[i] = Math.round(height / MICRO_SIZE);
+        colors.set([113, 143, 97], i * 3);
+        i++;
+      }
+    }
+    return { zoneX: x, zoneZ: z, seed: 42, terrainGeneratorVersion: 1, sourceTerrainRevision: 1,
+      zoneSizeChunks: 32, samplesPerChunkAxis: 8, heightsMicro, colors };
+  }
+  async function rebuild() {
+    if (loading) return;
+    loading = true;
+    ready = false;
+    document.querySelectorAll('select, input, button').forEach(control => control.disabled = true);
+    if (layer) {
+      layer.setEnabled(false);
+      scene.remove(layer.mesh);
+      layer.mesh.traverse(object => object.geometry?.dispose());
+      layer.mesh.material.dispose();
+      layer.sideMesh.material.dispose();
+      layer.detailMaskTexture.dispose();
+    }
+    layer = new DistantSurfaceLayer();
+    scene.add(layer.mesh);
+    resize();
+    pose();
+    const adaptive = document.getElementById('adaptive').checked;
+    const uniform = document.getElementById('terrain').value === 'uniform';
+    if (adaptive) layer.updateView(camera, canvas.height);
+    for (let x = 0; x < 32; x++) {
+      for (let z = 0; z < 4; z++) layer.installZone(zone(x, z, uniform));
+      stats.textContent = `Building test terrain: ${(x + 1) * 4}/128 zones`;
+      await nextFrame();
+    }
+    await layer.finalizeConnections();
+    loading = false;
+    ready = true;
+    rebuilds++;
+    document.querySelectorAll('select, input, button').forEach(control => control.disabled = false);
+  }
+  document.getElementById('adaptive').addEventListener('change', rebuild);
+  document.getElementById('terrain').addEventListener('change', rebuild);
+  document.getElementById('view').addEventListener('change', pose);
+  document.getElementById('turn').addEventListener('click', () => {
+    camera.lookAt(camera.position.clone().sub(camera.getWorldDirection(new THREE.Vector3())));
+    camera.updateMatrixWorld(true);
+  });
+  window.addEventListener('resize', resize);
+  renderer.setAnimationLoop(() => {
+    if (!layer) return;
+    if (document.getElementById('adaptive').checked) layer.updateView(camera, canvas.height);
+    renderer.render(scene, camera);
+    if (ready) {
+      const batches = layer.mesh.children.filter(object => object.name.endsWith(':tops'));
+      stats.textContent = `Ready ${rebuilds} | Surface cells: ${layer.mesh.geometry.instanceCount.toLocaleString()} | Visible zones: ${batches.filter(mesh => mesh.visible).length}/128 | Draw calls: ${renderer.info.render.calls} | Triangles: ${renderer.info.render.triangles.toLocaleString()}`;
+    }
+  });
+  rebuild().catch(error => { stats.textContent = String(error); console.error(error); });
+</script>
+</html>

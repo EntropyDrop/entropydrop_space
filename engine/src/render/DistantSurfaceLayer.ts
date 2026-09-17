@@ -1,7 +1,10 @@
 import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
-import { TORUS_SIZE_X, TORUS_SIZE_Z, hookSceneMaterials } from '../torus/TorusWorld.ts';
+import {
+  TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_RHO, TORUS_GREF,
+  computeBentBoundsSphere, getWorldShapeMode, hookSceneMaterials,
+} from '../torus/TorusWorld.ts';
 
 const CHUNK_SIZE = 16;
 const ZONE_SIZE_CHUNKS = 32;
@@ -135,13 +138,15 @@ export function normalizeDistantSurfaceSettings(
   );
   return normalized;
 }
-// Move the far topology anchor in 64 m increments. Ordinary chunk crossings
+// Move the legacy distance-only topology anchor in 64 m increments. Chunk crossings
 // then avoid rebuilding roughly 190k surface cells; a separate ready mask
 // handles the exact per-chunk transition to detailed terrain.
 const LOD_CENTER_STEP_CHUNKS = 4;
 // A topology move may inspect roughly 190k cells. Work in short macrotasks so
 // connection generation cannot consume a complete 8.33 ms frame at 120 Hz.
 const CONNECTION_BUILD_BUDGET_MS = 2;
+const MAX_SCREEN_ERROR_PX = 2;
+const REFERENCE_PIXEL_SCALE = 720;
 // Voxel colors are authored and serialized as sRGB hex values. Three.Color.setHex,
 // used by the detailed chunk mesher, converts those values to linear RGB before
 // placing them in a vertex attribute. Do the same conversion here so the two
@@ -229,15 +234,21 @@ interface SurfaceMip {
   axis: number;
   heights: Uint16Array;
   colors: Uint8Array;
+  minHeights: Uint16Array;
+  colorErrors: Float32Array;
 }
 
 interface StoredSurfaceZone {
   zoneX: number;
   zoneZ: number;
   mips: Map<number, SurfaceMip>;
+  sampleSize: number;
+  sourceTerrainRevision: number;
+  bounds: THREE.Sphere;
 }
 
 interface ConnectedSurfaceCell {
+  zoneKey: string;
   worldX: number;
   worldZ: number;
   cellSize: number;
@@ -245,6 +256,19 @@ interface ConnectedSurfaceCell {
   red: number;
   green: number;
   blue: number;
+}
+
+interface SurfaceRange {
+  topStart: number; topCount: number;
+  sideStart: number; sideCount: number;
+}
+
+type SurfaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
+
+/** Bound the chord error even for elevated terrain on the tube. */
+function curvatureError(size: number, heightMicro: number) {
+  const rho = Math.max(1, TORUS_RHO + heightMicro * MICRO_SIZE - TORUS_GREF);
+  return rho * (size / TORUS_RHO) ** 2 / 8 * 1.2;
 }
 
 function createTopGeometry() {
@@ -317,11 +341,17 @@ function createMaterial(detailMask: THREE.DataTexture, side = false) {
 }
 
 function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
-  const fineAxis = ZONE_SIZE_CHUNKS * FINE_SAMPLES_PER_CHUNK_AXIS;
+  const sampleSize = zone.sampleSize ?? FINE_SAMPLE_SIZE;
+  const fineAxis = ZONE_WORLD_SIZE / sampleSize;
   const finestHeights = new Uint16Array(fineAxis * fineAxis);
   const finestColors = new Uint8Array(fineAxis * fineAxis * 3);
   let sourceIndex = 0;
-  for (let chunkX = 0; chunkX < ZONE_SIZE_CHUNKS; chunkX++) {
+  if (zone.sampleSize !== undefined) {
+    finestHeights.set(zone.heightsMicro);
+    for (let index = 0; index < finestColors.length; index++) {
+      finestColors[index] = SRGB_TO_LINEAR_BYTE[zone.colors[index]];
+    }
+  } else for (let chunkX = 0; chunkX < ZONE_SIZE_CHUNKS; chunkX++) {
     for (let chunkZ = 0; chunkZ < ZONE_SIZE_CHUNKS; chunkZ++) {
       for (let sampleX = 0; sampleX < FINE_SAMPLES_PER_CHUNK_AXIS; sampleX++) {
         const gridX = chunkX * FINE_SAMPLES_PER_CHUNK_AXIS + sampleX;
@@ -340,16 +370,20 @@ function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
 
   const mips = new Map<number, SurfaceMip>();
   let current: SurfaceMip = {
-    cellSize: FINE_SAMPLE_SIZE,
+    cellSize: sampleSize,
     axis: fineAxis,
     heights: finestHeights,
     colors: finestColors,
+    minHeights: finestHeights.slice(),
+    colorErrors: new Float32Array(fineAxis * fineAxis),
   };
   mips.set(current.cellSize, current);
   while (current.cellSize < 64) {
     const nextAxis = current.axis / 2;
     const nextHeights = new Uint16Array(nextAxis * nextAxis);
     const nextColors = new Uint8Array(nextAxis * nextAxis * 3);
+    const minHeights = new Uint16Array(nextAxis * nextAxis);
+    const colorErrors = new Float32Array(nextAxis * nextAxis);
     for (let x = 0; x < nextAxis; x++) {
       for (let z = 0; z < nextAxis; z++) {
         const targetIndex = x * nextAxis + z;
@@ -368,6 +402,20 @@ function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
         nextColors[targetIndex * 3] = current.colors[bestSource * 3];
         nextColors[targetIndex * 3 + 1] = current.colors[bestSource * 3 + 1];
         nextColors[targetIndex * 3 + 2] = current.colors[bestSource * 3 + 2];
+        let minHeight = bestHeight;
+        let colorError = 0;
+        for (let dx = 0; dx < 2; dx++) for (let dz = 0; dz < 2; dz++) {
+          const candidate = (x * 2 + dx) * current.axis + z * 2 + dz;
+          minHeight = Math.min(minHeight, current.minHeights[candidate]);
+          let difference = 0;
+          for (let channel = 0; channel < 3; channel++) {
+            difference = Math.max(difference, Math.abs(current.colors[candidate * 3 + channel]
+              - current.colors[bestSource * 3 + channel]) / 255);
+          }
+          colorError = Math.max(colorError, current.colorErrors[candidate] + difference);
+        }
+        minHeights[targetIndex] = minHeight;
+        colorErrors[targetIndex] = Math.min(1, colorError);
       }
     }
     current = {
@@ -375,6 +423,8 @@ function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
       axis: nextAxis,
       heights: nextHeights,
       colors: nextColors,
+      minHeights,
+      colorErrors,
     };
     mips.set(current.cellSize, current);
   }
@@ -450,6 +500,20 @@ export class DistantSurfaceLayer {
   private centerChunkX = 0;
   private centerChunkZ = 0;
   private lodCenterKey = '';
+  private readonly ranges = new Map<string, SurfaceRange>();
+  private readonly batches = new Map<string, { top: SurfaceMesh; side: SurfaceMesh; bounds: THREE.Sphere }>();
+  private readonly frustum = new THREE.Frustum();
+  private readonly projection = new THREE.Matrix4();
+  private readonly cameraPosition = new THREE.Vector3();
+  private readonly lodPosition = new THREE.Vector3();
+  private readonly cellBounds = new THREE.Sphere();
+  private readonly recentlyVisible = new Map<string, number>();
+  private readonly zoneDemandSizes = new Map<string, number>();
+  private hasView = false;
+  private pixelScale = REFERENCE_PIXEL_SCALE;
+  private lodViewKey = '';
+  private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingBuild: Promise<void> | null = null;
 
   constructor() {
     this.detailMaskTexture = new THREE.DataTexture(
@@ -480,6 +544,11 @@ export class DistantSurfaceLayer {
     this.sideMesh.frustumCulled = false;
     this.sideMesh.castShadow = false;
     this.sideMesh.receiveShadow = false;
+    // Keep CPU staging/diagnostic geometries out of every render pass. A zero
+    // draw range alone still makes Three upload their full capacity buffers.
+    // Child batches use the default camera layer independently of the parent.
+    this.mesh.layers.disableAll();
+    this.sideMesh.layers.disableAll();
     this.mesh.add(this.sideMesh);
     hookSceneMaterials(this.mesh);
   }
@@ -487,6 +556,121 @@ export class DistantSurfaceLayer {
   private syncVisibility() {
     this.mesh.visible = this.enabled && this.mesh.geometry.instanceCount > 0;
     this.sideMesh.visible = this.enabled && this.sideMesh.geometry.instanceCount > 0;
+  }
+
+  /** Called with the bent camera. Visibility updates immediately, without
+   * rebuilding geometry when the player turns toward the opposite ring. */
+  updateView(camera: THREE.PerspectiveCamera, viewportHeight: number) {
+    if (!this.enabled || getWorldShapeMode() !== 'torus') return;
+    if (!this.hasView) {
+      // Snapshots can arrive while Earth mode has the far layer disabled.
+      for (const [key, zone] of this.zones) {
+        computeBentBoundsSphere({ minX: zone.zoneX * 512, maxX: (zone.zoneX + 1) * 512,
+          minZ: zone.zoneZ * 512, maxZ: (zone.zoneZ + 1) * 512, minY: 0,
+          maxY: Math.max(...zone.mips.get(64)!.heights) * MICRO_SIZE }, zone.bounds);
+        this.batches.get(key)?.bounds.copy(zone.bounds);
+      }
+    }
+    this.hasView = true;
+    this.cameraPosition.copy(camera.position);
+    this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projection);
+    const now = performance.now();
+    for (const [key, batch] of this.batches) {
+      const visible = this.frustum.intersectsSphere(batch.bounds);
+      batch.top.visible = visible && batch.top.geometry.instanceCount > 0;
+      batch.side.visible = visible && batch.side.geometry.instanceCount > 0;
+      if (visible) this.recentlyVisible.set(key, now);
+    }
+    const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
+    // A stable 64 m cell and a 10% projection step avoid rebuilding for small
+    // motion, zoom changes, or adaptive-resolution fluctuations.
+    if (this.lodViewKey && this.lodPosition.distanceTo(camera.position) < 64
+      && scale < this.pixelScale * 1.1 && scale > this.pixelScale / 1.1) return;
+    this.lodViewKey = 'active';
+    this.lodPosition.copy(camera.position);
+    this.pixelScale = scale;
+    if (this.zones.size > 0) this.requestRebuild();
+  }
+
+  getZoneDemand(zoneX: number, zoneZ: number): { sampleSize: number; priority: number } {
+    if (!this.enabled || !this.hasView) return { sampleSize: 64, priority: 0 };
+    const key = `${zoneX},${zoneZ}`;
+    const sphere = this.zones.get(key)?.bounds ?? computeBentBoundsSphere({
+      minX: zoneX * 512, maxX: (zoneX + 1) * 512,
+      minZ: zoneZ * 512, maxZ: (zoneZ + 1) * 512, minY: 0, maxY: 256,
+    }, this.cellBounds);
+    const distance = Math.max(0, this.cameraPosition.distanceTo(sphere.center) - sphere.radius);
+    const visible = this.frustum.intersectsSphere(sphere)
+      || performance.now() - (this.recentlyVisible.get(key) ?? -Infinity) < 2000;
+    const projectedDistance = distance * REFERENCE_PIXEL_SCALE / this.pixelScale;
+    let sampleSize = visible ? desiredSampleSize(projectedDistance, this.settings) ?? 64 : 64;
+    const previous = this.zoneDemandSizes.get(key);
+    if (visible && previous !== undefined && sampleSize !== previous) {
+      const margin = sampleSize < previous ? 1.1 : 0.9;
+      sampleSize = desiredSampleSize(projectedDistance * margin, this.settings) ?? 64;
+    }
+    this.zoneDemandSizes.set(key, sampleSize);
+    return { sampleSize, priority: distance + (visible ? 0 : 20_000) };
+  }
+
+  private requestRebuild() {
+    // Coalesce downloads and camera updates. Keep the uploaded batches alive
+    // until one complete top/side replacement can be published atomically.
+    this.connectionBuildGeneration++;
+    if (this.rebuildTimer !== null) return;
+    this.rebuildTimer = setTimeout(() => {
+      this.rebuildTimer = null;
+      if (this.enabled) this.scheduleRebuild();
+    }, 16);
+  }
+
+  private rangeFor(key: string): SurfaceRange {
+    let range = this.ranges.get(key);
+    if (!range) {
+      range = { topStart: this.writeIndex, topCount: 0, sideStart: 0, sideCount: 0 };
+      this.ranges.set(key, range);
+    }
+    return range;
+  }
+
+  private publishBatches() {
+    // WebGL has no base-instance offset. Compact copies give each zone a
+    // bounded draw and keep staging writes separate from active GPU uploads.
+    // The parent geometries remain aggregate diagnostics, not duplicate draws.
+    this.mesh.geometry.setDrawRange(0, 0);
+    this.sideMesh.geometry.setDrawRange(0, 0);
+    for (const [key, batch] of this.batches) {
+      this.mesh.remove(batch.top, batch.side);
+      batch.top.geometry.dispose();
+      batch.side.geometry.dispose();
+      this.batches.delete(key);
+    }
+    for (const [key, range] of this.ranges) {
+      const zone = this.zones.get(key);
+      if (!zone || (!range.topCount && !range.sideCount)) continue;
+      const make = (source: SurfaceMesh, start: number, count: number, side: boolean) => {
+        const geometry = side ? createSideGeometry() : createTopGeometry();
+        for (const [name, attribute] of Object.entries(source.geometry.attributes)) {
+          if (!(attribute instanceof THREE.InstancedBufferAttribute)) continue;
+          geometry.setAttribute(name, new THREE.InstancedBufferAttribute(
+            attribute.array.slice(start * attribute.itemSize, (start + count) * attribute.itemSize),
+            attribute.itemSize, attribute.normalized,
+          ));
+        }
+        geometry.instanceCount = count;
+        geometry.boundingSphere = zone.bounds.clone();
+        const mesh = new THREE.Mesh(geometry, source.material);
+        mesh.name = `DistantSurface:${key}:${side ? 'sides' : 'tops'}`;
+        mesh.frustumCulled = false;
+        mesh.visible = count > 0 && (!this.hasView || this.frustum.intersectsSphere(zone.bounds));
+        return mesh;
+      };
+      const top = make(this.mesh, range.topStart, range.topCount, false);
+      const side = make(this.sideMesh, range.sideStart, range.sideCount, true);
+      this.mesh.add(top, side);
+      this.batches.set(key, { top, side, bounds: zone.bounds.clone() });
+    }
   }
 
   setEnabled(enabled: boolean): boolean {
@@ -497,11 +681,25 @@ export class DistantSurfaceLayer {
       this.connectionBuildGeneration++;
       this.connectionBuildPending = false;
       this.connectionsDirty = true;
+      if (this.rebuildTimer !== null) clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+      this.hasView = false;
+      this.lodViewKey = '';
       this.syncVisibility();
       return this.enabled;
     }
-    if (this.zones.size > 0) this.rebuild();
-    else this.syncVisibility();
+    if (this.zones.size > 0) {
+      if (getWorldShapeMode() === 'torus') this.requestRebuild();
+      else this.rebuild();
+    } else {
+      this.writeIndex = 0;
+      this.sideWriteIndex = 0;
+      this.ranges.clear();
+      this.mesh.geometry.instanceCount = 0;
+      this.sideMesh.geometry.instanceCount = 0;
+      this.publishBatches();
+      this.syncVisibility();
+    }
     return this.enabled;
   }
 
@@ -581,9 +779,9 @@ export class DistantSurfaceLayer {
     cellSize: number,
     distance: number,
   ) {
-    const mip = zone.mips.get(cellSize)!;
-    const sampleX = localX / cellSize;
-    const sampleZ = localZ / cellSize;
+    const mip = zone.mips.get(Math.max(cellSize, zone.sampleSize))!;
+    const sampleX = Math.floor(localX / mip.cellSize);
+    const sampleZ = Math.floor(localZ / mip.cellSize);
     const sourceIndex = sampleX * mip.axis + sampleZ;
     const height = mip.heights[sourceIndex];
     const worldX = zone.zoneX * ZONE_WORLD_SIZE + localX;
@@ -591,17 +789,21 @@ export class DistantSurfaceLayer {
     const red = mip.colors[sourceIndex * 3];
     const green = mip.colors[sourceIndex * 3 + 1];
     const blue = mip.colors[sourceIndex * 3 + 2];
+    const zoneKey = `${zone.zoneX},${zone.zoneZ}`;
     if (
       this.settings.connectionDistance > 0
       && distance <= this.settings.connectionDistance
     ) {
-      this.connectedCells.push({ worldX, worldZ, cellSize, height, red, green, blue });
+      this.connectedCells.push({ zoneKey, worldX, worldZ, cellSize, height, red, green, blue });
     }
     if (height === 0) return;
     if (this.writeIndex >= MAX_SURFACE_INSTANCES) {
       throw new Error('Adaptive Space surface instance budget exceeded.');
     }
     const index = this.writeIndex++;
+    const range = this.rangeFor(zoneKey);
+    if (range.topCount === 0) range.topStart = index;
+    range.topCount++;
     this.offsets![index * 2] = worldX;
     this.offsets![index * 2 + 1] = worldZ;
     this.heights![index] = height;
@@ -618,10 +820,35 @@ export class DistantSurfaceLayer {
     const playerZ = (this.centerChunkZ + 0.5) * CHUNK_SIZE;
     const dx = wrappedAxisDistanceToCell(playerX, worldX, cellSize, TORUS_SIZE_X);
     const dz = wrappedAxisDistanceToCell(playerZ, worldZ, cellSize, TORUS_SIZE_Z);
-    const distance = Math.hypot(dx, dz);
-    const sampleSize = desiredSampleSize(distance, this.settings);
+    let distance = Math.hypot(dx, dz);
+    let mustSplit = true;
+    if (this.hasView) {
+      const mip = zone.mips.get(Math.max(cellSize, zone.sampleSize))!;
+      const index = Math.floor(localX / mip.cellSize) * mip.axis + Math.floor(localZ / mip.cellSize);
+      const height = mip.heights[index];
+      const minHeight = mip.minHeights[index];
+      computeBentBoundsSphere({ minX: worldX, maxX: worldX + cellSize,
+        minZ: worldZ, maxZ: worldZ + cellSize,
+        minY: minHeight * MICRO_SIZE, maxY: height * MICRO_SIZE }, this.cellBounds);
+      distance = Math.max(1, this.lodPosition.distanceTo(this.cellBounds.center) - this.cellBounds.radius);
+      const error = (height - minHeight) * MICRO_SIZE
+        + curvatureError(cellSize, height) + cellSize * mip.colorErrors[index] * 0.25;
+      mustSplit = error * this.pixelScale / distance > MAX_SCREEN_ERROR_PX;
+    }
+    if (distance > this.settings.maxDistance) return;
+    const sampleSize = desiredSampleSize(this.hasView
+      ? Math.min(this.settings.maxDistance, distance * REFERENCE_PIXEL_SCALE / this.pixelScale)
+      : distance, this.settings);
     if (sampleSize === null) return;
-    if (cellSize > sampleSize) {
+    // Coarse data may still need extra vertices to follow the tube's curvature.
+    // Conversely a flat, uniform patch can stay coarse even near the camera.
+    // Reserve a coarse cell for every remaining root even at extreme zoom.
+    // Exceeding the budget reduces refinement instead of dropping terrain.
+    const canRefine = !this.hasView || this.writeIndex < MAX_SURFACE_INSTANCES - 4 * 8192;
+    const tierIndex = LOD_SAMPLE_SIZES.indexOf(cellSize as typeof LOD_SAMPLE_SIZES[number]);
+    const tierEnabled = this.settings[LOD_ENABLED_KEYS[tierIndex]];
+    if (cellSize > sampleSize && (mustSplit || !tierEnabled) && canRefine
+      && (this.hasView || cellSize > zone.sampleSize)) {
       const childSize = cellSize / 2;
       this.visitCell(zone, localX, localZ, childSize);
       this.visitCell(zone, localX + childSize, localZ, childSize);
@@ -662,6 +889,9 @@ export class DistantSurfaceLayer {
       throw new Error('Connected Space surface instance budget exceeded.');
     }
     const index = this.sideWriteIndex++;
+    const range = this.rangeFor(cell.zoneKey);
+    if (range.sideCount === 0) range.sideStart = index;
+    range.sideCount++;
     this.sideOffsets![index * 2] = worldX;
     this.sideOffsets![index * 2 + 1] = worldZ;
     this.sideHeights![index] = cell.height;
@@ -731,7 +961,13 @@ export class DistantSurfaceLayer {
       };
       for (let offset = 0; offset <= cell.cellSize; offset += FINE_SAMPLE_SIZE) {
         const neighbor = offset < cell.cellSize ? neighborAt(offset) : null;
-        const bottom = neighbor && cell.height > neighbor.height ? neighbor.height : -1;
+        let bottom = neighbor && cell.height > neighbor.height ? neighbor.height : -1;
+        // Fine edges follow the arc above the coarse chord. Extend the fine
+        // boundary below it, including equal-height patches, to close cracks.
+        if (this.hasView && neighbor && cell.cellSize < neighbor.cellSize && cell.height >= neighbor.height) {
+          const skirt = Math.ceil((curvatureError(neighbor.cellSize, cell.height) + MICRO_SIZE) / MICRO_SIZE);
+          bottom = Math.max(0, Math.min(neighbor.height, cell.height - skirt));
+        }
         if (bottom >= 0 && bottom === runBottom) {
           if (runStart < 0) runStart = offset;
           continue;
@@ -773,6 +1009,7 @@ export class DistantSurfaceLayer {
     this.syncVisibility();
     this.connectionsDirty = false;
     this.connectionBuildPending = false;
+    this.publishBatches();
   }
 
   private rebuildConnections() {
@@ -782,6 +1019,7 @@ export class DistantSurfaceLayer {
     const previousCount = this.sideMesh.geometry.instanceCount;
     const cells = this.connectedCells;
     this.sideWriteIndex = 0;
+    for (const range of this.ranges.values()) range.sideCount = 0;
     this.clearConnectionOwners();
     for (const cell of cells) this.fillConnectionOwner(cell);
     for (const cell of cells) this.emitCellConnections(cell);
@@ -793,6 +1031,7 @@ export class DistantSurfaceLayer {
     cells: ConnectedSurfaceCell[],
   ): Promise<boolean> {
     this.sideWriteIndex = 0;
+    for (const range of this.ranges.values()) range.sideCount = 0;
     this.clearConnectionOwners();
 
     let cellIndex = 0;
@@ -833,7 +1072,7 @@ export class DistantSurfaceLayer {
     this.connectionsDirty = true;
     this.connectionBuildPending = true;
 
-    return (async () => {
+    const pending = (async () => {
       // Let the final progressive top-surface upload reach WebGL before using
       // the separate side buffers for a frame-sliced connection build.
       await yieldToRender();
@@ -845,6 +1084,8 @@ export class DistantSurfaceLayer {
       this.connectionBuildPending = false;
       console.error('Failed to rebuild distant surface connections:', error);
     });
+    this.pendingBuild = pending;
+    return pending;
   }
 
   private scheduleRebuild() {
@@ -864,13 +1105,14 @@ export class DistantSurfaceLayer {
     this.connectionsDirty = true;
     this.connectionBuildPending = true;
 
-    void (async () => {
+    this.pendingBuild = (async () => {
       // Retain the currently uploaded topology until the replacement is
       // complete. Typed arrays are only sent to WebGL after every staged batch.
       await yieldToRender();
       if (generation !== this.connectionBuildGeneration) return;
 
       this.writeIndex = 0;
+      this.ranges.clear();
       this.connectedCells.length = 0;
       let rootIndex = 0;
       while (rootIndex < rootCells.length) {
@@ -935,6 +1177,7 @@ export class DistantSurfaceLayer {
     const previousCount = this.mesh.geometry.instanceCount;
     const previousSideCount = this.sideMesh.geometry.instanceCount;
     this.writeIndex = 0;
+    this.ranges.clear();
     this.connectedCells.length = 0;
     for (const zone of this.zones.values()) this.appendZone(zone);
     if (this.writeIndex < previousCount) {
@@ -953,13 +1196,16 @@ export class DistantSurfaceLayer {
       this.sideMesh.geometry.instanceCount = 0;
       this.uploadRange(this.sideMesh, 0, previousSideCount, true);
       this.sideMesh.visible = false;
+      this.publishBatches();
     }
   }
 
   installZone(zone: SurfaceZoneSnapshot) {
-    const recordsPerZone = ZONE_SIZE_CHUNKS ** 2 * FINE_SAMPLES_PER_CHUNK_AXIS ** 2;
+    const sampleSize = zone.sampleSize ?? FINE_SAMPLE_SIZE;
+    const recordsPerZone = (ZONE_WORLD_SIZE / sampleSize) ** 2;
     if (
-      zone.samplesPerChunkAxis !== FINE_SAMPLES_PER_CHUNK_AXIS
+      !LOD_SAMPLE_SIZES.includes(sampleSize as typeof LOD_SAMPLE_SIZES[number])
+      || zone.samplesPerChunkAxis !== CHUNK_SIZE / sampleSize
       || zone.zoneSizeChunks !== ZONE_SIZE_CHUNKS
       || zone.heightsMicro.length !== recordsPerZone
       || zone.colors.length !== recordsPerZone * 3
@@ -973,13 +1219,22 @@ export class DistantSurfaceLayer {
     this.ensureStorage();
     const key = `${zone.zoneX},${zone.zoneZ}`;
     const replacing = this.zones.has(key);
-    const stored = { zoneX: zone.zoneX, zoneZ: zone.zoneZ, mips: buildMipPyramid(zone) };
+    if ((this.zones.get(key)?.sourceTerrainRevision ?? -1) > zone.sourceTerrainRevision) return;
+    const mips = buildMipPyramid(zone);
+    const coarsest = mips.get(64)!;
+    const stored = { zoneX: zone.zoneX, zoneZ: zone.zoneZ, mips, sampleSize,
+      sourceTerrainRevision: zone.sourceTerrainRevision,
+      bounds: computeBentBoundsSphere({ minX: zone.zoneX * 512, maxX: (zone.zoneX + 1) * 512,
+        minZ: zone.zoneZ * 512, maxZ: (zone.zoneZ + 1) * 512,
+        minY: 0, maxY: Math.max(...coarsest.heights) * MICRO_SIZE }),
+    };
     this.zones.set(key, stored);
     this.loadedZones.add(key);
     this.connectionsDirty = true;
     if (!this.enabled) return;
-    if (replacing) {
-      this.rebuild();
+    if (replacing || this.connectionBuildPending || this.rebuildTimer !== null) {
+      this.connectionsReady = true;
+      this.requestRebuild();
       return;
     }
     const start = this.writeIndex;
@@ -987,14 +1242,23 @@ export class DistantSurfaceLayer {
     this.mesh.geometry.instanceCount = this.writeIndex;
     this.uploadRange(this.mesh, start, this.writeIndex - start);
     this.syncVisibility();
+    this.publishBatches();
     if (this.connectionsReady) void this.scheduleConnectionRebuild();
   }
 
   async finalizeConnections() {
-    if (this.connectionsReady && !this.connectionsDirty) return;
-    if (this.connectionsReady && this.connectionBuildPending) return;
     this.connectionsReady = true;
     if (!this.enabled) return;
+    if (this.rebuildTimer !== null) {
+      clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+      this.scheduleRebuild();
+    }
+    if (this.connectionBuildPending) {
+      await this.pendingBuild;
+      return;
+    }
+    if (!this.connectionsDirty) return;
     await this.scheduleConnectionRebuild();
   }
 
@@ -1004,6 +1268,17 @@ export class DistantSurfaceLayer {
     this.loadedZones.delete(key);
     this.connectionsDirty = true;
     if (!this.enabled) return;
+    if (this.hasView) {
+      const batch = this.batches.get(key);
+      if (batch) {
+        this.mesh.remove(batch.top, batch.side);
+        batch.top.geometry.dispose();
+        batch.side.geometry.dispose();
+        this.batches.delete(key);
+      }
+      this.requestRebuild();
+      return;
+    }
     this.rebuild();
   }
 
@@ -1032,7 +1307,7 @@ export class DistantSurfaceLayer {
     this.centerChunkX = lodCenterChunkX;
     this.centerChunkZ = lodCenterChunkZ;
     this.lodCenterKey = nextLodCenterKey;
-    if (this.enabled && this.zones.size > 0) {
+    if (this.enabled && !this.hasView && this.zones.size > 0) {
       // Progressive zone installation writes into the same staging arrays, so
       // only defer topology moves after the initial snapshot set is complete.
       if (this.connectionsReady) this.scheduleRebuild();

@@ -38,7 +38,7 @@ entropydrop_website/
 | `src/engine/building/` | Retired `SpaceBuilder` and `BuildAgent` BuildPlan libraries; reference/tests only, not connected to application startup. |
 | `src/engine/contraption/` | `AgentChat` (model calls + prompts), `AgentConfig`, `BehaviorAgent`, entity script generation. |
 | `src/engine/network/` | `MultiplayerSync` (`space-relay-v1` client) and `SpaceEntitySync` (AOI entity polling, checkpoint cadence, execution-lease coordination). |
-| `src/engine/render/` | Scene, LOD/far-surface layer, impostors, lighting/HDR presets, particles, character/skin, held tools. |
+| `src/engine/render/` | Scene, terrain LOD/far-surface layer, lighting/HDR presets, particles, character/skin, held tools. |
 | `src/engine/voxel/` | Model import (GLTF/STL) and voxelization. |
 | `src/engine/storage/BrowserStorage.ts` | IndexedDB with localStorage fallback and legacy-key migration. |
 | `src/engine/audio/` | Procedural/streamed sound and music. |
@@ -65,12 +65,15 @@ entropydrop_website/
 
 - Settings UI lives in `src/ui/react/components/SimpleModals.tsx` (tabs: Character,
   Graphics, Sound, API) and is persisted through `SpaceUiStore`/`BrowserStorage`.
-- Far-surface LOD is `src/engine/render/DistantSurfaceLayer.ts` with
+- Far-surface LOD is `../engine/src/render/DistantSurfaceLayer.ts` with
   `DISTANT_SURFACE_SETTING_LIMITS`; the five tier distances, final limit, per-tier
   switches and neighbor-connection radius are validated there before the staged rebuild.
+  Donut mode streams server-precomputed coarse levels before visible refinements,
+  selects detail using bent-space screen error, and culls per-zone draw batches.
+  Earth mode continues to disable the far layer. The deterministic browser fixture
+  at `tools/distant-surface-preview.html` compares fixed-distance and adaptive LODs.
 - Lighting presets and automatic resolution live in
-  `src/engine/render/LightingQuality.ts` and `AdaptiveResolution.ts`; per-entity impostor
-  switches live in `src/engine/render/EntityImpostorSettings.ts`.
+  `src/engine/render/LightingQuality.ts` and `AdaptiveResolution.ts`.
 - Model import (`GLTF`/`STL`/`OBJ`) runs through `src/engine/voxel/ModelVoxelizer.ts`,
   `STLVoxelizer.ts`, `ModelImportArchive.ts` and the STL worker, all treated as untrusted
   input and bounded by triangle/voxel/size limits.

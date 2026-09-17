@@ -2,19 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SpaceEntitySync } from '../src/engine/network/SpaceEntitySync.ts';
-import { TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { hostingList, hostingStatus } from './hosting-fixtures.ts';
 
 
 const definition = Uint8Array.from([8, 4, 26, 0]);
 const definitionDigest = '0caed08c0cdfe078464c77fbc4032b985d9757db85e8fac65733d57ee7fb5917';
 
-function farRetentionHarness() {
+function aoiUnloadHarness() {
   const entity = { ...record(), desired_run_state: 'stopped' };
   const dormant = new Set([entity.id]);
   const removed: string[] = [];
   const radii: number[] = [];
-  const state = { player: { x: 1, z: 2 }, visible: true, truncated: false, maxDistance: 800 };
+  const state = { player: { x: 1, z: 2 }, visible: true, truncated: false };
   const sync = new SpaceEntitySync({
     apiOrigin: 'https://api.example.test', token: 'token', worldId: 'world-1', currentUserId: 'observer',
     world: { renderDistance: 8 }, controller: {},
@@ -25,9 +24,8 @@ function farRetentionHarness() {
       deleteDormantContraption(id: string) { dormant.delete(id); removed.push(id); },
     },
     getPlayerPosition: () => state.player,
-    getEntityImpostorDistance: () => state.maxDistance,
     fetchImpl: (async (url, options) => {
-      assert.equal(options?.method || 'GET', 'GET', 'distant retention must not start execution');
+      assert.equal(options?.method || 'GET', 'GET', 'AOI polling must not start execution');
       const query = new URL(String(url)).searchParams;
       radii.push(Number(query.get('radius_cm')));
       return new Response(JSON.stringify({ items: state.visible ? [entity] : [], truncated: state.truncated, limit: 256 }));
@@ -36,37 +34,31 @@ function farRetentionHarness() {
   return { sync, state, dormant, removed, radii, id: entity.id };
 }
 
-test('AOI exit keeps lightweight plane metadata across polls and range changes while freeing full entity data', async () => {
-  const { sync, state, dormant, removed, radii, id } = farRetentionHarness();
+test('AOI exit unloads the full entity without retaining a render proxy', async () => {
+  const { sync, state, dormant, removed, radii, id } = aoiUnloadHarness();
   await sync.poll();
   state.visible = false;
   state.player.x = 401;
   await sync.poll();
   await sync.poll();
-  assert.equal(dormant.has(id), false, 'full entity snapshots can be released outside the simulation AOI');
-  assert.equal(sync.hasRetainedImpostor(id), true, 'AOI absence must not clear the independent plane cache');
-  state.maxDistance = 300;
-  await sync.poll();
-  assert.equal(sync.hasRetainedImpostor(id), true, 'retain the small cache so a later range increase can reuse it');
-  state.maxDistance = 800;
-  await sync.poll();
-  assert.equal(sync.hasRetainedImpostor(id), true);
-  assert.ok(radii.every(radius => radius === 16000), 'never expand the simulation AOI to the plane range');
+  assert.equal(dormant.has(id), false);
+  assert.deepEqual(removed, [id]);
+  assert.ok(radii.every(radius => radius === 16000), 'entity loading stays bounded to the detailed AOI');
 });
 
-test('complete in-AOI deletion clears retained entities, with wraparound and truncated-list protection', async () => {
-  const { sync, state, dormant, removed, id } = farRetentionHarness();
+test('a truncated AOI response does not unload an entity until a complete response confirms absence', async () => {
+  const { sync, state, dormant, removed, id } = aoiUnloadHarness();
   await sync.poll();
   state.visible = false;
   state.player.x = 401;
-  await sync.poll();
-  state.player.x = TORUS_SIZE_X - 20;
   state.truncated = true;
   await sync.poll();
-  assert.equal(sync.hasRetainedImpostor(id), true, 'an incomplete response cannot prove deletion');
+  assert.equal(dormant.has(id), true);
+  assert.deepEqual(removed, []);
   state.truncated = false;
   await sync.poll();
-  assert.equal(sync.hasRetainedImpostor(id), false, 'the wrapped location is nearby, so complete absence means deletion');
+  assert.equal(dormant.has(id), false);
+  assert.deepEqual(removed, [id]);
 });
 
 function record() {

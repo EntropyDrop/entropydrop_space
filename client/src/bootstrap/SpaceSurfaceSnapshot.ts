@@ -18,6 +18,15 @@ const MAX_SURFACE_MANIFEST_BYTES = 256 * 1024;
 const MAX_SURFACE_ZONES = 128;
 const SURFACE_DOWNLOAD_CONCURRENCY = 6;
 const SURFACE_MANIFEST_POLL_MS = 2_500;
+const SURFACE_LOD_SIZES = [4, 8, 16, 32, 64];
+const SURFACE_REFINEMENT_BUDGET_BYTES = 4 * 1024 * 1024;
+
+interface SurfaceLodManifestEntry {
+  sample_size: number;
+  digest: string;
+  byte_length: number;
+  url: string;
+}
 
 interface SurfaceZoneManifestEntry {
   zone_x: number;
@@ -27,6 +36,7 @@ interface SurfaceZoneManifestEntry {
   digest: string;
   byte_length: number;
   url: string;
+  lods?: SurfaceLodManifestEntry[];
 }
 
 interface SurfaceZoneManifest {
@@ -94,6 +104,22 @@ function parseManifest(value: unknown): SurfaceZoneManifest {
       throw new Error('Invalid Space surface-zone manifest entry.');
     }
     seen.add(key);
+    if (zone.lods !== undefined) {
+      if (!Array.isArray(zone.lods) || zone.lods.length > SURFACE_LOD_SIZES.length) {
+        throw new Error('Invalid Space surface LOD manifest.');
+      }
+      const levels = new Set<number>();
+      for (const level of zone.lods) {
+        if (!SURFACE_LOD_SIZES.includes(level?.sample_size)
+          || levels.has(level.sample_size)
+          || typeof level.digest !== 'string' || !/^[0-9a-f]{64}$/.test(level.digest)
+          || level.byte_length !== SURFACE_ZONE_HEADER_BYTES + (512 / level.sample_size) ** 2 * SURFACE_ZONE_RECORD_BYTES
+          || typeof level.url !== 'string' || level.url.length < 1 || level.url.length > 4096) {
+          throw new Error('Invalid Space surface LOD manifest entry.');
+        }
+        levels.add(level.sample_size);
+      }
+    }
   }
   return manifest;
 }
@@ -105,7 +131,8 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
   const schemaVersion = view.getUint8(4);
-  const samplesPerChunkAxis = view.getUint8(5);
+  const sampleSize = schemaVersion === 4 ? view.getUint8(5) : undefined;
+  const samplesPerChunkAxis = sampleSize ? 16 / sampleSize : view.getUint8(5);
   const zoneSizeChunks = view.getUint8(6);
   const recordBytes = view.getUint8(7);
   const zoneX = view.getUint16(8, true);
@@ -118,13 +145,15 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
   const expectedBytes = SURFACE_ZONE_HEADER_BYTES + recordCount * SURFACE_ZONE_RECORD_BYTES;
   if (
     magic !== 'EDSZ'
-    || schemaVersion !== SURFACE_ZONE_SCHEMA_VERSION
-    || samplesPerChunkAxis !== SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS
+    || (schemaVersion !== SURFACE_ZONE_SCHEMA_VERSION && schemaVersion !== 4)
+    || (schemaVersion === 4 ? !SURFACE_LOD_SIZES.includes(sampleSize!)
+      : samplesPerChunkAxis !== SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS)
     || zoneSizeChunks !== SURFACE_ZONE_SIZE_CHUNKS
     || recordBytes !== SURFACE_ZONE_RECORD_BYTES
     || !Number.isSafeInteger(sourceTerrainRevision)
     || recordCount !== expectedRecords
     || bytes.byteLength !== expectedBytes
+    || expectedBytes > MAX_SURFACE_ZONE_BYTES
   ) {
     throw new Error('Invalid Space surface-zone snapshot.');
   }
@@ -140,6 +169,7 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
     offset += SURFACE_ZONE_RECORD_BYTES;
   }
   return {
+    ...(sampleSize === undefined ? {} : { sampleSize }),
     zoneX,
     zoneZ,
     seed,
@@ -156,10 +186,16 @@ export interface SpaceSurfaceSnapshotRemote {
   loadAll(
     onZone: (zone: SurfaceZoneSnapshot) => void,
     onZoneRemoved?: (zoneX: number, zoneZ: number) => void,
+    options?: SurfaceStreamOptions,
   ): Promise<{
     loaded: number;
     complete: boolean;
   }>;
+}
+
+export interface SurfaceStreamOptions {
+  /** Camera demand is evaluated on each pass; 64 keeps only the overview. */
+  getZoneDemand(zoneX: number, zoneZ: number): { sampleSize: number; priority: number };
 }
 
 export function createSpaceSurfaceSnapshotRemote(
@@ -170,74 +206,141 @@ export function createSpaceSurfaceSnapshotRemote(
   expectedGeneratorVersion: number,
   fetchImpl: typeof fetch = fetch,
 ): SpaceSurfaceSnapshotRemote {
-  const installedDigests = new Map<string, string>();
-  return {
-    async loadAll(onZone, onZoneRemoved) {
-      const safeManifestUrl = resolveSurfaceApiUrl(manifestUrl, apiOrigin);
-      let loaded = 0;
-      while (true) {
+  const installed = new Map<string, { sourceDigest: string; sampleSize: number; revision: number }>();
+  // Only retain the tiny global overview here. Fine data belongs to the renderer
+  // and is replaced by coarser levels when it leaves the camera's demand set.
+  const overviews = new Map<string, { digest: string; zone: SurfaceZoneSnapshot }>();
+  let cachedManifest: SurfaceZoneManifest | null = null;
+  let manifestFetchedAt = 0;
+  let inFlight: Promise<{ loaded: number; complete: boolean }> | null = null;
+  const run: SpaceSurfaceSnapshotRemote['loadAll'] = async (onZone, onZoneRemoved, options) => {
+    const safeManifestUrl = resolveSurfaceApiUrl(manifestUrl, apiOrigin);
+    let loaded = 0;
+    while (true) {
+      if (!options || !cachedManifest || Date.now() - manifestFetchedAt >= 10_000 || !cachedManifest.complete) {
         const response = await fetchImpl(safeManifestUrl.toString(), {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
           cache: 'no-store',
         });
         const manifestBody = await readJsonResponse(response, MAX_SURFACE_MANIFEST_BYTES);
-        if (!response.ok) {
-          throw new Error(`Space surface manifest failed with HTTP ${response.status}.`);
+        if (!response.ok) throw new Error(`Space surface manifest failed with HTTP ${response.status}.`);
+        cachedManifest = parseManifest(manifestBody);
+        manifestFetchedAt = Date.now();
+      }
+      const manifest = cachedManifest;
+      const readyZoneKeys = new Set(
+        manifest.zones.map(entry => `${entry.zone_x},${entry.zone_z}`)
+      );
+      for (const key of installed.keys()) {
+        if (readyZoneKeys.has(key)) continue;
+        installed.delete(key);
+        overviews.delete(key);
+        const [zoneX, zoneZ] = key.split(',').map(Number);
+        onZoneRemoved?.(zoneX, zoneZ);
+      }
+      const zones = manifest.zones.map(entry => ({
+        entry, demand: options?.getZoneDemand(entry.zone_x, entry.zone_z)
+          ?? { sampleSize: 2, priority: entry.zone_x * 32 + entry.zone_z },
+      })).sort((a, b) => a.demand.priority - b.demand.priority);
+      let refinementBytes = 0;
+      const targets = new Map<string, SurfaceLodManifestEntry>();
+      for (const { entry, demand } of zones) {
+        const available = [{ ...entry, sample_size: 2 }, ...(entry.lods ?? [])]
+          .sort((a, b) => a.sample_size - b.sample_size);
+        let index = 0;
+        while (index + 1 < available.length && available[index + 1].sample_size <= demand.sampleSize) index++;
+        if (options && available.at(-1)?.sample_size === 64) {
+          while (index < available.length - 1
+            && refinementBytes + available[index].byte_length > SURFACE_REFINEMENT_BUDGET_BYTES) index++;
         }
-        const manifest = parseManifest(manifestBody);
-        const readyZoneKeys = new Set(
-          manifest.zones.map(entry => `${entry.zone_x},${entry.zone_z}`)
-        );
-        for (const key of installedDigests.keys()) {
-          if (readyZoneKeys.has(key)) continue;
-          installedDigests.delete(key);
-          const [zoneX, zoneZ] = key.split(',').map(Number);
-          onZoneRemoved?.(zoneX, zoneZ);
+        const level = available[index];
+        if (level.sample_size < 64) refinementBytes += level.byte_length;
+        targets.set(`${entry.zone_x},${entry.zone_z}`, level);
+      }
+      const download = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
+        const key = `${entry.zone_x},${entry.zone_z}`;
+        const cached = overviews.get(key);
+        const url = resolveSurfaceApiUrl(level.url, apiOrigin);
+        if (level.sample_size === 64 && cached?.digest === level.digest) return cached.zone;
+        const zoneResponse = await fetchImpl(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.entropydrop.surface-zone',
+          },
+          cache: 'force-cache',
+        });
+        if (!zoneResponse.ok) {
+          throw new Error(`Space surface zone failed with HTTP ${zoneResponse.status}.`);
         }
-        const zones = manifest.zones
-          .filter(entry => installedDigests.get(`${entry.zone_x},${entry.zone_z}`) !== entry.digest)
-          .sort((a, b) => a.zone_x - b.zone_x || a.zone_z - b.zone_z);
+        const bytes = await readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES);
+        if (bytes.byteLength !== level.byte_length || await sha256Hex(bytes) !== level.digest) {
+          throw new Error('Space surface-zone snapshot checksum mismatch.');
+        }
+        const zone = parseSurfaceZoneSnapshot(bytes);
+        if (
+          zone.zoneX !== entry.zone_x
+          || zone.zoneZ !== entry.zone_z
+          || zone.seed !== expectedSeed
+          || zone.terrainGeneratorVersion !== expectedGeneratorVersion
+          || zone.sourceTerrainRevision !== entry.source_terrain_revision
+          || (zone.sampleSize ?? 2) !== level.sample_size
+        ) {
+          throw new Error('Space surface-zone snapshot identity mismatch.');
+        }
+        if (level.sample_size === 64) overviews.set(key, { digest: level.digest, zone });
+        return zone;
+      };
+      const install = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
+        const key = `${entry.zone_x},${entry.zone_z}`;
+        const current = installed.get(key);
+        if (current && (current.revision > entry.revision
+          || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) return;
+        const zone = await download(entry, level);
+        onZone(zone);
+        installed.set(key, { sourceDigest: entry.digest, sampleSize: level.sample_size, revision: entry.revision });
+        loaded++;
+      };
+      const pass = async (overview: boolean) => {
         let cursor = 0;
+        let failed = false;
         const worker = async () => {
-          while (cursor < zones.length) {
-            const entry = zones[cursor++];
-            const url = resolveSurfaceApiUrl(entry.url, apiOrigin);
-            const zoneResponse = await fetchImpl(url.toString(), {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/vnd.entropydrop.surface-zone',
-              },
-              cache: 'force-cache',
-            });
-            if (!zoneResponse.ok) {
-              throw new Error(`Space surface zone failed with HTTP ${zoneResponse.status}.`);
+          while (cursor < zones.length && !failed) {
+            const { entry } = zones[cursor++];
+            const key = `${entry.zone_x},${entry.zone_z}`;
+            const coarse = entry.lods?.find(level => level.sample_size === 64);
+            if (overview) {
+              if (!options || !coarse || installed.get(key)?.sourceDigest === entry.digest) continue;
+              await install(entry, coarse);
+            } else {
+              await install(entry, targets.get(key)!);
             }
-            const bytes = await readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES);
-            if (bytes.byteLength !== entry.byte_length || await sha256Hex(bytes) !== entry.digest) {
-              throw new Error('Space surface-zone snapshot checksum mismatch.');
-            }
-            const zone = parseSurfaceZoneSnapshot(bytes);
-            if (
-              zone.zoneX !== entry.zone_x
-              || zone.zoneZ !== entry.zone_z
-              || zone.seed !== expectedSeed
-              || zone.terrainGeneratorVersion !== expectedGeneratorVersion
-            ) {
-              throw new Error('Space surface-zone snapshot identity mismatch.');
-            }
-            onZone(zone);
-            installedDigests.set(`${entry.zone_x},${entry.zone_z}`, entry.digest);
-            loaded++;
           }
         };
-        await Promise.all(
-          Array.from({ length: Math.min(SURFACE_DOWNLOAD_CONCURRENCY, zones.length) }, worker)
-        );
-        if (manifest.complete) {
-          return { loaded, complete: true };
-        }
-        await new Promise(resolve => setTimeout(resolve, SURFACE_MANIFEST_POLL_MS));
+        // Drain every worker before retrying so a failed pass cannot leave
+        // late responses installing an older revision over the next pass.
+        const results = await Promise.allSettled(Array.from(
+          { length: Math.min(SURFACE_DOWNLOAD_CONCURRENCY, zones.length) },
+          () => worker().catch(error => { failed = true; throw error; }),
+        ));
+        const error = results.find(result => result.status === 'rejected');
+        if (error?.status === 'rejected') throw error.reason;
+      };
+      await pass(true);
+      await pass(false);
+      if (manifest.complete) {
+        return { loaded, complete: true };
       }
+      await new Promise(resolve => setTimeout(resolve, SURFACE_MANIFEST_POLL_MS));
+    }
+  };
+  return {
+    loadAll(onZone, onZoneRemoved, options) {
+      if (inFlight) return inFlight;
+      inFlight = run(onZone, onZoneRemoved, options).catch(error => {
+        cachedManifest = null;
+        throw error;
+      }).finally(() => { inFlight = null; });
+      return inFlight;
     },
   };
 }

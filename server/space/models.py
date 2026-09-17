@@ -277,6 +277,9 @@ class SpaceSurfaceZoneSnapshot(Base):
     uncompressed_size = Column(Integer, nullable=False)
     content_hash = Column(LargeBinary(32), nullable=False)
     payload = Column(LargeBinary, nullable=False)
+    # Independently compressed coarse levels, published with the source revision.
+    lod_manifest = Column(JSON, nullable=True)
+    lod_payload = Column(LargeBinary, nullable=True)
     dirty = Column(Boolean, nullable=False, default=False, server_default="false")
     updated_at = Column(
         DateTime(timezone=True),
