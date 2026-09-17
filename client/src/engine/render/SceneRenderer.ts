@@ -28,11 +28,12 @@ import {
   type LightingQuality,
 } from './LightingQuality.ts';
 
+import { MAX_SELECTION_BEND_SEGMENTS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+
 export const ENTITY_PREVIEW_LAYER = 1;
 export const ENTITY_PREVIEW_FORCE_LIMIT_RATIO = 0.72;
 export const ENTITY_PREVIEW_MAX_FPS = 30;
 const ENTITY_PREVIEW_FRAME_INTERVAL_MS = 1000 / ENTITY_PREVIEW_MAX_FPS;
-const MAX_SELECTION_BEND_SEGMENTS = 64;
 /** Invisible pick-sphere radius for a selection axis handle, in metres (pre-scale). */
 const SELECTION_GIZMO_PICK_RADIUS = 0.32;
 /** Pick radius shared by the Wrench translation axes and rotation arcs. */

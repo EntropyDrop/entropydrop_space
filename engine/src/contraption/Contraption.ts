@@ -22,6 +22,18 @@ import {
 import { PLAYER_MASS_KG } from '../physics/PlayerPhysics.ts';
 import { buildEntityVoxelIndexes, transformVoxelBounds } from '../physics/EntityVoxelIndex.ts';
 import { collisionBoundsOverlap, type CollisionBounds, mergeCollisionCells, type CollisionBox } from '../physics/CollisionGeometry.ts';
+export * from '../constants/SpaceConstants.ts';
+import {
+  MAX_BODY_VECTOR_COMPONENT,
+  SCRIPT_STATE_LIMIT_BYTES,
+  MAX_ENTITY_HIERARCHY_DEPTH,
+  MAX_ENTITY_BLOCKS,
+  MAX_ENTITY_CONSTRAINTS,
+  MAX_ENTITY_TOTAL_SCRIPT_BYTES,
+  MAX_ENTITY_BOUNDS,
+  MAX_ENTITY_COMPONENTS,
+  MAX_COMPONENT_ID_LENGTH
+} from '../constants/SpaceConstants.ts';
 
 // Must match createVoxelMesh(): the GPU bends these exact face vertices before
 // rasterization, so bent-space picking intersects the same two triangles shown
@@ -176,13 +188,7 @@ const MIN_BODY_MASS_KG = 0.1;
 // safety ceiling so repeated untrusted script calls cannot poison physics with
 // Infinity/NaN. The ceiling remains three orders of magnitude above the
 // largest force used by the built-in controllers and tests.
-const MAX_BODY_VECTOR_COMPONENT = 1e12;
 const COMPILED_SCRIPT_SENTINEL = function compiledEntityScript(_self, _ctx) { };
-const SCRIPT_STATE_LIMIT_BYTES = 64 * 1024;
-const MAX_ENTITY_HIERARCHY_DEPTH = 16;
-const MAX_ENTITY_BLOCKS = 65_536;
-const MAX_ENTITY_CONSTRAINTS = 256;
-const MAX_ENTITY_TOTAL_SCRIPT_BYTES = 512 * 1024;
 
 function installedIdCandidate(value: unknown, fallback: string): string {
   const normalized = String(value || '')
@@ -309,12 +315,6 @@ export const ContraptionMode = {
   PROJECTILE: 'projectile',      // Ballistic projectile
   PROGRAMMABLE: 'programmable'  // Programmable force entity
 };
-
-/** Maximum AABB edge, in standard cells (1 m each), for one entity and for any
- * selection that can become an entity. */
-export const MAX_ENTITY_BOUNDS = 64;
-export const MAX_ENTITY_COMPONENTS = 64;
-export const MAX_COMPONENT_ID_LENGTH = 64;
 const COMPONENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /** Shared format for component and constraint ids. */

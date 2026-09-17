@@ -163,19 +163,19 @@ test('toggleMicroCell toggles sparse 0.125 m cells and is exclusive of standard 
   assert.equal(manager.hasValidSelection(), false);
 });
 
-test('micro box corners clamp to the 64 standard-cell entity limit', () => {
-  const world = makeStubWorld([[ '0,0,0', 0x111111 ], [ '511,0,0', 0x222222 ], [ '640,0,0', 0x333333 ]]);
+test('micro box corners clamp to the 256 standard-cell entity limit', () => {
+  const world = makeStubWorld([[ '0,0,0', 0x111111 ], [ '2047,0,0', 0x222222 ], [ '2400,0,0', 0x333333 ]]);
   const manager = new ContraptionManager(new THREE.Scene(), world, null, null);
   const result = executeBasicAction({ manager, world, selectionHost: null }, {
     domain: ActionDomain.SELECTION,
     action: 'box',
     a: { x: 0, y: 0, z: 0 },
-    b: { x: 80, y: 0, z: 0 },
+    b: { x: 300, y: 0, z: 0 },
     micro: true
   });
-  assert.equal(result.clamped, true, 'an 80 m span exceeds the 64×64×64 limit');
+  assert.equal(result.clamped, true, 'a 300 m span exceeds the 256×256×256 limit');
   const xs = manager.microSelection.map(c => c.x).sort((a, b) => a - b);
-  assert.deepEqual(xs, [0, 511], 'materialization keeps only micro cells inside the clamped span');
+  assert.deepEqual(xs, [0, 2047], 'materialization keeps only micro cells inside the clamped span');
 });
 
 test('shared corner actions materialize a micro box into existing micro voxels', () => {

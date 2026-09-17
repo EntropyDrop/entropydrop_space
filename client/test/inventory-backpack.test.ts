@@ -629,7 +629,7 @@ test('inventory imports enforce byte, voxel, bounds, hierarchy, and script budge
     root: {
       ...baseEntity.root,
       children: [{
-        id: 'arm', pivot: [129, 0, 0], body: { type: 'kinematic' }, blocks: [], seats: [], children: []
+        id: 'arm', pivot: [513, 0, 0], body: { type: 'kinematic' }, blocks: [], seats: [], children: []
       }]
     }
   }), 'entity').ok, false, 'component pivots use the portable coordinate bound');
@@ -641,9 +641,9 @@ test('inventory imports enforce byte, voxel, bounds, hierarchy, and script budge
     ...baseEntity,
     root: { ...baseEntity.root, blocks: [
       { dx: 0, dy: 0, dz: 0, color: 0 },
-      { dx: 64, dy: 0, dz: 0, color: 0 }
+      { dx: 256, dy: 0, dz: 0, color: 0 }
     ] }
-  }), 'entity').ok, false, 'a 65-cell AABB must be rejected');
+  }), 'entity').ok, false, 'a 257-cell AABB must be rejected');
   assert.equal(controller.parseInventoryImport(encodeInventoryResource('entity', {
     ...baseEntity,
     root: { ...baseEntity.root, children: [{

@@ -27,7 +27,8 @@ import { INVENTORY_DESCRIPTOR_SET_BYTES } from '../generated/inventory_descripto
 export const INVENTORY_PROTOBUF_SCHEMA_VERSION = 7;
 export const BACKPACK_PROTOBUF_SCHEMA_VERSION = 8;
 export const INVENTORY_PROTOBUF_MIME = 'application/x-protobuf';
-export const MAX_BACKPACK_SLOTS_PER_CATEGORY = 99;
+export { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
+import { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
 export type InventoryKind = 'blockset' | 'entity' | 'colorset';
 
 export interface PortableBackpack {

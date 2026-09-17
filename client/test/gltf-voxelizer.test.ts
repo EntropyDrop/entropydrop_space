@@ -790,3 +790,102 @@ test('scaled voxelization preserves glTF texture orientation', () => {
   const corner = result.blocks.find(block => block.dx === 0 && block.dy === 0 && block.dz === 0);
   assert.equal(corner?.color, 0xff0000);
 });
+
+test('importBlockSetToInventory enforces unified admission rules (size 256 and max blocks)', () => {
+  const controller = makeController();
+  const storage = new Map<string, string>();
+  controller.inventoryStorage = () => ({
+    getItem: (k: string) => storage.get(k) ?? null,
+    setItem: (k: string, v: string) => { storage.set(k, v); },
+    removeItem: (k: string) => { storage.delete(k); }
+  });
+
+  // 1) Span 257 must be rejected
+  const span257 = [
+    { dx: 0, dy: 0, dz: 0, size: 1, block: BlockTypes.COLOR_BLOCK, color: 0xff0000 },
+    { dx: 256, dy: 0, dz: 0, size: 1, block: BlockTypes.COLOR_BLOCK, color: 0x00ff00 }
+  ];
+  assert.throws(
+    () => controller.importBlockSetToInventory(span257, 'oversized_257'),
+    /Block-set bounds may not exceed 256 cells per axis/
+  );
+
+  // 2) Exactly 256 span (dx: 0 to 255) must be accepted
+  const span256 = [
+    { dx: 0, dy: 0, dz: 0, size: 1, block: BlockTypes.COLOR_BLOCK, color: 0xff0000 },
+    { dx: 255, dy: 0, dz: 0, size: 1, block: BlockTypes.COLOR_BLOCK, color: 0x00ff00 }
+  ];
+  const slot256 = controller.importBlockSetToInventory(span256, 'valid_256');
+  assert.ok(slot256);
+  assert.equal(slot256.blockCount, 2);
+
+  // 3) Round-trip through save and reload must preserve slot256 without disappearing
+  assert.equal(controller.saveInventoriesToLocalStorage(), true);
+  const reloadedController = makeController();
+  reloadedController.inventoryStorage = () => ({
+    getItem: (k: string) => storage.get(k) ?? null,
+    setItem: (k: string, v: string) => { storage.set(k, v); },
+    removeItem: (k: string) => { storage.delete(k); }
+  });
+  assert.equal(reloadedController.loadInventoriesFromLocalStorage(), true);
+  assert.equal(reloadedController.inventories.blockset.items[0]?.name, 'valid_256');
+  assert.equal(reloadedController.inventories.blockset.items[0]?.blockCount, 2);
+});
+
+test('model voxelization at max world height 256 produces valid blockset that persists across reload', () => {
+  // A tall pillar/tower scaled to sizeBlocks = 256 (world maximum height)
+  const width = 2;
+  const height = 100;
+  const tri = (a: [number, number, number], b: [number, number, number], c: [number, number, number]): VoxelTriangle => ({ a, b, c, color: 0x336699 });
+  const q = (a: [number, number, number], b: [number, number, number], c: [number, number, number], d: [number, number, number]) => [
+    tri(a, b, c), tri(a, c, d)
+  ];
+  const triangles: VoxelTriangle[] = [
+    ...q([0, 0, 0], [0, height, 0], [0, height, width], [0, 0, width]),
+    ...q([width, 0, 0], [width, 0, width], [width, height, width], [width, height, 0]),
+    ...q([0, 0, 0], [0, 0, width], [width, 0, width], [width, 0, 0]),
+    ...q([0, height, 0], [width, height, 0], [width, height, width], [0, height, width]),
+    ...q([0, 0, 0], [width, 0, 0], [width, height, 0], [0, height, 0]),
+    ...q([0, 0, width], [0, height, width], [width, height, width], [width, 0, width])
+  ];
+
+  const plan = planModelSize(triangles, 256, 1);
+  const result = voxelizeModel(triangles, plan.cellSize, 0x336699, {
+    micro: plan.micro,
+    scale: plan.scale,
+    hollow: true
+  });
+
+  const maxSpanX = Math.max(...result.blocks.map(b => b.dx)) - Math.min(...result.blocks.map(b => b.dx)) + 1;
+  const maxSpanY = Math.max(...result.blocks.map(b => b.dy)) - Math.min(...result.blocks.map(b => b.dy)) + 1;
+  const maxSpanZ = Math.max(...result.blocks.map(b => b.dz)) - Math.min(...result.blocks.map(b => b.dz)) + 1;
+
+  assert.ok(maxSpanX <= 256, `X span ${maxSpanX} must not exceed 256`);
+  assert.ok(maxSpanY <= 256, `Y span ${maxSpanY} must not exceed 256`);
+  assert.ok(maxSpanZ <= 256, `Z span ${maxSpanZ} must not exceed 256`);
+
+  const controller = makeController();
+  const storage = new Map<string, string>();
+  controller.inventoryStorage = () => ({
+    getItem: (k: string) => storage.get(k) ?? null,
+    setItem: (k: string, v: string) => { storage.set(k, v); },
+    removeItem: (k: string) => { storage.delete(k); }
+  });
+
+  const slot = controller.importBlockSetToInventory(result.blocks, 'tower_256');
+  assert.ok(slot, 'Importing 256 size model must succeed');
+
+  assert.equal(controller.saveInventoriesToLocalStorage(), true);
+  const reloaded = makeController();
+  reloaded.inventoryStorage = () => ({
+    getItem: (k: string) => storage.get(k) ?? null,
+    setItem: (k: string, v: string) => { storage.set(k, v); },
+    removeItem: (k: string) => { storage.delete(k); }
+  });
+
+  // Reloading MUST successfully load tower_256 and NOT drop it
+  assert.equal(reloaded.loadInventoriesFromLocalStorage(), true);
+  assert.equal(reloaded.inventories.blockset.items[0]?.name, 'tower_256');
+  assert.equal(reloaded.inventories.blockset.items[0]?.blockCount, result.blocks.length);
+});
+

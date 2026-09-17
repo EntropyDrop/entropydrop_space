@@ -149,18 +149,18 @@ test('standard/micro shared faces are culled across negative chunk boundaries an
 });
 
 test('an oversized micro box never falls back to deleting whole standard blocks', () => {
-  const { entity, controller, manager } = setup(Array.from({ length: 34 }, (_, i) => standard(i)));
+  const { entity, controller, manager } = setup(Array.from({ length: 130 }, (_, i) => standard(i)));
   const pivot = entity.entityNodes.get('root').pivotLocal;
   controller.resolveBlockRangeSelection({
     contraption: entity, nodeId: 'root',
     pointA: new THREE.Vector3(0.01, 0.01, 0.01).sub(pivot),
-    pointB: new THREE.Vector3(33.99, 0.99, 0.99).sub(pivot)
+    pointB: new THREE.Vector3(129.99, 0.99, 0.99).sub(pivot)
   });
-  assert.ok(34 * 512 > MAX_MICRO_SELECTION_CELLS);
+  assert.ok(130 * 512 > MAX_MICRO_SELECTION_CELLS);
   assert.equal(controller.selectedBlockSelection, null);
   assert.equal(manager.entitySelection, null);
   controller.deleteSelectionBlocks();
-  assert.equal(entity.blocks.length, 34);
+  assert.equal(entity.blocks.length, 130);
   assert.ok(entity.blocks.every(b => b.size === 1));
 });
 

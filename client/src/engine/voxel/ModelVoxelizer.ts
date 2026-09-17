@@ -3,6 +3,11 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import {
+  MAX_ENTITY_BOUNDS,
+  MAX_OUTPUT_BLOCKS,
+  MAX_GRID_CELLS
+} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 
 /**
  * Universal 3D Model to Block Set Voxelizer.
@@ -71,8 +76,7 @@ export function isSupportedModelFilename(filename: string): boolean {
   return /\.(?:fbx|glb|gltf|stl)$/i.test(String(filename || '').trim());
 }
 
-const MAX_GRID_CELLS = 16 * 1024 * 1024; // 256^3 limit.
-const MAX_OUTPUT_BLOCKS = 200000;
+export const MAX_MODEL_OUTPUT_BLOCKS = MAX_OUTPUT_BLOCKS;
 const INWARD_OFFSET_RATIO = 1e-3;
 
 // ---------------------------------------------------------------------------
@@ -1009,7 +1013,17 @@ export function voxelizeModel(
 
   let processedTriangles = triangles;
   if (opts.scale && opts.scale !== 1) {
-    const k = opts.scale;
+    let k = opts.scale;
+    // When the target size approaches or equals MAX_ENTITY_BOUNDS (256),
+    // ensure the continuous geometry does not cross the fencepost threshold into
+    // MAX_ENTITY_BOUNDS + 1 discrete cells due to eps offset or cell boundaries.
+    const extent = meshExtent(triangles);
+    if (extent > 0) {
+      const scaledExtentCells = (extent * k) / s;
+      if (scaledExtentCells >= MAX_ENTITY_BOUNDS - 1e-4) {
+        k = ((MAX_ENTITY_BOUNDS - 0.05) * s) / extent;
+      }
+    }
     processedTriangles = triangles.map(t => ({
       a: [t.a[0] * k, t.a[1] * k, t.a[2] * k] as [number, number, number],
       b: [t.b[0] * k, t.b[1] * k, t.b[2] * k] as [number, number, number],
@@ -1390,7 +1404,7 @@ export function voxelizeModel(
   }
 
   if (blocks.length > MAX_OUTPUT_BLOCKS) {
-    throw new Error(`Too many voxels (${blocks.length}); lower the target size or use standard blocks`);
+    throw new Error(`Too many voxels (${blocks.length}); exceeds the ${MAX_OUTPUT_BLOCKS.toLocaleString()} backpack block limit. Lower the target size or use standard blocks`);
   }
 
   return {

@@ -265,18 +265,18 @@ test('updateGizmoDrag translates mouse movement to discrete steps in micro mode'
   assert.equal(manager.microSelection.length, 3, 'Newly covered voxel should be captured');
 });
 
-test('expandSelectionAxis clamps to MAX_ENTITY_BOUNDS (64 blocks)', () => {
+test('expandSelectionAxis clamps to MAX_ENTITY_BOUNDS (256 blocks)', () => {
   const scene = new THREE.Scene();
   const world = makeStubWorld();
   const manager = new ContraptionManager(scene, world, null, null);
 
   manager.selectionCornerA = { x: 0, y: 10, z: 0 };
-  manager.selectionCornerB = { x: 60, y: 10, z: 0 };
+  manager.selectionCornerB = { x: 250, y: 10, z: 0 };
 
-  // Try to expand by 20 blocks (would be 81 total, exceeding 64 limit)
+  // Try to expand by 20 blocks (would be 271 total, exceeding 256 limit)
   manager.expandSelectionAxis('x', 1, 20, false);
   const bounds = manager.getSelectionBounds();
-  assert.equal(bounds.maxX - bounds.minX + 1, 64, 'Span must be clamped to 64 blocks');
+  assert.equal(bounds.maxX - bounds.minX + 1, 256, 'Span must be clamped to 256 blocks');
 });
 
 test('SceneRenderer.updateSelectionAxisGizmo positions and rotates gizmo to entity node frame', () => {

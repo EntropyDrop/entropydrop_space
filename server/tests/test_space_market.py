@@ -426,7 +426,7 @@ def test_market_rejects_invalid_component_transforms(client, db):
     assert _publish(client, "entity", root_transform).status_code == 422
 
     invalid_position = _entity("Invalid position")
-    invalid_position["root"]["children"][0]["localPosition"] = [129, 0, 0]
+    invalid_position["root"]["children"][0]["localPosition"] = [513, 0, 0]
     assert _publish(client, "entity", invalid_position).status_code == 422
 
     invalid_rotation = _entity("Invalid rotation")
@@ -770,3 +770,36 @@ def test_legacy_v6_market_rows_are_retained_but_hidden_and_rejected(client, db):
     assert download.json()["detail"]["code"] == "MARKET_RESOURCE_LEGACY_SCHEMA"
     db.refresh(legacy)
     assert legacy.schema_version == 6
+
+
+def test_market_resource_bounds_limits_enforced_to_256(client, db):
+    user = _user(db)
+    app.dependency_overrides[get_current_user] = lambda: user
+
+    # Span of exactly 256 (dx from 0 to 255) is allowed
+    payload_valid = {
+        "type": "space-blockset",
+        "version": 7,
+        "name": "256 span valid",
+        "blocks": [
+            {"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 0x123456},
+            {"dx": 255, "dy": 0, "dz": 0, "block": 1, "color": 0x123456},
+        ],
+    }
+    resp = _publish(client, "blockset", payload_valid)
+    assert resp.status_code == 201, resp.text
+
+    # Span of 257 (dx from 0 to 256) is rejected
+    payload_invalid = {
+        "type": "space-blockset",
+        "version": 7,
+        "name": "257 span invalid",
+        "blocks": [
+            {"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 0x123456},
+            {"dx": 256, "dy": 0, "dz": 0, "block": 1, "color": 0x123456},
+        ],
+    }
+    resp_invalid = _publish(client, "blockset", payload_invalid)
+    assert resp_invalid.status_code == 422
+    assert "resource bounds exceed 256 standard cells" in resp_invalid.text
+

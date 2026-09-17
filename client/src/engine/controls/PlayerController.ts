@@ -6,10 +6,39 @@ import {
   BodyType,
   ContraptionMode,
   isValidComponentId,
-  isValidConstraintId,
-  MAX_ENTITY_BOUNDS,
-  MAX_ENTITY_COMPONENTS
+  isValidConstraintId
 } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import {
+  MAX_ENTITY_BOUNDS,
+  MAX_ENTITY_COMPONENTS,
+  MAX_SELECTION_BOUNDS,
+  MAX_IMPORT_COORDINATE,
+  MAX_PORTABLE_VECTOR_COMPONENT,
+  MAX_ENTITY_BLOCKS,
+  MAX_INVENTORY_BLOCKS,
+  MAX_SELECTION_BLOCKS,
+  MAX_MICRO_SELECTION_CELLS,
+  MAX_MICRO_MATERIALIZE_BLOCKS,
+  MAX_INVENTORY_IMPORT_BYTES,
+  MAX_INVENTORY_SCRIPT_BYTES,
+  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
+  MAX_ENTITY_TOTAL_SCRIPT_BYTES,
+  MAX_INVENTORY_CONSTRAINTS,
+  MAX_PORTABLE_BODY_MASS,
+  MAX_PORTABLE_CONSTRAINT_VALUE,
+  BULK_EDIT_THRESHOLD,
+  BULK_EDIT_MAX_OPERATIONS_PER_FRAME
+} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+export {
+  MAX_INVENTORY_IMPORT_BYTES,
+  MAX_INVENTORY_BLOCKS,
+  MAX_INVENTORY_SCRIPT_BYTES,
+  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
+  BULK_EDIT_THRESHOLD,
+  BULK_EDIT_MAX_OPERATIONS_PER_FRAME,
+  MAX_MICRO_SELECTION_CELLS,
+  MAX_MICRO_MATERIALIZE_BLOCKS
+};
 import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import {
   bendPoint, bendDirection, unbendPoint, unwrapPeriodicNear,
@@ -59,30 +88,7 @@ const HEX_COLOR = /^#?[0-9a-f]{6}$/i;
 const INVENTORY_STORAGE_KEY = 'space.backpack.v8.pb';
 const INVENTORY_CATEGORIES = ['blockset', 'entity', 'colorset'];
 const DEFAULT_COLOR_SET_NAME = 'Default palette';
-export const MAX_INVENTORY_IMPORT_BYTES = 8 * 1024 * 1024;
-export const MAX_INVENTORY_BLOCKS = 65_536;
-export const MAX_INVENTORY_SCRIPT_BYTES = 64 * 1024;
-export const MAX_INVENTORY_TOTAL_SCRIPT_BYTES = 512 * 1024;
-const MAX_INVENTORY_CONSTRAINTS = 256;
-const MAX_IMPORT_COORDINATE = MAX_ENTITY_BOUNDS * 2;
-const MAX_PORTABLE_VECTOR_COMPONENT = 256;
-const MAX_PORTABLE_BODY_MASS = 1e12;
-const MAX_PORTABLE_CONSTRAINT_VALUE = 10_000;
-export const BULK_EDIT_THRESHOLD = 256;
-export const BULK_EDIT_MAX_OPERATIONS_PER_FRAME = 1024;
 export const BULK_EDIT_FRAME_BUDGET_MS = 5;
-/**
- * Upper bound on the number of virtual 0.125 m cells a single micro-mode entity
- * selection may synthesize. Keeps very large micro boxes a safe no-op with a
- * warning instead of allocating millions of descriptors.
- */
-export const MAX_MICRO_SELECTION_CELLS = 16384;
-/**
- * Upper bound on how many 1 m blocks one Del/F/P/G may convert into 0.125 m
- * voxels. Each conversion adds 512 voxels and the engine rebuild is the dominant
- * cost, so oversized edits are refused with a warning instead of freezing.
- */
-export const MAX_MICRO_MATERIALIZE_BLOCKS = 32;
 const ENTITY_PLACEMENT_MAX_DROP = 48;
 const ENTITY_PLACEMENT_SUPPORT_BINS = 12;
 const ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT = 256;
@@ -108,6 +114,54 @@ const WRENCH_GRAB_RESPONSE = 8;
 const WRENCH_GRAB_MAX_ACCELERATION = 36;
 const WRENCH_GRAB_MAX_TARGET_SPEED = 10;
 const WRENCH_GRAB_MAX_SPEED = 14;
+
+/** True when voxels along any axis do not exceed MAX_ENTITY_BOUNDS (256). */
+export function withinEntityBounds(blocks: any[], keys: string[], ownerKey: string | null = null): boolean {
+  const groups = new Map();
+  for (const block of blocks) {
+    const owner = ownerKey ? String(block[ownerKey] ?? '') : 'resource';
+    if (!groups.has(owner)) groups.set(owner, []);
+    groups.get(owner).push(block);
+  }
+  for (const group of groups.values()) {
+    for (let axis = 0; axis < 3; axis++) {
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+      for (const block of group) {
+        const value = Math.floor(Number(block[keys[axis]]) + 1e-6);
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+      if (max - min + 1 > MAX_ENTITY_BOUNDS) return false;
+    }
+  }
+  return true;
+}
+
+/** True when no duplicate voxels exist and standard and micro voxels do not share cells. */
+export function validateVoxelOccupancy(blocks: any[], coordinateKeys: string[], ownerKey: string | null = null): boolean {
+  const standardCells = new Set();
+  const microCells = new Set();
+  const microParents = new Set();
+  for (const block of blocks) {
+    const owner = ownerKey ? String(block[ownerKey] ?? '') : 'resource';
+    const coordinates = coordinateKeys.map(key => Number(block[key]));
+    const base = coordinates.map(value => Math.floor(value + 1e-6));
+    const isMicro = Number(block.size) < 1;
+    const parentKey = `${owner}:${base.join(',')}`;
+    const fine = coordinates.map(value => Math.round(value * MICRO_DIVISIONS));
+    if (isMicro) {
+      const key = `${owner}:${fine.join(',')}`;
+      if (standardCells.has(parentKey) || microCells.has(key)) return false;
+      microCells.add(key);
+      microParents.add(parentKey);
+    } else {
+      if (standardCells.has(parentKey) || microParents.has(parentKey)) return false;
+      standardCells.add(parentKey);
+    }
+  }
+  return true;
+}
 
 /** Yaw of a rotation whose forward axis is -Z, using the camera's YXZ order. */
 function quaternionForwardYaw(quaternion: any, fallback = 0): number {
@@ -1455,7 +1509,7 @@ export class PlayerController {
           micro: this.selectorMicroMode === true
         }).selection;
         if (info?.rejected && this.ui) {
-          this.ui.showToast('Selected cell lies outside the 64×64×64 limit', { tone: 'warning' });
+          this.ui.showToast(`Selected cell lies outside the ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS} limit`, { tone: 'warning' });
         }
         return;
       }
@@ -1497,7 +1551,7 @@ export class PlayerController {
             micro: this.selectorMicroMode === true
           }).selection;
           if (info?.rejected && this.ui) {
-            this.ui.showToast('Selected cell lies outside the 64×64×64 limit', { tone: 'warning' });
+            this.ui.showToast(`Selected cell lies outside the ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS} limit`, { tone: 'warning' });
           }
         } else {
           // 2-point world box: cornerA then cornerB define the diagonal AABB.
@@ -1538,7 +1592,7 @@ export class PlayerController {
               this.applySelectionShape(this.selectorShape);
             }
             if (cornerResult?.clamped && this.ui) {
-              this.ui.showToast('Selection exceeds 64×64×64 limit · clamped to bounds', { tone: 'warning' });
+              this.ui.showToast(`Selection exceeds ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS} limit · clamped to bounds`, { tone: 'warning' });
             }
           } else {
             // Box already complete — next plain click clears it and resets to idle.
@@ -3920,9 +3974,9 @@ export class PlayerController {
   }
 
   /**
-   * Put an externally generated block set, such as an STL import, into the first
-   * empty block-set slot. Its format and Hammer left-click placement behavior
+   * Put an imported block set into the player's blockset inventory so it
    * matches block sets copied with T.
+   * Enforces the same admission limits as backpack persistence and market publishing.
    * @returns The written slot, or null.
    */
   importBlockSetToInventory(blocks, name = 'STL import') {
@@ -3930,7 +3984,34 @@ export class PlayerController {
       if (this.ui) this.ui.showToast('Nothing to import - the source produced no voxels');
       return null;
     }
+    if (blocks.length > MAX_INVENTORY_BLOCKS) {
+      const msg = `Block set exceeds ${MAX_INVENTORY_BLOCKS.toLocaleString()} voxels (${blocks.length.toLocaleString()})`;
+      if (this.ui) this.ui.showToast(msg);
+      throw new Error(msg);
+    }
+    if (!withinEntityBounds(blocks, ['dx', 'dy', 'dz'])) {
+      const msg = `Block-set bounds may not exceed ${MAX_ENTITY_BOUNDS} cells per axis`;
+      if (this.ui) this.ui.showToast(msg);
+      throw new Error(msg);
+    }
+    if (!validateVoxelOccupancy(blocks, ['dx', 'dy', 'dz'])) {
+      const msg = 'Block set contains duplicate voxels or standard/micro overlap';
+      if (this.ui) this.ui.showToast(msg);
+      throw new Error(msg);
+    }
     const slot = { kind: 'blockset', name, blocks, blockCount: blocks.length };
+    try {
+      const serialized = this.serializeInventoryItem('blockset', slot);
+      const encoded = encodeInventoryResource('blockset', serialized);
+      if (encoded && encoded.byteLength > MAX_INVENTORY_IMPORT_BYTES) {
+        const msg = `Block set exceeds ${MAX_INVENTORY_IMPORT_BYTES / (1024 * 1024)} MiB storage limit`;
+        if (this.ui) this.ui.showToast(msg);
+        throw new Error(msg);
+      }
+    } catch (err: any) {
+      if (this.ui) this.ui.showToast(err?.message || 'Block set cannot be serialized');
+      throw err;
+    }
     const index = this.addInventoryItem('blockset', slot);
     if (index === null) {
       if (this.ui) this.ui.showToast(`Block set inventory is full (99) - cannot import ${name}`);
@@ -7444,50 +7525,6 @@ export class PlayerController {
       return normalized === null || normalized === undefined
         ? null
         : (isStoppedGridQuaternion(normalized) ? normalized : null);
-    };
-    const withinEntityBounds = (blocks, keys, ownerKey = null) => {
-      const groups = new Map();
-      for (const block of blocks) {
-        const owner = ownerKey ? String(block[ownerKey] ?? '') : 'resource';
-        if (!groups.has(owner)) groups.set(owner, []);
-        groups.get(owner).push(block);
-      }
-      for (const group of groups.values()) {
-        for (let axis = 0; axis < 3; axis++) {
-          let min = Number.POSITIVE_INFINITY;
-          let max = Number.NEGATIVE_INFINITY;
-          for (const block of group) {
-            const value = Math.floor(Number(block[keys[axis]]) + 1e-6);
-            min = Math.min(min, value);
-            max = Math.max(max, value);
-          }
-          if (max - min + 1 > MAX_ENTITY_BOUNDS) return false;
-        }
-      }
-      return true;
-    };
-    const validateVoxelOccupancy = (blocks, coordinateKeys, ownerKey = null) => {
-      const standardCells = new Set();
-      const microCells = new Set();
-      const microParents = new Set();
-      for (const block of blocks) {
-        const owner = ownerKey ? String(block[ownerKey] ?? '') : 'resource';
-        const coordinates = coordinateKeys.map(key => Number(block[key]));
-        const base = coordinates.map(value => Math.floor(value + 1e-6));
-        const isMicro = Number(block.size) < 1;
-        const parentKey = `${owner}:${base.join(',')}`;
-        const fine = coordinates.map(value => Math.round(value * MICRO_DIVISIONS));
-        if (isMicro) {
-          const key = `${owner}:${fine.join(',')}`;
-          if (standardCells.has(parentKey) || microCells.has(key)) return false;
-          microCells.add(key);
-          microParents.add(parentKey);
-        } else {
-          if (standardCells.has(parentKey) || microParents.has(parentKey)) return false;
-          standardCells.add(parentKey);
-        }
-      }
-      return true;
     };
     const runtimeVoxel = (block, ownerId = null) => {
       if (block?.block !== undefined && block.block !== BlockTypes.COLOR_BLOCK) {

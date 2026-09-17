@@ -1,4 +1,5 @@
-export const MAX_INVENTORY_NAME_LENGTH = 80;
+export { MAX_INVENTORY_NAME_LENGTH } from '../constants/SpaceConstants.ts';
+import { MAX_INVENTORY_NAME_LENGTH } from '../constants/SpaceConstants.ts';
 
 // Match Python str.strip() and count Unicode code points on both sides.
 const LEADING_WHITESPACE = /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/;

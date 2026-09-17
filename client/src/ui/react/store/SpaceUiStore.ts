@@ -34,6 +34,7 @@ import { colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-en
 import { SpaceApiKeyClient } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import { SpaceMarketClient } from '../../../bootstrap/SpaceMarketClient.ts';
 import { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
+import { MAX_SELECTION_BOUNDS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, LIGHTING_QUALITY_SETTING_KEY,
   normalizeLightingQuality, type LightingQuality,
@@ -271,7 +272,7 @@ type Listener = () => void;
 const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SHOVEL, name: 'Shovel', icon: '', desc: 'Remove / place 1x1x1 standard blocks' },
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
-  { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: 'Select and copy world/entity regions (max 64×64×64); no build action' },
+  { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: `Select and copy world/entity regions (max ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}); no build action` },
   { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · RMB / Arrows rotate' },
   { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag COM XYZ axes to move · drag arrows to rotate · hold entity to lift · right-click to start' },
   { type: 'tool', value: SpecialTool.BRUSH, name: 'Brush', icon: '', desc: 'LMB paint · RMB 2-point dye · Tab micro/std' }

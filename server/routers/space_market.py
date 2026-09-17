@@ -57,7 +57,7 @@ SPACE_MARKET_MAX_SCRIPT_BYTES = 64 * 1024
 SPACE_MARKET_MAX_TOTAL_SCRIPT_BYTES = 512 * 1024
 SPACE_MARKET_MAX_SEATS = 256
 SPACE_MARKET_MAX_COMPONENT_DEPTH = 16
-SPACE_MARKET_MAX_BOUNDS = 64
+SPACE_MARKET_MAX_BOUNDS = 256
 SPACE_MARKET_MAX_COORDINATE = SPACE_MARKET_MAX_BOUNDS * 2
 from space.voxel_grid import MICRO_DIVISIONS as SPACE_MARKET_GRID_DIVISIONS
 SPACE_MARKET_GRID_EPSILON = 1e-6
@@ -412,7 +412,7 @@ def _validate_voxel_collection(blocks: list[MarketVoxel], owner) -> None:
     mins = [min(getattr(block, axis) for block in blocks) for axis in ("dx", "dy", "dz")]
     maxs = [max(getattr(block, axis) for block in blocks) for axis in ("dx", "dy", "dz")]
     if any(maximum - minimum + 1 > SPACE_MARKET_MAX_BOUNDS for minimum, maximum in zip(mins, maxs)):
-        raise ValueError("resource bounds exceed 64 standard cells on one axis")
+        raise ValueError(f"resource bounds exceed {SPACE_MARKET_MAX_BOUNDS} standard cells on one axis")
 
     standard_cells: set[tuple[Any, ...]] = set()
     micro_cells: set[tuple[Any, ...]] = set()

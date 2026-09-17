@@ -209,7 +209,7 @@ const dz = wrappedDelta(ctx.position[2], target[2], 2048);`
           entries: selfUniversalEntries,
           notes: [
             'Component voxel cells are measured from the current pivot, not the entity corner. Fractional cell coordinates floor after applying the pivot.',
-            'All voxel changes are queued and action-specific. Check `result.ok` and `result.reason`; entity bounds are capped at 64×64×64.',
+            'All voxel changes are queued and action-specific. Check `result.ok` and `result.reason`; entity bounds are capped at 256×256×256.',
             "Removing an entity's final voxel deletes the entity, scripts, and state."
           ]
         },
@@ -237,7 +237,7 @@ const dz = wrappedDelta(ctx.position[2], target[2], 2048);`
       title: 'ctx.selection',
       entries: selectionEntries,
       notes: [
-        'Selections are capped at a 64×64×64 AABB. Boxes can clamp; sparse operations that exceed the cap fail with `bounds_exceeded`.',
+        'Selections are capped at a 256×256×256 AABB. Boxes can clamp; sparse operations that exceed the cap fail with `bounds_exceeded`.',
         'Mutations update an optimistic in-tick snapshot, but the main thread can still reject internal entity edits with `entity_not_stopped`.',
         "Assembly defaults: dynamic body, restitution 0.1, friction 0.7, gravity enabled for dynamic bodies, and mass equal to owned block count × 10 kg with a 0.1 kg minimum.",
         'Gate destructive selection commands with `self.state` or an input edge so they run once.'
