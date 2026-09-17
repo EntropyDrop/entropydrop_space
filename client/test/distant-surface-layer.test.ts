@@ -223,7 +223,7 @@ test('backend zones populate one instanced far layer and retain a near-field cut
   assert.match(shader.vertexShader, /TORUS_SURFACE_POSITION/);
   assert.match(shader.vertexShader, /torusBend/);
   assert.match(shader.vertexShader, /position\.y \* surfaceHeight/);
-  assert.match(shader.fragmentShader, /uSurfaceDetailMask/);
+  assert.match(shader.fragmentShader, /uTerrainHandoff/);
   assert.match(shader.fragmentShader, /texture2D/);
   assert.match(shader.fragmentShader, /discard/);
 
@@ -490,13 +490,18 @@ test('streaming installs every overview before refinement, then evicts offscreen
     }) as typeof fetch);
   let focus = 0;
   const installed: string[] = [];
-  const options = { getZoneDemand: (x: number) => ({ sampleSize: x === focus ? 2 : 64, priority: x === focus ? 0 : 1 }) };
+  let budget = 700_000;
+  const options = { getZoneDemand: (x: number) => ({ sampleSize: x === focus ? 2 : 64, priority: x === focus ? 0 : 1 }),
+    getDataBudgetBytes: () => budget };
   await remote.loadAll(zone => installed.push(`${zone.zoneX}:${zone.sampleSize ?? 2}`), undefined, options);
   assert.deepEqual(installed.slice(0, 2).sort(), ['0:64', '1:64']);
   assert.deepEqual(installed.slice(2), ['0:2']);
   focus = 1;
   await remote.loadAll(zone => installed.push(`${zone.zoneX}:${zone.sampleSize ?? 2}`), undefined, options);
-  assert.deepEqual(installed.slice(3).sort(), ['0:64', '1:2']);
+  assert.deepEqual(installed.slice(3), ['1:2'], 'looking away retains detail while it fits in the budget');
+  budget = 400_000;
+  await remote.loadAll(zone => installed.push(`${zone.zoneX}:${zone.sampleSize ?? 2}`), undefined, options);
+  assert.deepEqual(installed.slice(4), ['0:64'], 'current visible demand evicts retained detail when necessary');
   assert.equal(requests.filter(path => path === '/surface-zones').length, 1, 'camera demand must not poll metadata every second');
   assert.equal(requests.filter(path => path === '/zones/0/64').length, 1, 'eviction reuses the bounded coarse cache');
   assert.equal(requests.filter(path => path.endsWith('/2')).length, 2);

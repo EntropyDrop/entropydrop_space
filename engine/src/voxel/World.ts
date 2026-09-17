@@ -1073,7 +1073,7 @@ export class World {
         this.interactiveDirtyChunks.delete(chunk);
         this.captureDistantChunk(chunk);
         this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, false);
-        if (chunk.mesh) chunk.mesh.visible = false;
+        if (chunk.mesh) chunk.mesh.visible = this.distantSurface.retainsDetailChunk(chunk.cx, chunk.cz);
         this.pendingChunkEvictions.set(key, chunk);
       }
 
@@ -1121,6 +1121,7 @@ export class World {
       )
     ) {
       for (const mesh of this.microVoxels.takeRecentlyRebuiltMeshes()) {
+        this.distantSurface.handoff.hook(mesh);
         hookSceneMaterials(mesh);
       }
     }
@@ -1258,6 +1259,7 @@ export class World {
     nextMesh.userData.bentSphereRevision = getWorldProjectionRevision();
     // Install the projection and matching shadow shader before publication so
     // the first visible frame cannot flash in flat coordinates.
+    this.distantSurface.handoff.hook(nextMesh);
     hookSceneMaterials(nextMesh);
     nextMesh.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) child.frustumCulled = false;
@@ -1646,6 +1648,7 @@ export class World {
       this.crossLayerPublicationChunks,
     );
     for (const mesh of this.microVoxels.takeRecentlyRebuiltMeshes()) {
+      this.distantSurface.handoff.hook(mesh);
       hookSceneMaterials(mesh);
     }
 
@@ -1657,7 +1660,7 @@ export class World {
 
   private commitCrossLayerPublication(key: string) {
     if (!this.crossLayerPublicationChunks.has(key)) return;
-    this.microVoxels.publishDeferredForStandardChunk(key, mesh => hookSceneMaterials(mesh));
+    this.microVoxels.publishDeferredForStandardChunk(key, mesh => { this.distantSurface.handoff.hook(mesh); hookSceneMaterials(mesh); });
     this.crossLayerPublicationChunks.delete(key);
     this.crossLayerPublishedStandardCells.delete(key);
   }
@@ -1760,7 +1763,7 @@ export class World {
   disposeChunkMesh(chunk) {
     if (!chunk?.mesh) return;
     this.captureDistantChunk(chunk);
-    this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, false);
+    this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, false, true);
     this.disposeDetachedChunkMesh(chunk.mesh);
     chunk.mesh = null;
   }
@@ -1770,6 +1773,7 @@ export class World {
     for (const [key, chunk] of this.pendingChunkEvictions) {
       if (processed >= MAX_CHUNK_EVICTIONS_PER_FRAME) break;
       if (performance.now() - frameWorkStartedAt >= workBudgetMs) break;
+      if (this.distantSurface.retainsDetailChunk(chunk.cx, chunk.cz)) continue;
       this.pendingChunkEvictions.delete(key);
       if (this.activeChunkKeys.has(key)) continue;
       if (chunk.mesh) this.disposeChunkMesh(chunk);

@@ -1,3 +1,4 @@
+import { TERRAIN_DITHER_GLSL } from './TerrainHandoff.ts';
 import * as THREE from 'three';
 import { Chunk } from '../voxel/Chunk.ts';
 import type { MicroVoxelLayer } from '../voxel/MicroVoxelLayer.ts';
@@ -90,12 +91,12 @@ export class DistantChunkLayer {
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           vDistantChunk = floor(instanceMatrix[3].xz / 16.0);`);
       shader.fragmentShader = shader.fragmentShader.replace('#include <common>',
-        '#include <common>\nuniform sampler2D uDistantChunkMask;\nvarying vec2 vDistantChunk;')
+        `#include <common>\nuniform sampler2D uDistantChunkMask;\nvarying vec2 vDistantChunk;\n${TERRAIN_DITHER_GLSL}`)
         .replace('#include <color_fragment>', `
-          if (texture2D(uDistantChunkMask, (vDistantChunk + 0.5) / vec2(1024.0, 128.0)).r > 0.75) discard;
+          if (terrainDither(gl_FragCoord.xy) < texture2D(uDistantChunkMask, (vDistantChunk + 0.5) / vec2(1024.0, 128.0)).r) discard;
           #include <color_fragment>`);
     };
-    this.material.customProgramCacheKey = () => 'distant-authored-solids-v5';
+    this.material.customProgramCacheKey = () => 'distant-authored-solids-v7';
   }
   install(chunk: DistantChunkSnapshot, local = false) {
     const key = `${chunk.chunkX},${chunk.chunkZ}`;

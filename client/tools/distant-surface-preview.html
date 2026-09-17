@@ -10,7 +10,7 @@ body{margin:0;background:#18202c;color:#eee;font:14px system-ui}header{display:f
 <label>View <select id="view"><option value="near">Near · detailed voxels</option><option value="handoff">Handoff · 145m</option><option value="far">Far · 450m</option><option value="hole">Across the hole</option><option value="seam">Wrapped seam</option></select></label>
 <label>Source <select id="source"><option value="stream">Live streaming</option><option value="1">1m + solids</option><option value="64">64m + solids</option></select></label>
 <label>Pixel error <select id="error"><option>0.5</option><option>1</option><option selected>2</option><option>4</option><option>8</option></select></label>
-<button id="move">Fly out and back</button><button id="refresh">Server refresh</button>
+<button id="move">Fly out and back</button><button id="turn">Turn in place</button><button id="refresh">Server refresh</button>
 </header>
 <canvas id="scene"></canvas><output id="stats">Loading v6 fixture…</output>
 <script type="module">
@@ -32,7 +32,8 @@ const world=new World(scene,20260827);world.setRenderDistance(4);
 const layer=world.distantSurface;
 const camera=new THREE.PerspectiveCamera(65,1,0.1,12000);
 let px=8190,py=40,pz=1090, ready=false, flying=false, flightStart=0, metadata;
-let stream, streamPasses=0, streaming=false;
+let stream, streamPasses=0, streaming=false, turning=false;
+let lastFrame=0, lastStats=0, frameTimes=[];
 function resize(){renderer.setSize(canvas.clientWidth,canvas.clientHeight,false);camera.aspect=canvas.clientWidth/canvas.clientHeight;camera.updateProjectionMatrix();}
 function pose(distance){
   const view=$('view').value;
@@ -99,11 +100,16 @@ $('view').onchange=()=>{flying=false;pose();};
 $('error').onchange=()=>layer.setSettings({screenErrorPx:Number($('error').value)});
 $('source').onchange=()=>install().catch(console.error);
 $('refresh').onclick=()=>install().catch(console.error);
-$('move').onclick=()=>{flying=!flying;flightStart=performance.now();$('view').value='near';};
+$('turn').onclick=()=>{turning=!turning;flying=false;flightStart=performance.now();};
+$('move').onclick=()=>{turning=false;flying=!flying;flightStart=performance.now();$('view').value='near';};
 window.addEventListener('resize',resize);
 renderer.setAnimationLoop(()=>{
+  const now=performance.now();
+  if(lastFrame && ready){frameTimes.push(now-lastFrame);if(frameTimes.length>600)frameTimes.shift();}
+  lastFrame=now;
   if(ready){
     if(flying){const phase=(performance.now()-flightStart)/10000;pose(70+(1-Math.cos(phase*Math.PI*2))*225);}
+    if(turning){pose();camera.rotateY(Math.sin((now-flightStart)/3000)*Math.PI);camera.updateMatrixWorld(true);}
     if(!farOnly){
       world.updateChunksAround(px,pz);
       world.microVoxels.updateMesh();
@@ -112,7 +118,12 @@ renderer.setAnimationLoop(()=>{
     layer.updateView(camera,canvas.height);
   }
   renderer.render(scene,camera);
-  if(ready)$('stats').textContent=`Ready | ${$('view').value} | Source ${$('source').value} | Passes ${streamPasses} | Error ${layer.getSettings().screenErrorPx}px | Terrain cells ${layer.mesh.geometry.instanceCount.toLocaleString()} | Authored chunks ${layer.authoredChunks.group.children.length} | Draws ${renderer.info.render.calls} | Triangles ${renderer.info.render.triangles.toLocaleString()}`;
+  if(ready && now-lastStats>250){
+    lastStats=now;
+    const sorted=[...frameTimes].sort((a,b)=>a-b), p95=sorted[Math.floor(sorted.length*.95)]??0;
+    const build=layer.mesh.userData.lodBuildStats??{};
+    $('stats').textContent=`Ready | ${$('view').value} | Source ${$('source').value} | Passes ${streamPasses} | Error ${layer.getSettings().screenErrorPx}px | Terrain cells ${layer.mesh.geometry.instanceCount.toLocaleString()} | Authored chunks ${layer.authoredChunks.group.children.length} | Draws ${renderer.info.render.calls} | Triangles ${renderer.info.render.triangles.toLocaleString()} | Frame p95 ${p95.toFixed(1)}ms | Builds ${build.publications??0} | Root reuse ${build.reusedRoots??0}/${(build.rebuiltRoots??0)+(build.reusedRoots??0)} | Side reuse ${build.reusedSideZones??0}/${(build.rebuiltSideZones??0)+(build.reusedSideZones??0)} | GPU geometries ${renderer.info.memory.geometries}`;
+  }
 });
 init().catch(e=>{$('stats').textContent=String(e);console.error(e);});
 </script>

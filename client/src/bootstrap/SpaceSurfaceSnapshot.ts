@@ -253,7 +253,7 @@ export function createSpaceSurfaceSnapshotRemote(
 ): SpaceSurfaceSnapshotRemote {
   const installed = new Map<string, { sourceDigest: string; sampleSize: number; revision: number }>();
   // Only retain the tiny global overview here. Fine data belongs to the renderer
-  // and is replaced by coarser levels when it leaves the camera's demand set.
+  // and is replaced only when the current demand needs its cache budget.
   const overviews = new Map<string, { digest: string; zone: SurfaceZoneSnapshot }>();
   let cachedManifest: SurfaceZoneManifest | null = null;
   let manifestFetchedAt = 0;
@@ -288,8 +288,13 @@ export function createSpaceSurfaceSnapshotRemote(
           const available = [{ ...entry, sample_size: entry.sample_size ?? 2 }, ...(entry.lods ?? [])]
             .sort((a, b) => b.sample_size - a.sample_size);
           targets.set(`${entry.zone_x},${entry.zone_z}`, available[0]);
-          return { entry, demand, available, index: 0 };
-        }).sort((a, b) => a.demand.priority - b.demand.priority);
+          const previous = installed.get(`${entry.zone_x},${entry.zone_z}`);
+          // A small priority dead band avoids exchanging two large source mips
+          // every second when walking along their equal-distance boundary.
+          const priority = demand.priority - (previous && previous.sampleSize < 64
+            ? Math.min(128, Math.max(0, demand.priority) * 0.1) : 0);
+          return { entry, demand, available, previous, priority, index: 0 };
+        }).sort((a, b) => a.priority - b.priority);
         let refinementBytes = 0;
         // Refine in waves, so a full-detail nearby zone cannot consume the
         // cache before the rest of the visible terrain gets even its 32m mip.
@@ -300,6 +305,20 @@ export function createSpaceSurfaceSnapshotRemote(
           const cost = next.byte_length - current.byte_length;
           if (options && available[0].sample_size === 64 && refinementBytes + cost
             > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) continue;
+          refinementBytes += cost;
+          candidate.index++;
+          targets.set(`${entry.zone_x},${entry.zone_z}`, next);
+        }
+        // Spend remaining budget on already installed detail. Looking away
+        // alone is not an eviction: a quick turn back reuses the same source.
+        // Current visible demand above always wins when the budget is full.
+        if (options) for (let round = 0; round < 6; round++) for (const candidate of candidates) {
+          const { entry, available, index, previous } = candidate;
+          if (!previous || previous.sourceDigest !== entry.digest) continue;
+          const current = available[index], next = available[index + 1];
+          if (!next || current.sample_size <= previous.sampleSize) continue;
+          const cost = next.byte_length - current.byte_length;
+          if (refinementBytes + cost > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) continue;
           refinementBytes += cost;
           candidate.index++;
           targets.set(`${entry.zone_x},${entry.zone_z}`, next);

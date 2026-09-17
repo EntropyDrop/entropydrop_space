@@ -634,15 +634,18 @@ function isBentSphereVisible(camera, bs): boolean {
 
 export function cullChunks(camera, world) {
   if (!world || !world.chunks) return;
+  world.distantSurface?.updateHandoffs();
   _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   _frustum.setFromProjectionMatrix(_projScreen);
   for (const [chunkKey, chunk] of world.chunks) {
     const mesh = chunk.mesh;
     if (!mesh) continue;
-    if (world.activeChunkKeys && !world.activeChunkKeys.has(chunkKey)) {
+    if (world.activeChunkKeys && !world.activeChunkKeys.has(chunkKey)
+      && !world.distantSurface?.retainsDetailChunk(chunk.cx, chunk.cz)) {
       mesh.visible = false;
       continue;
     }
+    world.distantSurface?.handoff.hook(mesh);
     let bs = mesh.userData && mesh.userData.bentSphere;
     if (!bs || mesh.userData.bentSphereRevision !== worldProjectionRevision) {
       const occupiedRange = chunk.getOccupiedYRange?.();
@@ -671,10 +674,13 @@ export function cullChunks(camera, world) {
   if (!microMeshes) return;
   for (const [chunkKey, mesh] of microMeshes) {
     const standardChunkKey = mesh.userData?.standardChunkKey ?? chunkKey;
-    if (world.activeChunkKeys && !world.activeChunkKeys.has(standardChunkKey)) {
+    const [standardCx, standardCz] = String(standardChunkKey).split(',').map(Number);
+    if (world.activeChunkKeys && !world.activeChunkKeys.has(standardChunkKey)
+      && !world.distantSurface?.retainsDetailChunk(standardCx, standardCz)) {
       mesh.visible = false;
       continue;
     }
+    world.distantSurface?.handoff.hook(mesh);
     let bs = mesh.userData?.bentSphere;
     if (!bs || mesh.userData.bentSphereRevision !== worldProjectionRevision) {
       let cx = Number(mesh.userData?.projectionChunkCx);
