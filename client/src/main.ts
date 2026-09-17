@@ -118,13 +118,19 @@ class Game {
     );
     if (session.surface_snapshot_remote) {
       const syncSurfaceSnapshots = () => {
+        // The Earth renderer does not use this layer. Do not download the
+        // exact 1m torus source for every zone while the layer is disabled.
+        if (this.sceneRenderer.getWorldShapeMode() !== 'torus') {
+          window.setTimeout(syncSurfaceSnapshots, 1000);
+          return;
+        }
         void session.surface_snapshot_remote!.loadAll(
           zone => this.world.installSurfaceZone(zone),
           (zoneX, zoneZ) => this.world.removeSurfaceZone(zoneX, zoneZ),
-          this.sceneRenderer.getWorldShapeMode() === 'torus' ? {
+          {
             getDataBudgetBytes: () => this.world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024,
             getZoneDemand: (zoneX, zoneZ) => this.world.distantSurface.getZoneDemand(zoneX, zoneZ),
-          } : undefined,
+          },
         // Geometry publishes atomically in its own frame-sliced queue. Waiting
         // for camera motion to become idle would starve subsequent downloads.
         ).then(() => this.world.finalizeSurfaceConnections(false)).catch(error => {
