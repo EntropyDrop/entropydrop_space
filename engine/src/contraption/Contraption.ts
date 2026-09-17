@@ -126,7 +126,7 @@ function* visibleVoxelFaceQuads(block: any, normal: number[], quad: number[][], 
   }
   const at = (a: number, b: number) => quad[0].map((origin, axis) => (
     origin + (quad[1][axis] - origin) * a / MICRO_DIVISIONS
-      + (quad[3][axis] - origin) * b / MICRO_DIVISIONS
+    + (quad[3][axis] - origin) * b / MICRO_DIVISIONS
   ));
   const exposed: number[][][] = [];
   for (let u = 0; u < MICRO_DIVISIONS; u++) {
@@ -177,7 +177,7 @@ const MIN_BODY_MASS_KG = 0.1;
 // Infinity/NaN. The ceiling remains three orders of magnitude above the
 // largest force used by the built-in controllers and tests.
 const MAX_BODY_VECTOR_COMPONENT = 1e12;
-const COMPILED_SCRIPT_SENTINEL = function compiledEntityScript(_self, _ctx) {};
+const COMPILED_SCRIPT_SENTINEL = function compiledEntityScript(_self, _ctx) { };
 const SCRIPT_STATE_LIMIT_BYTES = 64 * 1024;
 const MAX_ENTITY_HIERARCHY_DEPTH = 16;
 const MAX_ENTITY_BLOCKS = 65_536;
@@ -1162,7 +1162,7 @@ export class Contraption {
     const node = this.entityNodes.get(id);
     if (!node) return null;
     const isRoot = node.parentId === null;
-    const noop = () => {};
+    const noop = () => { };
 
     const api: any = {
       apiVersion: 2,
@@ -3062,11 +3062,11 @@ export class Contraption {
     for (const b of removedBlocks) {
       const size = b.size || 1;
       if (Math.abs(b.localX - this.minLocal.x) < 1e-4 ||
-          Math.abs(b.localX + size - this.maxLocal.x) < 1e-4 ||
-          Math.abs(b.localY - this.minLocal.y) < 1e-4 ||
-          Math.abs(b.localY + size - this.maxLocal.y) < 1e-4 ||
-          Math.abs(b.localZ - this.minLocal.z) < 1e-4 ||
-          Math.abs(b.localZ + size - this.maxLocal.z) < 1e-4) {
+        Math.abs(b.localX + size - this.maxLocal.x) < 1e-4 ||
+        Math.abs(b.localY - this.minLocal.y) < 1e-4 ||
+        Math.abs(b.localY + size - this.maxLocal.y) < 1e-4 ||
+        Math.abs(b.localZ - this.minLocal.z) < 1e-4 ||
+        Math.abs(b.localZ + size - this.maxLocal.z) < 1e-4) {
         boundaryRemoved = true;
         break;
       }
@@ -3966,7 +3966,7 @@ export class Contraption {
         const bSize = event.size || 1;
         for (const b of this.lastBlocksSet) {
           if (Math.abs(b.localX - cx) < 1e-4 && Math.abs(b.localY - cy) < 1e-4 && Math.abs(b.localZ - cz) < 1e-4 &&
-              Math.abs((b.size || 1) - bSize) < 1e-4) {
+            Math.abs((b.size || 1) - bSize) < 1e-4) {
             removedBlocks.push(b);
             this.lastBlocksSet.delete(b);
             break;
@@ -5135,13 +5135,13 @@ export class Contraption {
       if ([...this.nodeScripts.values()].some(code => code?.includes('ctx.world'))) {
         nearbyEntities = runtimeContext?.world?.entities?.(this.position.toArray(), 64) || [];
       }
-    } catch (_) {}
+    } catch (_) { }
     let selection = null;
     try {
       if ([...this.nodeScripts.values()].some(code => code?.includes('ctx.selection'))) {
         selection = runtimeContext?.selection?.get?.() || null;
       }
-    } catch (_) {}
+    } catch (_) { }
     const scriptOrder = [...this.compiledNodeScripts.keys()].sort((left, right) => {
       if (left === this.rootComponentId) return right === this.rootComponentId ? 0 : -1;
       if (right === this.rootComponentId) return 1;
@@ -5175,10 +5175,10 @@ export class Contraption {
       players,
       driver: runtimeContext?.driver?.entityId === this.publicId
         ? {
-            playerId: String(runtimeContext.driver.playerId || 'local'),
-            componentId: String(runtimeContext.driver.componentId || this.rootComponentId),
-            seatIndex: Math.max(0, Math.floor(Number(runtimeContext.driver.seatIndex) || 0))
-          }
+          playerId: String(runtimeContext.driver.playerId || 'local'),
+          componentId: String(runtimeContext.driver.componentId || this.rootComponentId),
+          seatIndex: Math.max(0, Math.floor(Number(runtimeContext.driver.seatIndex) || 0))
+        }
         : null,
       contacts: this.pendingScriptContacts.map(contact => {
         const { key: _key, ...visible } = contact;
@@ -5303,7 +5303,7 @@ export class Contraption {
       const api = this.getChildScriptApi(String(command.nodeId || this.rootComponentId));
       const resolved = this.resolveScriptCommandTarget(api, command.path);
       const args = Array.isArray(command.args) ? command.args : [];
-      try { resolved?.method.apply(resolved.target, args); } catch (_) {}
+      try { resolved?.method.apply(resolved.target, args); } catch (_) { }
     }
     this.lastAppliedForce.copy(this.appliedForces);
     this.lastAppliedTorque.copy(this.appliedTorques);

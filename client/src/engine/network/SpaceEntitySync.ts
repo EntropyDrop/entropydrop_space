@@ -117,8 +117,8 @@ export class SpaceEntitySync {
     this.controller?.setServerEntityDeleteHandler?.(contraption => this.queueDelete(String(contraption.publicId), true));
     void this.poll();
     if (this.onHostingUpdate) {
-      void this.pollHosting().catch(() => {});
-      this.hostingTimer = setInterval(() => void this.pollHosting().catch(() => {}), 3_000);
+      void this.pollHosting().catch(() => { });
+      this.hostingTimer = setInterval(() => void this.pollHosting().catch(() => { }), 3_000);
       this.hostingTimer.unref?.();
     }
     this.timer = setInterval(() => void this.poll(), SPACE_ENTITY_POLL_INTERVAL_MS);
@@ -158,8 +158,10 @@ export class SpaceEntitySync {
       // The root is first, so the relay's AOI follows the entity, not a child.
       bodies.sort((a, b) => Number(b.id === entity.rootComponentId) - Number(a.id === entity.rootComponentId));
       if (!bodies.length || bodies.length > 128) continue;
-      this.realtime.sendEntityPose({ entity_id: id, instance_id: this.instanceId,
-        execution_epoch: epoch, sequence, bodies });
+      this.realtime.sendEntityPose({
+        entity_id: id, instance_id: this.instanceId,
+        execution_epoch: epoch, sequence, bodies
+      });
     }
   }
 
@@ -849,10 +851,12 @@ export class SpaceEntitySync {
     this.leaseRequestsAt.set(updated.id, requestedAt);
     if (updated.desired_run_state === 'running') {
       if (updated.execution_epoch !== undefined) {
-        this.acceptLeases([{ entity_id: updated.id, granted: true,
+        this.acceptLeases([{
+          entity_id: updated.id, granted: true,
           execution_epoch: updated.execution_epoch,
           lease_expires_at: updated.execution_lease_expires_at || null,
-          executor_name: updated.executor_name || null }], requestedAt);
+          executor_name: updated.executor_name || null
+        }], requestedAt);
       } else {
         // Compatibility with older servers during a rolling deployment.
         this.acceptLeases(await this.client.claimExecutionLeases(this.instanceId, [updated.id]), requestedAt);

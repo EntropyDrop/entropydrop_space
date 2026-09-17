@@ -340,7 +340,7 @@ export class PlayerController {
     // must never carry that pose into a later Hammer session.
     this.clearHammerRotation();
     if ((prev === SpecialTool.SELECTOR || prev === SpecialTool.SUPER_GLUE) &&
-        (tool !== SpecialTool.SELECTOR && tool !== SpecialTool.SUPER_GLUE)) {
+      (tool !== SpecialTool.SELECTOR && tool !== SpecialTool.SUPER_GLUE)) {
       this.clearSelection();
     }
     if (tool === SpecialTool.BRUSH) {
@@ -554,7 +554,7 @@ export class PlayerController {
       // mouse events must remain UI input while a menu or modal is open.
       if (locked && !this.pointerLockDesired) {
         this.applyPointerLockState(false);
-        try { document.exitPointerLock?.(); } catch (e) {}
+        try { document.exitPointerLock?.(); } catch (e) { }
         return;
       }
       this.applyPointerLockState(locked);
@@ -601,7 +601,7 @@ export class PlayerController {
       if (request?.then) {
         return request.then(() => {
           if (!this.pointerLockDesired && document.pointerLockElement === document.body) {
-            try { document.exitPointerLock?.(); } catch (e) {}
+            try { document.exitPointerLock?.(); } catch (e) { }
             return false;
           }
           return this.syncPointerLockState();
@@ -630,7 +630,7 @@ export class PlayerController {
     this.applyPointerLockState(false);
     this.resetEntityInputState();
     if (typeof document !== 'undefined' && document.exitPointerLock && document.pointerLockElement) {
-      try { document.exitPointerLock(); } catch (e) {}
+      try { document.exitPointerLock(); } catch (e) { }
     }
   }
 
@@ -877,7 +877,7 @@ export class PlayerController {
 
       case 'KeyG': // G key: create child from block selection (selector) / assemble selection
         if ((this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) &&
-            this.selectedBlockSelection) {
+          this.selectedBlockSelection) {
           this.createChildFromSelectedBlocks();
         } else {
           this.assembleSelection();
@@ -1012,8 +1012,10 @@ export class PlayerController {
       && ((command.domain === ActionDomain.ENTITY && INTERACTIVE_ENTITY_EDIT_ACTIONS.has(command.action))
         || (command.domain === ActionDomain.SELECTION && INTERACTIVE_ENTITY_SELECTION_ACTIONS.has(command.action)));
     if (interactive && contraption && this.handleRunningEntityInteraction(contraption)) {
-      return { ok: false, action: command.action, reason: 'entity_not_stopped', changed: 0,
-        placed: 0, removed: 0, painted: 0, subdivided: 0, added: 0, recolored: 0, empty: false };
+      return {
+        ok: false, action: command.action, reason: 'entity_not_stopped', changed: 0,
+        placed: 0, removed: 0, painted: 0, subdivided: 0, added: 0, recolored: 0, empty: false
+      };
     }
     const result = executeBasicAction(
       { world: this.world, manager: this.contraptions, selectionHost: this },
@@ -1285,10 +1287,10 @@ export class PlayerController {
       const publishedHit = this.currentRaycast;
       const publishedCell = publishedHit.kind === 'micro'
         ? {
-            x: Math.floor(publishedHit.microPos.x / MICRO_DIVISIONS),
-            y: Math.floor(publishedHit.microPos.y / MICRO_DIVISIONS),
-            z: Math.floor(publishedHit.microPos.z / MICRO_DIVISIONS),
-          }
+          x: Math.floor(publishedHit.microPos.x / MICRO_DIVISIONS),
+          y: Math.floor(publishedHit.microPos.y / MICRO_DIVISIONS),
+          z: Math.floor(publishedHit.microPos.z / MICRO_DIVISIONS),
+        }
         : publishedHit.hitPos;
 
       const carve = hit => {
@@ -1334,10 +1336,10 @@ export class PlayerController {
         const liveHit = liveQuery.kind === 'world' ? liveQuery.worldHit : null;
         const liveCell = liveHit?.kind === 'micro' && liveHit.microPos
           ? {
-              x: Math.floor(liveHit.microPos.x / MICRO_DIVISIONS),
-              y: Math.floor(liveHit.microPos.y / MICRO_DIVISIONS),
-              z: Math.floor(liveHit.microPos.z / MICRO_DIVISIONS),
-            }
+            x: Math.floor(liveHit.microPos.x / MICRO_DIVISIONS),
+            y: Math.floor(liveHit.microPos.y / MICRO_DIVISIONS),
+            z: Math.floor(liveHit.microPos.z / MICRO_DIVISIONS),
+          }
           : null;
         if (
           liveCell
@@ -2031,9 +2033,9 @@ export class PlayerController {
       max.z = Math.max(max.z, block.localZ + size);
     }
     const hasValidBounds = Number.isFinite(min.x) && Number.isFinite(max.x) &&
-                           Number.isFinite(min.y) && Number.isFinite(max.y) &&
-                           Number.isFinite(min.z) && Number.isFinite(max.z) &&
-                           min.x <= max.x && min.y <= max.y && min.z <= max.z;
+      Number.isFinite(min.y) && Number.isFinite(max.y) &&
+      Number.isFinite(min.z) && Number.isFinite(max.z) &&
+      min.x <= max.x && min.y <= max.y && min.z <= max.z;
     return {
       object: node.group,
       pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
@@ -2124,10 +2126,10 @@ export class PlayerController {
       const cellRange = this.entityMicroCellRangeForBox(range);
       const virtual = cellRange
         ? this.buildEntityMicroSelection(contraption, nodeId, (x: number, y: number, z: number) => (
-            x >= cellRange.minX && x <= cellRange.maxX &&
-            y >= cellRange.minY && y <= cellRange.maxY &&
-            z >= cellRange.minZ && z <= cellRange.maxZ
-          ), cellRange)
+          x >= cellRange.minX && x <= cellRange.maxX &&
+          y >= cellRange.minY && y <= cellRange.maxY &&
+          z >= cellRange.minZ && z <= cellRange.maxZ
+        ), cellRange)
         : null;
       if (virtual) {
         selected = virtual;
@@ -3172,13 +3174,13 @@ export class PlayerController {
     }
     return this.currentRaycast?.hit
       ? {
-          hitPos: this.currentRaycast.hitPos,
-          normal: this.currentRaycast.normal,
-          microNormal: this.currentRaycast.normal,
-          entry: this.currentRaycast.entry,
-          kind: this.currentRaycast.kind,
-          placeMicroPos: this.currentRaycast.placeMicroPos
-        }
+        hitPos: this.currentRaycast.hitPos,
+        normal: this.currentRaycast.normal,
+        microNormal: this.currentRaycast.normal,
+        entry: this.currentRaycast.entry,
+        kind: this.currentRaycast.kind,
+        placeMicroPos: this.currentRaycast.placeMicroPos
+      }
       : null;
   }
 
@@ -3309,8 +3311,8 @@ export class PlayerController {
     const supportSamples = rawSamples.length <= ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT
       ? rawSamples
       : Array.from({ length: ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT }, (_, index) => (
-          rawSamples[Math.floor(index * (rawSamples.length - 1) / (ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT - 1))]
-        ));
+        rawSamples[Math.floor(index * (rawSamples.length - 1) / (ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT - 1))]
+      ));
 
     const shape: EntityPlacementShape = {
       blocksRef: slot.blocks,
@@ -4458,8 +4460,8 @@ export class PlayerController {
         : manager.connectedSelection !== null
           ? manager.connectedSelection.length
           : (bounds.maxX - bounds.minX + 1)
-            * (bounds.maxY - bounds.minY + 1)
-            * (bounds.maxZ - bounds.minZ + 1);
+          * (bounds.maxY - bounds.minY + 1)
+          * (bounds.maxZ - bounds.minZ + 1);
     if (largeSelectionCount > BULK_EDIT_THRESHOLD) {
       this.startLargeWorldSelectionDelete(manager, microSelection, bounds);
       return;
@@ -4817,10 +4819,10 @@ export class PlayerController {
         // carved cell itself is never overwritten.
         const targetCell = hit.kind === 'micro'
           ? {
-              x: hit.cell.x + (hit.normal?.x || 0),
-              y: hit.cell.y + (hit.normal?.y || 0),
-              z: hit.cell.z + (hit.normal?.z || 0)
-            }
+            x: hit.cell.x + (hit.normal?.x || 0),
+            y: hit.cell.y + (hit.normal?.y || 0),
+            z: hit.cell.z + (hit.normal?.z || 0)
+          }
           : hit.placeCell;
 
         const result = this.performBasicAction({
@@ -5202,8 +5204,8 @@ export class PlayerController {
 
     const cacheKey = `${turnsY}:${turnsX}`;
     if (this.hammerRotatedSlotSource === slot &&
-        this.hammerRotatedSlotTurnsKey === cacheKey &&
-        this.hammerRotatedSlotCache) {
+      this.hammerRotatedSlotTurnsKey === cacheKey &&
+      this.hammerRotatedSlotCache) {
       return this.hammerRotatedSlotCache;
     }
 
@@ -5238,21 +5240,21 @@ export class PlayerController {
 
     const rotatedSlot = isEntity
       ? {
-          ...slot,
-          // Entity geometry and scripts stay in their authored local frame.
-          // The temporary anchor carries this roll for component installation,
-          // while placementRotation carries the same pose for terrain builds.
-          anchorRotation: this.getEntityAnchorRotation(slot)
-            .multiply(placementRotation.clone().invert())
-            .normalize()
-            .toArray(),
-          placementRotation: placementRotation.toArray()
-        }
+        ...slot,
+        // Entity geometry and scripts stay in their authored local frame.
+        // The temporary anchor carries this roll for component installation,
+        // while placementRotation carries the same pose for terrain builds.
+        anchorRotation: this.getEntityAnchorRotation(slot)
+          .multiply(placementRotation.clone().invert())
+          .normalize()
+          .toArray(),
+        placementRotation: placementRotation.toArray()
+      }
       : {
-          ...slot,
-          blocks: rotatedBlocks,
-          childEntities: rotatedChildren
-        };
+        ...slot,
+        blocks: rotatedBlocks,
+        childEntities: rotatedChildren
+      };
     this.hammerRotatedSlotSource = slot;
     this.hammerRotatedSlotTurnsKey = cacheKey;
     this.hammerRotatedSlotCache = rotatedSlot;
@@ -6049,11 +6051,13 @@ export class PlayerController {
             target: { contraption: c },
             nodeId,
             ...(isMicro
-              ? { micro: [
+              ? {
+                micro: [
                   Math.round(hit.block.localX * MICRO_DIVISIONS),
                   Math.round(hit.block.localY * MICRO_DIVISIONS),
                   Math.round(hit.block.localZ * MICRO_DIVISIONS)
-                ] }
+                ]
+              }
               : { cell: hit.cell }),
             color: this.selectedColor
           });
@@ -6179,12 +6183,12 @@ export class PlayerController {
       const nodeId = hitEntity.entityId ?? contraptionRootId(c);
       const targetPoint = this.brushMicroMode
         ? (hitEntity.placeMicroPos
-            ? new THREE.Vector3(
-                hitEntity.placeMicroPos.localX - (hitEntity.normal?.x || 0) * (MICRO_SIZE / 2),
-                hitEntity.placeMicroPos.localY - (hitEntity.normal?.y || 0) * (MICRO_SIZE / 2),
-                hitEntity.placeMicroPos.localZ - (hitEntity.normal?.z || 0) * (MICRO_SIZE / 2)
-              )
-            : hitEntity.point)
+          ? new THREE.Vector3(
+            hitEntity.placeMicroPos.localX - (hitEntity.normal?.x || 0) * (MICRO_SIZE / 2),
+            hitEntity.placeMicroPos.localY - (hitEntity.normal?.y || 0) * (MICRO_SIZE / 2),
+            hitEntity.placeMicroPos.localZ - (hitEntity.normal?.z || 0) * (MICRO_SIZE / 2)
+          )
+          : hitEntity.point)
         : hitEntity.point;
       const localPoint = this.rangePointToLocal({ contraption: c, nodeId }, targetPoint);
       this.brushSelection = {
@@ -6526,72 +6530,72 @@ export class PlayerController {
         ), bounds) || [];
       }
     } else {
-    const hasMicroInComponent = contraption.blocks.some((b: any) => contraptionBlockOwnerId(contraption, b) === nodeId && (b.size || 1) < 1);
-    if (shape === 'box') {
-      const matchingMicro: any[] = [];
-      const matchingStandard: any[] = [];
-      for (const b of contraption.blocks) {
-        if (contraptionBlockOwnerId(contraption, b) !== nodeId) continue;
-        const isMicroB = (b.size || 1) < 1;
-        const s = (b.size !== undefined && b.size !== null) ? b.size : 1;
-        const bx = isMicro ? Math.round(b.localX * MICRO_DIVISIONS) : Math.floor(b.localX + 1e-6);
-        const by = isMicro ? Math.round(b.localY * MICRO_DIVISIONS) : Math.floor(b.localY + 1e-6);
-        const bz = isMicro ? Math.round(b.localZ * MICRO_DIVISIONS) : Math.floor(b.localZ + 1e-6);
-        const bSize = isMicro ? Math.max(1, Math.round(s * MICRO_DIVISIONS)) : 1;
-        const maxBx = bx + bSize - 1;
-        const maxBy = by + bSize - 1;
-        const maxBz = bz + bSize - 1;
-        if (!(maxBx < minX || bx > maxX || maxBy < minY || by > maxY || maxBz < minZ || bz > maxZ)) {
-          if (isMicroB) {
-            matchingMicro.push(b);
-          } else {
-            matchingStandard.push(b);
+      const hasMicroInComponent = contraption.blocks.some((b: any) => contraptionBlockOwnerId(contraption, b) === nodeId && (b.size || 1) < 1);
+      if (shape === 'box') {
+        const matchingMicro: any[] = [];
+        const matchingStandard: any[] = [];
+        for (const b of contraption.blocks) {
+          if (contraptionBlockOwnerId(contraption, b) !== nodeId) continue;
+          const isMicroB = (b.size || 1) < 1;
+          const s = (b.size !== undefined && b.size !== null) ? b.size : 1;
+          const bx = isMicro ? Math.round(b.localX * MICRO_DIVISIONS) : Math.floor(b.localX + 1e-6);
+          const by = isMicro ? Math.round(b.localY * MICRO_DIVISIONS) : Math.floor(b.localY + 1e-6);
+          const bz = isMicro ? Math.round(b.localZ * MICRO_DIVISIONS) : Math.floor(b.localZ + 1e-6);
+          const bSize = isMicro ? Math.max(1, Math.round(s * MICRO_DIVISIONS)) : 1;
+          const maxBx = bx + bSize - 1;
+          const maxBy = by + bSize - 1;
+          const maxBz = bz + bSize - 1;
+          if (!(maxBx < minX || bx > maxX || maxBy < minY || by > maxY || maxBz < minZ || bz > maxZ)) {
+            if (isMicroB) {
+              matchingMicro.push(b);
+            } else {
+              matchingStandard.push(b);
+            }
           }
         }
-      }
-      matchingBlocks = (isMicro && hasMicroInComponent && matchingMicro.length > 0)
-        ? matchingMicro
-        : (isMicro ? (matchingMicro.length > 0 ? matchingMicro : matchingStandard) : [...matchingMicro, ...matchingStandard]);
-    } else {
-      shapeCells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis);
-      const cellSet = new Set(shapeCells.map(c => `${c.x},${c.y},${c.z}`));
-      const matchingMicro: any[] = [];
-      const matchingStandard: any[] = [];
-      for (const b of contraption.blocks) {
-        // Skip blocks owned by other components (parent/root/siblings) instead
-        // of aborting: only this component's own blocks may match the shape.
-        if (contraptionBlockOwnerId(contraption, b) !== nodeId) continue;
-        const isMicroB = (b.size || 1) < 1;
-        const s = (b.size !== undefined && b.size !== null) ? b.size : 1;
-        const bx = isMicro ? Math.round(b.localX * MICRO_DIVISIONS) : Math.floor(b.localX + 1e-6);
-        const by = isMicro ? Math.round(b.localY * MICRO_DIVISIONS) : Math.floor(b.localY + 1e-6);
-        const bz = isMicro ? Math.round(b.localZ * MICRO_DIVISIONS) : Math.floor(b.localZ + 1e-6);
-        if (s < 1) {
-          if (cellSet.has(`${bx},${by},${bz}`)) {
-            matchingMicro.push(b);
-          }
-        } else {
-          let intersects = false;
-          if (isMicro) {
-            for (let ix = 0; ix < MICRO_DIVISIONS && !intersects; ix++) {
-              for (let iy = 0; iy < MICRO_DIVISIONS && !intersects; iy++) {
-                for (let iz = 0; iz < MICRO_DIVISIONS && !intersects; iz++) {
-                  if (cellSet.has(`${bx + ix},${by + iy},${bz + iz}`)) intersects = true;
-                }
-              }
+        matchingBlocks = (isMicro && hasMicroInComponent && matchingMicro.length > 0)
+          ? matchingMicro
+          : (isMicro ? (matchingMicro.length > 0 ? matchingMicro : matchingStandard) : [...matchingMicro, ...matchingStandard]);
+      } else {
+        shapeCells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis);
+        const cellSet = new Set(shapeCells.map(c => `${c.x},${c.y},${c.z}`));
+        const matchingMicro: any[] = [];
+        const matchingStandard: any[] = [];
+        for (const b of contraption.blocks) {
+          // Skip blocks owned by other components (parent/root/siblings) instead
+          // of aborting: only this component's own blocks may match the shape.
+          if (contraptionBlockOwnerId(contraption, b) !== nodeId) continue;
+          const isMicroB = (b.size || 1) < 1;
+          const s = (b.size !== undefined && b.size !== null) ? b.size : 1;
+          const bx = isMicro ? Math.round(b.localX * MICRO_DIVISIONS) : Math.floor(b.localX + 1e-6);
+          const by = isMicro ? Math.round(b.localY * MICRO_DIVISIONS) : Math.floor(b.localY + 1e-6);
+          const bz = isMicro ? Math.round(b.localZ * MICRO_DIVISIONS) : Math.floor(b.localZ + 1e-6);
+          if (s < 1) {
+            if (cellSet.has(`${bx},${by},${bz}`)) {
+              matchingMicro.push(b);
             }
           } else {
-            intersects = cellSet.has(`${bx},${by},${bz}`);
-          }
-          if (intersects) {
-            matchingStandard.push(b);
+            let intersects = false;
+            if (isMicro) {
+              for (let ix = 0; ix < MICRO_DIVISIONS && !intersects; ix++) {
+                for (let iy = 0; iy < MICRO_DIVISIONS && !intersects; iy++) {
+                  for (let iz = 0; iz < MICRO_DIVISIONS && !intersects; iz++) {
+                    if (cellSet.has(`${bx + ix},${by + iy},${bz + iz}`)) intersects = true;
+                  }
+                }
+              }
+            } else {
+              intersects = cellSet.has(`${bx},${by},${bz}`);
+            }
+            if (intersects) {
+              matchingStandard.push(b);
+            }
           }
         }
+        matchingBlocks = (isMicro && hasMicroInComponent && matchingMicro.length > 0)
+          ? matchingMicro
+          : (isMicro ? (matchingMicro.length > 0 ? matchingMicro : matchingStandard) : [...matchingMicro, ...matchingStandard]);
       }
-      matchingBlocks = (isMicro && hasMicroInComponent && matchingMicro.length > 0)
-        ? matchingMicro
-        : (isMicro ? (matchingMicro.length > 0 ? matchingMicro : matchingStandard) : [...matchingMicro, ...matchingStandard]);
-    }
     }
 
     this.selectedBlockSelection.blocks = matchingBlocks;
@@ -6703,15 +6707,15 @@ export class PlayerController {
 
     const bounds = isMicro
       ? (shape === 'box'
-          ? this.contraptions.getMicroSelectionBounds?.()
-          : {
-              minX: Math.min(cornerA.x, cornerB.x),
-              maxX: Math.max(cornerA.x, cornerB.x),
-              minY: Math.min(cornerA.y, cornerB.y),
-              maxY: Math.max(cornerA.y, cornerB.y),
-              minZ: Math.min(cornerA.z, cornerB.z),
-              maxZ: Math.max(cornerA.z, cornerB.z)
-            })
+        ? this.contraptions.getMicroSelectionBounds?.()
+        : {
+          minX: Math.min(cornerA.x, cornerB.x),
+          maxX: Math.max(cornerA.x, cornerB.x),
+          minY: Math.min(cornerA.y, cornerB.y),
+          maxY: Math.max(cornerA.y, cornerB.y),
+          minZ: Math.min(cornerA.z, cornerB.z),
+          maxZ: Math.max(cornerA.z, cornerB.z)
+        })
       : this.contraptions.getSelectionBounds?.();
     this.sceneRenderer?.updateSelectionAxisGizmo?.(bounds, isMicro);
     this.sceneRenderer?.updateSelectionHologram?.(
@@ -7991,7 +7995,7 @@ export class PlayerController {
         ? `${prefix}: empty`
         : this.activeInventoryCategory === 'colorset'
           ? `${prefix}: ${slot.name || 'unnamed'} (Hammer LMB applies palette)`
-        : this.activeInventoryCategory === 'blockset'
+          : this.activeInventoryCategory === 'blockset'
             ? `${prefix}: ${slot.name || 'unnamed'} · ${slot.blockCount} voxels (Hammer LMB builds · RMB rotates 90°)`
             : `${prefix}: ${slot.name || 'unnamed'} · ${slot.blockCount} blocks`);
     }
@@ -8826,9 +8830,9 @@ export class PlayerController {
       const nodeId = hit.entityId ?? contraptionRootId(contraption);
       const cellOrigin = hit.cell && typeof contraption.entityLocalToWorld === 'function'
         ? contraption.entityLocalToWorld(
-            nodeId,
-            new THREE.Vector3(hit.cell.x, hit.cell.y, hit.cell.z)
-          )
+          nodeId,
+          new THREE.Vector3(hit.cell.x, hit.cell.y, hit.cell.z)
+        )
         : null;
       // Brush on stopped entity: show crosshair cell guide (focusBlockPreview), sized by mode (0.125m micro or 1m standard)
       if (isBrush) {
@@ -8906,10 +8910,10 @@ export class PlayerController {
           cursor: this.selectorMicroMode
             ? this.microMeterPoint(hit.point)
             : {
-                x: Math.floor(hit.point.x),
-                y: Math.floor(hit.point.y),
-                z: Math.floor(hit.point.z)
-              },
+              x: Math.floor(hit.point.x),
+              y: Math.floor(hit.point.y),
+              z: Math.floor(hit.point.z)
+            },
           micro: this.selectorMicroMode === true
         };
         return;
@@ -9157,10 +9161,10 @@ export class PlayerController {
 
     const matchingBlocks = isMicro
       ? (this.buildEntityMicroSelection(contraption, nodeId, (x: number, y: number, z: number) => (
-          x >= bounds.minX && x <= bounds.maxX &&
-          y >= bounds.minY && y <= bounds.maxY &&
-          z >= bounds.minZ && z <= bounds.maxZ
-        ), bounds) || [])
+        x >= bounds.minX && x <= bounds.maxX &&
+        y >= bounds.minY && y <= bounds.maxY &&
+        z >= bounds.minZ && z <= bounds.maxZ
+      ), bounds) || [])
       : contraption.blocks.filter((b: any) => {
         const owner = contraptionBlockOwnerId(contraption, b);
         if (owner !== nodeId) return false;

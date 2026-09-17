@@ -158,8 +158,8 @@ test('selector copy switches to Hammer and Hammer left-click builds a new entity
   controller.selectedInventoryIndex = 0;
   controller.selectedSubtree = null;
   controller.keys = {};
-  controller.sound = { playBlockPlace() {} };
-  controller.ui = { showToast() {}, renderInventoryBar() {} };
+  controller.sound = { playBlockPlace() { } };
+  controller.ui = { showToast() { }, renderInventoryBar() { } };
   controller.hoveredContraptionHit = {
     contraption: original,
     entityId: 'hand',
@@ -235,8 +235,8 @@ test('Wrench right-click starts pointed entity, left-click stops and lifts it', 
   controller.world = {};
   controller.hoveredContraption = entity;
   controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', point: new THREE.Vector3(0, 0, 5) };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = new THREE.PerspectiveCamera();
   controller.physics = { getEyePosition: () => new THREE.Vector3() };
   controller.performBasicAction = PlayerController.prototype.performBasicAction.bind(controller);
@@ -280,18 +280,18 @@ test('Wrench hold grabs the exact dynamic-body point and releases cleanly', () =
   controller.world = {};
   controller.hoveredContraption = entity;
   controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', point: new THREE.Vector3(0, 0, 5) };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = new THREE.PerspectiveCamera();
   controller.camera.position.set(0, 0, 0);
   controller.camera.rotation.set(0, 0, 0, 'YXZ');
   controller.physics = {
-    update() {},
+    update() { },
     getEyePosition() { return new THREE.Vector3(0, 0, 0); },
     position: new THREE.Vector3(),
     velocity: new THREE.Vector3()
   };
-  controller.updateCameraPosition = () => {};
+  controller.updateCameraPosition = () => { };
 
   controller.handleLeftClick();
 
@@ -328,8 +328,8 @@ test('Wrench left-click stops and lifts entity even if previously stopped', () =
   };
   controller.camera = new THREE.PerspectiveCamera();
   controller.physics = { getEyePosition: () => new THREE.Vector3() };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
 
   assert.equal(controller.startWrenchGrab(), true);
   assert.ok(controller.wrenchGrab, 'left-click grab succeeds on stopped entity');
@@ -371,7 +371,7 @@ test('Wrench drag on running entity triggers stop and click sound exactly once',
       clickCount++;
     }
   };
-  controller.ui = { showToast() {} };
+  controller.ui = { showToast() { } };
   controller.performBasicAction = (cmd: any) => {
     if (cmd?.action === 'stop-scripts') {
       stopScriptsCalls++;
@@ -434,8 +434,8 @@ test('Wrench left-click grab never starts an entity or triggers scripts under an
   };
   controller.camera = new THREE.PerspectiveCamera();
   controller.physics = { getEyePosition: () => new THREE.Vector3() };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
 
   // Left click grab
   controller.handleLeftClick();
@@ -617,7 +617,7 @@ test('Wrench displays the entity COM even when pointing at a child, while body c
     physics: { getEyePosition: () => pivotWorld.clone().add(new THREE.Vector3(0, 0, 4)) },
     sceneRenderer: {
       setWrenchPivotGizmo(...args) { gizmoCalls.push(args); },
-      setWrenchTether() {}
+      setWrenchTether() { }
     },
     wrenchGrab: null,
     wrenchPivotTarget: null,
@@ -643,12 +643,12 @@ function makeWrenchGizmoController(entity, manager, camera) {
     camera,
     physics: { getEyePosition: () => camera.position.clone() },
     sceneRenderer: {
-      setWrenchPivotGizmo() {},
-      clearWrenchPivotGizmo() {},
-      setWrenchTether() {}
+      setWrenchPivotGizmo() { },
+      clearWrenchPivotGizmo() { },
+      setWrenchTether() { }
     },
-    sound: { playWrenchClick() {} },
-    ui: { showToast() {} },
+    sound: { playWrenchClick() { } },
+    ui: { showToast() { } },
     wrenchGrab: null,
     wrenchPivotTarget: null,
     hoveredWrenchGizmoHandle: null,
@@ -853,16 +853,16 @@ test('Wrench grab does not push a target that is closer than 1.5 metres', () => 
   controller.contraptions = manager;
   controller.hoveredContraption = entity;
   controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', point: hitPoint };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = camera;
   controller.physics = {
-    update() {},
+    update() { },
     getEyePosition() { return eye.clone(); },
     position: eye,
     velocity: new THREE.Vector3()
   };
-  controller.updateCameraPosition = () => {};
+  controller.updateCameraPosition = () => { };
 
   controller.handleLeftClick();
   assert.ok(Math.abs(controller.wrenchGrab.targetDistance - 0.75) < 1e-9);
@@ -906,16 +906,16 @@ test('Wrench grab follows the bent aiming ray without an initial sideways push',
     point: hitPoint,
     distance: eyeBent.distanceTo(hitBent)
   };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = camera;
   controller.physics = {
-    update() {},
+    update() { },
     getEyePosition() { return eye.clone(); },
     position: eye,
     velocity: new THREE.Vector3()
   };
-  controller.updateCameraPosition = () => {};
+  controller.updateCameraPosition = () => { };
 
   controller.handleLeftClick();
   controller.update(1 / 60);
@@ -957,16 +957,16 @@ test('Wrench grab holds a stationary target without pushing and follows player m
     entityId: 'root',
     point: entity.position.clone()
   };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = camera;
   controller.physics = {
-    update() {},
+    update() { },
     getEyePosition() { return eye.clone(); },
     position: eye,
     velocity: new THREE.Vector3()
   };
-  controller.updateCameraPosition = () => {};
+  controller.updateCameraPosition = () => { };
   controller.handleLeftClick();
 
   const originalPosition = entity.position.clone();
@@ -1020,16 +1020,16 @@ test('Wrench grab approaches a moved target without rapid overshoot oscillation'
       entityId: 'root',
       point: entity.position.clone()
     },
-    sound: { playWrenchClick() {} },
-    ui: { showToast() {} },
+    sound: { playWrenchClick() { } },
+    ui: { showToast() { } },
     camera,
     physics: {
-      update() {},
+      update() { },
       getEyePosition() { return eye.clone(); },
       position: eye,
       velocity: new THREE.Vector3()
     },
-    updateCameraPosition() {}
+    updateCameraPosition() { }
   });
   controller.handleLeftClick();
   eye.x = 4;
@@ -1091,16 +1091,16 @@ test('Wrench grab compensates entity gravity without vertical snapping', () => {
       entityId: 'root',
       point: entity.position.clone()
     },
-    sound: { playWrenchClick() {} },
-    ui: { showToast() {} },
+    sound: { playWrenchClick() { } },
+    ui: { showToast() { } },
     camera,
     physics: {
-      update() {},
+      update() { },
       getEyePosition() { return eye.clone(); },
       position: eye,
       velocity: new THREE.Vector3()
     },
-    updateCameraPosition() {}
+    updateCameraPosition() { }
   });
   controller.handleLeftClick();
   const initialAnchor = entity.entityLocalToWorld('root', controller.wrenchGrab.localPoint.clone());
@@ -1156,16 +1156,16 @@ test('Wrench grab is mass independent for extremely heavy entities', () => {
     entityId: 'root',
     point: entity.position.clone()
   };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = camera;
   controller.physics = {
-    update() {},
+    update() { },
     getEyePosition() { return eye.clone(); },
     position: eye,
     velocity: new THREE.Vector3()
   };
-  controller.updateCameraPosition = () => {};
+  controller.updateCameraPosition = () => { };
   controller.handleLeftClick();
 
   eye.x = 3;
@@ -1219,16 +1219,16 @@ test('Wrench grab disables collision allowing smooth transport through terrain',
     entityId: 'root',
     point: entity.position.clone()
   };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = camera;
   controller.physics = {
-    update() {},
+    update() { },
     getEyePosition() { return eye.clone(); },
     position: eye,
     velocity: new THREE.Vector3()
   };
-  controller.updateCameraPosition = () => {};
+  controller.updateCameraPosition = () => { };
   controller.handleLeftClick();
 
   assert.equal(entity.isCollisionSimulationEnabled(), false, 'collision is disabled during grab');
@@ -1324,16 +1324,16 @@ test('Wrench grab disables collision allowing smooth transport through another e
     entityId: 'root',
     point: grabbed.position.clone()
   };
-  controller.sound = { playWrenchClick() {} };
-  controller.ui = { showToast() {} };
+  controller.sound = { playWrenchClick() { } };
+  controller.ui = { showToast() { } };
   controller.camera = camera;
   controller.physics = {
-    update() {},
+    update() { },
     getEyePosition() { return eye.clone(); },
     position: eye,
     velocity: new THREE.Vector3()
   };
-  controller.updateCameraPosition = () => {};
+  controller.updateCameraPosition = () => { };
   controller.handleLeftClick();
 
   assert.equal(grabbed.isCollisionSimulationEnabled(), false, 'collision is disabled on grabbed entity');
@@ -1412,7 +1412,7 @@ test('cycling inventory slots wraps around both directions', () => {
   const controller = Object.create(PlayerController.prototype);
   controller.inventorySlots = new Array(8).fill(null);
   controller.selectedInventoryIndex = 0;
-  controller.ui = { showToast() {}, renderInventoryBar() {} };
+  controller.ui = { showToast() { }, renderInventoryBar() { } };
 
   controller.cycleInventorySlot(1);
   assert.equal(controller.selectedInventoryIndex, 1);
@@ -1427,8 +1427,8 @@ test('cycling inventory slots wraps around both directions', () => {
 test('Shift+click on entity micro-blocks toggles and multi-selects without selecting whole entity', () => {
   const scene = new THREE.Scene();
   const worldMock = {
-    setBlock() {},
-    setMicroBlock() {},
+    setBlock() { },
+    setMicroBlock() { },
     worldToChunkCoords() { return { cx: 0, cz: 0 }; },
     getChunk() { return { isDirty: false }; },
     dirtyChunks: new Set()
@@ -1445,7 +1445,7 @@ test('Shift+click on entity micro-blocks toggles and multi-selects without selec
   const controller = Object.create(PlayerController.prototype);
   controller.contraptions = manager;
   controller.world = worldMock;
-  controller.ui = { showToast() {} };
+  controller.ui = { showToast() { } };
   controller.selectedSubtree = null;
   controller.selectedBlockSelection = null;
   controller.selectorLevel = null;
@@ -1495,8 +1495,8 @@ test('handleWheel does not switch tools/hotbar, but cycles Hammer inventory or B
   let cycledColors: number[] = [];
   let cycledHotbars: number[] = [];
   const mockUi = {
-    showToast() {},
-    renderInventoryBar() {},
+    showToast() { },
+    renderInventoryBar() { },
     cycleColor(dir: number) { cycledColors.push(dir); },
     cycleHotbar(dir: number) { cycledHotbars.push(dir); }
   };
