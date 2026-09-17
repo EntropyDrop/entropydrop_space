@@ -10,11 +10,12 @@ import {
 const CHUNK_SIZE = 16;
 const ZONE_SIZE_CHUNKS = 32;
 const ZONE_WORLD_SIZE = CHUNK_SIZE * ZONE_SIZE_CHUNKS;
-const FINE_SAMPLE_SIZE = 2;
-const FINE_SAMPLES_PER_CHUNK_AXIS = CHUNK_SIZE / FINE_SAMPLE_SIZE;
+const FINE_SAMPLE_SIZE = 1;
+const LEGACY_SAMPLE_SIZE = 2;
+const FINE_SAMPLES_PER_CHUNK_AXIS = CHUNK_SIZE / LEGACY_SAMPLE_SIZE;
 const MAX_SURFACE_INSTANCES = 512 * 1024;
 const MAX_SURFACE_CONNECTIONS = 4 * MAX_SURFACE_INSTANCES;
-const LOD_SAMPLE_SIZES = [2, 4, 8, 16, 32, 64] as const;
+const LOD_SAMPLE_SIZES = [1, 2, 4, 8, 16, 32, 64] as const;
 const FINE_WORLD_Z_AXIS = TORUS_SIZE_Z / FINE_SAMPLE_SIZE;
 const WORLD_CHUNKS_X = TORUS_SIZE_X / CHUNK_SIZE;
 const WORLD_CHUNKS_Z = TORUS_SIZE_Z / CHUNK_SIZE;
@@ -248,7 +249,7 @@ function createMaterial(detailMask: THREE.DataTexture, side = false) {
 }
 
 function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
-  const sampleSize = zone.sampleSize ?? FINE_SAMPLE_SIZE;
+  const sampleSize = zone.sampleSize ?? LEGACY_SAMPLE_SIZE;
   const fineAxis = ZONE_WORLD_SIZE / sampleSize;
   const finestHeights = new Uint16Array(fineAxis * fineAxis);
   const finestColors = new Uint8Array(fineAxis * fineAxis * 3);
@@ -413,6 +414,7 @@ export class DistantSurfaceLayer {
   private readonly projection = new THREE.Matrix4();
   private readonly cameraPosition = new THREE.Vector3();
   private readonly lodPosition = new THREE.Vector3();
+  private readonly lodRotation = new THREE.Quaternion();
   private readonly cellBounds = new THREE.Sphere();
   private readonly recentlyVisible = new Map<string, number>();
   private readonly zoneDemandSizes = new Map<string, number>();
@@ -502,9 +504,11 @@ export class DistantSurfaceLayer {
     const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
     // Hysteresis avoids rebuilding for sub-pixel motion or tiny resolution changes.
     if (this.lodViewKey && this.lodPosition.distanceTo(camera.position) < 8
+      && this.lodRotation.angleTo(camera.quaternion) < 0.01
       && scale < this.pixelScale * 1.05 && scale > this.pixelScale / 1.05) return;
     this.lodViewKey = 'active';
     this.lodPosition.copy(camera.position);
+    this.lodRotation.copy(camera.quaternion);
     this.pixelScale = scale;
     if (this.zones.size > 0) this.requestRebuild();
   }
@@ -529,8 +533,14 @@ export class DistantSurfaceLayer {
         sampleSize = size;
         let error: number = size;
         if (zone) {
-          const mip = zone.mips.get(Math.max(size, zone.sampleSize))!;
-          error = mip.maxResidual! * Math.min(1, size / zone.sampleSize);
+          if (size < zone.sampleSize) {
+            // An unavailable finer mip has UNKNOWN error. Never invent a
+            // smaller residual by dividing a coarse tile's measured range.
+            sampleSize = FINE_SAMPLE_SIZE;
+            break;
+          }
+          const mip = zone.mips.get(size)!;
+          error = mip.maxResidual!;
         }
         const previous = this.zoneDemandSizes.get(key) ?? 64;
         const hysteresis = size > previous ? 0.8 : 1;
@@ -787,13 +797,17 @@ export class DistantSurfaceLayer {
       + cellSize * mip.colorErrors[index] * 0.25;
     const key = `${worldX},${worldZ},${cellSize}`;
     const threshold = this.settings.screenErrorPx * (this.splitCells.has(key) ? 0.85 : 1);
-    const mustSplit = error * this.pixelScale / Math.max(1, distance) > threshold
+    // Below the downloaded resolution only curvature can improve. Repeating
+    // one 64m height in thousands of 1m quads cannot fix its sampling error.
+    const refinableError = cellSize > zone.sampleSize ? error : curvatureError(cellSize, height);
+    const visible = !this.hasView || this.frustum.intersectsSphere(this.cellBounds);
+    const mustSplit = (visible && refinableError * this.pixelScale / Math.max(1, distance) > threshold)
       || (cellSize > 16 && this.nearDetail(worldX, worldZ, cellSize))
       || this.nearDetail(worldX, worldZ, cellSize, true);
     // Reserve coverage for every remaining root; under pressure reduce quality,
     // never omit a tile. Data and geometry resolution are independent.
     const canRefine = this.writeIndex < MAX_SURFACE_INSTANCES - 4 * 8192;
-    if (cellSize > 2 && mustSplit && canRefine) {
+    if (cellSize > FINE_SAMPLE_SIZE && mustSplit && canRefine) {
       this.splitCells.add(key);
       const childSize = cellSize / 2;
       this.visitCell(zone, localX, localZ, childSize);
@@ -1161,7 +1175,7 @@ export class DistantSurfaceLayer {
   }
 
   installZone(zone: SurfaceZoneSnapshot) {
-    const sampleSize = zone.sampleSize ?? FINE_SAMPLE_SIZE;
+    const sampleSize = zone.sampleSize ?? LEGACY_SAMPLE_SIZE;
     const recordsPerZone = (ZONE_WORLD_SIZE / sampleSize) ** 2;
     if (
       !LOD_SAMPLE_SIZES.includes(sampleSize as typeof LOD_SAMPLE_SIZES[number])
@@ -1207,9 +1221,13 @@ export class DistantSurfaceLayer {
     if (this.connectionsReady) void this.scheduleConnectionRebuild();
   }
 
-  async finalizeConnections() {
+  async finalizeConnections(waitForIdle = true) {
     this.connectionsReady = true;
     if (!this.enabled) return;
+    if (!waitForIdle) {
+      if (this.connectionsDirty) this.requestRebuild();
+      return;
+    }
     // Drain coalesced work too, including installs arriving during a build.
     do {
       if (this.connectionBuildPending) await this.pendingBuild;

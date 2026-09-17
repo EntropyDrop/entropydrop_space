@@ -125,7 +125,9 @@ class Game {
             getDataBudgetBytes: () => this.world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024,
             getZoneDemand: (zoneX, zoneZ) => this.world.distantSurface.getZoneDemand(zoneX, zoneZ),
           } : undefined,
-        ).then(() => this.world.finalizeSurfaceConnections()).catch(error => {
+        // Geometry publishes atomically in its own frame-sliced queue. Waiting
+        // for camera motion to become idle would starve subsequent downloads.
+        ).then(() => this.world.finalizeSurfaceConnections(false)).catch(error => {
           console.warn('Space far-surface snapshots are temporarily unavailable.', error);
         }).finally(() => {
           window.setTimeout(syncSurfaceSnapshots, this.sceneRenderer.getWorldShapeMode() === 'torus' ? 1000 : 10_000);

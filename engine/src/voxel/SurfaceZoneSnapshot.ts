@@ -1,5 +1,5 @@
 export interface SurfaceZoneSnapshot {
-  /** v4/v5 use a zone-wide X-major lattice; absent for legacy chunk-major data. */
+  /** v4/v5/v6 use a zone-wide X-major lattice; absent for legacy chunk-major data. */
   sampleSize?: number;
   zoneX: number;
   zoneZ: number;

@@ -8,17 +8,18 @@ import {
   sha256Hex,
 } from './NetworkSafety.ts';
 
-export const SURFACE_ZONE_SCHEMA_VERSION = 5;
-export const SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS = 8;
+export const SURFACE_ZONE_SCHEMA_VERSION = 6;
+export const SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS = 16;
 export const SURFACE_ZONE_SIZE_CHUNKS = 32;
 export const SURFACE_ZONE_HEADER_BYTES = 32;
 export const SURFACE_ZONE_RECORD_BYTES = 8;
 export const LEGACY_SURFACE_ZONE_RECORD_BYTES = 5;
 export const MAX_SURFACE_ZONE_BYTES = 16 * 1024 * 1024;
-const MAX_SURFACE_MANIFEST_BYTES = 256 * 1024;
+// 128 zones with seven full authenticated digest URLs exceed 256 KiB in v6.
+const MAX_SURFACE_MANIFEST_BYTES = 512 * 1024;
 const MAX_SURFACE_ZONES = 128;
 const SURFACE_DOWNLOAD_CONCURRENCY = 6;
-const SURFACE_LOD_SIZES = [4, 8, 16, 32, 64];
+const SURFACE_LOD_SIZES = [2, 4, 8, 16, 32, 64];
 const SURFACE_REFINEMENT_BUDGET_BYTES = 4 * 1024 * 1024;
 
 interface SurfaceLodManifestEntry {
@@ -29,6 +30,7 @@ interface SurfaceLodManifestEntry {
 }
 
 interface SurfaceZoneManifestEntry {
+  sample_size?: number;
   zone_x: number;
   zone_z: number;
   revision: number;
@@ -64,8 +66,8 @@ function resolveSurfaceApiUrl(input: string, apiOrigin: string): URL {
 function parseManifest(value: unknown): SurfaceZoneManifest {
   const manifest = value as any;
   if (
-    ![3, SURFACE_ZONE_SCHEMA_VERSION].includes(manifest?.schema_version)
-    || manifest?.samples_per_chunk_axis !== SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS
+    ![3, 5, SURFACE_ZONE_SCHEMA_VERSION].includes(manifest?.schema_version)
+    || ![8, 16].includes(manifest?.samples_per_chunk_axis)
     || manifest?.zone_size_chunks !== SURFACE_ZONE_SIZE_CHUNKS
     || !boundedInteger(manifest?.width_chunks, SURFACE_ZONE_SIZE_CHUNKS, 2048)
     || !boundedInteger(manifest?.length_chunks, SURFACE_ZONE_SIZE_CHUNKS, 2048)
@@ -90,6 +92,7 @@ function parseManifest(value: unknown): SurfaceZoneManifest {
     const key = `${zone?.zone_x},${zone?.zone_z}`;
     if (
       !boundedInteger(zone?.zone_x, 0, maxZoneX - 1)
+      || (zone.sample_size !== undefined && ![1, 2].includes(zone.sample_size))
       || !boundedInteger(zone?.zone_z, 0, maxZoneZ - 1)
       || !boundedInteger(zone?.revision, 1, Number.MAX_SAFE_INTEGER)
       || !boundedInteger(zone?.source_terrain_revision, 0, Number.MAX_SAFE_INTEGER)
@@ -145,14 +148,14 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
   const expectedBytes = SURFACE_ZONE_HEADER_BYTES + recordCount * recordBytes;
   if (
     magic !== 'EDSZ'
-    || ![3, 4, 5].includes(schemaVersion)
-    || (schemaVersion >= 4 ? ![2, ...SURFACE_LOD_SIZES].includes(sampleSize!)
-      : samplesPerChunkAxis !== SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS)
+    || ![3, 4, 5, 6].includes(schemaVersion)
+    || (schemaVersion >= 4 ? ![...(schemaVersion === 6 ? [1] : []), ...SURFACE_LOD_SIZES].includes(sampleSize!)
+      : samplesPerChunkAxis !== 8)
     || zoneSizeChunks !== SURFACE_ZONE_SIZE_CHUNKS
-    || recordBytes !== (schemaVersion === 5 ? SURFACE_ZONE_RECORD_BYTES : LEGACY_SURFACE_ZONE_RECORD_BYTES)
+    || recordBytes !== (schemaVersion >= 5 ? SURFACE_ZONE_RECORD_BYTES : LEGACY_SURFACE_ZONE_RECORD_BYTES)
     || !Number.isSafeInteger(sourceTerrainRevision)
     || recordCount !== expectedRecords
-    || (schemaVersion === 5 ? bytes.byteLength < expectedBytes + 4 : bytes.byteLength !== expectedBytes)
+    || (schemaVersion >= 5 ? bytes.byteLength < expectedBytes + 4 : bytes.byteLength !== expectedBytes)
     || bytes.byteLength > MAX_SURFACE_ZONE_BYTES
   ) {
     throw new Error('Invalid Space surface-zone snapshot.');
@@ -160,13 +163,13 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
 
   const heightsMicro = new Uint16Array(recordCount);
   const colors = new Uint8Array(recordCount * 3);
-  const minHeightsMicro = schemaVersion === 5 ? new Uint16Array(recordCount) : undefined;
-  const colorErrors = schemaVersion === 5 ? new Uint8Array(recordCount) : undefined;
+  const minHeightsMicro = schemaVersion >= 5 ? new Uint16Array(recordCount) : undefined;
+  const colorErrors = schemaVersion >= 5 ? new Uint8Array(recordCount) : undefined;
   let offset = SURFACE_ZONE_HEADER_BYTES;
   for (let index = 0; index < recordCount; index++) {
     heightsMicro[index] = view.getUint16(offset, true);
     if (heightsMicro[index] > 2048) throw new Error('Invalid surface height.');
-    const colorOffset = offset + (schemaVersion === 5 ? 4 : 2);
+    const colorOffset = offset + (schemaVersion >= 5 ? 4 : 2);
     colors.set(bytes.subarray(colorOffset, colorOffset + 3), index * 3);
     if (minHeightsMicro && colorErrors) {
       minHeightsMicro[index] = view.getUint16(offset + 2, true);
@@ -176,7 +179,7 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
     offset += recordBytes;
   }
   let detailChunks: DistantChunkSnapshot[] | undefined;
-  if (schemaVersion === 5) {
+  if (schemaVersion >= 5) {
     detailChunks = [];
     const count = view.getUint32(offset, true);
     offset += 4;
@@ -277,22 +280,31 @@ export function createSpaceSurfaceSnapshotRemote(
         entry, demand: options?.getZoneDemand(entry.zone_x, entry.zone_z)
           ?? { sampleSize: 2, priority: entry.zone_x * 32 + entry.zone_z },
       })).sort((a, b) => a.demand.priority - b.demand.priority);
-      let refinementBytes = 0;
       const targets = new Map<string, SurfaceLodManifestEntry>();
-      for (const { entry, demand } of zones) {
-        const available = [{ ...entry, sample_size: 2 }, ...(entry.lods ?? [])]
-          .sort((a, b) => a.sample_size - b.sample_size);
-        let index = 0;
-        while (index + 1 < available.length && available[index + 1].sample_size <= demand.sampleSize) index++;
-        if (options && available.at(-1)?.sample_size === 64) {
-          while (index < available.length - 1
-            && refinementBytes + available[index].byte_length - available.at(-1)!.byte_length
-              > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) index++;
+      const selectTargets = () => {
+        const candidates = zones.map(({ entry }) => {
+          const demand = options?.getZoneDemand(entry.zone_x, entry.zone_z)
+            ?? { sampleSize: entry.sample_size ?? 2, priority: 0 };
+          const available = [{ ...entry, sample_size: entry.sample_size ?? 2 }, ...(entry.lods ?? [])]
+            .sort((a, b) => b.sample_size - a.sample_size);
+          targets.set(`${entry.zone_x},${entry.zone_z}`, available[0]);
+          return { entry, demand, available, index: 0 };
+        }).sort((a, b) => a.demand.priority - b.demand.priority);
+        let refinementBytes = 0;
+        // Refine in waves, so a full-detail nearby zone cannot consume the
+        // cache before the rest of the visible terrain gets even its 32m mip.
+        for (let round = 0; round < 6; round++) for (const candidate of candidates) {
+          const { entry, demand, available, index } = candidate;
+          const current = available[index], next = available[index + 1];
+          if (!next || current.sample_size <= demand.sampleSize) continue;
+          const cost = next.byte_length - current.byte_length;
+          if (options && available[0].sample_size === 64 && refinementBytes + cost
+            > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) continue;
+          refinementBytes += cost;
+          candidate.index++;
+          targets.set(`${entry.zone_x},${entry.zone_z}`, next);
         }
-        const level = available[index];
-        if (level.sample_size < 64) refinementBytes += level.byte_length - (available.at(-1)?.byte_length ?? 0);
-        targets.set(`${entry.zone_x},${entry.zone_z}`, level);
-      }
+      };
       const download = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
         const key = `${entry.zone_x},${entry.zone_z}`;
         const cached = overviews.get(key);
@@ -345,7 +357,9 @@ export function createSpaceSurfaceSnapshotRemote(
             const key = `${entry.zone_x},${entry.zone_z}`;
             const coarse = entry.lods?.find(level => level.sample_size === 64);
             if (overview) {
-              if (!options || !coarse || installed.get(key)?.sourceDigest === entry.digest) continue;
+              // Refresh existing zones directly at their requested resolution;
+              // inserting a new overview first causes a visible 64m flash.
+              if (!options || !coarse || installed.has(key)) continue;
               await install(entry, coarse);
             } else {
               await install(entry, targets.get(key)!);
@@ -362,6 +376,9 @@ export function createSpaceSurfaceSnapshotRemote(
         if (error?.status === 'rejected') throw error.reason;
       };
       await pass(true);
+      // Overview residuals are now known. Request real refinement in this same
+      // pass instead of waiting for another poll / an idle rendering queue.
+      selectTargets();
       await pass(false);
       return { loaded, complete: manifest.complete };
     }

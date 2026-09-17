@@ -685,3 +685,132 @@ test('authored distant geometry survives coarse replacement, near handoff and st
   assert.notEqual(group.children[0], first);
   await layer.finalizeConnections();
 });
+
+test('unknown fine source errors request real data rather than synthetic subdivision', async () => {
+  setWorldShapeMode('torus');
+  const layer = new DistantSurfaceLayer();
+  try {
+    const camera = torusCamera(8192, 100, 1024);
+    layer.updateView(camera, 1600);
+    const zone = parseSurfaceZoneSnapshot(makeCoarseBytes(0, 2));
+    zone.minHeightsMicro = new Uint16Array(64).fill(0);
+    layer.installZone(zone);
+    assert.equal(layer.getZoneDemand(0, 2).sampleSize, 1, 'unavailable finer residuals are unknown, not range * size / 64');
+    await layer.finalizeConnections();
+  } finally { layer.setEnabled(false); setWorldShapeMode('earth'); }
+});
+
+test('surface download completion does not wait for a moving camera to become idle', async () => {
+  const layer = new DistantSurfaceLayer();
+  layer.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true)));
+  const internals = layer as any;
+  let resolve!: () => void;
+  internals.connectionBuildPending = true;
+  internals.pendingBuild = new Promise<void>(r => { resolve = r; });
+  // Model an in-progress frame-sliced build. This must settle without its
+  // completion, otherwise the client's next network poll cannot start.
+  let completed = false;
+  await layer.finalizeConnections(false).then(() => { completed = true; });
+  assert.equal(completed, true);
+  resolve();
+  layer.setEnabled(false);
+});
+
+test('v6 keeps adjacent one-metre columns distinct at the near/far handoff', async () => {
+  const count = 512 * 512;
+  const bytes = new Uint8Array(36 + count * 8);
+  bytes.set(makeZoneBytes().subarray(0, 32));
+  const view = new DataView(bytes.buffer);
+  bytes.set([6, 1, 32, 8], 4);
+  view.setUint32(28, count, true);
+  for (let i = 0; i < count; i++) {
+    const h = (Math.floor(i / 512) % 2 ? 18 : 17) * 8;
+    view.setUint16(32 + i * 8, h, true); view.setUint16(34 + i * 8, h, true);
+    bytes.set([113, 143, 97], 36 + i * 8);
+  }
+  const zone = parseSurfaceZoneSnapshot(bytes);
+  assert.equal(zone.sampleSize, 1);
+  assert.equal(zone.heightsMicro[512] - zone.heightsMicro[0], 8);
+  const layer = new DistantSurfaceLayer();
+  layer.setNearField(0, 0, 4);
+  layer.setDetailChunkReady(0, 0, true);
+  layer.installZone(zone);
+  await layer.finalizeConnections();
+  const offsets = layer.mesh.geometry.getAttribute('surfaceOffset');
+  const sizes = layer.mesh.geometry.getAttribute('surfaceSize');
+  const heights = layer.mesh.geometry.getAttribute('surfaceHeight');
+  const found = new Map<number, number>();
+  for (let i = 0; i < layer.mesh.geometry.instanceCount; i++) {
+    if (offsets.getY(i) === 0 && offsets.getX(i) < 2) {
+      assert.equal(sizes.getX(i), 1);
+      found.set(offsets.getX(i), heights.getX(i));
+    }
+  }
+  assert.deepEqual([...found.values()].sort(), [136, 144]);
+  layer.setEnabled(false);
+});
+
+test('cache pressure refines all visible zones before concentrating detail near the camera', async () => {
+  const payloads = new Map<string, Uint8Array>();
+  const zones = Array.from({ length: 3 }, (_, x) => {
+    const level = (size: number) => {
+      const bytes = size === 2 ? makeZoneBytes(x, 0, true) : makeCoarseBytes(x, 0, size);
+      const url = `/z/${x}/${size}`;
+      payloads.set(url, bytes);
+      return {sample_size:size,url,byte_length:bytes.length,digest:createHash('sha256').update(bytes).digest('hex')};
+    };
+    return {zone_x:x,zone_z:0,revision:1,source_terrain_revision:7,...level(2),lods:[4,16,64].map(level)};
+  });
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com','token','/manifest',20260827,1,
+    (async input => {
+      const path = new URL(String(input)).pathname;
+      return path === '/manifest' ? Response.json({schema_version:5,samples_per_chunk_axis:8,zone_size_chunks:32,
+        width_chunks:96,length_chunks:32,complete:true,zones}) : new Response(payloads.get(path)!.slice().buffer);
+    }) as typeof fetch);
+  const installed = new Map<number,number>();
+  await remote.loadAll(z => installed.set(z.zoneX,z.sampleSize??2),undefined,
+    {getZoneDemand:x=>({sampleSize:2,priority:x}),getDataBudgetBytes:()=>650_000});
+  assert.deepEqual([...installed.values()], [2,4,4], 'a budget boundary must not leave a visible neighbour at 64m');
+});
+
+test('new overviews trigger refinement immediately and updated fine zones never flash coarse', async () => {
+  let revision = 7, overviewSeen = false;
+  const installed: number[] = [];
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com','token','/manifest',20260827,1,
+    (async input => {
+      const path = new URL(String(input)).pathname;
+      const fine = makeZoneBytes(0,0,true); new DataView(fine.buffer).setBigUint64(20,BigInt(revision),true);
+      const coarse = makeCoarseBytes(0,0,64,revision);
+      const level = (size:number,bytes:Uint8Array) => ({sample_size:size,url:`/z/${size}`,byte_length:bytes.length,
+        digest:createHash('sha256').update(bytes).digest('hex')});
+      return path === '/manifest' ? Response.json({schema_version:5,samples_per_chunk_axis:8,zone_size_chunks:32,
+        width_chunks:32,length_chunks:32,complete:false,zones:[{zone_x:0,zone_z:0,revision,source_terrain_revision:revision,
+          ...level(2,fine),lods:[level(64,coarse)]}]}) : new Response(path.endsWith('/64')?coarse.buffer:fine.buffer);
+    }) as typeof fetch);
+  const install = (z: ReturnType<typeof parseSurfaceZoneSnapshot>) => {installed.push(z.sampleSize??2); overviewSeen=true;};
+  const options = {getZoneDemand:()=>({sampleSize:overviewSeen?2:64,priority:0})};
+  await remote.loadAll(install,undefined,options);
+  assert.deepEqual(installed,[64,2]);
+  revision++;
+  await remote.loadAll(install,undefined,options);
+  assert.deepEqual(installed,[64,2,2]);
+});
+
+test('a complete v6 manifest fits with all seven authenticated digest URLs', async () => {
+  const digest = 'a'.repeat(64);
+  const zones = Array.from({length:128},(_,i)=>{
+    const x=Math.floor(i/4), z=i%4;
+    const base=`/space/api/v2/worlds/00000000-0000-4000-8000-000000000002/surface-zones/${x}/${z}`;
+    const level=(size:number)=>({sample_size:size,digest,byte_length:36+(512/size)**2*8,
+      url:`${base}?sample_size=${size}&digest=${digest}`});
+    return {zone_x:x,zone_z:z,revision:1,source_terrain_revision:0,updating:false,
+      ...level(1),lods:[2,4,8,16,32,64].map(level)};
+  });
+  const manifest={schema_version:6,samples_per_chunk_axis:16,zone_size_chunks:32,width_chunks:1024,
+    length_chunks:128,complete:true,zones};
+  assert.ok(JSON.stringify(manifest).length>256*1024);
+  const remote=createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com','token','/manifest',20260827,1,
+    (async input=>String(input).endsWith('/manifest')?Response.json(manifest):new Response('',{status:503})) as typeof fetch);
+  await assert.rejects(remote.loadAll(()=>{},undefined,{getZoneDemand:()=>({sampleSize:64,priority:0})}),
+    /zone failed with HTTP 503/, 'metadata must parse and reach the download, not hit the old 256KiB limit');
+});

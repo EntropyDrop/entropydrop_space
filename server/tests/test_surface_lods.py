@@ -106,3 +106,23 @@ def test_authored_trailer_survives_all_mips_byte_for_byte():
         raw = surface.decode_surface_lod(SimpleNamespace(lod_payload=payload), level)
         assert raw[32 + (512 // level['sample_size']) ** 2 * 8:] == trailer
         assert struct.unpack_from('<HH', raw, 32) == (136, 128)
+
+
+def test_v6_source_retains_one_metre_steps_and_pyramid_bounds(monkeypatch):
+    class Steps:
+        def __init__(self, *args):
+            pass
+        def sample_height(self, x, z):
+            return 16 + x % 2
+    monkeypatch.setattr(surface, 'TerrainSurfaceGenerator', Steps)
+    world = SimpleNamespace(seed=42, width_chunks=1024, length_chunks=128, terrain_generator_version=1)
+    raw = surface.build_surface_zone_payload(world, 0, 0, 0)
+    assert raw[4:8] == bytes((6, 1, 32, 8))
+    assert len(raw) == 36 + 512 * 512 * 8
+    assert struct.unpack_from('<HH', raw, 32) == (136, 136)
+    assert struct.unpack_from('<HH', raw, 32 + 512 * 8) == (144, 144)
+    levels, compressed = surface.build_surface_lods(raw)
+    assert [l['sample_size'] for l in levels] == [2, 4, 8, 16, 32, 64]
+    for level in levels:
+        mip = surface.decode_surface_lod(SimpleNamespace(lod_payload=compressed), level)
+        assert struct.unpack_from('<HH', mip, 32) == (144, 136)

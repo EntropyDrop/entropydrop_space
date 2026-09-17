@@ -25,7 +25,7 @@ consistency contract is [the Space backend contract](../../server/docs/space-bac
 | `/worlds/{id}/heartbeat` | POST | JSON | Terrain revision + nearby players when the socket is down |
 | `/worlds/{id}/admission` | POST/DELETE | JSON | Redis-backed join queue (32 active slots per world) |
 | `/worlds/{id}/join-ticket` | POST | JSON | Single-use realtime ticket + WebSocket URL |
-| surface manifest / zone URLs | GET | JSON manifest, `application/vnd.entropydrop.surface-zone` | Far-surface zones (`EDSZ` v5) |
+| surface manifest / zone URLs | GET | JSON manifest, `application/vnd.entropydrop.surface-zone` | Far-surface zones (`EDSZ` v6) |
 | `/worlds/{id}/entities` | GET/POST | JSON, or `application/x-protobuf` envelope | List / create world entities |
 | `/worlds/{id}/entities/{id}` | GET | JSON | Read moving entity metadata on realtime AOI entry |
 | `/worlds/{id}/entities/browser` | POST | `application/x-protobuf` envelope | Create a browser-authored entity with a runtime snapshot |

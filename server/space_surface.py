@@ -18,10 +18,10 @@ from space.database import SessionLocal
 
 
 SURFACE_MAGIC = b"EDSZ"
-SURFACE_SCHEMA_VERSION = 5
-SURFACE_LOD_SCHEMA_VERSION = 5
-SURFACE_LOD_SIZES = (4, 8, 16, 32, 64)
-SURFACE_SAMPLES_PER_CHUNK_AXIS = 8
+SURFACE_SCHEMA_VERSION = 6
+SURFACE_LOD_SCHEMA_VERSION = 6
+SURFACE_LOD_SIZES = (2, 4, 8, 16, 32, 64)
+SURFACE_SAMPLES_PER_CHUNK_AXIS = 16
 SURFACE_RECORD_BYTES = 8
 MAX_SURFACE_BYTES = 16 * 1024 * 1024
 SURFACE_HEADER_BYTES = 32
@@ -229,21 +229,20 @@ def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay):
 
 
 def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, overlays=None):
-    # v5: X-major base lattice (height, minimum, sRGB, colour error), followed by
+    # v6: exact 1m X-major lattice (height, minimum, sRGB, colour error), followed by
     # authored chunk solids. The same solids accompany every mip, so zooming out
     # can never turn a bridge into a pillar or erase a thin build.
-    axis = 256
-    payload = bytearray(struct.pack('<4sBBBBHHiIQI', SURFACE_MAGIC, 5, 2, 32, 8,
+    axis = 512
+    payload = bytearray(struct.pack('<4sBBBBHHiIQI', SURFACE_MAGIC, 6, 1, 32, 8,
         zone_x, zone_z, int(world.seed), int(world.terrain_generator_version),
         int(source_terrain_revision), axis * axis))
     generator = TerrainSurfaceGenerator(int(world.seed), int(world.width_chunks) * 16,
                                       int(world.length_chunks) * 16)
     for x in range(axis):
         for z in range(axis):
-            heights = [(generator.sample_height(zone_x * 512 + x * 2 + dx,
-                       zone_z * 512 + z * 2 + dz) + 1) * MICRO_DIVISIONS
-                       for dx in range(2) for dz in range(2)]
-            payload.extend(struct.pack('<HHBBBB', max(heights), min(heights),
+            height = (generator.sample_height(zone_x * 512 + x,
+                       zone_z * 512 + z) + 1) * MICRO_DIVISIONS
+            payload.extend(struct.pack('<HHBBBB', height, height,
                                       0x71, 0x8f, 0x61, 0))
     authored = [(key, value) for key, value in sorted((overlays or {}).items())
                 if value.get('standard') or value.get('micro') or value.get('revision')]
@@ -280,7 +279,7 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
     if len(raw) < SURFACE_HEADER_BYTES:
         raise ValueError('truncated surface source')
     magic, schema, samples, zone_size, record_bytes, *_ = struct.unpack_from('<4sBBBBHHiIQI', raw)
-    axis = 256
+    axis = 512 if schema == 6 and samples == 1 else 256
     end = 32 + axis * axis * record_bytes
     if magic != SURFACE_MAGIC or zone_size != 32 or len(raw) < end:
         raise ValueError('invalid surface source')
@@ -294,7 +293,7 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
                         h, r, g, b = next(records)
                         grid[(cx * 8 + sx) * axis + cz * 8 + sz] = (h, h, r, g, b, 0)
         trailer = struct.pack('<I', 0)
-    elif schema == 5 and samples == 2 and record_bytes == 8 and len(raw) >= end + 4:
+    elif ((schema == 5 and samples == 2) or (schema == 6 and samples == 1)) and record_bytes == 8 and len(raw) >= end + 4:
         grid = list(struct.iter_unpack('<HHBBBB', raw[32:end]))
         trailer = raw[end:]
     else:
@@ -302,6 +301,8 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
     manifest, chunks, offset = [], [], 0
     compressor = zstd.ZstdCompressor(level=6)
     for size in SURFACE_LOD_SIZES:
+        if size <= 512 // axis:
+            continue
         next_axis, reduced = axis // 2, []
         for x in range(next_axis):
             for z in range(next_axis):
@@ -312,7 +313,7 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
                                      for c in children))
                 reduced.append((peak[0], min(c[1] for c in children), *peak[2:5], error))
         payload = bytearray(raw[:32])
-        payload[4:8] = bytes((5, size, 32, 8))
+        payload[4:8] = bytes((6 if schema == 6 else 5, size, 32, 8))
         struct.pack_into('<I', payload, 28, len(reduced))
         for record in reduced:
             payload.extend(struct.pack('<HHBBBB', *record))
@@ -443,7 +444,13 @@ def generate_next_surface_zone() -> bool:
                     | (models.SpaceSurfaceZoneSnapshot.codec != SURFACE_CODEC_ZSTD)
                     | (models.SpaceSurfaceZoneSnapshot.lod_payload.is_(None))
                 ),
-            ).order_by(models.SpaceSurfaceZoneSnapshot.updated_at.asc()).first()
+            ).order_by(
+                models.SpaceSurfaceZoneSnapshot.dirty.desc(),
+                # Migrate authored zones first: legacy height maps cannot
+                # represent bridges at all, regardless of the pixel budget.
+                (models.SpaceSurfaceZoneSnapshot.source_terrain_revision > 0).desc(),
+                models.SpaceSurfaceZoneSnapshot.updated_at.asc(),
+            ).first()
             if dirty is not None:
                 generate_surface_zone(db, world, int(dirty.zone_x), int(dirty.zone_z))
                 return True
@@ -492,5 +499,9 @@ def ensure_surface_generation_started() -> bool:
 
 async def start_surface_snapshot_job() -> None:
     while True:
-        generated = await asyncio.to_thread(generate_next_surface_zone)
+        try:
+            generated = await asyncio.to_thread(generate_next_surface_zone)
+        except Exception:
+            logger.exception("Space surface snapshot generation failed; retrying")
+            generated = False
         await asyncio.sleep(0.05 if generated else SURFACE_JOB_IDLE_SECONDS)

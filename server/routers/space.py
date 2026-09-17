@@ -1135,9 +1135,8 @@ def list_surface_zones(
     ).filter(
         models.SpaceSurfaceZoneSnapshot.world_id == world.id,
         models.SpaceSurfaceZoneSnapshot.terrain_generator_version == world.terrain_generator_version,
-        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, space_surface.SURFACE_SCHEMA_VERSION)),
-        models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis
-        == space_surface.SURFACE_SAMPLES_PER_CHUNK_AXIS,
+        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, 5, space_surface.SURFACE_SCHEMA_VERSION)),
+        models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis.in_((8, 16)),
     ).order_by(
         models.SpaceSurfaceZoneSnapshot.zone_x,
         models.SpaceSurfaceZoneSnapshot.zone_z,
@@ -1161,6 +1160,7 @@ def list_surface_zones(
             "zone_z": int(row.zone_z),
             "revision": int(row.revision),
             "source_terrain_revision": int(row.source_terrain_revision),
+            "sample_size": 16 // int(row.samples_per_chunk_axis),
             "updating": bool(row.dirty or row.schema_version != space_surface.SURFACE_SCHEMA_VERSION),
             "digest": digest,
             "byte_length": int(row.uncompressed_size),
@@ -1197,35 +1197,36 @@ def get_surface_zone(
     zone_x: int,
     zone_z: int,
     digest: str | None = Query(default=None, min_length=64, max_length=64),
-    sample_size: int = Query(default=2),
+    sample_size: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """Return one validated raw EDSZ payload; HTTP compression handles transfer size."""
     world = _require_world_membership(db, str(world_id), current_user)
-    if sample_size not in (2, *space_surface.SURFACE_LOD_SIZES):
+    if sample_size is not None and sample_size not in (1, *space_surface.SURFACE_LOD_SIZES):
         raise HTTPException(status_code=422, detail={"code": "INVALID_SURFACE_SAMPLE_SIZE"})
     max_zone_x = int(world.width_chunks) // int(world.zone_size_chunks)
     max_zone_z = int(world.length_chunks) // int(world.zone_size_chunks)
     if not (0 <= zone_x < max_zone_x and 0 <= zone_z < max_zone_z):
         raise HTTPException(status_code=404, detail={"code": "SURFACE_ZONE_NOT_FOUND"})
     row = db.query(models.SpaceSurfaceZoneSnapshot).options(
-        defer(models.SpaceSurfaceZoneSnapshot.payload if sample_size != 2
+        defer(models.SpaceSurfaceZoneSnapshot.payload if sample_size is not None and sample_size != 1
               else models.SpaceSurfaceZoneSnapshot.lod_payload),
     ).filter(
         models.SpaceSurfaceZoneSnapshot.world_id == world.id,
         models.SpaceSurfaceZoneSnapshot.zone_x == zone_x,
         models.SpaceSurfaceZoneSnapshot.zone_z == zone_z,
         models.SpaceSurfaceZoneSnapshot.terrain_generator_version == world.terrain_generator_version,
-        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, space_surface.SURFACE_SCHEMA_VERSION)),
-        models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis
-        == space_surface.SURFACE_SAMPLES_PER_CHUNK_AXIS,
+        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, 5, space_surface.SURFACE_SCHEMA_VERSION)),
+        models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis.in_((8, 16)),
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "SURFACE_ZONE_NOT_READY"})
+    source_sample_size = 16 // int(row.samples_per_chunk_axis)
+    sample_size = source_sample_size if sample_size is None else sample_size
     level = next((entry for entry in (row.lod_manifest or [])
                   if entry['sample_size'] == sample_size), None)
-    if sample_size != 2 and level is None:
+    if sample_size != source_sample_size and level is None:
         raise HTTPException(status_code=404, detail={"code": "SURFACE_LOD_NOT_READY"})
     actual_digest = level['digest'] if level is not None else bytes(row.content_hash).hex()
     if digest is not None and not secrets.compare_digest(digest.lower(), actual_digest):

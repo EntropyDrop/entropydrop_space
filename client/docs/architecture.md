@@ -72,12 +72,18 @@ entropydrop_website/
   current camera projection and drawing-buffer height, with hysteresis and height
   morphing. The data/geometry ceilings can limit attainable quality; increasing
   the data budget allows more fine source data, not a larger simulation radius.
-- EDSZ v5 includes conservative errors in each precomputed mip and sparse authored
+- EDSZ v6 includes conservative errors in each precomputed mip and sparse authored
   chunk solids (`DistantChunkLayer.ts`). Vertical runs preserve excavations, air
   gaps, colour boundaries and microcell footprints independently of the terrain
   sample width. Microcell part shapes use their voxel bounds in the far proxy.
   Local edits are captured before near meshes leave the AOI and retained until
   an equally new acknowledged server chunk revision arrives.
+- The v6 source has exact 1m columns. Unknown finer residuals request real data;
+  subdividing below a downloaded mip only improves torus curvature. Cache space
+  is assigned in refinement waves across visible zones, avoiding a 64m cliff
+  after the first few zones exhaust the budget. Overview installs inform demand
+  in the same download pass, and refreshes replace the current resolution directly.
+  Network polling never waits for the moving camera's mesh queue to become idle.
 - The 128 KiB ownership texture distinguishes procedural far surface, authored
   far solids, and ready near terrain. Fine boundary cells, inward-owned side
   masks and closed side connections prevent near/far and curved-LOD cracks.
@@ -85,7 +91,7 @@ entropydrop_website/
   GPU batches stay live until a complete replacement is ready; camera updates are
   coalesced without cancelling an in-progress build. Dirty/unavailable manifests
   keep last-good coverage. Server schema upgrades retain legacy snapshots while
-  the background generator fills v5. Earth mode continues to disable the far layer.
+  the background generator fills v6. Earth mode continues to disable the far layer.
 - To reproduce the authored handoff in WebGL, run
   `python tools/generate_distant_surface_fixture.py` from `server/`, then open
   `tools/distant-surface-preview.html` through the client dev server. The fixture
@@ -93,6 +99,9 @@ entropydrop_website/
   suspended beam, pit and microcell, with near/far views, forced 64m source data,
   camera travel and revision refresh. The remaining overview is deliberately
   uniform test terrain; fixture triangle counts are not production benchmarks.
+  With `--terrain-json <export> --all-zones`, the same tool instead builds all
+  128 zones and a streaming manifest from a read-only development-world export.
+  Select Live streaming in the preview to exercise the real cache and loader.
 - Lighting presets and automatic resolution live in
   `src/engine/render/LightingQuality.ts` and `AdaptiveResolution.ts`.
 - Model import (`GLTF`/`STL`/`OBJ`) runs through `src/engine/voxel/ModelVoxelizer.ts`,

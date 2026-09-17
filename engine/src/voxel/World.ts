@@ -1733,8 +1733,8 @@ export class World {
     this.distantSurface.installZone(zone);
   }
 
-  finalizeSurfaceConnections() {
-    return this.distantSurface.finalizeConnections();
+  finalizeSurfaceConnections(waitForIdle = true) {
+    return this.distantSurface.finalizeConnections(waitForIdle);
   }
 
   removeSurfaceZone(zoneX: number, zoneZ: number) {

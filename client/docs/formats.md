@@ -76,9 +76,9 @@ it stays JSON until a typed snapshot schema exists. Requests use
 (base64 of the same bytes) is still accepted for existing agents. Definitions are always
 downloaded as raw `application/x-protobuf`.
 
-## Far-surface zone snapshot (`EDSZ`, v5)
+## Far-surface zone snapshot (`EDSZ`, v6)
 
-The backend publishes independently compressed 2/4/8/16/32/64m levels. Each download
+The backend publishes independently compressed 1/2/4/8/16/32/64m levels. Each download
 has a 32-byte little-endian header, a zone-wide X-major lattice, and an authored-solid
 trailer. The browser also reads legacy v3 (chunk-major) and v4 (coarse lattice) data
 while the server rebuilds its cache.
@@ -86,8 +86,8 @@ while the server rebuilds its cache.
 | Offset | Field | Type |
 | --- | --- | --- |
 | 0 | magic `EDSZ` | 4 bytes |
-| 4 | schema version (`5`) | uint8 |
-| 5 | sample width in metres (`2/4/8/16/32/64`) | uint8 |
+| 4 | schema version (`6`) | uint8 |
+| 5 | sample width in metres (`1/2/4/8/16/32/64`) | uint8 |
 | 6 | zone size in chunks (`32`) | uint8 |
 | 7 | lattice record bytes (`8`) | uint8 |
 | 8 | zone X | uint16 LE |
@@ -110,7 +110,7 @@ units, followed by RGB (`3 * uint8`). Vertical runs and air gaps remain separate
 same authored trailer accompanies every data mip; a 64m overview still preserves
 thin structures. A zero-box chunk is valid and masks an entirely excavated chunk.
 
-A fine zone without authored solids is 524,324 bytes; its 64m overview is 548 bytes.
+A fine zone without authored solids is 2,097,188 bytes; its 64m overview is 548 bytes.
 The parser caps each payload at 16 MiB, validates exact lengths, dimensions, solid
 bounds, unique chunk ownership and safe revisions, and verifies SHA-256 and manifest
 identity before installation. Unavailable/dirty zones retain their last valid data;

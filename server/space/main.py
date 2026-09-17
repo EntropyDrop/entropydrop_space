@@ -11,6 +11,8 @@ from space import models
 from http_middleware import configure_http
 from rate_limit import limiter
 from contextlib import asynccontextmanager
+from contextlib import suppress
+import space_surface
 from routers import space, space_entities, space_hosting, space_external, space_agent, space_market, space_realtime, space_monitoring
 from space.metrics import metrics_collector
 
@@ -21,8 +23,16 @@ if not settings.SPACE_JOIN_TICKET_SECRET:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     metrics_collector.start()
-    yield
-    metrics_collector.stop()
+    # Standalone Space does not run the monolith's background scheduler. Keep
+    # dirty/migrating surface zones progressing even with no manifest polling.
+    surface_job = asyncio.create_task(space_surface.start_surface_snapshot_job())
+    try:
+        yield
+    finally:
+        surface_job.cancel()
+        with suppress(asyncio.CancelledError):
+            await surface_job
+        metrics_collector.stop()
 
 
 app = FastAPI(title="EntropyDrop Space API", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
