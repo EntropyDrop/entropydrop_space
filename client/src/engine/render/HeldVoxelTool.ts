@@ -75,14 +75,14 @@ function toolVoxels(tool: HeldTool) {
       handle(9);
       // Low-resolution spade blade with socket collar, foot treads, dished
       // raised edges, central reinforcing spine, and 45-degree digging tip.
-      const widths = [4, 4, 4, 4, 4, 4, 3, 3, 2, 1, 0];
+      const widths = [4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 2, 1, 0];
       for (let row = 0; row < widths.length; row++) {
         const width = widths[row];
         const y = row + 10;
         box(-width, width, y, y, -1, 0, 0);
         for (let x = -width; x <= width; x++) {
-          if (Math.abs(x) === width && row <= 5) box(x, x, y, y, 1, 1, 4);
-          if (x === 0 && row <= 5) box(0, 0, y, y, 1, 1, 1);
+          if (Math.abs(x) === width && row <= 7) box(x, x, y, y, 1, 1, 4);
+          if (x === 0 && row <= 7) box(0, 0, y, y, 1, 1, 1);
         }
       }
       box(-1, 1, 8, 11, -1, 1, 3);
