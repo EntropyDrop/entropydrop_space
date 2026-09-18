@@ -45,7 +45,7 @@ import {
   TORUS_GREF, TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z,
   wrapMicroX, wrapMicroZ
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
-import { calculatePreviewDragForce, getInventoryPreviewBlocks } from '../render/SceneRenderer.ts';
+import { calculatePreviewDragForce, getInventoryPreviewBlocks, WRENCH_GIZMO_ROTATION_RADIUS } from '../render/SceneRenderer.ts';
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
 import { type SelectorShape, computeSelectionCells } from './SelectorShapes.ts';
@@ -735,14 +735,22 @@ export class PlayerController {
     // Mouse Clicks
     document.addEventListener('mousedown', (e) => {
       if (!this.isLocked) {
-        if (this.activeTool === SpecialTool.SELECTOR && e.button === 0 && this.hoveredGizmoHandle) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.startGizmoDrag(this.hoveredGizmoHandle, e);
-        } else if (this.activeTool === SpecialTool.WRENCH && e.button === 0 && this.hoveredWrenchGizmoHandle) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.startWrenchGizmoDrag(this.hoveredWrenchGizmoHandle, e);
+        if (this.activeTool === SpecialTool.SELECTOR && e.button === 0) {
+          this.updateSelectionGizmoPointerHover(e);
+          if (this.hoveredGizmoHandle) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.startGizmoDrag(this.hoveredGizmoHandle, e);
+            return;
+          }
+        } else if (this.activeTool === SpecialTool.WRENCH && e.button === 0) {
+          this.updateWrenchGizmoPointerHover(e);
+          if (this.hoveredWrenchGizmoHandle) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.startWrenchGizmoDrag(this.hoveredWrenchGizmoHandle, e);
+            return;
+          }
         }
         return;
       }
@@ -5595,7 +5603,7 @@ export class PlayerController {
       radialWorld = (axis === 'x' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0))
         .applyQuaternion(startQuaternion);
     }
-    radialWorld.normalize().multiplyScalar((target.axisLength || 1) * 0.72);
+    radialWorld.normalize().multiplyScalar((target.axisLength || 1) * WRENCH_GIZMO_ROTATION_RADIUS);
 
     const inverseStart = startQuaternion.clone().invert();
     const bodyFrames = [...(contraption.rigidBodies?.values?.() || [])].map((body: any) => ({

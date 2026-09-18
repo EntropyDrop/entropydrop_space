@@ -9,11 +9,17 @@ import {
 } from '../src/engine/controls/PlayerController.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import { ContraptionPhysics } from '@entropydrop/space-engine/physics/ContraptionPhysics.ts';
-import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
+import {
+  SceneRenderer,
+  WRENCH_GIZMO_ROTATION_RADIUS,
+  WRENCH_GIZMO_ROTATION_PICK_RADIUS
+} from '../src/engine/render/SceneRenderer.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import {
   bendPoint,
   unbendDirection,
+  setWorldShapeMode,
+  getWorldShapeMode,
   TORUS_SPAWN_X,
   TORUS_SPAWN_Z
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
@@ -594,6 +600,51 @@ test('Wrench COM gizmo exposes three translation and three rotation handles', ()
   assert.equal(pickBentHandle('move-x')?.handleKey, 'move-x');
   assert.equal(pickBentHandle('rotate-z')?.handleKey, 'rotate-z');
 
+  // Verify smaller cone geometry and smaller rotation radius
+  const rotateArrowMesh: any = renderer.wrenchPivotHandles.get('rotate-y')
+    .getObjectByName('WrenchPivotRotationArrow_Y');
+  assert.equal(rotateArrowMesh.geometry.parameters.radius, 0.055);
+  assert.equal(rotateArrowMesh.geometry.parameters.height, 0.14);
+  assert.equal(renderer.wrenchPivotHandles.get('rotate-y').userData.pickRadius, WRENCH_GIZMO_ROTATION_PICK_RADIUS);
+  assert.equal(WRENCH_GIZMO_ROTATION_RADIUS, 0.48);
+
+  // Verify that in Donut mode (Torus mode), bent raycast accurately hits rotation and move handles
+  const prevMode = getWorldShapeMode();
+  try {
+    setWorldShapeMode('torus');
+    assert.equal(pickBentHandle('move-x')?.handleKey, 'move-x');
+    assert.equal(pickBentHandle('rotate-z')?.handleKey, 'rotate-z');
+
+    // Verify standard Raycaster method automatically curves in Donut mode
+    const handle = renderer.wrenchPivotHandles.get('rotate-z');
+    const samples = handle.userData.pickLocalPoints;
+    const worldPoint = samples[Math.floor(samples.length / 2)].clone();
+    renderer.wrenchPivotGizmo.localToWorld(worldPoint);
+    const targetBent = bendPoint(worldPoint.x, worldPoint.y, worldPoint.z, new THREE.Vector3());
+    const originBent = targetBent.clone().add(new THREE.Vector3(0, 0, 2));
+    const flatRaycaster = new THREE.Raycaster(
+      worldPoint.clone().add(new THREE.Vector3(0, 0, 2)),
+      new THREE.Vector3(0, 0, -1)
+    );
+    const bentRayHit = renderer.raycastWrenchPivotGizmoBent(
+      originBent,
+      targetBent.clone().sub(originBent).normalize()
+    );
+    assert.equal(bentRayHit?.handleKey, 'rotate-z');
+    const delegatedHit = renderer.raycastWrenchPivotGizmo(flatRaycaster);
+    assert.equal(delegatedHit?.handleKey, 'rotate-z');
+  } finally {
+    setWorldShapeMode(prevMode);
+  }
+
+  // Verify move and rotate pick points do not overlap at the 0.48 axis crossing
+  const moveX = renderer.wrenchPivotHandles.get('move-x');
+  const rotateZ = renderer.wrenchPivotHandles.get('rotate-z');
+  const moveMinDist = Math.min(...moveX.userData.pickLocalPoints.map((p: THREE.Vector3) => p.x));
+  const rotateRadius = WRENCH_GIZMO_ROTATION_RADIUS;
+  // Move pick spheres start at 0.65 (down to 0.65 - 0.10 = 0.55), rotate pick sphere is at 0.48 (up to 0.48 + 0.075 = 0.555)
+  assert.ok(moveMinDist > rotateRadius, 'move pick points start outside the rotation arc');
+
   renderer.clearWrenchPivotGizmo();
   assert.equal(renderer.wrenchPivotGizmo.visible, false);
 });
@@ -813,7 +864,7 @@ test('Wrench COM rotation arrow rotates the whole stopped entity around its loca
   const startPosition = entity.position.clone();
   const startQuaternion = entity.quaternion.clone();
   const blockStarts = entity.blocks.map(block => entity.getBlockWorldCenter(block));
-  const radius = controller.wrenchPivotTarget.axisLength * 0.72;
+  const radius = controller.wrenchPivotTarget.axisLength * WRENCH_GIZMO_ROTATION_RADIUS;
 
   assert.equal(controller.startWrenchGizmoDrag({
     handleKey: 'rotate-z',
