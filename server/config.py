@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     SPACE_MARKET_MAX_TOTAL_BYTES_PER_OWNER: int = 256 * 1024 * 1024
     SPACE_MARKET_DAILY_UPLOAD_BYTES: int = 64 * 1024 * 1024
     SPACE_TERRAIN_BATCH_RECEIPT_RETENTION_DAYS: int = 30
-    TRUSTED_PROXY_CIDRS: str = ""
+    TRUSTED_PROXY_CIDRS: str = "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
     CORS_ORIGINS: str = ""
     @field_validator("SPACE_STANDALONE")
     @classmethod

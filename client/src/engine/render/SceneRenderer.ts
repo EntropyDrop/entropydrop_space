@@ -2148,7 +2148,28 @@ export class SceneRenderer {
   }
 
   raycastSelectionGizmo(raycaster: THREE.Raycaster) {
-    if (!this.selectionAxisGizmo || !this.selectionAxisGizmo.visible || !raycaster?.ray) return null;
+    if (!this.selectionAxisGizmo || !this.selectionAxisGizmo.visible) return null;
+    const candidates: THREE.Object3D[] = [];
+    if (this.selectionGizmoHandles) {
+      for (const handleGroup of this.selectionGizmoHandles.values()) {
+        candidates.push(...handleGroup.children);
+      }
+    }
+    const intersects = raycaster.intersectObjects(candidates, false);
+    if (intersects.length > 0) {
+      const hitObj = intersects[0].object;
+      const data = hitObj.userData;
+      if (data && data.isGizmoHandle) {
+        return {
+          handleKey: data.handleKey as string,
+          axis: data.axis as 'x' | 'y' | 'z',
+          direction: data.direction as 1 | -1,
+          point: intersects[0].point,
+          distance: intersects[0].distance
+        };
+      }
+    }
+    if (!raycaster?.ray) return null;
     const flatOrigin = raycaster.ray.origin;
     const flatDirection = raycaster.ray.direction;
     const eyeBent = bendPoint(flatOrigin.x, flatOrigin.y, flatOrigin.z, new THREE.Vector3());

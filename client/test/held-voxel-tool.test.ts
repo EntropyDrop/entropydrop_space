@@ -32,14 +32,14 @@ test('tools stay compact and share the standard hand grip posture', () => {
     assert.ok(Math.abs(Math.max(size.x, size.y, size.z) - expectedLength) < 1e-5,
       `${tool}: tools must stay compact at 6.4`);
     if (tool === 'shovel') {
-      assert.ok(Math.abs(mesh.geometry.boundingBox!.min.y - (-4.5 * 6.4 / 25 + 0.65)) < 1e-5,
+      assert.ok(Math.abs(mesh.geometry.boundingBox!.min.y - (-4.5 * 6.4 / 27 + 0.65)) < 1e-5,
         'the shaft heel must remain in its original position');
       const positions = mesh.geometry.getAttribute('position');
       let shaftWidth = 0;
       for (let i = 0; i < positions.count; i++) {
         if (positions.getY(i) < 2) shaftWidth = Math.max(shaftWidth, Math.abs(positions.getX(i)) * 2);
       }
-      assert.ok(Math.abs(shaftWidth - 3 * 6.4 / 25) < 1e-5, 'the shaft width must match spoon');
+      assert.ok(Math.abs(shaftWidth - 3 * 6.4 / 27) < 1e-5, 'the shaft width must match spoon');
     }
     mesh.geometry.dispose();
     for (const material of mesh.material) {
