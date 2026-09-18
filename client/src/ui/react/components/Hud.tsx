@@ -28,6 +28,7 @@ import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
 import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
+import { SiDiscord } from 'react-icons/si';
 
 import { LuShovel } from "react-icons/lu";
 
@@ -614,6 +615,17 @@ export function Hud() {
               onClick={() => { window.location.href = '/'; }}
             >
               <LiaHomeSolid size={18} />
+            </button>
+            <button
+              id="discord-btn"
+              type="button"
+              tabIndex={-1}
+              className="icon-btn"
+              title="Discord Community"
+              aria-label="Discord Community"
+              onClick={() => window.open('https://discord.gg/zxd8RjUyYt', '_blank', 'noopener,noreferrer')}
+            >
+              <SiDiscord size={18} />
             </button>
             <button
               id="global-settings-btn"

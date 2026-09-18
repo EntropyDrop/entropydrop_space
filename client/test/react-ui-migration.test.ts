@@ -18,7 +18,7 @@ const componentSource = COMPONENT_FILES
 
 const REQUIRED_UI_IDS = [
   'canvas-container', 'crosshair', 'hud-overlay', 'fps-val', 'ping-val', 'pos-val',
-  'hud-entities-list', 'home-btn', 'global-settings-btn', 'color-palette-bar', 'inventory-bar',
+  'hud-entities-list', 'home-btn', 'discord-btn', 'global-settings-btn', 'color-palette-bar', 'inventory-bar',
   'selector-panel-wrapper', 'hotbar', 'toast', 'code-editor-modal',
   'global-playback-group', 'component-tree-list', 'component-inspector-panel',
   'inspector-tab-defaults', 'inspector-tab-runtime',
