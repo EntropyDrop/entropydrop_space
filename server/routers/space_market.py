@@ -26,7 +26,7 @@ from config import settings
 from space.integrations import object_store as s3_utils
 from config import settings
 from space.database import get_db
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from space.inventory_codec import (
     SCHEMA_VERSION as INVENTORY_SCHEMA_VERSION,
     InventoryCodecError,
@@ -61,7 +61,9 @@ SPACE_MARKET_MAX_BOUNDS = 256
 SPACE_MARKET_MAX_COORDINATE = SPACE_MARKET_MAX_BOUNDS * 2
 from space.voxel_grid import MICRO_DIVISIONS as SPACE_MARKET_GRID_DIVISIONS
 SPACE_MARKET_GRID_EPSILON = 1e-6
-SPACE_MARKET_RATE_LIMIT = "120/minute; 2000/hour"
+SPACE_MARKET_READ_RATE_LIMIT = "120/minute; 2000/hour"
+SPACE_MARKET_PUBLISH_RATE_LIMIT = "10/minute; 100/hour"
+SPACE_MARKET_WRITE_RATE_LIMIT = "30/minute; 300/hour"
 SPACE_MARKET_OBJECT_PREFIX = "space-market/resources"
 SPACE_MARKET_MAX_RESOURCES_PER_OWNER = settings.SPACE_MARKET_MAX_RESOURCES_PER_OWNER
 SPACE_MARKET_MAX_TOTAL_BYTES_PER_OWNER = settings.SPACE_MARKET_MAX_TOTAL_BYTES_PER_OWNER
@@ -744,7 +746,7 @@ def _validation_error_response(error: ValidationError | ValueError) -> HTTPExcep
 
 
 @router.get("/resources")
-@limiter.limit(SPACE_MARKET_RATE_LIMIT)
+@limiter.limit(SPACE_MARKET_READ_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def list_market_resources(
     request: Request,
     kind: Literal["blockset", "entity", "colorset"] | None = Query(default=None),
@@ -814,7 +816,7 @@ def list_market_resources(
 
 
 @router.post("/resources", status_code=201)
-@limiter.limit(SPACE_MARKET_RATE_LIMIT)
+@limiter.limit(SPACE_MARKET_PUBLISH_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 async def publish_market_resource(
     request: Request,
     db: Session = Depends(get_db),
@@ -974,7 +976,7 @@ async def publish_market_resource(
 
 
 @router.get("/resources/{resource_id}/download")
-@limiter.limit(SPACE_MARKET_RATE_LIMIT)
+@limiter.limit(SPACE_MARKET_READ_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def download_market_resource(
     request: Request,
     resource_id: str,
@@ -1020,7 +1022,7 @@ def download_market_resource(
 
 
 @router.post("/resources/{resource_id}/like")
-@limiter.limit(SPACE_MARKET_RATE_LIMIT)
+@limiter.limit(SPACE_MARKET_WRITE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def toggle_market_resource_like(
     request: Request,
     resource_id: str,
@@ -1049,7 +1051,7 @@ def toggle_market_resource_like(
 
 
 @router.delete("/resources/{resource_id}")
-@limiter.limit(SPACE_MARKET_RATE_LIMIT)
+@limiter.limit(SPACE_MARKET_WRITE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def delete_market_resource(
     request: Request,
     resource_id: str,

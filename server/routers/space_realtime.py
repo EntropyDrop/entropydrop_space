@@ -21,7 +21,7 @@ from space import auth
 from space import models
 from config import settings
 from space.database import SessionLocal, get_db
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from routers import space as space_api
 from space.entity_pose import MAX_ENTITY_POSE_BYTES, MAX_SESSION_ENTITY_POSES, parse_entity_pose, authorize_entity_poses, parse_hosted_trajectory
 
@@ -1014,7 +1014,7 @@ realtime_hub = SpaceRealtimeHub()
     "/worlds/{world_id}/admission",
     response_model=SpaceAdmissionResponse,
 )
-@limiter.limit("60/minute")
+@limiter.limit("60/minute; 2000/hour", key_func=get_authenticated_or_remote_address)
 def request_space_admission(
     request: Request,
     world_id: uuid.UUID,
@@ -1038,7 +1038,7 @@ def request_space_admission(
     "/worlds/{world_id}/admission",
     response_model=SpaceAdmissionResponse,
 )
-@limiter.limit("30/minute")
+@limiter.limit("30/minute; 300/hour", key_func=get_authenticated_or_remote_address)
 def cancel_space_admission(
     request: Request,
     world_id: uuid.UUID,
@@ -1058,7 +1058,7 @@ def cancel_space_admission(
     "/worlds/{world_id}/join-ticket",
     response_model=SpaceJoinTicketResponse,
 )
-@limiter.limit("30/minute")
+@limiter.limit("30/minute; 300/hour", key_func=get_authenticated_or_remote_address)
 def create_space_join_ticket(
     request: Request,
     world_id: uuid.UUID,

@@ -24,7 +24,7 @@ from space import models
 from config import settings
 from space.contracts import space_api_pb2
 from space.database import get_db
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from routers.space import (
     MAX_PLAYER_Y_CM,
     MIN_PLAYER_Y_CM,
@@ -55,6 +55,8 @@ entity_security = HTTPBearer(auto_error=False)
 
 SPACE_ENTITY_RATE_LIMIT = "120/minute; 2000/hour"
 SPACE_ENTITY_CREATE_RATE_LIMIT = "30/minute; 300/hour"
+SPACE_ENTITY_WRITE_RATE_LIMIT = "30/minute; 300/hour"
+SPACE_ENTITY_CHECKPOINT_RATE_LIMIT = "10/minute; 100/hour"
 SPACE_ENTITY_MAX_PER_OWNER = 256
 SPACE_ENTITY_MAX_DEFINITION_BYTES = 8 * 1024 * 1024
 SPACE_ENTITY_MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024
@@ -949,7 +951,7 @@ def _wrapped_delta(value: int, center: int, extent: int) -> int:
 
 
 @router.post("", status_code=201)
-@limiter.limit(SPACE_ENTITY_CREATE_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_CREATE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def create_world_entity(
     request: Request,
     world_id: str,
@@ -1031,7 +1033,7 @@ def create_world_entity(
 
 
 @router.post("/browser", status_code=201)
-@limiter.limit(SPACE_ENTITY_CREATE_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_CREATE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def create_browser_world_entity(
     request: Request,
     world_id: str,
@@ -1119,7 +1121,7 @@ def create_browser_world_entity(
 
 
 @router.get("")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def list_world_entities(
     request: Request,
     world_id: str,
@@ -1168,7 +1170,7 @@ def list_world_entities(
 
 
 @router.get("/{entity_id}")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def get_world_entity(request: Request, world_id: str, entity_id: str,
                      db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     world = _require_world_membership(db, world_id, current_user)
@@ -1179,7 +1181,7 @@ def get_world_entity(request: Request, world_id: str, entity_id: str,
 
 
 @router.get("/{entity_id}/definition")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def get_world_entity_definition(
     request: Request,
     world_id: str,
@@ -1209,7 +1211,7 @@ def get_world_entity_definition(
 
 
 @router.get("/{entity_id}/snapshot")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def get_world_entity_snapshot(
     request: Request,
     world_id: str,
@@ -1318,7 +1320,7 @@ def _require_execution_holder(entity, instance_id, epoch, user_id, *, now=None):
 
 
 @router.get("/{entity_id}/configuration")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def get_entity_configuration(request: Request, response: Response, world_id: str, entity_id: str,
                              db: Session = Depends(get_db), creator: EntityCreator = Depends(_entity_creator)):
     world = _require_world_membership(db, world_id, creator.user)
@@ -1331,7 +1333,7 @@ def get_entity_configuration(request: Request, response: Response, world_id: str
 
 
 @router.patch("/{entity_id}/configuration")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_WRITE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def update_entity_configuration(request: Request, world_id: str, entity_id: str,
                                 payload: UpdateEntityConfigurationRequest,
                                 db: Session = Depends(get_db), creator: EntityCreator = Depends(_entity_creator)):
@@ -1433,7 +1435,7 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
 
 
 @router.put("/{entity_id}/checkpoint")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_CHECKPOINT_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def checkpoint_browser_world_entity(
     request: Request,
     world_id: str,
@@ -1551,7 +1553,7 @@ def checkpoint_browser_world_entity(
 
 
 @router.delete("/{entity_id}")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_WRITE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def delete_world_entity(
     request: Request,
     world_id: str,
@@ -1577,7 +1579,7 @@ def delete_world_entity(
 
 
 @router.put("/execution-leases")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def claim_world_entity_execution_leases(
     request: Request,
     world_id: str,
@@ -1645,7 +1647,7 @@ def claim_world_entity_execution_leases(
 
 
 @router.put("/{entity_id}/run-state")
-@limiter.limit(SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(SPACE_ENTITY_WRITE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def set_world_entity_run_state(
     request: Request,
     world_id: str,

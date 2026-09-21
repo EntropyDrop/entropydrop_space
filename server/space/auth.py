@@ -2,7 +2,7 @@
 import datetime as dt
 from config import settings
 
-from fastapi import Depends, HTTPException, Security
+from fastapi import Depends, HTTPException, Request, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -42,9 +42,11 @@ def resolve_identity(db, credential, *, allow_api_key=False):
     account.is_admin = data["is_admin"]
     return account, data.get("scopes")
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security),
+def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Security(security),
                      db: Session = Depends(get_db)):
-    return resolve_identity(db, credentials.credentials)[0]
+    user = resolve_identity(db, credentials.credentials)[0]
+    request.state.rate_limit_principal = f"user:{user.id}"
+    return user
 
 def get_current_admin(user=Depends(get_current_user)):
     if not user.is_admin:

@@ -91,7 +91,10 @@ def test_space_realtime_rate_limit_policy_matches_long_lived_sessions():
         f"{space_router.space_heartbeat.__module__}."
         f"{space_router.space_heartbeat.__name__}"
     )
-    assert heartbeat_endpoint in limiter._exempt_routes
+    assert heartbeat_endpoint not in limiter._exempt_routes
+    assert "minute" in space_router.SPACE_HEARTBEAT_RATE_LIMIT.lower()
+    assert "hour" in space_router.SPACE_HEARTBEAT_RATE_LIMIT.lower()
+    assert "day" in space_router.SPACE_HEARTBEAT_RATE_LIMIT.lower()
     assert "day" not in space_router.SPACE_POSITION_RATE_LIMIT.lower()
     assert "minute" in space_router.SPACE_POSITION_RATE_LIMIT.lower()
     assert "hour" in space_router.SPACE_POSITION_RATE_LIMIT.lower()

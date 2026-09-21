@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from config import settings
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from routers import space, space_entities as entities
 from space import models
 from space.database import get_db
@@ -73,7 +73,7 @@ def _own_position(db: Session, world_id: str, creator: entities.EntityCreator):
 
 
 @router.get("/players/me/position", response_model=PlayerPositionResponse)
-@limiter.limit(entities.SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(entities.SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def get_my_default_world_position(request: Request, response: Response,
         db: Session = Depends(get_db),
         creator: entities.EntityCreator = Depends(entities._entity_creator)):
@@ -87,7 +87,7 @@ def get_my_default_world_position(request: Request, response: Response,
 
 
 @router.get("/worlds/{world_id}/players/me/position", response_model=PlayerPositionResponse)
-@limiter.limit(entities.SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(entities.SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def get_my_world_position(request: Request, response: Response, world_id: uuid.UUID,
         db: Session = Depends(get_db),
         creator: entities.EntityCreator = Depends(entities._entity_creator)):

@@ -22,18 +22,23 @@ import space_surface
 from config import settings
 from space.database import get_db
 from space.metrics import metrics_collector
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from space_quota import QuotaWindow, UTC_DAY_SECONDS, reserve as reserve_quota, usage as quota_usage
 
 
 router = APIRouter(prefix="/space/api/v2", tags=["space"])
 
-# 20x ordinary API rate limits (ordinary is 60/min, 1000/hr, 4000/day)
-SPACE_HIGH_FREQ_RATE_LIMIT = "1200/minute; 20000/hour; 80000/day"
+# Gameplay endpoints have separate budgets based on their actual call cadence.
+SPACE_HIGH_FREQ_RATE_LIMIT = "180/minute; 10000/hour; 100000/day"
+SPACE_SURFACE_RATE_LIMIT = "600/minute; 20000/hour; 100000/day"
+SPACE_TERRAIN_WRITE_RATE_LIMIT = "120/minute; 5000/hour; 100000/day"
+SPACE_BOOTSTRAP_RATE_LIMIT = "10/minute; 100/hour"
+SPACE_HEARTBEAT_RATE_LIMIT = "120/minute; 5000/hour; 100000/day"
+SPACE_PING_RATE_LIMIT = "120/minute; 5000/hour"
 SPACE_PUBLIC_STATUS_RATE_LIMIT = "120/minute; 2000/hour"
 # Reconnect checkpoints may run for an entire long-lived play session. Keep
 # burst/hour protection, but do not turn normal continuous play into a daily 429.
-SPACE_POSITION_RATE_LIMIT = "1200/minute; 20000/hour"
+SPACE_POSITION_RATE_LIMIT = "30/minute; 300/hour"
 
 SPACE_CHUNK_SIZE = 16
 SPACE_WORLD_HEIGHT = 256
@@ -705,8 +710,11 @@ def _get_or_create_player_profile(
 
 
 @router.get("/ping")
-@limiter.exempt
-def ping_space(rtt: float | None = Query(None, description="Client observed round-trip latency in ms")):
+@limiter.limit(SPACE_PING_RATE_LIMIT)
+def ping_space(
+    request: Request,
+    rtt: float | None = Query(None, description="Client observed round-trip latency in ms"),
+):
     if rtt is not None:
         metrics_collector.record_latency(rtt)
     return {"status": "ok"}
@@ -744,7 +752,7 @@ def get_space_public_status(
 
 
 @router.post("/bootstrap", response_model=SpaceBootstrapResponse)
-@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT)
+@limiter.limit(SPACE_BOOTSTRAP_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def bootstrap_space(
     request: Request,
     requested_world: str | None = Query(None, alias="world", max_length=128),
@@ -798,7 +806,7 @@ def bootstrap_space(
 
 @router.put("/worlds/{world_id}/players/me/position")
 @router.post("/worlds/{world_id}/players/me/position")
-@limiter.limit(SPACE_POSITION_RATE_LIMIT)
+@limiter.limit(SPACE_POSITION_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def update_player_position(
     request: Request,
     world_id: uuid.UUID,
@@ -860,7 +868,7 @@ def update_player_position(
 
 
 @router.post("/worlds/{world_id}/heartbeat")
-@limiter.exempt
+@limiter.limit(SPACE_HEARTBEAT_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def space_heartbeat(
     request: Request,
     world_id: uuid.UUID,
@@ -1040,7 +1048,7 @@ def space_heartbeat(
 
 
 @router.get("/worlds/{world_id}/players")
-@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT)
+@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def list_world_players(
     request: Request,
     world_id: uuid.UUID,
@@ -1094,7 +1102,7 @@ def list_world_players(
 
 
 @router.get("/worlds/{world_id}/terrain-edits")
-@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT)
+@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def list_terrain_edits(
     request: Request,
     world_id: uuid.UUID,
@@ -1167,7 +1175,7 @@ def list_terrain_edits(
 
 
 @router.get("/worlds/{world_id}/surface-zones")
-@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT)
+@limiter.limit(SPACE_SURFACE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def list_surface_zones(
     request: Request,
     world_id: uuid.UUID,
@@ -1237,7 +1245,7 @@ def list_surface_zones(
 
 
 @router.get("/worlds/{world_id}/surface-zones/{zone_x}/{zone_z}")
-@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT)
+@limiter.limit(SPACE_SURFACE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def get_surface_zone(
     request: Request,
     world_id: uuid.UUID,
@@ -1298,7 +1306,7 @@ def get_surface_zone(
 
 
 @router.post("/worlds/{world_id}/terrain-edits/batches")
-@limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT)
+@limiter.limit(SPACE_TERRAIN_WRITE_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def apply_terrain_mutation_batch(
     request: Request,
     world_id: uuid.UUID,

@@ -15,7 +15,7 @@ from space import models
 from config import settings
 from space.contracts import space_api_pb2
 from space.database import get_db
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from routers import space, space_entities as entities
 from routers.space_market import validate_inventory_resource_payload
 from space.inventory_codec import InventoryCodecError, decode_inventory_resource, encode_inventory_resource
@@ -91,7 +91,7 @@ def _build_mutations(payload, canonical):
 
 
 @router.post("/blocksets/build", status_code=201)
-@limiter.limit(BUILD_RATE_LIMIT)
+@limiter.limit(BUILD_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def build_blockset(request: Request, world_id: uuid.UUID,
                    payload: BuildBlocksetRequest = Depends(build_blockset_request),
                    db: Session = Depends(get_db), creator: entities.EntityCreator = Depends(entities._entity_creator)):
@@ -146,7 +146,7 @@ def allowance(used, limit):
 
 
 @router.get("/api-usage")
-@limiter.limit(entities.SPACE_ENTITY_RATE_LIMIT)
+@limiter.limit(entities.SPACE_ENTITY_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def api_usage(request: Request, world_id: uuid.UUID, db: Session = Depends(get_db),
               creator: entities.EntityCreator = Depends(entities._entity_creator)):
     user = creator.user

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from space import models
 from config import settings
 from space.database import get_db
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from routers.space import _require_world_membership
 from routers.space_entities import (
     EntityCreator, StrictEntityModel, _entity_creator,
@@ -106,7 +106,7 @@ def authorized_entity(db, world_id, entity_id, creator):
 
 
 @router.get('/hosting/list')
-@limiter.limit('60/minute')
+@limiter.limit('60/minute; 2000/hour', key_func=get_authenticated_or_remote_address)
 def list_hosting(request: Request, world_id: uuid.UUID, db: Session = Depends(get_db),
                  creator: EntityCreator = Depends(_entity_creator)):
     world = _require_world_membership(db, str(world_id), creator.user)
@@ -124,7 +124,7 @@ def list_hosting(request: Request, world_id: uuid.UUID, db: Session = Depends(ge
 
 
 @router.put("/{entity_id}/hosting")
-@limiter.limit("60/minute")
+@limiter.limit("10/minute; 100/hour", key_func=get_authenticated_or_remote_address)
 def set_hosting(request: Request, world_id: uuid.UUID, entity_id: uuid.UUID, payload: HostingRequest,
                 db: Session = Depends(get_db), creator: EntityCreator = Depends(_entity_creator)):
     world_id, entity_id = str(world_id), str(entity_id)
@@ -218,7 +218,7 @@ def set_hosting(request: Request, world_id: uuid.UUID, entity_id: uuid.UUID, pay
 
 
 @router.get("/{entity_id}/hosting")
-@limiter.limit("120/minute")
+@limiter.limit("120/minute; 2000/hour", key_func=get_authenticated_or_remote_address)
 def get_hosting(request: Request, world_id: uuid.UUID, entity_id: uuid.UUID,
                 db: Session = Depends(get_db), creator: EntityCreator = Depends(_entity_creator)):
     _, entity = authorized_entity(db, str(world_id), str(entity_id), creator)

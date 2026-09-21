@@ -1,6 +1,6 @@
 """Independent Space API: local world data, remotely verified cloud accounts."""
 import asyncio
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from redis import Redis
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -78,7 +78,8 @@ async def ready():
 
 
 @app.get("/space/objects/{key:path}")
-def object_content(key: str, db: Session = Depends(get_db)):
+@limiter.limit("600/minute; 20000/hour; 100000/day")
+def object_content(request: Request, key: str, db: Session = Depends(get_db)):
     from space.integrations.object_store import object_path
     resource = db.query(models.SpaceMarketResource).filter_by(object_key=key).first()
     if resource is None:

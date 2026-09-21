@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from rate_limit import limiter
+from rate_limit import limiter, get_authenticated_or_remote_address
 from space import auth
 from space.database import get_db
 from space import models
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/space/api/v2/admin/monitoring", tags=["space-monitor
 
 
 @router.get("")
-@limiter.limit("120/minute")
+@limiter.limit("30/minute; 2000/hour", key_func=get_authenticated_or_remote_address)
 def get_space_monitoring(
     request: Request,
     range: Literal["1h", "6h", "12h", "24h"] = Query(
