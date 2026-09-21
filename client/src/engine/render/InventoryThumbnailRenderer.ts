@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import { getInventoryPreviewBlocks } from './SceneRenderer.ts';
 
 export class InventoryThumbnailRenderer {
@@ -83,7 +84,7 @@ export class InventoryThumbnailRenderer {
 
     // Fast signature from sample blocks
     const sample = (item.blocks || []).slice(0, 5).map((b: any) =>
-      `${b.localX ?? b.dx}_${b.localY ?? b.dy}_${b.localZ ?? b.dz}_${b.color}_${b.size || 1}`
+      `${b.localX ?? b.dx}_${b.localY ?? b.dy}_${b.localZ ?? b.dz}_${b.color}_${b.size || 1}_${normalizeVoxelMaterialId(b.materialId)}`
     ).join(';');
 
     return `${kind}:${name}:${blockCount}:${childCount}:${sample}:${size}`;
@@ -133,12 +134,14 @@ export class InventoryThumbnailRenderer {
       const maxExtent = Math.max(sizeX, sizeY, sizeZ, 1);
       const boundingRadius = Math.max(0.5, Math.hypot(sizeX, sizeY, sizeZ) / 2);
 
-      // 3. Build meshes grouped by block size
-      const blocksBySize = new Map<number, Array<{ center: THREE.Vector3; color: any }>>();
+      // 3. Build meshes grouped by block size and material.
+      const blocksByGroup = new Map<string, Array<{ center: THREE.Vector3; color: any; materialId?: number }>>();
       for (const block of previewBlocks) {
         const s = Number(block.size) || 1;
-        if (!blocksBySize.has(s)) blocksBySize.set(s, []);
-        blocksBySize.get(s)!.push(block);
+        const materialId = normalizeVoxelMaterialId(block.materialId);
+        const key = `${s}:${materialId}`;
+        if (!blocksByGroup.has(key)) blocksByGroup.set(key, []);
+        blocksByGroup.get(key)!.push(block);
       }
 
       const tempGroup = new THREE.Group();
@@ -147,12 +150,14 @@ export class InventoryThumbnailRenderer {
 
       const createdMeshes: THREE.InstancedMesh[] = [];
 
-      for (const [s, blocks] of blocksBySize.entries()) {
+      for (const [key, blocks] of blocksByGroup.entries()) {
+        const [sizeText, materialText] = key.split(':');
+        const s = Number(sizeText);
+        const materialId = Number(materialText);
         const geom = new THREE.BoxGeometry(s, s, s);
-        const mat = new THREE.MeshStandardMaterial({
-          roughness: 0.45,
-          metalness: 0.05
-        });
+        const mat = materialId === VoxelMaterialIds.EMISSIVE
+          ? new THREE.MeshBasicMaterial({ toneMapped: false })
+          : new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.05 });
 
         const instancedMesh = new THREE.InstancedMesh(geom, mat, blocks.length);
         for (let i = 0; i < blocks.length; i++) {

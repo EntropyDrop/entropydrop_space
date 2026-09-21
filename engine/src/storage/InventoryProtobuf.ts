@@ -1,4 +1,5 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
+import { parseVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import {
   createFileRegistry,
   fromBinary,
@@ -233,11 +234,13 @@ function compareVoxels(left: any, right: any): number {
     Number(left.dx), Number(left.dy), Number(left.dz),
     Number(left.mx ?? -1), Number(left.my ?? -1), Number(left.mz ?? -1),
     Number(left.color) >>> 0,
+    parseVoxelMaterialId(left.materialId),
   ];
   const rightKey = [
     Number(right.dx), Number(right.dy), Number(right.dz),
     Number(right.mx ?? -1), Number(right.my ?? -1), Number(right.mz ?? -1),
     Number(right.color) >>> 0,
+    parseVoxelMaterialId(right.materialId),
   ];
   for (let index = 0; index < leftKey.length; index += 1) {
     const difference = leftKey[index] - rightKey[index];
@@ -328,6 +331,7 @@ function voxelMessage(block: any): Voxel {
     microY: micro ? microOffset(block.my, 'y') : 0,
     microZ: micro ? microOffset(block.mz, 'z') : 0,
     colorRgb: Number(block.color) >>> 0,
+    materialId: parseVoxelMaterialId(block.materialId),
   };
 }
 
@@ -339,6 +343,8 @@ function portableVoxel(block: Voxel): any {
     block: 1,
     color: Number(block.colorRgb) >>> 0,
   };
+  const materialId = parseVoxelMaterialId(block.materialId);
+  if (materialId !== VoxelMaterialIds.DEFAULT) portable.materialId = materialId;
   if (block.isMicro) {
     portable.mx = microOffset(block.microX, 'x');
     portable.my = microOffset(block.microY, 'y');
@@ -356,6 +362,8 @@ function portableVoxelFields(block: any): any {
     block: 1,
     color: Number(block?.color) >>> 0,
   };
+  const materialId = parseVoxelMaterialId(block?.materialId);
+  if (materialId !== VoxelMaterialIds.DEFAULT) portable.materialId = materialId;
   if (block?.mx != null && block?.my != null && block?.mz != null) {
     portable.mx = Number(block.mx);
     portable.my = Number(block.my);
@@ -825,6 +833,7 @@ function previewVoxel(block: any, entity: boolean): any {
   const x = canonicalDouble(Number(block?.dx) + (isMicro ? Number(block.mx) / MICRO_DIVISIONS : 0));
   const y = canonicalDouble(Number(block?.dy) + (isMicro ? Number(block.my) / MICRO_DIVISIONS : 0));
   const z = canonicalDouble(Number(block?.dz) + (isMicro ? Number(block.mz) / MICRO_DIVISIONS : 0));
+  const materialId = parseVoxelMaterialId(block?.materialId);
   const preview: any = entity
     ? {
       dx: canonicalDouble(block?.dx),
@@ -846,6 +855,7 @@ function previewVoxel(block: any, entity: boolean): any {
       block: 1,
       color: Number(block?.color) >>> 0,
     };
+  if (materialId !== VoxelMaterialIds.DEFAULT) preview.materialId = materialId;
   if (isMicro) {
     preview.mx = Number(block.mx);
     preview.my = Number(block.my);

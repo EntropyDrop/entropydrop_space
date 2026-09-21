@@ -82,14 +82,14 @@ const selfUniversalEntries: ApiEntry[] = [
   { signature: 'self.getBounds()', description: 'Return entity-local block bounds `{min,max,size,center}`, or `null` when empty.' },
   { signature: 'self.setSeats(seats)', description: "Replace this component's pivot-relative driver seats. Each entry is `[x,y,z]` or `{position,rotation?,fixedOrientation?}`; `rotation` is a `[x,y,z,w]` rider orientation in the pivot frame (default identity, facing the component's -Z forward) and `fixedOrientation:true` makes the mounted rider's body follow the seat's solved world orientation while the camera retains unrestricted horizontal mouse look and independent pitch. Changes take effect while mounted without resetting the camera. Invalid positions or degenerate quaternions drop that seat. An entity is mountable when any component has a seat." },
   { signature: 'self.getSeats()', description: "Return this component's pivot-relative driver seats as `{position,rotation,fixedOrientation}` records." },
-  { signature: 'self.voxels.set(position, options?)', description: 'Queue one pivot-relative standard voxel placement; returns `{ok,placed,reason}`.' },
+  { signature: 'self.voxels.set(position, options?)', description: 'Queue one pivot-relative standard voxel placement. `options.materialId` is `0` (default) or `1` (emissive); returns `{ok,placed,reason}`.' },
   { signature: 'self.voxels.clear(position)', description: 'Queue removal of one standard voxel; returns `{ok,removed,reason}`.' },
-  { signature: 'self.voxels.paint(position, options?)', description: 'Queue repainting one standard voxel; returns `{ok,painted,reason}`.' },
+  { signature: 'self.voxels.paint(position, options?)', description: 'Queue color and optional `materialId` changes on one standard voxel; returns `{ok,painted,reason}`.' },
   { signature: 'self.voxels.clearCell(position)', description: 'Queue removal of all standard and micro voxels in one 1 m component cell.' },
   { signature: 'self.voxels.subdivide(position, clearOffset?)', description: 'Queue conversion to 512 micro voxels, optionally removing one offset atomically.' },
-  { signature: 'self.microVoxels.set(cell, offset, options?)', description: 'Queue a 0.125 m voxel; each offset coordinate is an integer from 0 through 7.' },
+  { signature: 'self.microVoxels.set(cell, offset, options?)', description: 'Queue a 0.125 m voxel with optional `materialId` `0` or `1`; each offset coordinate is an integer from 0 through 7.' },
   { signature: 'self.microVoxels.clear(cell, offset)', description: 'Queue removal of one exact 0.125 m component voxel.' },
-  { signature: 'self.microVoxels.paint(cell, offset, options?)', description: 'Queue repainting one exact 0.125 m component voxel.' }
+  { signature: 'self.microVoxels.paint(cell, offset, options?)', description: 'Queue color and optional `materialId` changes on one exact 0.125 m component voxel.' }
 ];
 
 const kinematicEntries: ApiEntry[] = [

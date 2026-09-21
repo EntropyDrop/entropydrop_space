@@ -552,6 +552,17 @@ def test_market_canonicalizes_the_only_block_id_and_rejects_standard_micro_overl
     assert _publish(client, "blockset", overlap).status_code == 422
 
 
+def test_market_accepts_only_default_and_emissive_voxel_materials():
+    emissive = _blockset("Emissive")
+    emissive["blocks"][0]["material_id"] = 1
+    canonical = space_market.validate_inventory_resource_payload("blockset", emissive)
+    assert [block for block in canonical["blocks"] if block.get("material_id") == 1]
+
+    emissive["blocks"][0]["material_id"] = 2
+    with pytest.raises(ValueError, match="less than or equal to 1"):
+        space_market.validate_inventory_resource_payload("blockset", emissive)
+
+
 def test_market_publish_body_limit_allows_large_valid_protobuf_resources(client, db):
     user = _user(db)
     app.dependency_overrides[get_current_user] = lambda: user
@@ -802,4 +813,3 @@ def test_market_resource_bounds_limits_enforced_to_256(client, db):
     resp_invalid = _publish(client, "blockset", payload_invalid)
     assert resp_invalid.status_code == 422
     assert "resource bounds exceed 256 standard cells" in resp_invalid.text
-

@@ -2,6 +2,7 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/Mic
 import * as THREE from 'three';
 import { MAX_INVENTORY_NAME_LENGTH, trimInventoryName, inventoryNameLength, truncateInventoryName } from '@entropydrop/space-engine/storage/InventoryName.ts';
 import { BlockTypes, colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import {
   BodyType,
   ContraptionMode,
@@ -2334,6 +2335,7 @@ export class PlayerController {
               localZ: (baseZ + iz) * MICRO_SIZE,
               size: MICRO_SIZE,
               color: block.color,
+              materialId: normalizeVoxelMaterialId(block.materialId),
               block: block.block,
               entityId: owner,
               virtualMicro: true,
@@ -2791,6 +2793,7 @@ export class PlayerController {
           size: block.size || 1,
           block: block.block,
           color: block.color,
+          materialId: normalizeVoxelMaterialId(block.materialId),
           part: block.part
         });
         return 1;
@@ -2951,6 +2954,7 @@ export class PlayerController {
         size: b.size || 1,
         block: b.block,
         color: b.color,
+        materialId: normalizeVoxelMaterialId(b.materialId),
         part: b.part
       }));
       name = `${blocks.length} blocks of [${nodeId}]`;
@@ -2985,6 +2989,7 @@ export class PlayerController {
           size: b.size || 1,
           block: b.block,
           color: b.color,
+          materialId: normalizeVoxelMaterialId(b.materialId),
           part: b.part
         }));
         name = `subtree [${rootId}] (${blocks.length} blocks)`;
@@ -3949,6 +3954,10 @@ export class PlayerController {
 
   pasteBlockSet(slot, replace = false) {
     if (!this.world || !slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return false;
+    if (slot.blocks.some(block => normalizeVoxelMaterialId(block.materialId) !== VoxelMaterialIds.DEFAULT)) {
+      this.ui?.showToast?.('Emissive materials currently work on entities only; terrain supports the default material');
+      return false;
+    }
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
@@ -7308,7 +7317,8 @@ export class PlayerController {
         blocks: (item.blocks || []).map(b => {
           const shared = {
             block: BlockTypes.COLOR_BLOCK,
-            color: normalizeColor(b.color ?? 0xf2a93b)
+            color: normalizeColor(b.color ?? 0xf2a93b),
+            materialId: normalizeVoxelMaterialId(b.materialId)
           };
           if ((b.size ?? 1) < 1) {
             // Block-set files keep every coordinate integral. dx/dy/dz select
@@ -7413,6 +7423,7 @@ export class PlayerController {
           const shared = {
             block: BlockTypes.COLOR_BLOCK,
             color: normalizeColor(b.color ?? 0xf2a93b),
+            materialId: normalizeVoxelMaterialId(b.materialId),
             entityId: b.entityId === undefined || b.entityId === null
               ? rootComponentId
               : String(b.entityId)
@@ -7921,6 +7932,7 @@ export class PlayerController {
           localZ: block.localZ,
           size: block.size || 1,
           color: block.color,
+          materialId: normalizeVoxelMaterialId(block.materialId),
           block: block.block,
           part: block.part,
           entityId: block.entityId ?? inventoryEntityRootId(slot)
@@ -7948,6 +7960,7 @@ export class PlayerController {
           localZ: block.localZ,
           size: block.size || 1,
           color: block.color,
+          materialId: normalizeVoxelMaterialId(block.materialId),
           block: block.block,
           part: block.part,
           entityId: block.entityId ?? inventoryEntityRootId(slot)

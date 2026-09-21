@@ -2171,6 +2171,7 @@ export class ContraptionManager {
       localZ: b.localZ,
       size: b.size || 1,
       color: b.color,
+      materialId: b.materialId,
       block: b.block,
       entityId: b.entityId
     }));

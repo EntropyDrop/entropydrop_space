@@ -46,7 +46,8 @@ export namespace ConstraintType {
  * `fixed32`. This file is the single source for portable content; the realtime
  * protocol must be updated together with it.
  * Canonical encoders normalize every double -0.0 to +0.0; sort BlockSet.blocks
- * and Component.blocks by (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb);
+ * and Component.blocks by
+ * (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb,material_id);
  * and sort Component.children and Entity.constraints by Unicode code-point id
  * order. Color and seat order remains significant and is preserved.
  * Schema v7 is a wire-breaking change: v6 files, backpacks and CDN objects are
@@ -87,7 +88,14 @@ export interface Voxel {
    * RGB packed as 0xRRGGBB. Matches VoxelMutation.color_rgb in the realtime
    * schema; the old `fixed32 color` wire type is no longer accepted.
    */
-  colorRgb?: number | undefined;
+  colorRgb?:
+    | number
+    | undefined;
+  /**
+   * Visual material preset. 0 is the existing lit/default surface; 1 is an
+   * unlit emissive surface tinted by color_rgb. Other values are rejected.
+   */
+  materialId?: number | undefined;
 }
 
 export interface BlockSet {
@@ -333,7 +341,7 @@ export const InventoryResource: MessageFns<InventoryResource> = {
 };
 
 function createBaseVoxel(): Voxel {
-  return { dx: 0, dy: 0, dz: 0, isMicro: false, microX: 0, microY: 0, microZ: 0, colorRgb: 0 };
+  return { dx: 0, dy: 0, dz: 0, isMicro: false, microX: 0, microY: 0, microZ: 0, colorRgb: 0, materialId: 0 };
 }
 
 export const Voxel: MessageFns<Voxel> = {
@@ -361,6 +369,9 @@ export const Voxel: MessageFns<Voxel> = {
     }
     if (message.colorRgb !== undefined && message.colorRgb !== 0) {
       writer.uint32(64).uint32(message.colorRgb);
+    }
+    if (message.materialId !== undefined && message.materialId !== 0) {
+      writer.uint32(72).uint32(message.materialId);
     }
     return writer;
   },
@@ -442,6 +453,14 @@ export const Voxel: MessageFns<Voxel> = {
             message.colorRgb = reader.uint32();
             continue;
           }
+          case 9: {
+            if (tag !== 72) {
+              break;
+            }
+
+            message.materialId = reader.uint32();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -467,6 +486,7 @@ export const Voxel: MessageFns<Voxel> = {
     message.microY = object.microY ?? 0;
     message.microZ = object.microZ ?? 0;
     message.colorRgb = object.colorRgb ?? 0;
+    message.materialId = object.materialId ?? 0;
     return message;
   },
 };

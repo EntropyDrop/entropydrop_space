@@ -85,6 +85,13 @@ def _micro_offset(value: Any, axis: str) -> int:
     return offset
 
 
+def _material_id(value: Any) -> int:
+    material_id = int(value)
+    if material_id not in (0, 1):
+        raise InventoryCodecError("voxel material_id must be 0 (default) or 1 (emissive)")
+    return material_id
+
+
 def _encode_voxel(target, block: dict[str, Any]) -> None:
     target.dx = int(block["dx"])
     target.dy = int(block["dy"])
@@ -95,6 +102,7 @@ def _encode_voxel(target, block: dict[str, Any]) -> None:
         target.micro_y = _micro_offset(block["my"], "y")
         target.micro_z = _micro_offset(block["mz"], "z")
     target.color_rgb = int(block["color"])
+    target.material_id = _material_id(block.get("material_id", 0))
 
 
 def _decode_voxel(block) -> dict[str, Any]:
@@ -111,10 +119,13 @@ def _decode_voxel(block) -> dict[str, Any]:
             "my": _micro_offset(block.micro_y, "y"),
             "mz": _micro_offset(block.micro_z, "z"),
         })
+    material_id = _material_id(block.material_id)
+    if material_id:
+        result["material_id"] = material_id
     return result
 
 
-def _voxel_sort_key(block: dict[str, Any]) -> tuple[int, int, int, int, int, int, int]:
+def _voxel_sort_key(block: dict[str, Any]) -> tuple[int, int, int, int, int, int, int, int]:
     return (
         int(block["dx"]),
         int(block["dy"]),
@@ -123,6 +134,7 @@ def _voxel_sort_key(block: dict[str, Any]) -> tuple[int, int, int, int, int, int
         -1 if block.get("my") is None else int(block["my"]),
         -1 if block.get("mz") is None else int(block["mz"]),
         int(block["color"]),
+        _material_id(block.get("material_id", 0)),
     )
 
 

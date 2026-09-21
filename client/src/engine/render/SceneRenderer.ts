@@ -194,7 +194,8 @@ export function getInventoryPreviewBlocks(slot) {
         Number(block.dz) + (Number(block.size) || 1) / 2
       ),
       size: Number(block.size) || 1,
-      color: block.color
+      color: block.color,
+      materialId: block.materialId
     }));
   }
 
@@ -280,7 +281,7 @@ export function getInventoryPreviewBlocks(slot) {
       Number(block.localY) + size / 2,
       Number(block.localZ) + size / 2
     ).sub(node.pivot).applyMatrix4(node.matrix);
-    return [{ center, size, color: block.color }];
+    return [{ center, size, color: block.color, materialId: block.materialId }];
   });
 }
 

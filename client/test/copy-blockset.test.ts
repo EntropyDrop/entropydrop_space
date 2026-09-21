@@ -112,6 +112,33 @@ test('pasting a block set creates ordinary world blocks and no entity', () => {
   assert.ok(controller.__toasts.some(m => m.includes('Built block set')));
 });
 
+test('terrain paste rejects emissive block sets without dropping their material', () => {
+  const scene = new THREE.Scene();
+  const world = new World(scene) as any;
+  clearRegion(world, 10, 21, 30, 10, 21, 30);
+  const manager = new ContraptionManager(scene, {}, null, null);
+  const controller = makeController({ manager, world });
+  controller.activeTool = SpecialTool.HAMMER;
+  const slot = {
+    kind: 'blockset',
+    blockCount: 1,
+    blocks: [{
+      dx: 0, dy: 0, dz: 0, size: 1,
+      block: BlockTypes.COLOR_BLOCK, color: 0x22ccff, materialId: 1,
+    }],
+  };
+  controller.currentRaycast = {
+    hit: true,
+    hitPos: { x: 10.2, y: 20, z: 30.1 },
+    normal: { x: 0, y: 1, z: 0 },
+  };
+
+  assert.equal(controller.pasteBlockSet(slot), false);
+  assert.equal(world.getBlock(10, 21, 30), BlockTypes.AIR);
+  assert.equal(slot.blocks[0].materialId, 1);
+  assert.ok(controller.__toasts.some(message => message.includes('entities only')));
+});
+
 test('block-set copy preserves 0.125 microblock offsets during paste', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;

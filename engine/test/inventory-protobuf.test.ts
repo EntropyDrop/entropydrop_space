@@ -47,6 +47,39 @@ test('inventory Protobuf has the same deterministic wire bytes as the backend co
   });
 });
 
+test('voxel materials round trip and reject unknown presets', () => {
+  const portable: any = {
+    type: 'space-blockset',
+    version: 7,
+    name: 'Emissive',
+    blocks: [{ dx: 0, dy: 0, dz: 0, color: 0x22ccff, materialId: 1 }],
+  };
+  const encoded = encodeInventoryResource('blockset', portable);
+  assert.deepEqual(decodeInventoryResource(encoded).portable, {
+    ...portable,
+    blocks: [{ ...portable.blocks[0], block: 1 }],
+  });
+
+  portable.blocks[0].materialId = 2;
+  assert.throws(() => encodeInventoryResource('blockset', portable), /materialId/);
+
+  const invalidWire = InventoryResource.encode({
+    schemaVersion: 7,
+    content: {
+      $case: 'blockSet',
+      value: {
+        name: 'Invalid',
+        blocks: [{
+          dx: 0, dy: 0, dz: 0, isMicro: false,
+          microX: 0, microY: 0, microZ: 0,
+          colorRgb: 1, materialId: 2,
+        }],
+      },
+    },
+  }).finish();
+  assert.throws(() => decodeInventoryResource(invalidWire), /materialId/);
+});
+
 test('inventory encoder accepts only portable v7 resource shapes', () => {
   assert.throws(() => encodeInventoryResource('blockset', {
     type: 'space-blockset', version: 4, name: 'old', blocks: [],

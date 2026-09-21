@@ -2,6 +2,11 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
+import {
+  normalizeVoxelMaterialId,
+  VOXEL_EMISSIVE_INTENSITY,
+  VoxelMaterialIds
+} from '../voxel/VoxelMaterials.ts';
 import { ActionDomain, executeBasicAction } from '../actions/BasicActions.ts';
 import {
   bendPoint,
@@ -1973,6 +1978,7 @@ export class Contraption {
         localZ: b.localZ,
         size: b.size || 1,
         color: b.color,
+        materialId: normalizeVoxelMaterialId(b.materialId),
         block: b.block,
         entityId: b.entityId || this.rootComponentId
       }));
@@ -2062,6 +2068,7 @@ export class Contraption {
         localZ: b.localZ,
         size: b.size || 1,
         color: b.color,
+        materialId: normalizeVoxelMaterialId(b.materialId),
         block: b.block,
         entityId: b.entityId || this.rootComponentId
       }));
@@ -2208,6 +2215,7 @@ export class Contraption {
       localZ: Number(block?.localZ),
       size: Number(block?.size) || 1,
       color: block?.color,
+      materialId: normalizeVoxelMaterialId(block?.materialId),
       block: block?.block,
       part: block?.part,
       entityId: String(block?.entityId || '')
@@ -4437,9 +4445,10 @@ export class Contraption {
 
   createVoxelMesh(blocks, coordinateOrigin, parentGroup, externalMeshCellMap: Map<string, any> | null = null, existingMesh: THREE.Mesh | null = null) {
     if (blocks.length === 0) return null;
-    const positions = [];
-    const normals = [];
-    const colors = [];
+    const buckets = [
+      { positions: [] as number[], normals: [] as number[], colors: [] as number[] },
+      { positions: [] as number[], normals: [] as number[], colors: [] as number[] }
+    ];
 
     const faces = [
       { dir: [0, 1, 0], norm: [0, 1, 0], quad: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], face: 'top' },
@@ -4459,6 +4468,8 @@ export class Contraption {
 
     for (const b of blocks) {
       const blockSize = b.size || 1;
+      const materialId = normalizeVoxelMaterialId(b.materialId);
+      const bucket = buckets[materialId];
 
       const ox = b.localX - coordinateOrigin.x;
       const oy = b.localY - coordinateOrigin.y;
@@ -4467,7 +4478,9 @@ export class Contraption {
       for (const f of faces) {
         const hexColor = b.color ?? DEFAULT_BLOCK_COLOR;
         tempColor.set(hexColor);
-        const shade = f.face === 'top' ? 1.0 : f.face === 'bottom' ? 0.6 : 0.85;
+        const shade = materialId === VoxelMaterialIds.EMISSIVE
+          ? 1.0
+          : f.face === 'top' ? 1.0 : f.face === 'bottom' ? 0.6 : 0.85;
         const r = tempColor.r * shade;
         const g = tempColor.g * shade;
         const bCol = tempColor.b * shade;
@@ -4478,30 +4491,51 @@ export class Contraption {
           const v2 = [ox + quad[2][0] * blockSize, oy + quad[2][1] * blockSize, oz + quad[2][2] * blockSize];
           const v3 = [ox + quad[3][0] * blockSize, oy + quad[3][1] * blockSize, oz + quad[3][2] * blockSize];
 
-          positions.push(...v0, ...v1, ...v2, ...v0, ...v2, ...v3);
-          normals.push(...f.norm, ...f.norm, ...f.norm, ...f.norm, ...f.norm, ...f.norm);
-          colors.push(r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol);
+          bucket.positions.push(...v0, ...v1, ...v2, ...v0, ...v2, ...v3);
+          bucket.normals.push(...f.norm, ...f.norm, ...f.norm, ...f.norm, ...f.norm, ...f.norm);
+          bucket.colors.push(r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol);
         }
       }
     }
 
+    const positions = buckets.flatMap(bucket => bucket.positions);
+    const normals = buckets.flatMap(bucket => bucket.normals);
+    const colors = buckets.flatMap(bucket => bucket.colors);
     if (positions.length > 0) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      let groupStart = 0;
+      buckets.forEach((bucket, materialIndex) => {
+        if (bucket.positions.length === 0) return;
+        const vertexCount = bucket.positions.length / 3;
+        geo.addGroup(groupStart, vertexCount, materialIndex);
+        groupStart += vertexCount;
+      });
 
       if (existingMesh) {
         existingMesh.geometry.dispose();
         existingMesh.geometry = geo;
         return existingMesh;
       }
-      const mat = new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        flatShading: true,
-        roughness: 0.65,
-        metalness: 0.15
-      });
+      const mat = [
+        new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          flatShading: true,
+          roughness: 0.65,
+          metalness: 0.15
+        }),
+        new THREE.MeshBasicMaterial({
+          color: new THREE.Color(
+            VOXEL_EMISSIVE_INTENSITY,
+            VOXEL_EMISSIVE_INTENSITY,
+            VOXEL_EMISSIVE_INTENSITY
+          ),
+          vertexColors: true,
+          toneMapped: false
+        })
+      ];
 
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
@@ -5989,7 +6023,8 @@ export class Contraption {
         localY: Math.round(placeMicroY * MICRO_DIVISIONS) / MICRO_DIVISIONS,
         localZ: Math.round(placeMicroZ * MICRO_DIVISIONS) / MICRO_DIVISIONS
       },
-      color: block.color
+      color: block.color,
+      materialId: normalizeVoxelMaterialId(block.materialId)
     };
   }
 

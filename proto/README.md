@@ -18,7 +18,8 @@ compiled or implemented; the running realtime channel is the transitional
 
 - `inventory.proto` is the authority for portable content. Its Voxel geometry follows the
   realtime `VoxelMutation` conventions: `is_micro` guards `micro_x`/`micro_y`/`micro_z`
-  (0..7) and color is the varint `color_rgb` (`0xRRGGBB`). The removed v6 packed
+  (0..7), color is the varint `color_rgb` (`0xRRGGBB`), and `material_id` is
+  `0` (default) or `1` (emissive). The removed v6 packed
   `micro_index` and `fixed32 color` are not accepted.
 - A wire-breaking change bumps the package version (`.v7` -> `.v8`) and the
   `schema_version` carried in the message. Old versions are intentionally rejected, not

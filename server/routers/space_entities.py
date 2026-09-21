@@ -5,9 +5,10 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import re
 import secrets
 import uuid
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
 from fastapi.exceptions import RequestValidationError
@@ -31,7 +32,13 @@ from routers.space import (
     SPACE_WORLD_HEIGHT,
     _require_world_membership,
 )
-from routers.space_market import entity_stopped_y_bounds, validate_inventory_resource_payload
+from routers.space_market import (
+    SPACE_MARKET_GRID_DIVISIONS,
+    SPACE_MARKET_MAX_BLOCKS,
+    SPACE_MARKET_MAX_COORDINATE,
+    entity_stopped_y_bounds,
+    validate_inventory_resource_payload,
+)
 from space.inventory_codec import (
     SCHEMA_VERSION as INVENTORY_SCHEMA_VERSION,
     InventoryCodecError,
@@ -296,16 +303,89 @@ class ComponentDefaultsPatch(StrictEntityModel):
         return self
 
 
+class EntityVoxelAddress(StrictEntityModel):
+    dx: StrictInt = Field(ge=-SPACE_MARKET_MAX_COORDINATE, le=SPACE_MARKET_MAX_COORDINATE)
+    dy: StrictInt = Field(ge=-SPACE_MARKET_MAX_COORDINATE, le=SPACE_MARKET_MAX_COORDINATE)
+    dz: StrictInt = Field(ge=-SPACE_MARKET_MAX_COORDINATE, le=SPACE_MARKET_MAX_COORDINATE)
+    is_micro: StrictBool
+    micro_x: StrictInt | None = Field(default=None, ge=0, lt=SPACE_MARKET_GRID_DIVISIONS)
+    micro_y: StrictInt | None = Field(default=None, ge=0, lt=SPACE_MARKET_GRID_DIVISIONS)
+    micro_z: StrictInt | None = Field(default=None, ge=0, lt=SPACE_MARKET_GRID_DIVISIONS)
+
+    @model_validator(mode="after")
+    def validate_scale(self):
+        offsets = (self.micro_x, self.micro_y, self.micro_z)
+        if self.is_micro and any(value is None for value in offsets):
+            raise ValueError("micro_x, micro_y and micro_z are required for a micro voxel")
+        if not self.is_micro and any(value is not None for value in offsets):
+            raise ValueError("micro offsets are not allowed for a standard voxel")
+        return self
+
+
+class EntityVoxelUpsert(EntityVoxelAddress):
+    op: Literal["upsert"]
+    color_rgb: StrictInt = Field(ge=0, le=0xFFFFFF)
+    material_id: StrictInt | None = Field(default=None, ge=0, le=1)
+
+
+class EntityVoxelRemove(EntityVoxelAddress):
+    op: Literal["remove"]
+
+
+EntityVoxelOperation = Annotated[
+    EntityVoxelUpsert | EntityVoxelRemove,
+    Field(discriminator="op"),
+]
+
+
+class EntityScriptPatch(StrictEntityModel):
+    format: Literal["unified"]
+    base_sha256: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    patch: StrictStr = Field(min_length=1, max_length=256 * 1024)
+
+    @model_validator(mode="after")
+    def validate_encoded_size(self):
+        if len(self.patch.encode("utf-8")) > 256 * 1024:
+            raise ValueError("script patch exceeds 256 KiB")
+        return self
+
+
+VoxelCoordinateKey = tuple[int, int, int, int | None, int | None, int | None]
+
+
+def _voxel_operation_key(operation: EntityVoxelOperation) -> VoxelCoordinateKey:
+    return (
+        operation.dx,
+        operation.dy,
+        operation.dz,
+        operation.micro_x if operation.is_micro else None,
+        operation.micro_y if operation.is_micro else None,
+        operation.micro_z if operation.is_micro else None,
+    )
+
+
 class EntityComponentPatch(StrictEntityModel):
     id: StrictStr = Field(min_length=1, max_length=64)
     name: StrictStr | None = Field(default=None, max_length=80)
     script: StrictStr | None = Field(default=None, max_length=65536)
+    script_patch: EntityScriptPatch | None = None
     body: ComponentDefaultsPatch | None = None
+    voxel_ops: list[EntityVoxelOperation] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=SPACE_MARKET_MAX_BLOCKS,
+    )
 
     @model_validator(mode="after")
     def nonempty_nonnull(self):
         if self.model_fields_set == {"id"} or any(getattr(self, key) is None for key in self.model_fields_set):
-            raise ValueError("Supply name, script or body; use an empty string to clear code")
+            raise ValueError("Supply name, script, script_patch, body or voxel_ops; use an empty string to clear code")
+        if "script" in self.model_fields_set and "script_patch" in self.model_fields_set:
+            raise ValueError("Supply either script or script_patch, not both")
+        if self.voxel_ops is not None:
+            keys = [_voxel_operation_key(operation) for operation in self.voxel_ops]
+            if len(set(keys)) != len(keys):
+                raise ValueError("Each voxel coordinate may appear only once per component patch")
         return self
 
 
@@ -318,7 +398,141 @@ class UpdateEntityConfigurationRequest(StrictEntityModel):
     def unique_components(self):
         if len({item.id for item in self.components}) != len(self.components):
             raise ValueError("Each component may appear only once")
+        operation_count = sum(len(item.voxel_ops or ()) for item in self.components)
+        if operation_count > SPACE_MARKET_MAX_BLOCKS:
+            raise ValueError(f"An entity patch may contain at most {SPACE_MARKET_MAX_BLOCKS} voxel operations")
         return self
+
+
+_UNIFIED_HUNK_HEADER = re.compile(
+    r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$"
+)
+_NO_NEWLINE_MARKER = r"\ No newline at end of file"
+
+
+def _without_line_ending(value: str) -> str:
+    if value.endswith("\r\n"):
+        return value[:-2]
+    if value.endswith("\n") or value.endswith("\r"):
+        return value[:-1]
+    return value
+
+
+def _remove_one_line_ending(value: str) -> str:
+    stripped = _without_line_ending(value)
+    if stripped == value:
+        raise ValueError("no-newline marker follows a line that already has no line ending")
+    return stripped
+
+
+def _apply_unified_script_patch(source: str, patch: str) -> str:
+    """Apply a strict, file-independent unified diff to one component script."""
+    source_lines = source.splitlines(keepends=True)
+    patch_lines = patch.splitlines(keepends=True)
+    cursor = 0
+    if patch_lines and _without_line_ending(patch_lines[0]).startswith("--- "):
+        if len(patch_lines) < 2 or not _without_line_ending(patch_lines[1]).startswith("+++ "):
+            raise ValueError("a --- file header must be followed by a +++ file header")
+        cursor = 2
+
+    result: list[str] = []
+    source_cursor = 0
+    hunk_count = 0
+    while cursor < len(patch_lines):
+        header = _without_line_ending(patch_lines[cursor])
+        match = _UNIFIED_HUNK_HEADER.fullmatch(header)
+        if match is None:
+            raise ValueError("expected a unified diff hunk header")
+        old_start = int(match.group(1))
+        old_count = int(match.group(2)) if match.group(2) is not None else 1
+        new_start = int(match.group(3))
+        new_count = int(match.group(4)) if match.group(4) is not None else 1
+        if (old_count and old_start < 1) or (new_count and new_start < 1):
+            raise ValueError("non-empty unified diff ranges must start at line 1 or later")
+        old_index = old_start if old_count == 0 else old_start - 1
+        new_index = new_start if new_count == 0 else new_start - 1
+        if old_index < source_cursor or old_index > len(source_lines):
+            raise ValueError("unified diff hunks overlap or address lines outside the script")
+        result.extend(source_lines[source_cursor:old_index])
+        source_cursor = old_index
+        if new_index != len(result):
+            raise ValueError("unified diff new-file line numbers are inconsistent")
+
+        cursor += 1
+        entries: list[tuple[str, str]] = []
+        while cursor < len(patch_lines):
+            raw = patch_lines[cursor]
+            text = _without_line_ending(raw)
+            if _UNIFIED_HUNK_HEADER.fullmatch(text):
+                break
+            if text == _NO_NEWLINE_MARKER:
+                if not entries:
+                    raise ValueError("no-newline marker must follow a hunk line")
+                prefix, content = entries[-1]
+                entries[-1] = (prefix, _remove_one_line_ending(content))
+                cursor += 1
+                continue
+            if not raw or raw[0] not in (" ", "+", "-"):
+                raise ValueError("unified diff hunk lines must start with space, + or -")
+            entries.append((raw[0], raw[1:]))
+            cursor += 1
+
+        consumed = sum(prefix in (" ", "-") for prefix, _content in entries)
+        produced = sum(prefix in (" ", "+") for prefix, _content in entries)
+        if consumed != old_count or produced != new_count:
+            raise ValueError("unified diff hunk line counts do not match its header")
+        for prefix, content in entries:
+            if prefix in (" ", "-"):
+                if source_cursor >= len(source_lines) or source_lines[source_cursor] != content:
+                    raise ValueError("unified diff context does not match the current script")
+                if prefix == " ":
+                    result.append(content)
+                source_cursor += 1
+            else:
+                result.append(content)
+        hunk_count += 1
+
+    if hunk_count == 0:
+        raise ValueError("script patch must contain at least one unified diff hunk")
+    result.extend(source_lines[source_cursor:])
+    return "".join(result)
+
+
+def _stored_voxel_key(voxel: dict[str, Any]) -> VoxelCoordinateKey:
+    return (
+        int(voxel["dx"]),
+        int(voxel["dy"]),
+        int(voxel["dz"]),
+        int(voxel["mx"]) if voxel.get("mx") is not None else None,
+        int(voxel["my"]) if voxel.get("my") is not None else None,
+        int(voxel["mz"]) if voxel.get("mz") is not None else None,
+    )
+
+
+def _upserted_voxel(
+    operation: EntityVoxelUpsert,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    voxel = {
+        "dx": operation.dx,
+        "dy": operation.dy,
+        "dz": operation.dz,
+        "block": 1,
+        "color": operation.color_rgb,
+    }
+    material_id = operation.material_id
+    if material_id is None and existing is not None:
+        material_id = int(existing.get("material_id", 0))
+    if material_id:
+        voxel["material_id"] = material_id
+    if operation.is_micro:
+        # EntityVoxelAddress validation guarantees all offsets are present.
+        voxel.update({
+            "mx": int(operation.micro_x),  # type: ignore[arg-type]
+            "my": int(operation.micro_y),  # type: ignore[arg-type]
+            "mz": int(operation.micro_z),  # type: ignore[arg-type]
+        })
+    return voxel
 
 
 class ClaimEntityExecutionLeasesRequest(StrictEntityModel):
@@ -1133,7 +1347,10 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
     if payload.expected_revision != entity.revision:
         raise HTTPException(409, detail={"code": "ENTITY_REVISION_CONFLICT", "current": _entity_response(entity, creator.user)})
     if entity.desired_run_state != "stopped":
-        raise HTTPException(409, detail={"code": "ENTITY_MUST_BE_STOPPED", "message": "Stop the entity before editing code or defaults."})
+        raise HTTPException(409, detail={
+            "code": "ENTITY_MUST_BE_STOPPED",
+            "message": "Stop the entity before editing code, defaults or voxels.",
+        })
     _kind, definition = decode_inventory_resource(bytes(entity.definition))
     components = {}
     def visit(component):
@@ -1145,11 +1362,50 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
         if patch.id not in components:
             raise HTTPException(422, detail={"code": "ENTITY_COMPONENT_NOT_FOUND", "component_id": patch.id})
         target = components[patch.id]
-        for key, value in patch.model_dump(exclude_unset=True, exclude={"id"}).items():
+        ordinary_fields = patch.model_dump(
+            exclude_unset=True,
+            exclude={"id", "script_patch", "voxel_ops"},
+        )
+        for key, value in ordinary_fields.items():
             if key == "body":
                 target["body"].update(value)
             else:
                 target[key] = value
+        if patch.script_patch is not None:
+            current_script = target.get("script") or ""
+            current_sha256 = hashlib.sha256(current_script.encode("utf-8")).hexdigest()
+            if not secrets.compare_digest(current_sha256, patch.script_patch.base_sha256):
+                raise HTTPException(409, detail={
+                    "code": "ENTITY_SCRIPT_BASE_CONFLICT",
+                    "component_id": patch.id,
+                    "current_sha256": current_sha256,
+                })
+            try:
+                target["script"] = _apply_unified_script_patch(
+                    current_script,
+                    patch.script_patch.patch,
+                )
+            except ValueError as error:
+                raise HTTPException(422, detail={
+                    "code": "ENTITY_SCRIPT_PATCH_INVALID",
+                    "component_id": patch.id,
+                    "message": str(error),
+                }) from error
+        if patch.voxel_ops is not None:
+            voxels = {_stored_voxel_key(voxel): voxel for voxel in target.get("blocks", [])}
+            for operation in patch.voxel_ops:
+                key = _voxel_operation_key(operation)
+                if operation.op == "remove":
+                    if key not in voxels:
+                        raise HTTPException(422, detail={
+                            "code": "ENTITY_VOXEL_NOT_FOUND",
+                            "component_id": patch.id,
+                            "voxel": operation.model_dump(exclude={"op"}, exclude_none=True),
+                        })
+                    del voxels[key]
+                else:
+                    voxels[key] = _upserted_voxel(operation, voxels.get(key))
+            target["blocks"] = list(voxels.values())
     try:
         canonical = validate_inventory_resource_payload("entity", definition)
         encoded = encode_inventory_resource("entity", canonical)

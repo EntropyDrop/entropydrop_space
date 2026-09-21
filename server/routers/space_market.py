@@ -175,6 +175,7 @@ class MarketVoxel(StrictResourceModel):
     mz: StrictInt | None = None
     block: StrictInt = Field(default=1, ge=1, le=1)
     color: StrictInt = Field(ge=0, le=0xFFFFFF)
+    material_id: StrictInt | None = Field(default=None, ge=0, le=1)
 
     @model_validator(mode="after")
     def validate_grid(self):
@@ -396,7 +397,7 @@ class ColorSetPayload(StrictResourceModel):
         return self
 
 
-def _voxel_sort_key(block: MarketVoxel) -> tuple[int, int, int, int, int, int, int]:
+def _voxel_sort_key(block: MarketVoxel) -> tuple[int, int, int, int, int, int, int, int]:
     return (
         block.dx,
         block.dy,
@@ -405,6 +406,7 @@ def _voxel_sort_key(block: MarketVoxel) -> tuple[int, int, int, int, int, int, i
         -1 if block.my is None else block.my,
         -1 if block.mz is None else block.mz,
         block.color,
+        block.material_id or 0,
     )
 
 

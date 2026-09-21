@@ -5,6 +5,7 @@ import { BodyType, Contraption, ContraptionMode } from '../src/contraption/Contr
 import { ContraptionManager } from '../src/contraption/ContraptionManager.ts';
 import { ContraptionPhysics } from '../src/physics/ContraptionPhysics.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
+import { VoxelMaterialIds } from '../src/voxel/VoxelMaterials.ts';
 import { World } from '../src/voxel/World.ts';
 
 function standardBlock(x, y = 0, z = 0) {
@@ -18,6 +19,33 @@ function standardBlock(x, y = 0, z = 0) {
     entityId: 'root'
   };
 }
+
+test('entity voxel meshes keep default and emissive materials independently editable', () => {
+  const scene = new THREE.Scene();
+  const contraption = new Contraption(
+    1000,
+    [
+      standardBlock(0),
+      { ...standardBlock(2), materialId: VoxelMaterialIds.EMISSIVE },
+    ],
+    new THREE.Vector3(),
+    scene,
+  ) as any;
+
+  const node = contraption.getEntityNode('root');
+  const meshes = [...node.voxelChunks.values()] as THREE.Mesh[];
+  assert.equal(meshes.length, 1);
+  assert.ok(Array.isArray(meshes[0].material));
+  assert.ok(meshes[0].material[0] instanceof THREE.MeshStandardMaterial);
+  assert.ok(meshes[0].material[1] instanceof THREE.MeshBasicMaterial);
+  assert.deepEqual(meshes[0].geometry.groups.map(group => group.materialIndex), [0, 1]);
+  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).toneMapped, false);
+  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).color.r, 3);
+
+  const slot = contraption.serializeSubtree('root');
+  assert.deepEqual(slot.blocks.map(block => block.materialId), [0, 1]);
+  contraption.dispose();
+});
 
 test('root and world are ordinary component IDs', () => {
   const contraption = new Contraption(
@@ -1006,11 +1034,15 @@ test('V2 component voxel namespaces separate standard/micro edits and return str
   contraption.createChildEntity('root', new Set(['1,0,0', '2,0,0']), 'arm');
 
   let arm = contraption.getChildScriptApi('arm');
-  const standardPlaced = arm.voxels.set([1, 0, 0], { color: 0xff3300 });
+  const standardPlaced = arm.voxels.set([1, 0, 0], {
+    color: 0xff3300,
+    materialId: VoxelMaterialIds.EMISSIVE,
+  });
   assert.deepEqual(standardPlaced, { ok: true, placed: 1, reason: 'placed' });
   assert.ok(contraption.blocks.some(block =>
     block.entityId === 'arm' && (block.size || 1) === 1
     && block.localX === 3 && block.color === 0xff3300
+    && block.materialId === VoxelMaterialIds.EMISSIVE
   ));
 
   arm = contraption.getChildScriptApi('arm');
@@ -1021,12 +1053,28 @@ test('V2 component voxel namespaces separate standard/micro edits and return str
   });
 
   arm = contraption.getChildScriptApi('arm');
-  const microPlaced = arm.microVoxels.set([2, 0, 0], [1, 1, 1], { r: 0, g: 255, b: 0 });
+  const microPlaced = arm.microVoxels.set([2, 0, 0], [1, 1, 1], {
+    r: 0,
+    g: 255,
+    b: 0,
+    materialId: VoxelMaterialIds.EMISSIVE,
+  });
   assert.deepEqual(microPlaced, { ok: true, placed: 1, reason: 'placed' });
   assert.ok(contraption.blocks.some(block =>
     block.entityId === 'arm' && (block.size || 1) === 0.125
     && block.localX === 4.125 && block.localY === 0.125 && block.localZ === 0.125
-    && block.color === 0x00ff00
+    && block.color === 0x00ff00 && block.materialId === VoxelMaterialIds.EMISSIVE
+  ));
+
+  arm = contraption.getChildScriptApi('arm');
+  assert.deepEqual(arm.microVoxels.paint([2, 0, 0], [1, 1, 1], {
+    color: 0x123456,
+    materialId: VoxelMaterialIds.DEFAULT,
+  }), { ok: true, painted: 1, reason: 'painted' });
+  assert.ok(contraption.blocks.some(block =>
+    block.entityId === 'arm' && (block.size || 1) === 0.125
+    && block.localX === 4.125 && block.color === 0x123456
+    && block.materialId === VoxelMaterialIds.DEFAULT
   ));
 
   arm = contraption.getChildScriptApi('arm');

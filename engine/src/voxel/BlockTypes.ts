@@ -1,5 +1,5 @@
-// Space deliberately has one buildable material. Color belongs to each voxel
-// instance, not to its type, so geometry and behavior stay software-defined.
+// Space has one buildable voxel type. Color and visual material belong to each
+// voxel instance, so geometry and behavior stay software-defined.
 
 export const DEFAULT_BLOCK_COLOR = 0xf2a93b;
 

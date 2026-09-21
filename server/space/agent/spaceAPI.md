@@ -56,7 +56,7 @@ Both position routes are self-only. All existing keys work without reissuing the
 6. Place the object a few metres away from the player's coordinates, leaving room for its full bounds. Player Y is not a terrain-height query. Account for terrain clearance, gravity, and wrapped coordinates.
 7. Submit `POST /space/api/v2/worlds/{world_id}/entities`. Retain the request and `operation_id`; retry an uncertain submission with exactly the same body. A successful response includes the entity ID, requested run state and execution mode.
 
-All keys can create entities (stopped or running), read their account's position, read world-entity configurations, edit stopped/unoccupied entities, start/stop unoccupied entities, and stamp blocksets through `POST /space/api/v2/worlds/{world_id}/blocksets/build`.
+All keys can create entities (stopped or running), read their account's position, read world-entity configurations, edit stopped/unoccupied entities, start/stop unoccupied entities, and stamp blocksets through `POST /space/api/v2/worlds/{world_id}/blocksets/build`. Terrain currently stores only the default material, so that build route rejects blocksets containing `material_id: 1` with `BLOCKSET_MATERIAL_UNSUPPORTED_BY_TERRAIN`; emissive voxels remain supported in entities and portable blockset inventory resources.
 
 Creation and blockset building are free within quotas. `running` uses an exclusive browser execution lease; it does not buy hosting and needs an online endpoint. Any nearby world participant may claim available running intent, regardless of author. Ordinary nearby browsers discover entities through a roughly two-second poll. Creation can succeed before the object is visible or simulating.
 
@@ -67,7 +67,7 @@ Use the entity ID returned by creation or copied from the Entity Editor. The fol
 | Request | Purpose |
 | --- | --- |
 | `GET /configuration` | Read `{ "entity": <metadata>, "definition": <decoded InventoryResource v7 JSON> }`, including component code and authored body defaults |
-| `PATCH /configuration` | Modify selected components' code, names and body defaults while stopped |
+| `PATCH /configuration` | Modify selected components' code, names, body defaults and voxels while stopped |
 | `PUT /run-state` | Set `desired_run_state` to `running` or `stopped` |
 
 Configuration reads are private and not cached. Binary definition/snapshot, AOI listing, checkpoint and execution-lease endpoints remain browser login interfaces. Use the JSON configuration endpoint for Agent reads; a spaceAPI key is not a general login credential.
@@ -106,9 +106,53 @@ If Stop returns revision 2, send this JSON to `PATCH /configuration`, with `Cont
 }
 ```
 
-Only named fields change; other components, voxels, constraints and properties remain intact. `components` contains 1–64 unique, existing component IDs. Each patch accepts `name`, `script`, and/or `body`. Use `script: ""` to clear code. Null values, duplicate IDs, unknown fields and empty patches are rejected. No owner, permission, runtime-state or arbitrary object-path updates are accepted.
+Only named fields change; other components, constraints and properties remain intact. `components` contains 1–64 unique, existing component IDs. Each patch accepts `name`, `script`, `script_patch`, `body`, and/or `voxel_ops`. Use `script: ""` to clear code. Null values, duplicate IDs, unknown fields and empty patches are rejected. No owner, permission, runtime-state or arbitrary object-path updates are accepted.
 
 `body` accepts `type` (`dynamic` / `kinematic`), `mass` (0.1–10¹²), `restitution` / `friction` (0–1), and Boolean `useGravity` / `collisionEnabled`. It merges into persisted defaults, which are also restored on Stop. Script bodies are limited to 64 KiB per component and 512 KiB per entity. Stored-definition validation checks the schema and limits; JavaScript compilation and execution errors are reported by the runtime.
+
+For a small code change, use `script_patch` instead of resending the complete script. It accepts only a strict, file-independent unified diff. Compute `base_sha256` from the exact UTF-8 bytes of the current component script returned by `GET /configuration`. Optional `---` / `+++` headers are accepted, but Git metadata, paths and arbitrary file operations are not. `script` and `script_patch` are mutually exclusive. A stale hash returns `409 ENTITY_SCRIPT_BASE_CONFLICT`; malformed or non-matching hunks return `422 ENTITY_SCRIPT_PATCH_INVALID`.
+
+Use semantic voxel operations rather than a text or JSON diff. `upsert` creates a voxel or changes its color/material; `remove` requires the addressed voxel to exist. A voxel is identified by its component plus `(dx, dy, dz, is_micro, micro_x, micro_y, micro_z)`. Standard voxels set `is_micro: false` and omit micro offsets. Micro voxels set `is_micro: true` and include all three offsets in 0–7. Colors use `color_rgb` in `0x000000`–`0xFFFFFF` (JSON sends this as a decimal integer). `material_id` is optional: `0` is the default lit surface and `1` is an emissive surface; omitting it while updating an existing voxel preserves that voxel's material. Each coordinate may occur once in a component patch, and one request may contain at most 65,536 voxel operations.
+
+```json
+{
+  "operation_id": "ac8c1ed3-c79e-4597-bce8-25a784846c78",
+  "expected_revision": 3,
+  "components": [
+    {
+      "id": "root",
+      "script_patch": {
+        "format": "unified",
+        "base_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "patch": "@@ -1 +1 @@\n-self.state.speed = 2;\n+self.state.speed = 3;\n"
+      },
+      "voxel_ops": [
+        {
+          "op": "upsert",
+          "dx": 1,
+          "dy": 0,
+          "dz": 0,
+          "is_micro": false,
+          "color_rgb": 15040548,
+          "material_id": 1
+        },
+        {
+          "op": "remove",
+          "dx": 2,
+          "dy": 0,
+          "dz": 0,
+          "is_micro": true,
+          "micro_x": 1,
+          "micro_y": 2,
+          "micro_z": 3
+        }
+      ]
+    }
+  ]
+}
+```
+
+Replace the example hash with the SHA-256 of the current script. The server applies every component, code and voxel operation in memory, then validates and commits the complete canonical entity atomically. Bounds, voxel count, standard/micro exclusivity, component overlap, script limits and storage quotas still apply. A missing removal target returns `422 ENTITY_VOXEL_NOT_FOUND`; any final invalid geometry returns `422 ENTITY_DEFINITION_INVALID`. No partial change is stored after an error.
 
 If the edit returns revision 3, start with another `PUT /run-state`:
 

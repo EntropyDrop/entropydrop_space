@@ -138,10 +138,34 @@ def test_shared_inventory_schema_excludes_browser_backpack_state():
     assert not hasattr(inventory_pb2, "Backpack")
     assert not hasattr(inventory_pb2, "InventorySlot")
     voxel_fields = inventory_pb2.Voxel.DESCRIPTOR.fields_by_name
-    for field in ("is_micro", "micro_x", "micro_y", "micro_z", "color_rgb"):
+    for field in ("is_micro", "micro_x", "micro_y", "micro_z", "color_rgb", "material_id"):
         assert field in voxel_fields
     assert "micro_index" not in voxel_fields
     assert "color" not in voxel_fields
+
+
+def test_inventory_voxel_material_round_trip_and_validation():
+    canonical = {
+        "type": "space-blockset",
+        "version": 7,
+        "name": "Emissive",
+        "blocks": [{
+            "dx": 0, "dy": 0, "dz": 0, "block": 1,
+            "color": 0x22CCFF, "material_id": 1,
+        }],
+    }
+    encoded = encode_inventory_resource("blockset", canonical)
+    assert decode_inventory_resource(encoded) == ("blockset", canonical)
+
+    canonical["blocks"][0]["material_id"] = 2
+    with pytest.raises(InventoryCodecError, match="material_id"):
+        encode_inventory_resource("blockset", canonical)
+
+    invalid_wire = inventory_pb2.InventoryResource(schema_version=7)
+    invalid_wire.block_set.name = "Invalid"
+    invalid_wire.block_set.blocks.add(color_rgb=1, material_id=2)
+    with pytest.raises(InventoryCodecError, match="material_id"):
+        decode_inventory_resource(invalid_wire.SerializeToString())
 
 
 def test_inventory_v7_constraint_references_use_presence_instead_of_string_sentinels():

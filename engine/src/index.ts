@@ -13,4 +13,7 @@ export {
 } from './torus/TorusWorld.ts';
 
 export { MICRO_DIVISIONS, MICRO_SIZE, MICRO_CELLS_PER_BLOCK } from './voxel/MicroGrid.ts';
+export {
+  VoxelMaterialIds, VOXEL_EMISSIVE_INTENSITY, normalizeVoxelMaterialId, parseVoxelMaterialId,
+} from './voxel/VoxelMaterials.ts';
 export * from './constants/SpaceConstants.ts';

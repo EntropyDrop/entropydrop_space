@@ -1,6 +1,7 @@
 import { MICRO_DIVISIONS, MICRO_SIZE, MICRO_CELLS_PER_BLOCK } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
+import { normalizeVoxelMaterialId } from '../voxel/VoxelMaterials.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
 import { MAX_ENTITY_BOUNDS } from '../contraption/Contraption.ts';
 
@@ -117,6 +118,10 @@ function entityNodeColor(contraption: any, nodeId: string, options: any) {
   const inherited = contraption.blocks?.find(block => blockOwnerId(contraption, block) === nodeId)?.color
     ?? DEFAULT_BLOCK_COLOR;
   return resolveColor(options, inherited);
+}
+
+function commandMaterialId(options: any) {
+  return normalizeVoxelMaterialId(options?.materialId);
 }
 
 function resolveContraption(context: any, target: any) {
@@ -365,6 +370,7 @@ function executeEntityAction(context: any, command: any) {
         localZ: cell.z,
         size: 1,
         color: entityNodeColor(contraption, nodeId, command.options ?? command.color),
+        materialId: commandMaterialId(command.options),
         block: command.block || BlockTypes.COLOR_BLOCK,
         entityId: nodeId
       };
@@ -373,7 +379,8 @@ function executeEntityAction(context: any, command: any) {
         cell: [cell.x, cell.y, cell.z],
         size: 1,
         block: placedBlock.block,
-        color: placedBlock.color
+        color: placedBlock.color,
+        materialId: placedBlock.materialId
       }));
       return actionResult(command.action, 1, 'placed', { placed: 1, empty: false });
     }
@@ -404,13 +411,21 @@ function executeEntityAction(context: any, command: any) {
       ));
       if (!block) return actionResult(command.action, 0, 'not_found', { painted: 0 });
       block.color = resolveColor(command.options ?? command.color, block.color ?? DEFAULT_BLOCK_COLOR);
+      if (command.options?.materialId !== undefined) {
+        block.materialId = commandMaterialId(command.options);
+      }
       finishEntityMutation(context, contraption, 'color', nodeId, entityMutationEvent(command, {
         cell: [cell.x, cell.y, cell.z],
         size: block.size || 1,
         block: block.block,
-        color: block.color
+        color: block.color,
+        materialId: normalizeVoxelMaterialId(block.materialId)
       }));
-      return actionResult(command.action, 1, 'painted', { painted: 1, color: block.color });
+      return actionResult(command.action, 1, 'painted', {
+        painted: 1,
+        color: block.color,
+        materialId: normalizeVoxelMaterialId(block.materialId)
+      });
     }
     case 'place-micro': {
       if (!micro) return actionResult(command.action, 0, 'invalid_position', { placed: 0 });
@@ -438,6 +453,7 @@ function executeEntityAction(context: any, command: any) {
         localZ,
         size: MICRO_SIZE,
         color: entityNodeColor(contraption, nodeId, command.options ?? command.color),
+        materialId: commandMaterialId(command.options),
         block: command.block || BlockTypes.COLOR_BLOCK,
         entityId: nodeId,
         ...(command.part ? { part: command.part } : {})
@@ -452,7 +468,8 @@ function executeEntityAction(context: any, command: any) {
         ],
         size: MICRO_SIZE,
         block: placedBlock.block,
-        color: placedBlock.color
+        color: placedBlock.color,
+        materialId: placedBlock.materialId
       }));
       return actionResult(command.action, 1, 'placed', { placed: 1, empty: false });
     }
@@ -479,6 +496,9 @@ function executeEntityAction(context: any, command: any) {
       if (command.action === 'paint-micro') {
         const block = contraption.blocks[index];
         block.color = resolveColor(command.options ?? command.color, block.color ?? DEFAULT_BLOCK_COLOR);
+        if (command.options?.materialId !== undefined) {
+          block.materialId = commandMaterialId(command.options);
+        }
         finishEntityMutation(context, contraption, 'color', nodeId, entityMutationEvent(command, {
           cell: [Math.floor(localX), Math.floor(localY), Math.floor(localZ)],
           microOffset: [
@@ -488,9 +508,14 @@ function executeEntityAction(context: any, command: any) {
           ],
           size: MICRO_SIZE,
           block: block.block,
-          color: block.color
+          color: block.color,
+          materialId: normalizeVoxelMaterialId(block.materialId)
         }));
-        return actionResult(command.action, 1, 'painted', { painted: 1, color: block.color });
+        return actionResult(command.action, 1, 'painted', {
+          painted: 1,
+          color: block.color,
+          materialId: normalizeVoxelMaterialId(block.materialId)
+        });
       }
       const removedBlock = contraption.blocks[index];
       contraption.blocks.splice(index, 1);
@@ -548,6 +573,7 @@ function executeEntityAction(context: any, command: any) {
               localZ: cell.z + iz * MICRO_SIZE,
               size: MICRO_SIZE,
               color: original.color ?? DEFAULT_BLOCK_COLOR,
+              materialId: normalizeVoxelMaterialId(original.materialId),
               block: original.block || BlockTypes.COLOR_BLOCK,
               entityId: original.entityId ?? nodeId,
               ...(original.part ? { part: original.part } : {})
@@ -581,7 +607,8 @@ function executeEntityAction(context: any, command: any) {
         ] : null,
         size: MICRO_SIZE,
         block: original.block,
-        color: original.color
+        color: original.color,
+        materialId: normalizeVoxelMaterialId(original.materialId)
       }));
       return actionResult(command.action, MICRO_CELLS_PER_BLOCK, 'subdivided', { subdivided: MICRO_CELLS_PER_BLOCK, removed, empty: false });
     }
@@ -620,6 +647,7 @@ function executeEntityAction(context: any, command: any) {
                 localZ: baseZ + iz * MICRO_SIZE,
                 size: MICRO_SIZE,
                 color: original.color ?? DEFAULT_BLOCK_COLOR,
+                materialId: normalizeVoxelMaterialId(original.materialId),
                 block: original.block || BlockTypes.COLOR_BLOCK,
                 entityId: original.entityId ?? nodeId,
                 ...(original.part ? { part: original.part } : {})
@@ -638,7 +666,8 @@ function executeEntityAction(context: any, command: any) {
         truncated: sourceBlocks.length > 64,
         size: MICRO_SIZE,
         block: sourceBlocks[0].block,
-        color: sourceBlocks[0].color
+        color: sourceBlocks[0].color,
+        materialId: normalizeVoxelMaterialId(sourceBlocks[0].materialId)
       }));
       const subdivided = sourceBlocks.length * MICRO_CELLS_PER_BLOCK;
       return actionResult(command.action, subdivided, 'subdivided', { subdivided, removed: 0, empty: false });
@@ -646,6 +675,8 @@ function executeEntityAction(context: any, command: any) {
     case 'fill-blocks': {
       const coords = Array.isArray(command.coords) ? command.coords : [];
       const color = resolveColor(command.options ?? command.color);
+      const materialId = commandMaterialId(command.options);
+      const changesMaterial = command.options?.materialId !== undefined;
       const isMicro = command.micro === true;
       const blockSize = isMicro ? MICRO_SIZE : 1;
       let addedCount = 0;
@@ -663,8 +694,10 @@ function executeEntityAction(context: any, command: any) {
         const key = `${c.x},${c.y},${c.z}`;
         const existing = blockMap.get(key);
         if (existing) {
-          if (existing.color !== color) {
+          if (existing.color !== color
+            || (changesMaterial && normalizeVoxelMaterialId(existing.materialId) !== materialId)) {
             existing.color = color;
+            if (changesMaterial) existing.materialId = materialId;
             recoloredCount++;
           }
         } else {
@@ -677,6 +710,7 @@ function executeEntityAction(context: any, command: any) {
             localZ,
             size: blockSize,
             color,
+            materialId,
             entityId: nodeId
           });
           addedCount++;
@@ -684,7 +718,8 @@ function executeEntityAction(context: any, command: any) {
       }
       if (addedCount > 0 || recoloredCount > 0) {
         finishEntityMutation(context, contraption, addedCount > 0 ? 'place' : 'color', nodeId, entityMutationEvent(command, {
-          color
+          color,
+          materialId
         }));
       }
       return actionResult(command.action, addedCount + recoloredCount, 'filled', { added: addedCount, recolored: recoloredCount, color });
@@ -693,17 +728,25 @@ function executeEntityAction(context: any, command: any) {
       const selectedBlocks = Array.isArray(command.blocks) ? command.blocks : [];
       if (selectedBlocks.length === 0) return actionResult(command.action, 0, 'not_found', { painted: 0 });
       const color = resolveColor(command.options ?? command.color);
+      const changesMaterial = command.options?.materialId !== undefined;
+      const materialId = commandMaterialId(command.options);
       let painted = 0;
       for (const block of selectedBlocks) {
         block.color = color;
+        if (changesMaterial) block.materialId = materialId;
         painted++;
       }
       if (painted > 0) {
         finishEntityMutation(context, contraption, 'color', nodeId, entityMutationEvent(command, {
-          color
+          color,
+          ...(changesMaterial ? { materialId } : {})
         }));
       }
-      return actionResult(command.action, painted, painted ? 'painted' : 'not_found', { painted, color });
+      return actionResult(command.action, painted, painted ? 'painted' : 'not_found', {
+        painted,
+        color,
+        ...(changesMaterial ? { materialId } : {})
+      });
     }
     case 'remove-blocks': {
       const selectedBlocks = Array.isArray(command.blocks) ? command.blocks : [];
@@ -752,6 +795,7 @@ function executeEntityAction(context: any, command: any) {
                 localZ: base.z + z * MICRO_SIZE,
                 size: MICRO_SIZE,
                 color: original.color ?? DEFAULT_BLOCK_COLOR,
+                materialId: normalizeVoxelMaterialId(original.materialId),
                 block: original.block || BlockTypes.COLOR_BLOCK,
                 entityId: original.entityId ?? nodeId,
                 ...(original.part ? { part: original.part } : {})

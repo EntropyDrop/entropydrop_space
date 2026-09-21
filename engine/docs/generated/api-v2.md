@@ -98,14 +98,14 @@ Every root and child receives the same top-level API. Namespaces target the curr
 | `self.getBounds()` | Return entity-local block bounds `{min,max,size,center}`, or `null` when empty. |
 | `self.setSeats(seats)` | Replace this component's pivot-relative driver seats. Each entry is `[x,y,z]` or `{position,rotation?,fixedOrientation?}`; `rotation` is a `[x,y,z,w]` rider orientation in the pivot frame (default identity, facing the component's -Z forward) and `fixedOrientation:true` makes the mounted rider's body follow the seat's solved world orientation while the camera retains unrestricted horizontal mouse look and independent pitch. Changes take effect while mounted without resetting the camera. Invalid positions or degenerate quaternions drop that seat. An entity is mountable when any component has a seat. |
 | `self.getSeats()` | Return this component's pivot-relative driver seats as `{position,rotation,fixedOrientation}` records. |
-| `self.voxels.set(position, options?)` | Queue one pivot-relative standard voxel placement; returns `{ok,placed,reason}`. |
+| `self.voxels.set(position, options?)` | Queue one pivot-relative standard voxel placement. `options.materialId` is `0` (default) or `1` (emissive); returns `{ok,placed,reason}`. |
 | `self.voxels.clear(position)` | Queue removal of one standard voxel; returns `{ok,removed,reason}`. |
-| `self.voxels.paint(position, options?)` | Queue repainting one standard voxel; returns `{ok,painted,reason}`. |
+| `self.voxels.paint(position, options?)` | Queue color and optional `materialId` changes on one standard voxel; returns `{ok,painted,reason}`. |
 | `self.voxels.clearCell(position)` | Queue removal of all standard and micro voxels in one 1 m component cell. |
 | `self.voxels.subdivide(position, clearOffset?)` | Queue conversion to 512 micro voxels, optionally removing one offset atomically. |
-| `self.microVoxels.set(cell, offset, options?)` | Queue a 0.125 m voxel; each offset coordinate is an integer from 0 through 7. |
+| `self.microVoxels.set(cell, offset, options?)` | Queue a 0.125 m voxel with optional `materialId` `0` or `1`; each offset coordinate is an integer from 0 through 7. |
 | `self.microVoxels.clear(cell, offset)` | Queue removal of one exact 0.125 m component voxel. |
-| `self.microVoxels.paint(cell, offset, options?)` | Queue repainting one exact 0.125 m component voxel. |
+| `self.microVoxels.paint(cell, offset, options?)` | Queue color and optional `materialId` changes on one exact 0.125 m component voxel. |
 
 > Component voxel cells are measured from the current pivot, not the entity corner. Fractional cell coordinates floor after applying the pivot.
 

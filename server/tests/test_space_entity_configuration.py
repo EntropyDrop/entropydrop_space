@@ -1,4 +1,5 @@
 import base64
+from difflib import unified_diff
 import hashlib
 import json
 import uuid
@@ -8,6 +9,7 @@ from space.auth import get_current_user
 from space.main import app
 from space import models
 from space.inventory_codec import encode_inventory_resource
+from routers.space_entities import _apply_unified_script_patch
 from tests.test_space_entities import _entity, _user
 
 
@@ -42,6 +44,28 @@ def edit(revision, components=None):
     return {'operation_id': str(uuid.uuid4()), 'expected_revision': revision, 'components': components or [
         {'id': 'root', 'script': 'self.state.changed = true;', 'body': {'mass': 82, 'useGravity': False}},
     ]}
+
+
+@pytest.mark.parametrize(('source', 'updated'), [
+    ('a\nb\nc\n', 'a\nB\nc\n'),
+    ('a\nb\nc\nd\ne\n', 'a\nB\nc\nd\nE\n'),
+    ('', 'a\n'),
+    ('a\n', ''),
+    ('a\nb\n', 'x\na\nb\ny\n'),
+])
+def test_strict_script_patch_applies_generated_unified_diffs(source, updated):
+    patch = ''.join(unified_diff(
+        source.splitlines(keepends=True),
+        updated.splitlines(keepends=True),
+        fromfile='before',
+        tofile='after',
+    ))
+    assert _apply_unified_script_patch(source, patch) == updated
+
+
+def test_strict_script_patch_rejects_git_metadata():
+    with pytest.raises(ValueError, match='hunk header'):
+        _apply_unified_script_patch('a\n', 'diff --git a/script b/script\n')
 
 
 def test_legacy_keys_can_edit_code_defaults_and_control_execution(client, db, configured):
@@ -83,12 +107,153 @@ def test_legacy_keys_can_edit_code_defaults_and_control_execution(client, db, co
     assert client.get(url+'/configuration', headers=keys['full']).json()['definition']['root']['script'] == ''
 
 
+def test_configuration_applies_script_diff_and_voxel_operations_atomically(client, db, configured):
+    url, keys, _ = configured
+    original_script = 'self.setLocalSpin([0,1,0], 2);'
+    script_patch = (
+        '@@ -1 +1 @@\n'
+        '-self.setLocalSpin([0,1,0], 2);\n'
+        '\\ No newline at end of file\n'
+        '+self.setLocalSpin([0,1,0], 3);\n'
+        '\\ No newline at end of file\n'
+    )
+    request = {
+        'operation_id': str(uuid.uuid4()),
+        'expected_revision': 1,
+        'components': [{
+            'id': 'root',
+            'script_patch': {
+                'format': 'unified',
+                'base_sha256': hashlib.sha256(original_script.encode()).hexdigest(),
+                'patch': script_patch,
+            },
+            'voxel_ops': [
+                {
+                    'op': 'upsert', 'dx': 0, 'dy': 0, 'dz': 0,
+                    'is_micro': False, 'color_rgb': 0x112233, 'material_id': 1,
+                },
+                {
+                    'op': 'upsert', 'dx': 1, 'dy': 0, 'dz': 0,
+                    'is_micro': True, 'micro_x': 2, 'micro_y': 3, 'micro_z': 4,
+                    'color_rgb': 0x445566,
+                },
+            ],
+        }],
+    }
+    changed = client.patch(url+'/configuration', headers=keys['full'], json=request)
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['revision'] == 2
+    # The durable receipt makes a delayed replay harmless.
+    assert client.patch(url+'/configuration', headers=keys['full'], json=request).json() == changed.json()
+
+    definition = client.get(url+'/configuration', headers=keys['full']).json()['definition']
+    assert definition['root']['script'] == 'self.setLocalSpin([0,1,0], 3);'
+    assert definition['root']['blocks'] == [
+        {'dx': 0, 'dy': 0, 'dz': 0, 'block': 1, 'color': 0x112233, 'material_id': 1},
+        {'dx': 1, 'dy': 0, 'dz': 0, 'block': 1, 'color': 0x445566, 'mx': 2, 'my': 3, 'mz': 4},
+    ]
+
+    removed = client.patch(url+'/configuration', headers=keys['full'], json={
+        'operation_id': str(uuid.uuid4()),
+        'expected_revision': 2,
+        'components': [{
+            'id': 'root',
+            'voxel_ops': [
+                {
+                    'op': 'upsert', 'dx': 0, 'dy': 0, 'dz': 0,
+                    'is_micro': False, 'color_rgb': 0xAABBCC,
+                },
+                {
+                    'op': 'remove', 'dx': 1, 'dy': 0, 'dz': 0,
+                    'is_micro': True, 'micro_x': 2, 'micro_y': 3, 'micro_z': 4,
+                },
+            ],
+        }],
+    })
+    assert removed.status_code == 200, removed.text
+    assert removed.json()['revision'] == 3
+    blocks = client.get(url+'/configuration', headers=keys['full']).json()['definition']['root']['blocks']
+    assert blocks == [{
+        'dx': 0, 'dy': 0, 'dz': 0, 'block': 1,
+        'color': 0xAABBCC, 'material_id': 1,
+    }]
+
+
+def test_semantic_patch_conflicts_and_failures_do_not_write(client, db, configured):
+    url, keys, _ = configured
+    original_script = 'self.setLocalSpin([0,1,0], 2);'
+    valid_diff = (
+        '@@ -1 +1 @@\n'
+        '-self.setLocalSpin([0,1,0], 2);\n'
+        '\\ No newline at end of file\n'
+        '+self.setLocalSpin([0,1,0], 3);\n'
+        '\\ No newline at end of file\n'
+    )
+
+    wrong_base = client.patch(url+'/configuration', headers=keys['full'], json={
+        'operation_id': str(uuid.uuid4()), 'expected_revision': 1,
+        'components': [{'id': 'root', 'script_patch': {
+            'format': 'unified', 'base_sha256': '0' * 64, 'patch': valid_diff,
+        }}],
+    })
+    assert wrong_base.status_code == 409
+    assert wrong_base.json()['detail']['code'] == 'ENTITY_SCRIPT_BASE_CONFLICT'
+
+    invalid_diff = client.patch(url+'/configuration', headers=keys['full'], json={
+        'operation_id': str(uuid.uuid4()), 'expected_revision': 1,
+        'components': [{'id': 'root', 'script_patch': {
+            'format': 'unified',
+            'base_sha256': hashlib.sha256(original_script.encode()).hexdigest(),
+            'patch': '@@ -1 +1 @@\n-not the current script\n+replacement\n',
+        }}],
+    })
+    assert invalid_diff.status_code == 422
+    assert invalid_diff.json()['detail']['code'] == 'ENTITY_SCRIPT_PATCH_INVALID'
+
+    missing_voxel = client.patch(url+'/configuration', headers=keys['full'], json={
+        'operation_id': str(uuid.uuid4()), 'expected_revision': 1,
+        'components': [{'id': 'root', 'voxel_ops': [{
+            'op': 'remove', 'dx': 9, 'dy': 9, 'dz': 9, 'is_micro': False,
+        }]}],
+    })
+    assert missing_voxel.status_code == 422
+    assert missing_voxel.json()['detail']['code'] == 'ENTITY_VOXEL_NOT_FOUND'
+
+    overlapping_scale = client.patch(url+'/configuration', headers=keys['full'], json={
+        'operation_id': str(uuid.uuid4()), 'expected_revision': 1,
+        'components': [{'id': 'root', 'voxel_ops': [{
+            'op': 'upsert', 'dx': 0, 'dy': 0, 'dz': 0, 'is_micro': True,
+            'micro_x': 0, 'micro_y': 0, 'micro_z': 0, 'color_rgb': 0xFFFFFF,
+        }]}],
+    })
+    assert overlapping_scale.status_code == 422
+    assert overlapping_scale.json()['detail']['code'] == 'ENTITY_DEFINITION_INVALID'
+
+    entity = db.query(models.SpaceWorldEntity).one()
+    assert entity.revision == 1
+    definition = client.get(url+'/configuration', headers=keys['full']).json()['definition']
+    assert definition['root']['script'] == original_script
+    assert definition['root']['blocks'] == [
+        {'dx': 0, 'dy': 0, 'dz': 0, 'block': 1, 'color': 0xF2A93B},
+    ]
+
+
 @pytest.mark.parametrize('components', [
     [{'id': 'root', 'script': None}], [{'id': 'root', 'body': {}}],
     [{'id': 'root', 'body': {'mass': 0}}], [{'id': 'root', 'body': {'useGravity': 'false'}}],
     [{'id': 'root', 'owner_user_id': 'other'}], [{'id': 'absent', 'script': ''}],
     [{'id': 'root', 'body': {'friction': 2}}], [{'id': 'root', 'script': '🚀'*65536}],
     [{'id': 'root', 'script': ''}, {'id': 'root', 'script': 'oops'}],
+    [{'id': 'root', 'script': '', 'script_patch': {
+        'format': 'unified', 'base_sha256': '0'*64, 'patch': '@@ -0,0 +0,0 @@\n',
+    }}],
+    [{'id': 'root', 'voxel_ops': [{
+        'op': 'upsert', 'dx': 0, 'dy': 0, 'dz': 0, 'is_micro': True, 'color_rgb': 0,
+    }]}],
+    [{'id': 'root', 'voxel_ops': [
+        {'op': 'remove', 'dx': 0, 'dy': 0, 'dz': 0, 'is_micro': False},
+        {'op': 'upsert', 'dx': 0, 'dy': 0, 'dz': 0, 'is_micro': False, 'color_rgb': 0},
+    ]}],
 ])
 def test_configuration_validation_is_atomic(client, db, configured, components):
     url, keys, _ = configured

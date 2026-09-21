@@ -106,6 +106,8 @@ def build_blockset(request: Request, world_id: uuid.UUID,
         canonical = validate_inventory_resource_payload(kind, decoded)
     except (binascii.Error, InventoryCodecError, ValueError) as error:
         raise HTTPException(422, detail={"code": "BLOCKSET_DEFINITION_INVALID"}) from error
+    if any(block.get("material_id", 0) != 0 for block in canonical["blocks"]):
+        raise HTTPException(422, detail={"code": "BLOCKSET_MATERIAL_UNSUPPORTED_BY_TERRAIN"})
     if len(canonical["blocks"]) > MAX_BUILD_BLOCKS:
         raise HTTPException(413, detail={"code": "BLOCKSET_TOO_MANY_BLOCKS", "limit": MAX_BUILD_BLOCKS})
     definition_digest = hashlib.sha256(encode_inventory_resource("blockset", canonical)).hexdigest()

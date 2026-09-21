@@ -12,7 +12,8 @@ package entropydrop.space.inventory.v7;
 // `fixed32`. This file is the single source for portable content; the realtime
 // protocol must be updated together with it.
 // Canonical encoders normalize every double -0.0 to +0.0; sort BlockSet.blocks
-// and Component.blocks by (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb);
+// and Component.blocks by
+// (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb,material_id);
 // and sort Component.children and Entity.constraints by Unicode code-point id
 // order. Color and seat order remains significant and is preserved.
 // Schema v7 is a wire-breaking change: v6 files, backpacks and CDN objects are
@@ -43,6 +44,9 @@ message Voxel {
   // RGB packed as 0xRRGGBB. Matches VoxelMutation.color_rgb in the realtime
   // schema; the old `fixed32 color` wire type is no longer accepted.
   uint32 color_rgb = 8;
+  // Visual material preset. 0 is the existing lit/default surface; 1 is an
+  // unlit emissive surface tinted by color_rgb. Other values are rejected.
+  uint32 material_id = 9;
 }
 
 message BlockSet {
