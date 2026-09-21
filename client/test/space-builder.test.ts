@@ -9,8 +9,8 @@ import {
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 
 function createHarness() {
-  const standard = new Map<string, { block: number; color: number }>();
-  const micro = new Map<string, { block: number; color: number }>();
+  const standard = new Map<string, { block: number; color: number; materialId: number }>();
+  const micro = new Map<string, { block: number; color: number; materialId: number }>();
   const world = {
     getBlock(x, y, z) {
       return standard.get(`${x},${y},${z}`)?.block ?? BlockTypes.AIR;
@@ -18,10 +18,13 @@ function createHarness() {
     getBlockColor(x, y, z) {
       return standard.get(`${x},${y},${z}`)?.color ?? 0;
     },
-    setBlock(x, y, z, block, _updateMesh, color = 0) {
+    getBlockMaterial(x, y, z) {
+      return standard.get(`${x},${y},${z}`)?.materialId ?? 0;
+    },
+    setBlock(x, y, z, block, _updateMesh, color = 0, materialId = 0) {
       const key = `${x},${y},${z}`;
       if (block === BlockTypes.AIR) standard.delete(key);
-      else standard.set(key, { block, color });
+      else standard.set(key, { block, color, materialId });
       return true;
     },
     hasMicroInStandardCell(x, y, z) {
@@ -34,8 +37,8 @@ function createHarness() {
     getMicroBlock(x, y, z) {
       return micro.get(`${x},${y},${z}`) || null;
     },
-    setMicroBlock(x, y, z, color) {
-      micro.set(`${x},${y},${z}`, { block: BlockTypes.COLOR_BLOCK, color });
+    setMicroBlock(x, y, z, color, _part, materialId = 0) {
+      micro.set(`${x},${y},${z}`, { block: BlockTypes.COLOR_BLOCK, color, materialId });
       return true;
     },
     removeMicroBlock(x, y, z) {
@@ -116,6 +119,10 @@ test('BuildPlan validation expands bounded primitives and rejects overlap', () =
     kind: 'structure',
     primitives: [{ type: 'line', from: [0.1, 0, 0], to: [1, 0, 0], size: 1 }]
   }).ok, false);
+  assert.equal(validateSpaceBuildPlan({
+    kind: 'structure',
+    blocks: [{ x: 0, y: 0, z: 0, materialId: 2 }]
+  }).ok, false);
 });
 
 test('SpaceBuilder previews, incrementally commits and undoes a structure', () => {
@@ -126,8 +133,8 @@ test('SpaceBuilder previews, incrementally commits and undoes a structure', () =
     name: 'Mixed marker',
     anchor: 'crosshair',
     blocks: [
-      { x: 0, y: 0, z: 0, color: '#112233' },
-      { x: 1.125, y: 0.125, z: 0.125, size: 0.125, color: '#abcdef' }
+      { x: 0, y: 0, z: 0, color: '#112233', materialId: 1 },
+      { x: 1.125, y: 0.125, z: 0.125, size: 0.125, color: '#abcdef', materialId: 1 }
     ]
   });
   assert.equal(validation.ok, true);
@@ -135,7 +142,9 @@ test('SpaceBuilder previews, incrementally commits and undoes a structure', () =
   assert.deepEqual(builder.commit(), { ok: true, jobId: 'build-1', reason: 'queued' });
   while (builder.update(1, Infinity)) { /* incremental */ }
   assert.equal(standard.get('10,10,10')?.color, 0x112233);
+  assert.equal(standard.get('10,10,10')?.materialId, 1);
   assert.equal(micro.get('89,81,81')?.color, 0xabcdef);
+  assert.equal(micro.get('89,81,81')?.materialId, 1);
   assert.equal(builder.getHistory().length, 1);
 
   assert.deepEqual(builder.undo(), { ok: true, jobId: 'undo-2', reason: 'queued' });
@@ -263,7 +272,11 @@ test('SpaceBuilder cancellation rolls back already placed structure voxels', () 
 
 test('SpaceBuilder placement review reports occupancy and rejects player overlap', () => {
   const { builder, standard } = createHarness();
-  standard.set('10,10,10', { block: BlockTypes.COLOR_BLOCK, color: 0xffffff });
+  standard.set('10,10,10', {
+    block: BlockTypes.COLOR_BLOCK,
+    color: 0xffffff,
+    materialId: 0
+  });
   const partial = builder.preview({
     kind: 'structure',
     blocks: [

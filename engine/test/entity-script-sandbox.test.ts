@@ -352,7 +352,7 @@ const descriptor = ctx.world.entities.get('ent_other');
 self.state.frozen = Object.isFrozen(descriptor) && Object.isFrozen(descriptor.position);
 try { descriptor.position[0] = 999; } catch (_) {}
 self.state.massResult = self.body.setMass(0);
-self.state.writeResult = ctx.world.voxels.set([20, 20, 20], { color: 0x123456 });
+self.state.writeResult = ctx.world.voxels.set([20, 20, 20], { color: 0x123456, materialId: 1 });
 `);
   contraption.setNodeScript('arm', `
 self.state.voxel = ctx.world.voxels.get([20, 20, 20]);
@@ -382,7 +382,7 @@ self.state.entityX = ctx.world.entities.get('ent_other').position[0];
   assert.equal(rootState.frozen, true);
   assert.deepEqual(rootState.massResult, { ok: false, mass: 10, reason: 'invalid_mass' });
   assert.deepEqual(rootState.writeResult, { ok: true, placed: 1, reason: 'queued', commandId: 'cmd-1' });
-  assert.deepEqual(armState.voxel, { block: 1, color: 0x123456 });
+  assert.deepEqual(armState.voxel, { block: 1, color: 0x123456, materialId: 1 });
   assert.equal(armState.near, 1, 'query radius must be measured from the supplied origin');
   assert.equal(armState.entityX, 10, 'one component must not mutate another component\'s snapshot');
   assert.equal(writes.length, 1);

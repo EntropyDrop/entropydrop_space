@@ -2,6 +2,7 @@ import { captureDistantChunk } from '../render/DistantChunkLayer.ts';
 import * as THREE from 'three';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from './Chunk.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
+import { normalizeVoxelMaterialId, VoxelMaterialIds } from './VoxelMaterials.ts';
 import { TerrainGenerator } from '../worldgen/TerrainGenerator.ts';
 import { LowPolyMesher, type ChunkMeshData } from '../mesher/LowPolyMesher.ts';
 import {
@@ -79,13 +80,15 @@ type PendingRemoteChunkApplyJob = {
   localMicroOverrides: PendingMicroOverride[];
 };
 
-type PackedStandardEdit = [number, number, number, number, number];
+type PackedStandardEdit =
+  | [number, number, number, number, number]
+  | [number, number, number, number, number, number];
 
 type PendingMicroOverride =
-  | { type: 'set'; mx: number; my: number; mz: number; color: number; part: string | null }
+  | { type: 'set'; mx: number; my: number; mz: number; color: number; part: string | null; material: number }
   | { type: 'delete'; mx: number; my: number; mz: number }
   | { type: 'clear-standard'; wx: number; wy: number; wz: number }
-  | { type: 'subdivide'; wx: number; wy: number; wz: number; color: number };
+  | { type: 'subdivide'; wx: number; wy: number; wz: number; color: number; material: number };
 
 type PendingTerrainSnapshot = {
   key: string;
@@ -119,6 +122,7 @@ type TerrainWorkerResult = {
   dataVersion?: number;
   blocks?: Uint8Array;
   terrainColors?: Uint32Array;
+  terrainMaterials?: Uint8Array;
   mesh?: ChunkMeshData;
 };
 
@@ -130,6 +134,7 @@ type CompletedTerrainWorkerJob = {
 type PublishedStandardCell = {
   block: number;
   color: number;
+  material: number;
 };
 
 export type TerrainAoiLoadProgress = {
@@ -146,6 +151,18 @@ function intersectTriangleInclusive(ray, a, b, c, point, barycentric) {
   return barycentric.x >= -epsilon
     && barycentric.y >= -epsilon
     && barycentric.z >= -epsilon;
+}
+
+function packStandardEdit(
+  x: number,
+  y: number,
+  z: number,
+  block: number,
+  color: number,
+  material: number,
+): PackedStandardEdit {
+  const base: [number, number, number, number, number] = [x, y, z, block, color];
+  return material === VoxelMaterialIds.DEFAULT ? base : [...base, material];
 }
 
 export class World {
@@ -232,7 +249,7 @@ export class World {
     if (this.editPersistence) {
       let restoredMicro = 0;
       for (const edit of this.editPersistence.getMicroEdits()) {
-        if (!this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part)) continue;
+        if (!this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material)) continue;
         restoredMicro++;
       }
       this.terrainVersion += restoredMicro;
@@ -347,7 +364,7 @@ export class World {
       for (const edit of this.editPersistence?.getStandardEditsForChunk(cx, cz) ?? []) {
         const lx = edit.x - cx * CHUNK_SIZE_X;
         const lz = edit.z - cz * CHUNK_SIZE_Z;
-        if (chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color)) {
+        if (chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color, edit.material)) {
           restoredStandard++;
         }
       }
@@ -406,6 +423,13 @@ export class World {
     return chunk ? chunk.getLocalColor(lx, wy, lz) : DEFAULT_BLOCK_COLOR;
   }
 
+  getBlockMaterial(wx, wy, wz) {
+    if (wy < 0 || wy >= CHUNK_SIZE_Y) return VoxelMaterialIds.DEFAULT;
+    const { cx, cz, lx, lz } = this.worldToChunkCoords(wx, wz);
+    const chunk = this.getChunk(cx, cz);
+    return chunk ? chunk.getLocalMaterial(lx, wy, lz) : VoxelMaterialIds.DEFAULT;
+  }
+
   private preserveCrossLayerStandardCell(wx: number, wy: number, wz: number) {
     const { cx, cz, lx, lz } = this.worldToChunkCoords(wx, wz);
     const chunk = this.getChunk(cx, cz);
@@ -421,6 +445,7 @@ export class World {
       snapshot.set(index, {
         block: chunk.getLocalBlock(lx, wy, lz),
         color: chunk.getLocalColor(lx, wy, lz),
+        material: chunk.getLocalMaterial(lx, wy, lz),
       });
     }
   }
@@ -432,7 +457,7 @@ export class World {
     return snapshot?.get(Chunk.getIndex(lx, wy, lz)) ?? null;
   }
 
-  setBlock(wx, wy, wz, blockType, updateMesh = true, color = DEFAULT_BLOCK_COLOR) {
+  setBlock(wx, wy, wz, blockType, updateMesh = true, color = DEFAULT_BLOCK_COLOR, materialId = 0) {
     if (wy < 0 || wy >= CHUNK_SIZE_Y) return false;
     const { cx, cz, lx, lz } = this.worldToChunkCoords(wx, wz);
     const chunk = this.getOrCreateChunk(cx, cz);
@@ -444,7 +469,10 @@ export class World {
       clearedMicro = this.microVoxels.clearStandardCell(wrapX(wx), wy, wrapZ(wz));
     }
     const normalizedColor = normalizeColor(color);
-    const changed = chunk.setLocalBlock(lx, wy, lz, blockType, normalizedColor);
+    const normalizedMaterial = blockType === BlockTypes.AIR
+      ? VoxelMaterialIds.DEFAULT
+      : normalizeVoxelMaterialId(materialId);
+    const changed = chunk.setLocalBlock(lx, wy, lz, blockType, normalizedColor, normalizedMaterial);
     if (changed || clearedMicro > 0) chunk.hasUserEdits = true;
     if (changed && updateMesh) {
       this.dirtyChunks.add(chunk);
@@ -454,7 +482,7 @@ export class World {
       this.terrainVersion++;
     }
     if (changed) {
-      this.editPersistence?.recordStandard(wx, wy, wz, blockType, normalizedColor);
+      this.editPersistence?.recordStandard(wx, wy, wz, blockType, normalizedColor, normalizedMaterial);
       this.trackPendingTerrainSnapshotEdit(
         World.getChunkKey(cx, cz),
         wrapX(wx),
@@ -462,6 +490,7 @@ export class World {
         wrapZ(wz),
         blockType,
         normalizedColor,
+        normalizedMaterial,
       );
     }
     if (clearedMicro > 0) {
@@ -503,8 +532,9 @@ export class World {
     z: number,
     block: number,
     color: number,
+    material: number,
   ) {
-    const edit: PackedStandardEdit = [x, y, z, block, color];
+    const edit = packStandardEdit(x, y, z, block, color, material);
     const applying = this.pendingRemoteChunkApply;
     if (applying?.key === key) applying.localStandardOverrides.push(edit);
 
@@ -528,7 +558,19 @@ export class World {
   setBlockColor(wx, wy, wz, color, updateMesh = true) {
     const block = this.getBlock(wx, wy, wz);
     if (block === BlockTypes.AIR) return false;
-    return this.setBlock(wx, wy, wz, block, updateMesh, color);
+    return this.setBlock(wx, wy, wz, block, updateMesh, color, this.getBlockMaterial(wx, wy, wz));
+  }
+
+  setBlockMaterial(wx, wy, wz, materialId, updateMesh = true) {
+    const block = this.getBlock(wx, wy, wz);
+    if (block === BlockTypes.AIR) return false;
+    return this.setBlock(wx, wy, wz, block, updateMesh, this.getBlockColor(wx, wy, wz), materialId);
+  }
+
+  setBlockAppearance(wx, wy, wz, color, materialId, updateMesh = true) {
+    const block = this.getBlock(wx, wy, wz);
+    if (block === BlockTypes.AIR) return false;
+    return this.setBlock(wx, wy, wz, block, updateMesh, color, materialId);
   }
 
   subdivideBlock(wx, wy, wz) {
@@ -537,21 +579,22 @@ export class World {
     const block = this.getBlock(wx, wy, wz);
     if (block === BlockTypes.AIR) return 0;
     const color = this.getBlockColor(wx, wy, wz);
+    const material = this.getBlockMaterial(wx, wy, wz);
     this.preserveCrossLayerStandardCell(wx, wy, wz);
     this.setBlock(wx, wy, wz, BlockTypes.AIR, true);
-    const n = this.microVoxels.subdivide(wx, wy, wz, color);
+    const n = this.microVoxels.subdivide(wx, wy, wz, color, material);
     if (n > 0) {
       this.microVoxels.prioritizeStandardCell(wx, wz, wy);
       const { cx, cz } = this.worldToChunkCoords(wx, wz);
       this.crossLayerPublicationChunks.add(World.getChunkKey(cx, cz));
-      this.trackPendingRemoteMicroOverride({ type: 'subdivide', wx, wy, wz, color });
+      this.trackPendingRemoteMicroOverride({ type: 'subdivide', wx, wy, wz, color, material });
       const baseX = wrapX(wx) * MICRO_DIVISIONS;
       const baseY = wy * MICRO_DIVISIONS;
       const baseZ = wrapZ(wz) * MICRO_DIVISIONS;
       for (let dx = 0; dx < MICRO_DIVISIONS; dx++) {
         for (let dy = 0; dy < MICRO_DIVISIONS; dy++) {
           for (let dz = 0; dz < MICRO_DIVISIONS; dz++) {
-            this.editPersistence?.recordMicro(baseX + dx, baseY + dy, baseZ + dz, color);
+            this.editPersistence?.recordMicro(baseX + dx, baseY + dy, baseZ + dz, color, null, material);
           }
         }
       }
@@ -560,7 +603,7 @@ export class World {
     return n;
   }
 
-  setMicroBlock(mx, my, mz, color = DEFAULT_BLOCK_COLOR, part = null) {
+  setMicroBlock(mx, my, mz, color = DEFAULT_BLOCK_COLOR, part = null, materialId = 0) {
     if (my < 0 || my >= CHUNK_SIZE_Y * MICRO_DIVISIONS) return false;
     mx = wrapMicroX(mx);
     mz = wrapMicroZ(mz);
@@ -568,11 +611,12 @@ export class World {
     const wy = Math.floor(my / MICRO_DIVISIONS);
     const wz = Math.floor(mz / MICRO_DIVISIONS);
     if (this.getBlock(wx, wy, wz) !== BlockTypes.AIR) return false;
-    const ok = this.microVoxels.set(mx, my, mz, color, part);
+    const normalizedMaterial = normalizeVoxelMaterialId(materialId);
+    const ok = this.microVoxels.set(mx, my, mz, color, part, normalizedMaterial);
     if (ok) {
       this.microVoxels.prioritizeMeshAt(mx, mz, my);
       const persistedColor = this.microVoxels.get(mx, my, mz);
-      this.editPersistence?.recordMicro(mx, my, mz, persistedColor, part);
+      this.editPersistence?.recordMicro(mx, my, mz, persistedColor, part, normalizedMaterial);
       this.trackPendingRemoteMicroOverride({
         type: 'set',
         mx,
@@ -580,6 +624,7 @@ export class World {
         mz,
         color: persistedColor,
         part,
+        material: normalizedMaterial,
       });
       this.terrainVersion++;
     }
@@ -590,7 +635,16 @@ export class World {
   getMicroBlock(mx, my, mz) {
     const color = this.microVoxels.get(wrapMicroX(mx), my, wrapMicroZ(mz));
     if (color === null || color === undefined) return null;
-    return { block: BlockTypes.COLOR_BLOCK, color };
+    const materialId = this.microVoxels.getMaterial(wrapMicroX(mx), my, wrapMicroZ(mz));
+    return {
+      block: BlockTypes.COLOR_BLOCK,
+      color,
+      ...(materialId !== VoxelMaterialIds.DEFAULT ? { materialId } : {}),
+    };
+  }
+
+  getMicroBlockPart(mx, my, mz) {
+    return this.microVoxels.parts.get(`${wrapMicroX(mx)},${my},${wrapMicroZ(mz)}`) ?? null;
   }
 
   /** Read only micro occupancy represented by an already-published terrain view. */
@@ -819,6 +873,9 @@ export class World {
       color: usePublishedCollision
         ? (this.getPublishedStandardCell(x, y, z)?.color ?? this.getBlockColor(x, y, z))
         : this.getBlockColor(x, y, z),
+      materialId: usePublishedCollision
+        ? (this.getPublishedStandardCell(x, y, z)?.material ?? this.getBlockMaterial(x, y, z))
+        : this.getBlockMaterial(x, y, z),
       size: 1,
       distance: result.distance,
       entry: result.entry
@@ -862,6 +919,7 @@ export class World {
       },
       normal,
       color: result.value,
+      materialId: this.microVoxels.getMaterial(mx, my, mz),
       size: 1 / MICRO_DIVISIONS,
       distance: result.distance,
       entry: result.entry
@@ -1286,6 +1344,12 @@ export class World {
     const nextCompleted = this.completedTerrainWorkerJobs[0];
     if (!nextCompleted) return false;
     const { job: nextJob, result: nextResult } = nextCompleted;
+    // Worker results created before terrain materials existed (and lightweight
+    // test workers that emulate that protocol) represent every voxel with the
+    // default material. Accept that shape without weakening the new protocol.
+    if (nextResult.type === 'generate' && nextResult.blocks && !nextResult.terrainMaterials) {
+      nextResult.terrainMaterials = new Uint8Array(nextResult.blocks.length);
+    }
     if (nextJob.type === 'remesh' && (
       this.pendingRemoteChunkUpdates.has(nextJob.key)
       || this.pendingRemoteChunkApply?.key === nextJob.key
@@ -1329,14 +1393,14 @@ export class World {
           : nextChunk === null;
         waitsForMicroPublication = snapshotIsCurrent
           && replacementIsCurrent
-          && Boolean(nextResult.blocks && nextResult.terrainColors && nextResult.mesh);
+          && Boolean(nextResult.blocks && nextResult.terrainColors && nextResult.terrainMaterials && nextResult.mesh);
       } else {
         const blockedByRemoteSnapshot = this.pendingRemoteChunkUpdates.has(nextJob.key)
           || this.pendingRemoteChunkApply?.key === nextJob.key
           || this.pendingTerrainSnapshots.has(nextJob.key);
         waitsForMicroPublication = nextChunk === null
           && !blockedByRemoteSnapshot
-          && Boolean(nextResult.blocks && nextResult.terrainColors && nextResult.mesh);
+          && Boolean(nextResult.blocks && nextResult.terrainColors && nextResult.terrainMaterials && nextResult.mesh);
       }
     }
     if (
@@ -1402,6 +1466,7 @@ export class World {
         || !replacementIsCurrent
         || !result.blocks
         || !result.terrainColors
+        || !result.terrainMaterials
         || !result.mesh
       ) {
         if (snapshotIsCurrent) this.requeueTerrainSnapshot(snapshot);
@@ -1416,6 +1481,7 @@ export class World {
       chunk.installGeneratedData(
         result.blocks,
         result.terrainColors,
+        result.terrainMaterials,
         result.mesh.occupiedMinY,
         result.mesh.occupiedMaxY - 1,
         result.hasUserEdits === true,
@@ -1438,6 +1504,7 @@ export class World {
       || blockedByRemoteSnapshot
       || !result.blocks
       || !result.terrainColors
+      || !result.terrainMaterials
       || !result.mesh
     ) {
       if (blockedByRemoteSnapshot && this.activeChunkKeys.has(job.key) && !this.chunks.has(job.key)) {
@@ -1452,6 +1519,7 @@ export class World {
     chunk.installGeneratedData(
       result.blocks,
       result.terrainColors,
+      result.terrainMaterials,
       result.mesh.occupiedMinY,
       result.mesh.occupiedMaxY - 1,
       result.hasUserEdits === true,
@@ -1464,9 +1532,10 @@ export class World {
 
   private recycleCompletedWorkerChunk(job: TerrainWorkerJob, result: TerrainWorkerResult) {
     const chunk = job.recycledChunk;
-    if (!chunk || !result.blocks || !result.terrainColors) return;
+    if (!chunk || !result.blocks || !result.terrainColors || !result.terrainMaterials) return;
     chunk.blocks = result.blocks;
     chunk.colors = result.terrainColors;
+    chunk.materials = result.terrainMaterials;
     if (this.recycledProceduralChunks.length < MAX_RECYCLED_PROCEDURAL_CHUNKS) {
       this.recycledProceduralChunks.push(chunk);
     }
@@ -1528,12 +1597,15 @@ export class World {
         standardEdits: snapshot.standardEdits,
       };
       const transfer: ArrayBuffer[] = [];
-      if (recycledChunk?.blocks.buffer.byteLength && recycledChunk?.colors.buffer.byteLength) {
+      if (recycledChunk?.blocks.buffer.byteLength && recycledChunk?.colors.buffer.byteLength
+        && recycledChunk?.materials.buffer.byteLength) {
         request.blocksBuffer = recycledChunk.blocks.buffer;
         request.colorsBuffer = recycledChunk.colors.buffer;
+        request.materialsBuffer = recycledChunk.materials.buffer;
         transfer.push(
           recycledChunk.blocks.buffer as ArrayBuffer,
           recycledChunk.colors.buffer as ArrayBuffer,
+          recycledChunk.materials.buffer as ArrayBuffer,
         );
       }
       this.pendingTerrainSnapshots.delete(key);
@@ -1566,7 +1638,14 @@ export class World {
       }
 
       const standardEdits = [...(this.editPersistence?.getStandardEditsForChunk(next.cx, next.cz)
-        ?? [])].map(edit => [edit.x, edit.y, edit.z, edit.block, edit.color]);
+        ?? [])].map(edit => packStandardEdit(
+        edit.x,
+        edit.y,
+        edit.z,
+        edit.block,
+        edit.color,
+        edit.material,
+      ));
       const recycledChunk = this.recycledProceduralChunks.pop() ?? null;
       const job: TerrainWorkerJob = {
         requestId: this.nextTerrainWorkerRequestId++,
@@ -1585,12 +1664,15 @@ export class World {
         standardEdits,
       };
       const transfer: ArrayBuffer[] = [];
-      if (recycledChunk?.blocks.buffer.byteLength && recycledChunk?.colors.buffer.byteLength) {
+      if (recycledChunk?.blocks.buffer.byteLength && recycledChunk?.colors.buffer.byteLength
+        && recycledChunk?.materials.buffer.byteLength) {
         request.blocksBuffer = recycledChunk.blocks.buffer;
         request.colorsBuffer = recycledChunk.colors.buffer;
+        request.materialsBuffer = recycledChunk.materials.buffer;
         transfer.push(
           recycledChunk.blocks.buffer as ArrayBuffer,
           recycledChunk.colors.buffer as ArrayBuffer,
+          recycledChunk.materials.buffer as ArrayBuffer,
         );
       }
       this.terrainWorkerJob = job;
@@ -1605,6 +1687,7 @@ export class World {
     const occupied = remeshChunk.getOccupiedYRange();
     const blocks = remeshChunk.blocks.slice();
     const colors = remeshChunk.colors.slice();
+    const materials = remeshChunk.materials.slice();
     const job: TerrainWorkerJob = {
       requestId: this.nextTerrainWorkerRequestId++,
       type: 'remesh',
@@ -1626,7 +1709,8 @@ export class World {
       maxOccupiedY: occupied?.max ?? -1,
       blocksBuffer: blocks.buffer,
       colorsBuffer: colors.buffer,
-    }, [blocks.buffer, colors.buffer]);
+      materialsBuffer: materials.buffer,
+    }, [blocks.buffer, colors.buffer, materials.buffer]);
     return true;
   }
 
@@ -1902,7 +1986,8 @@ export class World {
           y: current.y,
           z: wrapZ(current.z),
           block: b,
-          color: this.getBlockColor(current.x, current.y, current.z)
+          color: this.getBlockColor(current.x, current.y, current.z),
+          materialId: this.getBlockMaterial(current.x, current.y, current.z),
         });
 
         for (const n of neighbors) {
@@ -1942,7 +2027,8 @@ export class World {
               worldY: y,
               worldZ: z,
               block,
-              color: this.getBlockColor(x, y, z)
+              color: this.getBlockColor(x, y, z),
+              materialId: this.getBlockMaterial(x, y, z),
             });
             // Clear block from world
             this.setBlock(x, y, z, BlockTypes.AIR, false);
@@ -2207,7 +2293,7 @@ export class World {
           break;
         }
         const edit = next.value;
-        this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part);
+        this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material);
         processed++;
         if (
           processed % REMOTE_EDIT_TIME_CHECK_INTERVAL === 0
@@ -2242,11 +2328,12 @@ export class World {
           edit.z,
           edit.block,
           edit.color,
+          edit.material,
         ]);
       } else if (job.chunk) {
         const lx = edit.x - job.cx * CHUNK_SIZE_X;
         const lz = edit.z - job.cz * CHUNK_SIZE_Z;
-        job.chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color);
+        job.chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color, edit.material);
       }
       processed++;
       if (
@@ -2301,13 +2388,14 @@ export class World {
           override.mz,
           override.color,
           override.part,
+          override.material,
         );
       } else if (override.type === 'delete') {
         this.microVoxels.delete(override.mx, override.my, override.mz);
       } else if (override.type === 'clear-standard') {
         this.microVoxels.clearStandardCell(override.wx, override.wy, override.wz);
       } else {
-        this.microVoxels.subdivide(override.wx, override.wy, override.wz, override.color);
+        this.microVoxels.subdivide(override.wx, override.wy, override.wz, override.color, override.material);
       }
     }
   }
@@ -2333,6 +2421,7 @@ export class World {
           mz: Math.floor(wrapMicroZ(mz)),
           color: color & 0xffffff,
           part: typeof packed[4] === 'string' ? packed[4].slice(0, 64) : null,
+          material: normalizeVoxelMaterialId(packed[5]),
         },
       };
     }
@@ -2359,6 +2448,7 @@ export class World {
         z: Math.floor(wrapZ(z)),
         block: Math.max(0, Math.min(255, Math.floor(block))),
         color: color & 0xffffff,
+        material: block === 0 ? VoxelMaterialIds.DEFAULT : normalizeVoxelMaterialId(packed[5]),
       };
       return { done: false, value };
     }
@@ -2390,16 +2480,19 @@ export class World {
       ? [...this.editPersistence.getMicroEditsForChunk(cx, cz)]
       : (Array.isArray(update.micro) ? update.micro : [])
         .filter(edit => Array.isArray(edit) && edit.length >= 4)
-        .map(edit => ({ mx: edit[0], my: edit[1], mz: edit[2], color: edit[3], part: edit[4] || null }));
+        .map(edit => ({ mx: edit[0], my: edit[1], mz: edit[2], color: edit[3],
+          part: typeof edit[4] === 'string' ? edit[4] : null,
+          material: normalizeVoxelMaterialId(edit[5]) }));
     for (const edit of microEdits) {
-      this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part);
+      this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material);
     }
 
     const standardEdits = this.editPersistence
       ? [...this.editPersistence.getStandardEditsForChunk(cx, cz)]
       : (Array.isArray(update.standard) ? update.standard : [])
         .filter(edit => Array.isArray(edit) && edit.length >= 5)
-        .map(edit => ({ x: edit[0], y: edit[1], z: edit[2], block: edit[3], color: edit[4] }));
+        .map(edit => ({ x: edit[0], y: edit[1], z: edit[2], block: edit[3], color: edit[4],
+          material: normalizeVoxelMaterialId(edit[5]) }));
 
     // If chunk is currently loaded in memory, regenerate and apply standard blocks
     const chunk = this.chunks.get(key);
@@ -2408,7 +2501,7 @@ export class World {
       for (const edit of standardEdits) {
         const lx = edit.x - cx * CHUNK_SIZE_X;
         const lz = edit.z - cz * CHUNK_SIZE_Z;
-        chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color);
+        chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color, edit.material);
       }
       chunk.hasUserEdits = true;
       if (this.activeChunkKeys.has(key)) {

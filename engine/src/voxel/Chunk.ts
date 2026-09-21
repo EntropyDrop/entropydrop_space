@@ -1,4 +1,5 @@
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
+import { normalizeVoxelMaterialId } from './VoxelMaterials.ts';
 
 // Voxel Chunk Data Storage (16x256x16)
 
@@ -12,6 +13,7 @@ export class Chunk {
   world: any;
   blocks: Uint8Array;
   colors: Uint32Array;
+  materials: Uint8Array;
   mesh: any;
   isDirty: boolean;
   hasGenerated: boolean;
@@ -34,6 +36,7 @@ export class Chunk {
     this.blocks = new Uint8Array(CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z);
     this.colors = new Uint32Array(CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z);
     this.colors.fill(DEFAULT_BLOCK_COLOR);
+    this.materials = new Uint8Array(CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z);
     this.mesh = null;
     this.isDirty = true;
     this.hasGenerated = false;
@@ -79,16 +82,27 @@ export class Chunk {
     return this.colors[Chunk.getIndex(lx, ly, lz)];
   }
 
-  setLocalBlock(lx, ly, lz, blockType, color = DEFAULT_BLOCK_COLOR) {
+  getLocalMaterial(lx, ly, lz) {
+    if (lx < 0 || lx >= CHUNK_SIZE_X || ly < 0 || ly >= CHUNK_SIZE_Y || lz < 0 || lz >= CHUNK_SIZE_Z) {
+      return 0;
+    }
+    return this.materials[Chunk.getIndex(lx, ly, lz)];
+  }
+
+  setLocalBlock(lx, ly, lz, blockType, color = DEFAULT_BLOCK_COLOR, materialId = 0) {
     if (lx < 0 || lx >= CHUNK_SIZE_X || ly < 0 || ly >= CHUNK_SIZE_Y || lz < 0 || lz >= CHUNK_SIZE_Z) {
       return false;
     }
     const idx = Chunk.getIndex(lx, ly, lz);
     const nextColor = normalizeColor(color);
+    const nextMaterial = blockType === 0 ? 0 : normalizeVoxelMaterialId(materialId);
     const previousBlock = this.blocks[idx];
-    if (previousBlock !== blockType || (blockType !== 0 && this.colors[idx] !== nextColor)) {
+    if (previousBlock !== blockType || (blockType !== 0 && (
+      this.colors[idx] !== nextColor || this.materials[idx] !== nextMaterial
+    ))) {
       this.blocks[idx] = blockType;
       this.colors[idx] = nextColor;
+      this.materials[idx] = nextMaterial;
       this.isDirty = true;
       this.dataVersion++;
 
@@ -120,6 +134,7 @@ export class Chunk {
   resetForTerrainGeneration() {
     this.blocks.fill(0);
     this.colors.fill(DEFAULT_BLOCK_COLOR);
+    this.materials.fill(0);
     this.dataVersion++;
     this.minOccupiedY = CHUNK_SIZE_Y;
     this.maxOccupiedY = -1;
@@ -139,12 +154,14 @@ export class Chunk {
   installGeneratedData(
     blocks: Uint8Array,
     colors: Uint32Array,
+    materials: Uint8Array,
     minOccupiedY: number,
     maxOccupiedY: number,
     hasUserEdits = false,
   ) {
     this.blocks = blocks;
     this.colors = colors;
+    this.materials = materials;
     this.minOccupiedY = Math.max(0, Math.min(CHUNK_SIZE_Y - 1, Math.floor(minOccupiedY)));
     this.maxOccupiedY = Math.max(-1, Math.min(CHUNK_SIZE_Y - 1, Math.floor(maxOccupiedY)));
     this.occupiedYBoundsDirty = false;

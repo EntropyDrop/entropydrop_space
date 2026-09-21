@@ -173,13 +173,16 @@ function executeWorldAction(context: any, command: any) {
       const block = world.getBlock?.(cell.x, cell.y, cell.z) ?? BlockTypes.AIR;
       return {
         block,
-        color: block === BlockTypes.AIR ? 0x000000 : (world.getBlockColor?.(cell.x, cell.y, cell.z) ?? DEFAULT_BLOCK_COLOR)
+        color: block === BlockTypes.AIR ? 0x000000 : (world.getBlockColor?.(cell.x, cell.y, cell.z) ?? DEFAULT_BLOCK_COLOR),
+        materialId: block === BlockTypes.AIR ? 0 : (world.getBlockMaterial?.(cell.x, cell.y, cell.z) ?? 0),
       };
     }
     case 'get-micro': {
-      if (!micro) return { block: BlockTypes.AIR, color: 0x000000 };
-      return world.getMicroBlock?.(micro.x, micro.y, micro.z)
-        || { block: BlockTypes.AIR, color: 0x000000 };
+      if (!micro) return { block: BlockTypes.AIR, color: 0x000000, materialId: 0 };
+      const value = world.getMicroBlock?.(micro.x, micro.y, micro.z);
+      return value
+        ? { ...value, materialId: value.materialId ?? 0 }
+        : { block: BlockTypes.AIR, color: 0x000000, materialId: 0 };
     }
     case 'place-standard': {
       if (!cell) return actionResult(command.action, 0, 'invalid_position', { placed: 0 });
@@ -193,7 +196,8 @@ function executeWorldAction(context: any, command: any) {
         cell.x, cell.y, cell.z,
         command.block || BlockTypes.COLOR_BLOCK,
         command.updateMesh !== false,
-        resolveColor(command.options ?? command.color)
+        resolveColor(command.options ?? command.color),
+        commandMaterialId(command.options)
       );
       // A few lightweight adapters intentionally return void after performing the write.
       const placed = result === false ? 0 : 1;
@@ -210,7 +214,15 @@ function executeWorldAction(context: any, command: any) {
     }
     case 'paint-standard': {
       if (!cell) return actionResult(command.action, 0, 'invalid_position', { painted: 0 });
-      const painted = world.setBlockColor?.(cell.x, cell.y, cell.z, resolveColor(command.options ?? command.color)) ? 1 : 0;
+      const currentMaterial = world.getBlockMaterial?.(cell.x, cell.y, cell.z) ?? 0;
+      const materialId = command.options?.materialId === undefined
+        ? currentMaterial
+        : commandMaterialId(command.options);
+      const painted = world.setBlockAppearance?.(
+        cell.x, cell.y, cell.z,
+        resolveColor(command.options ?? command.color),
+        materialId,
+      ) ? 1 : 0;
       return actionResult(command.action, painted, painted ? 'painted' : 'not_found', { painted });
     }
     case 'place-micro': {
@@ -224,7 +236,8 @@ function executeWorldAction(context: any, command: any) {
       const result = world.setMicroBlock?.(
         micro.x, micro.y, micro.z,
         resolveColor(command.options ?? command.color),
-        command.part || null
+        command.part || null,
+        commandMaterialId(command.options)
       );
       const placed = result === false ? 0 : 1;
       return actionResult(command.action, placed, placed ? 'placed' : 'out_of_bounds', { placed });
@@ -239,7 +252,16 @@ function executeWorldAction(context: any, command: any) {
       if (world.getMicroBlock && !world.getMicroBlock(micro.x, micro.y, micro.z)) {
         return actionResult(command.action, 0, 'not_found', { painted: 0 });
       }
-      const painted = world.setMicroBlock?.(micro.x, micro.y, micro.z, resolveColor(command.options ?? command.color)) ? 1 : 0;
+      const existing = world.getMicroBlock?.(micro.x, micro.y, micro.z);
+      const materialId = command.options?.materialId === undefined
+        ? (existing?.materialId ?? 0)
+        : commandMaterialId(command.options);
+      const painted = world.setMicroBlock?.(
+        micro.x, micro.y, micro.z,
+        resolveColor(command.options ?? command.color),
+        world.getMicroBlockPart?.(micro.x, micro.y, micro.z) ?? null,
+        materialId,
+      ) ? 1 : 0;
       return actionResult(command.action, painted, painted ? 'painted' : 'not_found', { painted });
     }
     case 'clear-cell': {
@@ -283,11 +305,16 @@ function executeWorldAction(context: any, command: any) {
     case 'paint-cells': {
       const cells = Array.isArray(command.cells) ? command.cells.map(item => finiteCell(item, true)).filter(Boolean) : [];
       const color = resolveColor(command.options ?? command.color);
+      const changesMaterial = command.options?.materialId !== undefined;
+      const materialId = commandMaterialId(command.options);
       let standard = 0;
       let microCount = 0;
       for (const item of cells) {
         if (world.getBlock?.(item.x, item.y, item.z) !== BlockTypes.AIR) {
-          if (world.setBlockColor?.(item.x, item.y, item.z, color)) {
+          const nextMaterial = changesMaterial
+            ? materialId
+            : (world.getBlockMaterial?.(item.x, item.y, item.z) ?? 0);
+          if (world.setBlockAppearance?.(item.x, item.y, item.z, color, nextMaterial)) {
             standard++;
           }
         }
@@ -297,8 +324,12 @@ function executeWorldAction(context: any, command: any) {
               const mx = item.x * MICRO_DIVISIONS + dx;
               const my = item.y * MICRO_DIVISIONS + dy;
               const mz = item.z * MICRO_DIVISIONS + dz;
-              if (world.getMicroBlock?.(mx, my, mz)) {
-                if (world.setMicroBlock?.(mx, my, mz, color)) {
+              const existing = world.getMicroBlock?.(mx, my, mz);
+              if (existing) {
+                if (world.setMicroBlock?.(
+                  mx, my, mz, color, world.getMicroBlockPart?.(mx, my, mz) ?? null,
+                  changesMaterial ? materialId : (existing.materialId ?? 0),
+                )) {
                   microCount++;
                 }
               }

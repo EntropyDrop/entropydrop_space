@@ -9,6 +9,7 @@ import {
   wrapZ,
 } from '../torus/TorusWorld.ts';
 import type { SpaceStorage } from '../storage/SpaceStorage.ts';
+import { normalizeVoxelMaterialId, VoxelMaterialIds } from './VoxelMaterials.ts';
 
 const STORAGE_SCHEMA_VERSION = 3;
 const STORAGE_PREFIX = 'space.world-edits.v3';
@@ -31,8 +32,8 @@ const MAX_STORED_MICRO_EDITS = 500_000;
 export interface WorldEditStorage extends SpaceStorage {}
 
 export type TerrainMutation =
-  | { kind: 'set_standard'; x: number; y: number; z: number; block: number; color: number }
-  | { kind: 'set_micro'; mx: number; my: number; mz: number; color: number; part?: string | null }
+  | { kind: 'set_standard'; x: number; y: number; z: number; block: number; color: number; material?: number }
+  | { kind: 'set_micro'; mx: number; my: number; mz: number; color: number; part?: string | null; material?: number }
   | { kind: 'remove_micro'; mx: number; my: number; mz: number }
   | { kind: 'clear_micro_cell'; x: number; y: number; z: number };
 
@@ -95,6 +96,7 @@ export interface PersistedStandardEdit {
   z: number;
   block: number;
   color: number;
+  material: number;
 }
 
 export interface PersistedMicroEdit {
@@ -103,6 +105,7 @@ export interface PersistedMicroEdit {
   mz: number;
   color: number;
   part: string | null;
+  material: number;
 }
 
 interface RemoteChunkPendingBatch {
@@ -545,7 +548,8 @@ export class WorldEditPersistence {
       }
       const [key, previous] = next.value;
       const current = standard?.get(key);
-      if (!current || current.block !== previous.block || current.color !== previous.color) {
+      if (!current || current.block !== previous.block || current.color !== previous.color
+        || current.material !== previous.material) {
         return this.finishRemoteChunkReplacement(cursor);
       }
       remaining--;
@@ -558,7 +562,8 @@ export class WorldEditPersistence {
       }
       const [key, previous] = next.value;
       const current = micro?.get(key);
-      if (!current || current.color !== previous.color || current.part !== previous.part) {
+      if (!current || current.color !== previous.color || current.part !== previous.part
+        || current.material !== previous.material) {
         return this.finishRemoteChunkReplacement(cursor);
       }
       remaining--;
@@ -569,7 +574,7 @@ export class WorldEditPersistence {
 
   private applyMutationToReplacementBaseline(cursor: RemoteChunkReplacementCursor, mutation: TerrainMutation) {
     if (mutation.kind === 'set_micro') {
-      const edit = this.normalizeMicroEdit(mutation.mx, mutation.my, mutation.mz, mutation.color, mutation.part);
+      const edit = this.normalizeMicroEdit(mutation.mx, mutation.my, mutation.mz, mutation.color, mutation.part, mutation.material);
       if (edit) (cursor.previousMicro ??= new Map()).set(microKey(edit.mx, edit.my, edit.mz), edit);
       return;
     }
@@ -578,7 +583,7 @@ export class WorldEditPersistence {
       return;
     }
     if (mutation.kind === 'set_standard') {
-      const edit = this.normalizeStandardEdit(mutation.x, mutation.y, mutation.z, mutation.block, mutation.color);
+      const edit = this.normalizeStandardEdit(mutation.x, mutation.y, mutation.z, mutation.block, mutation.color, mutation.material);
       if (!edit) return;
       (cursor.previousStandard ??= new Map()).set(standardKey(edit.x, edit.y, edit.z), edit);
       if (edit.block === 0) return;
@@ -610,8 +615,8 @@ export class WorldEditPersistence {
     }
   }
 
-  recordStandard(x: number, y: number, z: number, block: number, color: number) {
-    const edit = this.normalizeStandardEdit(x, y, z, block, color);
+  recordStandard(x: number, y: number, z: number, block: number, color: number, material = 0) {
+    const edit = this.normalizeStandardEdit(x, y, z, block, color, material);
     if (!edit) return;
     this.addStandardEdit(edit);
     if (edit.block !== 0) this.removeMicroStandardCell(edit.x, edit.y, edit.z, false);
@@ -622,11 +627,12 @@ export class WorldEditPersistence {
       z: edit.z,
       block: edit.block,
       color: edit.color,
+      ...(edit.material !== VoxelMaterialIds.DEFAULT ? { material: edit.material } : {}),
     });
   }
 
-  recordMicro(mx: number, my: number, mz: number, color: number, part: unknown = null) {
-    const edit = this.normalizeMicroEdit(mx, my, mz, color, part);
+  recordMicro(mx: number, my: number, mz: number, color: number, part: unknown = null, material = 0) {
+    const edit = this.normalizeMicroEdit(mx, my, mz, color, part, material);
     if (!edit) return;
     this.addMicroEdit(edit);
     this.enqueueMutation({
@@ -636,6 +642,7 @@ export class WorldEditPersistence {
       mz: edit.mz,
       color: edit.color,
       ...(edit.part ? { part: edit.part } : {}),
+      ...(edit.material !== VoxelMaterialIds.DEFAULT ? { material: edit.material } : {}),
     });
   }
 
@@ -695,11 +702,13 @@ export class WorldEditPersistence {
           worldId: this.worldId,
           ...(!this.remote ? {
             standard: [...this.standardEdits.values()].map(edit => (
-              [edit.x, edit.y, edit.z, edit.block, edit.color]
+              edit.material === VoxelMaterialIds.DEFAULT
+                ? [edit.x, edit.y, edit.z, edit.block, edit.color]
+                : [edit.x, edit.y, edit.z, edit.block, edit.color, edit.material]
             )),
             micro: [...this.microEdits.values()].map(edit => (
-              edit.part
-                ? [edit.mx, edit.my, edit.mz, edit.color, edit.part]
+              edit.part || edit.material !== VoxelMaterialIds.DEFAULT
+                ? [edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material]
                 : [edit.mx, edit.my, edit.mz, edit.color]
             )),
           } : {}),
@@ -716,22 +725,24 @@ export class WorldEditPersistence {
     }
   }
 
-  private normalizeStandardEdit(x: number, y: number, z: number, block: number, color: number) {
+  private normalizeStandardEdit(x: number, y: number, z: number, block: number, color: number, material: unknown = 0) {
     if (![x, y, z, block, color].every(value => Number.isFinite(Number(value)))) return null;
     const normalizedX = Math.floor(wrapX(x));
     const normalizedY = Math.floor(y);
     const normalizedZ = Math.floor(wrapZ(z));
     if (normalizedY < 0 || normalizedY >= CHUNK_SIZE_Y) return null;
+    const normalizedBlock = Math.max(0, Math.min(255, Math.floor(Number(block) || 0)));
     return {
       x: normalizedX,
       y: normalizedY,
       z: normalizedZ,
-      block: Math.max(0, Math.min(255, Math.floor(Number(block) || 0))),
+      block: normalizedBlock,
       color: Number(color) & 0xffffff,
+      material: normalizedBlock === 0 ? VoxelMaterialIds.DEFAULT : normalizeVoxelMaterialId(material),
     };
   }
 
-  private normalizeMicroEdit(mx: number, my: number, mz: number, color: number, part: unknown = null) {
+  private normalizeMicroEdit(mx: number, my: number, mz: number, color: number, part: unknown = null, material: unknown = 0) {
     if (![mx, my, mz, color].every(value => Number.isFinite(Number(value)))) return null;
     const normalizedX = Math.floor(wrapMicroX(mx));
     const normalizedY = Math.floor(my);
@@ -743,6 +754,7 @@ export class WorldEditPersistence {
       mz: normalizedZ,
       color: Number(color) & 0xffffff,
       part: typeof part === 'string' ? part.slice(0, 64) : null,
+      material: normalizeVoxelMaterialId(material),
     };
   }
 
@@ -1060,7 +1072,12 @@ export class WorldEditPersistence {
     const color = finiteInteger(packed[4]);
     if (x === null || y === null || z === null || block === null || color === null) return;
     if (x < 0 || x >= TORUS_SIZE_X || y < 0 || y >= CHUNK_SIZE_Y || z < 0 || z >= TORUS_SIZE_Z) return;
-    this.addStandardEdit({ x, y, z, block: Math.max(0, Math.min(255, block)), color: color & 0xffffff });
+    this.addStandardEdit({
+      x, y, z,
+      block: Math.max(0, Math.min(255, block)),
+      color: color & 0xffffff,
+      material: block === 0 ? VoxelMaterialIds.DEFAULT : normalizeVoxelMaterialId(packed[5]),
+    });
   }
 
   private loadPackedMicroEdit(packed: unknown) {
@@ -1081,6 +1098,7 @@ export class WorldEditPersistence {
       mz,
       color: color & 0xffffff,
       part: typeof packed[4] === 'string' ? packed[4].slice(0, 64) : null,
+      material: normalizeVoxelMaterialId(packed[5]),
     });
   }
 
@@ -1171,13 +1189,13 @@ export class WorldEditPersistence {
   private sanitizeMutation(mutation: any): TerrainMutation | null {
     if (mutation?.kind === 'set_standard') {
       const edit = this.normalizeStandardEdit(
-        mutation.x, mutation.y, mutation.z, mutation.block, mutation.color
+        mutation.x, mutation.y, mutation.z, mutation.block, mutation.color, mutation.material
       );
       return edit ? { kind: 'set_standard', ...edit } : null;
     }
     if (mutation?.kind === 'set_micro') {
       const edit = this.normalizeMicroEdit(
-        mutation.mx, mutation.my, mutation.mz, mutation.color, mutation.part
+        mutation.mx, mutation.my, mutation.mz, mutation.color, mutation.part, mutation.material
       );
       return edit ? {
         kind: 'set_micro',
@@ -1186,6 +1204,7 @@ export class WorldEditPersistence {
         mz: edit.mz,
         color: edit.color,
         ...(edit.part ? { part: edit.part } : {}),
+        ...(edit.material !== VoxelMaterialIds.DEFAULT ? { material: edit.material } : {}),
       } : null;
     }
     if (mutation?.kind === 'remove_micro') {
@@ -1229,7 +1248,7 @@ export class WorldEditPersistence {
   private applyMutationLocally(mutation: TerrainMutation) {
     if (mutation.kind === 'set_standard') {
       const edit = this.normalizeStandardEdit(
-        mutation.x, mutation.y, mutation.z, mutation.block, mutation.color
+        mutation.x, mutation.y, mutation.z, mutation.block, mutation.color, mutation.material
       );
       if (!edit) return;
       this.addStandardEdit(edit);
@@ -1238,7 +1257,7 @@ export class WorldEditPersistence {
     }
     if (mutation.kind === 'set_micro') {
       const edit = this.normalizeMicroEdit(
-        mutation.mx, mutation.my, mutation.mz, mutation.color, mutation.part
+        mutation.mx, mutation.my, mutation.mz, mutation.color, mutation.part, mutation.material
       );
       if (edit) this.addMicroEdit(edit);
       return;

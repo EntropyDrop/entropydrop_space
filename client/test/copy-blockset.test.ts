@@ -112,7 +112,7 @@ test('pasting a block set creates ordinary world blocks and no entity', () => {
   assert.ok(controller.__toasts.some(m => m.includes('Built block set')));
 });
 
-test('terrain paste rejects emissive block sets without dropping their material', () => {
+test('terrain paste stores emissive block-set material independently from color', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 10, 21, 30, 10, 21, 30);
@@ -133,10 +133,12 @@ test('terrain paste rejects emissive block sets without dropping their material'
     normal: { x: 0, y: 1, z: 0 },
   };
 
-  assert.equal(controller.pasteBlockSet(slot), false);
-  assert.equal(world.getBlock(10, 21, 30), BlockTypes.AIR);
+  assert.equal(controller.pasteBlockSet(slot), true);
+  assert.equal(world.getBlock(10, 21, 30), BlockTypes.COLOR_BLOCK);
+  assert.equal(world.getBlockColor(10, 21, 30), 0x22ccff);
+  assert.equal(world.getBlockMaterial(10, 21, 30), 1);
   assert.equal(slot.blocks[0].materialId, 1);
-  assert.ok(controller.__toasts.some(message => message.includes('entities only')));
+  assert.ok(controller.__toasts.some(message => message.includes('Built block set')));
 });
 
 test('block-set copy preserves 0.125 microblock offsets during paste', () => {

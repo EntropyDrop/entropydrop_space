@@ -10,12 +10,14 @@ test('real terrain edits keep air gaps, micro footprints and colors when the nea
   const world = new World(new THREE.Scene(), 20260827);
   world.setRenderDistance(4);
   world.updateChunksAround(8, 8, false);
-  world.setBlock(3, 40, 3, 1, false, 0xff0000);
+  world.setBlock(3, 40, 3, 1, false, 0xff0000, 1);
   world.setBlock(3, 41, 3, 1, false, 0xff0000);
   for (let y = 12; y < 24; y++) world.setBlock(3, y, 3, 0, false);
-  world.setMicroBlock(24, 200, 24, 0x0000ff);
+  world.setMicroBlock(24, 200, 24, 0x0000ff, null, 1);
   const chunk = world.getChunk(0, 0)!;
   const snapshot = captureDistantChunk(chunk, world.microVoxels, Infinity);
+  assert.equal('materials' in snapshot, false,
+    'distant LOD deliberately renders authored voxels with the default material');
   const colorsAt = (x: number, y: number, z: number) => {
     const colors: number[] = [];
     for (let i = 0; i < snapshot.boxes.length / 6; i++) {

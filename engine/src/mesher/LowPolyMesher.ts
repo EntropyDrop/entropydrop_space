@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
+import { VOXEL_EMISSIVE_INTENSITY, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 
 type FaceDefinition = Readonly<{
   dir: readonly [number, number, number];
@@ -21,7 +22,7 @@ const FACES: readonly FaceDefinition[] = [
 ] as const;
 
 const CUT_EDGE_FLAG = 0x100;
-const VISIBLE_FACE_STRIDE = 7;
+const VISIBLE_FACE_STRIDE = 8;
 
 export type ChunkMeshData = {
   occupiedMinY: number;
@@ -30,11 +31,13 @@ export type ChunkMeshData = {
   normals: Int8Array | null;
   colors: Uint8Array | null;
   indices: Uint16Array | Uint32Array | null;
+  materialIndexCounts: [number, number];
 };
 
 export class LowPolyMesher {
   private mode: string;
   private solidMaterial: THREE.MeshStandardMaterial;
+  private emissiveMaterial: THREE.MeshBasicMaterial;
   private waterMaterial: THREE.MeshStandardMaterial;
   private glassMaterial: THREE.MeshStandardMaterial;
   private _tempColor: THREE.Color;
@@ -48,6 +51,15 @@ export class LowPolyMesher {
       roughness: 0.65,
       metalness: 0.15,
       shadowSide: THREE.DoubleSide
+    });
+    this.emissiveMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(
+        VOXEL_EMISSIVE_INTENSITY,
+        VOXEL_EMISSIVE_INTENSITY,
+        VOXEL_EMISSIVE_INTENSITY,
+      ),
+      vertexColors: true,
+      toneMapped: false,
     });
 
     this.waterMaterial = new THREE.MeshStandardMaterial({
@@ -91,6 +103,7 @@ export class LowPolyMesher {
         normals: null,
         colors: null,
         indices: null,
+        materialIndexCounts: [0, 0],
       };
     }
 
@@ -150,10 +163,12 @@ export class LowPolyMesher {
       faceIndex: number,
       face: FaceDefinition,
       cutEdge: boolean,
-      color: number
+      color: number,
+      materialId: number,
     ) => void) => {
       const blocks = chunk.blocks as Uint8Array;
       const colors = chunk.colors as Uint32Array;
+      const materials = chunk.materials as Uint8Array;
       for (let ly = minOccupiedY; ly <= maxOccupiedY; ly++) {
         const layerOffset = ly * CHUNK_SIZE_Z * CHUNK_SIZE_X;
         for (let lz = 0; lz < CHUNK_SIZE_Z; lz++) {
@@ -171,6 +186,7 @@ export class LowPolyMesher {
                 FACES[faceIndex],
                 (neighbor & CUT_EDGE_FLAG) !== 0,
                 colors[index],
+                materials[index],
               );
             }
           }
@@ -183,26 +199,42 @@ export class LowPolyMesher {
     // second time after allocating its typed buffers.
     const visibleFaces: number[] = [];
     const cutFaceRuns = new Map<number, number>();
-    visitVisibleFaces((lx, ly, lz, faceIndex, face, cutEdge, color) => {
+    visitVisibleFaces((lx, ly, lz, faceIndex, face, cutEdge, color, materialId) => {
       // Streaming cut faces can span the whole solid depth of a terrain
       // column. Merge vertically adjacent faces with the same color so fixing
       // the hole does not add one quad per voxel layer.
       if (cutEdge && face.face === 'side') {
         const runKey = (
           ((faceIndex * CHUNK_SIZE_X + lx) * CHUNK_SIZE_Z + lz) * 0x1000000
-        ) + color;
+        ) + color + materialId * 0x100000000;
         const runOffset = cutFaceRuns.get(runKey);
         if (
           runOffset !== undefined
-          && visibleFaces[runOffset + 1] + visibleFaces[runOffset + 6] === ly
+          && visibleFaces[runOffset + 1] + visibleFaces[runOffset + 7] === ly
         ) {
-          visibleFaces[runOffset + 6]++;
+          visibleFaces[runOffset + 7]++;
           return;
         }
         cutFaceRuns.set(runKey, visibleFaces.length);
       }
-      visibleFaces.push(lx, ly, lz, faceIndex, cutEdge ? 1 : 0, color, 1);
+      visibleFaces.push(lx, ly, lz, faceIndex, cutEdge ? 1 : 0, color, materialId, 1);
     });
+    // Geometry groups require each material's triangles to occupy one
+    // contiguous index range. Keep default first so old single-material data
+    // and distant LOD retain their original fast path.
+    const groupedFaces: number[] = [];
+    const materialFaceCounts: [number, number] = [0, 0];
+    for (const materialId of [VoxelMaterialIds.DEFAULT, VoxelMaterialIds.EMISSIVE]) {
+      for (let offset = 0; offset < visibleFaces.length; offset += VISIBLE_FACE_STRIDE) {
+        if (visibleFaces[offset + 6] !== materialId) continue;
+        groupedFaces.push(...visibleFaces.slice(offset, offset + VISIBLE_FACE_STRIDE));
+        materialFaceCounts[materialId]++;
+      }
+    }
+    visibleFaces.length = 0;
+    for (let index = 0; index < groupedFaces.length; index++) {
+      visibleFaces[index] = groupedFaces[index];
+    }
     const faceCount = visibleFaces.length / VISIBLE_FACE_STRIDE;
     if (faceCount === 0) {
       return {
@@ -212,6 +244,7 @@ export class LowPolyMesher {
         normals: null,
         colors: null,
         indices: null,
+        materialIndexCounts: [0, 0],
       };
     }
 
@@ -247,9 +280,12 @@ export class LowPolyMesher {
       const face = FACES[visibleFaces[faceOffset + 3]];
       const cutEdge = visibleFaces[faceOffset + 4] === 1;
       const color = visibleFaces[faceOffset + 5];
-      const verticalSpan = visibleFaces[faceOffset + 6];
+      const materialId = visibleFaces[faceOffset + 6];
+      const verticalSpan = visibleFaces[faceOffset + 7];
       this._tempColor.setHex(color);
-      const shade = face.face === 'top' ? 1 : face.face === 'bottom' ? 0.6 : cutEdge ? 1 : 0.85;
+      const shade = materialId === VoxelMaterialIds.EMISSIVE
+        ? 1
+        : face.face === 'top' ? 1 : face.face === 'bottom' ? 0.6 : cutEdge ? 1 : 0.85;
       const r = this._tempColor.r * shade;
       const g = this._tempColor.g * shade;
       const b = this._tempColor.b * shade;
@@ -283,6 +319,7 @@ export class LowPolyMesher {
       normals,
       colors,
       indices,
+      materialIndexCounts: [materialFaceCounts[0] * 6, materialFaceCounts[1] * 6],
     };
   }
 
@@ -301,7 +338,10 @@ export class LowPolyMesher {
     geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3, true));
     geometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3, true));
     geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
-    const mesh = new THREE.Mesh(geometry, this.solidMaterial);
+    const [defaultCount, emissiveCount] = data.materialIndexCounts ?? [data.indices.length, 0];
+    if (defaultCount > 0) geometry.addGroup(0, defaultCount, 0);
+    if (emissiveCount > 0) geometry.addGroup(defaultCount, emissiveCount, 1);
+    const mesh = new THREE.Mesh(geometry, [this.solidMaterial, this.emissiveMaterial]);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);

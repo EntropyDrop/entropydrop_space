@@ -2,7 +2,10 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/Mic
 import * as THREE from 'three';
 import { MAX_INVENTORY_NAME_LENGTH, trimInventoryName, inventoryNameLength, truncateInventoryName } from '@entropydrop/space-engine/storage/InventoryName.ts';
 import { BlockTypes, colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import {
+  normalizeVoxelMaterialId,
+  VoxelMaterialIds,
+} from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import {
   BodyType,
   ContraptionMode,
@@ -2806,7 +2809,9 @@ export class PlayerController {
   private sampleWorldCellForBulkCopy(cell, consider) {
     const block = this.world.getBlock?.(cell.x, cell.y, cell.z);
     if (block !== BlockTypes.AIR) {
-      consider(cell.x, cell.y, cell.z, 1, block, this.world.getBlockColor?.(cell.x, cell.y, cell.z), null);
+      consider(cell.x, cell.y, cell.z, 1, block,
+        this.world.getBlockColor?.(cell.x, cell.y, cell.z), null,
+        this.world.getBlockMaterial?.(cell.x, cell.y, cell.z));
     }
     const micros = this.world.getMicroBlocksInAABB?.({
       minX: cell.x,
@@ -2817,7 +2822,8 @@ export class PlayerController {
       maxZ: cell.z + 1 - 1e-6
     }) || [];
     for (const micro of micros) {
-      consider(micro.x, micro.y, micro.z, micro.size || MICRO_SIZE, BlockTypes.COLOR_BLOCK, micro.color, micro.part);
+      consider(micro.x, micro.y, micro.z, micro.size || MICRO_SIZE,
+        BlockTypes.COLOR_BLOCK, micro.color, micro.part, micro.materialId);
     }
   }
 
@@ -2840,8 +2846,8 @@ export class PlayerController {
     const collected: any[] = [];
     const rawBlocks: any[] = [];
     let minX = Infinity, minY = Infinity, minZ = Infinity;
-    const consider = (x, y, z, size, block, color, part = null) => {
-      collected.push({ x, y, z, size, block, color, part });
+    const consider = (x, y, z, size, block, color, part = null, materialId = 0) => {
+      collected.push({ x, y, z, size, block, color, part, materialId });
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       minZ = Math.min(minZ, z);
@@ -2864,6 +2870,7 @@ export class PlayerController {
             const existing = this.world.getMicroBlock?.(cell.x, cell.y, cell.z);
             let color = existing?.color;
             let part = null;
+            let materialId = existing?.materialId ?? 0;
             if (existing) {
               const exact = this.world.getMicroBlocksInAABB?.({
                 minX: cell.x / MICRO_DIVISIONS,
@@ -2880,6 +2887,7 @@ export class PlayerController {
               const wz = Math.floor(cell.z / MICRO_DIVISIONS);
               if (this.world.getBlock?.(wx, wy, wz) !== BlockTypes.AIR) {
                 color = this.world.getBlockColor?.(wx, wy, wz);
+                materialId = this.world.getBlockMaterial?.(wx, wy, wz) ?? 0;
               }
             }
             if (color !== null && color !== undefined) {
@@ -2890,7 +2898,8 @@ export class PlayerController {
                 MICRO_SIZE,
                 BlockTypes.COLOR_BLOCK,
                 color,
-                part
+                part,
+                materialId,
               );
             }
           } else {
@@ -2908,6 +2917,7 @@ export class PlayerController {
           size: item.size,
           block: item.block,
           color: item.color,
+          materialId: normalizeVoxelMaterialId(item.materialId),
           part: item.part
         });
         return 1;
@@ -3045,7 +3055,13 @@ export class PlayerController {
         const x = cell.x * MICRO_SIZE;
         const y = cell.y * MICRO_SIZE;
         const z = cell.z * MICRO_SIZE;
-        collected.push({ x, y, z, size: MICRO_SIZE, block: BlockTypes.COLOR_BLOCK, color });
+        const materialId = block?.materialId
+          ?? this.world.getBlockMaterial?.(
+            Math.floor(cell.x / MICRO_DIVISIONS),
+            Math.floor(cell.y / MICRO_DIVISIONS),
+            Math.floor(cell.z / MICRO_DIVISIONS),
+          ) ?? 0;
+        collected.push({ x, y, z, size: MICRO_SIZE, block: BlockTypes.COLOR_BLOCK, color, materialId });
         if (x < minX) minX = x;
         if (y < minY) minY = y;
         if (z < minZ) minZ = z;
@@ -3057,7 +3073,10 @@ export class PlayerController {
         dz: Math.round((b.z - minZ) * MICRO_DIVISIONS) / MICRO_DIVISIONS,
         size: b.size,
         block: b.block,
-        color: b.color
+        color: b.color,
+        ...(normalizeVoxelMaterialId(b.materialId) === VoxelMaterialIds.DEFAULT
+          ? {}
+          : { materialId: normalizeVoxelMaterialId(b.materialId) }),
       }));
     }
 
@@ -3078,8 +3097,8 @@ export class PlayerController {
 
     const collected = []; // { x, y, z, size, block, color } in world units
     let minX = Infinity, minY = Infinity, minZ = Infinity;
-    const consider = (x, y, z, size, block, color) => {
-      collected.push({ x, y, z, size, block, color });
+    const consider = (x, y, z, size, block, color, materialId = 0) => {
+      collected.push({ x, y, z, size, block, color, materialId });
       if (x < minX) minX = x;
       if (y < minY) minY = y;
       if (z < minZ) minZ = z;
@@ -3092,14 +3111,17 @@ export class PlayerController {
       for (const cell of manager.connectedSelection) {
         const block = this.world.getBlock(cell.x, cell.y, cell.z);
         if (block !== BlockTypes.AIR) {
-          consider(cell.x, cell.y, cell.z, 1, block, this.world.getBlockColor(cell.x, cell.y, cell.z));
+          consider(cell.x, cell.y, cell.z, 1, block,
+            this.world.getBlockColor(cell.x, cell.y, cell.z),
+            this.world.getBlockMaterial?.(cell.x, cell.y, cell.z));
         }
       }
       const micros = this.world.getMicroBlocksInAABB(microBounds) || [];
       for (const m of micros) {
         const cellKey = `${Math.floor(m.x)},${Math.floor(m.y)},${Math.floor(m.z)}`;
         if (singleKeys.has(cellKey)) {
-          consider(m.x, m.y, m.z, m.size || MICRO_SIZE, BlockTypes.COLOR_BLOCK, m.color);
+          consider(m.x, m.y, m.z, m.size || MICRO_SIZE,
+            BlockTypes.COLOR_BLOCK, m.color, m.materialId);
         }
       }
     } else {
@@ -3109,14 +3131,16 @@ export class PlayerController {
           for (let z = bounds.minZ; z <= bounds.maxZ; z++) {
             const block = this.world.getBlock(x, y, z);
             if (block !== BlockTypes.AIR) {
-              consider(x, y, z, 1, block, this.world.getBlockColor(x, y, z));
+              consider(x, y, z, 1, block, this.world.getBlockColor(x, y, z),
+                this.world.getBlockMaterial?.(x, y, z));
             }
           }
         }
       }
       const micros = this.world.getMicroBlocksInAABB(microBounds) || [];
       for (const m of micros) {
-        consider(m.x, m.y, m.z, m.size || MICRO_SIZE, BlockTypes.COLOR_BLOCK, m.color);
+        consider(m.x, m.y, m.z, m.size || MICRO_SIZE,
+          BlockTypes.COLOR_BLOCK, m.color, m.materialId);
       }
     }
 
@@ -3127,7 +3151,10 @@ export class PlayerController {
       dz: b.z - minZ,
       size: b.size,
       block: b.block,
-      color: b.color
+      color: b.color,
+      ...(normalizeVoxelMaterialId(b.materialId) === VoxelMaterialIds.DEFAULT
+        ? {}
+        : { materialId: normalizeVoxelMaterialId(b.materialId) })
     }));
   }
 
@@ -3918,7 +3945,7 @@ export class PlayerController {
           Math.round((target.y + block.dy) * MICRO_DIVISIONS),
           Math.round((target.z + block.dz) * MICRO_DIVISIONS)
         ],
-        color: block.color,
+        options: { color: block.color, materialId: normalizeVoxelMaterialId(block.materialId) },
         part: block.part || null,
         replace
       });
@@ -3934,7 +3961,7 @@ export class PlayerController {
         z: target.z + Math.round(block.dz)
       },
       block: block.block || BlockTypes.COLOR_BLOCK,
-      color: block.color,
+      options: { color: block.color, materialId: normalizeVoxelMaterialId(block.materialId) },
       replace
     });
     return result.placed || 0;
@@ -3946,18 +3973,14 @@ export class PlayerController {
     const skipped = Math.max(0, total - placed);
     const where = `at (${target.x}, ${target.y}, ${target.z})`;
     this.ui.showToast(replace
-      ? `Overwrote block set: ${placed}/${total} plain blocks ${where}`
+      ? `Overwrote block set: ${placed}/${total} voxels ${where}`
       : skipped > 0
-        ? `Built block set: ${placed}/${total} plain blocks ${where} · ${skipped} occupied cell(s) skipped`
-        : `Built block set: ${placed}/${total} plain blocks ${where}`);
+        ? `Built block set: ${placed}/${total} voxels ${where} · ${skipped} occupied cell(s) skipped`
+        : `Built block set: ${placed}/${total} voxels ${where}`);
   }
 
   pasteBlockSet(slot, replace = false) {
     if (!this.world || !slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return false;
-    if (slot.blocks.some(block => normalizeVoxelMaterialId(block.materialId) !== VoxelMaterialIds.DEFAULT)) {
-      this.ui?.showToast?.('Emissive materials currently work on entities only; terrain supports the default material');
-      return false;
-    }
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;

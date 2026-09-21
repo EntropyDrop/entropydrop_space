@@ -11,6 +11,7 @@ import {
 } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR, normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
+import { parseVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 
 export const SPACE_BUILD_PLAN_VERSION = 1;
 export const MAX_BUILD_PLAN_VOXELS = 65_536;
@@ -29,6 +30,7 @@ export interface SpaceBuildVoxelInput {
   z: number;
   size?: 1 | typeof MICRO_SIZE;
   color?: number | string;
+  materialId?: number;
   componentId?: string;
 }
 
@@ -39,6 +41,7 @@ export interface SpaceBuildPrimitiveInput {
   hollow?: boolean;
   size?: 1 | typeof MICRO_SIZE;
   color?: number | string;
+  materialId?: number;
   componentId?: string;
 }
 
@@ -102,6 +105,7 @@ export interface NormalizedBuildVoxel {
   z: number;
   size: 1 | typeof MICRO_SIZE;
   color: number;
+  materialId: number;
   componentId: string;
 }
 
@@ -158,6 +162,7 @@ type AppliedVoxel = {
   cell?: { x: number; y: number; z: number };
   micro?: { x: number; y: number; z: number };
   color: number;
+  materialId: number;
 };
 
 type BuildReceipt = {
@@ -327,6 +332,7 @@ function expandPrimitive(primitive: SpaceBuildPrimitiveInput): SpaceBuildVoxelIn
   const shared = {
     size,
     color: primitive.color,
+    materialId: primitive.materialId,
     componentId: primitive.componentId
   };
   const points: number[][] = [];
@@ -422,7 +428,8 @@ function runtimeSlot(plan: NormalizedSpaceBuildPlan): any {
         dz: block.z,
         size: block.size,
         block: BlockTypes.COLOR_BLOCK,
-        color: block.color
+        color: block.color,
+        materialId: block.materialId,
       }))
     });
   }
@@ -446,6 +453,7 @@ function runtimeSlot(plan: NormalizedSpaceBuildPlan): any {
       size: block.size,
       block: BlockTypes.COLOR_BLOCK,
       color: block.color,
+      materialId: block.materialId,
       entityId: block.componentId
     })),
     childEntities: children.map(component => ({
@@ -628,12 +636,20 @@ export function validateSpaceBuildPlan(input: any): SpaceBuildValidation {
       errors.push(`Voxel references missing component '${componentId}'.`);
       continue;
     }
+    let materialId: number;
+    try {
+      materialId = parseVoxelMaterialId(raw?.materialId);
+    } catch {
+      errors.push('Voxel materialId must be 0 (default) or 1 (emissive).');
+      continue;
+    }
     const voxel: NormalizedBuildVoxel = {
       x,
       y,
       z,
       size,
       color: normalizeColor(raw?.color, DEFAULT_BLOCK_COLOR),
+      materialId,
       componentId
     };
     const key = voxelKey(voxel);
@@ -940,10 +956,12 @@ export class SpaceBuilder {
         domain: ActionDomain.WORLD,
         action: 'place-micro',
         micro,
-        color: block.color,
+        options: { color: block.color, materialId: block.materialId },
         actor: { source: 'agent', playerId: 'local' }
       });
-      if (result?.placed > 0) job.applied.push({ size: MICRO_SIZE, micro, color: block.color });
+      if (result?.placed > 0) job.applied.push({
+        size: MICRO_SIZE, micro, color: block.color, materialId: block.materialId,
+      });
       return result?.placed || 0;
     }
     const cell = worldCellFor(job.position!, block);
@@ -952,17 +970,20 @@ export class SpaceBuilder {
       action: 'place-standard',
       cell,
       block: BlockTypes.COLOR_BLOCK,
-      color: block.color,
+      options: { color: block.color, materialId: block.materialId },
       actor: { source: 'agent', playerId: 'local' }
     });
-    if (result?.placed > 0) job.applied.push({ size: 1, cell, color: block.color });
+    if (result?.placed > 0) job.applied.push({
+      size: 1, cell, color: block.color, materialId: block.materialId,
+    });
     return result?.placed || 0;
   }
 
   private rollbackVoxel(voxel: AppliedVoxel): number {
     if (voxel.size < 1 && voxel.micro) {
       const current = this.world?.getMicroBlock?.(voxel.micro.x, voxel.micro.y, voxel.micro.z);
-      if (!current || normalizeColor(current.color) !== voxel.color) return 0;
+      if (!current || normalizeColor(current.color) !== voxel.color
+        || (current.materialId ?? 0) !== voxel.materialId) return 0;
       const result = this.contraptions?.performBasicAction?.({
         domain: ActionDomain.WORLD,
         action: 'remove-micro',
@@ -974,7 +995,9 @@ export class SpaceBuilder {
     if (!voxel.cell) return 0;
     const currentBlock = this.world?.getBlock?.(voxel.cell.x, voxel.cell.y, voxel.cell.z);
     const currentColor = this.world?.getBlockColor?.(voxel.cell.x, voxel.cell.y, voxel.cell.z);
-    if (currentBlock !== BlockTypes.COLOR_BLOCK || normalizeColor(currentColor) !== voxel.color) return 0;
+    const currentMaterial = this.world?.getBlockMaterial?.(voxel.cell.x, voxel.cell.y, voxel.cell.z) ?? 0;
+    if (currentBlock !== BlockTypes.COLOR_BLOCK || normalizeColor(currentColor) !== voxel.color
+      || currentMaterial !== voxel.materialId) return 0;
     const result = this.contraptions?.performBasicAction?.({
       domain: ActionDomain.WORLD,
       action: 'remove-standard',

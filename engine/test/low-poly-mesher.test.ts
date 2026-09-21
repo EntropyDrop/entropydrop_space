@@ -31,6 +31,21 @@ test('chunk meshing uses indexed quads and preserves internal-face culling', () 
   assert.ok(geometry.index.array instanceof Uint16Array);
 });
 
+test('detailed chunk meshes keep default and emissive terrain in separate material groups', () => {
+  const chunk = new Chunk(0, 0, null);
+  chunk.setLocalBlock(2, 5, 2, BlockTypes.COLOR_BLOCK, 0x224466, 0);
+  chunk.setLocalBlock(5, 5, 2, BlockTypes.COLOR_BLOCK, 0x88ccff, 1);
+
+  const group = new LowPolyMesher().buildChunkMesh(chunk);
+  const mesh = group.children[0] as THREE.Mesh;
+  assert.equal(Array.isArray(mesh.material), true);
+  assert.deepEqual(mesh.geometry.groups.map(({ count, materialIndex }) => ({ count, materialIndex })), [
+    { count: 36, materialIndex: 0 },
+    { count: 36, materialIndex: 1 },
+  ]);
+  assert.equal((mesh.material as THREE.Material[])[1].type, 'MeshBasicMaterial');
+});
+
 test('generated neighboring chunks cull their shared boundary faces', () => {
   const chunks = new Map<string, Chunk>();
   const world = {

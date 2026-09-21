@@ -57,12 +57,12 @@ test('standard and micro terrain edits survive constructing a fresh world after 
 
   // Added/recolored cells and AIR tombstones over generated terrain must both
   // survive. Without the tombstone, the y=0 block would regenerate on refresh.
-  assert.equal(first.setBlock(40, 80, 48, BlockTypes.COLOR_BLOCK, false, 0x123456), true);
+  assert.equal(first.setBlock(40, 80, 48, BlockTypes.COLOR_BLOCK, false, 0x123456, 1), true);
   assert.equal(first.setBlock(41, 0, 48, BlockTypes.AIR, false), true);
 
   // Persist standalone micro cells as well as the 512-cell subdivision path.
-  assert.equal(first.setMicroBlock(42 * 8 + 1, 80 * 8 + 2, 48 * 8 + 3, 0xabcdef, 'tip'), true);
-  assert.equal(first.setBlock(43, 80, 48, BlockTypes.COLOR_BLOCK, false, 0x55aa33), true);
+  assert.equal(first.setMicroBlock(42 * 8 + 1, 80 * 8 + 2, 48 * 8 + 3, 0xabcdef, 'tip', 1), true);
+  assert.equal(first.setBlock(43, 80, 48, BlockTypes.COLOR_BLOCK, false, 0x55aa33, 1), true);
   assert.equal(first.subdivideBlock(43, 80, 48), 512);
   assert.equal(first.removeMicroBlock(43 * 8 + 4, 80 * 8 + 4, 48 * 8 + 4), true);
   assert.equal(first.flushPersistedEdits(), true);
@@ -72,14 +72,17 @@ test('standard and micro terrain edits survive constructing a fresh world after 
 
   assert.equal(second.getBlock(40, 80, 48), BlockTypes.COLOR_BLOCK);
   assert.equal(second.getBlockColor(40, 80, 48), 0x123456);
+  assert.equal(second.getBlockMaterial(40, 80, 48), 1);
   assert.equal(second.getBlock(41, 0, 48), BlockTypes.AIR);
   assert.deepEqual(
     second.getMicroBlock(42 * 8 + 1, 80 * 8 + 2, 48 * 8 + 3),
-    { block: BlockTypes.COLOR_BLOCK, color: 0xabcdef }
+    { block: BlockTypes.COLOR_BLOCK, color: 0xabcdef, materialId: 1 }
   );
+  assert.equal(second.microVoxels.getMaterial(42 * 8 + 1, 80 * 8 + 2, 48 * 8 + 3), 1);
   assert.equal(second.microVoxels.parts.get(`${42 * 8 + 1},${80 * 8 + 2},${48 * 8 + 3}`), 'tip');
   assert.equal(second.getBlock(43, 80, 48), BlockTypes.AIR);
   assert.equal(second.getMicroBlock(43 * 8, 80 * 8, 48 * 8)?.color, 0x55aa33);
+  assert.equal(second.microVoxels.getMaterial(43 * 8, 80 * 8, 48 * 8), 1);
   assert.equal(second.getMicroBlock(43 * 8 + 4, 80 * 8 + 4, 48 * 8 + 4), null);
 });
 
@@ -585,17 +588,19 @@ test('remote snapshot equality includes pending local intent and canonical cell 
   assert.equal(remoteChange.unchanged, false, 'equal entry counts do not conceal changed coordinates');
 });
 
-test('snapshot equality detects micro color/part and standard block/color changes', () => {
+test('snapshot equality detects micro color/part/material and standard block/color/material changes', () => {
   const original = {
     chunk_x: 0, chunk_z: 0, revision: 1,
-    standard: [[1, 80, 1, 0, 0xffffff]],
-    micro: [[8, 640, 8, 0x123456, 'part']],
+    standard: [[2, 80, 1, 1, 0xffffff]],
+    micro: [[8, 640, 8, 0x123456, 'part', 0]],
   };
   for (const replacement of [
     { ...original, micro: [[8, 640, 8, 0x123457, 'part']] },
     { ...original, micro: [[8, 640, 8, 0x123456, 'other']] },
-    { ...original, standard: [[1, 80, 1, 0, 0xfffffe]] },
-    { ...original, standard: [[1, 80, 1, 1, 0xffffff]] },
+    { ...original, micro: [[8, 640, 8, 0x123456, 'part', 1]] },
+    { ...original, standard: [[2, 80, 1, 1, 0xfffffe]] },
+    { ...original, standard: [[2, 80, 1, 0, 0xffffff]] },
+    { ...original, standard: [[2, 80, 1, 1, 0xffffff, 1]] },
   ]) {
     const persistence = new WorldEditPersistence({
       worldId: 'remote-equality-values', storage: null,

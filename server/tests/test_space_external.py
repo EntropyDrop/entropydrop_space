@@ -89,7 +89,7 @@ def test_micro_build_replaces_touched_cell_and_retains_neighbors(client, db):
     assert [1281, 402, 1283, 123] in micro
 
 
-def test_emissive_blockset_is_rejected_before_terrain_mutation(client, db):
+def test_emissive_blockset_material_is_stored_in_terrain_snapshot(client, db):
     _, world, headers, _ = setup(client, db)
     payload = body([{
         'dx': 0, 'dy': 0, 'dz': 0, 'block': 1,
@@ -98,10 +98,10 @@ def test_emissive_blockset_is_rejected_before_terrain_mutation(client, db):
 
     result = post(client, world, headers, payload)
 
-    assert result.status_code == 422, result.text
-    assert result.json()['detail']['code'] == 'BLOCKSET_MATERIAL_UNSUPPORTED_BY_TERRAIN'
-    assert db.query(models.SpaceChunkSnapshot).count() == 0
-    assert db.query(models.SpaceTerrainMutationBatch).count() == 0
+    assert result.status_code == 201, result.text
+    snapshot = space._decode_chunk_overlay(db.query(models.SpaceChunkSnapshot).one())
+    assert snapshot['standard'] == [[160, 50, 160, 1, 0x22CCFF, 1]]
+    assert db.query(models.SpaceTerrainMutationBatch).count() == 1
 
 
 

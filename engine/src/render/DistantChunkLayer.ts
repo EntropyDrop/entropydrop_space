@@ -10,6 +10,8 @@ type Solid = [number, number, number, number, number, number, number];
 
 /** Exact vertical runs: no height-field fill beneath floating structures. */
 export function captureDistantChunk(chunk: Chunk, micro: MicroVoxelLayer, revision: number): DistantChunkSnapshot {
+  // LOD intentionally stores only occupancy and color. Authored material ids
+  // stay in detailed terrain; distant surfaces all use the default lit shader.
   let solids: Solid[] = [];
   const maxY = chunk.getOccupiedYRange()?.max ?? -1;
   for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) {

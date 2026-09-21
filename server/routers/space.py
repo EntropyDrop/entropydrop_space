@@ -117,6 +117,7 @@ class TerrainMutation(BaseModel):
     mz: int | None = None
     block: int | None = None
     color: int | None = None
+    material: int | None = Field(default=0, ge=0, le=1)
     part: str | None = Field(default=None, max_length=64)
 
 
@@ -1285,17 +1286,19 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
             x, y, z = _standard_cell(mutation, world)
             block = mutation.block
             color = mutation.color
+            material = mutation.material or 0
             if block not in (0, 1) or color is None or not (0 <= color <= 0xFFFFFF):
                 raise HTTPException(status_code=422, detail={"code": "INVALID_TERRAIN_MUTATION"})
             chunk = _chunk_for_standard(x, z)
-            normalized.append((mutation.kind, chunk, x, y, z, block, color))
+            normalized.append((mutation.kind, chunk, x, y, z, block, color, material if block else 0))
         elif mutation.kind == "set_micro":
             mx, my, mz = _micro_cell(mutation, world)
             color = mutation.color
+            material = mutation.material or 0
             if color is None or not (0 <= color <= 0xFFFFFF):
                 raise HTTPException(status_code=422, detail={"code": "INVALID_TERRAIN_MUTATION"})
             chunk = _chunk_for_micro(mx, mz)
-            normalized.append((mutation.kind, chunk, mx, my, mz, color, mutation.part))
+            normalized.append((mutation.kind, chunk, mx, my, mz, color, mutation.part, material))
         elif mutation.kind == "remove_micro":
             mx, my, mz = _micro_cell(mutation, world)
             chunk = _chunk_for_micro(mx, mz)
@@ -1366,16 +1369,18 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
         kind, chunk, *values = mutation
         _, standard, micro = state_by_chunk[chunk]
         if kind == "set_standard":
-            x, y, z, block, color = values
+            x, y, z, block, color, material = values
             key = f"{x},{y},{z}"
             packed = [x, y, z, block, color]
+            if material:
+                packed.append(material)
             if standard.get(key) != packed:
                 standard[key] = packed
                 effective_changes += 1
             if block != 0:
                 effective_changes += _clear_micro_parent(micro, x, y, z)
         elif kind == "set_micro":
-            mx, my, mz, color, part = values
+            mx, my, mz, color, part, material = values
             parent_key = (
                 f"{mx // SPACE_MICRO_DIVISIONS},"
                 f"{my // SPACE_MICRO_DIVISIONS},"
@@ -1384,8 +1389,8 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
             if standard.get(parent_key, [None, None, None, 0])[3] != 0:
                 raise HTTPException(status_code=409, detail={"code": "STANDARD_CELL_OCCUPIED"})
             packed = [mx, my, mz, color]
-            if part:
-                packed.append(part)
+            if part or material:
+                packed.extend([part, material])
             key = f"{mx},{my},{mz}"
             if micro.get(key) != packed:
                 micro[key] = packed

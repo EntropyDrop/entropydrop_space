@@ -76,6 +76,21 @@ test('micro voxel meshes use compact indexed attributes and metre-correct transf
   assert.deepEqual(mesh.scale.toArray(), [MICRO_SIZE, MICRO_SIZE, MICRO_SIZE]);
 });
 
+test('micro terrain stores emissive material independently and splits render groups', () => {
+  const layer = new MicroVoxelLayer();
+  layer.set(1, 10, 1, 0x48dbfb, null, 0);
+  layer.set(3, 10, 1, 0xff3366, null, 1);
+  layer.updateMesh();
+
+  assert.equal(layer.getMaterial(1, 10, 1), 0);
+  assert.equal(layer.getMaterial(3, 10, 1), 1);
+  const mesh = layer.meshChunks.get('0,0,0')!;
+  assert.deepEqual(mesh.geometry.groups.map(({ count, materialIndex }) => ({ count, materialIndex })), [
+    { count: 36, materialIndex: 0 },
+    { count: 36, materialIndex: 1 },
+  ]);
+});
+
 test('same-color micro voxels merge their coplanar exterior into greedy quads', () => {
   const layer = new MicroVoxelLayer();
   for (let mx = 1; mx <= 3; mx++) {

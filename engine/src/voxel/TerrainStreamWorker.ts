@@ -5,7 +5,9 @@ import { TerrainGenerator } from '../worldgen/TerrainGenerator.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Z } from './Chunk.ts';
 import { wrapChunkX, wrapChunkZ, wrapX, wrapZ } from '../torus/TorusWorld.ts';
 
-type PackedStandardEdit = [number, number, number, number, number];
+type PackedStandardEdit =
+  | [number, number, number, number, number]
+  | [number, number, number, number, number, number];
 
 type GenerateRequest = {
   type: 'generate';
@@ -16,6 +18,7 @@ type GenerateRequest = {
   standardEdits: PackedStandardEdit[];
   blocksBuffer?: ArrayBuffer;
   colorsBuffer?: ArrayBuffer;
+  materialsBuffer?: ArrayBuffer;
 };
 
 type RemeshRequest = {
@@ -29,6 +32,7 @@ type RemeshRequest = {
   maxOccupiedY: number;
   blocksBuffer: ArrayBuffer;
   colorsBuffer: ArrayBuffer;
+  materialsBuffer: ArrayBuffer;
 };
 
 type TerrainWorkerRequest = GenerateRequest | RemeshRequest;
@@ -87,13 +91,14 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
     const chunk = new Chunk(wrapChunkX(request.cx), wrapChunkZ(request.cz), world);
 
     if (request.type === 'generate') {
-      if (request.blocksBuffer && request.colorsBuffer) {
+      if (request.blocksBuffer && request.colorsBuffer && request.materialsBuffer) {
         chunk.blocks = new Uint8Array(request.blocksBuffer);
         chunk.colors = new Uint32Array(request.colorsBuffer);
+        chunk.materials = new Uint8Array(request.materialsBuffer);
       }
       terrainGen.generateChunk(chunk);
-      for (const [x, y, z, block, color] of request.standardEdits) {
-        chunk.setLocalBlock(x - chunk.cx * CHUNK_SIZE_X, y, z - chunk.cz * CHUNK_SIZE_Z, block, color);
+      for (const [x, y, z, block, color, materialId] of request.standardEdits) {
+        chunk.setLocalBlock(x - chunk.cx * CHUNK_SIZE_X, y, z - chunk.cz * CHUNK_SIZE_Z, block, color, materialId);
       }
       const mesh = mesher.buildChunkMeshData(chunk);
       const response = {
@@ -105,11 +110,13 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
         hasUserEdits: request.standardEdits.length > 0,
         blocks: chunk.blocks,
         terrainColors: chunk.colors,
+        terrainMaterials: chunk.materials,
         mesh,
       };
       workerScope.postMessage(response, [
         chunk.blocks.buffer,
         chunk.colors.buffer,
+        chunk.materials.buffer,
         ...transferableMeshBuffers(mesh),
       ]);
       return;
@@ -117,6 +124,7 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
 
     chunk.blocks = new Uint8Array(request.blocksBuffer);
     chunk.colors = new Uint32Array(request.colorsBuffer);
+    chunk.materials = new Uint8Array(request.materialsBuffer);
     chunk.setGeneratedOccupiedYRange(request.minOccupiedY, request.maxOccupiedY);
     chunk.hasGenerated = true;
     const mesh = mesher.buildChunkMeshData(chunk);

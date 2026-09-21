@@ -159,10 +159,12 @@ def _procedural_color(block_y: int, base_height: int) -> int:
 
 
 def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay):
-    """Keep air gaps and material boundaries; merge only identical solid runs.
+    """Keep air gaps and color boundaries; merge only identical solid runs.
 
     Standard columns are exact at 1m. Micro columns retain their 1/8m footprint,
     including cells below a bridge or above an excavated standard cell.
+    Render material ids are deliberately omitted: distant LOD always uses the
+    default lit material while detailed client chunks restore the stored id.
     """
     edits = {(int(e[0]), int(e[1]), int(e[2])): (int(e[3]), int(e[4]))
              for e in overlay.get('standard', []) if isinstance(e, list) and len(e) >= 5}

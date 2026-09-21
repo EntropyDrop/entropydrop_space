@@ -154,16 +154,16 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 | API | Description |
 | --- | --- |
 | `ctx.world.apiVersion` | Current world API version: `2`. |
-| `ctx.world.voxels.get(position)` | Read a real standard world voxel as `{block,color}` plus the current tick's admitted-write overlay; maximum 256 combined standard/micro host reads per entity tick. |
-| `ctx.world.voxels.set(position, options?)` | Queue a standard placement; admitted result is provisional `{ok:true,placed:1,reason:'queued'}`. |
+| `ctx.world.voxels.get(position)` | Read a real standard world voxel as `{block,color,materialId}` plus the current tick's admitted-write overlay; maximum 256 combined standard/micro host reads per entity tick. |
+| `ctx.world.voxels.set(position, options?)` | Queue a standard placement; `options.materialId` is `0` (default) or `1` (emissive), and the admitted result is provisional `{ok:true,placed:1,reason:'queued'}`. |
 | `ctx.world.voxels.clear(position)` | Queue removal of one standard voxel without deleting micro voxels in its cell. |
-| `ctx.world.voxels.paint(position, options?)` | Queue repainting one existing standard voxel. |
+| `ctx.world.voxels.paint(position, options?)` | Queue color and optional `materialId` changes on one existing standard voxel. |
 | `ctx.world.voxels.clearCell(position)` | Queue removal of all standard and micro voxels in one world cell. |
 | `ctx.world.voxels.subdivide(position, clearOffset?)` | Queue conversion of one standard voxel to 512 micro voxels. |
-| `ctx.world.microVoxels.get(cell, offset)` | Read one real 0.125 m world voxel as `{block,color}` plus the current tick overlay; offset coordinates are integers from 0 through 7. |
-| `ctx.world.microVoxels.set(cell, offset, options?)` | Queue one 0.125 m world voxel placement. |
+| `ctx.world.microVoxels.get(cell, offset)` | Read one real 0.125 m world voxel as `{block,color,materialId}` plus the current tick overlay; offset coordinates are integers from 0 through 7. |
+| `ctx.world.microVoxels.set(cell, offset, options?)` | Queue one 0.125 m world voxel placement with optional `materialId` `0` or `1`. |
 | `ctx.world.microVoxels.clear(cell, offset)` | Queue removal of one exact 0.125 m world voxel. |
-| `ctx.world.microVoxels.paint(cell, offset, options?)` | Queue repainting one existing micro world voxel. |
+| `ctx.world.microVoxels.paint(cell, offset, options?)` | Queue color and optional `materialId` changes on one existing micro world voxel. |
 | `ctx.world.entities(origin, radius=16)` | Filter the prefetched 64 m nearby-entity snapshot using shortest wrapped X/Z distance. Descriptors include pose, velocities, mass, bounds, collision/ground state, physics enabled state, script status, and component count. |
 | `ctx.world.entities.get(id, chunkId?)` | Look up an entity in the frozen nearby snapshot. |
 | `ctx.world.entities.list(chunkId) / inChunk(chunkId)` | Filter nearby entities by wrapped chunk ID `"cx,cz"`. |

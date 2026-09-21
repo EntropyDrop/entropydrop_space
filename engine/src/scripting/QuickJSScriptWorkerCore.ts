@@ -296,9 +296,9 @@ const QUICKJS_BOOTSTRAP = String.raw`
         const encoded = globalThis.__spaceHostWorldRead(kind, position, offset);
         return typeof encoded === 'string'
           ? frozenClone(JSON.parse(encoded))
-          : Object.freeze({ block: 0, color: 0 });
+          : Object.freeze({ block: 0, color: 0, materialId: 0 });
       } catch (_) {
-        return Object.freeze({ block: 0, color: 0 });
+        return Object.freeze({ block: 0, color: 0, materialId: 0 });
       }
     };
     const voxels = Object.freeze({
@@ -310,25 +310,35 @@ const QUICKJS_BOOTSTRAP = String.raw`
       },
       set(position, options) {
         const accepted = emit('world', null, 'voxels.set', [position, options]);
-        if (accepted) worldVoxelOverlays.set(positionKey(position), { block: 1, color: finite(options?.color) });
+        if (accepted) worldVoxelOverlays.set(positionKey(position), {
+          block: 1,
+          color: finite(options?.color),
+          materialId: finite(options?.materialId) === 1 ? 1 : 0,
+        });
         return queuedEdit('placed', accepted);
       },
       clear(position) {
         const accepted = emit('world', null, 'voxels.clear', [position]);
-        if (accepted) worldVoxelOverlays.set(positionKey(position), { block: 0, color: 0 });
+        if (accepted) worldVoxelOverlays.set(positionKey(position), { block: 0, color: 0, materialId: 0 });
         return queuedEdit('removed', accepted);
       },
       paint(position, options) {
         const accepted = emit('world', null, 'voxels.paint', [position, options]);
         if (accepted) {
           const current = voxels.get(position);
-          if (current?.block) worldVoxelOverlays.set(positionKey(position), { ...current, color: finite(options?.color) });
+          if (current?.block) worldVoxelOverlays.set(positionKey(position), {
+            ...current,
+            color: finite(options?.color),
+            materialId: options?.materialId === undefined
+              ? finite(current.materialId)
+              : (finite(options.materialId) === 1 ? 1 : 0),
+          });
         }
         return queuedEdit('painted', accepted);
       },
       clearCell(position) {
         const accepted = emit('world', null, 'voxels.clearCell', [position]);
-        if (accepted) worldVoxelOverlays.set(positionKey(position), { block: 0, color: 0 });
+        if (accepted) worldVoxelOverlays.set(positionKey(position), { block: 0, color: 0, materialId: 0 });
         return queuedEdit('removed', accepted);
       },
       subdivide(position, offset) {
@@ -347,13 +357,16 @@ const QUICKJS_BOOTSTRAP = String.raw`
         const accepted = emit('world', null, 'microVoxels.set', [cell, offset, options]);
         if (accepted) worldMicroVoxelOverlays.set(
           microPositionKey(cell, offset),
-          { block: 1, color: finite(options?.color) }
+          { block: 1, color: finite(options?.color), materialId: finite(options?.materialId) === 1 ? 1 : 0 }
         );
         return queuedEdit('placed', accepted);
       },
       clear(cell, offset) {
         const accepted = emit('world', null, 'microVoxels.clear', [cell, offset]);
-        if (accepted) worldMicroVoxelOverlays.set(microPositionKey(cell, offset), { block: 0, color: 0 });
+        if (accepted) worldMicroVoxelOverlays.set(
+          microPositionKey(cell, offset),
+          { block: 0, color: 0, materialId: 0 },
+        );
         return queuedEdit('removed', accepted);
       },
       paint(cell, offset, options) {
@@ -362,7 +375,13 @@ const QUICKJS_BOOTSTRAP = String.raw`
           const current = microVoxels.get(cell, offset);
           if (current?.block) worldMicroVoxelOverlays.set(
             microPositionKey(cell, offset),
-            { ...current, color: finite(options?.color) }
+            {
+              ...current,
+              color: finite(options?.color),
+              materialId: options?.materialId === undefined
+                ? finite(current.materialId)
+                : (finite(options.materialId) === 1 ? 1 : 0),
+            }
           );
         }
         return queuedEdit('painted', accepted);

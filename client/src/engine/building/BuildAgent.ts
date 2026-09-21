@@ -14,9 +14,9 @@ Schema:
   "kind": "structure" | "entity",
   "name": "short name",
   "anchor": "crosshair",
-  "blocks": [{"x":0,"y":0,"z":0,"size":1,"color":"#f2a93b","componentId":"body"}],
+  "blocks": [{"x":0,"y":0,"z":0,"size":1,"color":"#f2a93b","materialId":0,"componentId":"body"}],
   "primitives": [
-    {"type":"box","from":[0,0,0],"to":[6,4,6],"hollow":true,"size":1,"color":"#f2a93b","componentId":"body"},
+    {"type":"box","from":[0,0,0],"to":[6,4,6],"hollow":true,"size":1,"color":"#f2a93b","materialId":0,"componentId":"body"},
     {"type":"line","from":[0,0,0],"to":[0,5,0],"size":1,"color":"#48dbfb","componentId":"body"}
   ],
   "components": [{"id":"body","parentId":null,"bodyType":"dynamic","useGravity":true}],
@@ -29,7 +29,7 @@ Schema:
 Rules:
 - Coordinates are local offsets from the placement anchor; Y is up. Standard voxels use integer coordinates and size 1. Micro voxels use 0.125-grid coordinates and size 0.125.
 - Prefer compact box/line primitives over enumerating many blocks. Use hollow boxes for shells and several boxes when doors/windows need openings.
-- Use only color block material. Colors are #RRGGBB.
+- Colors are #RRGGBB. materialId 0 is the default lit surface; materialId 1 is emissive. Omit materialId unless emissive is requested or visually useful.
 - Keep each axis within 64 metres and the expanded result within 65,536 voxels.
 - A structure becomes terrain. An entity becomes an independent physics object.
 - Entity component ids are unique identifiers with no reserved values. Exactly one component has parentId null; that structural root may use any id. Every other component names an existing parentId.

@@ -539,9 +539,9 @@ def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(cli
     payload = {
         "batch_id": batch_id,
         "mutations": [
-            {"kind": "set_standard", "x": 100, "y": 50, "z": 100, "block": 1, "color": 0x123456},
+            {"kind": "set_standard", "x": 100, "y": 50, "z": 100, "block": 1, "color": 0x123456, "material": 1},
             {"kind": "set_standard", "x": 101, "y": 50, "z": 100, "block": 0, "color": 0xF2A93B},
-            {"kind": "set_micro", "mx": 809, "my": 401, "mz": 803, "color": 0xABCDEF, "part": "tip"},
+            {"kind": "set_micro", "mx": 809, "my": 401, "mz": 803, "color": 0xABCDEF, "part": "tip", "material": 1},
         ],
     }
 
@@ -564,10 +564,10 @@ def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(cli
     chunks = loaded.json()["chunks"]
     assert len(chunks) == 1
     assert chunks[0]["standard"] == [
-        [100, 50, 100, 1, 0x123456],
+        [100, 50, 100, 1, 0x123456, 1],
         [101, 50, 100, 0, 0xF2A93B],
     ]
-    assert chunks[0]["micro"] == [[809, 401, 803, 0xABCDEF, "tip"]]
+    assert chunks[0]["micro"] == [[809, 401, 803, 0xABCDEF, "tip", 1]]
 
 
 def test_space_terrain_height_is_256_metres(client, db):

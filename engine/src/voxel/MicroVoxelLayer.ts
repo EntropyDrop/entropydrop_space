@@ -1,6 +1,7 @@
 import { CollisionBoxIndex, mergeCollisionCells, type CollisionBounds } from '../physics/CollisionGeometry.ts';
 import * as THREE from 'three';
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
+import { VOXEL_EMISSIVE_INTENSITY, VoxelMaterialIds, normalizeVoxelMaterialId } from './VoxelMaterials.ts';
 import {
   computeChunkBentSphere,
   getWorldProjectionRevision,
@@ -57,6 +58,7 @@ type MicroMeshBuildJob = {
   colors: Uint8Array | null;
   indices: Uint16Array | Uint32Array | null;
   writeQuadIndex: number;
+  materialIndexCounts: [number, number];
 };
 
 type DeferredMeshPublication = {
@@ -110,6 +112,7 @@ function standardChunkKeyForMeshChunk(meshKey: string): string {
 export class MicroVoxelLayer {
   cells: Map<string, number>;
   parts: Map<string, any>;
+  materials: Map<string, number>;
   dirty: boolean;
   group: THREE.Group;
   /** Compatibility alias for callers that only need to know whether a mesh exists. */
@@ -117,6 +120,7 @@ export class MicroVoxelLayer {
   meshChunks: Map<string, THREE.Mesh>;
   private chunkCells: Map<string, Set<number>>;
   private packedColors: Map<number, number>;
+  private packedMaterials: Map<number, number>;
   private dirtyMeshChunks: Set<string>;
   private meshChunkRevisions: Map<string, number>;
   /** Old published values for cells changed while a partition is rebuilt. */
@@ -137,11 +141,12 @@ export class MicroVoxelLayer {
   private standardChunkPartitions = new Map<string, Set<string>>();
   private chunkRevisions = new Map<string, number>();
   private horizontalColumnPartitions = new Map<string, Set<string>>();
-  material: THREE.MeshStandardMaterial;
+  renderMaterials: [THREE.MeshStandardMaterial, THREE.MeshBasicMaterial];
 
   constructor() {
     this.cells = new Map();
     this.parts = new Map();
+    this.materials = new Map();
     this.dirty = false;
     this.group = new THREE.Group();
     this.group.name = 'MicroVoxelLayer';
@@ -149,6 +154,7 @@ export class MicroVoxelLayer {
     this.meshChunks = new Map();
     this.chunkCells = new Map();
     this.packedColors = new Map();
+    this.packedMaterials = new Map();
     this.dirtyMeshChunks = new Set();
     this.meshChunkRevisions = new Map();
     this.publishedCollisionSnapshots = new Map();
@@ -157,16 +163,31 @@ export class MicroVoxelLayer {
     this.deferredMeshPublications = new Map();
     this.recentlyRebuiltMeshes = [];
     this.meshTempColor = new THREE.Color();
-    this.material = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      flatShading: true,
-      roughness: 0.65,
-      metalness: 0.15
-    });
+    this.renderMaterials = [
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        flatShading: true,
+        roughness: 0.65,
+        metalness: 0.15
+      }),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(
+          VOXEL_EMISSIVE_INTENSITY,
+          VOXEL_EMISSIVE_INTENSITY,
+          VOXEL_EMISSIVE_INTENSITY,
+        ),
+        vertexColors: true,
+        toneMapped: false,
+      }),
+    ];
   }
 
   get(mx, my, mz) {
     return this.cells.get(key(mx, my, mz)) ?? null;
+  }
+
+  getMaterial(mx, my, mz) {
+    return this.materials.get(key(mx, my, mz)) ?? VoxelMaterialIds.DEFAULT;
   }
 
   has(mx, my, mz) {
@@ -309,18 +330,22 @@ export class MicroVoxelLayer {
     }
   }
 
-  set(mx, my, mz, color = DEFAULT_BLOCK_COLOR, part = null) {
+  set(mx, my, mz, color = DEFAULT_BLOCK_COLOR, part = null, materialId = 0) {
     mx = wrapMicroX(mx);
     mz = wrapMicroZ(mz);
     const normalized = normalizeColor(color);
     const cellKey = key(mx, my, mz);
     const packedKey = packedMicroKey(mx, my, mz);
+    const normalizedMaterial = normalizeVoxelMaterialId(materialId);
     const isNew = !this.cells.has(cellKey);
     const currentPart = this.parts.get(cellKey) ?? null;
-    if (this.cells.get(cellKey) === normalized && currentPart === part) return false;
+    if (this.cells.get(cellKey) === normalized && currentPart === part
+      && this.getMaterial(mx, my, mz) === normalizedMaterial) return false;
     this.preservePublishedCollisionCell(mx, my, mz);
     this.cells.set(cellKey, normalized);
     this.packedColors.set(packedKey, normalized);
+    this.materials.set(cellKey, normalizedMaterial);
+    this.packedMaterials.set(packedKey, normalizedMaterial);
     if (isNew) {
       this.addChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
@@ -339,8 +364,10 @@ export class MicroVoxelLayer {
     if (this.cells.has(cellKey)) this.preservePublishedCollisionCell(mx, my, mz);
     const removed = this.cells.delete(cellKey);
     this.parts.delete(cellKey);
+    this.materials.delete(cellKey);
     if (removed) {
       this.packedColors.delete(packedKey);
+      this.packedMaterials.delete(packedKey);
       this.removeChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
       this.markMeshChunkDirty(mx, my, mz);
@@ -348,7 +375,7 @@ export class MicroVoxelLayer {
     return removed;
   }
 
-  subdivide(wx, wy, wz, color = DEFAULT_BLOCK_COLOR) {
+  subdivide(wx, wy, wz, color = DEFAULT_BLOCK_COLOR, materialId = 0) {
     const baseX = wx * MICRO_DIVISIONS;
     const baseY = wy * MICRO_DIVISIONS;
     const baseZ = wz * MICRO_DIVISIONS;
@@ -359,7 +386,7 @@ export class MicroVoxelLayer {
           const mx = baseX + dx;
           const my = baseY + dy;
           const mz = baseZ + dz;
-          this.set(mx, my, mz, normalized, null);
+          this.set(mx, my, mz, normalized, null, materialId);
         }
       }
     }
@@ -454,7 +481,9 @@ export class MicroVoxelLayer {
       this.preservePublishedCollisionCell(mx, my, mz);
       if (this.cells.delete(cellKey)) cursor.removed++;
       this.packedColors.delete(packedKey);
+      this.packedMaterials.delete(packedKey);
       this.parts.delete(cellKey);
+      this.materials.delete(cellKey);
       remaining--;
     }
     if (cursor.iteratorIndex < cursor.cellIterators.length) return false;
@@ -497,14 +526,17 @@ export class MicroVoxelLayer {
       const extractedMz = unwrapPeriodicNear(mz, minMz, TORUS_SIZE_Z * MICRO_DIVISIONS);
       if (extractedMx < minMx || extractedMx > maxMx || my < minMy || my > maxMy
         || extractedMz < minMz || extractedMz > maxMz) continue;
-      extracted.push({ mx: extractedMx, my, mz: extractedMz, color, part: this.parts.get(cellKey) ?? null });
+      extracted.push({ mx: extractedMx, my, mz: extractedMz, color,
+        part: this.parts.get(cellKey) ?? null, materialId: this.getMaterial(mx, my, mz) });
       this.preservePublishedCollisionCell(mx, my, mz);
       this.cells.delete(cellKey);
       const packedKey = packedMicroKey(mx, my, mz);
       this.packedColors.delete(packedKey);
+      this.packedMaterials.delete(packedKey);
       this.removeChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
       this.parts.delete(cellKey);
+      this.materials.delete(cellKey);
       this.markMeshChunkDirty(mx, my, mz);
     }
 
@@ -528,14 +560,17 @@ export class MicroVoxelLayer {
       const extractedMz = unwrapPeriodicNear(mz, minMz, TORUS_SIZE_Z * MICRO_DIVISIONS);
       if (extractedMx < minMx || extractedMx > maxMx || my < minMy || my > maxMy
         || extractedMz < minMz || extractedMz > maxMz) continue;
-      extracted.push({ mx: extractedMx, my, mz: extractedMz, color, part: this.parts.get(cellKey) ?? null });
+      extracted.push({ mx: extractedMx, my, mz: extractedMz, color,
+        part: this.parts.get(cellKey) ?? null, materialId: this.getMaterial(mx, my, mz) });
       this.preservePublishedCollisionCell(mx, my, mz);
       this.cells.delete(cellKey);
       const packedKey = packedMicroKey(mx, my, mz);
       this.packedColors.delete(packedKey);
+      this.packedMaterials.delete(packedKey);
       this.removeChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
       this.parts.delete(cellKey);
+      this.materials.delete(cellKey);
       this.markMeshChunkDirty(mx, my, mz);
     }
     return extracted;
@@ -561,6 +596,7 @@ export class MicroVoxelLayer {
             z: mz * MICRO_SIZE,
             size: MICRO_SIZE,
             color,
+            materialId: this.getMaterial(mx, my, mz),
             part: this.parts.get(key(mx, my, mz)) ?? null,
             micro: true
           });
@@ -682,7 +718,7 @@ export class MicroVoxelLayer {
   forEachCellInChunk(
     chunkX: number,
     chunkZ: number,
-    visit: (mx: number, my: number, mz: number, color: number) => void,
+    visit: (mx: number, my: number, mz: number, color: number, materialId?: number) => void,
   ) {
     const standardKey = `${Math.floor(wrapMicroX(chunkX * STANDARD_CHUNK_MICRO_SIZE) / STANDARD_CHUNK_MICRO_SIZE)},${Math.floor(wrapMicroZ(chunkZ * STANDARD_CHUNK_MICRO_SIZE) / STANDARD_CHUNK_MICRO_SIZE)}`;
     for (const chunkKey of this.standardChunkPartitions.get(standardKey) ?? []) {
@@ -690,7 +726,7 @@ export class MicroVoxelLayer {
         const color = this.packedColors.get(packed);
         if (color === undefined) continue;
         const [mx, my, mz] = unpackMicroKey(packed);
-        visit(mx, my, mz, color);
+        visit(mx, my, mz, color, this.packedMaterials.get(packed) ?? VoxelMaterialIds.DEFAULT);
       }
     }
   }
@@ -766,6 +802,7 @@ export class MicroVoxelLayer {
           placeMicroPos: { x: mx + normal.x, y: my + normal.y, z: mz + normal.z },
           normal,
           color,
+          materialId: this.getMaterial(mx, my, mz),
           size: MICRO_SIZE,
           distance: scaledDistance * MICRO_SIZE
         };
@@ -892,6 +929,7 @@ export class MicroVoxelLayer {
       colors: null,
       indices: null,
       writeQuadIndex: 0,
+      materialIndexCounts: [0, 0],
     };
   }
 
@@ -1061,14 +1099,28 @@ export class MicroVoxelLayer {
   }
 
   private sampleMeshCell(job: MicroMeshBuildJob, lx: number, ly: number, lz: number) {
-    return this.packedColors.get(packedMicroKey(
+    const packed = packedMicroKey(
       job.originMx + lx,
       job.minMicroY + ly,
       job.originMz + lz,
-    ));
+    );
+    const color = this.packedColors.get(packed);
+    if (color === undefined) return undefined;
+    return color + (this.packedMaterials.get(packed) ?? VoxelMaterialIds.DEFAULT) * 0x1000000;
   }
 
   private prepareMeshOutput(job: MicroMeshBuildJob) {
+    const grouped: number[] = [];
+    const counts: [number, number] = [0, 0];
+    for (const materialId of [VoxelMaterialIds.DEFAULT, VoxelMaterialIds.EMISSIVE]) {
+      for (let offset = 0; offset < job.quads.length; offset += 12) {
+        if ((job.quads[offset + 11] >>> 24) !== materialId) continue;
+        grouped.push(...job.quads.slice(offset, offset + 12));
+        counts[materialId]++;
+      }
+    }
+    job.quads = grouped;
+    job.materialIndexCounts = [counts[0] * 6, counts[1] * 6];
     const faceCount = job.quads.length / 12;
     if (faceCount === 0) {
       this.replaceMeshChunk(job, null);
@@ -1100,9 +1152,13 @@ export class MicroVoxelLayer {
     const dvZ = job.quads[offset + 8];
     const positive = job.quads[offset + 9] === 1;
     const axis = job.quads[offset + 10];
-    const color = job.quads[offset + 11];
+    const token = job.quads[offset + 11];
+    const materialId = token >>> 24;
+    const color = token & 0xffffff;
     this.meshTempColor.setHex(color);
-    const shade = axis === 1 ? (positive ? 1 : 0.6) : 0.85;
+    const shade = materialId === VoxelMaterialIds.EMISSIVE
+      ? 1
+      : axis === 1 ? (positive ? 1 : 0.6) : 0.85;
     const r = Math.round(this.meshTempColor.r * shade * 255);
     const g = Math.round(this.meshTempColor.g * shade * 255);
     const b = Math.round(this.meshTempColor.b * shade * 255);
@@ -1144,7 +1200,10 @@ export class MicroVoxelLayer {
     geometry.setAttribute('normal', new THREE.BufferAttribute(job.normals, 3, true));
     geometry.setAttribute('color', new THREE.BufferAttribute(job.colors, 3, true));
     geometry.setIndex(new THREE.BufferAttribute(job.indices, 1));
-    const mesh = new THREE.Mesh(geometry, this.material);
+    const [defaultCount, emissiveCount] = job.materialIndexCounts;
+    if (defaultCount > 0) geometry.addGroup(0, defaultCount, 0);
+    if (emissiveCount > 0) geometry.addGroup(defaultCount, emissiveCount, 1);
+    const mesh = new THREE.Mesh(geometry, this.renderMaterials);
     mesh.name = `MicroVoxelChunk:${job.chunkKey}`;
     mesh.userData.microChunkKey = job.chunkKey;
     mesh.userData.standardChunkKey = job.standardChunkKey;

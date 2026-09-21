@@ -2017,6 +2017,7 @@ export class ContraptionManager {
             size: MICRO_SIZE,
             block: BlockTypes.COLOR_BLOCK,
             color: micro.color,
+            materialId: micro.materialId,
             part: micro.part
           });
           const { cx, cz } = this.world.worldToChunkCoords(
@@ -2045,7 +2046,8 @@ export class ContraptionManager {
             localZ: b.z - bounds.minZ,
             size: 1,
             block,
-            color: this.world.getBlockColor(b.x, b.y, b.z)
+            color: this.world.getBlockColor(b.x, b.y, b.z),
+            materialId: this.world.getBlockMaterial?.(b.x, b.y, b.z) ?? 0,
           });
           this.world.setBlock(b.x, b.y, b.z, BlockTypes.AIR, false);
           const { cx, cz } = this.world.worldToChunkCoords(b.x, b.z);
@@ -2062,6 +2064,7 @@ export class ContraptionManager {
             size: MICRO_SIZE,
             block: BlockTypes.COLOR_BLOCK,
             color: micro.color,
+            materialId: micro.materialId,
             part: micro.part
           });
         }
@@ -2087,7 +2090,8 @@ export class ContraptionManager {
           localZ: eb.worldZ - bounds.minZ,
           size: 1,
           block: eb.block,
-          color: eb.color
+          color: eb.color,
+          materialId: eb.materialId,
         });
       }
     }
@@ -2106,6 +2110,7 @@ export class ContraptionManager {
           size: MICRO_SIZE,
           block: BlockTypes.COLOR_BLOCK,
           color: micro.color,
+          materialId: micro.materialId,
           part: micro.part
         });
       }
@@ -2310,7 +2315,7 @@ export class ContraptionManager {
         const targetMy = Math.round((localP.y - blockSize / 2) * MICRO_DIVISIONS);
         const targetMz = Math.round((localP.z - blockSize / 2) * MICRO_DIVISIONS);
         // Solidifying intentionally removes recursive entity motion metadata.
-        this.world.setMicroBlock(targetMx, targetMy, targetMz, b.color, null);
+        this.world.setMicroBlock(targetMx, targetMy, targetMz, b.color, null, b.materialId);
         continue;
       }
 
@@ -2319,7 +2324,7 @@ export class ContraptionManager {
       const targetZ = Math.floor(localP.z);
 
       if (targetY >= 0 && targetY < CHUNK_SIZE_Y) {
-        this.world.setBlock(targetX, targetY, targetZ, BlockTypes.COLOR_BLOCK, false, b.color);
+        this.world.setBlock(targetX, targetY, targetZ, BlockTypes.COLOR_BLOCK, false, b.color, b.materialId);
         const { cx, cz } = this.world.worldToChunkCoords(targetX, targetZ);
         const chunk = this.world.getChunk(cx, cz);
         if (chunk) affectedChunks.add(chunk);
