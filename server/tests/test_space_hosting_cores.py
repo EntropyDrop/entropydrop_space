@@ -16,12 +16,22 @@ from space import billing, models
 from space.auth import get_current_user
 from space.main import app
 from space.hosting_cores import initialize_core_pool, reserve_core, capacity, available_cpu_ids
-from space.hosting_worker import prepare, commit_result, world_jobs, release_drained_cores, EntityRuntimePool, NodeRuntime
+from space.hosting_worker import (prepare, commit_result, world_jobs, release_drained_cores,
+                                  requested_world_ids, EntityRuntimePool, NodeRuntime)
 from space.inventory_codec import encode_inventory_resource
 from tests.test_space_entities import _entity, _user
 
 
 INSTANCE = str(uuid.uuid4())
+
+
+def test_development_worker_always_hosts_copper_world(monkeypatch):
+    monkeypatch.setattr(settings, 'ENVIRONMENT', 'development')
+    monkeypatch.setenv('SPACE_HOSTING_WORLD_IDS', settings.SPACE_DEFAULT_WORLD_ID)
+    assert requested_world_ids() == [
+        settings.SPACE_DEFAULT_WORLD_ID,
+        settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
+    ]
 
 
 def setup(client, db, monkeypatch, cpu_ids=(2, 4)):

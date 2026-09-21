@@ -37,6 +37,16 @@ def now():
     return dt.datetime.now(dt.timezone.utc)
 
 
+def requested_world_ids():
+    requested = [value.strip() for value in os.getenv("SPACE_HOSTING_WORLD_IDS", "").split(",") if value.strip()]
+    if not requested:
+        requested = [settings.SPACE_DEFAULT_WORLD_ID]
+    if (settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}
+            and settings.SPACE_COPPER_METROPOLIS_WORLD_ID not in requested):
+        requested.append(settings.SPACE_COPPER_METROPOLIS_WORLD_ID)
+    return requested
+
+
 def pause(entity, reason):
     entity.hosting_enabled = False
     entity.hosting_core_id = None
@@ -501,10 +511,7 @@ async def main():
     finally:
         await probe.close()
     # One global CPU pool, shared by all world coordinators in this process.
-    default_worlds = [settings.SPACE_DEFAULT_WORLD_ID]
-    if settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}:
-        default_worlds.append(settings.SPACE_COPPER_METROPOLIS_WORLD_ID)
-    requested = os.getenv("SPACE_HOSTING_WORLD_IDS", ",".join(default_worlds)).split(",")
+    requested = requested_world_ids()
     with SessionLocal() as db:
         initialize_core_pool(db)
         db.commit()
