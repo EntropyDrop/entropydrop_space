@@ -56,7 +56,7 @@ Before constructing the Three.js scene it calls `POST /space/api/v2/bootstrap`,
 loads the existing EntropyDrop user's latest backend state, or receives an
 ephemeral world-wide random position when no snapshot exists. A configured
 `skin_url` PNG is downloaded when available; otherwise Space immediately uses
-the bundled offline-mode skin and shows a non-blocking reminder to configure a
+the bundled default skin and shows a non-blocking reminder to configure a
 character skin. An invalid or temporarily unavailable configured skin falls back
 the same way instead of blocking entry. The first random position is checkpointed
 immediately; later wrapped position/yaw updates are saved every five seconds,
@@ -91,8 +91,8 @@ cool bounce light and sun haze; Ultra adds a shader-pack-style HDR pipeline with
 4096² long morning shadows, animated layered clouds, a bright solar disc,
 depth-aware contact occlusion and sunlight shafts, distance/height haze,
 multi-scale bloom, filmic color grading and FXAA. Post effects read depth from the
-actual bent scene, so they support Earth and Donut projections, edited terrain
-and entities. Near-camera viewmodels are excluded from haze and contact occlusion.
+actual bent scene, so they support the donut projection, edited terrain and
+entities. Near-camera viewmodels are excluded from haze and contact occlusion.
 HDR buffers follow render resolution up to 2560 pixels on the longest side and
 are released when leaving Ultra. GPUs without float color targets retain the
 cinematic sky and daylight without the HDR chain.
@@ -121,10 +121,9 @@ An AI-native programmable voxel physics prototype:
 
 > Build anything. Tell it what to do.
 
-The renderer starts in Earth mode, with a spherical horizon and Earth-style
-surface projection. Players can switch between Earth mode and the seamless
-torus donut terrain at any time from Settings; an explicitly saved choice is
-restored on later visits.
+The renderer always uses the seamless torus donut terrain. World shape is not a
+per-player setting, so rendering, picking, distant LOD and physics all share the
+same wrapped topology.
 
 ## Player spawn and reconnect
 
@@ -142,8 +141,6 @@ restored on later visits.
   and checkpoints it. It is not stored as a permanent birth point in the
   player profile; another bootstrap may receive another random pose if no
   checkpoint was committed.
-- Offline mode restores `space.offline.player-position.v1` when present and
-  otherwise applies the same full-world random fallback locally.
 
 Players build with one freely colorable voxel material at two geometric scales,
 select a region, and entityize it into a programmable component tree. Components
@@ -253,9 +250,8 @@ Every world entity in online mode comes from the backend. The browser neither re
 writes `entropydrop_space_entities.*`; entering an online world removes that world's legacy
 browser entity value. Creating or editing an entity uploads its canonical Protobuf definition
 and a bounded runtime snapshot, and locally held entities checkpoint changed
-state every six seconds. Removing one performs a backend hard delete. Offline mode keeps the
-version-4 browser persistence and never calls these entity endpoints; older
-entity data is intentionally ignored. This boundary applies
+state every six seconds. Removing one performs a backend hard delete. Legacy
+browser entity data is removed and intentionally ignored. This boundary applies
 only to world entities: the backpack deliberately remains local.
 
 Inventory Protobuf v7 stores display names on every `Component`, with no `Entity.name`.

@@ -18,8 +18,6 @@ import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import {
   bendPoint,
   unbendDirection,
-  setWorldShapeMode,
-  getWorldShapeMode,
   TORUS_SPAWN_X,
   TORUS_SPAWN_Z
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
@@ -608,14 +606,11 @@ test('Wrench COM gizmo exposes three translation and three rotation handles', ()
   assert.equal(renderer.wrenchPivotHandles.get('rotate-y').userData.pickRadius, WRENCH_GIZMO_ROTATION_PICK_RADIUS);
   assert.equal(WRENCH_GIZMO_ROTATION_RADIUS, 0.48);
 
-  // Verify that in Donut mode (Torus mode), bent raycast accurately hits rotation and move handles
-  const prevMode = getWorldShapeMode();
-  try {
-    setWorldShapeMode('torus');
+  // Verify that the torus raycast accurately hits rotation and move handles.
     assert.equal(pickBentHandle('move-x')?.handleKey, 'move-x');
     assert.equal(pickBentHandle('rotate-z')?.handleKey, 'rotate-z');
 
-    // Verify standard Raycaster method automatically curves in Donut mode
+    // Verify the standard Raycaster path automatically follows the torus.
     const handle = renderer.wrenchPivotHandles.get('rotate-z');
     const samples = handle.userData.pickLocalPoints;
     const worldPoint = samples[Math.floor(samples.length / 2)].clone();
@@ -633,16 +628,10 @@ test('Wrench COM gizmo exposes three translation and three rotation handles', ()
     assert.equal(bentRayHit?.handleKey, 'rotate-z');
     const delegatedHit = renderer.raycastWrenchPivotGizmo(flatRaycaster);
     assert.equal(delegatedHit?.handleKey, 'rotate-z');
-  } finally {
-    setWorldShapeMode(prevMode);
-  }
-
   // A ray through the rendered arc must prefer that arc, even when another
   // axis has a pick sphere closer to the camera at nearly the same pixel.
   // The old first-sphere intersection selected the wrong axis for all three
   // of these ordinary oblique-view points.
-  try {
-    setWorldShapeMode('earth');
     renderer.setWrenchPivotGizmo(
       new THREE.Vector3(),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.6, 0.2)),
@@ -666,10 +655,6 @@ test('Wrench COM gizmo exposes three translation and three rotation handles', ()
     assert.equal(pickVisibleArcPoint('x', 6)?.handleKey, 'rotate-x');
     assert.equal(pickVisibleArcPoint('y', 14)?.handleKey, 'rotate-y');
     assert.equal(pickVisibleArcPoint('z', 18)?.handleKey, 'rotate-z');
-  } finally {
-    setWorldShapeMode(prevMode);
-  }
-
   // Verify move and rotate pick points do not overlap at the 0.48 axis crossing
   const moveX = renderer.wrenchPivotHandles.get('move-x');
   const rotateZ = renderer.wrenchPivotHandles.get('rotate-z');

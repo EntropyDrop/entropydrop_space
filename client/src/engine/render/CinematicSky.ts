@@ -1,4 +1,4 @@
-/** Procedural sky in local surface coordinates, shared by both world shapes. */
+/** Procedural sky in local torus-surface coordinates. */
 export const CINEMATIC_SKY_GLSL = /* glsl */ `
   float cloudHash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

@@ -13,15 +13,10 @@ import {
 } from '../../../engine/controls/PlayerController.ts';
 import type { SelectorShape } from '../../../engine/controls/SelectorShapes.ts';
 import {
-  DEFAULT_WORLD_SHAPE_MODE,
-  getWorldShapeMode,
-  normalizeWorldShapeMode,
-  setWorldShapeMode as setGlobalWorldShapeMode,
   TORUS_SIZE_X,
   TORUS_SIZE_Z,
   wrapX,
   wrapZ,
-  type WorldShapeMode,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import {
   DEFAULT_DISTANT_SURFACE_SETTINGS,
@@ -244,7 +239,6 @@ export interface SpaceUiSnapshot {
   fov: number;
   perspective: PlayerPerspective;
   cameraDistance: number;
-  worldShapeMode: WorldShapeMode;
   renderDistance: number;
   minimapEnabled: boolean;
   distantSurfaceSettings: DistantSurfaceSettings;
@@ -409,7 +403,6 @@ export class SpaceUiStore {
     fov: 75,
     perspective: 'first_person',
     cameraDistance: 4,
-    worldShapeMode: DEFAULT_WORLD_SHAPE_MODE,
     renderDistance: 12,
     minimapEnabled: false,
     distantSurfaceSettings: { ...DEFAULT_DISTANT_SURFACE_SETTINGS },
@@ -656,7 +649,7 @@ export class SpaceUiStore {
       renderDistance: Number(world?.renderDistance || 12),
       distantSurfaceSettings,
     });
-    world?.setDistantSurfaceEnabled?.(this.snapshot.worldShapeMode !== 'earth');
+    world?.setDistantSurfaceEnabled?.(true);
     try {
       const saved = localStorage.getItem('space_setting_render_dist');
       if (saved) this.setRenderDistance(Number(saved), false);
@@ -675,25 +668,22 @@ export class SpaceUiStore {
       };
     }
     let setting: ResolutionScaleSetting = 'auto';
-    let worldShapeMode = getWorldShapeMode();
     let shadowsEnabled = true;
     let lightingQuality = DEFAULT_LIGHTING_QUALITY;
     try {
       setting = normalizeResolutionScaleSetting(localStorage.getItem('space_setting_resolution_scale'));
-      worldShapeMode = normalizeWorldShapeMode(localStorage.getItem('space_setting_world_shape'));
+      (localStorage as any).removeItem?.('space_setting_world_shape');
       shadowsEnabled = localStorage.getItem('space_setting_shadows') !== 'false';
       lightingQuality = normalizeLightingQuality(localStorage.getItem(LIGHTING_QUALITY_SETTING_KEY));
     } catch { }
-    setGlobalWorldShapeMode(worldShapeMode);
-    sceneRenderer?.setWorldShapeMode?.(worldShapeMode);
-    this.snapshot.world?.setDistantSurfaceEnabled?.(worldShapeMode !== 'earth');
+    this.snapshot.world?.setDistantSurfaceEnabled?.(true);
     const state = sceneRenderer?.setResolutionScale?.(
       setting === 'auto' ? 'auto' : Number(setting)
     ) || sceneRenderer?.getResolutionScaleState?.();
     shadowsEnabled = sceneRenderer?.setShadowsEnabled?.(shadowsEnabled) ?? shadowsEnabled;
     lightingQuality = sceneRenderer?.setLightingQuality?.(lightingQuality) ?? lightingQuality;
     this.patch({
-      sceneRenderer, worldShapeMode, shadowsEnabled, lightingQuality,
+      sceneRenderer, shadowsEnabled, lightingQuality,
       ...resolutionSnapshot(sceneRenderer?.getResolutionScaleState?.() || state)
     });
   }
@@ -1644,7 +1634,6 @@ export class SpaceUiStore {
       fov: Number(controller.fov || 75),
       perspective: controller.perspective || 'first_person',
       cameraDistance: Number(controller.thirdPersonDistance || 4),
-      worldShapeMode: sceneRenderer?.getWorldShapeMode?.() || getWorldShapeMode(),
       renderDistance: Number(world?.renderDistance || this.snapshot.renderDistance),
       distantSurfaceSettings: normalizeDistantSurfaceSettings(
         world?.getDistantSurfaceSettings?.() || this.snapshot.distantSurfaceSettings,
@@ -1715,18 +1704,6 @@ export class SpaceUiStore {
     this.snapshot.controller?.setThirdPersonDistance?.(value);
     this.patch({ cameraDistance: value });
     if (persist) try { localStorage.setItem('space_setting_cam_dist', String(value)); } catch { }
-  }
-
-  setWorldShapeMode(mode: WorldShapeMode, persist = true): void {
-    const value = normalizeWorldShapeMode(mode);
-    setGlobalWorldShapeMode(value);
-    this.snapshot.sceneRenderer?.setWorldShapeMode?.(value);
-    this.snapshot.world?.setDistantSurfaceEnabled?.(value !== 'earth');
-    this.patch({ worldShapeMode: value });
-    if (persist) {
-      try { localStorage.setItem('space_setting_world_shape', value); } catch { }
-      this.showToast(value === 'earth' ? 'Earth mode enabled' : 'Donut mode enabled');
-    }
   }
 
   setRenderDistance(distance: number, persist = true): void {

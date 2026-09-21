@@ -4,8 +4,7 @@ import * as THREE from 'three';
 import { Contraption } from '../src/contraption/Contraption.ts';
 import { collisionBoundsOverlap } from '../src/physics/CollisionGeometry.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
-import { bendPoint, computeBentBoundsSphere, getWorldShapeMode, setWorldShapeMode,
-  setWorldProjectionAnchor, TORUS_SIZE_X, TORUS_SIZE_Z } from '../src/torus/TorusWorld.ts';
+import { bendPoint, computeBentBoundsSphere } from '../src/torus/TorusWorld.ts';
 
 const block = (x, y = 0, z = 0, size = 1, entityId = 'root') => ({
   localX: x, localY: y, localZ: z, size, entityId,
@@ -101,55 +100,41 @@ function comparePick(c, origin, direction, bent, distance = 30) {
   return actual;
 }
 
-test('indexed flat and bent picks match exhaustive picking, including high altitude and projection cuts', () => {
-  const previousMode = getWorldShapeMode();
-  try {
-    for (const mode of ['earth', 'torus']) {
-      setWorldShapeMode(mode);
-      setWorldProjectionAnchor(TORUS_SIZE_X / 2, TORUS_SIZE_Z / 2, true);
-      for (const position of [new THREE.Vector3(7450, 16, 580), new THREE.Vector3(7450, 1600, 580),
-        new THREE.Vector3(-1, 40, -1)]) {
-        const c = create(Array.from({ length: 64 }, (_, i) => block(i % 8, (i % 3) * 0.25,
-          Math.floor(i / 8), i % 2 ? 0.125 : 1)), position);
-        try {
-          c.quaternion.setFromEuler(new THREE.Euler(0.2, 0.7, -0.15));
-          c.updateTransform();
-          let hits = 0;
-          for (let i = 0; i < c.blocks.length; i += 3) {
-            const b = c.blocks[i];
-            const node = c.entityNodes.get('root');
-            const target = new THREE.Vector3(b.localX, b.localY, b.localZ).addScalar(b.size / 2)
-              .sub(node.pivotLocal).applyMatrix4(node.group.matrixWorld);
-            const origin = target.clone().add(new THREE.Vector3(1, 8, -2));
-            const bo = bendPoint(origin.x, origin.y, origin.z);
-            const bt = bendPoint(target.x, target.y, target.z);
-            comparePick(c, origin, target.clone().sub(origin).normalize(), false);
-            if (comparePick(c, bo, bt.sub(bo).normalize(), true)) hits++;
-          }
-          assert.ok(hits > 0, `${mode}: rays must actually hit geometry`);
-          const missOrigin = position.clone().addScalar(100);
-          assert.equal(comparePick(c, missOrigin, new THREE.Vector3(0, 1, 0), false), null);
-        } finally { c.dispose(); }
+test('indexed flat and bent picks match exhaustive picking, including high altitude and torus seams', () => {
+  for (const position of [new THREE.Vector3(7450, 16, 580), new THREE.Vector3(7450, 1600, 580),
+    new THREE.Vector3(-1, 40, -1)]) {
+    const c = create(Array.from({ length: 64 }, (_, i) => block(i % 8, (i % 3) * 0.25,
+      Math.floor(i / 8), i % 2 ? 0.125 : 1)), position);
+    try {
+      c.quaternion.setFromEuler(new THREE.Euler(0.2, 0.7, -0.15));
+      c.updateTransform();
+      let hits = 0;
+      for (let i = 0; i < c.blocks.length; i += 3) {
+        const b = c.blocks[i];
+        const node = c.entityNodes.get('root');
+        const target = new THREE.Vector3(b.localX, b.localY, b.localZ).addScalar(b.size / 2)
+          .sub(node.pivotLocal).applyMatrix4(node.group.matrixWorld);
+        const origin = target.clone().add(new THREE.Vector3(1, 8, -2));
+        const bo = bendPoint(origin.x, origin.y, origin.z);
+        const bt = bendPoint(target.x, target.y, target.z);
+        comparePick(c, origin, target.clone().sub(origin).normalize(), false);
+        if (comparePick(c, bo, bt.sub(bo).normalize(), true)) hits++;
       }
-    }
-  } finally { setWorldShapeMode(previousMode); }
+      assert.ok(hits > 0, 'rays must actually hit geometry');
+      const missOrigin = position.clone().addScalar(100);
+      assert.equal(comparePick(c, missOrigin, new THREE.Vector3(0, 1, 0), false), null);
+    } finally { c.dispose(); }
+  }
 });
 
 test('bent broadphase spheres contain projected points over large and tall bounds', () => {
-  const previousMode = getWorldShapeMode();
-  try {
-    for (const mode of ['earth', 'torus']) {
-      setWorldShapeMode(mode);
-      setWorldProjectionAnchor(TORUS_SIZE_X / 2, TORUS_SIZE_Z / 2, true);
-      for (const query of [bounds(7400, -600, 500, 100), bounds(4000, 1800, 300, 200), bounds(-1, 30, -1, 5)]) {
-        query.maxY = query.minY + 300;
-        const sphere = computeBentBoundsSphere(query);
-        for (let ix = 0; ix <= 4; ix++) for (let iy = 0; iy <= 4; iy++) for (let iz = 0; iz <= 4; iz++) {
-          const point = bendPoint(query.minX + ix / 4 * (query.maxX - query.minX),
-            query.minY + iy / 4 * (query.maxY - query.minY), query.minZ + iz / 4 * (query.maxZ - query.minZ));
-          assert.ok(sphere.containsPoint(point), `${mode}: projected point outside conservative bounds`);
-        }
-      }
+  for (const query of [bounds(7400, -600, 500, 100), bounds(4000, 1800, 300, 200), bounds(-1, 30, -1, 5)]) {
+    query.maxY = query.minY + 300;
+    const sphere = computeBentBoundsSphere(query);
+    for (let ix = 0; ix <= 4; ix++) for (let iy = 0; iy <= 4; iy++) for (let iz = 0; iz <= 4; iz++) {
+      const point = bendPoint(query.minX + ix / 4 * (query.maxX - query.minX),
+        query.minY + iy / 4 * (query.maxY - query.minY), query.minZ + iz / 4 * (query.maxZ - query.minZ));
+      assert.ok(sphere.containsPoint(point), 'projected point outside conservative bounds');
     }
-  } finally { setWorldShapeMode(previousMode); }
+  }
 });

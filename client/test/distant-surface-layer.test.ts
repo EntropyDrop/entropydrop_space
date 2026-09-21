@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
-import { bendPoint, setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { bendPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import {
   createSpaceSurfaceSnapshotRemote,
   parseSurfaceZoneSnapshot,
@@ -87,8 +87,6 @@ test('screen error settings clamp safely and migrate legacy distance tiers', () 
 });
 
 test('pixel budget controls refinement without fixed distance gates', async () => {
-  setWorldShapeMode('torus');
-  try {
     const layer = new DistantSurfaceLayer();
     const zone = parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true));
     layer.updateView(torusCamera(0, 300, 0), 1000);
@@ -103,7 +101,6 @@ test('pixel budget controls refinement without fixed distance gates', async () =
     limited.setSettings({ maxDistance: 500 });
     limited.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(4, 0, true)));
     assert.equal(limited.mesh.geometry.instanceCount, 0);
-  } finally { setWorldShapeMode('earth'); }
 });
 
 test('maximum exposed LOD controls remain within the surface instance budget', async () => {
@@ -382,8 +379,6 @@ test('surface-zone remote never forwards login credentials to a manifest-selecte
 });
 
 test('coarse snapshots validate their lattice and can refine curvature without fine data', async () => {
-  setWorldShapeMode('torus');
-  try {
     const bytes = makeCoarseBytes(16, 2);
     const zone = parseSurfaceZoneSnapshot(bytes);
     assert.equal(zone.sampleSize, 64);
@@ -403,12 +398,9 @@ test('coarse snapshots validate their lattice and can refine curvature without f
     let area = 0;
     for (let index = 0; index < count; index++) area += sizes.getX(index) ** 2;
     assert.equal(area, 512 ** 2, 'refining the mesh must preserve full zone coverage');
-  } finally { setWorldShapeMode('earth'); }
 });
 
 test('torus screen error preserves full world coverage and culls batches immediately on turns', async () => {
-  setWorldShapeMode('torus');
-  try {
     const layer = new DistantSurfaceLayer();
     layer.setNearField(512, 64, 8);
     const template = parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true));
@@ -436,12 +428,9 @@ test('torus screen error preserves full world coverage and culls batches immedia
     assert.equal(layer.mesh.geometry.drawRange.count, 0, 'aggregate buffers must not be drawn again');
     const batches = layer.mesh.children.filter(mesh => mesh.name.endsWith(':tops')) as THREE.Mesh<THREE.InstancedBufferGeometry>[];
     assert.equal(batches.reduce((sum, mesh) => sum + mesh.geometry.instanceCount, 0), layer.mesh.geometry.instanceCount);
-  } finally { setWorldShapeMode('earth'); }
 });
 
 test('replacing coarse data publishes complete batches and rejects an older terrain revision', async () => {
-  setWorldShapeMode('torus');
-  try {
     const layer = new DistantSurfaceLayer();
     layer.updateView(torusCamera(8192, 32, 1024), 800);
     layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2)));
@@ -461,7 +450,6 @@ test('replacing coarse data publishes complete batches and rejects an older terr
     assert.equal(replacement.geometry.getAttribute('surfaceHeight').getX(0), 160);
     layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2, 64, 7)));
     assert.equal(layer.mesh.children.find(mesh => mesh.name === replacement.name), replacement);
-  } finally { setWorldShapeMode('earth'); }
 });
 
 test('streaming installs every overview before refinement, then evicts offscreen fine data', async () => {
@@ -550,8 +538,6 @@ test('visible refinements stay within the raw working-set budget', async () => {
 });
 
 test('extreme zoom preserves whole-torus coverage within the geometry budget', async () => {
-  setWorldShapeMode('torus');
-  try {
     const layer = new DistantSurfaceLayer();
     const template = parseSurfaceZoneSnapshot(makeCoarseBytes());
     for (let x = 0; x < 32; x++) for (let z = 0; z < 4; z++) {
@@ -565,12 +551,9 @@ test('extreme zoom preserves whole-torus coverage within the geometry budget', a
     let area = 0;
     for (let i = 0; i < count; i++) area += sizes.getX(i) ** 2;
     assert.equal(area, 16384 * 2048, 'budget fallback must coarsen, never leave missing roots');
-  } finally { setWorldShapeMode('earth'); }
 });
 
 test('reenabling the torus stages current data and never resurrects a removed zone', async () => {
-  setWorldShapeMode('torus');
-  try {
     const layer = new DistantSurfaceLayer();
     layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes()));
     await layer.finalizeConnections();
@@ -588,7 +571,6 @@ test('reenabling the torus stages current data and never resurrects a removed zo
     assert.equal(layer.mesh.visible, false);
     assert.equal(layer.mesh.geometry.instanceCount, 0);
     assert.equal(layer.mesh.children.filter(mesh => mesh.name.startsWith('DistantSurface:')).length, 0);
-  } finally { setWorldShapeMode('earth'); }
 });
 
 function v5Bytes() {
@@ -627,8 +609,6 @@ test('v5 transmits conservative source errors and vertical solids even in the 64
 });
 
 test('downloaded residual error drives data refinement across the ring', async () => {
-  setWorldShapeMode('torus');
-  try {
     const layer = new DistantSurfaceLayer();
     const zone = parseSurfaceZoneSnapshot(makeCoarseBytes(0, 2));
     zone.minHeightsMicro = new Uint16Array(64).fill(40);
@@ -640,7 +620,6 @@ test('downloaded residual error drives data refinement across the ring', async (
     layer.setSettings({ screenErrorPx: 0.5 });
     assert.ok(layer.getZoneDemand(0, 2).sampleSize < relaxed);
     await layer.finalizeConnections();
-  } finally { setWorldShapeMode('earth'); }
 });
 
 test('dirty or temporarily absent manifest entries retain last-good geometry', async () => {
@@ -692,7 +671,6 @@ test('authored distant geometry survives coarse replacement, near handoff and st
 });
 
 test('unknown fine source errors request real data rather than synthetic subdivision', async () => {
-  setWorldShapeMode('torus');
   const layer = new DistantSurfaceLayer();
   try {
     const camera = torusCamera(8192, 100, 1024);
@@ -702,7 +680,7 @@ test('unknown fine source errors request real data rather than synthetic subdivi
     layer.installZone(zone);
     assert.equal(layer.getZoneDemand(0, 2).sampleSize, 1, 'unavailable finer residuals are unknown, not range * size / 64');
     await layer.finalizeConnections();
-  } finally { layer.setEnabled(false); setWorldShapeMode('earth'); }
+  } finally { layer.setEnabled(false); }
 });
 
 test('surface download completion does not wait for a moving camera to become idle', async () => {

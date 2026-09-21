@@ -27,7 +27,7 @@ entropydrop_website/
 | Path | Responsibility |
 | --- | --- |
 | `src/main.ts` | Entry: bootstrap the session, build the world/renderer/controller, mount React. |
-| `src/bootstrap/SpaceBootstrap.ts` | `/bootstrap` + terrain-edit REST client, world edit outbox, offline player position. |
+| `src/bootstrap/SpaceBootstrap.ts` | `/bootstrap` + terrain-edit REST client, world edit outbox, player checkpointing. |
 | `src/bootstrap/SpaceAuthSession.ts` | Main-site login token handoff and refresh; no account system of its own. |
 | `src/bootstrap/NetworkSafety.ts` | URL allow-listing, response-size limits, SHA-256 helpers, off-main-thread JSON parsing. |
 | `src/bootstrap/SpaceEntityClient.ts` | Entity REST client; sends `application/x-protobuf` envelopes, verifies definition digests. |
@@ -58,9 +58,6 @@ entropydrop_website/
 4. Entities are authored in the browser (or by an agent through spaceAPI), uploaded as
    canonical Protobuf, and executed by whichever browser holds the 8-second execution lease;
    observers keep a stopped collision pose.
-5. Offline mode swaps the REST/relay clients for local storage and never calls the entity
-   endpoints.
-
 ## Settings, LOD and model import
 
 - Settings UI lives in `src/ui/react/components/SimpleModals.tsx` (tabs: Character,
@@ -91,7 +88,8 @@ entropydrop_website/
   GPU batches stay live until a complete replacement is ready; camera updates are
   coalesced without cancelling an in-progress build. Dirty/unavailable manifests
   keep last-good coverage. Server schema upgrades retain legacy snapshots while
-  the background generator fills v6. Earth mode continues to disable the far layer.
+  the background generator fills v6. The torus far layer remains active in the
+  canonical world projection.
 - To reproduce the authored handoff in WebGL, run
   `python tools/generate_distant_surface_fixture.py` from `server/`, then open
   `tools/distant-surface-preview.html` through the client dev server. The fixture

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
-  bendDirection, getWorldShapeMode, setWorldShapeMode,
+  bendDirection,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 import {
@@ -136,9 +136,7 @@ test('adaptive fallback restores the selected quality without overriding disable
   assert.equal(renderer.fillLight.visible, true);
 });
 
-test('frame updates preserve the preset and align lighting with both world projections', t => {
-  const previousMode = getWorldShapeMode();
-  t.after(() => setWorldShapeMode(previousMode));
+test('frame updates preserve the preset and align lighting with the torus projection', () => {
   const renderer = lightingRenderer();
   renderer.updatePlayerAvatar = () => {};
   renderer.bentLightTarget = new THREE.Vector3();
@@ -149,18 +147,15 @@ test('frame updates preserve the preset and align lighting with both world proje
   renderer.scene.fog = new THREE.FogExp2(renderer.skyColorDay);
   renderer.setLightingQuality('ultra');
   const intensity = renderer.sunLight.intensity;
-  for (const mode of ['earth', 'torus'] as const) {
-    renderer.setWorldShapeMode(mode);
-    const position = new THREE.Vector3(7400, 32, 1500);
-    renderer.update(1 / 60, position);
-    const up = new THREE.Vector3(0, 1, 0);
-    bendDirection(position.x, position.y, position.z, up, up);
-    assert.ok(renderer.hemiLight.position.distanceTo(up) < 1e-6);
-    assert.ok(renderer.sunLight.shadow.camera.up.distanceTo(up) < 1e-6);
-    assert.equal(renderer.sunLight.intensity, intensity);
-    assert.ok(renderer.fillLight.position.distanceTo(renderer.fillLight.target.position) > 79);
-    assert.equal(renderer.sunLight.shadow.normalBias, 0.05);
-  }
+  const position = new THREE.Vector3(7400, 32, 1500);
+  renderer.update(1 / 60, position);
+  const up = new THREE.Vector3(0, 1, 0);
+  bendDirection(position.x, position.y, position.z, up, up);
+  assert.ok(renderer.hemiLight.position.distanceTo(up) < 1e-6);
+  assert.ok(renderer.sunLight.shadow.camera.up.distanceTo(up) < 1e-6);
+  assert.equal(renderer.sunLight.intensity, intensity);
+  assert.ok(renderer.fillLight.position.distanceTo(renderer.fillLight.target.position) > 79);
+  assert.equal(renderer.sunLight.shadow.normalBias, 0.05);
 });
 
 test('lighting preference persists, restores, and coexists with legacy disabled shadows', t => {

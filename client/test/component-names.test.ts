@@ -21,7 +21,7 @@ function sourceEntity() {
   });
 }
 
-test('component names survive subtree export, attachment, independent build and offline reload', () => {
+test('component names survive subtree export, attachment, independent build and browser-storage reload', () => {
   const source = sourceEntity();
   const controller = Object.create(PlayerController.prototype);
   const storage = new Map<string, string>();

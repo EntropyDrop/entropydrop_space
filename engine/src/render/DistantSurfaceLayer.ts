@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
 import {
   TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_RHO, TORUS_GREF,
-  computeBentBoundsSphere, getWorldShapeMode, hookSceneMaterials,
+  computeBentBoundsSphere, hookSceneMaterials,
 } from '../torus/TorusWorld.ts';
 
 const CHUNK_SIZE = 16;
@@ -507,9 +507,9 @@ export class DistantSurfaceLayer {
    * rebuilding geometry when the player turns toward the opposite ring. */
   updateView(camera: THREE.PerspectiveCamera, viewportHeight: number) {
     this.updateHandoffs();
-    if (!this.enabled || getWorldShapeMode() !== 'torus') return;
+    if (!this.enabled) return;
     if (!this.hasView) {
-      // Snapshots can arrive while Earth mode has the far layer disabled.
+      // Snapshots can arrive before the far layer has received its first view.
       for (const [key, zone] of this.zones) {
         computeBentBoundsSphere({ minX: zone.zoneX * 512, maxX: (zone.zoneX + 1) * 512,
           minZ: zone.zoneZ * 512, maxZ: (zone.zoneZ + 1) * 512, minY: 0,
@@ -632,9 +632,9 @@ export class DistantSurfaceLayer {
     }
   }
 
-  /** Advance before culling, including when switching to Earth or disabling LOD. */
+  /** Advance before culling, including while disabling LOD. */
   updateHandoffs(now = performance.now()) {
-    this.handoff.enabled.value = this.enabled && getWorldShapeMode() === 'torus';
+    this.handoff.enabled.value = this.enabled;
     this.handoff.advance(now);
   }
 
@@ -661,8 +661,7 @@ export class DistantSurfaceLayer {
       return this.enabled;
     }
     if (this.zones.size > 0) {
-      if (getWorldShapeMode() === 'torus') this.requestRebuild();
-      else this.rebuild();
+      this.requestRebuild();
     } else {
       this.writeIndex = 0;
       this.sideWriteIndex = 0;
@@ -691,7 +690,7 @@ export class DistantSurfaceLayer {
     const farReady = this.batches.has(`${Math.floor(wrappedX / 32)},${Math.floor(wrappedZ / 32)}`)
       || this.authoredChunks.has(wrappedX, wrappedZ);
     this.handoff.setReady(wrappedX, wrappedZ, ready,
-      !immediate && this.enabled && getWorldShapeMode() === 'torus' && this.hasView && farReady);
+      !immediate && this.enabled && this.hasView && farReady);
     const value = ready ? 255 : this.authoredChunks.has(wrappedX, wrappedZ) ? 128 : 0;
     if (this.detailMaskData[index] === value) return;
     this.detailMaskData[index] = value;

@@ -300,9 +300,8 @@ export function resolveInitialPlayerPose(
     };
   }
 
-  // Offline mode falls back to the same full-world policy.
-  // Start above the procedural terrain ceiling and let physics settle the
-  // player onto the local surface.
+  // A malformed legacy bootstrap without a server-selected start still uses
+  // the full-world policy. Start above the terrain and let physics settle.
   const randomX = randomFn() * TORUS_SIZE_X;
   const randomZ = randomFn() * TORUS_SIZE_Z;
   const randomYaw = (randomFn() * 2 - 1) * Math.PI;
@@ -988,7 +987,7 @@ export async function enterSpace(
         cancelQueue: null,
         enterOnline: null
       });
-      reportProgress(92, 'Initializing Earth-mode scene…');
+      reportProgress(92, 'Initializing donut world…');
       await startGame(session, reportProgress);
       reportProgress(100, 'Space world ready');
       if (gate) gate.hidden = true;

@@ -18,7 +18,7 @@ Each standard one-metre block is divided into 512 micro cells with a 0.125-metre
 | --- | --- |
 | InventoryResource | 7 |
 | Backpack | 8, `space.backpack.v8.pb` |
-| Offline entities | 4 |
+| Legacy browser entities | 4 |
 | Local terrain cache and upload outbox | 3, `space.world-edits.v3.*` |
 | Distant-surface snapshots | 3 |
 

@@ -224,7 +224,6 @@ export function GlobalSettingsModal() {
   const state = useSpaceUi(snapshot => snapshot);
   const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>('character');
   if (state.activeModal !== 'settings') return null;
-  const distantLodDisabled = state.worldShapeMode === 'earth';
   return (
     <ModalBackdrop id="global-settings-modal" onClose={() => spaceUiStore.toggleGlobalSettingsModal(false)}>
       <div className="modal-content settings-modal-content">
@@ -334,28 +333,6 @@ export function GlobalSettingsModal() {
               </div>
             </div>
             <div className="settings-section">
-              <div className="settings-section-title">WORLD &amp; ENVIRONMENT</div>
-              <div className="settings-row">
-                <div className="settings-label-group"><span className="settings-label">World Shape</span><span className="settings-desc">Switch between a spherical horizon and the original ring world</span></div>
-                <div className="settings-segmented-control" id="setting-world-shape-group">
-                  {([
-                    ['earth', 'Earth Mode'],
-                    ['torus', 'Donut Mode']
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      tabIndex={-1}
-                      className={`segment-btn ${state.worldShapeMode === value ? 'active' : ''}`}
-                      aria-pressed={state.worldShapeMode === value}
-                      onClick={() => spaceUiStore.setWorldShapeMode(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="settings-section">
               <div className="settings-section-title">PERFORMANCE</div>
               <div className="settings-row settings-lighting-row">
                 <div className="settings-label-group">
@@ -446,7 +423,7 @@ export function GlobalSettingsModal() {
             </div>
             <div className="settings-section">
               <div className="settings-section-title">
-                DISTANT TERRAIN LOD{distantLodDisabled ? ' · OFF IN EARTH MODE' : ''}
+                DISTANT TERRAIN LOD
               </div>
               {DISTANT_LOD_CONTROLS.map(({ key, label, description, unit }) => {
                 const limits = DISTANT_SURFACE_SETTING_LIMITS[key];
@@ -458,7 +435,7 @@ export function GlobalSettingsModal() {
                   <div className="settings-control-group">
                     <input id={`setting-${key}-slider`} aria-label={label}
                       className="settings-slider" type="range" min={limits.min} max={limits.max}
-                      step={limits.step} value={state.distantSurfaceSettings[key]} disabled={distantLodDisabled}
+                      step={limits.step} value={state.distantSurfaceSettings[key]}
                       onChange={event => spaceUiStore.setDistantSurfaceSetting(key, Number(event.target.value))} />
                     <span className="settings-value-badge">{state.distantSurfaceSettings[key]} {unit}</span>
                   </div>
@@ -468,7 +445,7 @@ export function GlobalSettingsModal() {
                 <div className="settings-label-group">
                   <span className="settings-desc">Automatic surface detail · solid terrain connections · persistent distant structures</span>
                 </div>
-                <button className="small-btn" disabled={distantLodDisabled} onClick={() => spaceUiStore.resetDistantSurfaceSettings()}>
+                <button className="small-btn" onClick={() => spaceUiStore.resetDistantSurfaceSettings()}>
                   Reset Recommended
                 </button>
               </div>

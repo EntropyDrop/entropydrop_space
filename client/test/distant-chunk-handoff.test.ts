@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { captureDistantChunk } from '@entropydrop/space-engine/render/DistantChunkLayer.ts';
-import { setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
 test('real terrain edits keep air gaps, micro footprints and colors when the near AOI leaves', () => {
-  setWorldShapeMode('torus');
   const world = new World(new THREE.Scene(), 20260827);
   world.setRenderDistance(4);
   world.updateChunksAround(8, 8, false);
@@ -38,7 +36,6 @@ test('real terrain edits keep air gaps, micro footprints and colors when the nea
   assert.equal((world.distantSurface.detailMaskTexture.image.data as Uint8Array)[0], 128);
   assert.ok(world.distantSurface.mesh.visible, 'the local proxy works without a server snapshot');
   world.distantSurface.setEnabled(false);
-  setWorldShapeMode('earth');
 });
 
 test('ACK after near eviction still prevents an older server proxy from replacing local edits', async () => {

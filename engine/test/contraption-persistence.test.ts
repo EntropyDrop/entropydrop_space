@@ -26,7 +26,7 @@ class MockStorage {
   }
 }
 
-test('offline entity persistence rejects the obsolete v2 frontend shape', () => {
+test('legacy browser entity persistence rejects the obsolete v2 frontend shape', () => {
   const storage = new MockStorage();
   const worldId = 'obsolete-world-entities';
   storage.setItem(worldEntitiesStorageKey(worldId), JSON.stringify({

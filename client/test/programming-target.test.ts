@@ -18,8 +18,6 @@ import {
   bendFrameQuaternion,
   applyCameraBend,
   cullChunks,
-  getWorldShapeMode,
-  setWorldShapeMode,
   unbendDirection,
   TORUS_GREF,
   TORUS_SPAWN_X,
@@ -343,12 +341,8 @@ test('programming preview tracks the selected entity on its extra render layer',
   assert.equal(secondRoot.layers.test(previewLayer), true);
 });
 
-for (const mode of ['earth', 'torus'] as const) {
-  for (const failRender of [false, true]) {
-    test(`programming preview uses its own sky and terrain culling in ${mode}${failRender ? ' even when rendering fails' : ''}`, t => {
-      const previousMode = getWorldShapeMode();
-      setWorldShapeMode(mode);
-      t.after(() => setWorldShapeMode(previousMode));
+for (const failRender of [false, true]) {
+    test(`programming preview uses its own sky and torus terrain culling${failRender ? ' even when rendering fails' : ''}`, () => {
       const renderer: any = Object.create(SceneRenderer.prototype);
       renderer.scene = new THREE.Scene();
       renderer.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 10000);
@@ -438,7 +432,6 @@ for (const mode of ['earth', 'torus'] as const) {
       assert.deepEqual(renderer.camera.quaternion.toArray(), flatQuaternion.toArray());
       assert.equal(renderer.previewWorldCullCamera.children.length, 0, 'culling copies do not clone main-camera viewmodels');
     });
-  }
 }
 
 test('programming preview render preserves the sky clipping distance while framing an entity', () => {

@@ -118,12 +118,6 @@ class Game {
     );
     if (session.surface_snapshot_remote) {
       const syncSurfaceSnapshots = () => {
-        // The Earth renderer does not use this layer. Do not download the
-        // exact 1m torus source for every zone while the layer is disabled.
-        if (this.sceneRenderer.getWorldShapeMode() !== 'torus') {
-          window.setTimeout(syncSurfaceSnapshots, 1000);
-          return;
-        }
         void session.surface_snapshot_remote!.loadAll(
           zone => this.world.installSurfaceZone(zone),
           (zoneX, zoneZ) => this.world.removeSurfaceZone(zoneX, zoneZ),
@@ -136,10 +130,10 @@ class Game {
         ).then(() => this.world.finalizeSurfaceConnections(false)).catch(error => {
           console.warn('Space far-surface snapshots are temporarily unavailable.', error);
         }).finally(() => {
-          window.setTimeout(syncSurfaceSnapshots, this.sceneRenderer.getWorldShapeMode() === 'torus' ? 1000 : 10_000);
+          window.setTimeout(syncSurfaceSnapshots, 1000);
         });
       };
-      // Let saved world-shape settings and the initial camera finish setup.
+      // Let the initial camera finish setup.
       window.setTimeout(syncSurfaceSnapshots, 0);
     }
     this.sceneRenderer.setWorld(this.world);

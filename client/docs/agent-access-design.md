@@ -68,8 +68,6 @@ Configuration writes carry an expected version—currently shared with runtime s
 
 External entity creation already uses idempotent operation IDs and should retain that pattern. After accepting a command, the backend notifies clients through the existing synchronization channel so editors and the world update from the remote record. An agent must not mutate both a local instance and the remote record independently.
 
-If offline mode retains agent capabilities, it can provide a local adapter for the same tool contract while clearly showing offline status and capability differences. It must not pretend that a server accepted or synchronized an operation.
-
 ## Migration order
 
 1. Organize public API actions and resource permissions; complete entity updates, code validation, and status results; distinguish service-internal routes from player-facing interfaces.

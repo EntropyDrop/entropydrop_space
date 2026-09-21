@@ -164,16 +164,8 @@ test('renderer combines the shadow preference with adaptive effects quality', ()
   assert.equal(internal.renderer.shadowMap.enabled, true);
 });
 
-test('world shape setting is applied immediately through the renderer bridge', () => {
-  const applied: string[] = [];
+test('the canonical torus distant layer stays enabled through renderer setup', () => {
   const lodEnabled: boolean[] = [];
-  const renderer = {
-    setWorldShapeMode(mode: string) {
-      applied.push(mode);
-      return mode;
-    },
-    getWorldShapeMode: () => applied.at(-1) || 'earth',
-  };
   const store = new SpaceUiStore();
   store.setWorld({
     renderDistance: 8,
@@ -184,13 +176,10 @@ test('world shape setting is applied immediately through the renderer bridge', (
     },
   });
 
-  store.setSceneRenderer(renderer);
-  store.setWorldShapeMode('earth', false);
-  store.setWorldShapeMode('torus', false);
+  store.setSceneRenderer({});
 
-  assert.equal(store.getSnapshot().worldShapeMode, 'torus');
-  assert.deepEqual(applied, ['earth', 'earth', 'torus']);
-  assert.deepEqual(lodEnabled, [false, false, false, true]);
+  assert.equal('worldShapeMode' in store.getSnapshot(), false);
+  assert.deepEqual(lodEnabled, [true, true]);
 });
 
 test('distant terrain pixel budgets apply immediately through settings state', () => {

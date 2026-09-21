@@ -76,8 +76,7 @@ test('global settings remains English-only', () => {
     new URL('../src/ui/react/components/SimpleModals.tsx', import.meta.url),
     'utf8',
   );
-  assert.match(settingsSource, /\['earth', 'Earth Mode'\]/);
-  assert.match(settingsSource, /\['torus', 'Donut Mode'\]/);
+  assert.doesNotMatch(settingsSource, /Earth Mode|Donut Mode|setting-world-shape-group/);
   assert.match(settingsSource, />PERFORMANCE</);
   assert.match(settingsSource, /id="setting-shadows-group"/);
   assert.match(settingsSource, /id="setting-minimap-group"/);

@@ -4,9 +4,6 @@ import {
   applyCameraBend, hookSceneMaterials, cullChunks,
   bendPoint, bendDirection, unbendPoint, unbendDirection,
   TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear, wrapX, wrapZ,
-  getWorldShapeMode, setWorldProjectionAnchor,
-  setWorldShapeMode as setGlobalWorldShapeMode,
-  type WorldShapeMode,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { CuteCharacter, loadCuteCharacter, type SkinModel } from './CuteCharacter.ts';
 import {
@@ -2859,7 +2856,7 @@ export class SceneRenderer {
     // Reducing the bias with map resolution exposes curved-face self-shadowing.
     shadow.bias = -(cinematic ? 0.12 : 0.075) / (shadow.camera.far - shadow.camera.near);
     shadow.radius = (mapSize / 1024) * (45 / extent);
-    shadow.normalBias = cinematic ? 0.05 : (getWorldShapeMode() === 'earth' ? 0.025 : 0);
+    shadow.normalBias = cinematic ? 0.05 : 0;
     shadow.needsUpdate = true;
     this.applyShadowState();
   }
@@ -3263,7 +3260,6 @@ export class SceneRenderer {
   }
 
   update(dt, playerPos, playerYaw = 0, playerMotion: any = null) {
-    setWorldProjectionAnchor(playerPos.x, playerPos.z);
     // Update player avatar when in third-person view
     this.updatePlayerAvatar(playerPos, playerYaw, dt, playerMotion);
 
@@ -3316,21 +3312,6 @@ export class SceneRenderer {
 
   setWorld(world) {
     this.world = world;
-  }
-
-  setWorldShapeMode(mode: WorldShapeMode) {
-    this.materialScanCountdown = 0;
-    const value = setGlobalWorldShapeMode(mode);
-    this.world?.setDistantSurfaceEnabled?.(value !== 'earth');
-    // Curved interpolated normals need a small receiver offset to avoid
-    // self-shadow striping. Donut mode keeps its established bias unchanged.
-    this.sunLight.shadow.normalBias = this.lightingQuality === 'ultra' ? 0.05 : (value === 'earth' ? 0.025 : 0);
-    this.sunLight.shadow.needsUpdate = true;
-    return value;
-  }
-
-  getWorldShapeMode(): WorldShapeMode {
-    return getWorldShapeMode();
   }
 
   private renderWorld() {

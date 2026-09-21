@@ -10,8 +10,7 @@ migrating it, and a release that changes a format resets the affected Space cont
 | REST request envelopes | **2** | `entropydrop_space/proto/space_api.proto` (`entropydrop.space.api.v2`) |
 | Far-surface zone snapshot | **5** | `EDSZ` binary, parsed in `src/bootstrap/SpaceSurfaceSnapshot.ts` |
 | Local terrain outbox | **3** | `space.world-edits.v3.*` (`entropydrop_space/engine/src/voxel/WorldEditPersistence.ts`) |
-| Offline entities (browser-local, offline mode only) | **4** | JSON `entropydrop_space_entities.*` (`entropydrop_space/engine/src/contraption/ContraptionManager.ts`, `ENTITY_STORAGE_VERSION`) |
-| Offline player position | **1** | `space.offline.player-position.v1` JSON (`src/bootstrap/SpaceBootstrap.ts`) |
+| Legacy browser entities (purged on online entry) | **4** | JSON `entropydrop_space_entities.*` (`entropydrop_space/engine/src/contraption/ContraptionManager.ts`, `ENTITY_STORAGE_VERSION`) |
 | Realtime relay | `space-relay-v1` | MessagePack subprotocol; no `.proto` |
 | Authoritative realtime | `space.multiplayer.v2` | target design in `entropydrop_backend/space/contracts/protocol.proto`; not implemented |
 

@@ -5,8 +5,6 @@ import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerCont
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 import {
-  getWorldShapeMode,
-  setWorldShapeMode,
   TORUS_SPAWN_X,
   TORUS_SPAWN_Z,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
@@ -100,9 +98,6 @@ test('world: a boundary entry point clamps the removed microcell inside the hit 
 });
 
 test('world: three rapid spoon clicks consume three micro layers before remesh publication', () => {
-  const previousMode = getWorldShapeMode();
-  setWorldShapeMode('torus');
-  try {
     const world = new World(new THREE.Scene()) as any;
     const mx = TORUS_SPAWN_X * 8;
     const mz = TORUS_SPAWN_Z * 8;
@@ -151,15 +146,9 @@ test('world: three rapid spoon clicks consume three micro layers before remesh p
       { kind: 'micro', count: 1 },
       { kind: 'micro', count: 1 },
     ]);
-  } finally {
-    setWorldShapeMode(previousMode);
-  }
 });
 
 test('world: rapid spoon clicks continue while standard-to-micro publication is pending', () => {
-  const previousMode = getWorldShapeMode();
-  setWorldShapeMode('torus');
-  try {
     const world = new World(new THREE.Scene()) as any;
     const wx = TORUS_SPAWN_X;
     const wy = 200;
@@ -202,9 +191,6 @@ test('world: rapid spoon clicks continue while standard-to-micro publication is 
       'the subdivision plus two immediate follow-up clicks should consume three microcells');
     assert.equal(controller.currentRaycast.kind, 'standard',
       'hover remains on the visible standard mesh until the atomic replacement publishes');
-  } finally {
-    setWorldShapeMode(previousMode);
-  }
 });
 
 test('world: a live retry cannot carve terrain hidden behind an entity', () => {

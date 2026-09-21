@@ -6,7 +6,7 @@ import { ContraptionManager } from '@entropydrop/space-engine/contraption/Contra
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { PlayerController, SpecialTool, MAX_MICRO_SELECTION_CELLS } from '../src/engine/controls/PlayerController.ts';
 import { ChunkedVoxelIndex } from '@entropydrop/space-engine/physics/EntityVoxelIndex.ts';
-import { bendPoint, getWorldShapeMode, setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { bendPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
 const standard = (x: number, y = 0, z = 0) => ({
   localX: x, localY: y, localZ: z, size: 1,
@@ -187,9 +187,6 @@ test('batched spatial edits keep queries and bounds correct when a chunk is empt
 });
 
 test('curved-world picking hits the exact rendered micro patch exposed on a standard face', () => {
-  const previous = getWorldShapeMode();
-  setWorldShapeMode('torus');
-  try {
     const micros = Array.from({ length: 64 }, (_, i) => ({ ...standard(0, Math.floor(i / 8) / 8, (i % 8) / 8), size: 0.125 }));
     const { entity } = setup([standard(-1), ...micros.slice(1)]);
     entity.position.set(80, 12, 120);
@@ -209,9 +206,6 @@ test('curved-world picking hits the exact rendered micro patch exposed on a stan
     assert.ok(Math.abs(hit.distance - 0.05) < 1e-7, 'ray and renderer must use identical bent triangles');
     const flatCenter = new THREE.Triangle(...flatCorners).getMidpoint(new THREE.Vector3());
     assert.ok(hit.point.distanceTo(flatCenter) < 1e-7);
-  } finally {
-    setWorldShapeMode(previous);
-  }
 });
 
 test('micro cells away from an interface retain the neighboring standard face triangles', () => {

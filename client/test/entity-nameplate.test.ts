@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
-import { applyCameraBend, bendPoint, setWorldShapeMode, setWorldProjectionAnchor, TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { applyCameraBend, bendPoint, TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { entityDisplayName, entityRunStatus, EntityNameplateProjector, EntityNameplateAimHighlighter } from '../src/ui/react/utils/entityNameplate.ts';
 
 function aimFixture() {
@@ -106,9 +106,7 @@ test('icon status keeps executor/hosting captions and full tooltip descriptions'
     serverDesiredRunState: 'stopped' }).icon, 'stop');
 });
 
-function entityAndCamera(mode: 'earth' | 'torus') {
-  setWorldShapeMode(mode);
-  setWorldProjectionAnchor(10, 10, true);
+function entityAndCamera() {
   const entity = new Contraption('plate', [{ localX: 0, localY: 0, localZ: 0, color: 0xff9900, size: 1, entityId: 'root' }],
     new THREE.Vector3(10, 16, 10), new THREE.Scene(), { rootComponentName: 'Plate' });
   const camera = new THREE.PerspectiveCamera(75, 800 / 600, 0.1, 10000);
@@ -119,9 +117,8 @@ function entityAndCamera(mode: 'earth' | 'torus') {
   return { entity, camera };
 }
 
-for (const mode of ['earth', 'torus'] as const) {
-  test(`nameplates follow bent ${mode} camera and presentation transforms, not camera/geometry helpers`, () => {
-    const { entity, camera } = entityAndCamera(mode);
+test('nameplates follow the bent torus camera and presentation transforms, not camera/geometry helpers', () => {
+    const { entity, camera } = entityAndCamera();
     const projector = new EntityNameplateProjector();
     const viewport = { width: 800, height: 600 };
     const before = projector.project(entity, camera, viewport)!;
@@ -136,11 +133,10 @@ for (const mode of ['earth', 'torus'] as const) {
     entity.setCollisionSimulationEnabled(false);
     assert.ok(projector.project(entity, camera, viewport), 'collision-disabled visible entities keep their labels');
     entity.dispose();
-  });
-}
+});
 
 test('projector hides behind-camera/offscreen/empty entities and invalidates authored geometry bounds', () => {
-  const { entity, camera } = entityAndCamera('earth');
+  const { entity, camera } = entityAndCamera();
   const projector = new EntityNameplateProjector();
   const viewport = { width: 800, height: 600 };
   const before = projector.project(entity, camera, viewport)!;
@@ -158,7 +154,7 @@ test('projector hides behind-camera/offscreen/empty entities and invalidates aut
 });
 
 test('labels project consistently across the periodic world seam', () => {
-  const { entity, camera } = entityAndCamera('torus');
+  const { entity, camera } = entityAndCamera();
   const projector = new EntityNameplateProjector();
   const viewport = { width: 800, height: 600 };
   const before = projector.project(entity, camera, viewport)!;
@@ -169,8 +165,6 @@ test('labels project consistently across the periodic world seam', () => {
 });
 
 test('moving nested components update the overhead bounds without rescanning every authored voxel', () => {
-  setWorldShapeMode('earth');
-  setWorldProjectionAnchor(10, 10, true);
   const entity = new Contraption('arm', [0, 3].map(y => ({ localX: 0, localY: y, localZ: 0, size: 1, color: 0xf2a93b })),
     new THREE.Vector3(10, 16, 10), new THREE.Scene(), {
       childEntities: [{ id: 'arm', parentId: 'root', kind: 'child', pivot: [0, 3, 0], blockKeys: [['0', '3', '0']] }]

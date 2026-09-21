@@ -16,9 +16,8 @@ body{margin:0;background:#18202c;color:#eee;font:14px system-ui}header{display:f
 <script type="module">
 import * as THREE from 'three';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
-import { bendPoint, setWorldShapeMode, cullChunks, hookSceneMaterials } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { bendPoint, cullChunks, hookSceneMaterials } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { parseSurfaceZoneSnapshot, createSpaceSurfaceSnapshotRemote } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
-setWorldShapeMode('torus');
 const $ = id => document.getElementById(id), canvas = $('scene');
 const params=new URLSearchParams(location.search), farOnly=params.get('near')==='0';
 $('source').value=params.get('source')??'1';

@@ -6409,7 +6409,7 @@ button.palette-title:hover {
   }
 }
 /* Entry waits for the shared EntropyDrop identity; character skins can safely
-   fall back to the bundled offline skin without holding this gate open. */
+   fall back to the bundled default skin without holding this gate open. */
 .space-entry-gate {
   position: fixed;
   inset: 0;

@@ -5,7 +5,7 @@ import { TerrainHandoff, TERRAIN_FADE_MS } from '@entropydrop/space-engine/rende
 import { SurfaceBatch } from '@entropydrop/space-engine/render/SurfaceBatch.ts';
 import { DistantSurfaceLayer } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
-import { bendPoint, cullChunks, setWorldShapeMode } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { bendPoint, cullChunks } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
 function source(height: number) {
   const mesh = new THREE.Mesh(new THREE.InstancedBufferGeometry(), new THREE.MeshStandardMaterial());
@@ -85,7 +85,6 @@ function flatZone(x: number, z: number) {
 }
 
 test('turning changes only culling; walking reuses distant roots and unchanged GPU buffers', async () => {
-  setWorldShapeMode('torus');
   const layer = new DistantSurfaceLayer();
   try {
     const camera = cameraAt(8192, 100, 1024);
@@ -108,11 +107,10 @@ test('turning changes only culling; walking reuses distant roots and unchanged G
       assert.ok(layer.mesh.children.includes(before[i]));
       assert.equal(before[i].geometry.getAttribute('surfaceHeight'), buffers[i]);
     }
-  } finally { layer.setEnabled(false); setWorldShapeMode('earth'); }
+  } finally { layer.setEnabled(false); }
 });
 
 test('near standard and micro meshes remain visible and resident until the outgoing fade finishes', async () => {
-  setWorldShapeMode('torus');
   const world = new World(new THREE.Scene(), 20260827);
   const layer = world.distantSurface;
   try {
@@ -140,7 +138,7 @@ test('near standard and micro meshes remain visible and resident until the outgo
     (world as any).processPendingChunkEvictions(performance.now(), 100);
     assert.equal(chunk.mesh, null);
     assert.equal(layer.authoredChunks.has(0, 0), true);
-    setWorldShapeMode('earth'); layer.updateHandoffs();
+    layer.setEnabled(false); layer.updateHandoffs();
     assert.equal(layer.handoff.enabled.value, false);
-  } finally { layer.setEnabled(false); setWorldShapeMode('earth'); }
+  } finally { layer.setEnabled(false); }
 });

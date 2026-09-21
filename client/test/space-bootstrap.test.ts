@@ -171,7 +171,7 @@ test('terrain AOI hysteresis suppresses repeated loads around tile boundaries', 
   );
 });
 
-test('Space consumes backend resume/random starts and samples the whole world only as an offline fallback', () => {
+test('Space consumes backend resume/random starts and samples the whole world only for a legacy bootstrap fallback', () => {
   const player = {
     user_id: 'user-001',
     username: 'alice',
