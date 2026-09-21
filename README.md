@@ -29,6 +29,12 @@ mounts this client. Production publishes Space independently and provides the
 main-site login return page at `/space/login`.
 The account API-key page consumes explicit client package exports.
 
+Development also provisions the Copper Metropolis world, generated from the
+terrain-lab algorithm with terrain generator version 2. Enter it at
+`/space/app/?world=copper-metropolis`; omitting `world` continues to select the
+default nature world. The alternate world is intentionally unavailable in the
+production environment.
+
 ## Contracts
 
 ```sh

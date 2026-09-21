@@ -14,3 +14,14 @@ await build({
   external: ['quickjs-emscripten-core', '@jitl/quickjs-wasmfile-release-sync'],
   logLevel: 'info',
 });
+
+await build({
+  absWorkingDir: fileURLToPath(new URL('.', import.meta.url)),
+  entryPoints: ['terrain-surface.ts'],
+  outfile: 'dist/terrain-surface.mjs',
+  bundle: true,
+  platform: 'node',
+  target: 'node24',
+  format: 'esm',
+  logLevel: 'info',
+});

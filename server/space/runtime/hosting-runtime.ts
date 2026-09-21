@@ -7,6 +7,7 @@ import { preloadQuickJSScriptRuntime } from '@entropydrop/space-engine';
 console.log = (...args) => console.error(...args);
 let simulation: HostedSimulation | null = null;
 let worldId = '';
+let terrainGeneratorVersion = 0;
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
   try {
     if (line.length > 32 * 1024 * 1024) throw new Error('hosting_input_limit');
@@ -16,9 +17,14 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       process.stdout.write('{"ready":true}\n');
       continue;
     }
-    if (!simulation || worldId !== input.world_id) {
+    if (
+      !simulation
+      || worldId !== input.world_id
+      || terrainGeneratorVersion !== (input.terrain_generator_version ?? 1)
+    ) {
       worldId = input.world_id;
-      simulation = new HostedSimulation(input.seed);
+      terrainGeneratorVersion = input.terrain_generator_version ?? 1;
+      simulation = new HostedSimulation(input.seed, terrainGeneratorVersion);
     }
     process.stdout.write(JSON.stringify(await simulation.step(input)) + '\n');
   } catch (error) {

@@ -114,7 +114,8 @@ class Game {
         onResyncRequired: () => {
           window.location.reload();
         }
-      }
+      },
+      session.world.terrain_generator_version,
     );
     if (session.surface_snapshot_remote) {
       const syncSurfaceSnapshots = () => {

@@ -5,7 +5,10 @@ import hashlib
 import json
 import logging
 import math
+import os
+from pathlib import Path
 import struct
+import subprocess
 import threading
 import time
 
@@ -30,6 +33,7 @@ SURFACE_COLOR = 0x718F61
 MIDDLE_COLOR = 0x806B5C
 DEEP_COLOR = 0x66707D
 SURFACE_JOB_IDLE_SECONDS = 30
+TERRAIN_GENERATOR_COPPER_METROPOLIS = 2
 
 logger = logging.getLogger(__name__)
 _generation_thread_lock = threading.Lock()
@@ -99,12 +103,13 @@ class _SimplexNoise3D:
 
 
 class TerrainSurfaceGenerator:
-    def __init__(self, seed: int, width_cells: int, length_cells: int):
+    def __init__(self, seed: int, width_cells: int, length_cells: int, version: int = 1):
         self.noise = _SimplexNoise3D(seed)
         self.width_cells = width_cells
         self.length_cells = length_cells
         self.major_radius = width_cells / (2 * math.pi)
         self.minor_radius = length_cells / (2 * math.pi)
+        self.version = version
 
     def sample_height(self, world_x: int, world_z: int) -> int:
         theta = (world_x / self.width_cells) * math.tau
@@ -158,7 +163,29 @@ def _procedural_color(block_y: int, base_height: int) -> int:
     return DEEP_COLOR
 
 
-def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay):
+def _terrain_runtime_payload(mode: str, seed: int, version: int, x: int, z: int) -> bytes:
+    runtime_dir = Path(__file__).resolve().parent / "space" / "runtime"
+    bundled = runtime_dir / "dist" / "terrain-surface.mjs"
+    script = bundled if bundled.exists() else runtime_dir / "terrain-surface.ts"
+    result = subprocess.run(
+        [os.getenv("SPACE_HOSTING_NODE", "node"), str(script), mode,
+         str(seed), str(version), str(x), str(z)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"terrain surface runtime failed: {result.stderr.decode('utf-8', 'replace')[:500]}"
+        )
+    expected = 512 * 512 * SURFACE_RECORD_BYTES if mode == "zone" else 16 * 256 * 16 * 4
+    if len(result.stdout) != expected:
+        raise RuntimeError("terrain surface runtime returned an invalid payload")
+    return result.stdout
+
+
+def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay, procedural_chunk=None):
     """Keep air gaps and color boundaries; merge only identical solid runs.
 
     Standard columns are exact at 1m. Micro columns retain their 1/8m footprint,
@@ -172,15 +199,30 @@ def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay):
     for (x, y, z) in edits:
         tops[x, z] = max(tops.get((x, z), 0), y)
     boxes = []
+    def procedural(x, y, z):
+        offset = (x + z * 16 + y * 256) * 4
+        block = procedural_chunk[offset]
+        color = ((procedural_chunk[offset + 1] << 16)
+                 | (procedural_chunk[offset + 2] << 8)
+                 | procedural_chunk[offset + 3])
+        return (block, color), 255
+
     for x in range(16):
         for z in range(16):
             wx, wz = chunk_x * 16 + x, chunk_z * 16 + z
-            base = generator.sample_height(wx, wz)
+            base = (generator.sample_height(wx, wz)
+                    if procedural_chunk is None else 255)
             end = min(255, max(base, tops.get((wx, wz), 0)))
             start, previous = 0, None
             for y in range(end + 2):
-                block, color = edits.get((wx, y, wz),
-                    (1, _procedural_color(y, base)) if y <= base else (0, 0))
+                if y > 255:
+                    base_value = (0, 0)
+                elif procedural_chunk is None:
+                    base_value = ((1, _procedural_color(y, base))
+                                  if y <= base else (0, 0))
+                else:
+                    base_value = procedural(x, y, z)[0]
+                block, color = edits.get((wx, y, wz), base_value)
                 color = color if block == 1 and y <= end else None
                 if color == previous:
                     continue
@@ -238,19 +280,26 @@ def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, o
     payload = bytearray(struct.pack('<4sBBBBHHiIQI', SURFACE_MAGIC, 6, 1, 32, 8,
         zone_x, zone_z, int(world.seed), int(world.terrain_generator_version),
         int(source_terrain_revision), axis * axis))
+    version = int(world.terrain_generator_version)
     generator = TerrainSurfaceGenerator(int(world.seed), int(world.width_chunks) * 16,
-                                      int(world.length_chunks) * 16)
-    for x in range(axis):
-        for z in range(axis):
-            height = (generator.sample_height(zone_x * 512 + x,
-                       zone_z * 512 + z) + 1) * MICRO_DIVISIONS
-            payload.extend(struct.pack('<HHBBBB', height, height,
-                                      0x71, 0x8f, 0x61, 0))
+                                      int(world.length_chunks) * 16, version)
+    if version == TERRAIN_GENERATOR_COPPER_METROPOLIS:
+        payload.extend(_terrain_runtime_payload('zone', int(world.seed), version, zone_x, zone_z))
+    else:
+        for x in range(axis):
+            for z in range(axis):
+                height = (generator.sample_height(zone_x * 512 + x,
+                           zone_z * 512 + z) + 1) * MICRO_DIVISIONS
+                payload.extend(struct.pack('<HHBBBB', height, height,
+                                          0x71, 0x8f, 0x61, 0))
     authored = [(key, value) for key, value in sorted((overlays or {}).items())
                 if value.get('standard') or value.get('micro') or value.get('revision')]
     payload.extend(struct.pack('<I', len(authored)))
     for (cx, cz), overlay in authored:
-        boxes = _chunk_solid_runs(generator, cx, cz, overlay)
+        procedural_chunk = (_terrain_runtime_payload(
+            'chunk', int(world.seed), version, cx, cz
+        ) if version == TERRAIN_GENERATOR_COPPER_METROPOLIS else None)
+        boxes = _chunk_solid_runs(generator, cx, cz, overlay, procedural_chunk)
         payload.extend(struct.pack('<BBQI', cx - zone_x * 32, cz - zone_z * 32,
                                    int(overlay.get('revision', 0)), len(boxes)))
         for x, y, z, w, h, d, color in boxes:
@@ -465,12 +514,17 @@ def generate_next_surface_zone() -> bool:
             }
             zones_x = int(world.width_chunks) // int(world.zone_size_chunks)
             zones_z = int(world.length_chunks) // int(world.zone_size_chunks)
-            for zone_x in range(zones_x):
-                for zone_z in range(zones_z):
-                    if (zone_x, zone_z) in existing:
-                        continue
-                    generate_surface_zone(db, world, zone_x, zone_z)
-                    return True
+            pending = [(zone_x, zone_z) for zone_x in range(zones_x)
+                       for zone_z in range(zones_z) if (zone_x, zone_z) not in existing]
+            if int(world.terrain_generator_version) == TERRAIN_GENERATOR_COPPER_METROPOLIS:
+                center_x, center_z = zones_x // 2, zones_z // 2
+                pending.sort(key=lambda point: (
+                    min(abs(point[0] - center_x), zones_x - abs(point[0] - center_x)) ** 2
+                    + min(abs(point[1] - center_z), zones_z - abs(point[1] - center_z)) ** 2
+                ))
+            if pending:
+                generate_surface_zone(db, world, *pending[0])
+                return True
         return False
     finally:
         db.close()

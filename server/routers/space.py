@@ -576,18 +576,26 @@ def _terrain_quota_response(
     }
 
 
-def _get_or_create_default_world(db: Session) -> models.SpaceWorld:
+def _get_or_create_world(
+    db: Session,
+    *,
+    world_id: str,
+    name: str,
+    seed: int,
+    terrain_generator_version: int,
+) -> models.SpaceWorld:
     world = db.query(models.SpaceWorld).filter(
-        models.SpaceWorld.id == settings.SPACE_DEFAULT_WORLD_ID
+        models.SpaceWorld.id == world_id
     ).first()
     if world:
         return world
 
     world = models.SpaceWorld(
-        id=settings.SPACE_DEFAULT_WORLD_ID,
+        id=world_id,
         owner_user_id=None,
-        name="EntropyDrop Space",
-        seed=settings.SPACE_WORLD_SEED,
+        name=name,
+        seed=seed,
+        terrain_generator_version=terrain_generator_version,
         max_online_players=32,
     )
     db.add(world)
@@ -599,11 +607,39 @@ def _get_or_create_default_world(db: Session) -> models.SpaceWorld:
         # Another API replica may have created the singleton concurrently.
         db.rollback()
         existing = db.query(models.SpaceWorld).filter(
-            models.SpaceWorld.id == settings.SPACE_DEFAULT_WORLD_ID
+            models.SpaceWorld.id == world_id
         ).first()
         if existing is None:
             raise
         return existing
+
+
+def _get_or_create_default_world(db: Session) -> models.SpaceWorld:
+    return _get_or_create_world(
+        db,
+        world_id=settings.SPACE_DEFAULT_WORLD_ID,
+        name="EntropyDrop Space",
+        seed=settings.SPACE_WORLD_SEED,
+        terrain_generator_version=1,
+    )
+
+
+def _get_or_create_bootstrap_world(db: Session, requested_world: str | None) -> models.SpaceWorld:
+    requested = (requested_world or "").strip().lower()
+    if not requested or requested in {"default", settings.SPACE_DEFAULT_WORLD_ID.lower()}:
+        return _get_or_create_default_world(db)
+    copper_id = settings.SPACE_COPPER_METROPOLIS_WORLD_ID
+    if requested in {"copper-metropolis", copper_id.lower()}:
+        if settings.ENVIRONMENT.lower() not in {"dev", "development", "test", "testing"}:
+            raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
+        return _get_or_create_world(
+            db,
+            world_id=copper_id,
+            name="Copper Metropolis",
+            seed=settings.SPACE_COPPER_METROPOLIS_WORLD_SEED,
+            terrain_generator_version=2,
+        )
+    raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
 
 
 def _world_terrain_revision(db: Session, world: models.SpaceWorld) -> int:
@@ -617,6 +653,15 @@ def _random_initial_position(world: models.SpaceWorld) -> dict[str, int]:
     # X/Z are uniform over the complete wrapped world, including positions near
     # either seam. The authoritative worker can later refine the exact landing
     # surface; 32 m starts above the current procedural terrain ceiling.
+    if int(world.terrain_generator_version or 1) == 2:
+        # Enter above the dense central skyline. Physics resolves the final roof
+        # landing after the detailed spawn chunks have streamed in.
+        return {
+            "x_cm": (world.width_chunks * 16 // 2 + secrets.randbelow(33) - 16) * 100,
+            "y_cm": 15000,
+            "z_cm": (world.length_chunks * 16 // 2 + secrets.randbelow(33) - 16) * 100,
+            "yaw_q15": secrets.randbelow(65535) - 32767,
+        }
     width_cm = world.width_chunks * 16 * 100
     length_cm = world.length_chunks * 16 * 100
     x = secrets.randbelow(max(1, width_cm))
@@ -702,12 +747,13 @@ def get_space_public_status(
 @limiter.limit(SPACE_HIGH_FREQ_RATE_LIMIT)
 def bootstrap_space(
     request: Request,
+    requested_world: str | None = Query(None, alias="world", max_length=128),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """Return the latest saved pose or an ephemeral world-wide random start."""
     skin_url = (current_user.skin_url or "").strip()
-    world = _get_or_create_default_world(db)
+    world = _get_or_create_bootstrap_world(db, requested_world)
     profile = _get_or_create_player_profile(db, world, current_user)
     snapshot = db.query(models.SpacePlayerSnapshot).filter(
         models.SpacePlayerSnapshot.world_id == world.id,

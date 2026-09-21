@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TerrainGenerator } from '../src/worldgen/TerrainGenerator.ts';
+import { Chunk } from '../src/voxel/Chunk.ts';
 import {
   TORUS_SIZE_X,
   TORUS_SIZE_Z,
@@ -46,4 +47,30 @@ test('spawn pad remains flat at the torus reference height', () => {
       );
     }
   }
+});
+
+test('Copper Metropolis generates deterministic dense architecture around spawn', () => {
+  const generate = (seed: number) => {
+    const chunk = new Chunk(TORUS_SPAWN_X / 16, TORUS_SPAWN_Z / 16, null);
+    new TerrainGenerator(seed, 2).generateChunk(chunk);
+    return chunk;
+  };
+  const first = generate(20260922);
+  const repeated = generate(20260922);
+  const changed = generate(71293);
+
+  assert.deepEqual(first.blocks, repeated.blocks);
+  assert.deepEqual(first.colors, repeated.colors);
+  assert.notDeepEqual(first.colors, changed.colors);
+  assert.ok((first.getOccupiedYRange()?.max ?? 0) > 70);
+  assert.ok(new Set(first.colors.filter((_, index) => first.blocks[index] !== 0)).size >= 8);
+});
+
+test('unknown terrain versions retain the nature generator', () => {
+  const nature = new TerrainGenerator(1337, 1);
+  const unknown = new TerrainGenerator(1337, 999);
+  assert.equal(
+    unknown.sampleHeight(TORUS_SPAWN_X + 64, TORUS_SPAWN_Z + 32),
+    nature.sampleHeight(TORUS_SPAWN_X + 64, TORUS_SPAWN_Z + 32),
+  );
 });

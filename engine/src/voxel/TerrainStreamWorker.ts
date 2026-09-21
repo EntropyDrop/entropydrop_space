@@ -13,6 +13,7 @@ type GenerateRequest = {
   type: 'generate';
   requestId: number;
   seed: number;
+  terrainGeneratorVersion: number;
   cx: number;
   cz: number;
   standardEdits: PackedStandardEdit[];
@@ -25,6 +26,7 @@ type RemeshRequest = {
   type: 'remesh';
   requestId: number;
   seed: number;
+  terrainGeneratorVersion: number;
   cx: number;
   cz: number;
   dataVersion: number;
@@ -39,14 +41,15 @@ type TerrainWorkerRequest = GenerateRequest | RemeshRequest;
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const meshers = new Map<number, LowPolyMesher>();
-const generators = new Map<number, TerrainGenerator>();
+const generators = new Map<string, TerrainGenerator>();
 
-function terrainSystems(seed: number) {
-  let terrainGen = generators.get(seed);
+function terrainSystems(seed: number, terrainGeneratorVersion: number) {
+  const generatorKey = `${seed}:${terrainGeneratorVersion}`;
+  let terrainGen = generators.get(generatorKey);
   let mesher = meshers.get(seed);
   if (!terrainGen) {
-    terrainGen = new TerrainGenerator(seed);
-    generators.set(seed, terrainGen);
+    terrainGen = new TerrainGenerator(seed, terrainGeneratorVersion);
+    generators.set(generatorKey, terrainGen);
   }
   if (!mesher) {
     mesher = new LowPolyMesher();
@@ -86,7 +89,10 @@ function transferableMeshBuffers(mesh) {
 workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
   const request = event.data;
   try {
-    const { terrainGen, mesher } = terrainSystems(request.seed);
+    const { terrainGen, mesher } = terrainSystems(
+      request.seed,
+      request.terrainGeneratorVersion,
+    );
     const world = makeWorkerWorld(terrainGen);
     const chunk = new Chunk(wrapChunkX(request.cx), wrapChunkZ(request.cz), world);
 

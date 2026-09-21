@@ -118,6 +118,42 @@ def test_space_bootstrap_allows_user_without_skin(client, db):
     assert db.query(SpaceWorldPlayerProfile).count() == 1
 
 
+def test_development_bootstrap_creates_the_copper_metropolis_world(client, db):
+    user = _user(db, "copper-city-user", None)
+    app.dependency_overrides[get_current_user] = lambda: user
+
+    response = client.post("/space/api/v2/bootstrap?world=copper-metropolis")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["world"] == {
+        "id": space_router.settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
+        "name": "Copper Metropolis",
+        "seed": space_router.settings.SPACE_COPPER_METROPOLIS_WORLD_SEED,
+        "terrain_generator_version": 2,
+        "terrain_revision": 0,
+        "surface_snapshot_url": (
+            "/space/api/v2/worlds/"
+            f"{space_router.settings.SPACE_COPPER_METROPOLIS_WORLD_ID}/surface-zones"
+        ),
+    }
+    assert payload["player"]["start_y_cm"] == 15000
+    assert 817600 <= payload["player"]["start_x_cm"] <= 820800
+    assert 100800 <= payload["player"]["start_z_cm"] <= 104000
+    assert db.query(SpaceWorldPlayerProfile).filter_by(
+        world_id=space_router.settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
+        user_id=user.id,
+    ).count() == 1
+
+
+def test_bootstrap_rejects_unknown_world_alias(client, db):
+    user = _user(db, "unknown-world-user", None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    response = client.post("/space/api/v2/bootstrap?world=not-a-world")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "WORLD_NOT_FOUND"
+
+
 def test_space_bootstrap_returns_ephemeral_world_wide_random_start_without_persisting_it(
     client, db, monkeypatch
 ):

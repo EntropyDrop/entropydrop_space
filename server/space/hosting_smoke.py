@@ -14,7 +14,7 @@ async def main():
                 "blocks": [{"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 123}],
                 "script": "self.state.ticks = (self.state.ticks || 0) + 1;",
                 "children": [], "seats": []}, "constraints": []})
-        payload = {"world_id": "smoke", "seed": 1337, "steps": 20,
+        payload = {"world_id": "smoke", "seed": 1337, "terrain_generator_version": 1, "steps": 20,
             "entities": [{"id": "smoke-entity", "running": True, "position": [80, 220, 80],
                 "anchor": [80, 80], "yaw_quarter_turns": 0, "snapshot": None,
                 "definition_base64": base64.b64encode(definition).decode()}],

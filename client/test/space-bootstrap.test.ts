@@ -10,6 +10,7 @@ import {
   loadTerrainEditRemote,
   parseSpaceBootstrapPayload,
   requestSpaceAdmission,
+  requestedSpaceWorld,
   resolveApiOrigin,
   resolveInitialPlayerPose,
   terrainStreamAreaForPosition,
@@ -19,6 +20,12 @@ import {
 test('Space derives the API origin from the main frontend API configuration', () => {
   assert.equal(resolveApiOrigin('http://localhost:8000/skin', 'http://localhost:5173'), 'http://localhost:8000');
   assert.equal(resolveApiOrigin('https://api.entropydrop.com/skin/', 'https://entropydrop.com'), 'https://api.entropydrop.com');
+});
+
+test('Space selects an alternate development world from the entry URL', () => {
+  assert.equal(requestedSpaceWorld('?world=copper-metropolis&sso_attempted=1'), 'copper-metropolis');
+  assert.equal(requestedSpaceWorld('?sso_attempted=1'), null);
+  assert.equal(requestedSpaceWorld('?world=%20%20'), null);
 });
 
 test('Space accepts only a PNG signature before decoding the configured skin', () => {

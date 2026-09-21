@@ -274,6 +274,13 @@ export function resolveApiOrigin(configuredBase: string | undefined, pageOrigin:
   return normalized.replace(/\/skin$/, '');
 }
 
+export function requestedSpaceWorld(
+  search = typeof window !== 'undefined' ? window.location.search : '',
+): string | null {
+  const requested = new URLSearchParams(search).get('world')?.trim();
+  return requested ? requested.slice(0, 128) : null;
+}
+
 
 export function hasPngSignature(bytes: Uint8Array) {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -698,7 +705,11 @@ async function prepareOnlineSpace(
   const latencyMonitor = new LatencyMonitor({ apiOrigin });
 
   reportProgress?.(30, 'Loading Space profile and world…');
-  const response = await fetch(`${apiOrigin}/space/api/v2/bootstrap`, {
+  const requestedWorld = requestedSpaceWorld();
+  const bootstrapUrl = `${apiOrigin}/space/api/v2/bootstrap${
+    requestedWorld ? `?world=${encodeURIComponent(requestedWorld)}` : ''
+  }`;
+  const response = await fetch(bootstrapUrl, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

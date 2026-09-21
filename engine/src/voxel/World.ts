@@ -170,6 +170,7 @@ export class World {
   chunks: Map<string, Chunk>;
   terrainGen: TerrainGenerator;
   private terrainSeed: number;
+  private terrainGeneratorVersion: number;
   mesher: LowPolyMesher;
   renderDistance: number;
   worldGroup: THREE.Group;
@@ -209,12 +210,16 @@ export class World {
   constructor(
     scene,
     seed = 1337,
-    persistenceOptions: WorldEditPersistenceOptions | null = null
+    persistenceOptions: WorldEditPersistenceOptions | null = null,
+    terrainGeneratorVersion = 1,
   ) {
     this.scene = scene;
     this.chunks = new Map(); // key: "cx,cz" -> Chunk on the wrapped 1024x128 chunk grid.
     this.terrainSeed = Number.isFinite(Number(seed)) ? Number(seed) : 1337;
-    this.terrainGen = new TerrainGenerator(this.terrainSeed);
+    this.terrainGeneratorVersion = Number.isSafeInteger(Number(terrainGeneratorVersion))
+      ? Number(terrainGeneratorVersion)
+      : 1;
+    this.terrainGen = new TerrainGenerator(this.terrainSeed, this.terrainGeneratorVersion);
     this.mesher = new LowPolyMesher();
 
     // Keep 1 m voxel detail nearby. The backend's compact zone snapshots fill
@@ -1592,6 +1597,7 @@ export class World {
         type: job.type,
         requestId: job.requestId,
         seed: this.terrainSeed,
+        terrainGeneratorVersion: this.terrainGeneratorVersion,
         cx: job.cx,
         cz: job.cz,
         standardEdits: snapshot.standardEdits,
@@ -1659,6 +1665,7 @@ export class World {
         type: job.type,
         requestId: job.requestId,
         seed: this.terrainSeed,
+        terrainGeneratorVersion: this.terrainGeneratorVersion,
         cx: job.cx,
         cz: job.cz,
         standardEdits,
@@ -1702,6 +1709,7 @@ export class World {
       type: job.type,
       requestId: job.requestId,
       seed: this.terrainSeed,
+      terrainGeneratorVersion: this.terrainGeneratorVersion,
       cx: job.cx,
       cz: job.cz,
       dataVersion: job.dataVersion,

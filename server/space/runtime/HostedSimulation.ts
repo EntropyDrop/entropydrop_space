@@ -30,8 +30,8 @@ export class HostedSimulation {
     return true;
   }
 
-  constructor(seed: number) {
-    this.world = new World(this.scene, seed);
+  constructor(seed: number, terrainGeneratorVersion = 1) {
+    this.world = new World(this.scene, seed, null, terrainGeneratorVersion);
     // No renderer, browser, terrain mesh builds or local-storage timers are started.
     const originalCreate = this.world.getOrCreateChunk.bind(this.world);
     this.world.getOrCreateChunk = (cx, cz) => {

@@ -154,7 +154,9 @@ def prepare(db, world_id, instance_id, entity_id=None, cpu_ids=None):
     ).all()}
     running = {str(e.id) for e in funded}
     duration_ms = min([STEP_MS] + [int(e.hosting_remaining_ms) for e in funded if e.hosting_remaining_ms > 0])
-    payload = {"world_id": world_id, "seed": world.seed, "steps": duration_ms // 50,
+    payload = {"world_id": world_id, "seed": world.seed,
+        "terrain_generator_version": world.terrain_generator_version,
+        "steps": duration_ms // 50,
         "epoch": lease.epoch, "terrain_revision": terrain_revision(db, world_id),
         "scene_revision": fingerprint(rows, running),
         "core_id": funded[0].hosting_core_id,
@@ -499,7 +501,10 @@ async def main():
     finally:
         await probe.close()
     # One global CPU pool, shared by all world coordinators in this process.
-    requested = os.getenv("SPACE_HOSTING_WORLD_IDS", settings.SPACE_DEFAULT_WORLD_ID).split(",")
+    default_worlds = [settings.SPACE_DEFAULT_WORLD_ID]
+    if settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}:
+        default_worlds.append(settings.SPACE_COPPER_METROPOLIS_WORLD_ID)
+    requested = os.getenv("SPACE_HOSTING_WORLD_IDS", ",".join(default_worlds)).split(",")
     with SessionLocal() as db:
         initialize_core_pool(db)
         db.commit()

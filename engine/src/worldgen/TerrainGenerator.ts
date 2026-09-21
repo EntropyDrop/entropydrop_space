@@ -5,6 +5,10 @@ import {
   TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_R, TORUS_RHO, TORUS_GREF,
   TORUS_SPAWN_X, TORUS_SPAWN_Z
 } from '../torus/TorusWorld.ts';
+import { generateCopperMetropolisChunk } from './CopperMetropolisGenerator.ts';
+
+export const TERRAIN_GENERATOR_NATURE = 1;
+export const TERRAIN_GENERATOR_COPPER_METROPOLIS = 2;
 
 const TERRAIN_COLORS = {
   deep: 0x66707d,
@@ -33,9 +37,15 @@ const TERRAIN_MAX_HEIGHT = TORUS_GREF + 5;
  */
 export class TerrainGenerator {
   private noise3D: any;
+  readonly seed: number;
+  readonly version: number;
 
-  constructor(seed = 42) {
-    let state = seed;
+  constructor(seed = 42, version = TERRAIN_GENERATOR_NATURE) {
+    this.seed = Number.isFinite(Number(seed)) ? Math.floor(Number(seed)) : 42;
+    this.version = version === TERRAIN_GENERATOR_COPPER_METROPOLIS
+      ? TERRAIN_GENERATOR_COPPER_METROPOLIS
+      : TERRAIN_GENERATOR_NATURE;
+    let state = this.seed;
     const random = () => {
       state = (state * 9301 + 49297) % 233280;
       return state / 233280;
@@ -86,8 +96,13 @@ export class TerrainGenerator {
   }
 
   generateChunk(chunk) {
-    const origin = chunk.getWorldOrigin();
     chunk.resetForTerrainGeneration();
+    if (this.version === TERRAIN_GENERATOR_COPPER_METROPOLIS) {
+      generateCopperMetropolisChunk(chunk, this.seed);
+      return;
+    }
+
+    const origin = chunk.getWorldOrigin();
     let maxHeight = -1;
 
     for (let lx = 0; lx < CHUNK_SIZE_X; lx++) {

@@ -357,9 +357,10 @@ def remote_deploy(environment, branch="main", quiesce=False):
             if environment == "dev":
                 run(["docker", "run", "--rm", "--network", "host", "--env-file", config / "app.env", image,
                      "python", "-c", "from config import settings; from space.database import SessionLocal; "
-                     "from routers.space import _get_or_create_default_world; "
+                     "from routers.space import _get_or_create_default_world, _get_or_create_bootstrap_world; "
                      f"assert settings.SPACE_STANDALONE and settings.SPACE_DEFAULT_WORLD_ID == '{DEV_WORLD}'; "
-                     "db = SessionLocal(); _get_or_create_default_world(db); db.commit(); db.close()"])
+                     "db = SessionLocal(); _get_or_create_default_world(db); "
+                     "_get_or_create_bootstrap_world(db, 'copper-metropolis'); db.commit(); db.close()"])
             phase("replace API and worker")
             # Retained containers must not restart next to the new worker after a DS reboot.
             for role in ("worker", "api"):

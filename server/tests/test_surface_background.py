@@ -60,6 +60,22 @@ def test_migration_prioritizes_authored_zones_before_untouched_terrain(db, monke
     assert visited == [(29,1)]
 
 
+def test_copper_world_backfill_starts_at_the_central_skyline(db, monkeypatch):
+    from space import models
+    world = models.SpaceWorld(seed=20260922, terrain_generator_version=2)
+    db.add(world)
+    db.commit()
+    visited = []
+    monkeypatch.setattr(space_surface, 'SessionLocal', lambda: db)
+    monkeypatch.setattr(
+        space_surface,
+        'generate_surface_zone',
+        lambda session, selected, x, z: visited.append((x, z)),
+    )
+    assert space_surface.generate_next_surface_zone() is True
+    assert visited == [(16, 2)]
+
+
 def test_standalone_api_runs_surface_job_for_its_lifetime(monkeypatch):
     import asyncio
     from space import main
