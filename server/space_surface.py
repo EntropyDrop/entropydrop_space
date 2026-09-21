@@ -164,7 +164,9 @@ def _procedural_color(block_y: int, base_height: int) -> int:
     return DEEP_COLOR
 
 
-def _terrain_runtime_payload(mode: str, seed: int, version: int, x: int, z: int) -> bytes:
+def _terrain_runtime_payload(mode: str, seed: int, version: int, x: int, z: int, chunks=None) -> bytes:
+    if mode == 'chunks' and (not chunks or len(chunks) > 32):
+        raise ValueError('terrain chunk batch must contain 1..32 chunks')
     runtime_dir = Path(__file__).resolve().parent / "space" / "runtime"
     bundled = runtime_dir / "dist" / "terrain-surface.mjs"
     script = bundled if bundled.exists() else runtime_dir / "terrain-surface.ts"
@@ -175,15 +177,52 @@ def _terrain_runtime_payload(mode: str, seed: int, version: int, x: int, z: int)
         stderr=subprocess.PIPE,
         check=False,
         timeout=120,
+        input=json.dumps(chunks).encode('utf-8') if mode == 'chunks' else None,
     )
     if result.returncode != 0:
         raise RuntimeError(
             f"terrain surface runtime failed: {result.stderr.decode('utf-8', 'replace')[:500]}"
         )
-    expected = 512 * 512 * SURFACE_RECORD_BYTES if mode == "zone" else 16 * 256 * 16 * 4
+    expected = (512 * 512 * SURFACE_RECORD_BYTES if mode == 'zone' else
+                16 * 256 * 16 * 4 * (len(chunks) if mode == 'chunks' else 1))
     if len(result.stdout) != expected:
         raise RuntimeError("terrain surface runtime returned an invalid payload")
     return result.stdout
+
+
+def _terrain_runtime_chunks(seed, version, keys):
+    # Bound IPC memory to 8 MiB and amortize Node startup across edited chunks.
+    for start in range(0, len(keys), 32):
+        batch = keys[start:start + 32]
+        data = _terrain_runtime_payload('chunks', seed, version, 0, 0, batch)
+        for index in range(len(batch)):
+            yield data[index * 262144:(index + 1) * 262144]
+
+
+def _micro_solid_runs(chunk_x, chunk_z, overlay):
+    columns = {}
+    for e in overlay.get('micro', []):
+        if not isinstance(e, list) or len(e) < 4:
+            continue
+        x, y, z, color = map(int, e[:4])
+        x, z = x - chunk_x * 128, z - chunk_z * 128
+        if 0 <= x < 128 and 0 <= z < 128 and 0 <= y < 2048:
+            columns.setdefault((x, z), {})[y] = color
+    boxes = []
+    for (x, z), column in columns.items():
+        start = last = -1
+        previous = None
+        for y, color in sorted(column.items()):
+            if y == last + 1 and color == previous:
+                last = y
+                continue
+            if previous is not None:
+                boxes.append((x, start, z, 1, last + 1 - start, 1, previous))
+            start = last = y
+            previous = color
+        if previous is not None:
+            boxes.append((x, start, z, 1, last + 1 - start, 1, previous))
+    return boxes
 
 
 def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay, procedural_chunk=None):
@@ -196,6 +235,28 @@ def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay, procedural_chunk=Non
     """
     edits = {(int(e[0]), int(e[1]), int(e[2])): (int(e[3]), int(e[4]))
              for e in overlay.get('standard', []) if isinstance(e, list) and len(e) >= 5}
+    micro_boxes = _micro_solid_runs(chunk_x, chunk_z, overlay)
+    kernels = get_terrain_kernels()
+    if kernels is not None:
+        if procedural_chunk is not None:
+            heights = [255] * 256
+        elif type(generator) is TerrainSurfaceGenerator:
+            lattice = kernels.nature_surface(generator.noise.permutation, chunk_x * 16, chunk_z * 16,
+                                             generator.width_cells, generator.length_cells, axis=16)
+            heights = [record[0] // 8 - 1 for record in struct.iter_unpack('<HHBBBB', lattice)]
+        else:
+            heights = [generator.sample_height(chunk_x * 16 + x, chunk_z * 16 + z)
+                       for x in range(16) for z in range(16)]
+        rows = [(x - chunk_x * 16, y, z - chunk_z * 16, block, color)
+                for (x, y, z), (block, color) in edits.items()
+                if chunk_x * 16 <= x < (chunk_x + 1) * 16 and chunk_z * 16 <= z < (chunk_z + 1) * 16
+                and 0 <= y < 256]
+        if (all(0 <= h <= 255 for h in heights)
+                and all(0 <= row[3] <= 255 and 0 <= row[4] <= 0xffffff for row in rows)
+                and all(0 <= box[6] <= 0xffffff for box in micro_boxes)):
+            result = kernels.solid_runs(heights, procedural_chunk, rows, micro_boxes)
+            if result is not None:
+                return result
     tops = {}
     for (x, y, z) in edits:
         tops[x, z] = max(tops.get((x, z), 0), y)
@@ -230,27 +291,7 @@ def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay, procedural_chunk=Non
                 if previous is not None:
                     boxes.append((x * 8, start * 8, z * 8, 8, (y - start) * 8, 8, previous))
                 start, previous = y, color
-    micro_columns = {}
-    for e in overlay.get('micro', []):
-        if not isinstance(e, list) or len(e) < 4:
-            continue
-        x, y, z, color = map(int, e[:4])
-        x, z = x - chunk_x * 128, z - chunk_z * 128
-        if 0 <= x < 128 and 0 <= z < 128 and 0 <= y < 2048:
-            micro_columns.setdefault((x, z), {})[y] = color
-    for (x, z), column in micro_columns.items():
-        start = last = -1
-        previous = None
-        for y, color in sorted(column.items()):
-            if y == last + 1 and color == previous:
-                last = y
-                continue
-            if previous is not None:
-                boxes.append((x, start, z, 1, last + 1 - start, 1, previous))
-            start = last = y
-            previous = color
-        if previous is not None:
-            boxes.append((x, start, z, 1, last + 1 - start, 1, previous))
+    boxes.extend(micro_boxes)
     # Greedy horizontal merging never crosses an air gap or a colour boundary.
     for axis, width in ((0, 3), (2, 5)):
         groups = {}
@@ -299,10 +340,10 @@ def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, o
     authored = [(key, value) for key, value in sorted((overlays or {}).items())
                 if value.get('standard') or value.get('micro') or value.get('revision')]
     payload.extend(struct.pack('<I', len(authored)))
+    procedural_chunks = (_terrain_runtime_chunks(int(world.seed), version, [key for key, _ in authored])
+                         if version == TERRAIN_GENERATOR_COPPER_METROPOLIS else None)
     for (cx, cz), overlay in authored:
-        procedural_chunk = (_terrain_runtime_payload(
-            'chunk', int(world.seed), version, cx, cz
-        ) if version == TERRAIN_GENERATOR_COPPER_METROPOLIS else None)
+        procedural_chunk = next(procedural_chunks) if procedural_chunks is not None else None
         boxes = _chunk_solid_runs(generator, cx, cz, overlay, procedural_chunk)
         payload.extend(struct.pack('<BBQI', cx - zone_x * 32, cz - zone_z * 32,
                                    int(overlay.get('revision', 0)), len(boxes)))

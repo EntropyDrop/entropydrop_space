@@ -128,10 +128,9 @@ test('aligned collision boxes scan half-open terrain ranges without neighbour am
 
   physics.update(plate, 1 / 60);
 
-  // Three fixed substeps: 1,000 point probes plus one exact terrain-cell query
-  // per 100 aligned OBBs in each step. The old inclusive maximum queried all
-  // eight neighbouring cells for every OBB.
-  assert.equal(standardQueries, 3 * (1000 + 100));
+  // Three fixed substeps: the exact empty broadphase proves that all 1,000
+  // point probes are empty, so only the 100 standard cells are queried.
+  assert.equal(standardQueries, 3 * 100);
   assert.ok(microQueries <= 3 * 10,
     'merged terrain boxes should query the sparse micro layer in batches');
 });

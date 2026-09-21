@@ -8,12 +8,15 @@ import { Contraption } from '../src/contraption/Contraption.ts';
 import { ContraptionManager } from '../src/contraption/ContraptionManager.ts';
 import { ContraptionPhysics } from '../src/physics/ContraptionPhysics.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
+import { setTerrainKernelMode } from '../src/wasm/TerrainKernels.ts';
 
 const blocks = [];
 for (let x = 0; x < 10; x++) for (let z = 0; z < 10; z++) {
   blocks.push({ localX: x, localY: 0, localZ: z, entityId: 'root', block: BlockTypes.COLOR_BLOCK });
 }
-for (const mode of ['awake', 'stopped', 'asleep']) {
+const compare = process.argv.includes('--compare-kernels');
+for (const backend of compare ? ['js', 'wasm'] as const : ['auto'] as const) for (const mode of ['awake', 'stopped', 'asleep']) {
+  setTerrainKernelMode(backend);
   const scene = new THREE.Scene();
   const world = {
     ...(mode === 'asleep' ? { terrainVersion: 0 } : {}),
@@ -21,6 +24,10 @@ for (const mode of ['awake', 'stopped', 'asleep']) {
     raycast: () => ({ hit: false }), raycastMicro: () => ({ hit: false }),
   };
   const physics = new ContraptionPhysics(world as any);
+  // The reference includes the pre-optimization point-probe path, not merely
+  // JS matrix arithmetic. The optimized empty broadphase is also used when
+  // WASM is unavailable in production.
+  if (compare && backend === 'js') (physics as any).canSkipEmptyTerrainSamples = () => false;
   const manager = new ContraptionManager(scene, world as any, null, null);
   manager.setPhysics(physics);
   for (let i = 0; i < 100; i++) {
@@ -38,9 +45,10 @@ for (const mode of ['awake', 'stopped', 'asleep']) {
     times.push(performance.now() - start);
   }
   times.sort((a, b) => a - b);
-  console.log(JSON.stringify({ mode, entities: 100, voxelsEach: 100,
+  console.log(JSON.stringify({ backend, referenceProbes: compare && backend === 'js', mode, entities: 100, voxelsEach: 100,
     sleeping: manager.contraptions.filter(entity => physics.isSleeping(entity)).length,
     medianMs: Number(times[20].toFixed(2)), p95Ms: Number(times[38].toFixed(2)),
   }));
   for (const entity of [...manager.contraptions]) entity.dispose();
 }
+setTerrainKernelMode('auto');

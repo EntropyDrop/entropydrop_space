@@ -2,6 +2,7 @@ import { TERRAIN_KERNEL_BASE64 } from './TerrainKernelBinary.ts';
 import { DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import type { Chunk } from '../voxel/Chunk.ts';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
+import type { SurfaceSelection } from './SurfaceSelection.ts';
 
 export interface SurfaceMip {
   cellSize: number;
@@ -11,6 +12,11 @@ export interface SurfaceMip {
   minHeights: Uint16Array;
   colorErrors: Float32Array;
   maxResidual?: number;
+}
+
+export interface SurfaceConnectionKernel {
+  add(records: Int32Array): void;
+  edges(records: Int32Array): Int32Array;
 }
 
 type KernelExports = {
@@ -26,6 +32,13 @@ type KernelExports = {
   reduceSurfaceBytes(...args: number[]): void;
   surfaceBase(...args: number[]): number;
   reduceSurface(...args: number[]): number;
+  microMesh(...args: number[]): number;
+  surfaceOwners(...args: number[]): void;
+  surfaceConnections(...args: number[]): number;
+  surfaceSelect(...args: number[]): number;
+  standardFaces(...args: number[]): number;
+  standardMesh(...args: number[]): void;
+  collisionSamples(...args: number[]): number;
 };
 
 export type TerrainKernelMode = 'auto' | 'js' | 'wasm';
@@ -33,6 +46,7 @@ let mode: TerrainKernelMode = typeof process !== 'undefined' && process.env.SPAC
   ? 'js' : 'auto';
 let instance: TerrainKernels | undefined;
 let initializationError: unknown;
+let compiledModule: WebAssembly.Module;
 
 /** Diagnostic/benchmark override. Production defaults to WASM with an init fallback. */
 export function setTerrainKernelMode(value: TerrainKernelMode) {
@@ -48,7 +62,8 @@ export function getTerrainKernels(): TerrainKernels | null {
   if (!initializationError) {
     try {
       const bytes = Uint8Array.from(atob(TERRAIN_KERNEL_BASE64), c => c.charCodeAt(0));
-      const exports = new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports as KernelExports;
+      compiledModule = new WebAssembly.Module(bytes);
+      const exports = new WebAssembly.Instance(compiledModule).exports as KernelExports;
       if (exports.abiVersion() !== 1) throw new Error('Terrain WASM ABI mismatch');
       instance = new TerrainKernels(exports);
       return instance;
@@ -91,6 +106,107 @@ export class TerrainKernels {
     const blocks = this.alloc(65536), colors = this.alloc(65536 * 4);
     this.exports.clearChunk(blocks, colors, DEFAULT_BLOCK_COLOR);
     return { blocks, colors };
+  }
+
+  selectSurfaceBatch(root: SurfaceSelection, visibleCount: number): Int32Array {
+    this.cursor = 65536;
+    root.parameters[7] = visibleCount;
+    const h = this.copy(root.heights), m = this.copy(root.minima), e = this.copy(root.errors);
+    const tx = this.copy(root.trigX), tz = this.copy(root.trigZ), d = this.copy(root.detail);
+    const splits = this.copy(root.splits), work = this.copy(root.work), p = this.copy(root.parameters);
+    const output = this.alloc(256 * 12);
+    const count = this.exports.surfaceSelect(h, m, e, tx, tz, d, splits, work, p, output);
+    const buffer = this.exports.memory.buffer;
+    root.splits.set(new Uint8Array(buffer, splits, root.splits.length));
+    root.work.set(new Int32Array(buffer, work, root.work.length));
+    root.parameters[8] = new Float64Array(buffer, p, 9)[8];
+    return new Int32Array(buffer, output, count * 3).slice();
+  }
+
+  meshMicroPartition(halo: Int32Array, height: number, minY: number, linear: Float64Array) {
+    if (!Number.isInteger(height) || height < 1 || height > 16
+      || halo.length !== 18 * 18 * (height + 2) || linear.length !== 256) {
+      throw new RangeError('Invalid micro mesh partition');
+    }
+    this.cursor = 65536;
+    const input = this.copy(halo), lookup = this.copy(linear);
+    const capacity = 6 * 16 * 16 * height;
+    const mask = this.alloc(16 * 16 * 4), quads = this.alloc(capacity * 32);
+    const positions = this.alloc(capacity * 24), normals = this.alloc(capacity * 12);
+    const colors = this.alloc(capacity * 12), indices = this.alloc(capacity * 24), counts = this.alloc(8);
+    const count = this.exports.microMesh(input, height, minY, mask, quads, positions, normals, colors, indices, lookup, counts);
+    const buffer = this.exports.memory.buffer;
+    return {
+      positions: new Uint16Array(buffer, positions, count * 12).slice(),
+      normals: new Int8Array(buffer, normals, count * 12).slice(),
+      colors: new Uint8Array(buffer, colors, count * 12).slice(),
+      indices: count * 4 <= 65535 ? new Uint16Array(buffer, indices, count * 6).slice()
+        : new Uint32Array(buffer, indices, count * 6).slice(),
+      materialIndexCounts: Array.from(new Uint32Array(buffer, counts, 2)) as [number, number],
+    };
+  }
+
+  meshStandardChunk(chunk: Chunk, neighbors: Uint16Array, minY: number, maxY: number, linear: Float64Array) {
+    this.cursor = 65536;
+    const blocks = this.copy(chunk.blocks), colors = this.copy(chunk.colors), materials = this.copy(chunk.materials);
+    const halo = this.copy(neighbors), lookup = this.copy(linear);
+    const faces = this.alloc(6 * 256 * (maxY - minY + 1) * 32), table = this.alloc(32768 * 16), counts = this.alloc(8);
+    const faceCount = this.exports.standardFaces(blocks, colors, materials, halo, minY, maxY, faces, table, counts);
+    const materialIndexCounts = Array.from(new Uint32Array(this.exports.memory.buffer, counts, 2)) as [number, number];
+    const count = (materialIndexCounts[0] + materialIndexCounts[1]) / 6;
+    const bounds = { occupiedMinY: minY, occupiedMaxY: maxY + 1, materialIndexCounts };
+    if (!count) return { ...bounds, positions: null, normals: null, colors: null, indices: null };
+    const positions = this.alloc(count * 24), normals = this.alloc(count * 12), outputColors = this.alloc(count * 12);
+    const indices = this.alloc(count * 6 * (count * 4 <= 65535 ? 2 : 4));
+    this.exports.standardMesh(faces, faceCount, count * 4, positions, normals, outputColors, indices, lookup);
+    const buffer = this.exports.memory.buffer;
+    return { ...bounds, positions: new Uint16Array(buffer, positions, count * 12).slice(),
+      normals: new Int8Array(buffer, normals, count * 12).slice(), colors: new Uint8Array(buffer, outputColors, count * 12).slice(),
+      indices: count * 4 <= 65535 ? new Uint16Array(buffer, indices, count * 6).slice() : new Uint32Array(buffer, indices, count * 6).slice() };
+  }
+
+  transformCollisionSamples(positions: Float64Array, owners: Uint32Array, matrices: Float64Array) {
+    this.cursor = 65536;
+    const points = this.copy(positions), ids = this.copy(owners), transforms = this.copy(matrices);
+    const output = this.alloc(positions.byteLength);
+    const count = this.exports.collisionSamples(points, ids, owners.length, transforms, output);
+    return new Float64Array(this.exports.memory.buffer, output, count * 3).slice();
+  }
+
+  /** Own instance/arena: this table survives render yields and unrelated terrain calls. */
+  createSurfaceConnections(cellCount: number, detail: Uint8Array): SurfaceConnectionKernel | null {
+    if (!Number.isInteger(cellCount) || cellCount < 0 || cellCount > 524288) return null;
+    if (detail.length !== 1024 * 128) throw new RangeError('Invalid surface ownership mask');
+    const session = new TerrainKernels(new WebAssembly.Instance(compiledModule).exports as KernelExports);
+    let capacity = 2;
+    while (capacity < cellCount * 2) capacity *= 2;
+    const table = session.alloc(capacity * 8), mask = capacity - 1;
+    const ownership = session.copy(detail), input = session.alloc(128 * 16);
+    const output = session.alloc(128 * 4 * 64 * 32);
+    let added = 0;
+    const put = (records: Int32Array) => {
+      if (records.length % 4 || records.length > 128 * 4) throw new RangeError('Invalid connection batch');
+      for (let i = 0; i < records.length; i += 4) {
+        const x = records[i], z = records[i + 1], size = records[i + 2], height = records[i + 3];
+        if (size < 1 || size > 64 || (size & (size - 1)) || x < 0 || x >= 16384 || z < 0 || z >= 2048
+          || x % size || z % size || height < 0 || height > 65535) throw new RangeError('Invalid surface cell');
+      }
+      new Int32Array(session.exports.memory.buffer, input, records.length).set(records);
+      return records.length / 4;
+    };
+    return {
+      add(records: Int32Array) {
+        const count = put(records);
+        if (added + count > cellCount) throw new RangeError('Surface owner capacity exceeded');
+        session.exports.surfaceOwners(table, mask, input, count);
+        added += count;
+      },
+      edges(records: Int32Array) {
+        const count = put(records);
+        const written = session.exports.surfaceConnections(table, mask, ownership, input, count, output);
+        return new Int32Array(session.exports.memory.buffer, output, written * 8).slice();
+      },
+    };
   }
 
   private installChunk(chunk: Chunk, blocks: number, colors: number, low: number, high: number, count = 65536) {

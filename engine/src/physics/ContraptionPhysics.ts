@@ -1307,6 +1307,13 @@ export class ContraptionPhysics {
             new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion).normalize()
           ]
         };
+        // Only certify coverage for the unit-scale rigid transform used by the
+        // OBBs. Custom/scaled hosts must retain the point-probe fallback.
+        transform.coversSamples = !!transform.matrix && transform.axes.every((axis, i) => (
+          Math.abs(transform.matrix.elements[i * 4] - axis.x) < 1e-10
+          && Math.abs(transform.matrix.elements[i * 4 + 1] - axis.y) < 1e-10
+          && Math.abs(transform.matrix.elements[i * 4 + 2] - axis.z) < 1e-10
+        ));
         nodeTransforms.set(cell.entityId, transform);
       }
       const axes = transform.axes;
@@ -1333,7 +1340,8 @@ export class ContraptionPhysics {
         minZ: center.z - radiusZ,
         maxZ: center.z + radiusZ,
         cell,
-        body
+        body,
+        coversSamples: transform.coversSamples,
       });
     }
     return boxes;
@@ -1396,7 +1404,8 @@ export class ContraptionPhysics {
     return { normal, penetration, hitPosition };
   }
 
-  terrainBoxesOverlapping(obb) {
+  terrainBoxesOverlapping(obb, coverage?: { complete: boolean }) {
+    if (coverage) coverage.complete = false;
     const boxes = [];
     // SAT requires positive overlap, so a box whose maximum lies exactly on a
     // voxel boundary does not overlap the cell on the far side. Half-open
@@ -1425,11 +1434,13 @@ export class ContraptionPhysics {
     // worlds can retain the cell reader without losing exact collision semantics.
     const mergedMicro = this.world.getMicroCollisionBoxesInAABB?.(bounds);
     if (Array.isArray(mergedMicro)) {
+      if (coverage) coverage.complete = true;
       boxes.push(...mergedMicro);
       return boxes;
     }
     const queriedMicro = this.world.getMicroBlocksInAABB?.(bounds, true);
     if (Array.isArray(queriedMicro)) {
+      if (coverage) coverage.complete = true;
       for (const cell of queriedMicro) {
         const size = Number(cell.size) || MICRO_SIZE;
         boxes.push({
@@ -1442,6 +1453,7 @@ export class ContraptionPhysics {
         });
       }
     } else if (typeof (this.world as any).getMicroBlock === 'function') {
+      if (coverage) coverage.complete = typeof (this.world as any).getMicroCollisionBlock !== 'function';
       const maxMx = Math.floor(obb.maxX * MICRO_DIVISIONS - 1e-7);
       const maxMy = Math.floor(obb.maxY * MICRO_DIVISIONS - 1e-7);
       const maxMz = Math.floor(obb.maxZ * MICRO_DIVISIONS - 1e-7);
@@ -1461,6 +1473,9 @@ export class ContraptionPhysics {
           }
         }
       }
+    } else if (coverage) {
+      coverage.complete = typeof (this.world as any).getMicroCollisionBlock !== 'function'
+        && typeof (this.world as any).microVoxels?.get !== 'function';
     }
     return boxes;
   }
@@ -1982,8 +1997,6 @@ export class ContraptionPhysics {
     // still move with the body (scene-graph parent), so they must keep the
     // structure supported instead of silently losing that ground contact.
     const bodyObbs = this.getBodyCollisionWorldOBBs(contraption, body);
-    const samplePoints = contraption.getCollisionSamplePoints(body.id, true);
-    if (!bodyObbs.length && !samplePoints.length) return 0;
 
     const translationDistance = previousPose
       ? body.position.distanceTo(previousPose.position)
@@ -1999,8 +2012,11 @@ export class ContraptionPhysics {
     let maxTerrainY = -Infinity;
     let minTerrainY = Infinity;
     const cachedTerrainBoxes = new Map();
+    const coverage = { complete: false };
+    let completeCoverage = true;
     for (const obb of bodyObbs) {
-      const tBoxes = this.terrainBoxesOverlapping(obb);
+      const tBoxes = this.terrainBoxesOverlapping(obb, coverage);
+      completeCoverage = completeCoverage && coverage.complete;
       cachedTerrainBoxes.set(obb, tBoxes);
       if (tBoxes.length > 0) {
         hasNearbyTerrain = true;
@@ -2010,6 +2026,10 @@ export class ContraptionPhysics {
         }
       }
     }
+
+    if (!hasNearbyTerrain && this.canSkipEmptyTerrainSamples(bodyObbs, shouldSweep, completeCoverage)) return;
+    const samplePoints = contraption.getCollisionSamplePoints(body.id, true);
+    if (!bodyObbs.length && !samplePoints.length) return 0;
 
     const contacts = new Map();
     const addContact = (resolvedContact, point) => {
@@ -2159,6 +2179,13 @@ export class ContraptionPhysics {
     // contact slop without positive overlap. Keep that manifold until the next
     // pre-solve validates its pose and supporting cells, rather than alternating
     // between a fresh impact and a missing support every other substep.
+  }
+
+  private canSkipEmptyTerrainSamples(obbs, shouldSweep: boolean, completeCoverage: boolean) {
+    // A negative broadphase is authoritative only when it queried the same
+    // published micro occupancy as point probes. Legacy point-only worlds and
+    // fast sweeps retain the full path, including mid-flight thin obstacles.
+    return completeCoverage && !shouldSweep && obbs.length > 0 && obbs.every(obb => obb.coversSamples);
   }
 
   applyImpulse(contraption, impulse, worldPoint = null, nodeId = contraption?.rootComponentId) {

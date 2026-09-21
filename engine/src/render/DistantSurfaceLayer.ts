@@ -4,7 +4,8 @@ import { DistantChunkLayer } from './DistantChunkLayer.ts';
 import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
-import { getTerrainKernels, type SurfaceMip } from '../wasm/TerrainKernels.ts';
+import { getTerrainKernels, type SurfaceMip, type SurfaceConnectionKernel } from '../wasm/TerrainKernels.ts';
+import { prepareSurfaceSelection, surfaceNodeIndex } from '../wasm/SurfaceSelection.ts';
 import {
   TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_RHO, TORUS_GREF,
   computeBentBoundsSphere, hookSceneMaterials,
@@ -162,6 +163,16 @@ interface ConnectedSurfaceCell {
   red: number;
   green: number;
   blue: number;
+}
+
+function connectionRecords(cells: ConnectedSurfaceCell[], start: number, end: number) {
+  const records = new Int32Array((end - start) * 4);
+  for (let i = start; i < end; i++) {
+    const cell = cells[i], offset = (i - start) * 4;
+    records[offset] = cell.worldX; records[offset + 1] = cell.worldZ;
+    records[offset + 2] = cell.cellSize; records[offset + 3] = cell.height;
+  }
+  return records;
 }
 
 interface SurfaceRange {
@@ -420,7 +431,8 @@ export class DistantSurfaceLayer {
   private readonly cellBounds = new THREE.Sphere();
   private readonly recentlyVisible = new Map<string, number>();
   private readonly zoneDemandSizes = new Map<string, number>();
-  private readonly splitCells = new Set<string>();
+  // 683 bytes per touched 64m root (bounded by the 8192 roots on the torus).
+  private readonly rootSplits = new Map<number, Uint8Array>();
   private readonly rootCache = new Map<string, {
     zone: StoredSurfaceZone; epoch: number; cells: ConnectedSurfaceCell[];
     position: THREE.Vector3; scale: number; tolerance: number;
@@ -829,8 +841,9 @@ export class DistantSurfaceLayer {
     if (distance > this.settings.maxDistance) return;
     const error = (height - minHeight) * MICRO_SIZE + curvatureError(cellSize, height)
       + cellSize * mip.colorErrors[index] * 0.25;
-    const key = `${worldX},${worldZ},${cellSize}`;
-    const threshold = this.settings.screenErrorPx * (this.splitCells.has(key) ? 0.65 : 1);
+    const splits = this.getRootSplits(worldX, worldZ), node = surfaceNodeIndex(localX, localZ, cellSize);
+    const splitByte = node >> 3, splitBit = 1 << (node & 7);
+    const threshold = this.settings.screenErrorPx * ((splits[splitByte] & splitBit) !== 0 ? 0.65 : 1);
     // Below the downloaded resolution only curvature can improve. Repeating
     // one 64m height in thousands of 1m quads cannot fix its sampling error.
     const refinableError = cellSize > zone.sampleSize ? error : curvatureError(cellSize, height);
@@ -844,7 +857,7 @@ export class DistantSurfaceLayer {
     if (cellSize > FINE_SAMPLE_SIZE && mustSplit && canRefine) {
       if (!boundarySplit) this.rootMotionTolerance = Math.min(this.rootMotionTolerance,
         Math.max(0, refinableError * scale / (this.settings.screenErrorPx * 0.65) - distance));
-      this.splitCells.add(key);
+      splits[splitByte] |= splitBit;
       const childSize = cellSize / 2;
       if (work) {
         work.push(localX + childSize, localZ + childSize, childSize,
@@ -860,8 +873,35 @@ export class DistantSurfaceLayer {
     }
     if (cellSize > FINE_SAMPLE_SIZE) this.rootMotionTolerance = Math.min(this.rootMotionTolerance,
       Math.max(0, distance - refinableError * scale / this.settings.screenErrorPx));
-    this.splitCells.delete(key);
+    splits[splitByte] &= ~splitBit;
     this.emit(zone, localX, localZ, cellSize, distance);
+  }
+
+  private getRootSplits(worldX: number, worldZ: number) {
+    const key = Math.floor(worldX / 64) * 32 + Math.floor(worldZ / 64);
+    let splits = this.rootSplits.get(key);
+    if (!splits) { splits = new Uint8Array(683); this.rootSplits.set(key, splits); }
+    return splits;
+  }
+
+  private beginWasmSelection(zone: StoredSurfaceZone, localX: number, localZ: number) {
+    // One cheap host decision avoids packing thousands of unused samples for
+    // distant roots that are culled or already satisfy the pixel error budget.
+    const work: number[] = [];
+    this.visitCell(zone, localX, localZ, 64, work);
+    if (!work.length) return null;
+    const worldX = zone.zoneX * 512 + localX, worldZ = zone.zoneZ * 512 + localZ;
+    const selection = prepareSurfaceSelection(zone.mips, zone.sampleSize, localX, localZ, worldX, worldZ,
+      this.connectionBuildPending ? this.buildDetailMask : this.detailMaskData,
+      this.getRootSplits(worldX, worldZ), this.connectionBuildPending ? this.buildPosition : this.lodPosition,
+      this.settings.maxDistance, this.settings.screenErrorPx,
+      this.connectionBuildPending ? this.buildPixelScale : this.pixelScale);
+    selection.work[0] = work.length;
+    for (let i = 0; i < work.length; i += 3) {
+      selection.work.set([work[i] - localX, work[i + 1] - localZ, work[i + 2]], i + 1);
+    }
+    selection.parameters[8] = this.rootMotionTolerance;
+    return selection;
   }
 
   private async appendRoot(zone: StoredSurfaceZone, localX: number, localZ: number, generation: number) {
@@ -879,11 +919,19 @@ export class DistantSurfaceLayer {
     }
     const start = this.connectedCells.length;
     this.rootMotionTolerance = Infinity;
-    const work = [localX, localZ, 64];
+    const kernel = getTerrainKernels();
+    const work = kernel ? [] : [localX, localZ, 64];
+    const selection = kernel ? this.beginWasmSelection(zone, localX, localZ) : null;
     let sliceStarted = performance.now();
-    while (work.length) {
-      const size = work.pop()!, z = work.pop()!, x = work.pop()!;
-      this.visitCell(zone, x, z, size, work);
+    while (selection ? selection.work[0] > 0 : work.length > 0) {
+      if (selection && kernel) {
+        const leaves = kernel.selectSurfaceBatch(selection, this.writeIndex);
+        for (let i = 0; i < leaves.length; i += 3) this.emit(zone, localX + leaves[i], localZ + leaves[i + 1], leaves[i + 2], 0);
+        this.rootMotionTolerance = selection.parameters[8];
+      } else {
+        const size = work.pop()!, z = work.pop()!, x = work.pop()!;
+        this.visitCell(zone, x, z, size, work);
+      }
       // A single dense root can contain thousands of leaves. Yield inside
       // subdivision too, rather than allowing a full root to block a frame.
       if (performance.now() - sliceStarted >= CONNECTION_BUILD_BUDGET_MS) {
@@ -905,7 +953,15 @@ export class DistantSurfaceLayer {
   private appendZone(zone: StoredSurfaceZone) {
     for (let localX = 0; localX < ZONE_WORLD_SIZE; localX += 64) {
       for (let localZ = 0; localZ < ZONE_WORLD_SIZE; localZ += 64) {
-        this.visitCell(zone, localX, localZ, 64);
+        const kernel = this.hasView ? getTerrainKernels() : null;
+        if (!kernel) { this.visitCell(zone, localX, localZ, 64); continue; }
+        const selection = this.beginWasmSelection(zone, localX, localZ);
+        if (!selection) continue;
+        while (selection.work[0] > 0) {
+          const leaves = kernel.selectSurfaceBatch(selection, this.writeIndex);
+          for (let i = 0; i < leaves.length; i += 3) this.emit(zone, localX + leaves[i], localZ + leaves[i + 1], leaves[i + 2], 0);
+        }
+        this.rootMotionTolerance = Math.min(this.rootMotionTolerance, selection.parameters[8]);
       }
     }
   }
@@ -1049,6 +1105,14 @@ export class DistantSurfaceLayer {
     );
   }
 
+  private emitConnectionBatch(kernel: SurfaceConnectionKernel, cells: ConnectedSurfaceCell[], start: number, end: number) {
+    const edges = kernel.edges(connectionRecords(cells, start, end));
+    for (let i = 0; i < edges.length; i += 8) {
+      this.emitConnection(cells[start + edges[i]], edges[i + 1], edges[i + 2], edges[i + 3],
+        edges[i + 4], edges[i + 5], edges[i + 6], edges[i + 7]);
+    }
+  }
+
   private finishConnectionUpload(previousCount: number) {
     if (this.sideWriteIndex < previousCount) {
       this.sideHeights!.fill(0, this.sideWriteIndex, previousCount);
@@ -1071,8 +1135,14 @@ export class DistantSurfaceLayer {
     this.sideWriteIndex = 0;
     for (const range of this.ranges.values()) range.sideCount = 0;
     this.clearConnectionOwners();
-    for (const cell of cells) this.fillConnectionOwner(cell);
-    for (const cell of cells) this.emitCellConnections(cell);
+    const kernel = getTerrainKernels()?.createSurfaceConnections(cells.length, this.detailMaskData);
+    if (kernel) {
+      for (let i = 0; i < cells.length; i += 128) kernel.add(connectionRecords(cells, i, Math.min(i + 128, cells.length)));
+      for (let i = 0; i < cells.length; i += 128) this.emitConnectionBatch(kernel, cells, i, Math.min(i + 128, cells.length));
+    } else {
+      for (const cell of cells) this.fillConnectionOwner(cell);
+      for (const cell of cells) this.emitCellConnections(cell);
+    }
     this.finishConnectionUpload(previousCount);
   }
 
@@ -1084,16 +1154,21 @@ export class DistantSurfaceLayer {
     for (const range of this.ranges.values()) range.sideCount = 0;
     this.clearConnectionOwners();
 
+    const kernel = getTerrainKernels()?.createSurfaceConnections(cells.length, this.buildDetailMask);
     const groups = new Map<string, ConnectedSurfaceCell[]>();
     let cellIndex = 0;
     while (cellIndex < cells.length) {
       const startedAt = performance.now();
       do {
-        const cell = cells[cellIndex++];
-        this.fillConnectionOwner(cell);
-        let group = groups.get(cell.zoneKey);
-        if (!group) { group = []; groups.set(cell.zoneKey, group); }
-        group.push(cell);
+        const end = Math.min(cellIndex + 128, cells.length);
+        if (kernel) kernel.add(connectionRecords(cells, cellIndex, end));
+        while (cellIndex < end) {
+          const cell = cells[cellIndex++];
+          if (!kernel) this.fillConnectionOwner(cell);
+          let group = groups.get(cell.zoneKey);
+          if (!group) { group = []; groups.set(cell.zoneKey, group); }
+          group.push(cell);
+        }
       } while (
         cellIndex < cells.length
         && performance.now() - startedAt < CONNECTION_BUILD_BUDGET_MS
@@ -1129,7 +1204,13 @@ export class DistantSurfaceLayer {
       } else {
         let index = 0;
         while (index < group.length) {
-          do { this.emitCellConnections(group[index++]); }
+          do {
+            if (kernel) {
+              const end = Math.min(index + 128, group.length);
+              this.emitConnectionBatch(kernel, group, index, end);
+              index = end;
+            } else this.emitCellConnections(group[index++]);
+          }
           while (index < group.length && performance.now() - sliceStarted < CONNECTION_BUILD_BUDGET_MS);
           if (performance.now() - sliceStarted >= CONNECTION_BUILD_BUDGET_MS) {
             await yieldToRender();

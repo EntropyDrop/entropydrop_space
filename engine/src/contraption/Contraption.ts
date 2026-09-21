@@ -27,6 +27,8 @@ import {
 import { PLAYER_MASS_KG } from '../physics/PlayerPhysics.ts';
 import { buildEntityVoxelIndexes, transformVoxelBounds } from '../physics/EntityVoxelIndex.ts';
 import { collisionBoundsOverlap, type CollisionBounds, mergeCollisionCells, type CollisionBox } from '../physics/CollisionGeometry.ts';
+import { createCollisionSampleTemplate, type CollisionSampleTemplate } from '../physics/CollisionSamples.ts';
+import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 export * from '../constants/SpaceConstants.ts';
 import {
   MAX_BODY_VECTOR_COMPONENT,
@@ -633,6 +635,7 @@ export class Contraption {
   collisionWorldAabbCache: { version: number; all?: any[]; surface?: any[]; merged?: any[] } | null;
   private collisionQueryAabbCache: { version: number; boxes: Map<any, any> } | null = null;
   collisionSamplePointCache: Map<string, { version: number; points: THREE.Vector3[] }>;
+  private collisionSampleTemplate: { surface: any[]; terrain: CollisionBox[]; data: CollisionSampleTemplate | null } | null = null;
 
   // --- Applied forces ---
   appliedForces: THREE.Vector3;
@@ -5542,6 +5545,11 @@ export class Contraption {
     const cacheKey = `${bodyId || '*'}:${includeAttached ? 1 : 0}`;
     const cached = this.collisionSamplePointCache.get(cacheKey);
     if (cached?.version === this.collisionPoseVersion) return cached.points;
+    const packed = this.getPackedCollisionSamplePoints(bodyId, includeAttached);
+    if (packed) {
+      this.collisionSamplePointCache.set(cacheKey, { version: this.collisionPoseVersion, points: packed });
+      return packed;
+    }
     const points = [];
     const low = 0.001;
     const high = 0.999;
@@ -5659,6 +5667,40 @@ export class Contraption {
       version: this.collisionPoseVersion,
       points
     });
+    return points;
+  }
+
+  private getPackedCollisionSamplePoints(bodyId: string | null, includeAttached: boolean): THREE.Vector3[] | null {
+    const kernels = getTerrainKernels();
+    if (!kernels) return null;
+    const surface = this.collisionSurfaceEntries || this.collisionEntries;
+    const terrain = this.collisionTerrainBoxes;
+    if (!this.collisionSampleTemplate || this.collisionSampleTemplate.surface !== surface
+      || this.collisionSampleTemplate.terrain !== terrain) {
+      const hasMicro = surface.some(cell => (cell.span ?? MICRO_DIVISIONS) < MICRO_DIVISIONS);
+      const source = hasMicro && terrain?.length ? terrain : surface;
+      this.collisionSampleTemplate = { surface, terrain, data: createCollisionSampleTemplate(source, hasMicro) };
+    }
+    const template = this.collisionSampleTemplate.data;
+    if (!template) return null;
+    const attached = bodyId && includeAttached ? this.getAttachedNodeIds(bodyId) : null;
+    const matrices = new Float64Array(template.entityIds.length * 20);
+    for (let i = 0; i < template.entityIds.length; i++) {
+      const id = template.entityIds[i];
+      if (bodyId && id !== bodyId && !attached?.has(id)) continue;
+      if (!this.isNodeCollisionEnabled(id)) continue;
+      const node = this.entityNodes.get(id) || this.entityNodes.get(this.rootComponentId);
+      if (!node?.group) return null;
+      node.group.updateWorldMatrix(true, false);
+      matrices.set(node.group.matrixWorld.elements, i * 20);
+      matrices[i * 20 + 16] = node.pivotLocal.x;
+      matrices[i * 20 + 17] = node.pivotLocal.y;
+      matrices[i * 20 + 18] = node.pivotLocal.z;
+      matrices[i * 20 + 19] = 1;
+    }
+    const coordinates = kernels.transformCollisionSamples(template.positions, template.owners, matrices);
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i < coordinates.length; i += 3) points.push(new THREE.Vector3(coordinates[i], coordinates[i + 1], coordinates[i + 2]));
     return points;
   }
 

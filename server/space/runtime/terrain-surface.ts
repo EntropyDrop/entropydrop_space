@@ -1,5 +1,6 @@
 import { TerrainGenerator } from '@entropydrop/space-engine/worldgen/TerrainGenerator.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '@entropydrop/space-engine/voxel/Chunk.ts';
+import { readFileSync } from 'node:fs';
 
 function integer(value: string | undefined, name: string) {
   const parsed = Number(value);
@@ -48,8 +49,8 @@ function writeZone(seed: number, version: number, zoneX: number, zoneZ: number) 
   process.stdout.write(output);
 }
 
-function writeChunk(seed: number, version: number, chunkX: number, chunkZ: number) {
-  const chunk = generateChunk(new TerrainGenerator(seed, version), chunkX, chunkZ);
+function writeChunk(generator: TerrainGenerator, chunkX: number, chunkZ: number) {
+  const chunk = generateChunk(generator, chunkX, chunkZ);
   const cellCount = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z;
   const output = Buffer.allocUnsafe(cellCount * 4);
   for (let index = 0; index < cellCount; index++) {
@@ -69,5 +70,13 @@ const version = integer(versionValue, 'terrain generator version');
 const x = integer(xValue, 'x');
 const z = integer(zValue, 'z');
 if (mode === 'zone') writeZone(seed, version, x, z);
-else if (mode === 'chunk') writeChunk(seed, version, x, z);
-else throw new Error('mode must be zone or chunk');
+else if (mode === 'chunk') writeChunk(new TerrainGenerator(seed, version), x, z);
+else if (mode === 'chunks') {
+  const chunks = JSON.parse(readFileSync(0, 'utf8'));
+  if (!Array.isArray(chunks) || chunks.length < 1 || chunks.length > 32
+    || chunks.some(pair => !Array.isArray(pair) || pair.length !== 2 || pair.some(n => !Number.isSafeInteger(n)))) {
+    throw new Error('invalid chunk batch');
+  }
+  const generator = new TerrainGenerator(seed, version);
+  for (const [cx, cz] of chunks) writeChunk(generator, cx, cz);
+} else throw new Error('mode must be zone, chunk or chunks');

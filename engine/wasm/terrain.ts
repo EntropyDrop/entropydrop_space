@@ -1,5 +1,11 @@
 // Allocation-free kernels. The host owns scratch memory from byte 65536 onward.
 // Keep arithmetic in f64: voxel rounding and LOD tie-breaking are wire contracts.
+export { microMesh } from './micro-mesh';
+export { surfaceOwners, surfaceConnections } from './surface-connections';
+export { surfaceSelect } from './surface-selection';
+export { solidRuns, mergeSolidRuns } from './authored-solids';
+export { standardFaces, standardMesh } from './standard-mesh';
+export { collisionSamples } from './collision-samples';
 const GRAD = memory.data<i8>([
   1, 1, 0, -1, 1, 0, 1, -1, 0, -1, -1, 0,
   1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, -1,

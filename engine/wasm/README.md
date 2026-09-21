@@ -14,21 +14,26 @@ Run from the workspace root:
 npm run build:terrain-wasm
 npm run check:terrain-wasm
 npm run bench:terrain
+npm run bench:render-kernels
+npm run bench:physics
 # Optional full server Copper zone, after npm run build:server-runtime:
 npm run bench:terrain -- --server-zone
 PYTHONPATH=server DATABASE_URL=sqlite:///:memory: python server/tools/benchmark_terrain_wasm.py
+PYTHONPATH=server DATABASE_URL=sqlite:///:memory: python server/tools/benchmark_authored_solids.py
 ```
 
 Both generated files are committed. `npm run check` recompiles and checks their
 bytes, so production bundlers do not need a native WASM toolchain. The approximately
-4 KB module is compiled once per JS realm; Python caches the compiled module per
+11 KB module is compiled once per JS realm; Python caches the compiled module per
 process and gives each thread its own store. The compiler is development-only.
 
 ## Scope and compatibility
 
 WASM handles batched 3D simplex heights, standard box paints, Copper micro-shell
 rasterization/filtering, occupied bounds, frontend linear-color LOD pyramids and
-backend packed sRGB LOD reductions. Copper's seeded building/parcel grammar stays
+backend packed sRGB LOD reductions, world microvoxel greedy meshing, camera-dependent
+LOD subdivision, far-surface connection runs, standard chunk meshes, authored
+solid extraction/merging and collision probe transforms. Copper's seeded building/parcel grammar stays
 in one TypeScript implementation. Nature copies only its occupied-height slab.
 Generated decorations still enter `World.microVoxels` as real editable/collidable
 microterrain; they are not a second visual-only mesh.
@@ -40,9 +45,41 @@ by exact reference comparisons. Nature noise arithmetic remains f64. Frontend
 error buffers remain f32 and backend error buffers remain bytes; the two error
 representations intentionally have distinct reduction entry points.
 
-Camera-dependent LOD selection, connection meshes, meshing, physics and GPU drawing
-remain on their existing paths. These benchmarks measure CPU generation and LOD
-preparation, **not FPS** or the complete world-loading time.
+Micro meshing packs one 16x16x16 partition plus its neighbor halo. Packing can
+yield; mesh and collision publication still use the existing revision checks and
+handoff barriers. Material groups, normals, winding and Three color conversion
+match the JS reference. Other working color spaces retain the JS path.
+
+LOD subdivision visits at most 256 quadtree nodes per call and keeps its frontier
+and compact hysteresis bitset in host-owned arrays between calls. Root caches,
+generation cancellation, screen-error thresholds, coverage budgets and render
+yields remain in the host. Trigonometry uses cached JS samples of the same torus
+projection. Connection owners use a numeric hash table in a separate WASM instance
+per rebuild, with at most 128 queried cells per call. Side-zone caches and atomic
+publication are unchanged; owner sets above 524288 cells use the JS path.
+
+Standard meshes preserve indexed face order, material groups, neighbor culling,
+streaming cut-face runs and Uint16/Uint32 indices. Python authored solids preserve
+air gaps, first-seen grouping order, duplicate edit semantics and the 2m horizontal
+span cap. Their bytes (and therefore snapshot digests) are unchanged. Copper
+overlays request at most 32 procedural chunks per Node process, bounding IPC to
+8 MiB and avoiding one startup per chunk. Oversized solid arenas use Python.
+
+Collision sample templates cache geometry-only local probes until the source
+geometry changes; live pivots, body attachment, collision flags and poses are
+applied in f64 batches. Returned vectors remain independent across pose changes.
+Templates above 262144 points retain JS. SAT, sweeps, impulses, resting support,
+sleep, scene publication and GPU drawing stay on their existing paths. A negative
+terrain broadphase skips redundant probes only for unit-scale rigid transforms,
+complete micro-occupancy queries and non-sweeping motion. Point-only hosts and
+fast sweeps always retain the full path. `bench:physics` compares the old full
+probe path with the optimized path in an empty world: this is **not** a dense
+contact benchmark or a WASM-only speedup.
+
+These benchmarks measure CPU work, **not FPS** or complete
+world-loading time. `bench:render-kernels` alternates JS/WASM, discards two warmup
+rounds, reports nine-sample medians and verifies geometry hashes. Its full Copper
+LOD rebuild deliberately excludes cache reuse and yield waiting.
 
 ## Memory and fallback
 

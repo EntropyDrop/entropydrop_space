@@ -747,13 +747,17 @@ test('cache pressure refines all visible zones before concentrating detail near 
   const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com','token','/manifest',20260827,1,
     (async input => {
       const path = new URL(String(input)).pathname;
+      // Downloads/digest checks may finish out of order. Exercise that case
+      // deliberately instead of depending on Map insertion order below.
+      if (path === '/z/0/64') await new Promise(resolve => setTimeout(resolve, 4));
       return path === '/manifest' ? Response.json({schema_version:5,samples_per_chunk_axis:8,zone_size_chunks:32,
         width_chunks:96,length_chunks:32,complete:true,zones}) : new Response(payloads.get(path)!.slice().buffer);
     }) as typeof fetch);
   const installed = new Map<number,number>();
   await remote.loadAll(z => installed.set(z.zoneX,z.sampleSize??2),undefined,
     {getZoneDemand:x=>({sampleSize:2,priority:x}),getDataBudgetBytes:()=>650_000});
-  assert.deepEqual([...installed.values()], [2,4,4], 'a budget boundary must not leave a visible neighbour at 64m');
+  assert.deepEqual([...installed.entries()].sort(([a], [b]) => a - b), [[0,2],[1,4],[2,4]],
+    'a budget boundary must not leave a visible neighbour at 64m');
 });
 
 test('new overviews trigger refinement immediately and updated fine zones never flash coarse', async () => {

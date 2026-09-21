@@ -1,5 +1,7 @@
 import { CollisionBoxIndex, mergeCollisionCells, type CollisionBounds } from '../physics/CollisionGeometry.ts';
 import * as THREE from 'three';
+import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
+import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
 import { VOXEL_EMISSIVE_INTENSITY, VoxelMaterialIds, normalizeVoxelMaterialId } from './VoxelMaterials.ts';
 import {
@@ -27,7 +29,7 @@ const POSITIVE_QUAD = [[0, 0], [1, 0], [1, 1], [0, 1]] as const;
 const NEGATIVE_QUAD = [[0, 0], [0, 1], [1, 1], [1, 0]] as const;
 const MESH_TIME_CHECK_INTERVAL = 256;
 
-type MeshBuildPhase = 'scan' | 'mask' | 'greedy' | 'write';
+type MeshBuildPhase = 'scan' | 'mask' | 'greedy' | 'write' | 'wasm-pack' | 'wasm-mesh';
 
 type MicroMeshBuildJob = {
   chunkKey: string;
@@ -59,6 +61,8 @@ type MicroMeshBuildJob = {
   indices: Uint16Array | Uint32Array | null;
   writeQuadIndex: number;
   materialIndexCounts: [number, number];
+  halo: Int32Array | null;
+  haloIndex: number;
 };
 
 type DeferredMeshPublication = {
@@ -988,6 +992,8 @@ export class MicroVoxelLayer {
       indices: null,
       writeQuadIndex: 0,
       materialIndexCounts: [0, 0],
+      halo: null,
+      haloIndex: 0,
     };
   }
 
@@ -1022,7 +1028,37 @@ export class MicroVoxelLayer {
         job.maxMicroY - job.minMicroY + 1,
         MICRO_MESH_CHUNK_SIZE,
       ];
-      this.prepareMeshMask(job);
+      if (getTerrainKernels() && THREE.ColorManagement.workingColorSpace === THREE.LinearSRGBColorSpace) {
+        job.halo = new Int32Array(18 * 18 * (job.dimensions[1] + 2));
+        job.phase = 'wasm-pack';
+      } else this.prepareMeshMask(job);
+    }
+
+    if (job.phase === 'wasm-pack') {
+      while (job.haloIndex < job.halo!.length) {
+        const i = job.haloIndex++;
+        const x = i % 18 - 1, z = Math.floor(i / 18) % 18 - 1, y = Math.floor(i / 324) - 1;
+        job.halo![i] = (this.sampleMeshCell(job, x, y, z) ?? -1) + 1;
+        if (job.haloIndex % MESH_TIME_CHECK_INTERVAL === 0 && performance.now() >= deadline) return 'pending';
+      }
+      job.phase = 'wasm-mesh';
+      if (performance.now() >= deadline) return 'pending';
+    }
+    if (job.phase === 'wasm-mesh') {
+      const kernels = getTerrainKernels();
+      if (!kernels || THREE.ColorManagement.workingColorSpace !== THREE.LinearSRGBColorSpace) {
+        job.halo = null; this.prepareMeshMask(job);
+      }
+      else {
+        // One bounded 16^3 kernel. Never keep arena views across a render slice.
+        const mesh = kernels.meshMicroPartition(job.halo!, job.dimensions![1], job.minMicroY, linearSrgbLookup()!);
+        job.halo = null;
+        if ((this.meshChunkRevisions.get(job.chunkKey) ?? 0) !== job.revision) return 'stale';
+        Object.assign(job, mesh);
+        if (mesh.indices.length === 0) this.replaceMeshChunk(job, null);
+        else this.finishMeshBuild(job);
+        return 'complete';
+      }
     }
 
     while (job.phase === 'mask' || job.phase === 'greedy') {

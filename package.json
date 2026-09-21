@@ -21,6 +21,8 @@
     "build:terrain-wasm": "node tools/build-terrain-wasm.mjs",
     "check:terrain-wasm": "node tools/build-terrain-wasm.mjs --check",
     "bench:terrain": "node engine/tools/benchmark-terrain.ts",
+    "bench:render-kernels": "node engine/tools/benchmark-render-kernels.ts",
+    "bench:physics": "node engine/tools/benchmark-physics.ts --compare-kernels",
     "test": "npm test --workspace @entropydrop/space",
     "generate:protobuf": "node tools/generate-protobuf.mjs",
     "check:protobuf": "node tools/generate-protobuf.mjs --check",

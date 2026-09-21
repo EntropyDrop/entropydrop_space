@@ -94,3 +94,38 @@ class TerrainKernels:
             result.append((512 // axis, bytes(self.memory.read(self.store, output, output + axis * axis * 8))))
             pointer = output
         return result
+
+    def solid_runs(self, heights, procedural, edits, micro):
+        if len(heights) != 256 or (procedural is not None and len(procedural) != 262144):
+            raise ValueError('Invalid authored solid lattice')
+        capacity = 65536 + len(micro)
+        table_size = 2
+        while table_size < capacity * 2:
+            table_size *= 2
+        h = 65536
+        p = h + 512
+        e = p + (len(procedural) if procedural is not None else 0)
+        m = e + len(edits) * 20
+        a = m + len(micro) * 28
+        b = a + capacity * 28
+        columns = b + capacity * 28
+        table = columns + 262144
+        groups = table + table_size * 4
+        indices = groups + capacity * 4
+        temporary = indices + capacity * 4
+        end = temporary + capacity * 4
+        if end > 32 * 1024 * 1024:
+            return None  # Preserve the Python path for oversized edited chunks.
+        self._reserve(end)
+        self.memory.write(self.store, struct.pack('<256H', *heights), h)
+        if procedural is not None:
+            self.memory.write(self.store, procedural, p)
+        self.memory.write(self.store, b''.join(struct.pack('<5I', *row) for row in edits), e)
+        self.memory.write(self.store, b''.join(struct.pack('<7I', *row) for row in micro), m)
+        count = self.exports['solidRuns'](self.store, h, p if procedural is not None else 0,
+                                         e, len(edits), m, len(micro), a, columns)
+        for axis in (0, 2):
+            count = self.exports['mergeSolidRuns'](self.store, a, count, axis, b,
+                                                  table, table_size - 1, groups, indices, temporary)
+            a, b = b, a
+        return list(struct.iter_unpack('<7I', self.memory.read(self.store, a, a + count * 28)))

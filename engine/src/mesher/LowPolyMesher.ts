@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
 import { VOXEL_EMISSIVE_INTENSITY, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
+import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
+import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
 
 type FaceDefinition = Readonly<{
   dir: readonly [number, number, number];
@@ -121,6 +123,22 @@ export class LowPolyMesher {
       resolve(3, origin.x, origin.z + CHUNK_SIZE_Z);
       resolve(4, origin.x - 1, origin.z);
       resolve(5, origin.x + CHUNK_SIZE_X, origin.z);
+    }
+
+    const kernels = getTerrainKernels(), linear = kernels ? linearSrgbLookup() : null;
+    if (kernels && linear) {
+      const height = maxOccupiedY - minOccupiedY + 1;
+      const halo = new Uint16Array(4 * height * 16);
+      if (world) for (let face = 2; face < 6; face++) {
+        const neighbor = neighborChunks.get(face), base = (face - 2) * height * 16;
+        if (!neighbor?.hasGenerated) { halo.fill(CUT_EDGE_FLAG, base, base + height * 16); continue; }
+        for (let y = minOccupiedY; y <= maxOccupiedY; y++) for (let along = 0; along < 16; along++) {
+          halo[base + (y - minOccupiedY) * 16 + along] = face < 4
+            ? neighbor.getLocalBlock(along, y, face === 2 ? 15 : 0)
+            : neighbor.getLocalBlock(face === 4 ? 15 : 0, y, along);
+        }
+      }
+      return kernels.meshStandardChunk(chunk, halo, minOccupiedY, maxOccupiedY, linear);
     }
 
     const sampleNeighbor = (
