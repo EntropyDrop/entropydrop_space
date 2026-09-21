@@ -13,8 +13,8 @@ import {
  * The source design lives in entropydrop_frontend/terrain-lab. The one-metre
  * architecture and eighth-metre ornamental layer are both
  * generated from the same world-anchored grammar. Details are returned as
- * chunk-local micro-grid cells so the terrain worker can mesh them without
- * turning deterministic terrain into persisted world edits.
+ * chunk-local micro-grid cells; World composes them into its authoritative
+ * MicroVoxelLayer without treating deterministic terrain as authored edits.
  */
 
 const METROPOLIS_HEIGHT = 112;

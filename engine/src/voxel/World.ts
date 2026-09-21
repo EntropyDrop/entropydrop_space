@@ -41,7 +41,10 @@ const MAX_REMOTE_CHUNKS_PER_FRAME = 2;
 const MAX_REMOTE_EDITS_PER_FRAME = 1_024;
 const MAX_BACKGROUND_REMOTE_EDITS_PER_FRAME = 128;
 const REMOTE_EDIT_TIME_CHECK_INTERVAL = 32;
-const MAX_MICRO_MESH_CHUNKS_PER_FRAME = 1;
+// Generated micro terrain can touch hundreds of small vertical partitions in
+// one standard chunk. The time budget remains the hard frame bound; this count
+// only prevents pathological zero-cost loops from running without a ceiling.
+const MAX_MICRO_MESH_CHUNKS_PER_FRAME = 64;
 const INTERACTIVE_MICRO_WORK_BUDGET_MS = 1.25;
 const MAX_CHUNK_EVICTIONS_PER_FRAME = 8;
 const MAX_RECYCLED_PROCEDURAL_CHUNKS = 64;
@@ -109,6 +112,7 @@ type TerrainWorkerJob = {
   recycledChunk?: Chunk | null;
   replacingChunk?: Chunk | null;
   snapshot?: PendingTerrainSnapshot;
+  proceduralMicroPrepared?: boolean;
 };
 
 type TerrainWorkerResult = {
@@ -125,7 +129,6 @@ type TerrainWorkerResult = {
   terrainMaterials?: Uint8Array;
   terrainDetails?: Uint32Array;
   mesh?: ChunkMeshData;
-  detailMesh?: ChunkMeshData;
 };
 
 type CompletedTerrainWorkerJob = {
@@ -174,6 +177,12 @@ export class World {
   private terrainSeed: number;
   private terrainGeneratorVersion: number;
   private terrainDetailsEnabled: boolean;
+  /** Chunks whose deterministic detail cells are currently installed in microVoxels. */
+  private proceduralMicroChunks: Set<string>;
+  /** Generated parent cells currently contributing at least one live detail cell. */
+  private proceduralMicroParentsByChunk: Map<string, Set<string>>;
+  /** Session-local suppression; persistence stores the same intent as an AIR edit. */
+  private proceduralMicroTombstones: Set<string>;
   mesher: LowPolyMesher;
   renderDistance: number;
   worldGroup: THREE.Group;
@@ -253,9 +262,9 @@ export class World {
       } : persistenceOptions)
       : null;
 
-    // Generated terrain contains no micro voxels, so its sparse authored layer
-    // can be restored immediately. Standard edits are applied lazily below when
-    // their chunks stream in.
+    // Restore the sparse authored overlay immediately. When a generated chunk
+    // arrives, rebuildMicroChunk composes its deterministic micro layer below
+    // this overlay and honours standard AIR edits as deletion tombstones.
     if (this.editPersistence) {
       let restoredMicro = 0;
       for (const edit of this.editPersistence.getMicroEdits()) {
@@ -274,6 +283,9 @@ export class World {
     this.pendingStreamChunks = [];
     this.pendingChunkEvictions = new Map();
     this.recycledProceduralChunks = [];
+    this.proceduralMicroChunks = new Set();
+    this.proceduralMicroParentsByChunk = new Map();
+    this.proceduralMicroTombstones = new Set();
     this.streamWorkScheduled = false;
     this.requireOffThreadTerrainStreaming = typeof window !== 'undefined';
     this.terrainWorker = null;
@@ -382,9 +394,280 @@ export class World {
         chunk.hasUserEdits = true;
         this.terrainVersion += restoredStandard;
       }
+      if (this.pendingRemoteChunkApply?.key !== key && !this.pendingRemoteChunkUpdates.has(key)) {
+        this.rebuildMicroChunk(chunk);
+      }
       this.dirtyChunks.add(chunk);
+    } else {
+      this.ensureProceduralMicroChunk(chunk);
     }
     return chunk;
+  }
+
+  /**
+   * Compose generated 0.125 m terrain details and authored micro edits into the
+   * one authoritative MicroVoxelLayer used by rendering, picking and physics.
+   *
+   * Any persisted standard edit suppresses generated micro cells in its 1 m
+   * parent. In particular, an AIR edit is the durable tombstone used when a
+   * player deletes one generated microcell; explicit micro edits then recreate
+   * the siblings that remain in that parent.
+   */
+  rebuildMicroChunk(
+    chunk: Chunk,
+    standardEdits: Iterable<PersistedStandardEdit> | null = null,
+    microEdits: Iterable<PersistedMicroEdit> | null = null,
+  ) {
+    const key = World.getChunkKey(chunk.cx, chunk.cz);
+    this.microVoxels.clearChunk(chunk.cx, chunk.cz);
+
+    const resolvedStandard = standardEdits
+      ?? this.editPersistence?.getStandardEditsForChunk(chunk.cx, chunk.cz)
+      ?? [];
+    const suppressedParents = new Set<number>();
+    for (const edit of resolvedStandard) {
+      const lx = edit.x - chunk.cx * CHUNK_SIZE_X;
+      const lz = edit.z - chunk.cz * CHUNK_SIZE_Z;
+      if (lx < 0 || lx >= CHUNK_SIZE_X || lz < 0 || lz >= CHUNK_SIZE_Z
+        || edit.y < 0 || edit.y >= CHUNK_SIZE_Y) continue;
+      suppressedParents.add(Chunk.getIndex(lx, edit.y, lz));
+    }
+
+    const originMx = chunk.cx * CHUNK_SIZE_X * MICRO_DIVISIONS;
+    const originMz = chunk.cz * CHUNK_SIZE_Z * MICRO_DIVISIONS;
+    const activeParents = new Set<string>();
+    if (this.terrainDetailsEnabled) {
+      this.microVoxels.setPackedTerrainCells(
+        originMx,
+        originMz,
+        chunk.terrainDetails,
+        (localMx, my, localMz) => {
+          const parent = Chunk.getIndex(
+            Math.floor(localMx / MICRO_DIVISIONS),
+            Math.floor(my / MICRO_DIVISIONS),
+            Math.floor(localMz / MICRO_DIVISIONS),
+          );
+          const wx = Math.floor((originMx + localMx) / MICRO_DIVISIONS);
+          const wy = Math.floor(my / MICRO_DIVISIONS);
+          const wz = Math.floor((originMz + localMz) / MICRO_DIVISIONS);
+          const parentKey = `${wrapX(wx)},${wy},${wrapZ(wz)}`;
+          if (suppressedParents.has(parent) || this.proceduralMicroTombstones.has(parentKey)
+            || chunk.blocks[parent] !== BlockTypes.AIR) return false;
+          activeParents.add(parentKey);
+          return true;
+        },
+      );
+    }
+
+    const resolvedMicro = microEdits
+      ?? this.editPersistence?.getMicroEditsForChunk(chunk.cx, chunk.cz)
+      ?? [];
+    for (const edit of resolvedMicro) {
+      const wx = Math.floor(edit.mx / MICRO_DIVISIONS);
+      const wy = Math.floor(edit.my / MICRO_DIVISIONS);
+      const wz = Math.floor(edit.mz / MICRO_DIVISIONS);
+      if (this.getBlock(wx, wy, wz) !== BlockTypes.AIR) continue;
+      this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material);
+    }
+    this.proceduralMicroChunks.add(key);
+    this.proceduralMicroParentsByChunk.set(key, activeParents);
+  }
+
+  private ensureProceduralMicroChunk(chunk: Chunk) {
+    const key = World.getChunkKey(chunk.cx, chunk.cz);
+    if (!this.proceduralMicroChunks.has(key)) this.rebuildMicroChunk(chunk);
+  }
+
+  private unloadProceduralMicroChunk(chunk: Chunk) {
+    const key = World.getChunkKey(chunk.cx, chunk.cz);
+    if (!this.proceduralMicroChunks.delete(key)) return;
+    this.proceduralMicroParentsByChunk.delete(key);
+    this.microVoxels.clearChunk(chunk.cx, chunk.cz);
+    for (const edit of this.editPersistence?.getMicroEditsForChunk(chunk.cx, chunk.cz) ?? []) {
+      this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material);
+    }
+  }
+
+  private snapshotMicroEditsForChunk(cx: number, cz: number): PersistedMicroEdit[] {
+    const edits: PersistedMicroEdit[] = [];
+    this.microVoxels.forEachCellInChunk(cx, cz, (mx, my, mz, color, material = 0) => {
+      edits.push({
+        mx,
+        my,
+        mz,
+        color,
+        part: this.getMicroBlockPart(mx, my, mz),
+        material,
+      });
+    });
+    return edits;
+  }
+
+  private prepareProceduralMicroWorkerResult(
+    job: TerrainWorkerJob,
+    result: TerrainWorkerResult,
+  ) {
+    if (job.proceduralMicroPrepared) return;
+    job.proceduralMicroPrepared = true;
+    const details = result.terrainDetails ?? new Uint32Array(0);
+    if (!this.terrainDetailsEnabled || details.length === 0 || !result.blocks) return;
+    const overlay = this.snapshotMicroEditsForChunk(job.cx, job.cz);
+    const suppressedParents = new Set<number>();
+    for (const edit of this.unpackStandardEdits(job.snapshot?.standardEdits ?? [])) {
+      const lx = edit.x - job.cx * CHUNK_SIZE_X;
+      const lz = edit.z - job.cz * CHUNK_SIZE_Z;
+      if (lx < 0 || lx >= CHUNK_SIZE_X || lz < 0 || lz >= CHUNK_SIZE_Z
+        || edit.y < 0 || edit.y >= CHUNK_SIZE_Y) continue;
+      suppressedParents.add(Chunk.getIndex(lx, edit.y, lz));
+    }
+    const originMx = job.cx * CHUNK_SIZE_X * MICRO_DIVISIONS;
+    const originMz = job.cz * CHUNK_SIZE_Z * MICRO_DIVISIONS;
+    const activeParents = new Set<string>();
+    this.microVoxels.setPackedTerrainCells(originMx, originMz, details, (localMx, my, localMz) => {
+      const parent = Chunk.getIndex(
+        Math.floor(localMx / MICRO_DIVISIONS),
+        Math.floor(my / MICRO_DIVISIONS),
+        Math.floor(localMz / MICRO_DIVISIONS),
+      );
+      const parentKey = this.proceduralParentKey(
+        Math.floor((originMx + localMx) / MICRO_DIVISIONS),
+        Math.floor(my / MICRO_DIVISIONS),
+        Math.floor((originMz + localMz) / MICRO_DIVISIONS),
+      );
+      if (suppressedParents.has(parent) || this.proceduralMicroTombstones.has(parentKey)
+        || result.blocks![parent] !== BlockTypes.AIR) return false;
+      activeParents.add(parentKey);
+      return true;
+    });
+    for (const edit of overlay) {
+      this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material);
+    }
+    this.proceduralMicroChunks.add(job.key);
+    this.proceduralMicroParentsByChunk.set(job.key, activeParents);
+  }
+
+  private unpackStandardEdits(edits: PackedStandardEdit[]): PersistedStandardEdit[] {
+    return edits.map(([x, y, z, block, color, material = VoxelMaterialIds.DEFAULT]) => ({
+      x,
+      y,
+      z,
+      block,
+      color,
+      material: block === BlockTypes.AIR
+        ? VoxelMaterialIds.DEFAULT
+        : normalizeVoxelMaterialId(material),
+    }));
+  }
+
+  private proceduralParentKey(wx: number, wy: number, wz: number) {
+    return `${wrapX(wx)},${Math.floor(wy)},${wrapZ(wz)}`;
+  }
+
+  private hasActiveProceduralParent(wx: number, wy: number, wz: number) {
+    const { cx, cz } = this.worldToChunkCoords(wx, wz);
+    return this.proceduralMicroParentsByChunk.get(World.getChunkKey(cx, cz))
+      ?.has(this.proceduralParentKey(wx, wy, wz)) === true;
+  }
+
+  private isProceduralMicroCell(mx: number, my: number, mz: number) {
+    const wx = Math.floor(mx / MICRO_DIVISIONS);
+    const wy = Math.floor(my / MICRO_DIVISIONS);
+    const wz = Math.floor(mz / MICRO_DIVISIONS);
+    if (!this.hasActiveProceduralParent(wx, wy, wz)) return false;
+    return this.isGeneratedTerrainDetailCell(mx, my, mz);
+  }
+
+  private isGeneratedTerrainDetailCell(mx: number, my: number, mz: number) {
+    const wx = Math.floor(mx / MICRO_DIVISIONS);
+    const wz = Math.floor(mz / MICRO_DIVISIONS);
+    const { cx, cz } = this.worldToChunkCoords(wx, wz);
+    const chunk = this.getChunk(cx, cz);
+    if (!chunk) return false;
+    const localMx = wrapMicroX(mx) - cx * CHUNK_SIZE_X * MICRO_DIVISIONS;
+    const localMz = wrapMicroZ(mz) - cz * CHUNK_SIZE_Z * MICRO_DIVISIONS;
+    for (let offset = 0; offset + 3 < chunk.terrainDetails.length; offset += 4) {
+      if (chunk.terrainDetails[offset] === localMx
+        && chunk.terrainDetails[offset + 1] === my
+        && chunk.terrainDetails[offset + 2] === localMz) return true;
+    }
+    return false;
+  }
+
+  private persistProceduralMicroParent(wx: number, wy: number, wz: number) {
+    wx = wrapX(wx);
+    wz = wrapZ(wz);
+    const parentKey = this.proceduralParentKey(wx, wy, wz);
+    this.proceduralMicroTombstones.add(parentKey);
+    const { cx, cz } = this.worldToChunkCoords(wx, wz);
+    const chunkKey = World.getChunkKey(cx, cz);
+    const chunk = this.getChunk(cx, cz);
+    this.proceduralMicroParentsByChunk.get(chunkKey)?.delete(parentKey);
+
+    const survivors: PersistedMicroEdit[] = [];
+    const baseMx = wx * MICRO_DIVISIONS;
+    const baseMy = wy * MICRO_DIVISIONS;
+    const baseMz = wz * MICRO_DIVISIONS;
+    for (let dx = 0; dx < MICRO_DIVISIONS; dx++) {
+      for (let dy = 0; dy < MICRO_DIVISIONS; dy++) {
+        for (let dz = 0; dz < MICRO_DIVISIONS; dz++) {
+          const mx = baseMx + dx;
+          const my = baseMy + dy;
+          const mz = baseMz + dz;
+          const color = this.microVoxels.get(mx, my, mz);
+          if (color === null) continue;
+          survivors.push({
+            mx,
+            my,
+            mz,
+            color,
+            part: this.getMicroBlockPart(mx, my, mz),
+            material: this.microVoxels.getMaterial(mx, my, mz),
+          });
+        }
+      }
+    }
+
+    // Clear any previous sparse overlay for this parent first, then materialize
+    // the current live remainder above an AIR tombstone. The existing wire
+    // format can therefore represent deletion of deterministic terrain.
+    this.editPersistence?.removeMicroStandardCell(wx, wy, wz, true, true);
+    this.editPersistence?.recordStandard(
+      wx,
+      wy,
+      wz,
+      BlockTypes.AIR,
+      DEFAULT_BLOCK_COLOR,
+      VoxelMaterialIds.DEFAULT,
+    );
+    this.trackPendingTerrainSnapshotEdit(
+      chunkKey,
+      wx,
+      wy,
+      wz,
+      BlockTypes.AIR,
+      DEFAULT_BLOCK_COLOR,
+      VoxelMaterialIds.DEFAULT,
+    );
+    this.trackPendingRemoteMicroOverride({ type: 'clear-standard', wx, wy, wz });
+    for (const survivor of survivors) {
+      this.editPersistence?.recordMicro(
+        survivor.mx,
+        survivor.my,
+        survivor.mz,
+        survivor.color,
+        survivor.part,
+        survivor.material,
+      );
+      this.trackPendingRemoteMicroOverride({
+        type: 'set',
+        ...survivor,
+      });
+    }
+    if (chunk) {
+      chunk.hasUserEdits = true;
+      // The generated standard voxel at this parent is already AIR, so no
+      // standard remesh is necessary; the AIR edit only suppresses its detail.
+    }
   }
 
   /**
@@ -492,6 +775,9 @@ export class World {
       this.terrainVersion++;
     }
     if (changed) {
+      const parentKey = this.proceduralParentKey(wx, wy, wz);
+      this.proceduralMicroTombstones.add(parentKey);
+      this.proceduralMicroParentsByChunk.get(World.getChunkKey(cx, cz))?.delete(parentKey);
       this.editPersistence?.recordStandard(wx, wy, wz, blockType, normalizedColor, normalizedMaterial);
       this.trackPendingTerrainSnapshotEdit(
         World.getChunkKey(cx, cz),
@@ -697,8 +983,17 @@ export class World {
     const acceptedLiveDelete = removed && !alreadyPendingDelete;
     if (acceptedLiveDelete || acceptedPublishedDelete) {
       if (removed) this.microVoxels.prioritizeMeshAt(mx, mz, my);
-      this.editPersistence?.removeMicro(mx, my, mz, pendingSameChunk);
-      this.trackPendingRemoteMicroOverride({ type: 'delete', mx, my, mz });
+      if (this.isProceduralMicroCell(mx, my, mz)
+        || (acceptedPublishedDelete && this.isGeneratedTerrainDetailCell(mx, my, mz))) {
+        this.persistProceduralMicroParent(
+          Math.floor(mx / MICRO_DIVISIONS),
+          Math.floor(my / MICRO_DIVISIONS),
+          Math.floor(mz / MICRO_DIVISIONS),
+        );
+      } else {
+        this.editPersistence?.removeMicro(mx, my, mz, pendingSameChunk);
+        this.trackPendingRemoteMicroOverride({ type: 'delete', mx, my, mz });
+      }
       this.terrainVersion++;
     }
     return acceptedLiveDelete || acceptedPublishedDelete;
@@ -733,19 +1028,23 @@ export class World {
     const acceptedPublishedClear = removed === 0 && publishedCount > 0;
     if (removed || acceptedPublishedClear) {
       if (removed) this.microVoxels.prioritizeStandardCell(wx, wz, wy);
-      this.editPersistence?.removeMicroStandardCell(
-        wx,
-        wy,
-        wz,
-        true,
-        pendingSameChunk,
-      );
-      this.trackPendingRemoteMicroOverride({
-        type: 'clear-standard',
-        wx,
-        wy,
-        wz,
-      });
+      if (this.hasActiveProceduralParent(wx, wy, wz)) {
+        this.persistProceduralMicroParent(wx, wy, wz);
+      } else {
+        this.editPersistence?.removeMicroStandardCell(
+          wx,
+          wy,
+          wz,
+          true,
+          pendingSameChunk,
+        );
+        this.trackPendingRemoteMicroOverride({
+          type: 'clear-standard',
+          wx,
+          wy,
+          wz,
+        });
+      }
       this.terrainVersion++;
     }
     return Math.max(removed, publishedCount);
@@ -1119,17 +1418,20 @@ export class World {
           if (!chunk) {
             this.distantSurface.setDetailChunkReady(cx, cz, false);
             pending.push({ cx, cz, distanceSq: dx * dx + dz * dz });
-          } else if (chunk.mesh) {
-            chunk.mesh.visible = true;
-            this.distantSurface.setDetailChunkReady(cx, cz, true);
-            // A chunk can leave and re-enter before its deferred eviction runs.
-            // Its old mesh is still publishable, but a pending edit must resume
-            // the remesh instead of becoming permanently stranded.
-            if (chunk.isDirty) this.dirtyChunks.add(chunk);
-          } else if (!chunk.mesh) {
-            this.distantSurface.setDetailChunkReady(cx, cz, false);
-            chunk.isDirty = true;
-            this.dirtyChunks.add(chunk);
+          } else {
+            this.ensureProceduralMicroChunk(chunk);
+            if (chunk.mesh) {
+              chunk.mesh.visible = true;
+              this.distantSurface.setDetailChunkReady(cx, cz, true);
+              // A chunk can leave and re-enter before its deferred eviction runs.
+              // Its old mesh is still publishable, but a pending edit must resume
+              // the remesh instead of becoming permanently stranded.
+              if (chunk.isDirty) this.dirtyChunks.add(chunk);
+            } else {
+              this.distantSurface.setDetailChunkReady(cx, cz, false);
+              chunk.isDirty = true;
+              this.dirtyChunks.add(chunk);
+            }
           }
         }
       }
@@ -1238,7 +1540,6 @@ export class World {
         chunk,
         this.mesher.buildChunkMeshData(chunk),
         chunk.dataVersion,
-        this.mesher.buildTerrainDetailMeshData(chunk),
       );
       this.commitCrossLayerPublication(key);
 
@@ -1319,10 +1620,9 @@ export class World {
     chunk: Chunk,
     meshData: ChunkMeshData,
     dataVersion = chunk.dataVersion,
-    detailMeshData: ChunkMeshData | null = null,
   ) {
     const previousMesh = chunk.mesh;
-    const nextMesh = this.mesher.createChunkMeshFromData(chunk, meshData, detailMeshData);
+    const nextMesh = this.mesher.createChunkMeshFromData(chunk, meshData);
     nextMesh.userData.bentSphere = computeChunkBentSphere(
       chunk.cx,
       chunk.cz,
@@ -1410,6 +1710,9 @@ export class World {
         waitsForMicroPublication = snapshotIsCurrent
           && replacementIsCurrent
           && Boolean(nextResult.blocks && nextResult.terrainColors && nextResult.terrainMaterials && nextResult.mesh);
+        if (waitsForMicroPublication) {
+          this.prepareProceduralMicroWorkerResult(nextJob, nextResult);
+        }
       } else {
         const blockedByRemoteSnapshot = this.pendingRemoteChunkUpdates.has(nextJob.key)
           || this.pendingRemoteChunkApply?.key === nextJob.key
@@ -1448,13 +1751,13 @@ export class World {
           !this.crossLayerPublicationChunks.has(job.key)
           && resultDataVersion > chunk.publishedDataVersion
         ) {
-          this.publishChunkMesh(chunk, result.mesh, resultDataVersion, result.detailMesh ?? null);
+          this.publishChunkMesh(chunk, result.mesh, resultDataVersion);
           return true;
         }
         return false;
       }
 
-      this.publishChunkMesh(chunk, result.mesh, resultDataVersion, result.detailMesh ?? null);
+      this.publishChunkMesh(chunk, result.mesh, resultDataVersion);
       this.commitCrossLayerPublication(job.key);
       chunk.isDirty = false;
       this.dirtyChunks.delete(chunk);
@@ -1494,6 +1797,7 @@ export class World {
         ?? job.recycledChunk
         ?? new Chunk(job.cx, job.cz, this);
       if (!replacingChunk) chunk.reuseAt(job.cx, job.cz, this);
+      this.prepareProceduralMicroWorkerResult(job, result);
       chunk.installGeneratedData(
         result.blocks,
         result.terrainColors,
@@ -1504,7 +1808,7 @@ export class World {
         result.terrainDetails ?? new Uint32Array(0),
       );
       if (!replacingChunk) this.chunks.set(job.key, chunk);
-      this.publishChunkMesh(chunk, result.mesh, chunk.dataVersion, result.detailMesh ?? null);
+      this.publishChunkMesh(chunk, result.mesh, chunk.dataVersion);
       this.commitCrossLayerPublication(job.key);
       chunk.isDirty = false;
       this.dirtyChunks.delete(chunk);
@@ -1543,7 +1847,8 @@ export class World {
       result.terrainDetails ?? new Uint32Array(0),
     );
     this.chunks.set(job.key, chunk);
-    this.publishChunkMesh(chunk, result.mesh, chunk.dataVersion, result.detailMesh ?? null);
+    this.rebuildMicroChunk(chunk);
+    this.publishChunkMesh(chunk, result.mesh, chunk.dataVersion);
     this.commitCrossLayerPublication(job.key);
     return true;
   }
@@ -1709,7 +2014,6 @@ export class World {
     const blocks = remeshChunk.blocks.slice();
     const colors = remeshChunk.colors.slice();
     const materials = remeshChunk.materials.slice();
-    const terrainDetails = remeshChunk.terrainDetails.slice();
     const job: TerrainWorkerJob = {
       requestId: this.nextTerrainWorkerRequestId++,
       type: 'remesh',
@@ -1733,8 +2037,7 @@ export class World {
       blocksBuffer: blocks.buffer,
       colorsBuffer: colors.buffer,
       materialsBuffer: materials.buffer,
-      terrainDetailsBuffer: terrainDetails.buffer,
-    }, [blocks.buffer, colors.buffer, materials.buffer, terrainDetails.buffer]);
+    }, [blocks.buffer, colors.buffer, materials.buffer]);
     return true;
   }
 
@@ -1857,7 +2160,11 @@ export class World {
 
   private captureDistantChunk(chunk: Chunk) {
     const microRevision = this.microVoxels.getChunkRevision(chunk.cx, chunk.cz);
-    if (!chunk.hasUserEdits && microRevision === 0) return;
+    const getMicroEditsForChunk = (this.editPersistence as any)?.getMicroEditsForChunk;
+    const hasAuthoredMicro = typeof getMicroEditsForChunk === 'function'
+      ? !getMicroEditsForChunk.call(this.editPersistence, chunk.cx, chunk.cz).next().done
+      : microRevision > 0;
+    if (!chunk.hasUserEdits && !hasAuthoredMicro) return;
     const pending = !this.editPersistence || this.editPersistence.hasPendingEditsForChunk(chunk.cx, chunk.cz);
     const key = World.getChunkKey(chunk.cx, chunk.cz);
     const revision = pending ? Infinity : Math.max(this.remoteChunkRevisions.get(key) ?? 0,
@@ -1885,6 +2192,7 @@ export class World {
       this.pendingChunkEvictions.delete(key);
       if (this.activeChunkKeys.has(key)) continue;
       if (chunk.mesh) this.disposeChunkMesh(chunk);
+      this.unloadProceduralMicroChunk(chunk);
       this.dirtyChunks.delete(chunk);
       this.interactiveDirtyChunks.delete(chunk);
       if (!chunk.hasUserEdits) {
@@ -2076,16 +2384,7 @@ export class World {
   extractMicroRegion(minX, minY, minZ, maxX, maxY, maxZ) {
     const extracted = this.microVoxels.extractRegion(minX, minY, minZ, maxX, maxY, maxZ);
     if (extracted.length > 0) {
-      for (const cell of extracted) {
-        this.microVoxels.prioritizeMeshAt(cell.mx, cell.mz, cell.my);
-        this.editPersistence?.removeMicro(cell.mx, cell.my, cell.mz);
-        this.trackPendingRemoteMicroOverride({
-          type: 'delete',
-          mx: cell.mx,
-          my: cell.my,
-          mz: cell.mz,
-        });
-      }
+      this.persistExtractedMicroCells(extracted);
       this.terrainVersion++;
     }
     return extracted;
@@ -2099,19 +2398,42 @@ export class World {
   extractMicroCellRegion(minMx, minMy, minMz, maxMx, maxMy, maxMz) {
     const extracted = this.microVoxels.extractCellsInBox(minMx, minMy, minMz, maxMx, maxMy, maxMz);
     if (extracted.length > 0) {
-      for (const cell of extracted) {
-        this.microVoxels.prioritizeMeshAt(cell.mx, cell.mz, cell.my);
-        this.editPersistence?.removeMicro(cell.mx, cell.my, cell.mz);
-        this.trackPendingRemoteMicroOverride({
-          type: 'delete',
-          mx: cell.mx,
-          my: cell.my,
-          mz: cell.mz,
-        });
-      }
+      this.persistExtractedMicroCells(extracted);
       this.terrainVersion++;
     }
     return extracted;
+  }
+
+  private persistExtractedMicroCells(
+    extracted: Array<{ mx: number; my: number; mz: number }>,
+  ) {
+    const materializedParents = new Map<string, [number, number, number]>();
+    for (const cell of extracted) {
+      this.microVoxels.prioritizeMeshAt(cell.mx, cell.mz, cell.my);
+      if (!this.isProceduralMicroCell(cell.mx, cell.my, cell.mz)) continue;
+      const wx = Math.floor(cell.mx / MICRO_DIVISIONS);
+      const wy = Math.floor(cell.my / MICRO_DIVISIONS);
+      const wz = Math.floor(cell.mz / MICRO_DIVISIONS);
+      materializedParents.set(this.proceduralParentKey(wx, wy, wz), [wx, wy, wz]);
+    }
+    for (const [wx, wy, wz] of materializedParents.values()) {
+      this.persistProceduralMicroParent(wx, wy, wz);
+    }
+    for (const cell of extracted) {
+      const parentKey = this.proceduralParentKey(
+        Math.floor(cell.mx / MICRO_DIVISIONS),
+        Math.floor(cell.my / MICRO_DIVISIONS),
+        Math.floor(cell.mz / MICRO_DIVISIONS),
+      );
+      if (materializedParents.has(parentKey)) continue;
+      this.editPersistence?.removeMicro(cell.mx, cell.my, cell.mz);
+      this.trackPendingRemoteMicroOverride({
+        type: 'delete',
+        mx: cell.mx,
+        my: cell.my,
+        mz: cell.mz,
+      });
+    }
   }
 
   /** Force pending browser-local terrain edits to durable storage. */
@@ -2259,6 +2581,8 @@ export class World {
     if (this.activeChunkKeys.has(key) && this.chunks.get(key)?.mesh) {
       this.crossLayerPublicationChunks.add(key);
     }
+    this.proceduralMicroChunks.delete(key);
+    this.proceduralMicroParentsByChunk.delete(key);
     this.microMeshBuildBlockedChunks.add(key);
     return this.microVoxels.beginClearChunk(cx, cz);
   }
@@ -2345,16 +2669,15 @@ export class World {
         break;
       }
       const edit = next.value;
-      if (offThreadStreaming) {
-        job.workerStandardEdits.push([
-          edit.x,
-          edit.y,
-          edit.z,
-          edit.block,
-          edit.color,
-          edit.material,
-        ]);
-      } else if (job.chunk) {
+      job.workerStandardEdits.push([
+        edit.x,
+        edit.y,
+        edit.z,
+        edit.block,
+        edit.color,
+        edit.material,
+      ]);
+      if (!offThreadStreaming && job.chunk) {
         const lx = edit.x - job.cx * CHUNK_SIZE_X;
         const lz = edit.z - job.cz * CHUNK_SIZE_Z;
         job.chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color, edit.material);
@@ -2382,6 +2705,14 @@ export class World {
       this.pendingTerrainSnapshots.set(job.key, snapshot);
       if (this.activeChunkKeys.has(job.key)) this.pendingChunkEvictions.delete(job.key);
     } else if (job.chunk) {
+      if (job.chunk.terrainDetails.length > 0) {
+        const microEdits = this.snapshotMicroEditsForChunk(job.cx, job.cz);
+        this.rebuildMicroChunk(
+          job.chunk,
+          this.unpackStandardEdits(job.workerStandardEdits.concat(job.localStandardOverrides)),
+          microEdits,
+        );
+      }
       job.chunk.hasUserEdits = true;
       if (this.activeChunkKeys.has(job.key)) {
         job.chunk.isDirty = true;
@@ -2499,6 +2830,8 @@ export class World {
     });
 
     this.microVoxels.clearChunk(cx, cz);
+    this.proceduralMicroChunks.delete(key);
+    this.proceduralMicroParentsByChunk.delete(key);
 
     const microEdits = this.editPersistence
       ? [...this.editPersistence.getMicroEditsForChunk(cx, cz)]
@@ -2526,6 +2859,9 @@ export class World {
         const lx = edit.x - cx * CHUNK_SIZE_X;
         const lz = edit.z - cz * CHUNK_SIZE_Z;
         chunk.setLocalBlock(lx, edit.y, lz, edit.block, edit.color, edit.material);
+      }
+      if (chunk.terrainDetails.length > 0) {
+        this.rebuildMicroChunk(chunk, standardEdits, microEdits);
       }
       chunk.hasUserEdits = true;
       if (this.activeChunkKeys.has(key)) {

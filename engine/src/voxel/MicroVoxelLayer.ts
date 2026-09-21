@@ -344,8 +344,13 @@ export class MicroVoxelLayer {
     this.preservePublishedCollisionCell(mx, my, mz);
     this.cells.set(cellKey, normalized);
     this.packedColors.set(packedKey, normalized);
-    this.materials.set(cellKey, normalizedMaterial);
-    this.packedMaterials.set(packedKey, normalizedMaterial);
+    if (normalizedMaterial === VoxelMaterialIds.DEFAULT) {
+      this.materials.delete(cellKey);
+      this.packedMaterials.delete(packedKey);
+    } else {
+      this.materials.set(cellKey, normalizedMaterial);
+      this.packedMaterials.set(packedKey, normalizedMaterial);
+    }
     if (isNew) {
       this.addChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
@@ -354,6 +359,59 @@ export class MicroVoxelLayer {
     else this.parts.delete(cellKey);
     this.markMeshChunkDirty(mx, my, mz);
     return true;
+  }
+
+  /**
+   * Install packed chunk-local terrain cells with one invalidation per touched
+   * partition. This keeps worker-generated detail publication off the 8 ms
+   * per-cell path while preserving the exact maps used by editing and physics.
+   */
+  setPackedTerrainCells(
+    originMx: number,
+    originMz: number,
+    packed: Uint32Array,
+    include: (localMx: number, my: number, localMz: number) => boolean,
+  ) {
+    const dirtyPartitions = new Set<string>();
+    const collisionPartitions = new Set<string>();
+    const standardChunks = new Set<string>();
+    let changed = 0;
+    for (let offset = 0; offset + 3 < packed.length; offset += 4) {
+      const localMx = packed[offset];
+      const my = packed[offset + 1];
+      const localMz = packed[offset + 2];
+      if (!include(localMx, my, localMz)) continue;
+      const mx = wrapMicroX(originMx + localMx);
+      const mz = wrapMicroZ(originMz + localMz);
+      const normalized = normalizeColor(packed[offset + 3]);
+      const cellKey = `${mx},${my},${mz}`;
+      const packedKey = packedMicroKey(mx, my, mz);
+      const isNew = !this.cells.has(cellKey);
+      if (this.cells.get(cellKey) === normalized
+        && !this.parts.has(cellKey)
+        && this.getMaterial(mx, my, mz) === VoxelMaterialIds.DEFAULT) continue;
+      this.preservePublishedCollisionCell(mx, my, mz);
+      this.cells.set(cellKey, normalized);
+      this.packedColors.set(packedKey, normalized);
+      this.materials.delete(cellKey);
+      this.packedMaterials.delete(packedKey);
+      this.parts.delete(cellKey);
+      if (isNew) {
+        this.addChunkCell(packedKey, mx, my, mz);
+        collisionPartitions.add(meshChunkKey(mx, my, mz));
+      }
+      standardChunks.add(standardChunkKeyForMeshChunk(meshChunkKey(mx, my, mz)));
+      for (const partition of this.affectedMeshChunkKeys(mx, my, mz)) {
+        dirtyPartitions.add(partition);
+      }
+      changed++;
+    }
+    for (const chunkKey of collisionPartitions) this.invalidateCollisionPartition(chunkKey);
+    for (const standardKey of standardChunks) {
+      this.chunkRevisions.set(standardKey, (this.chunkRevisions.get(standardKey) ?? 0) + 1);
+    }
+    for (const chunkKey of dirtyPartitions) this.invalidateMeshChunk(chunkKey);
+    return changed;
   }
 
   delete(mx, my, mz) {

@@ -31,7 +31,7 @@ export class HostedSimulation {
   }
 
   constructor(seed: number, terrainGeneratorVersion = 1) {
-    this.world = new World(this.scene, seed, null, terrainGeneratorVersion, false);
+    this.world = new World(this.scene, seed, null, terrainGeneratorVersion, true);
     // No renderer, browser, terrain mesh builds or local-storage timers are started.
     const originalCreate = this.world.getOrCreateChunk.bind(this.world);
     this.world.getOrCreateChunk = (cx, cz) => {
@@ -72,15 +72,36 @@ export class HostedSimulation {
       this.world.chunks.delete(key);
       this.world.microVoxels.clearChunk(chunk.chunk_x, chunk.chunk_z);
       const loaded = this.world.getOrCreateChunk(chunk.chunk_x, chunk.chunk_z);
-      for (const [x, y, z, block, color] of chunk.standard) loaded.setLocalBlock(x % 16, y, z % 16, block, color);
-      for (const [mx, my, mz, color, part] of chunk.micro) this.world.microVoxels.set(mx, my, mz, color, part);
+      const standardEdits = chunk.standard.map(([x, y, z, block, color, material = 0]) => ({
+        x, y, z, block, color, material,
+      }));
+      const microEdits = chunk.micro.map(([mx, my, mz, color, part, material = 0]) => ({
+        mx, my, mz, color, part, material,
+      }));
+      for (const edit of standardEdits) {
+        // Every explicit standard edit, including AIR, suppresses generated
+        // micro terrain in its parent cell.
+        this.world.microVoxels.clearStandardCell(edit.x, edit.y, edit.z);
+        loaded.setLocalBlock(edit.x % 16, edit.y, edit.z % 16, edit.block, edit.color, edit.material);
+      }
+      for (const edit of microEdits) {
+        if (loaded.getLocalBlock(
+          Math.floor(edit.mx / MICRO_DIVISIONS) % 16,
+          Math.floor(edit.my / MICRO_DIVISIONS),
+          Math.floor(edit.mz / MICRO_DIVISIONS) % 16,
+        ) === 0) {
+          this.world.microVoxels.set(
+            edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material,
+          );
+        }
+      }
       this.revisions.set(key, chunk.revision);
     }
     this.dirty.clear();
     // Persistence hooks collect validated engine edits; Python commits them with snapshots and billing.
     this.world.editPersistence = {
-      recordStandard: (x, y, z, block, color) => this.record({ kind: 'set_standard', x: wrapX(x), y, z: wrapZ(z), block, color }),
-      recordMicro: (mx, my, mz, color, part) => this.record({ kind: 'set_micro', mx, my, mz, color, part }),
+      recordStandard: (x, y, z, block, color, material = 0) => this.record({ kind: 'set_standard', x: wrapX(x), y, z: wrapZ(z), block, color, material }),
+      recordMicro: (mx, my, mz, color, part, material = 0) => this.record({ kind: 'set_micro', mx, my, mz, color, part, material }),
       removeMicro: (mx, my, mz) => this.record({ kind: 'remove_micro', mx, my, mz }),
       removeMicroStandardCell: (x, y, z) => this.record({ kind: 'clear_micro_cell', x: wrapX(x), y, z: wrapZ(z) }),
       canAcceptLocalMutation: () => this.mutations.length < 256,

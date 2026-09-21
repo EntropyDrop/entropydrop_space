@@ -14,7 +14,7 @@ export class Chunk {
   blocks: Uint8Array;
   colors: Uint32Array;
   materials: Uint8Array;
-  /** Deterministic decorative 0.125 m cells packed as local mx,my,mz,color. */
+  /** Deterministic 0.125 m terrain cells packed as local mx,my,mz,color. */
   terrainDetails: Uint32Array;
   mesh: any;
   isDirty: boolean;

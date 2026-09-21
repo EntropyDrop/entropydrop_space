@@ -323,134 +323,17 @@ export class LowPolyMesher {
     };
   }
 
-  /** Mesh deterministic 0.125 m ornaments without adding them to the authored edit layer. */
-  buildTerrainDetailMeshData(
-    chunk,
-    packedDetails: Uint32Array = chunk.terrainDetails ?? new Uint32Array(0),
-  ): ChunkMeshData {
-    const microAxis = CHUNK_SIZE_X * 8;
-    const occupancy = new Map<number, number>();
-    const pack = (mx: number, my: number, mz: number) => (
-      (my * microAxis + mz) * microAxis + mx
-    );
-    for (let offset = 0; offset + 3 < packedDetails.length; offset += 4) {
-      const mx = packedDetails[offset];
-      const my = packedDetails[offset + 1];
-      const mz = packedDetails[offset + 2];
-      if (mx >= microAxis || mz >= microAxis || my >= CHUNK_SIZE_Y * 8) continue;
-      const parent = Chunk.getIndex(Math.floor(mx / 8), Math.floor(my / 8), Math.floor(mz / 8));
-      if (chunk.blocks[parent] !== BlockTypes.AIR) continue;
-      occupancy.set(pack(mx, my, mz), packedDetails[offset + 3]);
-    }
-
-    const visibleFaces: number[] = [];
-    let minMicroY = CHUNK_SIZE_Y * 8;
-    let maxMicroY = -1;
-    for (const [packed, color] of occupancy) {
-      const mx = packed % microAxis;
-      const plane = (packed - mx) / microAxis;
-      const mz = plane % microAxis;
-      const my = (plane - mz) / microAxis;
-      minMicroY = Math.min(minMicroY, my);
-      maxMicroY = Math.max(maxMicroY, my);
-      for (let faceIndex = 0; faceIndex < FACES.length; faceIndex++) {
-        const face = FACES[faceIndex];
-        const nx = mx + face.dir[0];
-        const ny = my + face.dir[1];
-        const nz = mz + face.dir[2];
-        const neighborInside = nx >= 0 && nx < microAxis
-          && ny >= 0 && ny < CHUNK_SIZE_Y * 8
-          && nz >= 0 && nz < microAxis;
-        if (neighborInside && occupancy.has(pack(nx, ny, nz))) continue;
-        if (
-          neighborInside
-          && chunk.blocks[Chunk.getIndex(
-            Math.floor(nx / 8),
-            Math.floor(ny / 8),
-            Math.floor(nz / 8),
-          )] !== BlockTypes.AIR
-        ) continue;
-        visibleFaces.push(mx, my, mz, faceIndex, color);
-      }
-    }
-
-    const faceCount = visibleFaces.length / 5;
-    if (faceCount === 0) {
-      return {
-        occupiedMinY: 0,
-        occupiedMaxY: 0,
-        positions: null,
-        normals: null,
-        colors: null,
-        indices: null,
-        materialIndexCounts: [0, 0],
-      };
-    }
-    const vertexCount = faceCount * 4;
-    const positions = new Float32Array(vertexCount * 3);
-    const normals = new Int8Array(vertexCount * 3);
-    const colors = new Uint8Array(vertexCount * 3);
-    const indices = vertexCount <= 0xffff
-      ? new Uint16Array(faceCount * 6)
-      : new Uint32Array(faceCount * 6);
-    let attributeOffset = 0;
-    let indexOffset = 0;
-    let vertexOffset = 0;
-    for (let offset = 0; offset < visibleFaces.length; offset += 5) {
-      const mx = visibleFaces[offset];
-      const my = visibleFaces[offset + 1];
-      const mz = visibleFaces[offset + 2];
-      const face = FACES[visibleFaces[offset + 3]];
-      this._tempColor.setHex(visibleFaces[offset + 4]);
-      const shade = face.face === 'top' ? 1 : face.face === 'bottom' ? 0.6 : 0.85;
-      for (let vertexIndex = 0; vertexIndex < 4; vertexIndex++) {
-        const vertex = face.quad[vertexIndex];
-        positions[attributeOffset] = (mx + vertex[0]) / 8;
-        normals[attributeOffset] = face.norm[0] * 127;
-        colors[attributeOffset++] = Math.round(this._tempColor.r * shade * 255);
-        positions[attributeOffset] = (my + vertex[1]) / 8;
-        normals[attributeOffset] = face.norm[1] * 127;
-        colors[attributeOffset++] = Math.round(this._tempColor.g * shade * 255);
-        positions[attributeOffset] = (mz + vertex[2]) / 8;
-        normals[attributeOffset] = face.norm[2] * 127;
-        colors[attributeOffset++] = Math.round(this._tempColor.b * shade * 255);
-      }
-      indices[indexOffset++] = vertexOffset;
-      indices[indexOffset++] = vertexOffset + 1;
-      indices[indexOffset++] = vertexOffset + 2;
-      indices[indexOffset++] = vertexOffset;
-      indices[indexOffset++] = vertexOffset + 2;
-      indices[indexOffset++] = vertexOffset + 3;
-      vertexOffset += 4;
-    }
-    return {
-      occupiedMinY: minMicroY / 8,
-      occupiedMaxY: (maxMicroY + 1) / 8,
-      positions,
-      normals,
-      colors,
-      indices,
-      materialIndexCounts: [indices.length, 0],
-    };
-  }
-
   /** Fast main-thread publication of mesh buffers already built elsewhere. */
   createChunkMeshFromData(
     chunk,
     data: ChunkMeshData,
-    detailData: ChunkMeshData | null = null,
   ) {
     const origin = chunk.getWorldOrigin();
     const group = new THREE.Group();
     group.name = `Chunk_${chunk.cx}_${chunk.cz}`;
     group.position.set(origin.x, origin.y, origin.z);
-    const detailOccupied = detailData?.positions && detailData.occupiedMaxY > detailData.occupiedMinY;
-    group.userData.occupiedMinY = detailOccupied
-      ? Math.min(data.occupiedMinY, detailData.occupiedMinY)
-      : data.occupiedMinY;
-    group.userData.occupiedMaxY = detailOccupied
-      ? Math.max(data.occupiedMaxY, detailData.occupiedMaxY)
-      : data.occupiedMaxY;
+    group.userData.occupiedMinY = data.occupiedMinY;
+    group.userData.occupiedMaxY = data.occupiedMaxY;
 
     const addMesh = (meshData: ChunkMeshData, name: string) => {
       if (!meshData.positions || !meshData.normals || !meshData.colors || !meshData.indices) return;
@@ -470,7 +353,6 @@ export class LowPolyMesher {
       group.add(mesh);
     };
     addMesh(data, 'StandardTerrain');
-    if (detailData) addMesh(detailData, 'CopperMetropolisDetails');
 
     return group;
   }

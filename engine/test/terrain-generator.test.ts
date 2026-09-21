@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TerrainGenerator } from '../src/worldgen/TerrainGenerator.ts';
 import { Chunk } from '../src/voxel/Chunk.ts';
-import { LowPolyMesher } from '../src/mesher/LowPolyMesher.ts';
 import {
   TORUS_SIZE_X,
   TORUS_SIZE_Z,
@@ -66,9 +65,6 @@ test('Copper Metropolis generates deterministic dense architecture around spawn'
   assert.notDeepEqual(first.colors, changed.colors);
   assert.ok(first.terrainDetails.length / 4 > 1000);
   assert.ok(first.terrainDetails.some((value, index) => index % 4 < 3 && value % 8 !== 0));
-  const detailMesh = new LowPolyMesher().buildTerrainDetailMeshData(first);
-  assert.ok(detailMesh.positions instanceof Float32Array);
-  assert.ok((detailMesh.indices?.length ?? 0) > 0);
   const headless = new Chunk(TORUS_SPAWN_X / 16, TORUS_SPAWN_Z / 16, null);
   new TerrainGenerator(20260922, 2).generateChunk(headless, false);
   assert.equal(headless.terrainDetails.length, 0);
