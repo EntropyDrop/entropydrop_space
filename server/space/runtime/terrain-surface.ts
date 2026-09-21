@@ -9,7 +9,7 @@ function integer(value: string | undefined, name: string) {
 
 function generateChunk(generator: TerrainGenerator, chunkX: number, chunkZ: number) {
   const chunk = new Chunk(chunkX, chunkZ, null);
-  generator.generateChunk(chunk);
+  generator.generateChunk(chunk, false);
   return chunk;
 }
 

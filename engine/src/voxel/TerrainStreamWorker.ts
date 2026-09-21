@@ -35,6 +35,7 @@ type RemeshRequest = {
   blocksBuffer: ArrayBuffer;
   colorsBuffer: ArrayBuffer;
   materialsBuffer: ArrayBuffer;
+  terrainDetailsBuffer?: ArrayBuffer;
 };
 
 type TerrainWorkerRequest = GenerateRequest | RemeshRequest;
@@ -102,11 +103,12 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
         chunk.colors = new Uint32Array(request.colorsBuffer);
         chunk.materials = new Uint8Array(request.materialsBuffer);
       }
-      terrainGen.generateChunk(chunk);
+      const terrainDetails = terrainGen.generateChunk(chunk) ?? new Uint32Array(0);
       for (const [x, y, z, block, color, materialId] of request.standardEdits) {
         chunk.setLocalBlock(x - chunk.cx * CHUNK_SIZE_X, y, z - chunk.cz * CHUNK_SIZE_Z, block, color, materialId);
       }
       const mesh = mesher.buildChunkMeshData(chunk);
+      const detailMesh = mesher.buildTerrainDetailMeshData(chunk, terrainDetails);
       const response = {
         ok: true,
         type: request.type,
@@ -117,13 +119,17 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
         blocks: chunk.blocks,
         terrainColors: chunk.colors,
         terrainMaterials: chunk.materials,
+        terrainDetails,
         mesh,
+        detailMesh,
       };
       workerScope.postMessage(response, [
         chunk.blocks.buffer,
         chunk.colors.buffer,
         chunk.materials.buffer,
+        terrainDetails.buffer,
         ...transferableMeshBuffers(mesh),
+        ...transferableMeshBuffers(detailMesh),
       ]);
       return;
     }
@@ -131,9 +137,13 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
     chunk.blocks = new Uint8Array(request.blocksBuffer);
     chunk.colors = new Uint32Array(request.colorsBuffer);
     chunk.materials = new Uint8Array(request.materialsBuffer);
+    chunk.terrainDetails = request.terrainDetailsBuffer
+      ? new Uint32Array(request.terrainDetailsBuffer)
+      : new Uint32Array(0);
     chunk.setGeneratedOccupiedYRange(request.minOccupiedY, request.maxOccupiedY);
     chunk.hasGenerated = true;
     const mesh = mesher.buildChunkMeshData(chunk);
+    const detailMesh = mesher.buildTerrainDetailMeshData(chunk);
     workerScope.postMessage({
       ok: true,
       type: request.type,
@@ -142,7 +152,11 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
       cz: chunk.cz,
       dataVersion: request.dataVersion,
       mesh,
-    }, transferableMeshBuffers(mesh));
+      detailMesh,
+    }, [
+      ...transferableMeshBuffers(mesh),
+      ...transferableMeshBuffers(detailMesh),
+    ]);
   } catch (error) {
     workerScope.postMessage({
       ok: false,

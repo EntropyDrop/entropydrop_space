@@ -95,11 +95,12 @@ export class TerrainGenerator {
     return Math.max(TERRAIN_MIN_HEIGHT, Math.min(TERRAIN_MAX_HEIGHT, height));
   }
 
-  generateChunk(chunk) {
+  generateChunk(chunk, includeDetails = true) {
     chunk.resetForTerrainGeneration();
     if (this.version === TERRAIN_GENERATOR_COPPER_METROPOLIS) {
-      generateCopperMetropolisChunk(chunk, this.seed);
-      return;
+      const details = generateCopperMetropolisChunk(chunk, this.seed, includeDetails);
+      chunk.terrainDetails = details;
+      return details;
     }
 
     const origin = chunk.getWorldOrigin();
@@ -126,5 +127,6 @@ export class TerrainGenerator {
     }
     chunk.setGeneratedOccupiedYRange(0, maxHeight);
     chunk.hasGenerated = true;
+    return chunk.terrainDetails;
   }
 }

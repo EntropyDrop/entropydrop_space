@@ -14,6 +14,8 @@ export class Chunk {
   blocks: Uint8Array;
   colors: Uint32Array;
   materials: Uint8Array;
+  /** Deterministic decorative 0.125 m cells packed as local mx,my,mz,color. */
+  terrainDetails: Uint32Array;
   mesh: any;
   isDirty: boolean;
   hasGenerated: boolean;
@@ -37,6 +39,7 @@ export class Chunk {
     this.colors = new Uint32Array(CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z);
     this.colors.fill(DEFAULT_BLOCK_COLOR);
     this.materials = new Uint8Array(CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z);
+    this.terrainDetails = new Uint32Array(0);
     this.mesh = null;
     this.isDirty = true;
     this.hasGenerated = false;
@@ -63,6 +66,7 @@ export class Chunk {
     this.dataVersion++;
     this.publishedDataVersion = -1;
     this.hasUserEdits = false;
+    this.terrainDetails = new Uint32Array(0);
     this.minOccupiedY = CHUNK_SIZE_Y;
     this.maxOccupiedY = -1;
     this.occupiedYBoundsDirty = false;
@@ -141,6 +145,7 @@ export class Chunk {
     this.occupiedYBoundsDirty = false;
     this.hasGenerated = false;
     this.isDirty = true;
+    this.terrainDetails = new Uint32Array(0);
   }
 
   /** Terrain generation writes arrays directly, then publishes its exact bounds once. */
@@ -158,6 +163,7 @@ export class Chunk {
     minOccupiedY: number,
     maxOccupiedY: number,
     hasUserEdits = false,
+    terrainDetails: Uint32Array = new Uint32Array(0),
   ) {
     this.blocks = blocks;
     this.colors = colors;
@@ -167,6 +173,7 @@ export class Chunk {
     this.occupiedYBoundsDirty = false;
     this.hasGenerated = true;
     this.hasUserEdits = hasUserEdits;
+    this.terrainDetails = terrainDetails;
     this.isDirty = false;
     this.dataVersion++;
   }

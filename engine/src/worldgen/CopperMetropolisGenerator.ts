@@ -10,16 +10,20 @@ import {
 /**
  * Chunk-local port of terrain-lab's Copper Metropolis algorithm.
  *
- * The source design lives in entropydrop_frontend/terrain-lab. The world
- * generator keeps its one-metre architecture while deliberately omitting the
- * preview's eighth-metre ornaments: generated terrain has no persistent micro
- * layer, and all authored micro voxels must continue to come from world edits.
+ * The source design lives in entropydrop_frontend/terrain-lab. The one-metre
+ * architecture and eighth-metre ornamental layer are both
+ * generated from the same world-anchored grammar. Details are returned as
+ * chunk-local micro-grid cells so the terrain worker can mesh them without
+ * turning deterministic terrain into persisted world edits.
  */
 
 const METROPOLIS_HEIGHT = 112;
 const METROPOLIS_LOTS = 19;
 const METROPOLIS_SPREAD = 0.7;
+const METROPOLIS_DETAIL = 0.7;
 const METROPOLIS_BRIDGES = 0.35;
+const MICRO_DIVISIONS = 8;
+const MICRO_SIZE = 1 / MICRO_DIVISIONS;
 
 type Parcel = { x: number; z: number; w: number; d: number; id: number };
 type Section = { x: number; z: number; w: number; d: number; bottom: number; top: number };
@@ -75,7 +79,7 @@ function centeredCoordinate(value: number, center: number, period: number) {
   return delta;
 }
 
-export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
+export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includeDetails = true) {
   const worldOrigin = chunk.getWorldOrigin();
   const originX = centeredCoordinate(worldOrigin.x, TORUS_SPAWN_X, TORUS_SIZE_X);
   const originZ = centeredCoordinate(worldOrigin.z, TORUS_SPAWN_Z, TORUS_SIZE_Z);
@@ -85,8 +89,10 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
   const lotSize = METROPOLIS_LOTS;
   const maxHeight = METROPOLIS_HEIGHT;
   const spread = METROPOLIS_SPREAD;
+  const detail = METROPOLIS_DETAIL;
   const parcels: Parcel[] = [];
   const buildings: Building[] = [];
+  const rawDetails: number[] = [];
 
   const box = (
     x: number,
@@ -112,6 +118,45 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
         chunk.blocks.fill(block, start, end);
         chunk.colors.fill(color, start, end);
         chunk.materials.fill(0, start, end);
+      }
+    }
+  };
+  const micro = (x: number, y: number, z: number, color: number) => {
+    if (
+      x < originX
+      || x + MICRO_SIZE > originX + width
+      || z < originZ
+      || z + MICRO_SIZE > originZ + depth
+      || y < 0
+      || y + MICRO_SIZE > ceiling
+    ) return;
+    rawDetails.push(
+      Math.round((x - originX) * MICRO_DIVISIONS),
+      Math.round(y * MICRO_DIVISIONS),
+      Math.round((z - originZ) * MICRO_DIVISIONS),
+      color,
+    );
+  };
+  const microBox = (
+    x: number,
+    y: number,
+    z: number,
+    w: number,
+    h: number,
+    d: number,
+    color: number,
+  ) => {
+    if (!includeDetails) return;
+    for (let iy = 0; iy < h; iy += MICRO_SIZE) {
+      for (let iz = 0; iz < d; iz += MICRO_SIZE) {
+        for (let ix = 0; ix < w; ix += MICRO_SIZE) {
+          if (
+            ix > 0 && ix + MICRO_SIZE < w
+            && iy > 0 && iy + MICRO_SIZE < h
+            && iz > 0 && iz + MICRO_SIZE < d
+          ) continue;
+          micro(x + ix, y + iy, z + iz, color);
+        }
       }
     }
   };
@@ -156,6 +201,14 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
     if (remainder < 10) {
       parcels.push(parcel);
       return;
+    }
+    if (road >= 4) {
+      const run = alongX ? parcel.d : parcel.w;
+      for (let t = 2; t < run - 2; t += 6) {
+        const x = alongX ? parcel.x + cut + Math.floor(road / 2) : parcel.x + t;
+        const z = alongX ? parcel.z + t : parcel.z + cut + Math.floor(road / 2);
+        microBox(x, 1, z, alongX ? 0.5 : 2, 0.25, alongX ? 2 : 0.5, C.stone);
+      }
     }
     split({
       ...parcel,
@@ -293,6 +346,19 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
               Math.min(floorHeight - 1, top - 1 - y),
               lit < 0.12 ? C.brass : lit < 0.32 ? C.glass : C.dark,
             );
+            if (detail > 0 && lit < detail * 0.38) {
+              const mx = side ? sx + (far ? sw : -0.25) : sx + u;
+              const mz = side ? sz + u : sz + (far ? sd : -0.25);
+              microBox(
+                mx,
+                y,
+                mz,
+                side ? 0.25 : 1,
+                0.25,
+                side ? 1 : 0.25,
+                colors.frame,
+              );
+            }
           }
           if (
             family === 1
@@ -305,6 +371,11 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
       box(sx - 1, top, sz - 1, sw + 2, 1, sd + 2, C.clay);
       box(sx, top + 1, sz, sw, 1, sd, colors.roof);
       rim(sx, top + 2, sz, sw, sd, colors.frame);
+      if (detail > 0.25) {
+        for (let vent = 0; vent < 1 + Math.floor(random(25 + tier) * 3); vent++) {
+          microBox(sx + 1 + vent * 2, top + 2, sz + 1, 1, 0.5, 1, C.slate);
+        }
+      }
       if (tier < tiers - 1) {
         const shrinkX = sw > 8 ? 2 + Math.floor(random(30 + tier) * 2) : 0;
         const shrinkZ = sd > 8 ? 2 + Math.floor(random(40 + tier) * 2) : 0;
@@ -348,6 +419,15 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
         }
       }
       box(centreX, roofY + radius + 3, centreZ, 1, 3, 1, C.brass);
+      microBox(
+        centreX + 0.25,
+        roofY + radius + 6,
+        centreZ + 0.25,
+        0.5,
+        2,
+        0.5,
+        colors.frame,
+      );
     } else if (crown === 2 || crown === 4) {
       const crownHeight = crown === 4 ? 6 : 3;
       box(roofX, roofY, roofZ, rw, crownHeight, rd, C.dark);
@@ -398,6 +478,9 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
       }
       box(roofX, roofY + th, roofZ, tw, 1, td, colors.roof);
       box(roofX + rw - 1, roofY, roofZ + rd - 1, 1, 3, 1, C.brass);
+      if (detail > 0.2) {
+        microBox(roofX + rw - 1.5, roofY, roofZ, 0.5, 4, 0.5, C.slate);
+      }
     } else if (crown === 7) {
       const alongX = rw > rd;
       const narrow = Math.min(rw, rd);
@@ -419,9 +502,25 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
         box(roofX, roofY + 3, roofZ, rw, 1, 1, C.leaf);
         box(roofX, roofY + 3, roofZ, 1, 1, rd, C.leafLight);
         box(roofX + rw - 1, roofY + 3, roofZ + rd - 1, 1, 2, 1, C.brass);
+      } else if (detail > 0.15) {
+        microBox(roofX + 0.5, roofY + 3, roofZ + 0.5, 1.5, 1, 1, C.slate);
+        microBox(
+          roofX + rw - 1,
+          roofY + 3,
+          roofZ + rd - 1,
+          0.5,
+          3 + Math.floor(random(71) * 3),
+          0.5,
+          C.brass,
+        );
       }
     }
 
+    if (detail > 0.3 && random(72) < 0.45) {
+      for (let a = 1; a < w - 1; a++) {
+        microBox(x + a, 4, z + d, 1, 0.5, 1, a % 3 ? colors.roof : colors.frame);
+      }
+    }
     if (random(73) < 0.23 && pw > 14) tree(px + pw - 2, 2, pz + 1, parcel.id);
     buildings.push({
       x,
@@ -488,6 +587,18 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
     }
   }
 
+  const details: number[] = [];
+  for (let index = 0; index < rawDetails.length; index += 4) {
+    const mx = rawDetails[index];
+    const my = rawDetails[index + 1];
+    const mz = rawDetails[index + 2];
+    const parentX = Math.floor(mx / MICRO_DIVISIONS);
+    const parentY = Math.floor(my / MICRO_DIVISIONS);
+    const parentZ = Math.floor(mz / MICRO_DIVISIONS);
+    if (chunk.blocks[Chunk.getIndex(parentX, parentY, parentZ)] !== BlockTypes.AIR) continue;
+    details.push(mx, my, mz, rawDetails[index + 3]);
+  }
+
   let minOccupiedY = CHUNK_SIZE_Y;
   let maxOccupiedY = -1;
   for (let y = 0; y < CHUNK_SIZE_Y; y++) {
@@ -501,4 +612,5 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number) {
   }
   chunk.setGeneratedOccupiedYRange(minOccupiedY, maxOccupiedY);
   chunk.hasGenerated = true;
+  return Uint32Array.from(details);
 }

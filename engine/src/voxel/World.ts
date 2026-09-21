@@ -123,7 +123,9 @@ type TerrainWorkerResult = {
   blocks?: Uint8Array;
   terrainColors?: Uint32Array;
   terrainMaterials?: Uint8Array;
+  terrainDetails?: Uint32Array;
   mesh?: ChunkMeshData;
+  detailMesh?: ChunkMeshData;
 };
 
 type CompletedTerrainWorkerJob = {
@@ -171,6 +173,7 @@ export class World {
   terrainGen: TerrainGenerator;
   private terrainSeed: number;
   private terrainGeneratorVersion: number;
+  private terrainDetailsEnabled: boolean;
   mesher: LowPolyMesher;
   renderDistance: number;
   worldGroup: THREE.Group;
@@ -212,6 +215,7 @@ export class World {
     seed = 1337,
     persistenceOptions: WorldEditPersistenceOptions | null = null,
     terrainGeneratorVersion = 1,
+    terrainDetailsEnabled = true,
   ) {
     this.scene = scene;
     this.chunks = new Map(); // key: "cx,cz" -> Chunk on the wrapped 1024x128 chunk grid.
@@ -219,6 +223,7 @@ export class World {
     this.terrainGeneratorVersion = Number.isSafeInteger(Number(terrainGeneratorVersion))
       ? Number(terrainGeneratorVersion)
       : 1;
+    this.terrainDetailsEnabled = terrainDetailsEnabled;
     this.terrainGen = new TerrainGenerator(this.terrainSeed, this.terrainGeneratorVersion);
     this.mesher = new LowPolyMesher();
 
@@ -364,7 +369,7 @@ export class World {
       chunk = this.recycledProceduralChunks.pop() ?? new Chunk(cx, cz, this);
       chunk.reuseAt(cx, cz, this);
       this.chunks.set(key, chunk);
-      this.terrainGen.generateChunk(chunk);
+      this.terrainGen.generateChunk(chunk, this.terrainDetailsEnabled);
       let restoredStandard = 0;
       for (const edit of this.editPersistence?.getStandardEditsForChunk(cx, cz) ?? []) {
         const lx = edit.x - cx * CHUNK_SIZE_X;
@@ -1229,7 +1234,12 @@ export class World {
         && !this.microVoxels.isDeferredPublicationReady(key, this.activeChunkKeys)
       ) continue;
 
-      this.publishChunkMesh(chunk, this.mesher.buildChunkMeshData(chunk));
+      this.publishChunkMesh(
+        chunk,
+        this.mesher.buildChunkMeshData(chunk),
+        chunk.dataVersion,
+        this.mesher.buildTerrainDetailMeshData(chunk),
+      );
       this.commitCrossLayerPublication(key);
 
       chunk.isDirty = false;
@@ -1309,9 +1319,10 @@ export class World {
     chunk: Chunk,
     meshData: ChunkMeshData,
     dataVersion = chunk.dataVersion,
+    detailMeshData: ChunkMeshData | null = null,
   ) {
     const previousMesh = chunk.mesh;
-    const nextMesh = this.mesher.createChunkMeshFromData(chunk, meshData);
+    const nextMesh = this.mesher.createChunkMeshFromData(chunk, meshData, detailMeshData);
     nextMesh.userData.bentSphere = computeChunkBentSphere(
       chunk.cx,
       chunk.cz,
@@ -1437,13 +1448,13 @@ export class World {
           !this.crossLayerPublicationChunks.has(job.key)
           && resultDataVersion > chunk.publishedDataVersion
         ) {
-          this.publishChunkMesh(chunk, result.mesh, resultDataVersion);
+          this.publishChunkMesh(chunk, result.mesh, resultDataVersion, result.detailMesh ?? null);
           return true;
         }
         return false;
       }
 
-      this.publishChunkMesh(chunk, result.mesh, resultDataVersion);
+      this.publishChunkMesh(chunk, result.mesh, resultDataVersion, result.detailMesh ?? null);
       this.commitCrossLayerPublication(job.key);
       chunk.isDirty = false;
       this.dirtyChunks.delete(chunk);
@@ -1490,9 +1501,10 @@ export class World {
         result.mesh.occupiedMinY,
         result.mesh.occupiedMaxY - 1,
         result.hasUserEdits === true,
+        result.terrainDetails ?? new Uint32Array(0),
       );
       if (!replacingChunk) this.chunks.set(job.key, chunk);
-      this.publishChunkMesh(chunk, result.mesh);
+      this.publishChunkMesh(chunk, result.mesh, chunk.dataVersion, result.detailMesh ?? null);
       this.commitCrossLayerPublication(job.key);
       chunk.isDirty = false;
       this.dirtyChunks.delete(chunk);
@@ -1528,9 +1540,10 @@ export class World {
       result.mesh.occupiedMinY,
       result.mesh.occupiedMaxY - 1,
       result.hasUserEdits === true,
+      result.terrainDetails ?? new Uint32Array(0),
     );
     this.chunks.set(job.key, chunk);
-    this.publishChunkMesh(chunk, result.mesh);
+    this.publishChunkMesh(chunk, result.mesh, chunk.dataVersion, result.detailMesh ?? null);
     this.commitCrossLayerPublication(job.key);
     return true;
   }
@@ -1541,6 +1554,7 @@ export class World {
     chunk.blocks = result.blocks;
     chunk.colors = result.terrainColors;
     chunk.materials = result.terrainMaterials;
+    chunk.terrainDetails = result.terrainDetails ?? new Uint32Array(0);
     if (this.recycledProceduralChunks.length < MAX_RECYCLED_PROCEDURAL_CHUNKS) {
       this.recycledProceduralChunks.push(chunk);
     }
@@ -1695,6 +1709,7 @@ export class World {
     const blocks = remeshChunk.blocks.slice();
     const colors = remeshChunk.colors.slice();
     const materials = remeshChunk.materials.slice();
+    const terrainDetails = remeshChunk.terrainDetails.slice();
     const job: TerrainWorkerJob = {
       requestId: this.nextTerrainWorkerRequestId++,
       type: 'remesh',
@@ -1718,7 +1733,8 @@ export class World {
       blocksBuffer: blocks.buffer,
       colorsBuffer: colors.buffer,
       materialsBuffer: materials.buffer,
-    }, [blocks.buffer, colors.buffer, materials.buffer]);
+      terrainDetailsBuffer: terrainDetails.buffer,
+    }, [blocks.buffer, colors.buffer, materials.buffer, terrainDetails.buffer]);
     return true;
   }
 
@@ -2316,7 +2332,7 @@ export class World {
       if (job.chunk && !offThreadStreaming) {
         // Startup/tests can explicitly request immediate visibility before the
         // animation loop exists. Runtime streaming never takes this branch.
-        this.terrainGen.generateChunk(job.chunk);
+        this.terrainGen.generateChunk(job.chunk, this.terrainDetailsEnabled);
       }
       job.chunkPrepared = true;
       processed = 0;
@@ -2505,7 +2521,7 @@ export class World {
     // If chunk is currently loaded in memory, regenerate and apply standard blocks
     const chunk = this.chunks.get(key);
     if (chunk) {
-      this.terrainGen.generateChunk(chunk);
+      this.terrainGen.generateChunk(chunk, this.terrainDetailsEnabled);
       for (const edit of standardEdits) {
         const lx = edit.x - cx * CHUNK_SIZE_X;
         const lz = edit.z - cz * CHUNK_SIZE_Z;
