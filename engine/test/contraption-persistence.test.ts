@@ -220,6 +220,66 @@ test('contraption manager saves assembled entity and restores it after simulated
   assert.deepEqual(restored.angularVelocity.toArray(), created.angularVelocity.toArray());
 });
 
+test('a wrench-held autosave restores as a motionless stopped pose', () => {
+  const manager = new ContraptionManager(new THREE.Scene(), null, null, null);
+  const entity = manager.buildFromSlot({
+    rootComponentId: 'root',
+    mode: ContraptionMode.PROGRAMMABLE,
+    bodyType: 'dynamic',
+    blocks: [
+      { localX: 0, localY: 0, localZ: 0, size: 1, color: 0xff0000,
+        block: BlockTypes.COLOR_BLOCK, entityId: 'root' }
+    ],
+    childEntities: [],
+    scripts: [],
+    enabled: [],
+    constraints: []
+  }, new THREE.Vector3(1, 2, 3), null, false);
+  assert.ok(entity);
+
+  entity.position.set(7, 18, 9);
+  entity.getRigidBody('root').position.copy(entity.position);
+  entity.updateTransform();
+  entity.scriptStatus = 'stopped';
+  entity.setPhysicsSimulationEnabled(true);
+  entity.isWrenchGrabbed = true;
+  entity.velocity.set(4, 5, 6);
+  entity.angularVelocity.set(1, 2, 3);
+  const body = entity.getRigidBody('root');
+  body.velocity.set(-3, 8, 2);
+  body.angularVelocity.set(5, -4, 1);
+  body.previousKinematicPosition.set(-100, -100, -100);
+
+  const record = manager.captureContraptionForStreaming(entity, { id: '0,0' });
+  assert.equal(record.scriptStatus, 'stopped');
+  assert.equal(record.physicsSimulationEnabled, false);
+  assert.deepEqual(record.velocity, [0, 0, 0]);
+  assert.deepEqual(record.angularVelocity, [0, 0, 0]);
+  assert.deepEqual(record.bodies[0].velocity, [0, 0, 0]);
+  assert.deepEqual(record.bodies[0].angularVelocity, [0, 0, 0]);
+  assert.deepEqual(record.bodies[0].previousKinematicPosition, record.bodies[0].position);
+
+  const restoredManager = new ContraptionManager(new THREE.Scene(), null, null, null);
+  const restored = restoredManager.buildFromSlot(
+    record.slot,
+    new THREE.Vector3().fromArray(record.constructorOrigin),
+    record,
+    false
+  );
+  assert.ok(restored);
+  assert.equal(restored.isPhysicsSimulationEnabled(), false);
+  assert.deepEqual(restored.velocity.toArray(), [0, 0, 0]);
+  assert.deepEqual(restored.getRigidBody('root').velocity.toArray(), [0, 0, 0]);
+  assert.deepEqual(restored.previousPosition.toArray(), restored.position.toArray());
+
+  for (const alpha of [0, 0.25, 0.75, 1]) {
+    restored.beginRenderInterpolation(alpha);
+    assert.deepEqual(restored.rootGroup.position.toArray(), restored.position.toArray(),
+      'a stopped restored pose must not interpolate from its constructor origin');
+    restored.endRenderInterpolation();
+  }
+});
+
 test('refresh preserves the root pivot after live block edits change the bounds', () => {
   const storage = new MockStorage();
   const worldId = 'test-world-persist-edited-pivot';

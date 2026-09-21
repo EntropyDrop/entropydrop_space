@@ -556,21 +556,29 @@ export class ContraptionManager {
   }
 
   captureContraptionForStreaming(contraption, chunk) {
+    // The point-grab servo temporarily enables physics so the wrench can move
+    // a stopped entity. That is an editor implementation detail, not durable
+    // playback state. A periodic/pagehide save can run while the mouse is
+    // still held, so serialize the current pose as a fully stopped checkpoint
+    // rather than restoring servo velocity as live physics after a refresh.
+    const wrenchStopped = contraption.isWrenchGrabbed === true;
     const states = contraption.getSerializableComponentStates?.()
       || Object.fromEntries([...(contraption.componentVariables || [])]);
     const nodes = [...(contraption.entityNodes?.values?.() || [])].map(node => ({
       id: node.id,
       localPosition: node.localPosition?.toArray?.() || [0, 0, 0],
       localRotation: node.localQuaternion?.toArray?.() || [0, 0, 0, 1],
-      localAngularVelocity: node.localAngularVelocity?.toArray?.() || [0, 0, 0]
+      localAngularVelocity: wrenchStopped
+        ? [0, 0, 0]
+        : node.localAngularVelocity?.toArray?.() || [0, 0, 0]
     }));
     const bodies = (contraption.getRigidBodies?.() || []).map(body => ({
       id: body.id,
       type: body.type,
       position: body.position?.toArray?.() || [0, 0, 0],
       quaternion: body.quaternion?.toArray?.() || [0, 0, 0, 1],
-      velocity: body.velocity?.toArray?.() || [0, 0, 0],
-      angularVelocity: body.angularVelocity?.toArray?.() || [0, 0, 0],
+      velocity: wrenchStopped ? [0, 0, 0] : body.velocity?.toArray?.() || [0, 0, 0],
+      angularVelocity: wrenchStopped ? [0, 0, 0] : body.angularVelocity?.toArray?.() || [0, 0, 0],
       mass: body.mass,
       inverseInertia: body.inverseInertia,
       restitution: body.restitution,
@@ -580,8 +588,12 @@ export class ContraptionManager {
       linearDamping: body.linearDamping,
       angularDamping: body.angularDamping,
       centerOfMassLocal: body.centerOfMassLocal?.toArray?.() || [0, 0, 0],
-      previousKinematicPosition: body.previousKinematicPosition?.toArray?.() || [0, 0, 0],
-      previousKinematicQuaternion: body.previousKinematicQuaternion?.toArray?.() || [0, 0, 0, 1],
+      previousKinematicPosition: wrenchStopped
+        ? body.position?.toArray?.() || [0, 0, 0]
+        : body.previousKinematicPosition?.toArray?.() || [0, 0, 0],
+      previousKinematicQuaternion: wrenchStopped
+        ? body.quaternion?.toArray?.() || [0, 0, 0, 1]
+        : body.previousKinematicQuaternion?.toArray?.() || [0, 0, 0, 1],
       isOnGround: !!body.isOnGround
     }));
     const centerOffset = (contraption.localCenter || new THREE.Vector3())
@@ -596,8 +608,8 @@ export class ContraptionManager {
       constructorOrigin: constructorOrigin.toArray(),
       position: contraption.position.toArray(),
       quaternion: contraption.quaternion.toArray(),
-      velocity: contraption.velocity.toArray(),
-      angularVelocity: contraption.angularVelocity.toArray(),
+      velocity: wrenchStopped ? [0, 0, 0] : contraption.velocity.toArray(),
+      angularVelocity: wrenchStopped ? [0, 0, 0] : contraption.angularVelocity.toArray(),
       // localCenter is the root's original coordinate anchor. It intentionally
       // stays fixed while live block edits change the bounds, so it must be
       // persisted separately from the final voxel layout.
@@ -605,8 +617,10 @@ export class ContraptionManager {
       nodes,
       bodies,
       states,
-      scriptStatus: contraption.scriptStatus,
-      physicsSimulationEnabled: contraption.isPhysicsSimulationEnabled?.() !== false,
+      scriptStatus: wrenchStopped ? 'stopped' : contraption.scriptStatus,
+      physicsSimulationEnabled: wrenchStopped
+        ? false
+        : contraption.isPhysicsSimulationEnabled?.() !== false,
       scriptError: contraption.scriptError,
       nodeScriptErrors: [...contraption.nodeScriptErrors.entries()],
       scriptRuntime: contraption.scriptRuntime,
@@ -782,10 +796,14 @@ export class ContraptionManager {
     }
     contraption.scriptRuntimeClient.reset(contraption.getSerializableComponentStates());
     contraption.scriptStatus = record.scriptStatus || 'stopped';
-    contraption.setPhysicsSimulationEnabled?.(
-      record.physicsSimulationEnabled !== false,
-      { resetHistory: false }
-    );
+    const physicsEnabled = record.physicsSimulationEnabled !== false;
+    contraption.setPhysicsSimulationEnabled?.(physicsEnabled, {
+      // A stopped snapshot has no trajectory to preserve. Pin both render and
+      // collision history to its restored pose; otherwise a remote stopped
+      // replica interpolates from its constructor origin on every frame and
+      // visibly twitches after refresh.
+      resetHistory: !physicsEnabled
+    });
     contraption.scriptError = record.scriptError || null;
     contraption.nodeScriptErrors = new Map(record.nodeScriptErrors || []);
     contraption.scriptRuntime = Number(record.scriptRuntime) || 0;

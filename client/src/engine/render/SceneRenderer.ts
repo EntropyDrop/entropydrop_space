@@ -1726,6 +1726,10 @@ export class SceneRenderer {
       const rotatePickPoints = arcPoints.filter((_, index) => index % 3 === 0);
       // Include the rotation cone tip to make clicking the button responsive
       rotatePickPoints.push(end.clone().addScaledVector(tangent, 0.07));
+      const rotatePickSegments = arcPoints.slice(1).map((point, index) => [
+        arcPoints[index],
+        point
+      ]);
 
       rotate.userData = {
         isWrenchGizmoHandle: true,
@@ -1734,7 +1738,11 @@ export class SceneRenderer {
         axis,
         baseColor: color,
         pickRadius: WRENCH_GIZMO_ROTATION_PICK_RADIUS,
-        pickLocalPoints: rotatePickPoints
+        pickLocalPoints: rotatePickPoints,
+        // Match the visible polyline continuously. Sparse pick spheres alone
+        // let a nearer sphere from another projected ring win even when the
+        // pointer sits directly on this axis's rendered arc.
+        pickLocalSegments: rotatePickSegments
       };
       const arcMaterial = new THREE.LineBasicMaterial({
         color,
@@ -1863,34 +1871,79 @@ export class SceneRenderer {
     const ray = new THREE.Ray(origin.clone(), direction.clone().normalize());
     const flatPoint = new THREE.Vector3();
     const bentPoint = new THREE.Vector3();
-    const hitPoint = new THREE.Vector3();
-    const sphere = new THREE.Sphere();
+    const pointOnRay = new THREE.Vector3();
+    const pointOnHandle = new THREE.Vector3();
+    const flatSegmentStart = new THREE.Vector3();
+    const flatSegmentEnd = new THREE.Vector3();
+    const bentSegmentStart = new THREE.Vector3();
+    const bentSegmentEnd = new THREE.Vector3();
+    const segmentDirection = new THREE.Vector3();
     let best: any = null;
     this.wrenchPivotGizmo.updateMatrixWorld(true);
     for (const handle of this.wrenchPivotHandles.values()) {
       const data = handle.userData;
       const radius = (Number(data.pickRadius) || WRENCH_GIZMO_PICK_RADIUS)
         * this.wrenchPivotGizmo.scale.x;
-      for (const localPoint of data.pickLocalPoints || []) {
-        flatPoint.copy(localPoint);
-        this.wrenchPivotGizmo.localToWorld(flatPoint);
-        bendPoint(flatPoint.x, flatPoint.y, flatPoint.z, bentPoint);
-        sphere.center.copy(bentPoint);
-        sphere.radius = radius;
-        const hit = ray.intersectSphere(sphere, hitPoint);
-        if (!hit) continue;
-        const distance = ray.origin.distanceTo(hit);
-        if (best && distance >= best.distance) continue;
+      const radiusSq = radius * radius;
+
+      const consider = (missDistanceSq: number, worldPoint: THREE.Vector3) => {
+        if (missDistanceSq > radiusSq) return;
+        const distance = ray.direction.dot(pointOnRay.clone().sub(ray.origin));
+        if (distance < 0) return;
+        const score = missDistanceSq / radiusSq;
+        // Depth is only a tie-breaker. Choosing the first sphere intersected
+        // by the ray made projected X/Y/Z rings steal one another's hover;
+        // screen-ray proximity corresponds to what the pointer actually sees.
+        if (best && (score > best.pickScore + 1e-9
+          || (Math.abs(score - best.pickScore) <= 1e-9 && distance >= best.distance))) return;
         best = {
           handleKey: data.handleKey as string,
           kind: data.kind as 'move' | 'rotate',
           axis: data.axis as 'x' | 'y' | 'z',
-          point: hit.clone(),
-          worldPoint: flatPoint.clone(),
-          distance
+          point: pointOnRay.clone(),
+          worldPoint: worldPoint.clone(),
+          distance,
+          pickScore: score
         };
+      };
+
+      for (const localPoint of data.pickLocalPoints || []) {
+        flatPoint.copy(localPoint);
+        this.wrenchPivotGizmo.localToWorld(flatPoint);
+        bendPoint(flatPoint.x, flatPoint.y, flatPoint.z, bentPoint);
+        const distanceAlongRay = ray.direction.dot(bentPoint.clone().sub(ray.origin));
+        if (distanceAlongRay < 0) continue;
+        ray.at(distanceAlongRay, pointOnRay);
+        consider(pointOnRay.distanceToSquared(bentPoint), flatPoint);
+      }
+
+      for (const [localStart, localEnd] of data.pickLocalSegments || []) {
+        flatSegmentStart.copy(localStart);
+        flatSegmentEnd.copy(localEnd);
+        this.wrenchPivotGizmo.localToWorld(flatSegmentStart);
+        this.wrenchPivotGizmo.localToWorld(flatSegmentEnd);
+        bendPoint(flatSegmentStart.x, flatSegmentStart.y, flatSegmentStart.z, bentSegmentStart);
+        bendPoint(flatSegmentEnd.x, flatSegmentEnd.y, flatSegmentEnd.z, bentSegmentEnd);
+        const missDistanceSq = ray.distanceSqToSegment(
+          bentSegmentStart,
+          bentSegmentEnd,
+          pointOnRay,
+          pointOnHandle
+        );
+        segmentDirection.copy(bentSegmentEnd).sub(bentSegmentStart);
+        const segmentLengthSq = segmentDirection.lengthSq();
+        const t = segmentLengthSq > 1e-12
+          ? THREE.MathUtils.clamp(
+            pointOnHandle.clone().sub(bentSegmentStart).dot(segmentDirection) / segmentLengthSq,
+            0,
+            1
+          )
+          : 0;
+        flatPoint.lerpVectors(flatSegmentStart, flatSegmentEnd, t);
+        consider(missDistanceSq, flatPoint);
       }
     }
+    if (best) delete best.pickScore;
     return best;
   }
 

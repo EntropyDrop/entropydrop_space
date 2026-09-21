@@ -637,6 +637,39 @@ test('Wrench COM gizmo exposes three translation and three rotation handles', ()
     setWorldShapeMode(prevMode);
   }
 
+  // A ray through the rendered arc must prefer that arc, even when another
+  // axis has a pick sphere closer to the camera at nearly the same pixel.
+  // The old first-sphere intersection selected the wrong axis for all three
+  // of these ordinary oblique-view points.
+  try {
+    setWorldShapeMode('earth');
+    renderer.setWrenchPivotGizmo(
+      new THREE.Vector3(),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.6, 0.2)),
+      2
+    );
+    const eyeBent = bendPoint(3, 2, 6, new THREE.Vector3());
+    const pickVisibleArcPoint = (axis: 'x' | 'y' | 'z', vertexIndex: number) => {
+      const arc: any = renderer.wrenchPivotHandles.get(`rotate-${axis}`)
+        .getObjectByName(`WrenchPivotRotationArc_${axis.toUpperCase()}`);
+      const localPoint = new THREE.Vector3().fromBufferAttribute(
+        arc.geometry.attributes.position,
+        vertexIndex
+      );
+      renderer.wrenchPivotGizmo.localToWorld(localPoint);
+      const targetBent = bendPoint(localPoint.x, localPoint.y, localPoint.z, new THREE.Vector3());
+      return renderer.raycastWrenchPivotGizmoBent(
+        eyeBent,
+        targetBent.sub(eyeBent).normalize()
+      );
+    };
+    assert.equal(pickVisibleArcPoint('x', 6)?.handleKey, 'rotate-x');
+    assert.equal(pickVisibleArcPoint('y', 14)?.handleKey, 'rotate-y');
+    assert.equal(pickVisibleArcPoint('z', 18)?.handleKey, 'rotate-z');
+  } finally {
+    setWorldShapeMode(prevMode);
+  }
+
   // Verify move and rotate pick points do not overlap at the 0.48 axis crossing
   const moveX = renderer.wrenchPivotHandles.get('move-x');
   const rotateZ = renderer.wrenchPivotHandles.get('rotate-z');
