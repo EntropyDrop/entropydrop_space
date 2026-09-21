@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09 — Shared terrain WASM
+
+- Share deterministic terrain rasterization and LOD reduction kernels across
+  browser workers, Node hosting/surface generation and Python/Wasmtime.
+- Keep Copper's building grammar and real world microvoxels, existing seeds,
+  generator versions, surface snapshots and authored-solid trailers unchanged.
+- Add byte-identical reference tests, bounded reusable arenas, explicit fallback
+  controls, reproducible builds and end-to-end CPU generation benchmarks.
+
 ## 2026-09 — Endpoint-owned entity trajectories
 
 - Replicas project authoritative root and child body poses without advancing

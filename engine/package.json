@@ -21,7 +21,7 @@
     "docs:check": "node ../tools/generate-api-docs.ts --check",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./test/setup.ts --test --test-concurrency=1 \"test/*.test.ts\"",
-    "check": "npm run check:protobuf && npm run check:buf && npm run docs:check && npm run typecheck && npm test"
+    "check": "node ../tools/build-terrain-wasm.mjs --check && npm run check:protobuf && npm run check:buf && npm run docs:check && npm run typecheck && npm test"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.14.1",

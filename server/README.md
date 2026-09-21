@@ -46,3 +46,8 @@ for retry within the 24-hour window. This aggregation change needs no schema mig
 Build the server image from the workspace root with
 `docker build -f deploy/Dockerfile --target runtime .`. This requires only Space;
 neither a backend nor frontend checkout is included in the image.
+
+Surface generation and LOD use the engine's shared WASM kernels through Wasmtime;
+Copper's TypeScript grammar uses the same kernels in the Node surface runtime.
+Install the pinned Python requirements when updating. No terrain/schema migration
+or snapshot invalidation is needed. See [kernel controls and benchmarks](../engine/wasm/README.md).

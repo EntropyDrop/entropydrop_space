@@ -18,6 +18,7 @@ from sqlalchemy import func
 from space import models
 from space.voxel_grid import MICRO_DIVISIONS
 from space.database import SessionLocal
+from space.terrain_wasm import get_terrain_kernels
 
 
 SURFACE_MAGIC = b"EDSZ"
@@ -285,6 +286,9 @@ def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, o
                                       int(world.length_chunks) * 16, version)
     if version == TERRAIN_GENERATOR_COPPER_METROPOLIS:
         payload.extend(_terrain_runtime_payload('zone', int(world.seed), version, zone_x, zone_z))
+    elif (kernels := get_terrain_kernels()) is not None:
+        payload.extend(kernels.nature_surface(generator.noise.permutation,
+            zone_x * 512, zone_z * 512, generator.width_cells, generator.length_cells))
     else:
         for x in range(axis):
             for z in range(axis):
@@ -345,29 +349,45 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
                         grid[(cx * 8 + sx) * axis + cz * 8 + sz] = (h, h, r, g, b, 0)
         trailer = struct.pack('<I', 0)
     elif ((schema == 5 and samples == 2) or (schema == 6 and samples == 1)) and record_bytes == 8 and len(raw) >= end + 4:
-        grid = list(struct.iter_unpack('<HHBBBB', raw[32:end]))
+        grid = None
         trailer = raw[end:]
     else:
         raise ValueError('invalid surface source')
     manifest, chunks, offset = [], [], 0
     compressor = zstd.ZstdCompressor(level=6)
+    kernels = get_terrain_kernels()
+    if kernels is not None:
+        records = (raw[32:end] if grid is None else
+                   b''.join(struct.pack('<HHBBBB', *record) for record in grid))
+        levels = iter(kernels.surface_lods(records, axis))
+    else:
+        if grid is None:
+            grid = list(struct.iter_unpack('<HHBBBB', raw[32:end]))
+        levels = None
     for size in SURFACE_LOD_SIZES:
         if size <= 512 // axis:
             continue
-        next_axis, reduced = axis // 2, []
-        for x in range(next_axis):
-            for z in range(next_axis):
-                children = [grid[(x * 2 + dx) * axis + z * 2 + dz]
-                            for dx in range(2) for dz in range(2)]
-                peak = max(children, key=lambda r: r[0])
-                error = min(255, max(c[5] + max(abs(c[i] - peak[i]) for i in (2, 3, 4))
-                                     for c in children))
-                reduced.append((peak[0], min(c[1] for c in children), *peak[2:5], error))
+        next_axis = axis // 2
+        if levels is not None:
+            level_size, packed = next(levels)
+            if level_size != size:
+                raise RuntimeError('Terrain WASM LOD size mismatch')
+        else:
+            reduced = []
+            for x in range(next_axis):
+                for z in range(next_axis):
+                    children = [grid[(x * 2 + dx) * axis + z * 2 + dz]
+                                for dx in range(2) for dz in range(2)]
+                    peak = max(children, key=lambda r: r[0])
+                    error = min(255, max(c[5] + max(abs(c[i] - peak[i]) for i in (2, 3, 4))
+                                         for c in children))
+                    reduced.append((peak[0], min(c[1] for c in children), *peak[2:5], error))
+            packed = b''.join(struct.pack('<HHBBBB', *record) for record in reduced)
+            grid = reduced
         payload = bytearray(raw[:32])
         payload[4:8] = bytes((6 if schema == 6 else 5, size, 32, 8))
-        struct.pack_into('<I', payload, 28, len(reduced))
-        for record in reduced:
-            payload.extend(struct.pack('<HHBBBB', *record))
+        struct.pack_into('<I', payload, 28, next_axis * next_axis)
+        payload.extend(packed)
         payload.extend(trailer)
         compressed = compressor.compress(payload)
         manifest.append({'sample_size': size, 'byte_length': len(payload),
@@ -375,7 +395,7 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
             'offset': offset, 'compressed_size': len(compressed)})
         chunks.append(compressed)
         offset += len(compressed)
-        grid, axis = reduced, next_axis
+        axis = next_axis
     return manifest, b''.join(chunks)
 
 

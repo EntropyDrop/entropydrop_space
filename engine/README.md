@@ -16,6 +16,10 @@ using the engine on Node does not create a WebGL renderer. React UI, character r
 input, sound, browser storage implementation, HTTP clients and login remain in the frontend.
 Hosting policy, IPC, authentication, billing and persistence remain in the backend.
 
+Terrain generation and surface LOD preparation use shared allocation-free WASM
+kernels in browser workers, Node and Python, with reference fallbacks. See the
+[terrain kernel guide](wasm/README.md) for scope, deterministic checks and benchmarks.
+
 ## Local setup
 
 Install from the Space workspace root (`entropydrop_space/`) with Node 24+ and npm 10+:

@@ -19,3 +19,4 @@ msgpack>=1.2.1
 zstandard>=0.23.0
 websockets>=16.0,<17
 psutil>=5.9.0
+wasmtime==49.0.0

@@ -1,5 +1,6 @@
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
+import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import {
   TORUS_SIZE_X,
   TORUS_SIZE_Z,
@@ -93,6 +94,9 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
   const parcels: Parcel[] = [];
   const buildings: Building[] = [];
   const rawDetails: number[] = [];
+  const kernels = getTerrainKernels();
+  const solidOps: number[] = [];
+  const microOps: number[] = [];
 
   const box = (
     x: number,
@@ -110,6 +114,10 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
     const y0 = Math.max(0, Math.floor(y));
     const y1 = Math.min(ceiling, Math.floor(y + h));
     if (x0 >= x1 || z0 >= z1 || y0 >= y1) return;
+    if (kernels) {
+      solidOps.push(x0, y0, z0, x1, y1, z1, color);
+      return;
+    }
     const block = color === 0 ? BlockTypes.AIR : BlockTypes.COLOR_BLOCK;
     for (let iy = y0; iy < y1; iy++) {
       for (let iz = z0; iz < z1; iz++) {
@@ -147,6 +155,17 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
     color: number,
   ) => {
     if (!includeDetails) return;
+    if (kernels) {
+      if (x >= originX + width || x + w <= originX || z >= originZ + depth
+        || z + d <= originZ || y >= ceiling || y + h <= 0) return;
+      microOps.push(
+        Math.round((x - originX) * MICRO_DIVISIONS), Math.round(y * MICRO_DIVISIONS),
+        Math.round((z - originZ) * MICRO_DIVISIONS),
+        Math.round((x + w - originX) * MICRO_DIVISIONS), Math.round((y + h) * MICRO_DIVISIONS),
+        Math.round((z + d - originZ) * MICRO_DIVISIONS), color,
+      );
+      return;
+    }
     for (let iy = 0; iy < h; iy += MICRO_SIZE) {
       for (let iz = 0; iz < d; iz += MICRO_SIZE) {
         for (let ix = 0; ix < w; ix += MICRO_SIZE) {
@@ -586,6 +605,8 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
       }
     }
   }
+
+  if (kernels) return kernels.rasterizeCopper(chunk, solidOps, microOps);
 
   const details: number[] = [];
   for (let index = 0; index < rawDetails.length; index += 4) {

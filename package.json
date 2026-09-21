@@ -18,6 +18,9 @@
     "build": "npm run build --workspace @entropydrop/space",
     "check": "npm run check --workspace @entropydrop/space",
     "check:english": "node tools/check-english-only.mjs",
+    "build:terrain-wasm": "node tools/build-terrain-wasm.mjs",
+    "check:terrain-wasm": "node tools/build-terrain-wasm.mjs --check",
+    "bench:terrain": "node engine/tools/benchmark-terrain.ts",
     "test": "npm test --workspace @entropydrop/space",
     "generate:protobuf": "node tools/generate-protobuf.mjs",
     "check:protobuf": "node tools/generate-protobuf.mjs --check",
@@ -27,6 +30,7 @@
     "build:server-runtime": "npm run build --workspace @entropydrop/space-hosting-runtime"
   },
   "devDependencies": {
+    "assemblyscript": "0.28.20",
     "ts-proto": "2.12.1"
   }
 }

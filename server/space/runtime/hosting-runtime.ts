@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 import { HostedSimulation } from './HostedSimulation.ts';
 import { preloadQuickJSScriptRuntime } from '@entropydrop/space-engine';
+import { getTerrainKernels } from '@entropydrop/space-engine/wasm/TerrainKernels.ts';
 
 // Private, local pipe protocol. Guest JavaScript only runs inside QuickJS/WASM.
 // Keep stdout exclusively for framed responses.
@@ -13,6 +14,9 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
     if (line.length > 32 * 1024 * 1024) throw new Error('hosting_input_limit');
     const input = JSON.parse(line);
     if (input.probe === true) {
+      if (process.env.SPACE_TERRAIN_BACKEND !== 'js' && !getTerrainKernels()) {
+        throw new Error('Terrain WASM unavailable in hosting runtime');
+      }
       await preloadQuickJSScriptRuntime();
       process.stdout.write('{"ready":true}\n');
       continue;

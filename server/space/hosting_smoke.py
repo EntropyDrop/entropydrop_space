@@ -3,9 +3,13 @@ import asyncio
 import base64
 from space.hosting_worker import NodeRuntime
 from space.inventory_codec import decode_inventory_resource, encode_inventory_resource
+from space.terrain_wasm import get_terrain_kernels
 
 
 async def main():
+    kernels = get_terrain_kernels()
+    assert kernels is not None, 'Native terrain WASM must be available in the runtime image'
+    assert kernels.surface_lods(bytes(512 * 512 * 8), 512)[-1] == (64, bytes(8 * 8 * 8))
     runtime = NodeRuntime()
     try:
         assert await runtime.step({"probe": True}) == {"ready": True}
@@ -34,7 +38,7 @@ async def main():
         assert result["entities"][0]["snapshot"]["states"]["root"]["ticks"] == 40
         restored = decode_inventory_resource(base64.b64decode(result["entities"][0]["definition_base64"]))[1]
         assert restored["root"]["name"] == "Hosting smoke"
-        print("Hosted runtime: offline execution and process-restart recovery passed")
+        print("Hosted runtime: terrain WASM, offline execution and process-restart recovery passed")
     finally:
         await runtime.close()
 

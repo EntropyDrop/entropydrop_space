@@ -109,6 +109,8 @@ def test_authored_trailer_survives_all_mips_byte_for_byte():
 
 
 def test_v6_source_retains_one_metre_steps_and_pyramid_bounds(monkeypatch):
+    # This fixture intentionally replaces the reference generator, not its WASM kernel.
+    monkeypatch.setenv('SPACE_TERRAIN_BACKEND', 'python')
     class Steps:
         def __init__(self, *args):
             pass

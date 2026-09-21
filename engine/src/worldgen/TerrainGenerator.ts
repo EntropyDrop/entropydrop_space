@@ -1,4 +1,5 @@
-import { createNoise3D } from 'simplex-noise';
+import { buildPermutationTable, createNoise3D } from 'simplex-noise';
+import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
 import {
@@ -37,6 +38,7 @@ const TERRAIN_MAX_HEIGHT = TORUS_GREF + 5;
  */
 export class TerrainGenerator {
   private noise3D: any;
+  private permutation: Uint8Array;
   readonly seed: number;
   readonly version: number;
 
@@ -51,6 +53,8 @@ export class TerrainGenerator {
       return state / 233280;
     };
     this.noise3D = createNoise3D(random);
+    state = this.seed;
+    this.permutation = buildPermutationTable(random);
   }
 
   sampleHeight(wx, wz) {
@@ -101,6 +105,12 @@ export class TerrainGenerator {
       const details = generateCopperMetropolisChunk(chunk, this.seed, includeDetails);
       chunk.terrainDetails = details;
       return details;
+    }
+
+    const kernels = getTerrainKernels();
+    if (kernels) {
+      kernels.generateNature(chunk, this.permutation);
+      return chunk.terrainDetails;
     }
 
     const origin = chunk.getWorldOrigin();

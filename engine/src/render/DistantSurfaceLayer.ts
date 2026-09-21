@@ -4,6 +4,7 @@ import { DistantChunkLayer } from './DistantChunkLayer.ts';
 import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
+import { getTerrainKernels, type SurfaceMip } from '../wasm/TerrainKernels.ts';
 import {
   TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_RHO, TORUS_GREF,
   computeBentBoundsSphere, hookSceneMaterials,
@@ -143,16 +144,6 @@ if (transitionPixel < uSurfaceTransition.x || transitionPixel >= uSurfaceTransit
 #include <color_fragment>
 `;
 
-interface SurfaceMip {
-  cellSize: number;
-  axis: number;
-  heights: Uint16Array;
-  colors: Uint8Array;
-  minHeights: Uint16Array;
-  colorErrors: Float32Array;
-  maxResidual?: number;
-}
-
 interface StoredSurfaceZone {
   zoneX: number;
   zoneZ: number;
@@ -256,7 +247,9 @@ function createMaterial(handoff: THREE.DataTexture, side = false, coverage = new
   return material;
 }
 
-function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
+export function buildMipPyramid(zone: SurfaceZoneSnapshot): Map<number, SurfaceMip> {
+  const kernels = getTerrainKernels();
+  if (kernels) return kernels.buildSurfaceMips(zone, SRGB_TO_LINEAR_BYTE);
   const sampleSize = zone.sampleSize ?? LEGACY_SAMPLE_SIZE;
   const fineAxis = ZONE_WORLD_SIZE / sampleSize;
   const finestHeights = new Uint16Array(fineAxis * fineAxis);
