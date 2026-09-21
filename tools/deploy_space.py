@@ -359,6 +359,7 @@ def remote_deploy(environment, branch="main", quiesce=False):
                      "python", "-c", "from config import settings; from space.database import SessionLocal; "
                      "from routers.space import _get_or_create_default_world, _get_or_create_bootstrap_world; "
                      f"assert settings.SPACE_STANDALONE and settings.SPACE_DEFAULT_WORLD_ID == '{DEV_WORLD}'; "
+                     "assert settings.SPACE_COPPER_METROPOLIS_WORLD_ID != settings.SPACE_DEFAULT_WORLD_ID; "
                      "db = SessionLocal(); _get_or_create_default_world(db); "
                      "_get_or_create_bootstrap_world(db, 'copper-metropolis'); db.commit(); db.close()"])
             phase("replace API and worker")
