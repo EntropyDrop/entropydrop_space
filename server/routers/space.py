@@ -643,6 +643,12 @@ def _get_or_create_bootstrap_world(db: Session, requested_world: str | None) -> 
          "Copper Metropolis", settings.SPACE_COPPER_METROPOLIS_WORLD_SEED, 2),
         ("aether-archipelago", settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID,
          "Aether Archipelago", settings.SPACE_AETHER_ARCHIPELAGO_WORLD_SEED, 3),
+        ("colossus-harbor", settings.SPACE_COLOSSUS_HARBOR_WORLD_ID,
+         "Colossus Harbor", settings.SPACE_COLOSSUS_HARBOR_WORLD_SEED, 4),
+        ("titan-canyon", settings.SPACE_TITAN_CANYON_WORLD_ID,
+         "Titan Canyon", settings.SPACE_TITAN_CANYON_WORLD_SEED, 5),
+        ("astral-foundry", settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID,
+         "Astral Foundry", settings.SPACE_ASTRAL_FOUNDRY_WORLD_SEED, 6),
     )
     for alias, world_id, name, seed, version in development_worlds:
         if requested not in {alias, world_id.lower()}:
@@ -667,6 +673,15 @@ def _world_terrain_revision(db: Session, world: models.SpaceWorld) -> int:
 
 
 def _random_initial_position(world: models.SpaceWorld) -> dict[str, int]:
+    if int(world.terrain_generator_version or 1) in {4, 5, 6}:
+        # Shared generators align a surveyed landmark deck/plinth with this
+        # column. Begin above its skyline while the solid spawn chunks stream.
+        return {
+            "x_cm": (world.width_chunks * 16 // 2) * 100 + 50,
+            "y_cm": 22000,
+            "z_cm": (world.length_chunks * 16 // 2) * 100 + 50,
+            "yaw_q15": secrets.randbelow(65535) - 32767,
+        }
     if int(world.terrain_generator_version or 1) == 3:
         # The shared generator aligns a major island with the torus centre.
         # Stay over its solid core and above every castle roof during streaming.

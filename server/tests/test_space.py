@@ -1228,3 +1228,39 @@ def test_production_cannot_provision_aether(client, db, monkeypatch, alias):
     app.dependency_overrides[get_current_user] = lambda: user
     assert client.post('/space/api/v2/bootstrap', params={'world': alias}).status_code == 404
     assert db.query(SpaceWorld).filter_by(id=space_router.settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID).count() == 0
+
+
+LAB_WORLDS = [
+    ('colossus-harbor', 'COLOSSUS_HARBOR', 'Colossus Harbor', 4),
+    ('titan-canyon', 'TITAN_CANYON', 'Titan Canyon', 5),
+    ('astral-foundry', 'ASTRAL_FOUNDRY', 'Astral Foundry', 6),
+]
+
+
+@pytest.mark.parametrize('alias,key,name,version', LAB_WORLDS)
+def test_development_terrain_lab_world_bootstrap(client, db, alias, key, name, version):
+    user = _user(db, 'lab-world-user', None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    world_id = getattr(space_router.settings, f'SPACE_{key}_WORLD_ID')
+    for requested in [alias, world_id]:
+        response = client.post('/space/api/v2/bootstrap', params={'world': requested})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload['world']['id'] == world_id
+        assert payload['world']['name'] == name
+        assert payload['world']['seed'] == 42
+        assert payload['world']['terrain_generator_version'] == version
+        assert (payload['player']['start_x_cm'], payload['player']['start_y_cm'], payload['player']['start_z_cm']) == (819250, 22000, 102450)
+    assert db.query(SpaceWorld).filter_by(id=world_id).count() == 1
+    assert version in space_surface.RUNTIME_TERRAIN_GENERATORS
+
+
+@pytest.mark.parametrize('alias,key,name,version', LAB_WORLDS)
+def test_production_cannot_provision_terrain_lab_worlds(client, db, monkeypatch, alias, key, name, version):
+    monkeypatch.setattr(space_router.settings, 'ENVIRONMENT', 'production')
+    user = _user(db, 'lab-production-user', None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    world_id = getattr(space_router.settings, f'SPACE_{key}_WORLD_ID')
+    for requested in [alias, world_id]:
+        assert client.post('/space/api/v2/bootstrap', params={'world': requested}).status_code == 404
+    assert db.query(SpaceWorld).filter_by(id=world_id).count() == 0

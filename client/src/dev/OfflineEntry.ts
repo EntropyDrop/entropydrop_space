@@ -36,6 +36,17 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
       seed: 42, terrain_generator_version: 3 };
     Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 18000, start_z_cm: 102450 });
   }
+  const labWorlds: Record<string, { name: string; version: number }> = {
+    'colossus-harbor': { name: 'Colossus Harbor', version: 4 },
+    'titan-canyon': { name: 'Titan Canyon', version: 5 },
+    'astral-foundry': { name: 'Astral Foundry', version: 6 },
+  };
+  const lab = labWorlds[world];
+  if (lab) {
+    session.world = { ...session.world, id: `dev-offline-${world}`, name: `Offline ${lab.name} (development only)`,
+      seed: 42, terrain_generator_version: lab.version };
+    Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 22000, start_z_cm: 102450 });
+  }
   return session;
 }
 

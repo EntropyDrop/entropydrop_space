@@ -362,7 +362,10 @@ def remote_deploy(environment, branch="main", quiesce=False):
                      "assert settings.SPACE_COPPER_METROPOLIS_WORLD_ID != settings.SPACE_DEFAULT_WORLD_ID; "
                      "db = SessionLocal(); _get_or_create_default_world(db); "
                      "_get_or_create_bootstrap_world(db, 'copper-metropolis'); "
-                     "_get_or_create_bootstrap_world(db, 'aether-archipelago'); db.commit(); db.close()"])
+                     "_get_or_create_bootstrap_world(db, 'aether-archipelago'); "
+                     "_get_or_create_bootstrap_world(db, 'colossus-harbor'); "
+                     "_get_or_create_bootstrap_world(db, 'titan-canyon'); "
+                     "_get_or_create_bootstrap_world(db, 'astral-foundry'); db.commit(); db.close()"])
             phase("replace API and worker")
             # Retained containers must not restart next to the new worker after a DS reboot.
             for role in ("worker", "api"):

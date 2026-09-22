@@ -32,6 +32,9 @@ def test_development_worker_always_hosts_development_worlds(monkeypatch):
         settings.SPACE_DEFAULT_WORLD_ID,
         settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
         settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID,
+        settings.SPACE_COLOSSUS_HARBOR_WORLD_ID,
+        settings.SPACE_TITAN_CANYON_WORLD_ID,
+        settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID,
     ]
 
 
