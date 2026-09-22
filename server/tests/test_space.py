@@ -1234,6 +1234,7 @@ LAB_WORLDS = [
     ('colossus-harbor', 'COLOSSUS_HARBOR', 'Colossus Harbor', 4),
     ('titan-canyon', 'TITAN_CANYON', 'Titan Canyon', 5),
     ('astral-foundry', 'ASTRAL_FOUNDRY', 'Astral Foundry', 6),
+    ('brutalist-dusk', 'BRUTALIST_DUSK', 'Brutalist Dusk', 7),
 ]
 
 

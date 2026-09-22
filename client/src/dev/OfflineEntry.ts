@@ -40,6 +40,7 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
     'colossus-harbor': { name: 'Colossus Harbor', version: 4 },
     'titan-canyon': { name: 'Titan Canyon', version: 5 },
     'astral-foundry': { name: 'Astral Foundry', version: 6 },
+    'brutalist-dusk': { name: 'Brutalist Dusk', version: 7 },
   };
   const lab = labWorlds[world];
   if (lab) {

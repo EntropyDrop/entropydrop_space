@@ -649,6 +649,8 @@ def _get_or_create_bootstrap_world(db: Session, requested_world: str | None) -> 
          "Titan Canyon", settings.SPACE_TITAN_CANYON_WORLD_SEED, 5),
         ("astral-foundry", settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID,
          "Astral Foundry", settings.SPACE_ASTRAL_FOUNDRY_WORLD_SEED, 6),
+        ("brutalist-dusk", settings.SPACE_BRUTALIST_DUSK_WORLD_ID,
+         "Brutalist Dusk", settings.SPACE_BRUTALIST_DUSK_WORLD_SEED, 7),
     )
     for alias, world_id, name, seed, version in development_worlds:
         if requested not in {alias, world_id.lower()}:
@@ -673,7 +675,7 @@ def _world_terrain_revision(db: Session, world: models.SpaceWorld) -> int:
 
 
 def _random_initial_position(world: models.SpaceWorld) -> dict[str, int]:
-    if int(world.terrain_generator_version or 1) in {4, 5, 6}:
+    if int(world.terrain_generator_version or 1) in {4, 5, 6, 7}:
         # Shared generators align a surveyed landmark deck/plinth with this
         # column. Begin above its skyline while the solid spawn chunks stream.
         return {

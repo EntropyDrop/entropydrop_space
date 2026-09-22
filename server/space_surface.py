@@ -36,7 +36,7 @@ SURFACE_COLOR = 0x718F61
 MIDDLE_COLOR = 0x806B5C
 DEEP_COLOR = 0x66707D
 SURFACE_JOB_IDLE_SECONDS = 30
-RUNTIME_TERRAIN_GENERATORS = {2, 3, 4, 5, 6}
+RUNTIME_TERRAIN_GENERATORS = {2, 3, 4, 5, 6, 7}
 
 logger = logging.getLogger(__name__)
 _generation_thread_lock = threading.Lock()

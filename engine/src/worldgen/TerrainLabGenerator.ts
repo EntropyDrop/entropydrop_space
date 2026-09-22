@@ -4,10 +4,12 @@ import { TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z } from '../tor
 import { HARBOR_DEFAULTS, generateHarborRegion, planColossusHarbor } from './ColossusHarborGenerator.ts';
 import { CANYON_DEFAULTS, generateCanyonRegion, planTitanCanyon } from './TitanCanyonGenerator.ts';
 import { FOUNDRY_DEFAULTS, generateFoundryRegion, planAstralFoundry } from './AstralFoundryGenerator.ts';
+import { BRUTALIST_DUSK_DEFAULTS, generateBrutalistDuskRegion, brutalistDuskSpawnAnchor } from './BrutalistDuskGenerator.ts';
 
 export const TERRAIN_GENERATOR_COLOSSUS_HARBOR = 4;
 export const TERRAIN_GENERATOR_TITAN_CANYON = 5;
 export const TERRAIN_GENERATOR_ASTRAL_FOUNDRY = 6;
+export const TERRAIN_GENERATOR_BRUTALIST_DUSK = 7;
 const anchors = new Map<string, { x: number; z: number }>();
 const centered = (value: number, spawn: number, period: number) =>
   ((value - spawn + period / 2) % period + period) % period - period / 2;
@@ -26,6 +28,8 @@ export function terrainLabSpawnAnchor(seed: number, version: number) {
   } else if (version === TERRAIN_GENERATOR_TITAN_CANYON) {
     const site = nearest(planTitanCanyon({ ...config, ...CANYON_DEFAULTS }));
     if (site) anchor = { x: site.x - site.bank * 35, z: site.z + site.bank * (site.mirror ? -24 : 24) };
+  } else if (version === TERRAIN_GENERATOR_BRUTALIST_DUSK) {
+    anchor = brutalistDuskSpawnAnchor(seed);
   } else {
     const site = nearest(planAstralFoundry({ ...config, ...FOUNDRY_DEFAULTS }).filter(node => node.major));
     if (site) {
@@ -47,7 +51,8 @@ export function generateTerrainLabChunk(chunk: Chunk, seed: number, version: num
     offsetZ: centered(origin.z, TORUS_SPAWN_Z, TORUS_SIZE_Z) + anchor.z + CHUNK_SIZE_Z / 2 };
   const region = version === TERRAIN_GENERATOR_COLOSSUS_HARBOR ? generateHarborRegion({ ...config, ...HARBOR_DEFAULTS }, includeDetails)
     : version === TERRAIN_GENERATOR_TITAN_CANYON ? generateCanyonRegion({ ...config, ...CANYON_DEFAULTS }, includeDetails)
-      : generateFoundryRegion({ ...config, ...FOUNDRY_DEFAULTS }, includeDetails);
+      : version === TERRAIN_GENERATOR_BRUTALIST_DUSK ? generateBrutalistDuskRegion({ ...config, ...BRUTALIST_DUSK_DEFAULTS }, includeDetails)
+        : generateFoundryRegion({ ...config, ...FOUNDRY_DEFAULTS }, includeDetails);
   let minY = CHUNK_SIZE_Y, maxY = -1;
   for (let i = 0; i < region.voxels.length; i++) {
     const value = region.voxels[i];

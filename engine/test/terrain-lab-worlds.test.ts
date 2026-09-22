@@ -6,6 +6,7 @@ import { terrainLabSpawnAnchor } from '../src/worldgen/TerrainLabGenerator.ts';
 import { HARBOR_DEFAULTS, generateHarborRegion } from '../src/worldgen/ColossusHarborGenerator.ts';
 import { CANYON_DEFAULTS, generateCanyonRegion } from '../src/worldgen/TitanCanyonGenerator.ts';
 import { FOUNDRY_DEFAULTS, generateFoundryRegion } from '../src/worldgen/AstralFoundryGenerator.ts';
+import { BRUTALIST_DUSK_DEFAULTS, generateBrutalistDuskRegion } from '../src/worldgen/BrutalistDuskGenerator.ts';
 import { Chunk } from '../src/voxel/Chunk.ts';
 
 const worlds = [
@@ -15,6 +16,8 @@ const worlds = [
     materials: ['1:0', '1:1', '8:0'], count: 31186, hash: '3a7c396d41f19beac85ad1c590079822d38b14c0b94d6c004b7cf1a9bf7329f5' },
   { name: 'Astral Foundry', version: 6, generate: (config: any) => generateFoundryRegion({ ...FOUNDRY_DEFAULTS, ...config }),
     materials: ['1:0', '1:1', '8:0', '8:1'], count: 33588, hash: '1b2eede91f72a3ea6457ab0dabe11717f565836652522187314c192acc1d9059' },
+  { name: 'Brutalist Dusk', version: 7, generate: (config: any) => generateBrutalistDuskRegion({ ...BRUTALIST_DUSK_DEFAULTS, ...config }),
+    materials: ['1:0', '1:1', '8:0'], count: 62789, hash: 'eed1c154620b8c1621029cd2d3d02965d78f7c71f6bc56c48dfd4a95050430cb' },
 ];
 
 for (const world of worlds) {
@@ -87,3 +90,28 @@ for (const world of worlds) {
     assert.deepEqual([...new Set(visible.map(v => `${v[3]}:${v[5]}`))].sort(), world.materials);
   });
 }
+
+test('Brutalist Dusk: district boundaries preserve building foundations, roofs and ornaments', () => {
+  for (const seed of [42, 73451]) for (const [offsetX, offsetZ] of [[128, 0], [0, 128], [128, 128], [-128, -128]]) {
+    const config = { ...BRUTALIST_DUSK_DEFAULTS, seed, sizeX: 48, sizeZ: 48, sizeY: 192, yCutoff: 192, offsetX, offsetZ };
+    const whole = generateBrutalistDuskRegion(config), micro = new Map<string, number>();
+    for (let i = 0; i < whole.details.length; i += 4) {
+      const [x, y, z, v] = whole.details.subarray(i, i + 4); micro.set(`${x},${y},${z}`, v);
+    }
+    let microCount = 0;
+    for (let cz = 0; cz < 3; cz++) for (let cx = 0; cx < 3; cx++) {
+      const part = generateBrutalistDuskRegion({ ...config, sizeX: 16, sizeZ: 16,
+        offsetX: offsetX - 16 + cx * 16, offsetZ: offsetZ - 16 + cz * 16 });
+      for (let y = 0; y < 192; y++) for (let z = 0; z < 16; z++) {
+        const index = cx * 16 + (z + cz * 16) * 48 + y * 48 * 48;
+        assert.deepEqual(part.voxels.subarray(z * 16 + y * 256, z * 16 + y * 256 + 16), whole.voxels.subarray(index, index + 16));
+      }
+      for (let i = 0; i < part.details.length; i += 4) {
+        const [x, y, z, v] = part.details.subarray(i, i + 4);
+        assert.equal(micro.get(`${x + cx * 128},${y},${z + cz * 128}`), v);
+        microCount++;
+      }
+    }
+    assert.equal(microCount, micro.size);
+  }
+});

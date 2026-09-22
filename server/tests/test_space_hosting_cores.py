@@ -35,6 +35,7 @@ def test_development_worker_always_hosts_development_worlds(monkeypatch):
         settings.SPACE_COLOSSUS_HARBOR_WORLD_ID,
         settings.SPACE_TITAN_CANYON_WORLD_ID,
         settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID,
+        settings.SPACE_BRUTALIST_DUSK_WORLD_ID,
     ]
 
 
