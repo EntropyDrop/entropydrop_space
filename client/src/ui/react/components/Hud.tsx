@@ -29,6 +29,7 @@ import { useSpaceUi } from '../store/useSpaceUi.ts';
 import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 import { SiDiscord } from 'react-icons/si';
+import { formatByteRate } from '../../../bootstrap/NetworkTraffic.ts';
 
 import { LuShovel } from "react-icons/lu";
 
@@ -581,6 +582,9 @@ function BulkEditProgressPanel() {
 export function Hud() {
   const state = useSpaceUi(snapshot => snapshot);
   const activeTool = state.hotbarSlots[state.selectedHotbarIndex]?.value;
+  const terrain = state.terrainLoadProgress;
+  const terrainPercent = terrain.totalChunks > 0
+    ? Math.floor(terrain.readyChunks / terrain.totalChunks * 100) : 0;
   return (
     <>
       <div id="crosshair" />
@@ -590,6 +594,28 @@ export function Hud() {
             <div className="hud-badge"><span className="hud-badge-dot" />EntropyDrop · Space <span className="hud-beta-badge">BETA</span></div>
             <div className="hud-metrics-row"><span id="fps-val">{state.fpsText}</span><span className="hud-metric-sep">·</span><span id="ping-val" className={state.pingClass}>{state.pingText}</span></div>
             <div id="pos-val">{state.positionText}</div>
+            <div className={`hud-terrain ${terrain.ready ? 'is-ready' : ''}`}>
+              <div className="hud-terrain-label">
+                <span>{terrain.ready ? 'Chunks ready' : 'Loading chunks'}</span>
+                <span>{terrain.readyChunks}/{terrain.totalChunks} · {terrainPercent}%</span>
+              </div>
+              <div id="terrain-load-progress" className="hud-terrain-track" role="progressbar"
+                aria-label="Nearby chunks loaded" aria-valuemin={0} aria-valuemax={100}
+                aria-valuenow={terrainPercent}
+                aria-valuetext={`${terrain.readyChunks} of ${terrain.totalChunks} chunks ready, including micro blocks`}
+                title="Nearby chunks, including standard and micro blocks">
+                <div className="hud-terrain-fill" style={{ width: `${terrainPercent}%` }} />
+              </div>
+            </div>
+            <div id="network-bandwidth" className="hud-bandwidth"
+              title="Estimated traffic for this tab, updated every second. HTTP downloads are counted on completion; cached data is excluded. Uploads and realtime messages count payload bytes, excluding protocol overhead.">
+              <span aria-label={`Download ${formatByteRate(state.networkRates.downloadBytesPerSecond)}`}>
+                <span className="hud-bandwidth-arrow" aria-hidden="true">↓</span> {formatByteRate(state.networkRates.downloadBytesPerSecond)}
+              </span>
+              <span aria-label={`Upload ${formatByteRate(state.networkRates.uploadBytesPerSecond)}`}>
+                <span className="hud-bandwidth-arrow" aria-hidden="true">↑</span> {formatByteRate(state.networkRates.uploadBytesPerSecond)}
+              </span>
+            </div>
             <NearbyEntities />
             <HostedEntities />
           </div>

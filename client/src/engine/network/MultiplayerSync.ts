@@ -6,6 +6,7 @@ import {
 } from '../../bootstrap/SpaceBootstrap.ts';
 import { readJsonResponse } from '../../bootstrap/NetworkSafety.ts';
 import { parseEntityPose, type EntityPoseFrame } from './EntityPoseBuffer.ts';
+import { networkTraffic, sendRealtimeBytes } from '../../bootstrap/NetworkTraffic.ts';
 
 export interface RemotePlayerInfo {
   user_id: string;
@@ -193,7 +194,7 @@ export class MultiplayerSync {
     this.websocket = null;
     if (socket && socket.readyState < WebSocket.CLOSING) {
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(encode({ type: 'leave' }));
+        sendRealtimeBytes(socket, encode({ type: 'leave' }));
       }
       socket.close(1000, 'Space client stopped');
     }
@@ -325,10 +326,11 @@ export class MultiplayerSync {
 
       socket.onopen = () => {
         if (this.websocket !== socket) return;
-        socket.send(encode({ type: 'hello', ticket }));
+        sendRealtimeBytes(socket, encode({ type: 'hello', ticket }));
       };
       socket.onmessage = event => {
         if (this.websocket !== socket || !(event.data instanceof ArrayBuffer)) return;
+        networkTraffic.receive(event.data.byteLength);
         if (event.data.byteLength > MAX_REALTIME_MESSAGE_BYTES) {
           socket.close(1009, 'Space realtime message too large');
           return;
@@ -420,7 +422,7 @@ export class MultiplayerSync {
     this.lastPoseKey = poseKey;
     this.lastPoseSentAt = now;
     this.poseSequence += 1;
-    socket.send(encode({
+    sendRealtimeBytes(socket, encode({
       type: 'pose',
       sequence: this.poseSequence,
       ...encoded
@@ -434,7 +436,7 @@ export class MultiplayerSync {
       || socket.bufferedAmount > MAX_WEBSOCKET_BUFFERED_BYTES) return false;
     const bytes = encode({ type: 'entity_pose', ...pose });
     if (bytes.byteLength > 64 * 1024) return false;
-    socket.send(bytes);
+    sendRealtimeBytes(socket, bytes);
     return true;
   }
 }

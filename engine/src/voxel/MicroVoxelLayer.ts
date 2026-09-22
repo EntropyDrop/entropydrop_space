@@ -1452,6 +1452,16 @@ export class MicroVoxelLayer {
     return false;
   }
 
+  /** Deduplicate micro partitions into the standard chunks shown by the HUD. */
+  getPendingStandardChunkKeys(activeChunkKeys: Set<string>): Set<string> {
+    const pending = new Set<string>();
+    const add = (key: string) => { if (activeChunkKeys.has(key)) pending.add(key); };
+    if (this.activeMeshBuild) add(this.activeMeshBuild.standardChunkKey);
+    for (const key of this.dirtyMeshChunks) add(standardChunkKeyForMeshChunk(key));
+    for (const publication of this.deferredMeshPublications.values()) add(publication.barrierKey);
+    return pending;
+  }
+
   publishDeferredForStandardChunk(
     standardChunkKey: string,
     prepareMesh: (mesh: THREE.Mesh) => void,

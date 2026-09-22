@@ -93,7 +93,7 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
   busyStreaming = false) {
   const panel = document.createElement('section');
   panel.id = 'dev-render-diagnostics';
-  panel.style.cssText = 'position:fixed;top:60px;left:12px;z-index:10000;background:#101820ed;color:#fff;padding:12px;font:12px monospace;pointer-events:auto;max-width:420px';
+  panel.style.cssText = 'position:fixed;top:210px;left:12px;z-index:10000;background:#101820ed;color:#fff;padding:12px;font:12px monospace;pointer-events:auto;max-width:420px';
   const title = document.createElement('strong');
   title.textContent = `LOCAL OFFLINE · ${baseline ? 'Baseline' : 'Optimized'} · no account / no sync`;
   const stats = document.createElement('pre');
@@ -130,6 +130,13 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
     movedAt = performance.now(); readyAfterMoveMs = 0;
   };
   panel.append(move);
+  const traffic = document.createElement('button');
+  traffic.textContent = 'Test download bandwidth';
+  traffic.onclick = () => {
+    void fetch(new URL('../style.css', import.meta.url), { cache: 'no-store' })
+      .then(response => response.arrayBuffer()).catch(console.error);
+  };
+  panel.append(traffic);
   if (surface) {
     const across = document.createElement('button');
     across.textContent = 'Across ring';

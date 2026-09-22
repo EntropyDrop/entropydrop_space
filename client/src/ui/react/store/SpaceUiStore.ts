@@ -37,6 +37,8 @@ import {
 import { triggerColorPickerInput } from '../utils/colorPickerInput.ts';
 import { entityRunStatus } from '../utils/entityNameplate.ts';
 import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
+import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
+import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
@@ -224,6 +226,8 @@ export interface SpaceUiSnapshot {
   pingText: string;
   pingClass: string;
   positionText: string;
+  terrainLoadProgress: TerrainAoiLoadProgress;
+  networkRates: NetworkRates;
   nearbyEntities: NearbyEntityItem[];
   hosting: SpaceHostingList;
   hostingBusyIds: string[];
@@ -385,6 +389,8 @@ export class SpaceUiStore {
     agentBusy: false,
     agentConfig: loadAgentConfig(),
     fpsText: '60 FPS',
+    terrainLoadProgress: { readyChunks: 0, totalChunks: 0, ready: false },
+    networkRates: { downloadBytesPerSecond: 0, uploadBytesPerSecond: 0 },
     pingText: '-- ms',
     pingClass: 'hud-ping ping-unknown',
     positionText: 'X: -- | Y: -- | Z: --',
@@ -1965,6 +1971,9 @@ export class SpaceUiStore {
     const roundedPing = typeof pingMs === 'number' && Number.isFinite(pingMs) && pingMs >= 0 ? Math.max(1, Math.round(pingMs)) : null;
     this.patch({
       fpsText: `${Math.round(fps)} FPS`,
+      terrainLoadProgress: this.snapshot.world?.getTerrainAoiLoadProgress?.()
+        ?? { readyChunks: 0, totalChunks: 0, ready: false },
+      networkRates: networkTraffic.sample(),
       pingText: roundedPing === null ? '-- ms' : `${roundedPing} ms`,
       pingClass: roundedPing === null ? 'hud-ping ping-unknown' : `hud-ping ${roundedPing < 80 ? 'ping-good' : roundedPing < 180 ? 'ping-medium' : 'ping-poor'}`,
       positionText: `X: ${playerPos.x.toFixed(1)} | Y: ${playerPos.y.toFixed(1)} | Z: ${playerPos.z.toFixed(1)}`,

@@ -1585,6 +1585,7 @@ export class World {
   /** Current publication progress for the detailed terrain AOI. */
   getTerrainAoiLoadProgress(): TerrainAoiLoadProgress {
     const totalChunks = this.activeChunkKeys.size;
+    const pendingMicro = this.microVoxels.getPendingStandardChunkKeys(this.activeChunkKeys);
     let readyChunks = 0;
     for (const key of this.activeChunkKeys) {
       const chunk = this.chunks.get(key);
@@ -1596,13 +1597,13 @@ export class World {
         && !this.pendingRemoteChunkUpdates.has(key)
         && this.pendingRemoteChunkApply?.key !== key
         && !this.pendingTerrainSnapshots.has(key)
+        && !pendingMicro.has(key)
       ) readyChunks++;
     }
-    const microReady = !this.microVoxels.hasPendingMeshWork(this.activeChunkKeys);
     return {
       readyChunks,
       totalChunks,
-      ready: totalChunks > 0 && readyChunks === totalChunks && microReady,
+      ready: totalChunks > 0 && readyChunks === totalChunks,
     };
   }
 

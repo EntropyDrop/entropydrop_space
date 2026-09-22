@@ -324,6 +324,22 @@ canvas {
   color: var(--text-muted);
 }
 
+.hud-terrain {
+  margin-top: 5px;
+  color: var(--color-warning-hover);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-terrain.is-ready { color: var(--accent-active); }
+.hud-terrain-label { display: flex; justify-content: space-between; gap: 12px; }
+.hud-terrain-track { height: 4px; margin-top: 4px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.hud-terrain-fill { height: 100%; background: currentColor; transition: width .15s linear; }
+.hud-bandwidth { display: flex; gap: 16px; margin-top: 4px; color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.hud-bandwidth > span { min-width: 90px; }
+.hud-bandwidth-arrow { color: var(--accent-light); }
+@media (prefers-reduced-motion: reduce) { .hud-terrain-fill { transition: none; } }
+
 /* =========================================================================
    HUD NEARBY ENTITIES WIDGET (Top-Left)
    ========================================================================= */

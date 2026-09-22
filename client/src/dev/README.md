@@ -96,3 +96,10 @@ return to all chunks ready, including micro meshes, without an edit, another mov
 or a reload. Combine with `dev_lod=world` to retain full-world distant coverage.
 The live scheduler prefers idle time and requests a one-millisecond queue
 slice with a 50ms timeout; generation remains in the terrain worker.
+
+The top-left HUD reports ready chunks including micro meshes, followed by
+download/upload rates. **Test download bandwidth** fetches the local stylesheet
+without cache: the download rate should rise, then return to zero after the next
+idle sample. Offline fixtures send no multiplayer traffic, so upload stays zero.
+HTTP rates use browser transfer sizes on completion; cached resources contribute
+zero. Realtime rates and HTTP uploads count application payload bytes.

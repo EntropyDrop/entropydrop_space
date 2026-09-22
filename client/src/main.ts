@@ -34,7 +34,9 @@ import {
 } from './engine/storage/BrowserStorage.ts';
 import { logConsoleSecurityWarning } from './bootstrap/ConsoleSecurityWarning.ts';
 import { isMonitoringRoute } from './bootstrap/MonitoringRoute.ts';
+import { installNetworkTrafficMonitor } from './bootstrap/NetworkTraffic.ts';
 
+installNetworkTrafficMonitor();
 logConsoleSecurityWarning();
 
 if (isMonitoringRoute()) {

@@ -294,6 +294,25 @@ test('initial AOI preload waits until every active terrain chunk is published', 
   }
 });
 
+test('AOI progress counts a chunk only after its standard and micro meshes are published', async () => {
+  const world = new World(new THREE.Scene()) as any;
+  world.renderDistance = 1;
+  await world.preloadTerrainAoi(TORUS_SPAWN_X, TORUS_SPAWN_Z);
+  const mx = (TORUS_SPAWN_X + 4) * 8, mz = (TORUS_SPAWN_Z + 4) * 8;
+  world.setMicroBlock(mx, 80 * 8, mz, 0x48dbfb);
+  world.setMicroBlock(mx, 88 * 8, mz, 0x48dbfb);
+  assert.deepEqual(world.getTerrainAoiLoadProgress(), { readyChunks: 8, totalChunks: 9, ready: false },
+    'multiple pending micro partitions belong to one unfinished standard chunk');
+  for (let i = 0; i < 100 && !world.getTerrainAoiLoadProgress().ready; i++) {
+    world.processInteractiveTerrainWork();
+  }
+  assert.deepEqual(world.getTerrainAoiLoadProgress(), { readyChunks: 9, totalChunks: 9, ready: true });
+  world.setMicroBlock(mx + 1024 * 8, 80 * 8, mz, 0x48dbfb);
+  assert.equal(world.getTerrainAoiLoadProgress().ready, true, 'work outside the current AOI does not hold the bar open');
+  world.updateChunksAround(TORUS_SPAWN_X + 256, TORUS_SPAWN_Z, false);
+  assert.equal(world.getTerrainAoiLoadProgress().ready, false, 'moving restarts progress for the new AOI');
+});
+
 test('off-thread streaming leaves unfinished chunks empty and non-colliding', () => {
   const world = new World(new THREE.Scene()) as any;
   const requests: any[] = [];
