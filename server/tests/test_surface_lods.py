@@ -128,3 +128,32 @@ def test_v6_source_retains_one_metre_steps_and_pyramid_bounds(monkeypatch):
     for level in levels:
         mip = surface.decode_surface_lod(SimpleNamespace(lod_payload=compressed), level)
         assert struct.unpack_from('<HH', mip, 32) == (144, 136)
+
+
+def test_v7_streams_only_available_3d_mips_and_retains_disconnected_faces():
+    fine = bytearray(struct.pack('<4sBBBBHHiIQI', b'EDSZ', 7, 1, 32, 8, 16, 2, 42, 3, 0, 512**2))
+    fine.extend(bytes(512**2 * 8))
+    fine.extend(struct.pack('<I', 0))
+    fine.extend(b'VXL7' + bytes((7, 0, 0, 0)))
+    faces = {}
+    for size in (1, *surface.SURFACE_LOD_SIZES):
+        # A bottom and top face at y=64..64+size. No face reaches ground.
+        faces[size] = b''.join(struct.pack('<5H6B', 0, y*8, 0, size*8, size*8,
+            direction, 1, 100, 200, 255, 0) for y, direction in ((64, 2), (64+size, 3)))
+        fine.extend(struct.pack('<B3xI', size, 2) + faces[size])
+    levels, compressed = surface.build_surface_lods(bytes(fine))
+    for level in levels:
+        raw = surface.decode_surface_lod(SimpleNamespace(lod_payload=compressed), level)
+        assert raw[4] == 7
+        trailer = raw[36 + (512 // level['sample_size'])**2 * 8:]
+        assert trailer[:4] == b'VXL7'
+        sizes = [s for s in (1, *surface.SURFACE_LOD_SIZES) if s >= level['sample_size']]
+        assert trailer[4] == len(sizes)
+        offset = 8
+        for size in sizes:
+            assert struct.unpack_from('<B3xI', trailer, offset) == (size, 2)
+            assert trailer[offset+8:offset+40] == faces[size]
+            offset += 40
+        assert offset == len(trailer)
+    with pytest.raises(ValueError, match='voxel'):
+        surface.build_surface_lods(bytes(fine[:-1]))

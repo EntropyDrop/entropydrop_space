@@ -22,12 +22,12 @@ from space.terrain_wasm import get_terrain_kernels
 
 
 SURFACE_MAGIC = b"EDSZ"
-SURFACE_SCHEMA_VERSION = 6
-SURFACE_LOD_SCHEMA_VERSION = 6
+SURFACE_SCHEMA_VERSION = 7
+SURFACE_LOD_SCHEMA_VERSION = 7
 SURFACE_LOD_SIZES = (2, 4, 8, 16, 32, 64)
 SURFACE_SAMPLES_PER_CHUNK_AXIS = 16
 SURFACE_RECORD_BYTES = 8
-MAX_SURFACE_BYTES = 16 * 1024 * 1024
+MAX_SURFACE_BYTES = 32 * 1024 * 1024
 SURFACE_HEADER_BYTES = 32
 SURFACE_CODEC_ZSTD = 1
 SURFACE_COLOR = 0x718F61
@@ -185,7 +185,10 @@ def _terrain_runtime_payload(mode: str, seed: int, version: int, x: int, z: int,
         )
     expected = (512 * 512 * SURFACE_RECORD_BYTES if mode == 'zone' else
                 16 * 256 * 16 * 4 * (len(chunks) if mode == 'chunks' else 1))
-    if len(result.stdout) != expected:
+    if mode == 'volume':
+        if not 512 * 512 * 8 + 8 <= len(result.stdout) <= MAX_SURFACE_BYTES:
+            raise RuntimeError('voxel surface runtime returned an invalid payload')
+    elif len(result.stdout) != expected:
         raise RuntimeError("terrain surface runtime returned an invalid payload")
     return result.stdout
 
@@ -314,18 +317,20 @@ def _chunk_solid_runs(generator, chunk_x, chunk_z, overlay, procedural_chunk=Non
     return boxes
 
 
-def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, overlays=None):
+def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, overlays=None, voxel_data=None):
     # v6: exact 1m X-major lattice (height, minimum, sRGB, colour error), followed by
     # authored chunk solids. The same solids accompany every mip, so zooming out
     # can never turn a bridge into a pillar or erase a thin build.
     axis = 512
-    payload = bytearray(struct.pack('<4sBBBBHHiIQI', SURFACE_MAGIC, 6, 1, 32, 8,
+    payload = bytearray(struct.pack('<4sBBBBHHiIQI', SURFACE_MAGIC, 7 if voxel_data is not None else 6, 1, 32, 8,
         zone_x, zone_z, int(world.seed), int(world.terrain_generator_version),
         int(source_terrain_revision), axis * axis))
     version = int(world.terrain_generator_version)
     generator = TerrainSurfaceGenerator(int(world.seed), int(world.width_chunks) * 16,
                                       int(world.length_chunks) * 16, version)
-    if version in RUNTIME_TERRAIN_GENERATORS:
+    if voxel_data is not None:
+        payload.extend(voxel_data[:axis * axis * 8])
+    elif version in RUNTIME_TERRAIN_GENERATORS:
         payload.extend(_terrain_runtime_payload('zone', int(world.seed), version, zone_x, zone_z))
     elif (kernels := get_terrain_kernels()) is not None:
         payload.extend(kernels.nature_surface(generator.noise.permutation,
@@ -350,6 +355,8 @@ def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, o
         for x, y, z, w, h, d, color in boxes:
             payload.extend(struct.pack('<6H3B', x, y, z, w, h, d,
                             (color >> 16) & 255, (color >> 8) & 255, color & 255))
+    if voxel_data is not None:
+        payload.extend(voxel_data[axis * axis * 8:])
     if len(payload) > MAX_SURFACE_BYTES:
         raise ValueError('surface snapshot exceeds the authored detail budget')
     return bytes(payload)
@@ -370,12 +377,44 @@ def decode_surface_zone_row(row: models.SpaceSurfaceZoneSnapshot) -> bytes:
     return payload
 
 
+def split_voxel_trailer(trailer: bytes):
+    """Separate exact authored overlays from the bounded 3D mip ladder."""
+    if len(trailer) < 4:
+        raise ValueError('truncated voxel trailer')
+    count = struct.unpack_from('<I', trailer)[0]
+    if count > 1024:
+        raise ValueError('invalid authored chunk count')
+    offset = 4
+    for _ in range(count):
+        if offset + 14 > len(trailer):
+            raise ValueError('truncated authored chunk')
+        offset += 14 + struct.unpack_from('<I', trailer, offset + 10)[0] * 15
+    authored = trailer[:offset]
+    if trailer[offset:offset + 4] != b'VXL7' or offset + 8 > len(trailer):
+        raise ValueError('missing volumetric LOD data')
+    count = trailer[offset + 4]
+    offset += 8
+    levels = []
+    for expected in (1, *SURFACE_LOD_SIZES):
+        if offset + 8 > len(trailer) or len(levels) >= count:
+            raise ValueError('truncated voxel mip ladder')
+        size, faces = trailer[offset], struct.unpack_from('<I', trailer, offset + 4)[0]
+        end = offset + 8 + faces * 16
+        if size != expected or end > len(trailer):
+            raise ValueError('invalid voxel mip level')
+        levels.append((size, trailer[offset:end]))
+        offset = end
+    if count != 7 or offset != len(trailer):
+        raise ValueError('unexpected voxel trailer')
+    return authored, levels
+
+
 def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
     """Conservative error pyramid; retain authored solids at every data LOD."""
     if len(raw) < SURFACE_HEADER_BYTES:
         raise ValueError('truncated surface source')
     magic, schema, samples, zone_size, record_bytes, *_ = struct.unpack_from('<4sBBBBHHiIQI', raw)
-    axis = 512 if schema == 6 and samples == 1 else 256
+    axis = 512 if schema in (6, 7) and samples == 1 else 256
     end = 32 + axis * axis * record_bytes
     if magic != SURFACE_MAGIC or zone_size != 32 or len(raw) < end:
         raise ValueError('invalid surface source')
@@ -389,11 +428,14 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
                         h, r, g, b = next(records)
                         grid[(cx * 8 + sx) * axis + cz * 8 + sz] = (h, h, r, g, b, 0)
         trailer = struct.pack('<I', 0)
-    elif ((schema == 5 and samples == 2) or (schema == 6 and samples == 1)) and record_bytes == 8 and len(raw) >= end + 4:
+    elif ((schema == 5 and samples == 2) or (schema in (6, 7) and samples == 1)) and record_bytes == 8 and len(raw) >= end + 4:
         grid = None
         trailer = raw[end:]
     else:
         raise ValueError('invalid surface source')
+    voxel_levels = []
+    if schema == 7:
+        trailer, voxel_levels = split_voxel_trailer(trailer)
     manifest, chunks, offset = [], [], 0
     compressor = zstd.ZstdCompressor(level=6)
     kernels = get_terrain_kernels()
@@ -426,10 +468,13 @@ def build_surface_lods(raw: bytes) -> tuple[list[dict], bytes]:
             packed = b''.join(struct.pack('<HHBBBB', *record) for record in reduced)
             grid = reduced
         payload = bytearray(raw[:32])
-        payload[4:8] = bytes((6 if schema == 6 else 5, size, 32, 8))
+        payload[4:8] = bytes((schema if schema in (6, 7) else 5, size, 32, 8))
         struct.pack_into('<I', payload, 28, next_axis * next_axis)
         payload.extend(packed)
         payload.extend(trailer)
+        if schema == 7:
+            selected = [data for level_size, data in voxel_levels if level_size >= size]
+            payload.extend(b'VXL7' + bytes((len(selected), 0, 0, 0)) + b''.join(selected))
         compressed = compressor.compress(payload)
         manifest.append({'sample_size': size, 'byte_length': len(payload),
             'digest': hashlib.sha256(payload).hexdigest(),
@@ -471,7 +516,8 @@ def generate_surface_zone(db, world: models.SpaceWorld, zone_x: int, zone_z: int
         (int(row.chunk_x), int(row.chunk_z)): {**_decode_overlay(row), 'revision': int(row.revision)}
         for row in overlay_rows
     }
-    raw = build_surface_zone_payload(world, zone_x, zone_z, source_revision, overlays)
+    volume = _terrain_runtime_payload('volume', int(world.seed), int(world.terrain_generator_version), zone_x, zone_z)
+    raw = build_surface_zone_payload(world, zone_x, zone_z, source_revision, overlays, voxel_data=volume)
     lod_manifest, lod_payload = build_surface_lods(raw)
     compressed = zstd.ZstdCompressor(level=6).compress(raw)
     digest = hashlib.sha256(raw).digest()

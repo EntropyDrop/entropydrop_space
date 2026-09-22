@@ -1214,7 +1214,7 @@ def list_surface_zones(
     ).filter(
         models.SpaceSurfaceZoneSnapshot.world_id == world.id,
         models.SpaceSurfaceZoneSnapshot.terrain_generator_version == world.terrain_generator_version,
-        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, 5, space_surface.SURFACE_SCHEMA_VERSION)),
+        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, 5, 6, space_surface.SURFACE_SCHEMA_VERSION)),
         models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis.in_((8, 16)),
     ).order_by(
         models.SpaceSurfaceZoneSnapshot.zone_x,

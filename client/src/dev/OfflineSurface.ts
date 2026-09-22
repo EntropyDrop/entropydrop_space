@@ -1,18 +1,19 @@
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { createSpaceSurfaceSnapshotRemote } from '../bootstrap/SpaceSurfaceSnapshot.ts';
 
-/** Real Copper snapshots, real streaming/LOD/disk-cache path, no server calls. */
+/** Real volumetric snapshots, real streaming/LOD/disk-cache path, no server calls. */
 export function startOfflineSurface(world: World) {
-  const status = { generated: 0, downloads: 0, passes: 0, fineZones: 0, error: '' };
+  const status = { generated: 0, downloads: 0, passes: 0, fineZones: 0, error: '', progress: '' };
   const fineZones = new Set<string>();
   const payloads = new Map<string, Uint8Array>(), zones: any[] = [];
   let stopped = false;
   const worker = new Worker(new URL('./OfflineSurfaceWorker.ts', import.meta.url), { type: 'module' });
-  const root = '/__space_offline_surface__/';
-  const remote = createSpaceSurfaceSnapshotRemote(location.origin, '', `${root}manifest`, 20260922, 2,
+  const seed = world.terrainGen.seed, version = world.terrainGen.version;
+  const root = `/__space_offline_surface__/${version}/${seed}/`;
+  const remote = createSpaceSurfaceSnapshotRemote(location.origin, '', `${root}manifest`, seed, version,
     (async input => {
       const path = new URL(String(input)).pathname;
-      if (path === `${root}manifest`) return Response.json({ schema_version: 6, samples_per_chunk_axis: 16,
+      if (path === `${root}manifest`) return Response.json({ schema_version: 7, samples_per_chunk_axis: 16,
         zone_size_chunks: 32, width_chunks: 1024, length_chunks: 128, complete: false, zones });
       const bytes = payloads.get(path);
       if (!bytes) return new Response(null, { status: 404 });
@@ -20,6 +21,7 @@ export function startOfflineSurface(world: World) {
       return new Response(bytes.slice().buffer);
     }) as typeof fetch);
   worker.onmessage = ({ data }) => {
+    if (data.progress) { status.progress = data.progress; return; }
     if (data.error) { status.error = data.error; worker.terminate(); return; }
     if (data.complete) { worker.terminate(); return; }
     const entries = data.levels.map(({ size, bytes, digest }) => {
@@ -34,7 +36,7 @@ export function startOfflineSurface(world: World) {
   worker.onerror = event => { status.error = event.message; worker.terminate(); };
   // Four districts around spawn and four across the hole. Intentionally a
   // bounded test fixture, not a full-world generation benchmark.
-  worker.postMessage({ seed: 20260922, zones: [[15,1],[15,2],[16,1],[16,2],[0,1],[0,2],[31,1],[31,2]] });
+  worker.postMessage({ seed, version, zones: [[15,1],[15,2],[16,1],[16,2],[0,1],[0,2],[31,1],[31,2]] });
   const poll = async () => {
     try {
       if (zones.length) {

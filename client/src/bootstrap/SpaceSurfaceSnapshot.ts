@@ -1,4 +1,4 @@
-import type { SurfaceZoneSnapshot, DistantChunkSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
+import type { SurfaceZoneSnapshot, DistantChunkSnapshot, VoxelSurfaceMip } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 import { createSurfaceDiskCache, type SurfaceByteCache } from './SurfaceDiskCache.ts';
 export type { SurfaceZoneSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 
@@ -9,13 +9,13 @@ import {
   sha256Hex,
 } from './NetworkSafety.ts';
 
-export const SURFACE_ZONE_SCHEMA_VERSION = 6;
+export const SURFACE_ZONE_SCHEMA_VERSION = 7;
 export const SURFACE_ZONE_SAMPLES_PER_CHUNK_AXIS = 16;
 export const SURFACE_ZONE_SIZE_CHUNKS = 32;
 export const SURFACE_ZONE_HEADER_BYTES = 32;
 export const SURFACE_ZONE_RECORD_BYTES = 8;
 export const LEGACY_SURFACE_ZONE_RECORD_BYTES = 5;
-export const MAX_SURFACE_ZONE_BYTES = 16 * 1024 * 1024;
+export const MAX_SURFACE_ZONE_BYTES = 32 * 1024 * 1024;
 // 128 zones with seven full authenticated digest URLs exceed 256 KiB in v6.
 const MAX_SURFACE_MANIFEST_BYTES = 512 * 1024;
 const MAX_SURFACE_ZONES = 128;
@@ -67,7 +67,7 @@ function resolveSurfaceApiUrl(input: string, apiOrigin: string): URL {
 function parseManifest(value: unknown): SurfaceZoneManifest {
   const manifest = value as any;
   if (
-    ![3, 5, SURFACE_ZONE_SCHEMA_VERSION].includes(manifest?.schema_version)
+    ![3, 5, 6, SURFACE_ZONE_SCHEMA_VERSION].includes(manifest?.schema_version)
     || ![8, 16].includes(manifest?.samples_per_chunk_axis)
     || manifest?.zone_size_chunks !== SURFACE_ZONE_SIZE_CHUNKS
     || !boundedInteger(manifest?.width_chunks, SURFACE_ZONE_SIZE_CHUNKS, 2048)
@@ -149,8 +149,8 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
   const expectedBytes = SURFACE_ZONE_HEADER_BYTES + recordCount * recordBytes;
   if (
     magic !== 'EDSZ'
-    || ![3, 4, 5, 6].includes(schemaVersion)
-    || (schemaVersion >= 4 ? ![...(schemaVersion === 6 ? [1] : []), ...SURFACE_LOD_SIZES].includes(sampleSize!)
+    || ![3, 4, 5, 6, 7].includes(schemaVersion)
+    || (schemaVersion >= 4 ? ![...(schemaVersion >= 6 ? [1] : []), ...SURFACE_LOD_SIZES].includes(sampleSize!)
       : samplesPerChunkAxis !== 8)
     || zoneSizeChunks !== SURFACE_ZONE_SIZE_CHUNKS
     || recordBytes !== (schemaVersion >= 5 ? SURFACE_ZONE_RECORD_BYTES : LEGACY_SURFACE_ZONE_RECORD_BYTES)
@@ -180,6 +180,7 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
     offset += recordBytes;
   }
   let detailChunks: DistantChunkSnapshot[] | undefined;
+  let voxelMips: VoxelSurfaceMip[] | undefined;
   if (schemaVersion >= 5) {
     detailChunks = [];
     const count = view.getUint32(offset, true);
@@ -210,6 +211,36 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
       detailChunks.push({ chunkX: zoneX * 32 + cx, chunkZ: zoneZ * 32 + cz,
         revision, boxes, colors: boxColors });
     }
+    if (schemaVersion === 7) {
+      if (offset + 8 > bytes.length || String.fromCharCode(...bytes.subarray(offset, offset + 4)) !== 'VXL7') {
+        throw new Error('Missing volumetric surface data.');
+      }
+      const sizes = [1, ...SURFACE_LOD_SIZES].filter(size => size >= sampleSize!);
+      if (bytes[offset + 4] !== sizes.length) throw new Error('Invalid voxel mip count.');
+      offset += 8;
+      voxelMips = [];
+      for (const cellSize of sizes) {
+        if (offset + 8 > bytes.length || bytes[offset] !== cellSize) throw new Error('Invalid voxel mip level.');
+        const count = view.getUint32(offset + 4, true);
+        offset += 8;
+        const end = offset + count * 16;
+        if (end > bytes.length) throw new Error('Truncated voxel faces.');
+        for (let at = offset; at < end; at += 16) {
+          const coords = [0, 2, 4].map(delta => view.getUint16(at + delta, true));
+          const w = view.getUint16(at + 6, true), h = view.getUint16(at + 8, true);
+          const dir = bytes[at + 10], dim = dir >> 1, u = (dim + 1) % 3, v = (dim + 2) % 3;
+          const bounds = [4096, 2048, 4096], unit = cellSize * 8;
+          if (dir > 5 || bytes[at + 11] > 1 || !w || !h || w % unit || h % unit
+            || coords.some((n, axis) => n > bounds[axis] || n % unit)
+            || coords[u] + w > bounds[u] || coords[v] + h > bounds[v]
+            || ((dir & 1) ? coords[dim] < unit : coords[dim] + unit > bounds[dim])) {
+            throw new Error('Invalid voxel face bounds.');
+          }
+        }
+        voxelMips.push({ cellSize, faces: bytes.slice(offset, end) });
+        offset = end;
+      }
+    }
     if (offset !== bytes.length) throw new Error('Unexpected surface snapshot trailer.');
   }
   return {
@@ -223,7 +254,7 @@ export function parseSurfaceZoneSnapshot(bytes: Uint8Array): SurfaceZoneSnapshot
     samplesPerChunkAxis,
     heightsMicro,
     colors,
-    minHeightsMicro, colorErrors, detailChunks,
+    minHeightsMicro, colorErrors, detailChunks, voxelMips,
   };
 }
 

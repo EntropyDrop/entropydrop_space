@@ -81,7 +81,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
 }
 
 function installDiagnostics(game: OfflineGame, baseline: boolean,
-  surface: { generated: number; downloads: number; passes: number; fineZones: number; error: string } | null) {
+  surface: { generated: number; downloads: number; passes: number; fineZones: number; error: string; progress?: string } | null) {
   const panel = document.createElement('section');
   panel.id = 'dev-render-diagnostics';
   panel.style.cssText = 'position:fixed;top:60px;left:12px;z-index:10000;background:#101820ed;color:#fff;padding:12px;font:12px monospace;pointer-events:auto;max-width:420px';
@@ -146,7 +146,7 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
             : 'Local near terrain only; not a live-server FPS measurement.');
         if (surface) {
           const layer = game.world.distantSurface, build = layer.mesh.userData.lodBuildStats;
-          stats.textContent += `\nLOD fixture: ${surface.generated}/8 districts | 1m sources ${surface.fineZones} | passes ${surface.passes} | source reads ${surface.downloads}\nLOD publications ${build?.publications ?? 0} | cells ${layer.mesh.geometry.instanceCount} | subdivision ${layer.mesh.userData.lodEffectiveSubdivisionPx2 ?? 63}px^2\n${surface.error || 'Local far terrain enabled; not a live-server measurement.'}`;
+          stats.textContent += `\nLOD fixture: ${surface.generated}/8 districts | 1m sources ${surface.fineZones} | passes ${surface.passes} | source reads ${surface.downloads}\nLOD publications ${build?.publications ?? 0} | cells ${layer.mesh.geometry.instanceCount} | subdivision ${layer.mesh.userData.lodEffectiveSubdivisionPx2 ?? 63}px^2\n${surface.error || surface.progress || 'Local far terrain enabled; not a live-server measurement.'}`;
         }
         updated = now;
       }

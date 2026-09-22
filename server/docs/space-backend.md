@@ -438,56 +438,45 @@ means the database contains everything required to reconstruct the same authorit
 At runtime, decoded data uses SoA and TypedArray layouts with no per-cell JavaScript
 objects in hot loops. Edits mark chunks dirty; background threads compress and hash.
 
-### 7.1 Distant Toroidal LOD Bootstrap Cache
+### 7.1 Distant Toroidal Voxel LOD Cache
 
-The torus far field is a shared **versioned render cache** over the 128 existing
-`32x32`-chunk zones. It does not load or simulate distant gameplay chunks. EDSZ v6
-keeps a 32-byte identity header and an X-major procedural lattice at 1/2/4/8/16/32/64m.
-Each eight-byte record contains maximum/minimum source height in eighth-block units,
-RGB and a conservative colour residual. All levels also carry the same sparse authored
-chunk trailer: accepted per-chunk revision and solid boxes derived from vertical runs.
-This preserves suspended structures, excavations, material boundaries and microcell
-footprints; it never fills all space beneath an authored highest point.
+The far field is a versioned render cache over 128 existing 512x512m zones.
+EDSZ v7 retains the 32-byte identity header and eight-byte X-major height/colour
+summary for residency decisions. Geometry comes from an appended `VXL7` ladder,
+not from height columns. The ladder contains 1/2/4/8/16/32/64m voxel surface meshes.
+Each level has an eight-byte header (cell size, three reserved bytes, uint32 face
+count), followed by 16-byte faces: five uint16 values (x, y, z, U extent, V extent)
+in eighth-metre units, direction (axis*2+positive), material, RGB, and one reserved
+byte. U/V are the next two cyclic axes. Coordinates are local to the zone.
 
-- The standalone API starts a retrying background task that rebuilds missing, dirty
-  or obsolete-schema snapshots, even without connected clients, from the
-  deterministic generator and committed overlays. Source revisions are checked before
-  and after publication. Migration `space_0008` already provides the nullable LOD blob
-  and manifest columns; v6 requires no additional database migration.
-  PostgreSQL world locks coordinate replicas and the manifest warmup; dirty and
-  authored regions are processed before untouched legacy terrain.
-- Each level is independently Zstd-compressed with SHA-256, byte length and immutable
-  digest URL. Authenticated reads preserve membership checks, validate integrity and
-  cap raw payloads at 16 MiB. Manifest queries defer the large payload columns.
-- Dirty rows remain available as last-good coverage with `updating: true`. Legacy v3/v4
-  rows also remain readable while v6 is built. `complete` stays false during generation
-  or schema upgrades, and polling starts the existing background backfill when needed.
-  Clients retain absent/unavailable zones and atomically replace complete draw batches.
-- Clients fetch 64m coverage first, then refine visible zones according to conservative
-  projected source error. A uniform overview without authored solids is 548 bytes per
-  zone. The default 16 MiB refinement budget excludes that overview and the shared
-  authored trailer; settings permit 4–64 MiB. Completed manifest metadata is cached for
-  ten seconds; camera demand is revisited every second.
-- LOD selection uses bent-world distance, camera FOV, drawing-buffer height, source
-  height/colour error and torus chord error. Settings expose a 0.5–8px target (default
-  2px), viewing distance and source-data budget. Fixed distance tiers and optional
-  side-connection radii are removed. Geometry/data ceilings can limit achieved quality.
-  Height morphing, refinement hysteresis and per-vertex curved top normals reduce
-  transitions and lighting bands. Torus culling uses conservative bent bounds, never a
-  spherical horizon test that would hide the opposite ring.
-- A 128 KiB chunk ownership texture distinguishes procedural far surface (0), authored
-  far solids (128) and a ready detailed mesh (255). Connections close all rendered
-  distances, including the wrapped boundaries. Near ownership forces fine boundary
-  cells; authored ownership aligns tiles to chunk boundaries. Local edited chunks are
-  captured before near eviction and cannot be overwritten by an older server revision.
-  Camera updates queue a subsequent build rather than starving a build in progress.
+Generation uses bounded 64x64x64 bricks. It retains solid interiors while removing
+hidden faces, greedily merges matching exposed quads, and reduces occupancy along
+all three axes. Micro ornaments contribute occupancy and emissive material to the
+finest 1m distant level. Floating islands, undersides, bridges and disconnected
+vertical surfaces retain air around them. Sparse authored chunk boxes still provide
+exact edited geometry independently of procedural mip selection.
 
-These snapshots are render acceleration; collision and editing authority remain
-procedural generation plus `chunk_snapshots`.
-The reproducible browser fixture is generated by
-`python tools/generate_distant_surface_fixture.py` from `server/` and viewed at the
-client dev URL `/space/app/tools/distant-surface-preview.html`. It exercises real v6
-serialization, a suspended beam, excavation, microcells, near/far ownership and refresh.
+- The API rebuilds missing, dirty and older-schema snapshots from the deterministic
+  generator and committed overlays, checking source revisions around publication.
+  No database-column migration is required; `space_0008` already stores LOD blobs.
+- Each downloadable level includes its coarser levels, independently Zstd-compressed
+  and SHA-256 authenticated. Payloads are bounded at 32 MiB. The client validates
+  every face and identity, and reuses digest-addressed disk cache entries.
+- Clients load coarse coverage first, then refine their position-based working set
+  within the configured source-data budget (default 256 MiB). Legacy v3-v6 snapshots
+  remain readable during server backfill. Their digest changes on v7 publication.
+- The renderer selects LOD per 64m brick using projected face area, with hysteresis.
+  Rotation only updates frustum culling. Instanced greedy quads are grouped into
+  128m draw tiles and bent onto the torus with correctly transformed six-axis normals.
+  Lighting and emissive material follow the detailed terrain shaders.
+- Near/far ownership uses the existing per-chunk dither texture; source replacements
+  cross-fade through bounded reusable buffers. Edited chunk proxies mask procedural
+  far geometry and preserve accepted revisions. These snapshots do not affect
+  collision, simulation or editing authority.
+
+Use `/space/app/?dev_offline=1&dev_lod=1&world=aether-archipelago` to exercise real
+v7 generation, decoding, streaming, LOD selection and cached reloads locally.
+The fixture covers four spawn zones and four zones across the ring.
 
 ## 8. Commands, Consistency, and Conflicts
 

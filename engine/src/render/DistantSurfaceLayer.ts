@@ -1,3 +1,4 @@
+import { DistantVoxelLayer } from './DistantVoxelLayer.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
 import { TerrainHandoff, TERRAIN_DITHER_GLSL } from './TerrainHandoff.ts';
 import { DistantChunkLayer } from './DistantChunkLayer.ts';
@@ -160,6 +161,7 @@ if (transitionPixel < uSurfaceTransition.x || transitionPixel >= uSurfaceTransit
 `;
 
 interface StoredSurfaceZone {
+  volumetric?: boolean;
   zoneX: number;
   zoneZ: number;
   mips: Map<number, SurfaceMip>;
@@ -403,6 +405,7 @@ export class DistantSurfaceLayer {
   readonly detailMaskTexture: THREE.DataTexture;
   readonly authoredChunks: DistantChunkLayer;
   readonly handoff = new TerrainHandoff();
+  readonly voxels = new DistantVoxelLayer(this.handoff.texture);
   readonly loadedZones = new Set<string>();
   private readonly detailMaskData = new Uint8Array(WORLD_CHUNKS_X * WORLD_CHUNKS_Z);
   private readonly zones = new Map<string, StoredSurfaceZone>();
@@ -517,12 +520,12 @@ export class DistantSurfaceLayer {
     // Child batches use the default camera layer independently of the parent.
     this.mesh.layers.disableAll();
     this.sideMesh.layers.disableAll();
-    this.mesh.add(this.sideMesh, this.authoredChunks.group);
+    this.mesh.add(this.sideMesh, this.authoredChunks.group, this.voxels.group);
     hookSceneMaterials(this.mesh);
   }
 
   private syncVisibility() {
-    this.mesh.visible = this.enabled && (this.mesh.geometry.instanceCount > 0 || this.authoredChunks.group.children.length > 0);
+    this.mesh.visible = this.enabled && (this.mesh.geometry.instanceCount > 0 || this.authoredChunks.group.children.length > 0 || this.voxels.group.children.length > 0);
     this.sideMesh.visible = this.enabled && this.sideMesh.geometry.instanceCount > 0;
   }
 
@@ -552,6 +555,7 @@ export class DistantSurfaceLayer {
       batch.setVisible(visible);
     }
     const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
+    this.voxels.updateView(this.frustum, this.cameraPosition, scale, this.settings.subdivisionSizePx2, this.settings.renderDistanceChunks * CHUNK_SIZE);
     // Hysteresis avoids rebuilding for sub-pixel motion or tiny resolution changes.
     if (this.lodViewKey && this.lodPosition.distanceTo(camera.position) < 8
       && scale < this.pixelScale * 1.05 && scale > this.pixelScale / 1.05) return;
@@ -583,10 +587,10 @@ export class DistantSurfaceLayer {
       for (const size of [...LOD_SAMPLE_SIZES].reverse()) {
         sampleSize = size;
         const mip = zone?.mips.get(size);
-        const error = mip?.maxResidual ?? Infinity;
+        const error = zone?.volumetric ? Infinity : mip?.maxResidual ?? Infinity;
         const previous = this.zoneDemandSizes.get(key) ?? 64;
         const hysteresis = size > previous ? SURFACE_AREA_HYSTERESIS : 1;
-        const area = surfaceSubdivisionWorldArea(size, high, low);
+        const area = surfaceSubdivisionWorldArea(size, high, zone?.volumetric ? high - size : low);
         if (distance >= surfaceSubdivisionDistance(area, error, this.pixelScale,
           this.settings.subdivisionSizePx2 * hysteresis)) break;
       }
@@ -722,7 +726,8 @@ export class DistantSurfaceLayer {
     const index = wrappedZ * WORLD_CHUNKS_X + wrappedX;
     const zoneKey = `${Math.floor(wrappedX / 32)},${Math.floor(wrappedZ / 32)}`;
     const farReady = this.batches.has(this.drawKey(zoneKey, wrappedX * 16, wrappedZ * 16))
-      || this.authoredChunks.has(wrappedX, wrappedZ);
+      || this.authoredChunks.has(wrappedX, wrappedZ)
+      || this.voxels.hasZone(Math.floor(wrappedX / 32), Math.floor(wrappedZ / 32));
     this.handoff.setReady(wrappedX, wrappedZ, ready,
       !immediate && this.enabled && this.hasView && farReady);
     const value = ready ? 255 : this.authoredChunks.has(wrappedX, wrappedZ) ? 128 : 0;
@@ -940,6 +945,7 @@ export class DistantSurfaceLayer {
   }
 
   private async appendRoot(zone: StoredSurfaceZone, localX: number, localZ: number, generation: number) {
+    if (zone.volumetric) return true;
     if (!this.hasView) { this.visitCell(zone, localX, localZ, 64); return true; }
     const zoneKey = `${zone.zoneX},${zone.zoneZ}`, key = `${zoneKey}:${localX},${localZ}`;
     const epoch = this.buildCoverageEpochs.get(zoneKey) ?? 0;
@@ -986,6 +992,7 @@ export class DistantSurfaceLayer {
   }
 
   private appendZone(zone: StoredSurfaceZone) {
+    if (zone.volumetric) return;
     for (const [localX, localZ] of SURFACE_ROOT_ORIGINS) {
       const kernel = this.hasView ? getTerrainKernels() : null;
       if (!kernel) { this.visitCell(zone, localX, localZ, 64); continue; }
@@ -1466,9 +1473,11 @@ export class DistantSurfaceLayer {
     const replacing = this.zones.has(key);
     if ((this.zones.get(key)?.sourceTerrainRevision ?? -1) > zone.sourceTerrainRevision) return;
     for (const chunk of zone.detailChunks ?? []) this.authoredChunks.install(chunk);
+    if (zone.voxelMips) this.voxels.install(zone);
+    else this.voxels.removeZone(zone.zoneX, zone.zoneZ);
     const mips = buildMipPyramid(zone);
     const coarsest = mips.get(64)!;
-    const stored = { zoneX: zone.zoneX, zoneZ: zone.zoneZ, mips, sampleSize,
+    const stored = { volumetric: Boolean(zone.voxelMips), zoneX: zone.zoneX, zoneZ: zone.zoneZ, mips, sampleSize,
       sourceTerrainRevision: zone.sourceTerrainRevision,
       bounds: computeBentBoundsSphere({ minX: zone.zoneX * 512, maxX: (zone.zoneX + 1) * 512,
         minZ: zone.zoneZ * 512, maxZ: (zone.zoneZ + 1) * 512,
@@ -1513,6 +1522,7 @@ export class DistantSurfaceLayer {
   }
 
   removeZone(zoneX: number, zoneZ: number) {
+    this.voxels.removeZone(zoneX, zoneZ);
     const key = `${zoneX},${zoneZ}`;
     if (!this.zones.delete(key)) return;
     this.loadedZones.delete(key);

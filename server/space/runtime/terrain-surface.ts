@@ -2,6 +2,7 @@ import { TerrainGenerator } from '@entropydrop/space-engine/worldgen/TerrainGene
 import { generateSurfaceZoneRecords } from '@entropydrop/space-engine/worldgen/SurfaceZoneGenerator.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { readFileSync } from 'node:fs';
+import { generateVoxelSurfaceZone, encodeVoxelLevels } from '@entropydrop/space-engine/worldgen/VoxelSurfaceGenerator.ts';
 
 function integer(value: string | undefined, name: string) {
   const parsed = Number(value);
@@ -40,7 +41,11 @@ const seed = integer(seedValue, 'seed');
 const version = integer(versionValue, 'terrain generator version');
 const x = integer(xValue, 'x');
 const z = integer(zValue, 'z');
-if (mode === 'zone') writeZone(seed, version, x, z);
+if (mode === 'volume') {
+  const result = generateVoxelSurfaceZone(new TerrainGenerator(seed, version), x, z);
+  process.stdout.write(result.records);
+  process.stdout.write(encodeVoxelLevels(result.levels));
+} else if (mode === 'zone') writeZone(seed, version, x, z);
 else if (mode === 'chunk') writeChunk(new TerrainGenerator(seed, version), x, z);
 else if (mode === 'chunks') {
   const chunks = JSON.parse(readFileSync(0, 'utf8'));

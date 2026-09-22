@@ -25,8 +25,8 @@ and wait for initial compilation/warm-up before comparing results.
 ## Distant terrain regression
 
 Add `&dev_lod=1`, or use **Test distant terrain**. A local worker generates eight
-real Copper districts (four around spawn, four across the ring) with the exact
-server 1m column extractor and WASM mip reducer. The normal authenticated-byte
+real districts from the selected world (four around spawn, four across the ring) with the shared
+server 3D voxel mesher and seven-level mip ladder. The normal authenticated-byte
 decoder, source-demand allocator, IndexedDB cache and renderer are exercised by
 a local fetch adapter. There are no account or server requests. This bounded
 fixture is not a whole-world performance benchmark.
@@ -68,10 +68,10 @@ No Voxy source code is included. The current upstream default is 64 px^2; this
 fixture uses the requested 63 px^2 instead.
 
 This is a DH/Voxy-inspired residency/LOD pipeline, not a port of either mod.
-Procedural far terrain still uses 1m height/color columns: facade microvoxels and
-procedural overhangs are not reconstructed by that format. Authored structures
-retain their existing multi-height solid proxies. Full procedural vertical LOD
-would require a separate snapshot-format and meshing change.
+Procedural far terrain uses EDSZ v7 volumetric LOD: six-sided surface quads,
+64m bricks and 1/2/4/8/16/32/64m voxel levels. Air below floating islands and
+between bridges remains empty. Authored structures retain exact solid proxies.
+The progress line reports the zone and completed bricks while generating.
 
 ## Aether Archipelago preview
 

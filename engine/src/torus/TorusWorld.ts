@@ -315,6 +315,10 @@ gl_Position = projectionMatrix * mvPosition;
 const TORUS_NORMAL_VERTEX = `
 vec4 torusWp = modelMatrix * vec4( position, 1.0 );
 vec3 torusObjectNormal = objectNormal;
+#ifdef TORUS_VOXEL_POSITION
+    torusWp = modelMatrix * vec4(voxelPosition(position.xy), 1.0);
+    torusObjectNormal = voxelNormal();
+#endif
 #ifdef TORUS_SURFACE_POSITION
     // Interpolate the curved surface normal per vertex. A constant normal at
     // each LOD cell centre produces visible rings even below the pixel budget.

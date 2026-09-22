@@ -15,6 +15,14 @@ export interface SurfaceZoneSnapshot {
   colorErrors?: Uint8Array;
   /** Full vertical occupancy for authored chunks, independent of terrain LOD. */
   detailChunks?: DistantChunkSnapshot[];
+  /** v7: closed 3D surface meshes at every available voxel resolution. */
+  voxelMips?: VoxelSurfaceMip[];
+}
+
+export interface VoxelSurfaceMip {
+  cellSize: number;
+  /** 16-byte directed quads in zone-local micro units; see VoxelSurfaceGenerator. */
+  faces: Uint8Array;
 }
 
 export interface DistantChunkSnapshot {
