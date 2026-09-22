@@ -97,3 +97,31 @@ def test_standalone_api_runs_surface_job_for_its_lifetime(monkeypatch):
             await asyncio.wait_for(started.wait(), 1)
         assert stopped == [True]
     asyncio.run(verify())
+
+
+def test_completed_world_residency_scan_never_loads_geometry_blobs(db, monkeypatch):
+    from sqlalchemy import event
+    from space import models
+    world = models.SpaceWorld(seed=42, width_chunks=64, length_chunks=64, zone_size_chunks=32)
+    db.add(world)
+    db.flush()
+    for x in range(2):
+        for z in range(2):
+            db.add(models.SpaceSurfaceZoneSnapshot(world_id=world.id, zone_x=x, zone_z=z,
+                schema_version=7, samples_per_chunk_axis=16, terrain_generator_version=1,
+                uncompressed_size=1, content_hash=b'x'*32, payload=b'large-geometry',
+                lod_payload=b'large-mip-ladder', lod_manifest=[]))
+    db.commit()
+    selected = []
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith('SELECT') and 'space_surface_zone_snapshots' in statement:
+            selected.append(statement.split('FROM')[0])
+    engine = db.get_bind()
+    event.listen(engine, 'before_cursor_execute', capture)
+    monkeypatch.setattr(space_surface, 'SessionLocal', lambda: db)
+    try:
+        assert space_surface.generate_next_surface_zone() is False
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
+    assert len(selected) == 2
+    assert all('payload' not in statement and 'lod_manifest' not in statement for statement in selected)

@@ -1296,7 +1296,7 @@ def get_surface_zone(
         models.SpaceSurfaceZoneSnapshot.zone_x == zone_x,
         models.SpaceSurfaceZoneSnapshot.zone_z == zone_z,
         models.SpaceSurfaceZoneSnapshot.terrain_generator_version == world.terrain_generator_version,
-        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, 5, space_surface.SURFACE_SCHEMA_VERSION)),
+        models.SpaceSurfaceZoneSnapshot.schema_version.in_((3, 5, 6, space_surface.SURFACE_SCHEMA_VERSION)),
         models.SpaceSurfaceZoneSnapshot.samples_per_chunk_axis.in_((8, 16)),
     ).first()
     if row is None:
@@ -1586,7 +1586,10 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
             (chunk_x // int(world.zone_size_chunks), chunk_z // int(world.zone_size_chunks))
             for chunk_x, chunk_z in changed_chunks
         }
-        surface_rows = db.query(models.SpaceSurfaceZoneSnapshot).filter(
+        surface_rows = db.query(models.SpaceSurfaceZoneSnapshot).options(
+            defer(models.SpaceSurfaceZoneSnapshot.payload),
+            defer(models.SpaceSurfaceZoneSnapshot.lod_payload),
+        ).filter(
             models.SpaceSurfaceZoneSnapshot.world_id == world.id,
             or_(*[
                 and_(

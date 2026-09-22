@@ -589,7 +589,7 @@ def generate_next_surface_zone() -> bool:
             models.SpaceWorld.status == 1
         ).with_for_update(skip_locked=True).all()
         for world in worlds:
-            dirty = db.query(models.SpaceSurfaceZoneSnapshot).filter(
+            dirty = db.query(models.SpaceSurfaceZoneSnapshot.zone_x, models.SpaceSurfaceZoneSnapshot.zone_z).filter(
                 models.SpaceSurfaceZoneSnapshot.world_id == world.id,
                 (
                     (models.SpaceSurfaceZoneSnapshot.dirty.is_(True))
@@ -615,7 +615,9 @@ def generate_next_surface_zone() -> bool:
 
             existing = {
                 (int(row.zone_x), int(row.zone_z))
-                for row in db.query(models.SpaceSurfaceZoneSnapshot).filter(
+                # A complete world contains hundreds of MiB of compressed 3D
+                # geometry. Residency checks must fetch coordinates only.
+                for row in db.query(models.SpaceSurfaceZoneSnapshot.zone_x, models.SpaceSurfaceZoneSnapshot.zone_z).filter(
                     models.SpaceSurfaceZoneSnapshot.world_id == world.id,
                 ).all()
             }
