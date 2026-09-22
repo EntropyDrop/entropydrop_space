@@ -1,9 +1,11 @@
 import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite';
 import { fileURLToPath } from 'node:url';
+import { devTrafficFixture } from './tools/dev-traffic-fixture.mjs';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, fileURLToPath(new URL('../', import.meta.url)), 'VITE_');
   return {
+  plugins: [devTrafficFixture()],
   base: process.env.VITE_SPACE_BASE_PATH || env.VITE_SPACE_BASE_PATH || '/space/app/',
   envDir: '..',
   resolve: {
@@ -36,7 +38,7 @@ export default defineConfig(({ mode }) => {
           if (id.includes('/node_modules/@bufbuild/protobuf/')) return 'protobuf';
           if (id.includes('/node_modules/@msgpack/msgpack/')) return 'realtime-codec';
           if (id.includes('/node_modules/acorn/')) return 'script-runtime';
-          if (id.endsWith('/bootstrap/NetworkSafety.ts')) return 'network-core';
+          if (/\/bootstrap\/(NetworkSafety|NetworkTraffic|UploadProgress)\.ts$/.test(id)) return 'network-core';
           if (id.endsWith('/engine/contraption/AgentConfig.ts')) return 'agent-config';
           if (id.endsWith('/engine/contraption/AgentChat.ts')
             || id.endsWith('/engine/contraption/BehaviorAgent.ts')) return 'agent';

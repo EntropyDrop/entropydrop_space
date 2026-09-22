@@ -608,7 +608,7 @@ export function Hud() {
               </div>
             </div>
             <div id="network-bandwidth" className="hud-bandwidth"
-              title="Estimated traffic for this tab, updated every second. HTTP downloads are counted on completion; cached data is excluded. Uploads and realtime messages count payload bytes, excluding protocol overhead.">
+              title="Live application data over the last second. Downloads count response-body bytes after decompression; uploads count transfer progress and drained realtime messages. Excludes protocol overhead and browser-cache hits when timing is available.">
               <span aria-label={`Download ${formatByteRate(state.networkRates.downloadBytesPerSecond)}`}>
                 <span className="hud-bandwidth-arrow" aria-hidden="true">↓</span> {formatByteRate(state.networkRates.downloadBytesPerSecond)}
               </span>

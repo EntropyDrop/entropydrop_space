@@ -98,8 +98,17 @@ The live scheduler prefers idle time and requests a one-millisecond queue
 slice with a 50ms timeout; generation remains in the terrain worker.
 
 The top-left HUD reports ready chunks including micro meshes, followed by
-download/upload rates. **Test download bandwidth** fetches the local stylesheet
-without cache: the download rate should rise, then return to zero after the next
-idle sample. Offline fixtures send no multiplayer traffic, so upload stays zero.
-HTTP rates use browser transfer sizes on completion; cached resources contribute
-zero. Realtime rates and HTTP uploads count application payload bytes.
+download/upload rates over the last second. **Test 256 KiB/s download** streams
+3 MiB over 12 seconds. After the first second, download should remain close to
+256 KiB/s during transfer, without a burst at completion, then return to zero.
+**Test upload with delayed reply** sends 8 MiB and delays the response by six
+seconds: upload must register before the reply and reach zero while waiting.
+Both endpoints exist only in the Vite development server and retain no data.
+
+Rates measure application payload, excluding protocol overhead: HTTP download
+bytes after decompression, actual XHR upload progress, and WebSocket queue drain.
+Browser-cache hits are removed when resource timing exposes cache status;
+all-zero cross-origin timing is treated as unavailable, not proof of a cache hit.
+Native fetch remains in use for keepalive/unload and unsupported request modes;
+their upload progress is unavailable. The game's normal foreground writes use
+the progress transport; terrain downloads retain the bounded streaming reader.

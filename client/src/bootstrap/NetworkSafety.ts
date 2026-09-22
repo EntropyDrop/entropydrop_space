@@ -1,3 +1,5 @@
+import { recordResponseBytes } from './NetworkTraffic.ts';
+
 export class NetworkPayloadTooLargeError extends Error {
   readonly maxBytes: number;
 
@@ -95,6 +97,7 @@ export function resolveSafeHttpUrl(input: string, baseUrl?: string): URL {
 /** Read a response incrementally so a corrupt CDN/API cannot force a huge allocation. */
 export async function readResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new TypeError('maxBytes must be a positive integer');
+  recordResponseBytes(response, 0);
   const declaredLength = Number(response.headers?.get?.('Content-Length'));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     throw new NetworkPayloadTooLargeError(maxBytes);
@@ -102,6 +105,7 @@ export async function readResponseBytes(response: Response, maxBytes: number): P
 
   if (!response.body || typeof response.body.getReader !== 'function') {
     const bytes = new Uint8Array(await response.arrayBuffer());
+    recordResponseBytes(response, bytes.byteLength);
     if (bytes.byteLength > maxBytes) throw new NetworkPayloadTooLargeError(maxBytes);
     return bytes;
   }
@@ -114,6 +118,7 @@ export async function readResponseBytes(response: Response, maxBytes: number): P
       const { done, value } = await reader.read();
       if (done) break;
       if (!value?.byteLength) continue;
+      recordResponseBytes(response, value.byteLength);
       total += value.byteLength;
       if (total > maxBytes) {
         await reader.cancel().catch(() => undefined);

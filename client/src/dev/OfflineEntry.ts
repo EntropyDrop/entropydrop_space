@@ -2,6 +2,8 @@ import type { ReadySpaceSession } from '../bootstrap/SpaceBootstrap.ts';
 import { DEFAULT_PLAYER_SKIN_URL } from '../bootstrap/SpaceBootstrap.ts';
 import type { SpaceStorage } from '../engine/storage/BrowserStorage.ts';
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
+import { readResponseBytes } from '../bootstrap/NetworkSafety.ts';
+import { networkTraffic } from '../bootstrap/NetworkTraffic.ts';
 
 interface OfflineGame {
   world: World;
@@ -131,12 +133,41 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
   };
   panel.append(move);
   const traffic = document.createElement('button');
-  traffic.textContent = 'Test download bandwidth';
-  traffic.onclick = () => {
-    void fetch(new URL('../style.css', import.meta.url), { cache: 'no-store' })
-      .then(response => response.arrayBuffer()).catch(console.error);
+  traffic.textContent = 'Test 256 KiB/s download';
+  const trafficStatus = document.createElement('div');
+  traffic.onclick = async () => {
+    traffic.disabled = true;
+    trafficStatus.textContent = 'Downloading 3 MiB over 12 seconds at 256 KiB/s';
+    const samples: number[] = [], started = performance.now();
+    const sampling = window.setInterval(() => {
+      if (performance.now() - started > 1500) samples.push(networkTraffic.sample().downloadBytesPerSecond / 1024);
+    }, 100);
+    try {
+      const response = await fetch(`${import.meta.env.BASE_URL}__dev/traffic/download`, { cache: 'no-store' });
+      const bytes = await readResponseBytes(response, 4 * 1024 * 1024);
+      trafficStatus.textContent = `Download complete: ${bytes.byteLength} bytes; measured ${
+        (samples.reduce((a, b) => a + b, 0) / Math.max(1, samples.length)).toFixed(1)} KiB/s average (${Math.min(...samples).toFixed(1)}–${Math.max(...samples).toFixed(1)})`;
+    } catch (error) { trafficStatus.textContent = String(error); }
+    finally { clearInterval(sampling); traffic.disabled = false; }
   };
   panel.append(traffic);
+  const upload = document.createElement('button');
+  upload.textContent = 'Test upload with delayed reply';
+  upload.onclick = async () => {
+    upload.disabled = true;
+    trafficStatus.textContent = 'Uploading 8 MiB; server waits 6 seconds before replying';
+    let peak = 0;
+    const sampling = window.setInterval(() => { peak = Math.max(peak, networkTraffic.sample().uploadBytesPerSecond); }, 50);
+    try {
+      const response = await fetch(`${import.meta.env.BASE_URL}__dev/traffic/upload`, {
+        method: 'POST', body: new Uint8Array(8 * 1024 * 1024),
+      });
+      const result = await response.json();
+      trafficStatus.textContent = `Upload complete: ${result.received} bytes; before reply peak ${(peak / 1048576).toFixed(1)} MiB/s; at reply ${networkTraffic.sample().uploadBytesPerSecond.toFixed(0)} B/s`;
+    } catch (error) { trafficStatus.textContent = String(error); }
+    finally { clearInterval(sampling); upload.disabled = false; }
+  };
+  panel.append(upload, trafficStatus);
   if (surface) {
     const across = document.createElement('button');
     across.textContent = 'Across ring';
