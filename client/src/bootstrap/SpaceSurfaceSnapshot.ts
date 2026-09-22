@@ -15,7 +15,9 @@ export const SURFACE_ZONE_SIZE_CHUNKS = 32;
 export const SURFACE_ZONE_HEADER_BYTES = 32;
 export const SURFACE_ZONE_RECORD_BYTES = 8;
 export const LEGACY_SURFACE_ZONE_RECORD_BYTES = 5;
-export const MAX_SURFACE_ZONE_BYTES = 32 * 1024 * 1024;
+// Seven volumetric mips in dense terrain-lab districts exceed 32 MiB. This
+// matches the server's per-zone bound; residency/download budgets still apply.
+export const MAX_SURFACE_ZONE_BYTES = 64 * 1024 * 1024;
 // 128 zones with seven full authenticated digest URLs exceed 256 KiB in v6.
 const MAX_SURFACE_MANIFEST_BYTES = 512 * 1024;
 const MAX_SURFACE_ZONES = 128;

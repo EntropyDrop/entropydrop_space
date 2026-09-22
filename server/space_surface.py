@@ -27,7 +27,9 @@ SURFACE_LOD_SCHEMA_VERSION = 7
 SURFACE_LOD_SIZES = (2, 4, 8, 16, 32, 64)
 SURFACE_SAMPLES_PER_CHUNK_AXIS = 16
 SURFACE_RECORD_BYTES = 8
-MAX_SURFACE_BYTES = 32 * 1024 * 1024
+# Dense terrain-lab districts retain seven volumetric mips and can exceed 32 MiB.
+# Keep this decompressed per-zone bound in sync with the client decoder.
+MAX_SURFACE_BYTES = 64 * 1024 * 1024
 SURFACE_HEADER_BYTES = 32
 SURFACE_CODEC_ZSTD = 1
 SURFACE_COLOR = 0x718F61

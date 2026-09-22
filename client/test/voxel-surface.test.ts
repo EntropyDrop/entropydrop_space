@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { parseSurfaceZoneSnapshot } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
+import { parseSurfaceZoneSnapshot, MAX_SURFACE_ZONE_BYTES } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
 import { encodeVoxelLevels } from '@entropydrop/space-engine/worldgen/VoxelSurfaceGenerator.ts';
 import { DistantSurfaceLayer } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { bendPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
@@ -39,6 +39,21 @@ test('v7 decodes a complete 3D mip ladder and rejects malformed faces', () => {
   assert.throws(() => parseSurfaceZoneSnapshot(corrupt), /face bounds/);
   const noLadder = bytes.slice(0,36+64*64*8);
   assert.throws(() => parseSurfaceZoneSnapshot(noLadder), /volumetric/);
+});
+
+test('dense voxel snapshots above 32 MiB decode without removing the size bound', () => {
+  const small = fixture(), header = 36 + 64 * 64 * 8 + 8, count = 2_100_000;
+  const facesAt = header + 8, oldEnd = facesAt + 32, faceBytes = count * 16;
+  const large = new Uint8Array(small.length + faceBytes - 32);
+  large.set(small.subarray(0, facesAt));
+  new DataView(large.buffer).setUint32(header + 4, count, true);
+  for (let i = 0; i < count; i++) large.set(small.subarray(facesAt, facesAt + 16), facesAt + i * 16);
+  large.set(small.subarray(oldEnd), facesAt + faceBytes);
+  assert.ok(large.length > 32 * 1024 * 1024);
+  assert.equal(parseSurfaceZoneSnapshot(large).voxelMips![0].faces.length, faceBytes);
+  const oversized = new Uint8Array(MAX_SURFACE_ZONE_BYTES + 1);
+  oversized.set(small);
+  assert.throws(() => parseSurfaceZoneSnapshot(oversized), /Invalid Space surface-zone snapshot/);
 });
 
 test('volumetric zones never emit legacy pillars, preserve underside and hand off to detail', async () => {

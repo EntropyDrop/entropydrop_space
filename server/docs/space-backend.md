@@ -460,7 +460,8 @@ exact edited geometry independently of procedural mip selection.
   generator and committed overlays, checking source revisions around publication.
   No database-column migration is required; `space_0008` already stores LOD blobs.
 - Each downloadable level includes its coarser levels, independently Zstd-compressed
-  and SHA-256 authenticated. Payloads are bounded at 32 MiB. The client validates
+  and SHA-256 authenticated. Payloads are bounded at 64 MiB to retain all seven
+  volumetric mips in dense terrain-lab districts. The client validates
   every face and identity, and reuses digest-addressed disk cache entries.
 - Clients load coarse coverage first, then refine their position-based working set
   within the configured source-data budget (default 256 MiB). Legacy v3-v6 snapshots

@@ -10,6 +10,19 @@ from alembic.operations import Operations
 import sqlalchemy as sa
 
 
+def test_dense_harbor_district_preserves_all_voxel_mips_above_32_mib():
+    world = SimpleNamespace(seed=42, width_chunks=1024, length_chunks=128, terrain_generator_version=4)
+    volume = surface._terrain_runtime_payload('volume', 42, 4, 15, 2)
+    assert 32 * 1024 * 1024 < len(volume) < surface.MAX_SURFACE_BYTES
+    raw = surface.build_surface_zone_payload(world, 15, 2, 0, voxel_data=volume)
+    levels, compressed = surface.build_surface_lods(raw)
+    assert len(levels) == 6
+    for level in levels:
+        decoded = surface.decode_surface_lod(SimpleNamespace(lod_payload=compressed), level)
+        assert decoded[:4] == b'EDSZ' and decoded[4] == 7
+        assert hashlib.sha256(decoded).hexdigest() == level['digest']
+
+
 def source_payload():
     raw = bytearray(struct.pack('<4sBBBBHHiIQI', b'EDSZ', 3, 8, 32, 5, 31, 3, 42, 1, 99, 65536))
     for cx in range(32):
