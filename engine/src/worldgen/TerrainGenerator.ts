@@ -8,6 +8,8 @@ import {
 } from '../torus/TorusWorld.ts';
 import { generateCopperMetropolisChunk } from './CopperMetropolisGenerator.ts';
 import { generateAetherArchipelagoChunk } from './AetherArchipelagoGenerator.ts';
+import { generateMixedChunk, TERRAIN_GENERATOR_MIXED } from './MixedBiomeGenerator.ts';
+export { TERRAIN_GENERATOR_MIXED };
 import { generateTerrainLabChunk, TERRAIN_GENERATOR_COLOSSUS_HARBOR, TERRAIN_GENERATOR_TITAN_CANYON,
   TERRAIN_GENERATOR_ASTRAL_FOUNDRY, TERRAIN_GENERATOR_BRUTALIST_DUSK } from './TerrainLabGenerator.ts';
 export { TERRAIN_GENERATOR_COLOSSUS_HARBOR, TERRAIN_GENERATOR_TITAN_CANYON, TERRAIN_GENERATOR_ASTRAL_FOUNDRY,
@@ -52,7 +54,7 @@ export class TerrainGenerator {
     this.seed = Number.isFinite(Number(seed)) ? Math.floor(Number(seed)) : 42;
     this.version = [TERRAIN_GENERATOR_COPPER_METROPOLIS, TERRAIN_GENERATOR_AETHER_ARCHIPELAGO,
       TERRAIN_GENERATOR_COLOSSUS_HARBOR, TERRAIN_GENERATOR_TITAN_CANYON, TERRAIN_GENERATOR_ASTRAL_FOUNDRY,
-      TERRAIN_GENERATOR_BRUTALIST_DUSK].includes(version)
+      TERRAIN_GENERATOR_BRUTALIST_DUSK, TERRAIN_GENERATOR_MIXED].includes(version)
       ? version
       : TERRAIN_GENERATOR_NATURE;
     let state = this.seed;
@@ -109,6 +111,10 @@ export class TerrainGenerator {
 
   generateChunk(chunk, includeDetails = true) {
     chunk.resetForTerrainGeneration();
+    if (this.version === TERRAIN_GENERATOR_MIXED) {
+      chunk.terrainDetails = generateMixedChunk(chunk, this.seed, includeDetails);
+      return chunk.terrainDetails;
+    }
     if (this.version >= TERRAIN_GENERATOR_COLOSSUS_HARBOR) {
       chunk.terrainDetails = generateTerrainLabChunk(chunk, this.seed, this.version, includeDetails);
       return chunk.terrainDetails;

@@ -1,10 +1,11 @@
+import { acceptsTerrainFeature, type TerrainFeaturePolicy } from './TerrainFeaturePolicy.ts';
 // Ported from entropydrop_frontend/src/pages/terrainLab/astralFoundry.ts.
 // Keep solid interiors for collisions and volumetric LOD; retain the original 1/8m details.
 import { finishTerrainLabRegion, generatePaddedTerrainLabRegion } from './TerrainLabRegion.ts';
 /** Coordinate-addressed industrial world. No finite repeating city tile.
  * Geometry is exclusively 1m / 0.125m cubes, normal / emissive materials.
  * X/Z are cube centres relative to the crop; Y is the bottom in metres. */
-export interface FoundryConfig {
+export interface FoundryConfig extends TerrainFeaturePolicy {
   sizeX: number; sizeY: number; sizeZ: number;
   offsetX: number; offsetZ: number; yCutoff: number; seed: number;
   forgeScale: number; forgeHeight: number; forgeDensity: number;
@@ -116,7 +117,7 @@ function generateFoundryRaw(config: FoundryConfig, includeDetails = true) {
   const micros = new Map<number, number>();
   const palette = [{ color: 0, emission: 0, weather: false }], ids = new Map<string, number>();
   // A second connection radius makes nearest-neighbour choices crop independent.
-  const nodes = planAstralFoundry(config, 240);
+  const nodes = planAstralFoundry(config, 240).filter(n => acceptsTerrainFeature(config, n.x, n.z, 54));
   const links: { from: string; to: string; start: Point; end: Point }[] = [];
   const machinery: { node: string; x: number; y: number; z: number; radius: number }[] = [];
   const ships: { x: number; y: number; z: number }[] = [];
@@ -392,7 +393,7 @@ function generateFoundryRaw(config: FoundryConfig, includeDetails = true) {
       const start = port(first, second, y0), end = port(second, first, y1);
       if (!near(Math.min(start.x, end.x) - 3, Math.min(start.z, end.z) - 3, Math.abs(end.x - start.x) + 6, Math.abs(end.z - start.z) + 6)) continue;
       const dx = end.x - start.x, dz = end.z - start.z, length = Math.hypot(dx, dz);
-      if (length < 6) continue;
+      if (length < 6 || !acceptsTerrainFeature(config, (start.x + end.x) / 2, (start.z + end.z) / 2, length / 2 + 8)) continue;
       // Do not drive a bridge through an unrelated tower.
       if (nodes.some(n => {
         if (n === first || n === second) return false;
@@ -438,7 +439,7 @@ function generateFoundryRaw(config: FoundryConfig, includeDetails = true) {
       if (r(0) > config.forgeTraffic * 0.65) continue;
       const x = Math.round((i + r(1)) * 52), z = Math.round((j + r(2)) * 52), y = 34 + Math.floor(r(3) * 90);
       if (nodes.some(n => Math.hypot(n.x - x, n.z - z) < Math.hypot(n.w, n.d) / 2 + 15 && y < n.height + 24)) continue;
-      if (!near(x - 14, z - 14, 28, 28)) continue;
+      if (!near(x - 14, z - 14, 28, 28) || !acceptsTerrainFeature(config, x, z, 20)) continue;
       frame = { x, z, rotation: Math.floor(r(4) * 4) } as FoundryNode;
       const len = 7 + Math.floor(r(5) * 5), accent = r(6) < 0.7 ? C.cyan : C.amber;
       box(-1, y, -len / 2, 2, 1, len, C.plate);

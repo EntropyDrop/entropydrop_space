@@ -44,7 +44,8 @@ def requested_world_ids():
     if settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}:
         for world_id in (settings.SPACE_COPPER_METROPOLIS_WORLD_ID, settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID,
                          settings.SPACE_COLOSSUS_HARBOR_WORLD_ID, settings.SPACE_TITAN_CANYON_WORLD_ID,
-                         settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID, settings.SPACE_BRUTALIST_DUSK_WORLD_ID):
+                         settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID, settings.SPACE_BRUTALIST_DUSK_WORLD_ID,
+                         settings.SPACE_MIXED_WORLD_ID):
             if world_id not in requested:
                 requested.append(world_id)
     return requested

@@ -483,8 +483,8 @@ v7 generation, decoding, streaming, LOD selection and cached reloads locally.
 The fixture covers four spawn zones and four zones across the ring.
 
 Development bootstrap also accepts `colossus-harbor` (generator 4, world ID ending
-`005`), `titan-canyon` (generator 5, `006`), `astral-foundry` (generator 6, `007`)
-and `brutalist-dusk` (generator 7, `008`).
+`005`), `titan-canyon` (generator 5, `006`), `astral-foundry` (generator 6, `007`),
+`brutalist-dusk` (generator 7, `008`) and `mixed` (generator 8, `009`).
 These worlds use seed 42 and the corresponding terrain-lab defaults. Open the dev
 client with `?world=<alias>`; production bootstrap rejects these aliases and IDs.
 The shared engine ports preserve solid 1m interiors, 0.125m details and emissive
@@ -492,6 +492,15 @@ materials. Client terrain, hosted collision and server v7 voxel LOD all use the
 same generation code. Spawn columns are aligned to a surveyed landmark deck or
 plinth; initial entry starts above it at 220m. Local offline inspection uses
 `/space/app/?dev_offline=1&world=<alias>`.
+
+Mixed combines Brutalist Dusk, Colossus Harbor, Titan Canyon, Astral Foundry and
+Aether Archipelago in seeded districts approximately 1km across. A periodic,
+warped Voronoi field blends ground height and colour across roughly 256m borders,
+including multi-biome junctions and both torus seams. A continuous 16m ground
+lattice softens watershed jumps in the transition while cores keep the original
+terrain-lab relief. Whole-footprint placement prevents borders from cutting
+buildings, sculptures, islands or bridges; floating islands extend into the
+transition as the ground recedes. The spawn is the central Brutalist civic square.
 
 ## 8. Commands, Consistency, and Conflicts
 

@@ -1,10 +1,11 @@
+import { acceptsTerrainFeature, type TerrainFeaturePolicy } from './TerrainFeaturePolicy.ts';
 // Ported from entropydrop_frontend/src/pages/terrainLab/brutalistDusk.ts.
 // Preserve solid interiors for collisions and seven-level volumetric LOD.
 import { finishTerrainLabRegion } from './TerrainLabRegion.ts';
 /** A weathered, inhabited concrete megastructure. Standalone, deterministic.
  * Only 1m and 0.125m cubes; only normal and emissive materials.
  * Output coordinates are crop-local cube lower corners. */
-export interface BrutalistDuskConfig {
+export interface BrutalistDuskConfig extends TerrainFeaturePolicy {
   sizeX: number; sizeY: number; sizeZ: number;
   offsetX: number; offsetZ: number; yCutoff: number; seed: number;
   brutalHeight: number; brutalDensity: number; brutalWeathering: number;
@@ -192,90 +193,92 @@ export function generateBrutalistDuskRegion(config: BrutalistDuskConfig, include
       const scaled = (fraction: number) => Math.floor(height * fraction);
       const front = cz + 4, left = cx - 43, right = cx + 24 + Math.floor(random(3) * 4);
       const beamY = scaled(0.67), lowerY = scaled(0.35);
-      const pierLeft: Structure = { x: left, z: front, w: 16, d: 21, bottom: 2, top: scaled(0.79 + random(5) * 0.07), role: 'pier' };
-      const pierRight: Structure = { x: right, z: front - 3, w: 16, d: 25, bottom: 2, top: scaled(0.87 + random(6) * 0.07), role: 'pier' };
-      const core: Structure = { x: cx - 10, z: cz - 34, w: 21, d: 23, bottom: 2, top: height, role: 'pier' };
-      for (const pier of [pierLeft, pierRight, core]) {
-        box(pier.x - 2, 1, pier.z - 2, pier.w + 4, 3, pier.d + 4, C.darkConcrete);
-        building(pier, C.concrete, true);
-      }
-      building({ x: cx - 52, z: cz - 47, w: 16, d: 19, bottom: 2, top: scaled(0.64), role: 'pier' }, C.darkConcrete, true);
-      building({ x: cx + 30, z: cz - 47, w: 18, d: 19, bottom: 2, top: scaled(0.72), role: 'pier' }, C.concrete, true);
-      // Different occupied volumes clasp the shafts, with sheltered undersides and
-      // mechanical floors. Their cantilevers are short relative to the bearing core.
-      const pods: Structure[] = [
-        { x: left - 6, z: front - 1, w: 26, d: 24, bottom: scaled(0.72), top: pierLeft.top + 3, role: 'hall' },
-        { x: left - 4, z: front + 1, w: 23, d: 24, bottom: scaled(0.32), top: scaled(0.32) + 10, role: 'hall' },
-        { x: right - 4, z: front - 6, w: 25, d: 32, bottom: scaled(0.59), top: scaled(0.59) + 13, role: 'hall' },
-        { x: right - 2, z: front - 4, w: 23, d: 30, bottom: scaled(0.29), top: scaled(0.29) + 11, role: 'hall' },
-      ];
-      for (const pod of pods) {
-        building(pod, C.concrete);
-        box(pod.x - 1, pod.bottom - 2, pod.z - 1, pod.w + 2, 2, pod.d + 2, C.darkConcrete);
-        box(pod.x - 1, pod.top + 1, pod.z - 1, pod.w + 2, 1, pod.d + 2, C.pale);
-        railing(pod.x - 0.75, pod.top + 2, pod.z + pod.d + 0.75, pod.w + 1.5, true);
-        for (let j = 0; j < 3; j++) line(pod.x, pod.bottom - 1.5 + j * 0.375, pod.z + pod.d + 1, pod.w, 'x', C.rust);
-        // Recessed, continuous mechanical galleries; individual bays light independently.
-        const gy = pod.bottom + 2;
-        box(pod.x + 2, gy, pod.z + pod.d - 2, pod.w - 4, 2, 1, C.glass);
-        box(pod.x + 2, gy, pod.z + pod.d - 1, pod.w - 4, 2, 1, 0);
-        box(pod.x + pod.w - 2, gy, pod.z + 2, 1, 2, pod.d - 4, C.glass);
-        box(pod.x + pod.w - 1, gy, pod.z + 2, 1, 2, pod.d - 4, 0);
-        for (let u = 2; u < pod.w - 3; u += 4) {
-          line(pod.x + u, gy, pod.z + pod.d - 0.875, 2, 'y', C.steel);
-          if (hash(pod.x + u, pod.z, 61, seed) < lights + 0.2 && lights > 0) detail(pod.x + u + 0.5, gy + 0.875, pod.z + pod.d - 0.875, 2.25, 0.375, MICRO, u % 3 ? C.signal : C.cyan, 1.8);
+      if (acceptsTerrainFeature(config, cx, cz, 100)) {
+        const pierLeft: Structure = { x: left, z: front, w: 16, d: 21, bottom: 2, top: scaled(0.79 + random(5) * 0.07), role: 'pier' };
+        const pierRight: Structure = { x: right, z: front - 3, w: 16, d: 25, bottom: 2, top: scaled(0.87 + random(6) * 0.07), role: 'pier' };
+        const core: Structure = { x: cx - 10, z: cz - 34, w: 21, d: 23, bottom: 2, top: height, role: 'pier' };
+        for (const pier of [pierLeft, pierRight, core]) {
+          box(pier.x - 2, 1, pier.z - 2, pier.w + 4, 3, pier.d + 4, C.darkConcrete);
+          building(pier, C.concrete, true);
         }
-        for (let u = 2; u < pod.d - 3; u += 4) {
-          line(pod.x + pod.w - 0.875, gy, pod.z + u, 2, 'y', C.steel);
-          if (hash(pod.x, pod.z + u, 62, seed) < lights + 0.2 && lights > 0) detail(pod.x + pod.w - 0.875, gy + 0.875, pod.z + u + 0.5, MICRO, 0.375, 2.25, u % 3 ? C.cyan : C.warm, 1.5);
+        building({ x: cx - 52, z: cz - 47, w: 16, d: 19, bottom: 2, top: scaled(0.64), role: 'pier' }, C.darkConcrete, true);
+        building({ x: cx + 30, z: cz - 47, w: 18, d: 19, bottom: 2, top: scaled(0.72), role: 'pier' }, C.concrete, true);
+        // Different occupied volumes clasp the shafts, with sheltered undersides and
+        // mechanical floors. Their cantilevers are short relative to the bearing core.
+        const pods: Structure[] = [
+          { x: left - 6, z: front - 1, w: 26, d: 24, bottom: scaled(0.72), top: pierLeft.top + 3, role: 'hall' },
+          { x: left - 4, z: front + 1, w: 23, d: 24, bottom: scaled(0.32), top: scaled(0.32) + 10, role: 'hall' },
+          { x: right - 4, z: front - 6, w: 25, d: 32, bottom: scaled(0.59), top: scaled(0.59) + 13, role: 'hall' },
+          { x: right - 2, z: front - 4, w: 23, d: 30, bottom: scaled(0.29), top: scaled(0.29) + 11, role: 'hall' },
+        ];
+        for (const pod of pods) {
+          building(pod, C.concrete);
+          box(pod.x - 1, pod.bottom - 2, pod.z - 1, pod.w + 2, 2, pod.d + 2, C.darkConcrete);
+          box(pod.x - 1, pod.top + 1, pod.z - 1, pod.w + 2, 1, pod.d + 2, C.pale);
+          railing(pod.x - 0.75, pod.top + 2, pod.z + pod.d + 0.75, pod.w + 1.5, true);
+          for (let j = 0; j < 3; j++) line(pod.x, pod.bottom - 1.5 + j * 0.375, pod.z + pod.d + 1, pod.w, 'x', C.rust);
+          // Recessed, continuous mechanical galleries; individual bays light independently.
+          const gy = pod.bottom + 2;
+          box(pod.x + 2, gy, pod.z + pod.d - 2, pod.w - 4, 2, 1, C.glass);
+          box(pod.x + 2, gy, pod.z + pod.d - 1, pod.w - 4, 2, 1, 0);
+          box(pod.x + pod.w - 2, gy, pod.z + 2, 1, 2, pod.d - 4, C.glass);
+          box(pod.x + pod.w - 1, gy, pod.z + 2, 1, 2, pod.d - 4, 0);
+          for (let u = 2; u < pod.w - 3; u += 4) {
+            line(pod.x + u, gy, pod.z + pod.d - 0.875, 2, 'y', C.steel);
+            if (hash(pod.x + u, pod.z, 61, seed) < lights + 0.2 && lights > 0) detail(pod.x + u + 0.5, gy + 0.875, pod.z + pod.d - 0.875, 2.25, 0.375, MICRO, u % 3 ? C.signal : C.cyan, 1.8);
+          }
+          for (let u = 2; u < pod.d - 3; u += 4) {
+            line(pod.x + pod.w - 0.875, gy, pod.z + u, 2, 'y', C.steel);
+            if (hash(pod.x, pod.z + u, 62, seed) < lights + 0.2 && lights > 0) detail(pod.x + pod.w - 0.875, gy + 0.875, pod.z + u + 0.5, MICRO, 0.375, 2.25, u % 3 ? C.cyan : C.warm, 1.5);
+          }
+          for (let u = 4; u < pod.w - 3; u += 6) {
+            box(pod.x + u, pod.bottom - 5, pod.z + pod.d - 2, 2, 3, 2, C.darkConcrete);
+          }
         }
-        for (let u = 4; u < pod.w - 3; u += 6) {
-          box(pod.x + u, pod.bottom - 5, pod.z + pod.d - 2, 2, 3, 2, C.darkConcrete);
+        // Open pilotis at the feet, while corner walls continue to carry the tower.
+        for (const opening of [
+          { x: left + 5, y: 5, z: front, w: 6, h: scaled(0.2), d: 21 },
+          { x: right + 5, y: 5, z: front - 3, w: 6, h: scaled(0.19), d: 25 },
+        ]) {
+          openings.push(opening);
+          box(opening.x, opening.y, opening.z, opening.w, opening.h, opening.d, 0);
         }
+        // Habitable crossbeams bear on solid piers; an open central portal remains below.
+        const hall: Structure = { x: left + 5, z: front + 2, w: right - left + 7, d: 15, bottom: beamY, top: beamY + 11, role: 'hall' };
+        building(hall, C.concrete);
+        box(hall.x, beamY - 2, hall.z, hall.w, 2, hall.d, C.darkConcrete);
+        lettering(cx - 21, beamY + 8, hall.z + hall.d, 'PROGRESS', 0.625, C.red);
+        // A lower, thinner bridge provides scale without closing the monumental opening.
+        box(left + 8, lowerY, front - 4, right - left, 3, 7, C.darkConcrete);
+        railing(left + 8, lowerY + 3, front + 2.75, right - left, true);
+        // Two rear connections occupy different levels and orientations.
+        box(cx - 38, scaled(0.53), cz - 36, 30, 7, 10, C.concrete);
+        box(cx + 7, scaled(0.74), cz - 31, 29, 7, 10, C.concrete);
+        box(right + 3, scaled(0.57), cz - 36, 8, 6, front - cz + 42, C.darkConcrete);
+        // Stepped concrete knees transfer the crossbeam loads back into the tower shafts.
+        for (let i = 0; i < 27; i++) {
+          box(left + 10 + Math.floor(i * 0.65), beamY - 27 + i, front + 10, 5, 3, 5, C.concrete);
+          box(right + 1 - Math.floor(i * 0.65), beamY - 27 + i, front + 10, 5, 3, 5, C.concrete);
+        }
+        // A broad equipment floor is cantilevered only a few metres beyond the core.
+        const crownY = height - 22;
+        box(core.x - 3, crownY, core.z - 3, core.w + 6, 3, core.d + 6, C.darkConcrete);
+        for (let i = 0; i < 5; i++) box(core.x + i * 4, crownY + 1, core.z + core.d + 3, 2, 1, 1, C.cyan, lights > 0 ? 1.1 : 0, false);
+        lettering(core.x + 3, height - 8, core.z + core.d, 'SSSR', 0.5, C.red);
+        lettering(right, beamY - 20, pierRight.z + pierRight.d, 'NAUKA', 0.625, C.cream);
+        // Vertically stacked enamel wayfinding on the central service core.
+        box(core.x + 3, scaled(0.37), core.z + core.d, 3, 14, 1, C.red, 0, false);
+        [...'SSSR'].forEach((letter, index) => lettering(core.x + 3.5, scaled(0.37) + 10.5 - index * 3, core.z + core.d + 1, letter, 0.375, C.cream, lights > 0 ? 0.9 : 0));
+        // A grounded auxiliary stair/service block and an occupied cross-passage.
+        building({ x: cx - 9, z: cz - 4, w: 15, d: 13, bottom: 2, top: scaled(0.31), role: 'pier' }, C.darkConcrete);
+        box(cx - 11, scaled(0.29), cz - 4, 20, 4, 16, C.concrete);
+        lettering(cx - 8, scaled(0.29) + 1, cz + 12, 'PROGRESS', 0.375, C.cream, lights > 0 ? 0.7 : 0);
+        // A small red star is relief geometry, not a decal or a third material.
+        const star = ['0001000', '0011100', '1111111', '0111110', '0011100', '0110110', '1100011'];
+        star.forEach((row, y) => [...row].forEach((bit, x) => {
+          if (bit === '1') detail(left + 5 + x * 0.5, pierLeft.top - 8 + (6 - y) * 0.5, front + 23, 0.5, 0.5, 0.25, C.red);
+        }));
       }
-      // Open pilotis at the feet, while corner walls continue to carry the tower.
-      for (const opening of [
-        { x: left + 5, y: 5, z: front, w: 6, h: scaled(0.2), d: 21 },
-        { x: right + 5, y: 5, z: front - 3, w: 6, h: scaled(0.19), d: 25 },
-      ]) {
-        openings.push(opening);
-        box(opening.x, opening.y, opening.z, opening.w, opening.h, opening.d, 0);
-      }
-      // Habitable crossbeams bear on solid piers; an open central portal remains below.
-      const hall: Structure = { x: left + 5, z: front + 2, w: right - left + 7, d: 15, bottom: beamY, top: beamY + 11, role: 'hall' };
-      building(hall, C.concrete);
-      box(hall.x, beamY - 2, hall.z, hall.w, 2, hall.d, C.darkConcrete);
-      lettering(cx - 21, beamY + 8, hall.z + hall.d, 'PROGRESS', 0.625, C.red);
-      // A lower, thinner bridge provides scale without closing the monumental opening.
-      box(left + 8, lowerY, front - 4, right - left, 3, 7, C.darkConcrete);
-      railing(left + 8, lowerY + 3, front + 2.75, right - left, true);
-      // Two rear connections occupy different levels and orientations.
-      box(cx - 38, scaled(0.53), cz - 36, 30, 7, 10, C.concrete);
-      box(cx + 7, scaled(0.74), cz - 31, 29, 7, 10, C.concrete);
-      box(right + 3, scaled(0.57), cz - 36, 8, 6, front - cz + 42, C.darkConcrete);
-      // Stepped concrete knees transfer the crossbeam loads back into the tower shafts.
-      for (let i = 0; i < 27; i++) {
-        box(left + 10 + Math.floor(i * 0.65), beamY - 27 + i, front + 10, 5, 3, 5, C.concrete);
-        box(right + 1 - Math.floor(i * 0.65), beamY - 27 + i, front + 10, 5, 3, 5, C.concrete);
-      }
-      // A broad equipment floor is cantilevered only a few metres beyond the core.
-      const crownY = height - 22;
-      box(core.x - 3, crownY, core.z - 3, core.w + 6, 3, core.d + 6, C.darkConcrete);
-      for (let i = 0; i < 5; i++) box(core.x + i * 4, crownY + 1, core.z + core.d + 3, 2, 1, 1, C.cyan, lights > 0 ? 1.1 : 0, false);
-      lettering(core.x + 3, height - 8, core.z + core.d, 'SSSR', 0.5, C.red);
-      lettering(right, beamY - 20, pierRight.z + pierRight.d, 'NAUKA', 0.625, C.cream);
-      // Vertically stacked enamel wayfinding on the central service core.
-      box(core.x + 3, scaled(0.37), core.z + core.d, 3, 14, 1, C.red, 0, false);
-      [...'SSSR'].forEach((letter, index) => lettering(core.x + 3.5, scaled(0.37) + 10.5 - index * 3, core.z + core.d + 1, letter, 0.375, C.cream, lights > 0 ? 0.9 : 0));
-      // A grounded auxiliary stair/service block and an occupied cross-passage.
-      building({ x: cx - 9, z: cz - 4, w: 15, d: 13, bottom: 2, top: scaled(0.31), role: 'pier' }, C.darkConcrete);
-      box(cx - 11, scaled(0.29), cz - 4, 20, 4, 16, C.concrete);
-      lettering(cx - 8, scaled(0.29) + 1, cz + 12, 'PROGRESS', 0.375, C.cream, lights > 0 ? 0.7 : 0);
-      // A small red star is relief geometry, not a decal or a third material.
-      const star = ['0001000', '0011100', '1111111', '0111110', '0011100', '0110110', '1100011'];
-      star.forEach((row, y) => [...row].forEach((bit, x) => {
-        if (bit === '1') detail(left + 5 + x * 0.5, pierLeft.top - 8 + (6 - y) * 0.5, front + 23, 0.5, 0.5, 0.25, C.red);
-      }));
 
       // Context blocks use variable-width strips, independent heights and setbacks.
       let z = cz - 119;
@@ -289,7 +292,7 @@ export function generateBrutalistDuskRegion(config: BrutalistDuskConfig, include
           const footprint = { x, z, w, d };
           const inCore = x < cx + 58 && x + w > cx - 60 && z < cz + 36 && z + d > cz - 55;
           const inTransit = (z < cz + 55 && z + d > cz + 38) || (x < cx + 77 && x + w > cx + 58);
-          if (!inCore && !inTransit && near(footprint, 2) && h(202) < density) {
+          if (!inCore && !inTransit && near(footprint, 2) && acceptsTerrainFeature(config, x + w / 2, z + d / 2, Math.hypot(w, d) / 2 + 5) && h(202) < density) {
             const far = z < cz - 55 ? 1.35 : z > cz + 55 ? 0.4 : 1;
             const top = Math.floor((19 + h(203) * 46) * far);
             const wall = h(204) < 0.4 ? C.darkConcrete : h(204) < 0.8 ? C.concrete : C.pale;
@@ -328,7 +331,7 @@ export function generateBrutalistDuskRegion(config: BrutalistDuskConfig, include
           if (car < 2) detail(px + 8, y + 0.5, z + 1, 1, 0.5, 1, C.steel);
         }
       };
-      if (config.brutalTransit > 0) {
+      if (config.brutalTransit > 0 && acceptsTerrainFeature(config, cx, cz, 146)) {
         const rail = (x: number, z: number, length: number, level: number, alongX: boolean) => {
           const stamp = (a: number, y: number, b: number, len: number, h: number, wide: number, color: number) => box(x + (alongX ? a : b), y, z + (alongX ? b : a), alongX ? len : wide, h, alongX ? wide : len, color);
           stamp(0, level - 2, 0, length, 2, 7, C.darkConcrete);
@@ -362,15 +365,18 @@ export function generateBrutalistDuskRegion(config: BrutalistDuskConfig, include
         }
       }
       // Paved civic square and small-scale lamp pools in front of the main portal.
-      box(cx - 24, 1, cz + 26, 43, 1, 12, C.darkConcrete);
-      for (let u = 0; u < 6; u++) {
-        const x = cx - 22 + u * 7;
-        detail(x, 2, cz + 35, 0.25, 4, 0.25, C.steel);
-        detail(x - 0.375, 6, cz + 34.75, 1, 0.25, 0.75, C.warm, lights > 0 ? 1.4 : 0);
-        if (hash(cx + u, cz, 340, seed) < config.brutalPeople) person(x + 2.5, 2, cz + 32, u);
+      if (acceptsTerrainFeature(config, cx, cz + 32, 28)) {
+        box(cx - 24, 1, cz + 26, 43, 1, 12, C.darkConcrete);
+        for (let u = 0; u < 6; u++) {
+          const x = cx - 22 + u * 7;
+          detail(x, 2, cz + 35, 0.25, 4, 0.25, C.steel);
+          detail(x - 0.375, 6, cz + 34.75, 1, 0.25, 0.75, C.warm, lights > 0 ? 1.4 : 0);
+          if (hash(cx + u, cz, 340, seed) < config.brutalPeople) person(x + 2.5, 2, cz + 32, u);
+        }
       }
       // Road paint, utility covers and parked service vehicles establish metre scale.
       for (let x = cx - 119; x < cx + 119; x += 8) {
+        if (!acceptsTerrainFeature(config, x + 2, cz + 64, 5)) continue;
         line(x, 1, cz + 65, 3, 'x', C.pale);
         if (hash(x, cz, 345, seed) > 0.75) {
           detail(x, 1, cz + 61, 3.5, 0.5, 1.5, C.steel);

@@ -1,10 +1,11 @@
+import { acceptsTerrainFeature, type TerrainFeaturePolicy } from './TerrainFeaturePolicy.ts';
 // Ported from entropydrop_frontend/src/pages/terrainLab/colossusHarbor.ts.
 // Keep solid interiors for collisions and volumetric LOD; retain the original 1/8m details.
 import { finishTerrainLabRegion } from './TerrainLabRegion.ts';
 /** Infinite coordinate-addressed estuaries, sculptural sanctuaries and working harbours.
  * Geometry is exclusively 1m / 0.125m cubes; Y is the bottom of each cube.
  * Planning is independent of the visible crop, including neighbouring districts. */
-export interface HarborConfig {
+export interface HarborConfig extends TerrainFeaturePolicy {
   sizeX: number; sizeY: number; sizeZ: number; offsetX: number; offsetZ: number; yCutoff: number; seed: number;
   harborRelief: number; harborStatues: number; harborScale: number; harborCity: number;
   harborIndustry: number; harborTransit: number; harborSteam: number; harborWear: number; harborGlow: number;
@@ -128,6 +129,8 @@ export function generateHarborRegion(config: HarborConfig, includeDetails = true
   const cells = new Uint16Array(layer * ceiling), terrain = new Float32Array(layer);
   const palette = [{ color: 0, emission: 0 }], ids = new Map<string, number>(), micros = new Map<number, number>();
   const plan = planColossusHarbor(config, 180);
+  plan.statues = plan.statues.filter(s => acceptsTerrainFeature(config, s.x, s.z, s.height * 0.8 + 15));
+  plan.factories = plan.factories.filter(f => acceptsTerrainFeature(config, f.x, f.z, 75));
   const buildings: { x: number; z: number; base: number; height: number; family: number; width: number; depth: number }[] = [];
   const transit: { x: number; y: number; z: number; bank: number }[] = [], boats: Point[] = [];
   const near = (x: number, z: number, rx: number, rz = rx) => x + rx >= ox && x - rx < ox + width && z + rz >= oz && z - rz < oz + depth;
@@ -431,7 +434,7 @@ export function generateHarborRegion(config: HarborConfig, includeDetails = true
       const ground = survey(x, z, Math.max(w, d) / 2, config), family = Math.floor(r(308) * 6);
       if (ground - s.height > 12) continue;
       const h = 14 + Math.floor(r(309) * 27 + district * 14), x0 = x - Math.floor(w / 2), z0 = z - Math.floor(d / 2), base = ground + 2;
-      if (!near(x, z, radius + 4)) continue;
+      if (!near(x, z, radius + 4) || !acceptsTerrainFeature(config, x, z, radius + 6)) continue;
       buildings.push({ x, z, base, height: h, family, width: w, depth: d });
       const color = [0x8c8978, 0xa29376, 0x706f61, 0x92745c, 0x9c9983, 0x647879][Math.floor(r(310) * 6)];
       box(x0 - 1, 0, z0 - 1, w + 2, base, d + 2, C.rock); box(x0 - 2, base - 1, z0 - 2, w + 4, 1, d + 4, C.trim);
@@ -477,7 +480,7 @@ export function generateHarborRegion(config: HarborConfig, includeDetails = true
       // Quays follow the surveyed waterline; occasional finger piers reach the channel.
       for (let z = oz - 2; z <= oz + depth + 2; z++) {
         const r = harborChannel(z, basin, config), x = Math.round(r.center + bank * (r.radius + 2));
-        if (!near(x, z, 15)) continue;
+        if (!near(x, z, 15) || !acceptsTerrainFeature(config, x, z, 17)) continue;
         box(x - 2, WATER - 3, z, 5, 7, 1, C.rock); box(x - 2, WATER + 4, z, 5, 1, 1, C.trim);
         if (z % 47 === 0) {
           box(x - (bank > 0 ? 13 : 0), WATER + 3, z - 2, 14, 2, 5, C.dark);
@@ -489,7 +492,7 @@ export function generateHarborRegion(config: HarborConfig, includeDetails = true
       if (hash(basin, bank, 400, seed) > config.harborTransit) continue;
       for (let z = oz - 3; z < oz + depth + 3; z++) {
         const r = harborChannel(z, basin, config), x = Math.round(r.center + bank * (r.radius + 8));
-        if (!near(x, z, 6)) continue;
+        if (!near(x, z, 6) || !acceptsTerrainFeature(config, x, z, 8)) continue;
         const y = 34 + Math.floor(noise(z / 300, basin * 3 + bank, seed, 401) * 6);
         box(x - 3, y, z, 7, 2, 1, C.trim); box(x - 2, y + 2, z, 5, 1, 1, C.dark);
         for (const side of [-2, 2]) { line({ x: x + side, y: y + 3.125, z }, { x: x + side, y: y + 3.125, z: z + 1 }, C.steel); line({ x: x + side * 1.625, y: y + 3.25, z }, { x: x + side * 1.625, y: y + 3.25, z: z + 1 }, C.bronze); }
@@ -499,6 +502,8 @@ export function generateHarborRegion(config: HarborConfig, includeDetails = true
       for (let sector = Math.floor(oz / 240) - 1; sector <= Math.ceil((oz + depth) / 240); sector++) {
         if (hash(basin, sector, 405 + bank, seed) > 0.65) continue;
         const start = Math.floor(sector * 240 + hash(basin, sector, 408 + bank, seed) * 130);
+        const middle = harborChannel(start + 8, basin, config);
+        if (!acceptsTerrainFeature(config, middle.center + bank * (middle.radius + 8), start + 8, 32)) continue;
         for (let i = 0; i < 16; i++) {
           const z = start + i, r = harborChannel(z, basin, config), x = Math.round(r.center + bank * (r.radius + 8));
           const y = 37 + Math.floor(noise(z / 300, basin * 3 + bank, seed, 401) * 6);
@@ -511,7 +516,7 @@ export function generateHarborRegion(config: HarborConfig, includeDetails = true
     for (let sector = Math.floor(oz / 83) - 1; sector <= Math.ceil((oz + depth) / 83); sector++) {
       const r = (salt: number) => hash(basin, sector, salt, seed), z = Math.round(sector * 83 + r(430) * 37), river = harborChannel(z, basin, config);
       const x = Math.round(river.center + (r(431) - 0.5) * river.radius), length = 9 + Math.floor(r(432) * 8);
-      if (!near(x, z, length)) continue;
+      if (!near(x, z, length) || !acceptsTerrainFeature(config, x, z, length)) continue;
       ellipsoid({ x, y: WATER + 1, z }, 2.7, 2, length / 2, C.dark); box(x - 2, WATER + 1, z - length / 2 + 2, 4, 1, length - 4, C.trim);
       box(x - 1, WATER + 2, z - 2, 2, 2, 4, C.stone); box(x - 1, WATER + 3, z, 2, 1, 1, C.window);
       line({ x, y: WATER + 4, z }, { x, y: WATER + 7, z }, C.bronze); boats.push({ x, y: WATER, z });

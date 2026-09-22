@@ -61,7 +61,7 @@ def test_migration_prioritizes_authored_zones_before_untouched_terrain(db, monke
     assert visited == [(29,1)]
 
 
-@pytest.mark.parametrize("version", [2, 3, 4, 5, 6, 7])
+@pytest.mark.parametrize("version", [2, 3, 4, 5, 6, 7, 8])
 def test_development_world_backfill_starts_at_spawn(db, monkeypatch, version):
     from space import models
     world = models.SpaceWorld(seed=20260922, terrain_generator_version=version)

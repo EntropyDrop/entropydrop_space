@@ -1,10 +1,11 @@
+import { acceptsTerrainFeature, type TerrainFeaturePolicy } from './TerrainFeaturePolicy.ts';
 // Ported from entropydrop_frontend/src/pages/terrainLab/titanCanyon.ts.
 // Keep solid interiors for collisions and volumetric LOD; retain the original 1/8m details.
 import { finishTerrainLabRegion } from './TerrainLabRegion.ts';
 /** Coordinate-addressed river basins and terrain-fitted industrial installations.
  * All exported geometry: 1m / 0.125m cubes, normal / emissive materials.
  * X/Z are centres relative to the crop; Y is the cube's bottom in metres. */
-export interface CanyonConfig {
+export interface CanyonConfig extends TerrainFeaturePolicy {
   sizeX: number; sizeY: number; sizeZ: number;
   offsetX: number; offsetZ: number; yCutoff: number; seed: number;
   canyonDepth: number; canyonWidth: number; canyonIndustry: number;
@@ -127,7 +128,7 @@ export function generateCanyonRegion(config: CanyonConfig, includeDetails = true
   const cells = new Uint16Array(layer * ceiling), terrain = new Float32Array(layer);
   const palette = [{ color: 0, emission: 0, weather: false }], ids = new Map<string, number>();
   const micros = new Map<number, number>();
-  const sites = planTitanCanyon(config, 440), gears: { site: string; radius: number; center: Point }[] = [];
+  const sites = planTitanCanyon(config, 440).filter(s => acceptsTerrainFeature(config, s.x, s.z, 88)), gears: { site: string; radius: number; center: Point }[] = [];
   const cooling: { site: string; center: Point; height: number; radius: number }[] = [];
   const turbines: { x: number; y: number; z: number; height: number; radius: number; phase: number }[] = [];
   const bridges: { from: string; to: string; start: Point; end: Point }[] = [];
@@ -391,7 +392,8 @@ export function generateCanyonRegion(config: CanyonConfig, includeDetails = true
       const survey = [[-3, -3], [3, -3], [-3, 3], [3, 3]].map(([dx, dz]) => sampleTitanCanyon(x + dx, z + dz, config).height);
       if (Math.max(...survey) - Math.min(...survey) > 4) continue;
       const y = Math.max(s.height, ...survey), h = 17 + Math.floor(r(3) * 12), rotor = 22 + Math.floor(r(4) * 12), radius = 3.25 + r(5) * 2, phase = r(6) * Math.PI * 2;
-      if (!near(x - radius - 2, z - radius - 2, radius * 2 + 4, radius * 2 + 4)) continue;
+      if (!near(x - radius - 2, z - radius - 2, radius * 2 + 4, radius * 2 + 4)
+        || !acceptsTerrainFeature(config, x, z, radius + 6)) continue;
       turbines.push({ x, y, z, height: h + rotor, radius, phase });
       box(x - 3, Math.min(...survey) - 1, z - 3, 7, y - Math.min(...survey) + 3, 7, C.floor);
       for (const dx of [-2, 2]) for (const dz of [-2, 2]) brace({ x: x + dx, y: y + 2, z: z + dz }, { x, y: y + h, z }, 1, C.metal);
@@ -431,6 +433,7 @@ export function generateCanyonRegion(config: CanyonConfig, includeDetails = true
       if (hash(first.x + second.x, first.z + second.z, 220, seed) >= config.canyonPipes) continue;
       const start = port(first), end = port(second), length = Math.hypot(end.x - start.x, end.z - start.z);
       if (length < 12 || !near(Math.min(start.x, end.x) - 5, Math.min(start.z, end.z) - 5, Math.abs(end.x - start.x) + 10, Math.abs(end.z - start.z) + 10)) continue;
+      if (!acceptsTerrainFeature(config, (start.x + end.x) / 2, (start.z + end.z) / 2, length / 2 + 8)) continue;
       bridges.push({ from: first.id, to: second.id, start, end });
       const px = -(end.z - start.z) / length, pz = (end.x - start.x) / length;
       const at = (t: number, side = 0, dy = 0): Point => ({ x: start.x + (end.x - start.x) * t + px * side, y: start.y + (end.y - start.y) * t + dy, z: start.z + (end.z - start.z) * t + pz * side });

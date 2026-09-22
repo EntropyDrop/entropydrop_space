@@ -1,3 +1,4 @@
+import { acceptsTerrainFeature, type TerrainFeaturePolicy } from './TerrainFeaturePolicy.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
 import { TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z } from '../torus/TorusWorld.ts';
@@ -7,7 +8,7 @@ import { TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z } from '../tor
  * Standard cells are solid 1m cubes; details use the authoritative 0.125m grid.
  * The nearest major island is aligned with the torus spawn for a safe landing.
  */
-export interface AetherConfig {
+export interface AetherConfig extends TerrainFeaturePolicy {
   sizeX: number; sizeY: number; sizeZ: number;
   offsetX: number; offsetZ: number; yCutoff: number; seed: number;
   aetherScale: number; aetherDensity: number; aetherCastles: number;
@@ -157,7 +158,7 @@ export function generateAetherRegion(config: AetherConfig, includeDetails = true
   const layer = width * depth, cells = new Uint16Array(layer * ceiling);
   const palette = [{ color: 0, emission: 0 }], ids = new Map<string, number>();
   const micros = new Map<number, number>();
-  const islands = planAetherWorld(config, 170);
+  const islands = planAetherWorld(config, 170).filter(i => acceptsTerrainFeature(config, i.x, i.z, i.radius * 1.4 + 12));
   const bridges: { from: string; to: string; start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number } }[] = [];
   const waterfalls: { island: string; x: number; z: number; top: number; bottom: number }[] = [];
   const castles: { island: string; style: number; towers: number; rotation: number }[] = [];
@@ -508,7 +509,7 @@ export function generateAetherRegion(config: AetherConfig, includeDetails = true
       const start = shore(first, second), end = shore(second, first);
       if (!near(Math.min(start.x, end.x) - 2, Math.min(start.z, end.z) - 2, Math.abs(end.x - start.x) + 4, Math.abs(end.z - start.z) + 4)) continue;
       const length = Math.hypot(end.x - start.x, end.z - start.z);
-      if (length < 4 || length > 65) continue;
+      if (length < 4 || length > 65 || !acceptsTerrainFeature(config, (start.x + end.x) / 2, (start.z + end.z) / 2, length / 2 + 5)) continue;
       const nx = -(end.z - start.z) / length, nz = (end.x - start.x) / length;
       const stone = first.major && second.major || hash(first.x, second.x, 851, seed) < 0.3;
       let previous: { x: number; y: number; z: number }[] | null = null;
@@ -536,6 +537,7 @@ export function generateAetherRegion(config: AetherConfig, includeDetails = true
       const x = gx * 140 + Math.floor(hash(gx, gz, 902, seed) * 90);
       const z = gz * 140 + Math.floor(hash(gx, gz, 903, seed) * 90);
       const y = 100 + Math.floor(hash(gx, gz, 904, seed) * 33);
+      if (!acceptsTerrainFeature(config, x, z, 15)) continue;
       if (!near(x - 11, z - 5, 23, 11) || islands.some(i => i.major && Math.hypot(x - i.x, z - i.z) < i.radius + 18)) continue;
       for (let dz = -4; dz <= 4; dz++) for (let dy = -4; dy <= 4; dy++) for (let dx = -10; dx <= 10; dx++) {
         if (dx * dx / 100 + dy * dy / 16 + dz * dz / 16 > 1) continue;
