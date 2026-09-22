@@ -52,6 +52,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   }
   const parameters = new URLSearchParams(location.search);
   const baseline = parameters.get('dev_baseline') === '1';
+  const busyStreaming = parameters.get('dev_stream_busy') === '1';
   const game = create(offlineSession(parameters.get('world') ?? undefined), ephemeralStorage());
   (window as any).game = game;
   game.world.setRenderDistance(8, baseline ? 8 : undefined);
@@ -70,10 +71,17 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
       if (status) status.textContent = `Offline development: ${message}`;
     });
     if (gate) { gate.hidden = true; gate.style.display = 'none'; }
+    if (busyStreaming) {
+      // Deterministic busy-browser fixture: no idle opportunity is available,
+      // so only requests with an explicit timeout will ever receive a slice.
+      globalThis.requestIdleCallback = (callback, options) => options?.timeout === undefined ? 0
+        : window.setTimeout(() => callback({ didTimeout: true, timeRemaining: () => 0 }), options.timeout);
+      globalThis.cancelIdleCallback = id => window.clearTimeout(id);
+    }
     game.start();
     const surface = ['1', 'world'].includes(parameters.get('dev_lod') ?? '')
       ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world, parameters.get('dev_lod') === 'world') : null;
-    installDiagnostics(game, baseline, surface);
+    installDiagnostics(game, baseline, surface, busyStreaming);
   } catch (error) {
     if (status) status.textContent = `Offline development failed: ${String(error)}`;
     console.error(error);
@@ -81,7 +89,8 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
 }
 
 function installDiagnostics(game: OfflineGame, baseline: boolean,
-  surface: { generated: number; total: number; downloads: number; passes: number; fineZones: number; error: string; progress?: string } | null) {
+  surface: { generated: number; total: number; downloads: number; passes: number; fineZones: number; error: string; progress?: string } | null,
+  busyStreaming = false) {
   const panel = document.createElement('section');
   panel.id = 'dev-render-diagnostics';
   panel.style.cssText = 'position:fixed;top:60px;left:12px;z-index:10000;background:#101820ed;color:#fff;padding:12px;font:12px monospace;pointer-events:auto;max-width:420px';
@@ -111,6 +120,16 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
     const url = new URL(location.href); url.searchParams.set('dev_lod', '1'); location.assign(url);
   };
   panel.append(lod);
+  let movedAt = 0, readyAfterMoveMs = 0;
+  const move = document.createElement('button');
+  move.textContent = 'Move to new chunks';
+  move.onclick = () => {
+    game.playerPhysics.position.x = (game.playerPhysics.position.x + 256) % 16384;
+    game.playerPhysics.velocity.set(0, 0, 0);
+    game.playerPhysics.resetRenderInterpolation();
+    movedAt = performance.now(); readyAfterMoveMs = 0;
+  };
+  panel.append(move);
   if (surface) {
     const across = document.createElement('button');
     across.textContent = 'Across ring';
@@ -147,6 +166,10 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
         stats.textContent = stats.textContent.replace('Local near terrain only; not a live-server FPS measurement.',
           surface ? 'Local near + distant fixture; not a live-server FPS measurement.'
             : 'Local near terrain only; not a live-server FPS measurement.');
+        const near = game.world.getTerrainAoiLoadProgress();
+        if (movedAt && near.ready && !readyAfterMoveMs) readyAfterMoveMs = now - movedAt;
+        stats.textContent += `\nNear detail: ${near.readyChunks}/${near.totalChunks} | ${near.ready ? 'ready' : 'loading standard/micro meshes'}${busyStreaming ? ' | zero idle time' : ''}`;
+        if (movedAt) stats.textContent += `\nLast move: ${((readyAfterMoveMs || now - movedAt) / 1000).toFixed(1)}s${readyAfterMoveMs ? ' to ready' : ' loading'}`;
         if (surface) {
           const layer = game.world.distantSurface, build = layer.mesh.userData.lodBuildStats;
           const voxel = layer.voxels.group.userData.voxelLodStats;

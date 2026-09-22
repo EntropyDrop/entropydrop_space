@@ -626,7 +626,7 @@ class Game {
 
     // 7c. Navigation System is updated in controller.updateSimulation()
 
-    // 8. Draw, then request idle-budgeted background chunk streaming.
+    // 8. Draw, then request bounded background streaming with starvation protection.
     this.sceneRenderer.render();
     this.world.scheduleStreamingWork();
     this.playerPhysics.endRenderInterpolation();

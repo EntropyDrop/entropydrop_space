@@ -86,3 +86,13 @@ The progress line reports the zone and completed bricks while generating.
 
 Append `&world=aether-archipelago` to the local `?dev_offline=1` entry to
 preview the development floating-island world with its standard and micro blocks.
+
+## Busy-frame near streaming
+
+Add `&dev_stream_busy=1` and click **Move to new chunks** after entry. This moves
+256m and simulates a browser that grants no idle time: only explicit timeout
+callbacks run, always with a zero remaining budget. The near-detail counter must
+return to all chunks ready, including micro meshes, without an edit, another move
+or a reload. Combine with `dev_lod=world` to retain full-world distant coverage.
+The live scheduler prefers idle time and requests a one-millisecond queue
+slice with a 50ms timeout; generation remains in the terrain worker.

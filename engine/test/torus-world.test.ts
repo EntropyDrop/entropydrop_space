@@ -549,7 +549,7 @@ test('a cross-layer edit resumes when its chunk quickly leaves and re-enters', (
     'the edited standard chunk must be queued for the remesh that was interrupted');
 });
 
-test('render-loop streaming waits for browser idle time', () => {
+test('render-loop streaming prefers browser idle time after drawing', () => {
   const world = new World(new THREE.Scene()) as any;
   world.setRenderDistance(3);
   world.updateChunksAround(TORUS_SPAWN_X, TORUS_SPAWN_Z, false);
@@ -570,6 +570,53 @@ test('render-loop streaming waits for browser idle time', () => {
     globalThis.requestIdleCallback = previousRequestIdleCallback;
   }
 });
+
+for (const didTimeout of [true, false]) {
+  test(`near chunks publish and replace far LOD with zero idle time (timeout=${didTimeout})`, () => {
+    const world = new World(new THREE.Scene()) as any;
+    world.setRenderDistance(3);
+    world.updateChunksAround(TORUS_SPAWN_X, TORUS_SPAWN_Z, false);
+    const requested: any[] = [];
+    world.requireOffThreadTerrainStreaming = true;
+    world.terrainWorker = { postMessage: (request: any) => requested.push(request) };
+    const previousRequestIdleCallback = globalThis.requestIdleCallback;
+    const callbacks: IdleRequestCallback[] = [];
+    globalThis.requestIdleCallback = ((callback: IdleRequestCallback, options?: IdleRequestOptions) => {
+      assert.ok(options?.timeout && options.timeout <= 50, 'busy frames cannot postpone streaming indefinitely');
+      callbacks.push(callback);
+      return callbacks.length;
+    }) as typeof requestIdleCallback;
+    try {
+      world.scheduleStreamingWork();
+      world.scheduleStreamingWork();
+      assert.equal(callbacks.length, 1, 'coalesce render frames while a callback is pending');
+      assert.equal(requested.length, 0, 'work starts after the current draw');
+      callbacks.shift()!({ didTimeout, timeRemaining: () => 0 });
+      assert.equal(requested.length, 1, 'the nearest detailed chunk must start even without idle time');
+      const job = world.terrainWorkerJob;
+      assert.equal(job.key, '512,64');
+      const chunk = world.getOrCreateChunk(512, 64);
+      const mesh = world.mesher.buildChunkMeshData(chunk);
+      world.chunks.delete(job.key); // The worker returns unpublished data, not a live chunk.
+      world.dirtyChunks.delete(chunk);
+      world.terrainWorkerJob = null;
+      world.completedTerrainWorkerJobs.push({ job, result: {
+        ok: true, type: 'generate', requestId: job.requestId, cx: 512, cz: 64,
+        blocks: chunk.blocks, terrainColors: chunk.colors, terrainMaterials: chunk.materials,
+        terrainDetails: chunk.terrainDetails, mesh,
+      } });
+      assert.equal(world.distantSurface.handoff.data[(64 * 1024 + 512) * 2], 0);
+      world.scheduleStreamingWork();
+      callbacks.shift()!({ didTimeout, timeRemaining: () => 0 });
+      assert.ok(world.getChunk(512,64)?.mesh, 'a completed worker result must become visible');
+      assert.equal(world.distantSurface.handoff.data[(64 * 1024 + 512) * 2], 255,
+        'the detailed mesh must take ownership from the coarse placeholder');
+      assert.equal(requested.length, 2, 'publishing one result must unblock the next nearby chunk');
+    } finally {
+      globalThis.requestIdleCallback = previousRequestIdleCallback;
+    }
+  });
+}
 
 test('torus projection culls distant terrain with occupied-height bounds', () => {
     const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 90);

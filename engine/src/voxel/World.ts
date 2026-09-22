@@ -35,6 +35,9 @@ import {
 // while the already-present distant surface prevents visible holes.
 const STREAM_WORK_BUDGET_MS = 3;
 const BACKGROUND_MAIN_THREAD_BUDGET_MS = 1;
+// Detailed terrain must progress even when a fully drawn torus leaves no idle
+// time. Generation stays in the worker; timeout slices only service its queue.
+const STREAM_MAX_WAIT_MS = 50;
 const MAX_STREAM_CHUNKS_PER_FRAME = 1;
 const MAX_CHUNK_MESHES_PER_FRAME = 1;
 const MAX_REMOTE_CHUNKS_PER_FRAME = 2;
@@ -2119,8 +2122,8 @@ export class World {
   }
 
   /**
-   * Run streaming after the current scene has rendered, and only when
-   * the browser reports genuine idle time before the next display frame.
+   * Prefer idle time after rendering, with bounded progress under sustained
+   * render load. A missing detailed chunk must never remain far LOD forever.
    */
   scheduleStreamingWork() {
     if (this.streamWorkScheduled || !this.lastStreamCenterKey) return;
@@ -2139,14 +2142,10 @@ export class World {
     };
     const requestIdle = globalThis.requestIdleCallback;
     if (typeof requestIdle === 'function') {
-      requestIdle(deadline => {
-        const remaining = deadline.timeRemaining();
-        if (remaining < 1.5) {
-          this.streamWorkScheduled = false;
-          return;
-        }
-        run(Math.min(BACKGROUND_MAIN_THREAD_BUDGET_MS, remaining - 0.5));
-      });
+      // Timeout callbacks normally have no idle budget. Some browsers also
+      // exhaust a normal callback's budget before dispatch. Both must still
+      // publish completed chunks and launch the next nearest worker job.
+      requestIdle(() => run(BACKGROUND_MAIN_THREAD_BUDGET_MS), { timeout: STREAM_MAX_WAIT_MS });
       return;
     }
     // Older browsers still run the work after the submitted render, using a
