@@ -1202,3 +1202,27 @@ def test_surface_upgrade_serves_last_good_legacy_snapshot_until_v6_is_ready(clie
     assert manifest['zones'][0]['updating'] is True
     assert client.get(manifest['zones'][0]['url']).content == fine
     assert client.get(manifest['zones'][0]['lods'][0]['url']).content == coarse
+
+
+@pytest.mark.parametrize('alias', ['aether-archipelago', '00000000-0000-4000-8000-000000000004'])
+def test_development_aether_bootstrap(client, db, alias):
+    user = _user(db, 'aether-user', None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    response = client.post('/space/api/v2/bootstrap', params={'world': alias})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['world']['id'] == space_router.settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID
+    assert payload['world']['name'] == 'Aether Archipelago'
+    assert payload['world']['seed'] == 42
+    assert payload['world']['terrain_generator_version'] == 3
+    assert (payload['player']['start_x_cm'], payload['player']['start_y_cm'], payload['player']['start_z_cm']) == (819250, 18000, 102450)
+    assert db.query(SpaceWorld).filter_by(id=payload['world']['id']).count() == 1
+
+
+@pytest.mark.parametrize('alias', ['aether-archipelago', '00000000-0000-4000-8000-000000000004'])
+def test_production_cannot_provision_aether(client, db, monkeypatch, alias):
+    monkeypatch.setattr(space_router.settings, 'ENVIRONMENT', 'production')
+    user = _user(db, 'aether-production-user', None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    assert client.post('/space/api/v2/bootstrap', params={'world': alias}).status_code == 404
+    assert db.query(SpaceWorld).filter_by(id=space_router.settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID).count() == 0

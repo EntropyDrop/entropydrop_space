@@ -1,3 +1,4 @@
+import pytest
 import threading
 import space_surface
 
@@ -60,9 +61,10 @@ def test_migration_prioritizes_authored_zones_before_untouched_terrain(db, monke
     assert visited == [(29,1)]
 
 
-def test_copper_world_backfill_starts_at_the_central_skyline(db, monkeypatch):
+@pytest.mark.parametrize("version", [2, 3])
+def test_development_world_backfill_starts_at_spawn(db, monkeypatch, version):
     from space import models
-    world = models.SpaceWorld(seed=20260922, terrain_generator_version=2)
+    world = models.SpaceWorld(seed=20260922, terrain_generator_version=version)
     db.add(world)
     db.commit()
     visited = []

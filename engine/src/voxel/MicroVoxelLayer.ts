@@ -398,18 +398,24 @@ export class MicroVoxelLayer {
       if (!include(localMx, my, localMz)) continue;
       const mx = wrapMicroX(originMx + localMx);
       const mz = wrapMicroZ(originMz + localMz);
-      const normalized = normalizeColor(packed[offset + 3]);
+      const normalized = normalizeColor(packed[offset + 3] & 0xffffff);
+      const material = normalizeVoxelMaterialId(packed[offset + 3] >>> 24);
       const cellKey = `${mx},${my},${mz}`;
       const packedKey = packedMicroKey(mx, my, mz);
       const isNew = !this.cells.has(cellKey);
       if (this.cells.get(cellKey) === normalized
         && !this.parts.has(cellKey)
-        && this.getMaterial(mx, my, mz) === VoxelMaterialIds.DEFAULT) continue;
+        && this.getMaterial(mx, my, mz) === material) continue;
       this.preservePublishedCollisionCell(mx, my, mz);
       this.cells.set(cellKey, normalized);
       this.packedColors.set(packedKey, normalized);
-      this.materials.delete(cellKey);
-      this.packedMaterials.delete(packedKey);
+      if (material === VoxelMaterialIds.DEFAULT) {
+        this.materials.delete(cellKey);
+        this.packedMaterials.delete(packedKey);
+      } else {
+        this.materials.set(cellKey, material);
+        this.packedMaterials.set(packedKey, material);
+      }
       this.parts.delete(cellKey);
       if (isNew) {
         this.addChunkCell(packedKey, mx, my, mz);

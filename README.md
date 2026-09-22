@@ -36,6 +36,14 @@ terrain-lab algorithm with terrain generator version 2. Enter it at
 private development domain. Omitting `world` continues to select the default
 nature world. The alternate world is intentionally unavailable in production.
 
+Development also provisions Aether Archipelago (seed 42, generator version 3),
+ported from terrain lab with floating islands, castles, bridges, crystals and
+waterfalls. Solid terrain and buildings use 1 m blocks; ornaments use 0.125 m
+micro blocks, including emissive details. The spawn is aligned with a major island.
+Enter at `/space/app/?world=aether-archipelago` locally or
+`https://space-dev-908123.entropydrop.com/?world=aether-archipelago` on the
+private development domain. This world is unavailable in production.
+
 ## Contracts
 
 ```sh

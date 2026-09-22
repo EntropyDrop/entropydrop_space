@@ -34,7 +34,7 @@ SURFACE_COLOR = 0x718F61
 MIDDLE_COLOR = 0x806B5C
 DEEP_COLOR = 0x66707D
 SURFACE_JOB_IDLE_SECONDS = 30
-TERRAIN_GENERATOR_COPPER_METROPOLIS = 2
+RUNTIME_TERRAIN_GENERATORS = {2, 3}
 
 logger = logging.getLogger(__name__)
 _generation_thread_lock = threading.Lock()
@@ -325,7 +325,7 @@ def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, o
     version = int(world.terrain_generator_version)
     generator = TerrainSurfaceGenerator(int(world.seed), int(world.width_chunks) * 16,
                                       int(world.length_chunks) * 16, version)
-    if version == TERRAIN_GENERATOR_COPPER_METROPOLIS:
+    if version in RUNTIME_TERRAIN_GENERATORS:
         payload.extend(_terrain_runtime_payload('zone', int(world.seed), version, zone_x, zone_z))
     elif (kernels := get_terrain_kernels()) is not None:
         payload.extend(kernels.nature_surface(generator.noise.permutation,
@@ -341,7 +341,7 @@ def build_surface_zone_payload(world, zone_x, zone_z, source_terrain_revision, o
                 if value.get('standard') or value.get('micro') or value.get('revision')]
     payload.extend(struct.pack('<I', len(authored)))
     procedural_chunks = (_terrain_runtime_chunks(int(world.seed), version, [key for key, _ in authored])
-                         if version == TERRAIN_GENERATOR_COPPER_METROPOLIS else None)
+                         if version in RUNTIME_TERRAIN_GENERATORS else None)
     for (cx, cz), overlay in authored:
         procedural_chunk = next(procedural_chunks) if procedural_chunks is not None else None
         boxes = _chunk_solid_runs(generator, cx, cz, overlay, procedural_chunk)
@@ -577,7 +577,7 @@ def generate_next_surface_zone() -> bool:
             zones_z = int(world.length_chunks) // int(world.zone_size_chunks)
             pending = [(zone_x, zone_z) for zone_x in range(zones_x)
                        for zone_z in range(zones_z) if (zone_x, zone_z) not in existing]
-            if int(world.terrain_generator_version) == TERRAIN_GENERATOR_COPPER_METROPOLIS:
+            if int(world.terrain_generator_version) in RUNTIME_TERRAIN_GENERATORS:
                 center_x, center_z = zones_x // 2, zones_z // 2
                 pending.sort(key=lambda point: (
                     min(abs(point[0] - center_x), zones_x - abs(point[0] - center_x)) ** 2

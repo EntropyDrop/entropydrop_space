@@ -41,9 +41,10 @@ def requested_world_ids():
     requested = [value.strip() for value in os.getenv("SPACE_HOSTING_WORLD_IDS", "").split(",") if value.strip()]
     if not requested:
         requested = [settings.SPACE_DEFAULT_WORLD_ID]
-    if (settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}
-            and settings.SPACE_COPPER_METROPOLIS_WORLD_ID not in requested):
-        requested.append(settings.SPACE_COPPER_METROPOLIS_WORLD_ID)
+    if settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}:
+        for world_id in (settings.SPACE_COPPER_METROPOLIS_WORLD_ID, settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID):
+            if world_id not in requested:
+                requested.append(world_id)
     return requested
 
 

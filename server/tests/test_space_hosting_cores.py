@@ -25,12 +25,13 @@ from tests.test_space_entities import _entity, _user
 INSTANCE = str(uuid.uuid4())
 
 
-def test_development_worker_always_hosts_copper_world(monkeypatch):
+def test_development_worker_always_hosts_development_worlds(monkeypatch):
     monkeypatch.setattr(settings, 'ENVIRONMENT', 'development')
     monkeypatch.setenv('SPACE_HOSTING_WORLD_IDS', settings.SPACE_DEFAULT_WORLD_ID)
     assert requested_world_ids() == [
         settings.SPACE_DEFAULT_WORLD_ID,
         settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
+        settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID,
     ]
 
 

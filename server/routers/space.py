@@ -638,16 +638,23 @@ def _get_or_create_bootstrap_world(db: Session, requested_world: str | None) -> 
     requested = (requested_world or "").strip().lower()
     if not requested or requested in {"default", settings.SPACE_DEFAULT_WORLD_ID.lower()}:
         return _get_or_create_default_world(db)
-    copper_id = settings.SPACE_COPPER_METROPOLIS_WORLD_ID
-    if requested in {"copper-metropolis", copper_id.lower()}:
+    development_worlds = (
+        ("copper-metropolis", settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
+         "Copper Metropolis", settings.SPACE_COPPER_METROPOLIS_WORLD_SEED, 2),
+        ("aether-archipelago", settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID,
+         "Aether Archipelago", settings.SPACE_AETHER_ARCHIPELAGO_WORLD_SEED, 3),
+    )
+    for alias, world_id, name, seed, version in development_worlds:
+        if requested not in {alias, world_id.lower()}:
+            continue
         if settings.ENVIRONMENT.lower() not in {"dev", "development", "test", "testing"}:
             raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
         return _get_or_create_world(
             db,
-            world_id=copper_id,
-            name="Copper Metropolis",
-            seed=settings.SPACE_COPPER_METROPOLIS_WORLD_SEED,
-            terrain_generator_version=2,
+            world_id=world_id,
+            name=name,
+            seed=seed,
+            terrain_generator_version=version,
         )
     raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
 
@@ -660,6 +667,15 @@ def _world_terrain_revision(db: Session, world: models.SpaceWorld) -> int:
 
 
 def _random_initial_position(world: models.SpaceWorld) -> dict[str, int]:
+    if int(world.terrain_generator_version or 1) == 3:
+        # The shared generator aligns a major island with the torus centre.
+        # Stay over its solid core and above every castle roof during streaming.
+        return {
+            "x_cm": (world.width_chunks * 16 // 2) * 100 + 50,
+            "y_cm": 18000,
+            "z_cm": (world.length_chunks * 16 // 2) * 100 + 50,
+            "yaw_q15": secrets.randbelow(65535) - 32767,
+        }
     # X/Z are uniform over the complete wrapped world, including positions near
     # either seam. The authoritative worker can later refine the exact landing
     # surface; 32 m starts above the current procedural terrain ceiling.

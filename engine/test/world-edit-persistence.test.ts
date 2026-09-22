@@ -88,54 +88,57 @@ test('standard and micro terrain edits survive constructing a fresh world after 
   assert.equal(second.getMicroBlock(43 * 8 + 4, 80 * 8 + 4, 48 * 8 + 4), null);
 });
 
-test('Copper Metropolis details live in world microvoxels and generated deletions persist', () => {
-  const storage = new MemoryStorage();
-  const persistence = { worldId: 'copper-micro-world', storage };
-  const seed = 20260922;
-  const cx = TORUS_SPAWN_X / 16;
-  const cz = TORUS_SPAWN_Z / 16;
-  const first = new World(new THREE.Scene(), seed, persistence, 2) as any;
-  const chunk = first.getOrCreateChunk(cx, cz);
+for (const [name, seed, version] of [['Copper', 20260922, 2], ['Aether', 42, 3]] as const) {
+  test(`${name} details live in world microvoxels and generated deletions persist`, () => {
+    const storage = new MemoryStorage();
+    const persistence = { worldId: `${name}-micro-world`, storage };
+    const cx = TORUS_SPAWN_X / 16;
+    const cz = TORUS_SPAWN_Z / 16;
+    const first = new World(new THREE.Scene(), seed, persistence, version) as any;
+    const chunk = first.getOrCreateChunk(cx, cz);
 
-  assert.ok(first.microVoxels.cells.size > 1_000);
-  let target: [number, number, number] | null = null;
-  for (let offset = 0; offset + 3 < chunk.terrainDetails.length; offset += 4) {
-    const candidate: [number, number, number] = [
-      cx * 16 * MICRO_DIVISIONS + chunk.terrainDetails[offset],
-      chunk.terrainDetails[offset + 1],
-      cz * 16 * MICRO_DIVISIONS + chunk.terrainDetails[offset + 2],
-    ];
-    if (first.getMicroBlock(...candidate)) {
-      target = candidate;
-      break;
-    }
-  }
-  assert.ok(target, 'at least one generated detail should be installed into world.microVoxels');
-  const [mx, my, mz] = target!;
-  const wx = Math.floor(mx / MICRO_DIVISIONS);
-  const wy = Math.floor(my / MICRO_DIVISIONS);
-  const wz = Math.floor(mz / MICRO_DIVISIONS);
-  const before = [];
-  for (let dx = 0; dx < MICRO_DIVISIONS; dx++) {
-    for (let dy = 0; dy < MICRO_DIVISIONS; dy++) {
-      for (let dz = 0; dz < MICRO_DIVISIONS; dz++) {
-        const cell = [wx * 8 + dx, wy * 8 + dy, wz * 8 + dz] as const;
-        const color = first.microVoxels.get(...cell);
-        if (color !== null) before.push([...cell, color]);
+    assert.ok(first.microVoxels.cells.size > 1_000);
+    let target: [number, number, number] | null = null;
+    for (let offset = 0; offset + 3 < chunk.terrainDetails.length; offset += 4) {
+      const candidate: [number, number, number] = [
+        cx * 16 * MICRO_DIVISIONS + chunk.terrainDetails[offset],
+        chunk.terrainDetails[offset + 1],
+        cz * 16 * MICRO_DIVISIONS + chunk.terrainDetails[offset + 2],
+      ];
+      if (first.getMicroBlock(...candidate) && (version !== 3 || chunk.terrainDetails[offset + 3] >>> 24 === 1)) {
+        assert.equal(first.microVoxels.getMaterial(...candidate), chunk.terrainDetails[offset + 3] >>> 24);
+        target = candidate;
+        break;
       }
     }
-  }
+    assert.ok(target, 'at least one generated detail should be installed into world.microVoxels');
+    const [mx, my, mz] = target!;
+    const wx = Math.floor(mx / MICRO_DIVISIONS);
+    const wy = Math.floor(my / MICRO_DIVISIONS);
+    const wz = Math.floor(mz / MICRO_DIVISIONS);
+    const before = [];
+    for (let dx = 0; dx < MICRO_DIVISIONS; dx++) {
+      for (let dy = 0; dy < MICRO_DIVISIONS; dy++) {
+        for (let dz = 0; dz < MICRO_DIVISIONS; dz++) {
+          const cell = [wx * 8 + dx, wy * 8 + dy, wz * 8 + dz] as const;
+          const color = first.microVoxels.get(...cell);
+          if (color !== null) before.push([...cell, color, first.microVoxels.getMaterial(...cell)]);
+        }
+      }
+    }
 
-  assert.equal(first.removeMicroBlock(mx, my, mz), true);
-  assert.equal(first.flushPersistedEdits(), true);
-  const second = new World(new THREE.Scene(), seed, persistence, 2) as any;
-  second.getOrCreateChunk(cx, cz);
-  assert.equal(second.getMicroBlock(mx, my, mz), null);
-  for (const [sx, sy, sz, color] of before) {
-    if (sx === mx && sy === my && sz === mz) continue;
-    assert.equal(second.microVoxels.get(sx, sy, sz), color);
-  }
-});
+    assert.equal(first.removeMicroBlock(mx, my, mz), true);
+    assert.equal(first.flushPersistedEdits(), true);
+    const second = new World(new THREE.Scene(), seed, persistence, version) as any;
+    second.getOrCreateChunk(cx, cz);
+    assert.equal(second.getMicroBlock(mx, my, mz), null);
+    for (const [sx, sy, sz, color, material] of before) {
+      if (sx === mx && sy === my && sz === mz) continue;
+      assert.equal(second.microVoxels.get(sx, sy, sz), color);
+      assert.equal(second.microVoxels.getMaterial(sx, sy, sz), material);
+    }
+  });
+}
 
 test('world edit storage is isolated by world id and solid cells remove stale micro entries', () => {
   const storage = new MemoryStorage();

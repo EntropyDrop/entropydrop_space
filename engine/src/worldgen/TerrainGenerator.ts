@@ -7,9 +7,11 @@ import {
   TORUS_SPAWN_X, TORUS_SPAWN_Z
 } from '../torus/TorusWorld.ts';
 import { generateCopperMetropolisChunk } from './CopperMetropolisGenerator.ts';
+import { generateAetherArchipelagoChunk } from './AetherArchipelagoGenerator.ts';
 
 export const TERRAIN_GENERATOR_NATURE = 1;
 export const TERRAIN_GENERATOR_COPPER_METROPOLIS = 2;
+export const TERRAIN_GENERATOR_AETHER_ARCHIPELAGO = 3;
 
 const TERRAIN_COLORS = {
   deep: 0x66707d,
@@ -44,8 +46,8 @@ export class TerrainGenerator {
 
   constructor(seed = 42, version = TERRAIN_GENERATOR_NATURE) {
     this.seed = Number.isFinite(Number(seed)) ? Math.floor(Number(seed)) : 42;
-    this.version = version === TERRAIN_GENERATOR_COPPER_METROPOLIS
-      ? TERRAIN_GENERATOR_COPPER_METROPOLIS
+    this.version = [TERRAIN_GENERATOR_COPPER_METROPOLIS, TERRAIN_GENERATOR_AETHER_ARCHIPELAGO].includes(version)
+      ? version
       : TERRAIN_GENERATOR_NATURE;
     let state = this.seed;
     const random = () => {
@@ -101,6 +103,10 @@ export class TerrainGenerator {
 
   generateChunk(chunk, includeDetails = true) {
     chunk.resetForTerrainGeneration();
+    if (this.version === TERRAIN_GENERATOR_AETHER_ARCHIPELAGO) {
+      chunk.terrainDetails = generateAetherArchipelagoChunk(chunk, this.seed, includeDetails);
+      return chunk.terrainDetails;
+    }
     if (this.version === TERRAIN_GENERATOR_COPPER_METROPOLIS) {
       const details = generateCopperMetropolisChunk(chunk, this.seed, includeDetails);
       chunk.terrainDetails = details;

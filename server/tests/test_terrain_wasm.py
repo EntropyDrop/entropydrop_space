@@ -100,22 +100,24 @@ def test_authored_zone_and_lod_payloads_are_byte_identical(monkeypatch):
     assert surface.build_surface_lods(actual) == lods
 
 
-def test_copper_chunk_batches_match_single_chunk_generation():
+@pytest.mark.parametrize("version", [2, 3])
+def test_runtime_chunk_batches_match_single_chunk_generation(version):
     keys = [(512, 64), (1023, 127), (512, 64)]
-    actual = surface._terrain_runtime_payload('chunks', 42, 2, 0, 0, keys)
-    expected = b''.join(surface._terrain_runtime_payload('chunk', 42, 2, x, z) for x, z in keys)
+    actual = surface._terrain_runtime_payload('chunks', 42, version, 0, 0, keys)
+    expected = b''.join(surface._terrain_runtime_payload('chunk', 42, version, x, z) for x, z in keys)
     assert actual == expected
     with pytest.raises(ValueError, match='1..32'):
-        surface._terrain_runtime_payload('chunks', 42, 2, 0, 0, keys * 11)
+        surface._terrain_runtime_payload('chunks', 42, version, 0, 0, keys * 11)
 
 
-def test_copper_edits_use_bounded_batches_and_preserve_sorted_trailers(monkeypatch):
+@pytest.mark.parametrize("version", [2, 3])
+def test_runtime_edits_use_bounded_batches_and_preserve_sorted_trailers(monkeypatch, version):
     calls = []
     def runtime(mode, seed, version, x, z, chunks=None):
         calls.append((mode, chunks))
         return bytes(512 * 512 * 8 if mode == 'zone' else len(chunks) * 262144)
     monkeypatch.setattr(surface, '_terrain_runtime_payload', runtime)
-    world = SimpleNamespace(seed=42, width_chunks=1024, length_chunks=128, terrain_generator_version=2)
+    world = SimpleNamespace(seed=42, width_chunks=1024, length_chunks=128, terrain_generator_version=version)
     keys = [(i // 32, i % 32) for i in range(65)]
     payload = surface.build_surface_zone_payload(world, 0, 0, 1, {key: {'revision': 1} for key in reversed(keys)})
     assert [len(batch) for mode, batch in calls if mode == 'chunks'] == [32, 32, 1]

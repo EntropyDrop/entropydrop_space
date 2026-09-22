@@ -72,3 +72,8 @@ Procedural far terrain still uses 1m height/color columns: facade microvoxels an
 procedural overhangs are not reconstructed by that format. Authored structures
 retain their existing multi-height solid proxies. Full procedural vertical LOD
 would require a separate snapshot-format and meshing change.
+
+## Aether Archipelago preview
+
+Append `&world=aether-archipelago` to the local `?dev_offline=1` entry to
+preview the development floating-island world with its standard and micro blocks.

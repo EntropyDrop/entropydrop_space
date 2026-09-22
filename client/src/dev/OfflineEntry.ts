@@ -15,8 +15,8 @@ interface OfflineGame {
 }
 
 /** No token, account requests, persistent world writes, or network adapters. */
-export function offlineSession(): ReadySpaceSession {
-  return {
+export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
+  const session: ReadySpaceSession = {
     protocol_version: 2, max_online_players: 32, queue_enabled: true,
     mode: 'online', api_origin: '', token: '', websocket_url: '',
     world: { id: 'dev-offline-copper', name: 'Offline Copper (development only)',
@@ -29,6 +29,12 @@ export function offlineSession(): ReadySpaceSession {
     terrain_edit_remote: null, surface_snapshot_remote: null, latency_monitor: null,
     player_position_remote: { async save() {} },
   };
+  if (world === 'aether-archipelago') {
+    session.world = { ...session.world, id: 'dev-offline-aether', name: 'Offline Aether (development only)',
+      seed: 42, terrain_generator_version: 3 };
+    Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 18000, start_z_cm: 102450 });
+  }
+  return session;
 }
 
 export function ephemeralStorage(): SpaceStorage {
@@ -46,7 +52,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   }
   const parameters = new URLSearchParams(location.search);
   const baseline = parameters.get('dev_baseline') === '1';
-  const game = create(offlineSession(), ephemeralStorage());
+  const game = create(offlineSession(parameters.get('world') ?? undefined), ephemeralStorage());
   (window as any).game = game;
   game.world.setRenderDistance(8, baseline ? 8 : undefined);
   game.world.microVoxels.setRenderBatchingEnabled(!baseline);
