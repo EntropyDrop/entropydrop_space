@@ -360,15 +360,28 @@ export function createSpaceSurfaceSnapshotRemote(
         }
         const downloaded = !bytes;
         if (!bytes) {
-          const zoneResponse = await fetchImpl(url.toString(), {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/vnd.entropydrop.surface-zone',
-            },
-            cache: 'force-cache',
-          });
-          if (!zoneResponse.ok) {
-            throw new Error(`Space surface zone failed with HTTP ${zoneResponse.status}.`);
+          let zoneResponse: Response | undefined;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            zoneResponse = await fetchImpl(url.toString(), {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.entropydrop.surface-zone',
+              },
+              cache: 'force-cache',
+            });
+            if (zoneResponse.status === 429 && attempt < 2) {
+              const retryAfter = zoneResponse.headers?.get?.('Retry-After');
+              const seconds = retryAfter ? Number(retryAfter) : NaN;
+              const delayMs = Number.isFinite(seconds) && seconds > 0
+                ? seconds * 1000
+                : 500 * (attempt + 1);
+              await new Promise(resolve => setTimeout(resolve, Math.min(delayMs, 3000)));
+              continue;
+            }
+            break;
+          }
+          if (!zoneResponse || !zoneResponse.ok) {
+            throw new Error(`Space surface zone failed with HTTP ${zoneResponse?.status}.`);
           }
           bytes = await readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES);
           if (bytes.byteLength !== level.byte_length || await sha256Hex(bytes) !== level.digest) {

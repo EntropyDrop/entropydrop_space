@@ -520,6 +520,34 @@ test('LOD snapshots cannot spoof the manifest terrain revision', async () => {
     { getZoneDemand: () => ({ sampleSize: 64, priority: 0 }) }), /identity mismatch/);
 });
 
+test('surface-zone remote retries on HTTP 429 and succeeds', async () => {
+  const bytes = makeCoarseBytes(0, 0, 64, 7);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  let attempts = 0;
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/surface-zones', 20260827, 1,
+    (async input => {
+      if (String(input).endsWith('/surface-zones')) {
+        return Response.json({
+          schema_version: 3, samples_per_chunk_axis: 8, zone_size_chunks: 32,
+          width_chunks: 32, length_chunks: 32, complete: true,
+          zones: [{ zone_x: 0, zone_z: 0, revision: 1, source_terrain_revision: 7,
+            digest: '0'.repeat(64), byte_length: 327712, url: '/fine',
+            lods: [{ sample_size: 64, digest, byte_length: bytes.length, url: '/coarse' }] }],
+        });
+      }
+      attempts++;
+      if (attempts === 1) {
+        return new Response('Too many requests', { status: 429, headers: { 'Retry-After': '0' } });
+      }
+      return new Response(bytes);
+    }) as typeof fetch);
+  const installed: number[] = [];
+  await remote.loadAll(zone => installed.push(zone.zoneX), undefined, { getZoneDemand: () => ({ sampleSize: 64, priority: 0 }) });
+  assert.equal(attempts, 2, 'should have retried once after 429');
+  assert.deepEqual(installed, [0]);
+});
+
+
 test('visible refinements stay within the raw working-set budget', async () => {
   const payloads = new Map<string, Uint8Array>();
   const zones = Array.from({ length: 16 }, (_, x) => {

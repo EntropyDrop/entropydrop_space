@@ -30,7 +30,7 @@ router = APIRouter(prefix="/space/api/v2", tags=["space"])
 
 # Gameplay endpoints have separate budgets based on their actual call cadence.
 SPACE_HIGH_FREQ_RATE_LIMIT = "180/minute; 10000/hour; 100000/day"
-SPACE_SURFACE_RATE_LIMIT = "600/minute; 20000/hour; 100000/day"
+SPACE_SURFACE_RATE_LIMIT = "1200/minute; 30000/hour; 150000/day"
 SPACE_TERRAIN_WRITE_RATE_LIMIT = "120/minute; 5000/hour; 100000/day"
 SPACE_BOOTSTRAP_RATE_LIMIT = "10/minute; 100/hour"
 SPACE_HEARTBEAT_RATE_LIMIT = "120/minute; 5000/hour; 100000/day"

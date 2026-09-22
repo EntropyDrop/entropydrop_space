@@ -2,6 +2,7 @@ from fastapi import Request
 from slowapi import Limiter
 import hashlib
 import ipaddress
+import itertools
 from config import settings
 
 
@@ -9,8 +10,23 @@ class HeaderSafeLimiter(Limiter):
     """Let middleware add headers when an endpoint returns a plain JSON value."""
 
     def _check_request_limit(self, request, endpoint_func, in_middleware=True):
-        if not in_middleware:
-            super()._check_request_limit(request, endpoint_func, True)
+        # SlowAPI's middleware skips routes that use @limit, and its decorator
+        # normally checks route/default limits only. Explicitly evaluate the
+        # application-wide IP budget as well so marked routes cannot bypass it,
+        # but avoid re-checking default limits that the decorator intentionally overrides.
+        if not in_middleware and self.enabled and self._application_limits:
+            endpoint_func_name = (
+                f"{endpoint_func.__module__}.{endpoint_func.__name__}"
+                if endpoint_func
+                else ""
+            )
+            if (
+                endpoint_func_name
+                and endpoint_func_name not in self._exempt_routes
+                and not any(fn() for fn in self._request_filters)
+            ):
+                app_limits = list(itertools.chain(*self._application_limits))
+                self._Limiter__evaluate_limits(request, "global", app_limits)
         return super()._check_request_limit(request, endpoint_func, in_middleware)
 
     def _inject_headers(self, response, current_limit):

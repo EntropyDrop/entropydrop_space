@@ -1,3 +1,6 @@
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
 
 import rate_limit
@@ -87,3 +90,58 @@ def test_limiter_uses_endpoint_scopes_and_response_headers():
     assert rate_limit.limiter._key_style == "endpoint"
     assert rate_limit.limiter._headers_enabled is True
     assert rate_limit.limiter._application_limits
+
+
+def test_decorated_routes_do_not_enforce_default_limits():
+    test_limiter = rate_limit.HeaderSafeLimiter(
+        key_func=lambda request: "test-client",
+        default_limits=["5/minute"],
+        application_limits=["100/minute"],
+        key_style="endpoint",
+    )
+    app = FastAPI()
+    app.state.limiter = test_limiter
+
+    @app.get("/heavy")
+    @test_limiter.limit("20/minute")
+    def heavy(request: Request):
+        return {"ok": True}
+
+    app.add_middleware(SlowAPIMiddleware)
+
+    with TestClient(app) as client:
+        # First 20 requests must succeed under the 20/minute route limit.
+        # It must NOT fail at request 6 with the 5/minute default limit.
+        for i in range(1, 21):
+            assert client.get("/heavy").status_code == 200, f"Request {i} failed unexpectedly"
+        # 21st request must trigger 429
+        assert client.get("/heavy").status_code == 429
+
+
+def test_decorated_routes_still_enforce_application_wide_limit():
+    test_limiter = rate_limit.HeaderSafeLimiter(
+        key_func=lambda request: "test-client",
+        default_limits=["60/minute"],
+        application_limits=["2/minute"],
+        key_style="endpoint",
+    )
+    app = FastAPI()
+    app.state.limiter = test_limiter
+
+    @app.get("/route-a")
+    @test_limiter.limit("20/minute")
+    def route_a(request: Request):
+        return {"ok": True}
+
+    @app.get("/route-b")
+    @test_limiter.limit("20/minute")
+    def route_b(request: Request):
+        return {"ok": True}
+
+    app.add_middleware(SlowAPIMiddleware)
+
+    with TestClient(app) as client:
+        assert client.get("/route-a").status_code == 200
+        assert client.get("/route-b").status_code == 200
+        assert client.get("/route-a").status_code == 429
+
