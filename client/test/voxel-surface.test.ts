@@ -58,6 +58,19 @@ test('volumetric zones never emit legacy pillars, preserve underside and hand of
     if (attribute) for (let i = 0; i < (geometry as THREE.InstancedBufferGeometry).instanceCount; i++) directions.push(attribute.getX(i));
   });
   assert.ok(directions.includes(2) && directions.includes(3));
+  const face = layer.voxels.group.children.find(object =>
+    (object as THREE.Mesh<THREE.InstancedBufferGeometry>).geometry.instanceCount > 0) as THREE.Mesh;
+  assert.ok(face.geometry.getAttribute('voxelOffset').array instanceof Uint16Array);
+  assert.ok(face.geometry.getAttribute('voxelSpan').array instanceof Uint16Array);
+  assert.equal(face.geometry.getAttribute('voxelOffset').getY(0), 64 * 8,
+    'packed coordinates retain exact eighth-metre units');
+  const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader };
+  (face.material as THREE.Material).onBeforeCompile(shader as THREE.WebGLProgramParametersWithUniforms,
+    {} as THREE.WebGLRenderer);
+  assert.deepEqual((shader.uniforms as any).uVoxelOrigin.value.toArray(), [8192,0,1024],
+    'the per-zone shader origin restores world coordinates before torus bending');
+  assert.match(shader.vertexShader, /uVoxelOrigin \+ voxelOffset \* \.125/);
   layer.setDetailChunkReady(512,64,true,true);
   assert.equal(layer.handoff.data[(64*1024+512)*2],255);
   layer.setDetailChunkReady(512,64,false,true);

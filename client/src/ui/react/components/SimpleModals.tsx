@@ -17,7 +17,7 @@ const DISTANT_LOD_CONTROLS: ReadonlyArray<{
   key: DistantSurfaceSettingKey; label: string; description: string; unit: string;
 }> = [
   { key: 'subdivisionSizePx2', label: 'Pixels^2 of Subdivision Size', unit: 'px^2',
-    description: 'Projected area before splitting a terrain cell. Slide right for finer detail; default 63 px^2.' },
+    description: 'Projected area before splitting a terrain cell. Slide right for finer detail; default 16 px^2.' },
   { key: 'renderDistanceChunks', label: 'Render Distance', unit: 'Chunks',
     description: 'Far LOD distance, separate from the near AOI. 2048 chunks = 32768 m; the finite torus is not repeated.' },
   { key: 'dataBudgetMiB', label: 'Terrain Detail Cache', unit: 'MiB',

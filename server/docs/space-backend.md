@@ -466,6 +466,9 @@ exact edited geometry independently of procedural mip selection.
   within the configured source-data budget (default 256 MiB). Legacy v3-v6 snapshots
   remain readable during server backfill. Their digest changes on v7 publication.
 - The renderer selects LOD per 64m brick using projected face area, with hysteresis.
+  The default target is 16 CSS px^2. Its four-million-face budget uses packed
+  zone-local uint16 positions/extents (15 attribute bytes per face); budget fitting
+  does not mutate selection history and recovers quality after pressure ends.
   Rotation only updates frustum culling. Instanced greedy quads are grouped into
   128m draw tiles and bent onto the torus with correctly transformed six-axis normals.
   Lighting and emissive material follow the detailed terrain shaders.

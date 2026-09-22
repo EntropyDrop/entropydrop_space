@@ -2,7 +2,7 @@ import { TerrainGenerator } from '@entropydrop/space-engine/worldgen/TerrainGene
 import { generateVoxelSurfaceZone, encodeVoxelLevels } from '@entropydrop/space-engine/worldgen/VoxelSurfaceGenerator.ts';
 import { getTerrainKernels } from '@entropydrop/space-engine/wasm/TerrainKernels.ts';
 
-self.onmessage = async ({ data: { seed, version, zones } }) => {
+self.onmessage = async ({ data: { seed, version, zones, repeatWorld } }) => {
   try {
     const generator = new TerrainGenerator(seed, version);
     const kernels = getTerrainKernels();
@@ -25,7 +25,22 @@ self.onmessage = async ({ data: { seed, version, zones } }) => {
         levels.push({ size, bytes, digest });
         if (size < 64) records = kernels.reduceSurfaceRecords(records, 512 / size);
       }
-      self.postMessage({ zoneX, zoneZ, levels }, { transfer: levels.map(level => level.bytes.buffer) });
+      if (repeatWorld) {
+        // One real district repeated over all 128 locations exposes global
+        // budgeting regressions without retaining 128 full generation buffers.
+        self.postMessage({ template: levels });
+        for (let x = 0; x < 32; x++) for (let z = 0; z < 4; z++) {
+          const entries = [];
+          for (const level of levels) {
+            const bytes = level.bytes.slice(), view = new DataView(bytes.buffer);
+            view.setUint16(8, x, true); view.setUint16(10, z, true);
+            const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+            entries.push({ size: level.size, byteLength: bytes.length,
+              digest: Array.from(hash, b => b.toString(16).padStart(2, '0')).join('') });
+          }
+          self.postMessage({ zoneX: x, zoneZ: z, levels: entries });
+        }
+      } else self.postMessage({ zoneX, zoneZ, levels }, { transfer: levels.map(level => level.bytes.buffer) });
     }
     self.postMessage({ complete: true });
   } catch (error) { self.postMessage({ error: String(error) }); }

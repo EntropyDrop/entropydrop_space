@@ -71,8 +71,8 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
     });
     if (gate) { gate.hidden = true; gate.style.display = 'none'; }
     game.start();
-    const surface = parameters.get('dev_lod') === '1'
-      ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world) : null;
+    const surface = ['1', 'world'].includes(parameters.get('dev_lod') ?? '')
+      ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world, parameters.get('dev_lod') === 'world') : null;
     installDiagnostics(game, baseline, surface);
   } catch (error) {
     if (status) status.textContent = `Offline development failed: ${String(error)}`;
@@ -81,7 +81,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
 }
 
 function installDiagnostics(game: OfflineGame, baseline: boolean,
-  surface: { generated: number; downloads: number; passes: number; fineZones: number; error: string; progress?: string } | null) {
+  surface: { generated: number; total: number; downloads: number; passes: number; fineZones: number; error: string; progress?: string } | null) {
   const panel = document.createElement('section');
   panel.id = 'dev-render-diagnostics';
   panel.style.cssText = 'position:fixed;top:60px;left:12px;z-index:10000;background:#101820ed;color:#fff;padding:12px;font:12px monospace;pointer-events:auto;max-width:420px';
@@ -118,7 +118,10 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
     const whip = document.createElement('button');
     whip.textContent = 'Turn 180 degrees';
     whip.onclick = () => { game.controller.yaw += Math.PI; };
-    panel.append(across, whip);
+    const skyline = document.createElement('button');
+    skyline.textContent = 'Distant skyline';
+    skyline.onclick = () => { game.controller.pitch = .1; game.controller.yaw = Math.PI / 2; };
+    panel.append(across, whip, skyline);
   }
   document.body.append(panel);
   let last = performance.now(), updated = last;
@@ -146,7 +149,8 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
             : 'Local near terrain only; not a live-server FPS measurement.');
         if (surface) {
           const layer = game.world.distantSurface, build = layer.mesh.userData.lodBuildStats;
-          stats.textContent += `\nLOD fixture: ${surface.generated}/8 districts | 1m sources ${surface.fineZones} | passes ${surface.passes} | source reads ${surface.downloads}\nLOD publications ${build?.publications ?? 0} | cells ${layer.mesh.geometry.instanceCount} | subdivision ${layer.mesh.userData.lodEffectiveSubdivisionPx2 ?? 63}px^2\n${surface.error || surface.progress || 'Local far terrain enabled; not a live-server measurement.'}`;
+          const voxel = layer.voxels.group.userData.voxelLodStats;
+          stats.textContent += `\nLOD fixture: ${surface.generated}/${surface.total} districts${surface.total === 128 ? ' (repeated district stress test)' : ''} | 1m sources ${surface.fineZones} | passes ${surface.passes} | source reads ${surface.downloads}\nLOD publications ${build?.publications ?? 0} | faces ${voxel?.faces ?? layer.mesh.geometry.instanceCount} | subdivision ${(voxel?.effectiveAreaPx2 ?? layer.mesh.userData.lodEffectiveSubdivisionPx2 ?? 16).toFixed(2)}px^2\n${surface.error || surface.progress || 'Local far terrain enabled; not a live-server measurement.'}`;
         }
         updated = now;
       }

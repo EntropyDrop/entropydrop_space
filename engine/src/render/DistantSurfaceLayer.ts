@@ -44,7 +44,7 @@ export interface DistantSurfaceSettings {
 }
 export type DistantSurfaceSettingKey = keyof DistantSurfaceSettings;
 export const DEFAULT_DISTANT_SURFACE_SETTINGS: Readonly<DistantSurfaceSettings> = Object.freeze({
-  subdivisionSizePx2: 63, renderDistanceChunks: 2048, dataBudgetMiB: 256,
+  subdivisionSizePx2: 16, renderDistanceChunks: 2048, dataBudgetMiB: 256,
 });
 export const DISTANT_SURFACE_SETTING_LIMITS = Object.freeze({
   subdivisionSizePx2: Object.freeze({ min: 1, max: 256, step: 1 }),

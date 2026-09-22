@@ -13,6 +13,9 @@ type Zone = { snapshot: SurfaceZoneSnapshot; mips: Map<number, { faces: Uint8Arr
   signature: string; projection: number };
 const LINEAR = Uint8Array.from({ length: 256 }, (_, n) => Math.round(255 * (n / 255 <= .04045
   ? n / 255 / 12.92 : ((n / 255 + .055) / 1.055) ** 2.4)));
+// Packed attributes use 15 bytes per face (60 MiB at the limit), before
+// reusable transition slots and GPU copies. Keep all directions resident.
+export const MAX_VOXEL_LOD_FACES = 4 * 1024 * 1024;
 
 function geometry() {
   const result = new THREE.InstancedBufferGeometry();
@@ -21,17 +24,19 @@ function geometry() {
   result.setIndex([0,1,2,0,2,3]); result.instanceCount = 0;
   return result;
 }
-function material(mask: THREE.DataTexture, coverage: THREE.Vector2) {
+function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THREE.Vector3) {
   const result = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .65, metalness: .15 });
   result.onBeforeCompile = shader => {
     shader.uniforms.uVoxelHandoff = { value: mask };
     shader.uniforms.uVoxelTransition = { value: coverage };
+    shader.uniforms.uVoxelOrigin = { value: origin };
     shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>
       #define TORUS_VOXEL_POSITION
       attribute vec3 voxelOffset;
       attribute vec2 voxelSpan;
       attribute float voxelDirection;
       attribute float voxelEmission;
+      uniform vec3 uVoxelOrigin;
       varying vec2 vVoxelFlat;
       varying float vVoxelEmission;
       vec3 voxelNormal() {
@@ -40,8 +45,8 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2) {
       }
       vec3 voxelPosition(vec2 uv) {
         if (mod(voxelDirection, 2.0) < .5) uv.x = 1.0 - uv.x;
-        vec2 p = uv * voxelSpan;
-        return voxelOffset + (voxelDirection < 2.0 ? vec3(0,p.x,p.y)
+        vec2 p = uv * voxelSpan * .125;
+        return uVoxelOrigin + voxelOffset * .125 + (voxelDirection < 2.0 ? vec3(0,p.x,p.y)
           : voxelDirection < 4.0 ? vec3(p.y,0,p.x) : vec3(p.x,p.y,0));
       }`).replace('#include <begin_vertex>', `vec3 transformed = voxelPosition(position.xy);
         vVoxelFlat = transformed.xz - voxelNormal().xz * .01;
@@ -61,7 +66,7 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2) {
         #include <color_fragment>`)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vVoxelEmission * vColor.rgb * 3.0;');
   };
-  result.customProgramCacheKey = () => 'volumetric-terrain-v1';
+  result.customProgramCacheKey = () => 'volumetric-terrain-packed-v2';
   return result;
 }
 
@@ -72,10 +77,11 @@ export class DistantVoxelLayer {
   private readonly zones = new Map<string, Zone>();
   private readonly camera = new THREE.Vector3();
   private focal = 720;
-  private area = 63;
+  private area = 16;
   private areaScale = 1;
   private distance = 32768;
   private hasView = false;
+  private budgetDirty = false;
   private readonly mask: THREE.DataTexture;
   constructor(mask: THREE.DataTexture) { this.mask = mask; this.group.name = 'DistantVoxelTerrain'; }
   hasZone(x: number, z: number) { return this.zones.has(`${x},${z}`); }
@@ -103,21 +109,40 @@ export class DistantVoxelLayer {
     this.fitBudget();
     for (const current of this.zones.values()) this.select(current, current === zone);
   }
-  private make = (_side: boolean, coverage: THREE.Vector2): FaceMesh => {
-    const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage));
+  private make = (coverage: THREE.Vector2, origin: THREE.Vector3): FaceMesh => {
+    const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage, origin));
     mesh.frustumCulled = false;
     hookSceneMaterials(mesh);
     return mesh;
   };
   private fitBudget() {
-    // Apply one global quality scale instead of dropping distant bricks when
-    // zooming in or receiving finer sources. Every occupied brick stays covered.
-    for (let attempt = 0; attempt < 16; attempt++) {
+    this.budgetDirty = false;
+    // Search from the requested quality on every source change. Estimation
+    // must not mutate hysteresis history, or repeated probes coarsen twice.
+    const measure = () => {
       let faces = 0;
       for (const zone of this.zones.values()) faces += this.select(zone, false, true) ?? 0;
-      if (faces <= 1024 * 1024) break;
+      return faces;
+    };
+    this.areaScale = 1;
+    let faces = measure(), lower = 1;
+    while (faces > MAX_VOXEL_LOD_FACES && this.areaScale < 65536) {
+      lower = this.areaScale;
       this.areaScale *= 2;
+      faces = measure();
     }
+    if (this.areaScale > 1) {
+      let upper = this.areaScale;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        this.areaScale = (lower + upper) / 2;
+        if (measure() > MAX_VOXEL_LOD_FACES) lower = this.areaScale;
+        else upper = this.areaScale;
+      }
+      this.areaScale = upper;
+      faces = measure();
+    }
+    this.group.userData.voxelLodStats = { faces, budget: MAX_VOXEL_LOD_FACES,
+      requestedAreaPx2: this.area, effectiveAreaPx2: this.area * this.areaScale };
   }
   private select(zone: Zone, force = false, estimateOnly = false) {
     const sizes = [...zone.mips.keys()].sort((a,b) => b-a), selected = new Map<number, number>();
@@ -129,12 +154,12 @@ export class DistantVoxelLayer {
         minZ: zone.snapshot.zoneZ * 512 + brick.z * 64, maxZ: zone.snapshot.zoneZ * 512 + (brick.z + 1) * 64 }, brick.bounds);
       const distance = Math.max(1, this.camera.distanceTo(brick.bounds.center) - brick.bounds.radius);
       let size = 64;
-      if (this.hasView) for (const candidate of sizes) {
+      if (this.hasView && distance <= this.distance) for (const candidate of sizes) {
         size = candidate;
         const area = surfaceSubdivisionWorldArea(size, brick.y * 64 + size, brick.y * 64);
         if (area * (this.focal / distance) ** 2 <= this.area * this.areaScale * (size > brick.size ? SURFACE_AREA_HYSTERESIS : 1)) break;
       }
-      brick.size = size; selected.set(id, size);
+      selected.set(id, size);
     }
     zone.projection = projection;
     if (estimateOnly) {
@@ -145,6 +170,7 @@ export class DistantVoxelLayer {
       }
       return count;
     }
+    for (const [id, size] of selected) zone.bricks.get(id)!.size = size;
     const signature = `${projection}/` + [...selected].map(([id,size]) => `${id}:${size}`).join('/');
     if (!force && signature === zone.signature) return;
     zone.signature = signature;
@@ -162,17 +188,17 @@ export class DistantVoxelLayer {
       if (!force && zone.tileSignatures.get(tile) === tileSignature) continue;
       zone.tileSignatures.set(tile, tileSignature);
       if (!count && !zone.batches.has(tile)) continue;
-      const offset = new Float32Array(count * 3), span = new Float32Array(count * 2);
+      const offset = new Uint16Array(count * 3), span = new Uint16Array(count * 2);
       const colors = new Uint8Array(count * 3), directions = new Uint8Array(count), emission = new Uint8Array(count);
       let index = 0;
       for (const range of ranges) {
         const view = new DataView(range.faces.buffer, range.faces.byteOffset, range.faces.byteLength);
         for (let at = range.start; at < range.end; at += 16) {
-          offset[index * 3] = view.getUint16(at,true) / 8 + zone.snapshot.zoneX * 512;
-          offset[index * 3 + 1] = view.getUint16(at + 2,true) / 8;
-          offset[index * 3 + 2] = view.getUint16(at + 4,true) / 8 + zone.snapshot.zoneZ * 512;
-          span[index * 2] = view.getUint16(at + 6,true) / 8;
-          span[index * 2 + 1] = view.getUint16(at + 8,true) / 8;
+          offset[index * 3] = view.getUint16(at,true);
+          offset[index * 3 + 1] = view.getUint16(at + 2,true);
+          offset[index * 3 + 2] = view.getUint16(at + 4,true);
+          span[index * 2] = view.getUint16(at + 6,true);
+          span[index * 2 + 1] = view.getUint16(at + 8,true);
           directions[index] = range.faces[at + 10]; emission[index] = range.faces[at + 11];
           colors[index * 3] = LINEAR[range.faces[at+12]];
           colors[index * 3 + 1] = LINEAR[range.faces[at+13]];
@@ -189,14 +215,20 @@ export class DistantVoxelLayer {
       let batch = zone.batches.get(tile);
       const bounds = computeBentBoundsSphere({ minX: zone.snapshot.zoneX * 512 + tx * 128, maxX: zone.snapshot.zoneX * 512 + (tx + 1) * 128,
         minY: 0, maxY: 256, minZ: zone.snapshot.zoneZ * 512 + tz * 128, maxZ: zone.snapshot.zoneZ * 512 + (tz + 1) * 128 });
-      if (!batch) { batch = new SurfaceBatch(this.group, `voxel:${zone.snapshot.zoneX},${zone.snapshot.zoneZ}:${tile}`, bounds, this.make); zone.batches.set(tile, batch); }
+      if (!batch) {
+        const origin = new THREE.Vector3(zone.snapshot.zoneX * 512, 0, zone.snapshot.zoneZ * 512);
+        batch = new SurfaceBatch(this.group, `voxel:${zone.snapshot.zoneX},${zone.snapshot.zoneZ}:${tile}`, bounds,
+          (_side, coverage) => this.make(coverage, origin));
+        zone.batches.set(tile, batch);
+      }
       batch.bounds.copy(bounds);
       batch.submit(source, 0, count, source, 0, 0, this.hasView);
       source.geometry.dispose(); source.material.dispose();
     }
   }
   updateView(frustum: THREE.Frustum, camera: THREE.Vector3, focal: number, area: number, distance: number) {
-    const changed = !this.hasView || this.camera.distanceTo(camera) >= 8 || Math.abs(focal / this.focal - 1) > .05 || area !== this.area;
+    const changed = !this.hasView || this.camera.distanceTo(camera) >= 8 || Math.abs(focal / this.focal - 1) > .05
+      || area !== this.area || distance !== this.distance || this.budgetDirty;
     this.hasView = true; this.distance = distance;
     if (changed) { this.camera.copy(camera); this.focal = focal; this.area = area; }
     if (changed) { this.areaScale = 1; this.fitBudget(); }
@@ -213,5 +245,6 @@ export class DistantVoxelLayer {
     if (!zone) return;
     for (const batch of zone.batches.values()) batch.dispose();
     this.zones.delete(key);
+    this.budgetDirty = true;
   }
 }

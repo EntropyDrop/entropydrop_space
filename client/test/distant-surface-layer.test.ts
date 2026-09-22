@@ -85,9 +85,9 @@ test('pixel-area settings clamp safely and migrate legacy error/distance setting
     dataBudgetMiB: Infinity, lod32Distance: 3000, connectionDistance: 0 } as any),
   { subdivisionSizePx2: 1, renderDistanceChunks: 32, dataBudgetMiB: 256 });
   assert.deepEqual(normalizeDistantSurfaceSettings({ lod2Enabled: false } as any),
-    { subdivisionSizePx2: 63, renderDistanceChunks: 2048, dataBudgetMiB: 256 });
+    { subdivisionSizePx2: 16, renderDistanceChunks: 2048, dataBudgetMiB: 256 });
   assert.deepEqual(normalizeDistantSurfaceSettings({ screenErrorPx: 0.5, maxDistance: 8500, dataBudgetMiB: 1024 } as any),
-    { subdivisionSizePx2: 63, renderDistanceChunks: 2048, dataBudgetMiB: 1024 });
+    { subdivisionSizePx2: 16, renderDistanceChunks: 2048, dataBudgetMiB: 1024 });
   assert.equal(normalizeDistantSurfaceSettings({ subdivisionSizePx2: 63 }).subdivisionSizePx2, 63);
 });
 
@@ -716,7 +716,7 @@ test('unknown fine source errors refine only to the projected area budget', asyn
     const zone = parseSurfaceZoneSnapshot(makeCoarseBytes(0, 2));
     zone.minHeightsMicro = new Uint16Array(64).fill(0);
     layer.installZone(zone);
-    assert.equal(layer.getZoneDemand(0, 2).sampleSize, 8, 'do not download 1m columns for subpixel footprints');
+    assert.equal(layer.getZoneDemand(0, 2).sampleSize, 4, 'the finer default still avoids 1m downloads for subpixel footprints');
     layer.setSettings({ subdivisionSizePx2: 1 });
     assert.equal(layer.getZoneDemand(0, 2).sampleSize, 1, 'the quality control still requests real 1m source detail');
     await layer.finalizeConnections();

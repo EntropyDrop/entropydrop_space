@@ -31,6 +31,13 @@ decoder, source-demand allocator, IndexedDB cache and renderer are exercised by
 a local fetch adapter. There are no account or server requests. This bounded
 fixture is not a whole-world performance benchmark.
 
+Use `dev_lod=world` for the complete 128-zone working set. It repeats one real
+Aether district at all world coordinates through the normal download allocator;
+it tests global geometry/cache pressure without generating or storing 128 copies
+of every source mip. The panel explicitly labels this repeated-district fixture.
+`npm run bench:voxel-lod` also checks whole-world quality, packed memory, zoom
+budgeting, recovery and rotation stability without a browser.
+
 Wait for `8/8 districts` and stable LOD publications, then rotate for at least 20 seconds.
 The pixel-area selector need not load every far district at 1m resolution.
 Source reads and LOD publications should remain fixed; draw counts may change.
@@ -42,14 +49,16 @@ Resident surface data defaults to 256 MiB (up to 1024 MiB). This is the raw sour
 budget, not total browser RAM: decoded mips, geometry, transitions and GPU copies
 use additional memory. Disk cache is capped at 2 GiB and 20% of browser quota,
 with a 512 MiB fallback when quota reporting is unavailable. The global geometry
-budget is 1,048,576 top cells. Under pressure one global pixel-area threshold
-is relaxed instead of giving all triangles to the first visible district.
+budget for v7 is 4,194,304 directed faces, at 15 packed attribute bytes per face.
+Under pressure the pixel-area threshold is fitted to the budget, with read-only
+estimation and a fresh fit on source replacement; power-of-two overshoot and
+stale budget pressure must not keep the entire world at an unnecessarily coarse LOD.
 Each 512m source zone is drawn in independently culled 128m tiles. Culling a
 tile never removes its CPU data or GPU buffers, including during a 180-degree turn.
 
 ## Voxy-inspired pixel-area selection
 
-Defaults: 63 CSS px^2 subdivision area, 2048 chunks far render distance
+Defaults: 16 CSS px^2 subdivision area, 2048 chunks far render distance
 (32768 m, covering the finite torus without repetition), and a 16-chunk maximum
 near/network AOI radius. Near Z stays capped at six chunks; network Z is 12 to
 include movement padding. Detailed online meshes are clipped to the last fully
@@ -64,8 +73,8 @@ does not trigger subdivision/recycling. Frustum culling affects drawing only.
 
 Reference: [Voxy screen-space traversal](https://github.com/MCRcortex/voxy/blob/534d58ec8b4aa412ef314b884295552c69d480a6/src/main/resources/assets/voxy/shaders/lod/hierarchical/screenspace.glsl).
 This adapts the screen-area concept, not Voxy's OpenGL 4.6 compute/Hi-Z pipeline.
-No Voxy source code is included. The current upstream default is 64 px^2; this
-fixture uses the requested 63 px^2 instead.
+No Voxy source code is included. Space uses a finer default to preserve its
+small floating islands and buildings across the full torus.
 
 This is a DH/Voxy-inspired residency/LOD pipeline, not a port of either mod.
 Procedural far terrain uses EDSZ v7 volumetric LOD: six-sided surface quads,
