@@ -2,6 +2,7 @@ import { CollisionBoxIndex, mergeCollisionCells, type CollisionBounds } from '..
 import * as THREE from 'three';
 import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
+import { MicroRenderBatches } from '../render/MicroRenderBatches.ts';
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
 import { VOXEL_EMISSIVE_INTENSITY, VoxelMaterialIds, normalizeVoxelMaterialId } from './VoxelMaterials.ts';
 import {
@@ -146,6 +147,15 @@ export class MicroVoxelLayer {
   private chunkRevisions = new Map<string, number>();
   private horizontalColumnPartitions = new Map<string, Set<string>>();
   renderMaterials: [THREE.MeshStandardMaterial, THREE.MeshBasicMaterial];
+  private renderBatches: MicroRenderBatches;
+
+  /** Published draw objects, distinct from the small edit/collision meshes. */
+  get renderMeshes() { return this.renderBatches.meshes; }
+
+  setRenderBatchingEnabled(enabled: boolean) {
+    this.renderBatches.setEnabled(enabled);
+    this.recentlyRebuiltMeshes.push(...this.renderBatches.flush());
+  }
 
   constructor() {
     this.cells = new Map();
@@ -184,6 +194,7 @@ export class MicroVoxelLayer {
         toneMapped: false,
       }),
     ];
+    this.renderBatches = new MicroRenderBatches(this.group, this.renderMaterials);
   }
 
   get(mx, my, mz) {
@@ -942,6 +953,9 @@ export class MicroVoxelLayer {
 
     this.dirty = this.dirtyMeshChunks.size > 0 || this.activeMeshBuild !== null;
     this.mesh = this.meshChunks.values().next().value || null;
+    for (const mesh of this.renderBatches.flush()) {
+      if (mesh.userData.microRenderBatch) this.recentlyRebuiltMeshes.push(mesh);
+    }
     return completed > 0;
   }
 
@@ -1371,11 +1385,11 @@ export class MicroVoxelLayer {
     const previous = this.meshChunks.get(job.chunkKey);
     if (mesh) {
       this.meshChunks.set(job.chunkKey, mesh);
-      this.group.add(mesh);
       this.recentlyRebuiltMeshes.push(mesh);
     } else {
       this.meshChunks.delete(job.chunkKey);
     }
+    this.renderBatches.replace(job.chunkKey, job.standardChunkKey, mesh);
     // Mesh publication and collision publication share the same synchronous
     // commit point, including empty -> filled and empty -> empty partitions.
     this.publishedCollisionSnapshots.delete(job.chunkKey);
@@ -1446,6 +1460,12 @@ export class MicroVoxelLayer {
       published++;
     }
     this.mesh = this.meshChunks.values().next().value || null;
+    for (const mesh of this.renderBatches.flush()) {
+      if (mesh.userData.microRenderBatch) {
+        prepareMesh(mesh);
+        this.recentlyRebuiltMeshes.push(mesh);
+      }
+    }
     return published;
   }
 

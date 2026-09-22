@@ -33,7 +33,9 @@ import {
 
 export { LatencyMonitor, type LatencyMonitorOptions };
 
-export const TERRAIN_STREAM_RADIUS_CHUNKS = 32;
+export const TERRAIN_STREAM_RADIUS_CHUNKS = 16;
+// Maximum six detailed Z chunks plus tile movement and hysteresis (5.5).
+export const TERRAIN_STREAM_RADIUS_Z_CHUNKS = 12;
 export const TERRAIN_STREAM_TILE_CHUNKS = 8;
 export const TERRAIN_STREAM_PAGE_SIZE = 64;
 export const TERRAIN_STREAM_HYSTERESIS_CHUNKS = 1.5;
@@ -48,6 +50,7 @@ export interface TerrainStreamArea {
   centerChunkX: number;
   centerChunkZ: number;
   radiusChunks: number;
+  radiusChunksZ?: number;
   key: string;
 }
 
@@ -323,14 +326,15 @@ export function resolveInitialPlayerPose(
 }
 
 /**
- * Coarsen player movement into overlapping terrain snapshot windows. A 32-chunk
- * radius covers the maximum 24-chunk render distance plus movement within one
- * eight-chunk tile, avoiding a snapshot request on every chunk boundary.
+ * Coarsen player movement into overlapping 16-chunk snapshot windows. Detailed
+ * rendering is clipped to the last synchronized window; its fringe stays LOD
+ * until the next snapshot arrives. Z covers six chunks plus movement padding.
  */
 export function terrainStreamAreaForPosition(
   xMeters: number,
   zMeters: number,
-  radiusChunks = TERRAIN_STREAM_RADIUS_CHUNKS
+  radiusChunks = TERRAIN_STREAM_RADIUS_CHUNKS,
+  radiusChunksZ = Math.min(radiusChunks, TERRAIN_STREAM_RADIUS_Z_CHUNKS)
 ): TerrainStreamArea {
   const chunkCountX = TORUS_SIZE_X / CHUNK_SIZE_X;
   const chunkCountZ = TORUS_SIZE_Z / CHUNK_SIZE_Z;
@@ -344,12 +348,16 @@ export function terrainStreamAreaForPosition(
   const centerChunkZ = (
     tileZ * TERRAIN_STREAM_TILE_CHUNKS + Math.floor(TERRAIN_STREAM_TILE_CHUNKS / 2)
   ) % chunkCountZ;
-  const normalizedRadius = Math.max(1, Math.floor(radiusChunks));
+  const normalizedRadius = Math.max(1, Math.min(TERRAIN_STREAM_RADIUS_CHUNKS,
+    Math.floor(Number(radiusChunks)) || TERRAIN_STREAM_RADIUS_CHUNKS));
+  const normalizedRadiusZ = Math.max(1, Math.min(normalizedRadius,
+    Math.floor(Number(radiusChunksZ)) || TERRAIN_STREAM_RADIUS_Z_CHUNKS));
   return {
     centerChunkX,
     centerChunkZ,
     radiusChunks: normalizedRadius,
-    key: `${centerChunkX},${centerChunkZ},${normalizedRadius}`,
+    radiusChunksZ: normalizedRadiusZ,
+    key: `${centerChunkX},${centerChunkZ},${normalizedRadius},${normalizedRadiusZ}`,
   };
 }
 
@@ -363,7 +371,7 @@ function wrappedChunkDelta(position: number, center: number, chunkCount: number)
 /**
  * Keep the current snapshot window while the player is close to a tile edge.
  * The overlap prevents tiny back-and-forth movements from repeatedly loading
- * two otherwise equivalent 65x65-chunk AOIs.
+ * two otherwise equivalent rectangular AOIs.
  */
 export function terrainStreamAreaForPositionWithHysteresis(
   xMeters: number,
@@ -374,9 +382,12 @@ export function terrainStreamAreaForPositionWithHysteresis(
   const nextArea = terrainStreamAreaForPosition(
     xMeters,
     zMeters,
-    currentArea.radiusChunks
+    currentArea.radiusChunks,
+    currentArea.radiusChunksZ ?? currentArea.radiusChunks
   );
   if (nextArea.key === currentArea.key) return currentArea;
+  if (currentArea.radiusChunks > TERRAIN_STREAM_RADIUS_CHUNKS
+    || (currentArea.radiusChunksZ ?? currentArea.radiusChunks) > TERRAIN_STREAM_RADIUS_CHUNKS) return nextArea;
 
   const chunkCountX = TORUS_SIZE_X / CHUNK_SIZE_X;
   const chunkCountZ = TORUS_SIZE_Z / CHUNK_SIZE_Z;
@@ -526,6 +537,7 @@ export async function loadTerrainEditRemote(
         url.searchParams.set('center_chunk_x', String(area.centerChunkX));
         url.searchParams.set('center_chunk_z', String(area.centerChunkZ));
         url.searchParams.set('radius_chunks', String(area.radiusChunks));
+        url.searchParams.set('radius_chunks_z', String(area.radiusChunksZ ?? area.radiusChunks));
       }
       if (cursor) url.searchParams.set('cursor', cursor);
       const response = await fetchImpl(url.toString(), {
@@ -576,13 +588,16 @@ export async function loadTerrainEditRemote(
     centerChunkX: number,
     centerChunkZ: number,
     radiusChunks: number,
-    onPage?: (chunks: TerrainEditChunk[]) => void
+    onPage?: (chunks: TerrainEditChunk[]) => void,
+    radiusChunksZ = Math.min(radiusChunks, TERRAIN_STREAM_RADIUS_Z_CHUNKS)
   ) => {
+    const radiusZ = Math.max(1, Math.min(Math.floor(radiusChunks), Math.floor(radiusChunksZ)));
     const area = {
       centerChunkX: Math.floor(centerChunkX),
       centerChunkZ: Math.floor(centerChunkZ),
       radiusChunks: Math.max(1, Math.floor(radiusChunks)),
-      key: `${Math.floor(centerChunkX)},${Math.floor(centerChunkZ)},${Math.max(1, Math.floor(radiusChunks))}`,
+      radiusChunksZ: radiusZ,
+      key: `${Math.floor(centerChunkX)},${Math.floor(centerChunkZ)},${Math.max(1, Math.floor(radiusChunks))},${radiusZ}`,
     };
     const existing = areaRequests.get(area.key);
     if (existing) return existing;
@@ -595,7 +610,8 @@ export async function loadTerrainEditRemote(
   };
 
   const chunks = initialArea
-    ? await loadArea(initialArea.centerChunkX, initialArea.centerChunkZ, initialArea.radiusChunks)
+    ? await loadArea(initialArea.centerChunkX, initialArea.centerChunkZ, initialArea.radiusChunks,
+      undefined, initialArea.radiusChunksZ ?? initialArea.radiusChunks)
     : await fetchPages();
 
   return {

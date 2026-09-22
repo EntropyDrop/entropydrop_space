@@ -34,7 +34,7 @@ export function surfaceNodeIndex(x: number, z: number, size: number) {
 export function prepareSurfaceSelection(mips: Map<number, SurfaceMip>, sampleSize: number,
   localX: number, localZ: number, worldX: number, worldZ: number, mask: Uint8Array,
   splits: Uint8Array, camera: { x: number; y: number; z: number },
-  maxDistance: number, screenError: number, pixelScale: number): SurfaceSelection {
+  maxDistance: number, subdivisionSizePx2: number, pixelScale: number): SurfaceSelection {
   const nodeCount = (4 * (64 / sampleSize) ** 2 - 1) / 3;
   const heights = new Uint16Array(nodeCount), minima = new Uint16Array(nodeCount), errors = new Float32Array(nodeCount);
   for (let size = 64; size >= sampleSize; size /= 2) {
@@ -55,5 +55,5 @@ export function prepareSurfaceSelection(mips: Map<number, SurfaceMip>, sampleSiz
   const work = new Int32Array(64);
   work.set([3, 0, 0, 64]);
   return { heights, minima, errors, trigX, trigZ, detail, splits, work,
-    parameters: new Float64Array([camera.x, camera.y, camera.z, maxDistance, screenError, pixelScale, sampleSize, 0, Infinity]) };
+    parameters: new Float64Array([camera.x, camera.y, camera.z, maxDistance, subdivisionSizePx2, pixelScale, sampleSize, 0, Infinity]) };
 }

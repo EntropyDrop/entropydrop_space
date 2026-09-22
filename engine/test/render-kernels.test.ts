@@ -118,6 +118,10 @@ async function surfaceScenario(mode: TerrainKernelMode) {
     await layer.finalizeConnections(); snapshots.push(surfaceSnapshot(layer));
     layer.setDetailChunkReady(0, 0, false); layer.removeZone(31, 3);
     await layer.finalizeConnections(); snapshots.push(surfaceSnapshot(layer));
+    for (const subdivisionSizePx2 of [1, 256, 63]) {
+      layer.setSettings({ subdivisionSizePx2 });
+      await layer.finalizeConnections(); snapshots.push(surfaceSnapshot(layer));
+    }
     return snapshots;
   } finally { layer.setEnabled(false); }
 }
@@ -133,7 +137,7 @@ test('WASM subdivision is bounded, respects capacity, and retains caller-owned s
   try {
     const kernel = getTerrainKernels()!, fixture = zone(1), lookup = Uint8Array.from({ length: 256 }, (_, i) => i);
     const mips = kernel.buildSurfaceMips(fixture, lookup), mask = new Uint8Array(1024 * 128).fill(255);
-    const root = prepareSurfaceSelection(mips, 1, 0, 0, 0, 0, mask, new Uint8Array(683), bendPoint(0, 80, 0), 8500, 2, 720);
+    const root = prepareSurfaceSelection(mips, 1, 0, 0, 0, 0, mask, new Uint8Array(683), bendPoint(0, 80, 0), 32768, 63, 720);
     let leaves = 0, calls = 0;
     while (root.work[0]) {
       const result = kernel.selectSurfaceBatch(root, 0);
@@ -143,7 +147,10 @@ test('WASM subdivision is bounded, respects capacity, and retains caller-owned s
     }
     assert.equal(leaves, 4096); assert.ok(calls > 16);
     root.work.set([3, 0, 0, 64]);
-    assert.deepEqual(kernel.selectSurfaceBatch(root, 491520), new Int32Array([0, 0, 64]));
+    assert.notDeepEqual(kernel.selectSurfaceBatch(root, 491520), new Int32Array([0, 0, 64]),
+      'the previous geometry ceiling must not silently disable high-detail refinement');
+    root.work.set([3, 0, 0, 64]);
+    assert.deepEqual(kernel.selectSurfaceBatch(root, 1015808), new Int32Array([0, 0, 64]));
   } finally { setTerrainKernelMode(previous); }
 });
 
@@ -160,6 +167,7 @@ test('WASM connection sessions are isolated across rebuilds and other terrain ca
     assert.throws(() => b.add(cell), /capacity/);
     assert.throws(() => b.edges(new Int32Array([0, 0, 0, 200])), /Invalid surface cell/);
     assert.throws(() => b.edges(new Int32Array([1, 0, 2, 200])), /Invalid surface cell/);
-    assert.equal(kernel.createSurfaceConnections(524289, mask), null);
+    assert.ok(kernel.createSurfaceConnections(1048576, mask), 'maximum LOD budget still fits the bounded WASM arena');
+    assert.equal(kernel.createSurfaceConnections(1048577, mask), null);
   } finally { setTerrainKernelMode(previous); }
 });

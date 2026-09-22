@@ -195,12 +195,27 @@ test('distant terrain pixel budgets apply immediately through settings state', (
   };
   const store = new SpaceUiStore();
   store.setWorld(world);
-  store.setDistantSurfaceSetting('screenErrorPx', 1, false);
-  store.setDistantSurfaceSetting('maxDistance', 8000, false);
+  store.setDistantSurfaceSetting('subdivisionSizePx2', 1, false);
+  store.setDistantSurfaceSetting('renderDistanceChunks', 2048, false);
   store.setDistantSurfaceSetting('dataBudgetMiB', 32, false);
 
   assert.equal(applied.length, 3);
-  assert.equal(store.getSnapshot().distantSurfaceSettings.screenErrorPx, 1);
-  assert.equal(store.getSnapshot().distantSurfaceSettings.maxDistance, 8000);
+  assert.equal(store.getSnapshot().distantSurfaceSettings.subdivisionSizePx2, 1);
+  assert.equal(store.getSnapshot().distantSurfaceSettings.renderDistanceChunks, 2048);
   assert.equal(store.getSnapshot().distantSurfaceSettings.dataBudgetMiB, 32);
+});
+
+test('persisted near render distances cannot bypass the 16-chunk AOI cap', t => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => key === 'space_setting_render_dist' ? '24' : null,
+  } });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete (globalThis as any).localStorage;
+  });
+  const applied: number[] = [], store = new SpaceUiStore();
+  store.setWorld({ renderDistance: 8, setRenderDistance: (value: number) => applied.push(value) });
+  assert.deepEqual(applied, [16]);
+  assert.equal(store.getSnapshot().renderDistance, 16);
 });

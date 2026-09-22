@@ -4,7 +4,7 @@ export function surfaceSelect(heights: usize, minima: usize, errors: usize,
   trigX: usize, trigZ: usize, detail: usize, splits: usize, work: usize,
   parameters: usize, output: usize): i32 {
   const cameraX = load<f64>(parameters), cameraY = load<f64>(parameters + 8), cameraZ = load<f64>(parameters + 16);
-  const maxDistance = load<f64>(parameters + 24), screenError = load<f64>(parameters + 32), pixelScale = load<f64>(parameters + 40);
+  const maxDistance = load<f64>(parameters + 24), areaPx2 = load<f64>(parameters + 32), pixelScale = load<f64>(parameters + 40);
   const sampleSize = load<f64>(parameters + 48);
   let visibleCount = load<f64>(parameters + 56), tolerance = load<f64>(parameters + 64);
   let length = load<i32>(work), written = 0;
@@ -32,7 +32,11 @@ export function surfaceSelect(heights: usize, minima: usize, errors: usize,
     const curvature = Math.max(1, rho + highY - 16) * (angle * angle) / 8 * 1.2;
     const error = f64(size) > sampleSize ? deltaY + curvature + f64(size) * f64(load<f32>(errors + source * 4)) * 0.25 : curvature;
     const splitByte = splits + (index >> 3), splitBit = 1 << (index & 7);
-    const threshold = screenError * ((load<u8>(splitByte) & splitBit) != 0 ? 0.65 : 1);
+    const threshold = areaPx2 * ((load<u8>(splitByte) & splitBit) != 0 ? 0.65 : 1);
+    // Keep this rotation-independent projected face-area bound in parity with
+    // SurfaceSubdivision.ts. Half-pixel residuals can stay merged.
+    const worldArea = f64(size) * (f64(size) + 2 * Math.max(0, deltaY)) * scale * scale;
+    const splitDistance = Math.min(Math.sqrt(worldArea / threshold), error / 0.5) * pixelScale;
     let boundary = false;
     for (let cx = x / 16; cx <= (x + size - 1) / 16 + 2; cx++) {
       for (let cz = z / 16; cz <= (z + size - 1) / 16 + 2; cz++) {
@@ -40,8 +44,9 @@ export function surfaceSelect(heights: usize, minima: usize, errors: usize,
         if (ownership == 255 || (size > 16 && ownership != 0)) boundary = true;
       }
     }
-    if (size > 1 && (error * pixelScale / distance > threshold || boundary) && visibleCount < 491520) {
-      if (!boundary) tolerance = Math.min(tolerance, Math.max(0, error * pixelScale / (screenError * 0.65) - distance));
+    if (size > 1 && (distance < splitDistance || boundary) && visibleCount < 1015808) {
+      if (!boundary) tolerance = Math.min(tolerance, Math.max(0,
+        Math.min(Math.sqrt(worldArea / (areaPx2 * 0.65)), error / 0.5) * pixelScale - distance));
       store<u8>(splitByte, load<u8>(splitByte) | splitBit);
       const half = size / 2;
       // Reverse push order preserves the existing X-first depth-first traversal.
@@ -51,7 +56,8 @@ export function surfaceSelect(heights: usize, minima: usize, errors: usize,
         store<i32>(work + ++length * 4, half);
       }
     } else {
-      if (size > 1) tolerance = Math.min(tolerance, Math.max(0, distance - error * pixelScale / screenError));
+      if (size > 1) tolerance = Math.min(tolerance, Math.max(0,
+        distance - Math.min(Math.sqrt(worldArea / areaPx2), error / 0.5) * pixelScale));
       store<u8>(splitByte, load<u8>(splitByte) & ~splitBit);
       store<i32>(output + written * 12, x); store<i32>(output + written * 12 + 4, z); store<i32>(output + written * 12 + 8, size);
       written++;

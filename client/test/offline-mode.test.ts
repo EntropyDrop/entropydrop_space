@@ -56,15 +56,17 @@ test('Space welcome surfaces do NOT expose offline mode entries', () => {
   assert.doesNotMatch(appHtml, /\?mode=offline/);
 });
 
-test('main.ts runs exclusively in online mode with remote persistence and backpack persistence', () => {
+test('production runs online with remote persistence; only the guarded developer fixture is ephemeral', () => {
   const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
 
   // Must not branch on offline mode
   assert.doesNotMatch(mainSource, /session\.mode === 'offline'/);
 
-  // Storage and remote persistence are always enabled
+  // Production keeps remote persistence; the dev fixture receives a separate
+  // in-memory store and cannot use the account or multiplayer adapters.
   assert.match(mainSource, /storage:\s*persistentStorage/);
-  assert.match(mainSource, /this\.contraptionManager\.setEntityPersistenceMode\(\s*'remote'\s*\)/);
+  assert.match(mainSource, /const offline = import\.meta\.env\.DEV && developmentOffline/);
+  assert.match(mainSource, /this\.contraptionManager\.setEntityPersistenceMode\(offline \? 'none' : 'remote'\)/);
   assert.doesNotMatch(mainSource, /this\.contraptionManager\.loadEntitiesFromStorage\(\)/);
 
   // Backpack retains persistentStorage

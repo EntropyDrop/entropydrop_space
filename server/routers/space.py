@@ -160,6 +160,7 @@ class SpaceHeartbeatRequest(BaseModel):
         ge=1,
         le=MAX_TERRAIN_AOI_RADIUS_CHUNKS,
     )
+    terrain_radius_chunks_z: int | None = Field(default=None, ge=1, le=MAX_TERRAIN_AOI_RADIUS_CHUNKS)
 
 
 def _empty_chunk_overlay() -> dict:
@@ -337,14 +338,18 @@ def _chunk_aoi_filters(
     center_chunk_x: int | None,
     center_chunk_z: int | None,
     radius_chunks: int | None,
+    radius_chunks_z: int | None = None,
 ) -> list:
     values = (center_chunk_x, center_chunk_z, radius_chunks)
-    if all(value is None for value in values):
+    if all(value is None for value in values) and radius_chunks_z is None:
         return []
     if any(value is None for value in values):
         raise HTTPException(status_code=422, detail={"code": "INCOMPLETE_TERRAIN_AOI"})
     assert center_chunk_x is not None and center_chunk_z is not None and radius_chunks is not None
     if not (1 <= radius_chunks <= MAX_TERRAIN_AOI_RADIUS_CHUNKS):
+        raise HTTPException(status_code=422, detail={"code": "INVALID_TERRAIN_AOI_RADIUS"})
+    radius_z = radius_chunks if radius_chunks_z is None else radius_chunks_z
+    if not (1 <= radius_z <= MAX_TERRAIN_AOI_RADIUS_CHUNKS):
         raise HTTPException(status_code=422, detail={"code": "INVALID_TERRAIN_AOI_RADIUS"})
     filters = [
         _wrapped_chunk_axis_filter(
@@ -356,7 +361,7 @@ def _chunk_aoi_filters(
         _wrapped_chunk_axis_filter(
             models.SpaceChunkSnapshot.chunk_z,
             center_chunk_z,
-            radius_chunks,
+            radius_z,
             world.length_chunks,
         ),
     ]
@@ -982,6 +987,7 @@ def space_heartbeat(
         heartbeat_req.center_chunk_x,
         heartbeat_req.center_chunk_z,
         heartbeat_req.terrain_radius_chunks,
+        heartbeat_req.terrain_radius_chunks_z,
     )
     # Chunk revision is local to one chunk and therefore cannot be a world
     # cursor. Page complete event ids instead, so a first edit in a different
@@ -1111,6 +1117,7 @@ def list_terrain_edits(
     center_chunk_x: int | None = Query(default=None),
     center_chunk_z: int | None = Query(default=None),
     radius_chunks: int | None = Query(default=None, ge=1, le=MAX_TERRAIN_AOI_RADIUS_CHUNKS),
+    radius_chunks_z: int | None = Query(default=None, ge=1, le=MAX_TERRAIN_AOI_RADIUS_CHUNKS),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
@@ -1122,6 +1129,7 @@ def list_terrain_edits(
         center_chunk_x,
         center_chunk_z,
         radius_chunks,
+        radius_chunks_z,
     )
     query = db.query(models.SpaceChunkSnapshot).filter(
         models.SpaceChunkSnapshot.world_id == world.id,

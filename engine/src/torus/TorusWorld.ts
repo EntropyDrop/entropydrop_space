@@ -491,7 +491,7 @@ export function cullChunks(camera, world) {
   // Micro voxels use independent horizontal meshes and bypass Three's native
   // flat-space frustum test. Apply the same coarse culling here so a large
   // authored area does not render every micro mesh around the torus.
-  const microMeshes = world.microVoxels?.meshChunks;
+  const microMeshes = world.microVoxels?.renderMeshes ?? world.microVoxels?.meshChunks;
   if (!microMeshes) return;
   for (const [chunkKey, mesh] of microMeshes) {
     const standardChunkKey = mesh.userData?.standardChunkKey ?? chunkKey;

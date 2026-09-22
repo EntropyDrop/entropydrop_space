@@ -234,7 +234,7 @@ test('torus rendering starts with no synthetic far terrain and preserves near-fi
     'unvisited terrain must not be replaced with synthetic geometry');
 
   world.updateChunksAround(TORUS_SPAWN_X, TORUS_SPAWN_Z);
-  const expectedChunkCount = (2 * world.renderDistance + 1) ** 2;
+  const expectedChunkCount = (2 * world.renderDistance + 1) * (2 * world.renderDistanceZ + 1);
   assert.ok(world.chunks.size > 0 && world.chunks.size <= 6,
     'the first streaming frame should allocate only the nearest bounded chunk batch');
   assert.equal(world.activeChunkKeys.size, expectedChunkCount,

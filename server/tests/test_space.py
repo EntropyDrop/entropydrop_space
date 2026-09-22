@@ -992,6 +992,43 @@ def test_space_terrain_snapshot_aoi_wraps_at_world_edges(client, db):
     ]
 
 
+def test_rectangular_terrain_aoi_wraps_and_matches_heartbeat(client, db):
+    user = _user(db, "space-rect-aoi", "https://cdn.entropydrop.com/skins/aoi.png")
+    app.dependency_overrides[get_current_user] = lambda: user
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    coordinates = [(0, 0), (3, 0), (0, 3), (0, 127), (1023, 127), (0, 126)]
+    response = client.post(f"/space/api/v2/worlds/{world_id}/terrain-edits/batches", json={
+        "batch_id": str(uuid.uuid4()),
+        "mutations": [{"kind": "set_standard", "x": x * 16, "y": 80, "z": z * 16,
+                       "block": 1, "color": 123} for x, z in coordinates],
+    })
+    assert response.status_code == 200, response.text
+    params = {"center_chunk_x": 0, "center_chunk_z": 0, "radius_chunks": 3, "radius_chunks_z": 1, "limit": 1}
+    loaded = []
+    while True:
+        response = client.get(f"/space/api/v2/worlds/{world_id}/terrain-edits", params=params)
+        assert response.status_code == 200, response.text
+        page = response.json()
+        loaded.extend((chunk["chunk_x"], chunk["chunk_z"]) for chunk in page["chunks"])
+        if not page["next_cursor"]:
+            break
+        params["cursor"] = page["next_cursor"]
+    expected = [(0, 0), (0, 127), (3, 0), (1023, 127)]
+    assert loaded == expected
+    response = client.post(f"/space/api/v2/worlds/{world_id}/heartbeat", json={
+        "center_chunk_x": 0, "center_chunk_z": 0, "terrain_radius_chunks": 3,
+        "terrain_radius_chunks_z": 1, "include_players": False,
+    })
+    assert response.status_code == 200, response.text
+    assert sorted((chunk["chunk_x"], chunk["chunk_z"]) for chunk in response.json()["terrain_chunks"]) == expected
+    legacy = client.get(f"/space/api/v2/worlds/{world_id}/terrain-edits", params={
+        "center_chunk_x": 0, "center_chunk_z": 0, "radius_chunks": 3,
+    })
+    assert len(legacy.json()["chunks"]) == len(coordinates), 'old callers retain square AOIs'
+    incomplete = client.get(f"/space/api/v2/worlds/{world_id}/terrain-edits", params={"radius_chunks_z": 1})
+    assert incomplete.status_code == 422
+
+
 def test_space_chunk_snapshots_use_zstd_when_it_reduces_payload(client, db):
     user = _user(db, "space-zstd-001", "https://cdn.entropydrop.com/skins/zstd.png")
     app.dependency_overrides[get_current_user] = lambda: user

@@ -1,0 +1,74 @@
+# Local rendering fixture
+
+Open `/space/app/?world=copper-metropolis&dev_offline=1` on localhost while
+running Vite. There is deliberately no navigation link. `main.ts` imports the
+fixture only inside `import.meta.env.DEV`; production builds do not contain it.
+The fixture also rejects non-loopback hostnames.
+
+This is a deterministic local Copper world, not an authentication bypass. It
+has no token, HTTP account/world adapters, WebSocket, or persistent world store.
+Edits and inventory changes disappear on reload. Account-backed tools remain
+unavailable. Local bundled assets and terrain workers still load normally.
+
+The panel shows frame p50/p95, main-thread CPU p50/p95, Three render calls and
+triangles, and independent edit-partition/render-mesh counts. Graphics are fixed
+at medium lighting, 100% resolution and shadows enabled. Baseline reloads with
+the previous square detailed window and separate micro meshes; Optimized uses
+the rectangular window and bounded per-chunk render batches. Both retain WASM.
+Use Rotate camera to exercise visibility changes without editing the world.
+
+The fixture measures **near terrain only**; it does not fetch the server's far
+surface snapshots, remote players or entities. Its frame rates are not a claim
+about the full online world. Keep viewport size and browser visibility unchanged
+and wait for initial compilation/warm-up before comparing results.
+
+## Distant terrain regression
+
+Add `&dev_lod=1`, or use **Test distant terrain**. A local worker generates eight
+real Copper districts (four around spawn, four across the ring) with the exact
+server 1m column extractor and WASM mip reducer. The normal authenticated-byte
+decoder, source-demand allocator, IndexedDB cache and renderer are exercised by
+a local fetch adapter. There are no account or server requests. This bounded
+fixture is not a whole-world performance benchmark.
+
+Wait for `8/8 districts` and stable LOD publications, then rotate for at least 20 seconds.
+The pixel-area selector need not load every far district at 1m resolution.
+Source reads and LOD publications should remain fixed; draw counts may change.
+Reload: source reads should be zero when IndexedDB is available and warm.
+Immutable terrain snapshots may persist in the site's cache; edits and inventory
+are still ephemeral. Denied storage falls back to local generation normally.
+
+Resident surface data defaults to 256 MiB (up to 1024 MiB). This is the raw source
+budget, not total browser RAM: decoded mips, geometry, transitions and GPU copies
+use additional memory. Disk cache is capped at 2 GiB and 20% of browser quota,
+with a 512 MiB fallback when quota reporting is unavailable. The global geometry
+budget is 1,048,576 top cells. Under pressure one global pixel-area threshold
+is relaxed instead of giving all triangles to the first visible district.
+Each 512m source zone is drawn in independently culled 128m tiles. Culling a
+tile never removes its CPU data or GPU buffers, including during a 180-degree turn.
+
+## Voxy-inspired pixel-area selection
+
+Defaults: 63 CSS px^2 subdivision area, 2048 chunks far render distance
+(32768 m, covering the finite torus without repetition), and a 16-chunk maximum
+near/network AOI radius. Near Z stays capped at six chunks; network Z is 12 to
+include movement padding. Detailed online meshes are clipped to the last fully
+synchronized AOI, leaving its unsynchronized fringe in far LOD. Legacy pixel-error
+and metre-distance preferences migrate to the new defaults, preserving cache size.
+
+The JS and WASM selectors use the same torus-inflated projected box-face area
+bound, with 0.65 area hysteresis and a half-pixel residual guard for flat surfaces.
+Unlike view-dependent projected AABBs, this conservative estimate depends only
+on position and CSS viewport/FOV, so turning or adaptive rendering resolution
+does not trigger subdivision/recycling. Frustum culling affects drawing only.
+
+Reference: [Voxy screen-space traversal](https://github.com/MCRcortex/voxy/blob/534d58ec8b4aa412ef314b884295552c69d480a6/src/main/resources/assets/voxy/shaders/lod/hierarchical/screenspace.glsl).
+This adapts the screen-area concept, not Voxy's OpenGL 4.6 compute/Hi-Z pipeline.
+No Voxy source code is included. The current upstream default is 64 px^2; this
+fixture uses the requested 63 px^2 instead.
+
+This is a DH/Voxy-inspired residency/LOD pipeline, not a port of either mod.
+Procedural far terrain still uses 1m height/color columns: facade microvoxels and
+procedural overhangs are not reconstructed by that format. Authored structures
+retain their existing multi-height solid proxies. Full procedural vertical LOD
+would require a separate snapshot-format and meshing change.

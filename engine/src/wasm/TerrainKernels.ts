@@ -175,7 +175,7 @@ export class TerrainKernels {
 
   /** Own instance/arena: this table survives render yields and unrelated terrain calls. */
   createSurfaceConnections(cellCount: number, detail: Uint8Array): SurfaceConnectionKernel | null {
-    if (!Number.isInteger(cellCount) || cellCount < 0 || cellCount > 524288) return null;
+    if (!Number.isInteger(cellCount) || cellCount < 0 || cellCount > 1048576) return null;
     if (detail.length !== 1024 * 128) throw new RangeError('Invalid surface ownership mask');
     const session = new TerrainKernels(new WebAssembly.Instance(compiledModule).exports as KernelExports);
     let capacity = 2;

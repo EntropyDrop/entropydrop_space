@@ -242,6 +242,7 @@ export class MultiplayerSync {
         body.center_chunk_x = area.centerChunkX;
         body.center_chunk_z = area.centerChunkZ;
         body.terrain_radius_chunks = area.radiusChunks;
+        body.terrain_radius_chunks_z = area.radiusChunksZ;
       }
       if (this.terrainCursor) body.terrain_cursor = this.terrainCursor;
       if (includePlayers) {

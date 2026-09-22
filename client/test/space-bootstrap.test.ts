@@ -131,7 +131,8 @@ test('Space loads every terrain snapshot page and posts authenticated mutation b
   assert.match(requests[0].url, /limit=64/);
   assert.match(requests[0].url, /center_chunk_x=516/);
   assert.match(requests[0].url, /center_chunk_z=68/);
-  assert.match(requests[0].url, /radius_chunks=32/);
+  assert.match(requests[0].url, /radius_chunks=16/);
+  assert.match(requests[0].url, /radius_chunks_z=12/);
   assert.match(requests[1].url, /cursor=0%2C0/);
   assert.match(requests[3].url, /cursor=0%2C0/);
   assert.deepEqual(streamedPages, [[0], [2]]);
@@ -141,15 +142,37 @@ test('Space loads every terrain snapshot page and posts authenticated mutation b
   });
 });
 
-test('terrain AOI windows are tiled, wrapped, and overlap the maximum render distance', () => {
+test('terrain AOI windows are tiled, wrapped, and capped at 16 chunks', () => {
   assert.deepEqual(terrainStreamAreaForPosition(8192, 1024), {
     centerChunkX: 516,
     centerChunkZ: 68,
-    radiusChunks: 32,
-    key: '516,68,32',
+    radiusChunks: 16,
+    radiusChunksZ: 12,
+    key: '516,68,16,12',
   });
   assert.equal(terrainStreamAreaForPosition(-1, -1).centerChunkX, 1020);
   assert.equal(terrainStreamAreaForPosition(-1, -1).centerChunkZ, 124);
+  assert.equal(terrainStreamAreaForPosition(0, 0, 64, 64).radiusChunks, 16);
+  assert.equal(terrainStreamAreaForPosition(0, 0, 64, 64).radiusChunksZ, 16);
+  assert.equal(terrainStreamAreaForPosition(0, 0, NaN, NaN).radiusChunks, 16);
+  const legacyArea = { centerChunkX: 4, centerChunkZ: 4, radiusChunks: 32, radiusChunksZ: 12, key: '4,4,32,12' };
+  assert.equal(terrainStreamAreaForPositionWithHysteresis(64, 64, legacyArea).radiusChunks, 16,
+    'hysteresis cannot retain an oversized legacy AOI');
+});
+
+test('rectangular snapshot Z padding covers the maximum detailed window through hysteresis and seams', () => {
+  for (const center of [4, 68, 124]) {
+    const initial = terrainStreamAreaForPosition(64, center * 16);
+    for (const delta of [-5.49, -4, 0, 4, 5.49]) {
+      const z = (center + delta) * 16;
+      const area = terrainStreamAreaForPositionWithHysteresis(64, z, initial);
+      const playerChunk = Math.floor(((z / 16) % 128 + 128) % 128);
+      for (let dz = -6; dz <= 6; dz++) {
+        const distance = Math.abs(((playerChunk + dz - area.centerChunkZ + 192) % 128) - 64);
+        assert.ok(distance <= area.radiusChunksZ!, `${center}, ${delta}, ${dz}`);
+      }
+    }
+  }
 });
 
 test('terrain AOI hysteresis suppresses repeated loads around tile boundaries', () => {

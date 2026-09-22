@@ -1,4 +1,5 @@
 import { TerrainGenerator } from '@entropydrop/space-engine/worldgen/TerrainGenerator.ts';
+import { generateSurfaceZoneRecords } from '@entropydrop/space-engine/worldgen/SurfaceZoneGenerator.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { readFileSync } from 'node:fs';
 
@@ -15,38 +16,8 @@ function generateChunk(generator: TerrainGenerator, chunkX: number, chunkZ: numb
 }
 
 function writeZone(seed: number, version: number, zoneX: number, zoneZ: number) {
-  const axis = 512;
-  const recordBytes = 8;
-  const output = Buffer.allocUnsafe(axis * axis * recordBytes);
   const generator = new TerrainGenerator(seed, version);
-  for (let localChunkX = 0; localChunkX < 32; localChunkX++) {
-    for (let localChunkZ = 0; localChunkZ < 32; localChunkZ++) {
-      const chunk = generateChunk(
-        generator,
-        zoneX * 32 + localChunkX,
-        zoneZ * 32 + localChunkZ,
-      );
-      const occupied = chunk.getOccupiedYRange();
-      for (let localX = 0; localX < CHUNK_SIZE_X; localX++) {
-        for (let localZ = 0; localZ < CHUNK_SIZE_Z; localZ++) {
-          let y = occupied?.max ?? -1;
-          while (y >= 0 && chunk.blocks[Chunk.getIndex(localX, y, localZ)] === 0) y--;
-          const height = Math.max(0, y + 1) * 8;
-          const color = y >= 0 ? chunk.colors[Chunk.getIndex(localX, y, localZ)] : 0;
-          const x = localChunkX * CHUNK_SIZE_X + localX;
-          const z = localChunkZ * CHUNK_SIZE_Z + localZ;
-          const offset = (x * axis + z) * recordBytes;
-          output.writeUInt16LE(height, offset);
-          output.writeUInt16LE(height, offset + 2);
-          output[offset + 4] = (color >>> 16) & 255;
-          output[offset + 5] = (color >>> 8) & 255;
-          output[offset + 6] = color & 255;
-          output[offset + 7] = 0;
-        }
-      }
-    }
-  }
-  process.stdout.write(output);
+  process.stdout.write(generateSurfaceZoneRecords(generator, zoneX, zoneZ));
 }
 
 function writeChunk(generator: TerrainGenerator, chunkX: number, chunkZ: number) {

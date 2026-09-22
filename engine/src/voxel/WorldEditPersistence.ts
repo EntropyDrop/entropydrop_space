@@ -51,7 +51,8 @@ export interface WorldEditRemote {
     centerChunkX: number,
     centerChunkZ: number,
     radiusChunks: number,
-    onPage?: (chunks: TerrainEditChunk[]) => void
+    onPage?: (chunks: TerrainEditChunk[]) => void,
+    radiusChunksZ?: number
   ): Promise<TerrainEditChunk[]>;
   sendBatch(
     batchId: string,

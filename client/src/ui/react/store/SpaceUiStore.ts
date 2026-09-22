@@ -1707,7 +1707,7 @@ export class SpaceUiStore {
   }
 
   setRenderDistance(distance: number, persist = true): void {
-    const value = Math.max(4, Math.min(20, Number(distance) || 12));
+    const value = Math.max(4, Math.min(16, Math.round(Number(distance)) || 8));
     this.snapshot.world?.setRenderDistance?.(value);
     this.patch({ renderDistance: value });
     if (persist) try { localStorage.setItem('space_setting_render_dist', String(value)); } catch { }

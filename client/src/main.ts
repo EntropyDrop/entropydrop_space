@@ -88,8 +88,10 @@ class Game {
 
   constructor(
     session: ReadySpaceSession,
-    persistentStorage: SpaceStorage | null
+    persistentStorage: SpaceStorage | null,
+    developmentOffline = false,
   ) {
+    const offline = import.meta.env.DEV && developmentOffline;
     this.canvasContainer = document.getElementById('canvas-container');
 
     // 1. Core Engine Systems
@@ -150,7 +152,7 @@ class Game {
     );
     this.contraptionManager.setPhysics(this.contraptionPhysics);
     this.contraptionManager.setWorldId(session.world.id);
-    this.contraptionManager.setEntityPersistenceMode('remote');
+    this.contraptionManager.setEntityPersistenceMode(offline ? 'none' : 'remote');
 
     this.playerPhysics = new PlayerPhysics(this.world, this.contraptionManager);
     this.uiStore = spaceUiStore;
@@ -262,6 +264,7 @@ class Game {
     this.pendingPlayerPosition = null;
     this.playerPositionSaveInFlight = false;
     this.terrainArea = initialTerrainStreamArea(session.player);
+    if (!offline) this.world.setTerrainDataWindow(this.terrainArea);
     this.terrainAreaLoadedKey = this.terrainArea.key;
     this.terrainAreaCandidateKey = '';
     this.terrainAreaCandidateSince = 0;
@@ -281,7 +284,10 @@ class Game {
     if (!session.player.resumed || spawnAdjusted) this.queuePlayerPositionSave(true);
 
     // 5b. Multiplayer Synchronizer (Real-time player presence & terrain updates)
-    this.multiplayerSync = new MultiplayerSync({
+    this.multiplayerSync = null;
+    this.entitySync = null;
+    if (!offline) {
+      this.multiplayerSync = new MultiplayerSync({
         apiOrigin: session.api_origin,
         token: session.token,
         worldId: session.world.id,
@@ -329,6 +335,7 @@ class Game {
         refresh: () => this.entitySync!.pollHosting(),
       });
       this.entitySync.start();
+    }
 
     // The entry gate owns when gameplay starts. It waits for preloadTerrainAoi
     // to publish the complete initial detailed window first.
@@ -466,10 +473,12 @@ class Game {
       area.centerChunkX,
       area.centerChunkZ,
       area.radiusChunks,
-      chunks => this.world.queueRemoteChunkUpdates(chunks)
+      chunks => this.world.queueRemoteChunkUpdates(chunks),
+      area.radiusChunksZ
     )
       .then(() => {
         this.terrainAreaLoadedKey = area.key;
+        this.world.setTerrainDataWindow(area);
         this.terrainAreaRetryAt = 0;
       })
       .catch(error => {
@@ -628,6 +637,12 @@ class Game {
 // Start Game on page load
 window.addEventListener('DOMContentLoaded', () => {
   if (isMonitoringRoute()) return;
+  // This import and its entire dev-only module disappear from production builds.
+  if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('dev_offline') === '1') {
+    void import('./dev/OfflineEntry.ts').then(({ startOfflineSpace }) =>
+      startOfflineSpace((session, storage) => new Game(session, storage, true)));
+    return;
+  }
   void enterSpace(
     async (session, reportProgress) => {
       const persistentStorage = await createSpacePersistentStorage();

@@ -51,3 +51,12 @@ Surface generation and LOD use the engine's shared WASM kernels through Wasmtime
 Copper's TypeScript grammar uses the same kernels in the Node surface runtime.
 Install the pinned Python requirements when updating. No terrain/schema migration
 or snapshot invalidation is needed. See [kernel controls and benchmarks](../engine/wasm/README.md).
+
+Terrain edit AOIs can be rectangular: `GET /worlds/{id}/terrain-edits` accepts
+`radius_chunks_z` alongside the existing X radius `radius_chunks`; heartbeat
+accepts the matching `terrain_radius_chunks_z`. Omitting Z retains the original
+square window for older clients. Both axes wrap independently. The browser uses
+X/Z snapshot radii 16/12 and maximum detailed radii 16/6. Detailed meshes are
+clipped to the last synchronized AOI; its unsynchronized fringe stays in far
+LOD while the next tiled snapshot loads. Nearby terrain defaults to radii 8/4; far
+surface snapshots still cover the world, including when flying above the tube.

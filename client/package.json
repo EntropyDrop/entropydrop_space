@@ -13,7 +13,7 @@
     "check:protobuf": "npm --prefix ../engine run check:protobuf",
     "docs:generate": "npm --prefix ../engine run docs:generate",
     "docs:check": "npm --prefix ../engine run docs:check",
-    "build": "vite build",
+    "build": "vite build && node tools/check-no-dev-entry.mjs",
     "typecheck": "tsc --noEmit",
     "check:docs": "node tools/check-doc-links.mjs",
     "check:english": "node ../tools/check-english-only.mjs",

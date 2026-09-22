@@ -1,4 +1,5 @@
 import type { SurfaceZoneSnapshot, DistantChunkSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
+import { createSurfaceDiskCache, type SurfaceByteCache } from './SurfaceDiskCache.ts';
 export type { SurfaceZoneSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 
 import {
@@ -250,14 +251,16 @@ export function createSpaceSurfaceSnapshotRemote(
   expectedSeed: number,
   expectedGeneratorVersion: number,
   fetchImpl: typeof fetch = fetch,
+  byteCache: SurfaceByteCache = createSurfaceDiskCache(),
 ): SpaceSurfaceSnapshotRemote {
   const installed = new Map<string, { sourceDigest: string; sampleSize: number; revision: number }>();
-  // Only retain the tiny global overview here. Fine data belongs to the renderer
-  // and is replaced only when the current demand needs its cache budget.
+  // Fine decoded data belongs to the renderer; downloaded immutable snapshots
+  // survive eviction in the optional disk cache without a second JS lattice.
   const overviews = new Map<string, { digest: string; zone: SurfaceZoneSnapshot }>();
   let cachedManifest: SurfaceZoneManifest | null = null;
   let manifestFetchedAt = 0;
   let inFlight: Promise<{ loaded: number; complete: boolean }> | null = null;
+  let installationQueue = Promise.resolve();
   const run: SpaceSurfaceSnapshotRemote['loadAll'] = async (onZone, onZoneRemoved, options) => {
     const safeManifestUrl = resolveSurfaceApiUrl(manifestUrl, apiOrigin);
     let loaded = 0;
@@ -293,32 +296,22 @@ export function createSpaceSurfaceSnapshotRemote(
           // every second when walking along their equal-distance boundary.
           const priority = demand.priority - (previous && previous.sampleSize < 64
             ? Math.min(128, Math.max(0, demand.priority) * 0.1) : 0);
-          return { entry, demand, available, previous, priority, index: 0 };
+          // Downloaded detail is a residency high-water mark. Measuring a
+          // smaller error after refinement must not downgrade that source and
+          // immediately rediscover the coarse error on the following poll.
+          const sampleSize = Math.min(demand.sampleSize, previous?.sampleSize ?? 64);
+          return { entry, sampleSize, available, priority, index: 0 };
         }).sort((a, b) => a.priority - b.priority);
         let refinementBytes = 0;
         // Refine in waves, so a full-detail nearby zone cannot consume the
         // cache before the rest of the visible terrain gets even its 32m mip.
         for (let round = 0; round < 6; round++) for (const candidate of candidates) {
-          const { entry, demand, available, index } = candidate;
+          const { entry, sampleSize, available, index } = candidate;
           const current = available[index], next = available[index + 1];
-          if (!next || current.sample_size <= demand.sampleSize) continue;
+          if (!next || current.sample_size <= sampleSize) continue;
           const cost = next.byte_length - current.byte_length;
           if (options && available[0].sample_size === 64 && refinementBytes + cost
             > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) continue;
-          refinementBytes += cost;
-          candidate.index++;
-          targets.set(`${entry.zone_x},${entry.zone_z}`, next);
-        }
-        // Spend remaining budget on already installed detail. Looking away
-        // alone is not an eviction: a quick turn back reuses the same source.
-        // Current visible demand above always wins when the budget is full.
-        if (options) for (let round = 0; round < 6; round++) for (const candidate of candidates) {
-          const { entry, available, index, previous } = candidate;
-          if (!previous || previous.sourceDigest !== entry.digest) continue;
-          const current = available[index], next = available[index + 1];
-          if (!next || current.sample_size <= previous.sampleSize) continue;
-          const cost = next.byte_length - current.byte_length;
-          if (refinementBytes + cost > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) continue;
           refinementBytes += cost;
           candidate.index++;
           targets.set(`${entry.zone_x},${entry.zone_z}`, next);
@@ -329,19 +322,27 @@ export function createSpaceSurfaceSnapshotRemote(
         const cached = overviews.get(key);
         const url = resolveSurfaceApiUrl(level.url, apiOrigin);
         if (level.sample_size === 64 && cached?.digest === level.digest) return cached.zone;
-        const zoneResponse = await fetchImpl(url.toString(), {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/vnd.entropydrop.surface-zone',
-          },
-          cache: 'force-cache',
-        });
-        if (!zoneResponse.ok) {
-          throw new Error(`Space surface zone failed with HTTP ${zoneResponse.status}.`);
+        let bytes = await byteCache.get(level.digest).catch(() => undefined);
+        if (bytes && (bytes.byteLength !== level.byte_length || await sha256Hex(bytes) !== level.digest)) {
+          await byteCache.remove(level.digest).catch(() => {});
+          bytes = undefined;
         }
-        const bytes = await readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES);
-        if (bytes.byteLength !== level.byte_length || await sha256Hex(bytes) !== level.digest) {
-          throw new Error('Space surface-zone snapshot checksum mismatch.');
+        const downloaded = !bytes;
+        if (!bytes) {
+          const zoneResponse = await fetchImpl(url.toString(), {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.entropydrop.surface-zone',
+            },
+            cache: 'force-cache',
+          });
+          if (!zoneResponse.ok) {
+            throw new Error(`Space surface zone failed with HTTP ${zoneResponse.status}.`);
+          }
+          bytes = await readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES);
+          if (bytes.byteLength !== level.byte_length || await sha256Hex(bytes) !== level.digest) {
+            throw new Error('Space surface-zone snapshot checksum mismatch.');
+          }
         }
         const zone = parseSurfaceZoneSnapshot(bytes);
         if (
@@ -354,6 +355,9 @@ export function createSpaceSurfaceSnapshotRemote(
         ) {
           throw new Error('Space surface-zone snapshot identity mismatch.');
         }
+        // Do not keep a duplicate decoded fine lattice in JS memory. The GPU
+        // working set can shrink independently without losing downloaded data.
+        if (downloaded) await byteCache.put(level.digest, bytes).catch(() => {});
         if (level.sample_size === 64) overviews.set(key, { digest: level.digest, zone });
         return zone;
       };
@@ -363,9 +367,22 @@ export function createSpaceSurfaceSnapshotRemote(
         if (current && (current.revision > entry.revision
           || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) return;
         const zone = await download(entry, level);
-        onZone(zone);
-        installed.set(key, { sourceDigest: entry.digest, sampleSize: level.sample_size, revision: entry.revision });
-        loaded++;
+        const publication = installationQueue.then(async () => {
+          // Network concurrency must not turn six fine mip builds into one
+          // long render-frame task. Keep downloads parallel, install one fine
+          // source per frame; hidden tabs continue warming via a timer.
+          if (level.sample_size <= 2 && typeof requestAnimationFrame === 'function') {
+            await new Promise<void>(resolve => {
+              if (typeof document !== 'undefined' && document.visibilityState === 'hidden') setTimeout(resolve, 16);
+              else requestAnimationFrame(() => resolve());
+            });
+          }
+          await onZone(zone);
+          installed.set(key, { sourceDigest: entry.digest, sampleSize: level.sample_size, revision: entry.revision });
+          loaded++;
+        });
+        installationQueue = publication.catch(() => {});
+        await publication;
       };
       const pass = async (overview: boolean) => {
         let cursor = 0;

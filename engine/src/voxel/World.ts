@@ -49,6 +49,14 @@ const INTERACTIVE_MICRO_WORK_BUDGET_MS = 1.25;
 const MAX_CHUNK_EVICTIONS_PER_FRAME = 8;
 const MAX_RECYCLED_PROCEDURAL_CHUNKS = 64;
 export const DEFAULT_RENDER_DISTANCE = 8;
+export const MAX_RENDER_DISTANCE = 16;
+export const MAX_RENDER_DISTANCE_Z = 6;
+
+/** The tube bends out of view much sooner than the major ring. Keep far LOD
+ * coverage, but generate fewer expensive detailed chunks across the tube. */
+export function terrainRenderDistanceZ(radiusX: number) {
+  return Math.min(radiusX, MAX_RENDER_DISTANCE_Z, Math.max(3, Math.ceil(radiusX / 2)));
+}
 
 // Matches LowPolyMesher and MicroVoxelLayer exactly: each rendered quad is
 // triangulated as 0-1-2 and 0-2-3 before the GPU applies the torus bend.
@@ -185,6 +193,11 @@ export class World {
   private proceduralMicroTombstones: Set<string>;
   mesher: LowPolyMesher;
   renderDistance: number;
+  private renderDistanceZOverride: number | null = null;
+
+  get renderDistanceZ() {
+    return this.renderDistanceZOverride ?? terrainRenderDistanceZ(this.renderDistance);
+  }
   worldGroup: THREE.Group;
   distantSurface: DistantSurfaceLayer;
   microVoxels: MicroVoxelLayer;
@@ -218,6 +231,14 @@ export class World {
   private rayFlatPoint: THREE.Vector3;
   /** Bumped on any block/micro-voxel mutation — lets caches (e.g. minimap) know terrain changed. */
   terrainVersion: number;
+  private terrainDataWindow: { centerChunkX: number; centerChunkZ: number; radiusChunks: number; radiusChunksZ: number } | null = null;
+
+  /** Online detail must not replace far LOD outside the authoritative snapshot
+   * window. This allows a 16-chunk AOI without a second 6-chunk padding ring. */
+  setTerrainDataWindow(area: { centerChunkX: number; centerChunkZ: number; radiusChunks: number; radiusChunksZ?: number } | null) {
+    this.terrainDataWindow = area ? { ...area, radiusChunksZ: area.radiusChunksZ ?? area.radiusChunks } : null;
+    this.lastStreamCenterKey = '';
+  }
 
   constructor(
     scene,
@@ -1394,6 +1415,7 @@ export class World {
     const centerCx = Math.floor(wrapX(playerX) / CHUNK_SIZE_X);
     const centerCz = Math.floor(wrapZ(playerZ) / CHUNK_SIZE_Z);
     const r = this.renderDistance;
+    const rz = this.renderDistanceZ;
     this.distantSurface.setNearField(centerCx, centerCz, r);
 
     // Recompute the streaming window only after crossing a chunk boundary. The
@@ -1405,9 +1427,15 @@ export class World {
       const nextActive = new Set<string>();
       const pending: { cx: number; cz: number; distanceSq: number }[] = [];
       for (let dx = -r; dx <= r; dx++) {
-        for (let dz = -r; dz <= r; dz++) {
+        for (let dz = -rz; dz <= rz; dz++) {
           const cx = wrapChunkX(centerCx + dx);
           const cz = wrapChunkZ(centerCz + dz);
+          const area = this.terrainDataWindow;
+          if (area) {
+            const deltaX = Math.abs(cx - area.centerChunkX), deltaZ = Math.abs(cz - area.centerChunkZ);
+            if (Math.min(deltaX, TORUS_SIZE_X / CHUNK_SIZE_X - deltaX) > area.radiusChunks
+              || Math.min(deltaZ, TORUS_SIZE_Z / CHUNK_SIZE_Z - deltaZ) > area.radiusChunksZ) continue;
+          }
           const key = World.getChunkKey(cx, cz);
           nextActive.add(key);
           this.pendingChunkEvictions.delete(key);
@@ -2126,8 +2154,10 @@ export class World {
     globalThis.setTimeout(() => run(1), 0);
   }
 
-  setRenderDistance(distance) {
-    this.renderDistance = Math.max(3, Math.min(24, Math.round(Number(distance)) || DEFAULT_RENDER_DISTANCE));
+  setRenderDistance(distance, radiusZ?: number) {
+    this.renderDistance = Math.max(3, Math.min(MAX_RENDER_DISTANCE, Math.round(Number(distance)) || DEFAULT_RENDER_DISTANCE));
+    this.renderDistanceZOverride = radiusZ === undefined ? null
+      : Math.max(1, Math.min(this.renderDistance, Math.round(radiusZ) || 1));
     this.lastStreamCenterKey = null;
   }
 

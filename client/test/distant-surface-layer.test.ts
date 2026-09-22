@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { bendPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import type { SurfaceByteCache } from '../src/bootstrap/SurfaceDiskCache.ts';
 import {
   createSpaceSurfaceSnapshotRemote,
   parseSurfaceZoneSnapshot,
@@ -11,6 +12,7 @@ import {
 } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
+  MAX_DISTANT_SURFACE_CELLS,
   DistantSurfaceLayer,
   normalizeDistantSurfaceSettings,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
@@ -78,27 +80,34 @@ test('surface-zone binary parsing preserves identity, heights and colors', () =>
   assert.throws(() => parseSurfaceZoneSnapshot(makeZoneBytes().subarray(0, 40)), /snapshot/);
 });
 
-test('screen error settings clamp safely and migrate legacy distance tiers', () => {
-  assert.deepEqual(normalizeDistantSurfaceSettings({ screenErrorPx: 0, maxDistance: 100,
+test('pixel-area settings clamp safely and migrate legacy error/distance settings', () => {
+  assert.deepEqual(normalizeDistantSurfaceSettings({ subdivisionSizePx2: 0, renderDistanceChunks: 1,
     dataBudgetMiB: Infinity, lod32Distance: 3000, connectionDistance: 0 } as any),
-  { screenErrorPx: 0.5, maxDistance: 500, dataBudgetMiB: 16 });
+  { subdivisionSizePx2: 1, renderDistanceChunks: 32, dataBudgetMiB: 256 });
   assert.deepEqual(normalizeDistantSurfaceSettings({ lod2Enabled: false } as any),
-    { screenErrorPx: 2, maxDistance: 8500, dataBudgetMiB: 16 });
+    { subdivisionSizePx2: 63, renderDistanceChunks: 2048, dataBudgetMiB: 256 });
+  assert.deepEqual(normalizeDistantSurfaceSettings({ screenErrorPx: 0.5, maxDistance: 8500, dataBudgetMiB: 1024 } as any),
+    { subdivisionSizePx2: 63, renderDistanceChunks: 2048, dataBudgetMiB: 1024 });
+  assert.equal(normalizeDistantSurfaceSettings({ subdivisionSizePx2: 63 }).subdivisionSizePx2, 63);
 });
 
 test('pixel budget controls refinement without fixed distance gates', async () => {
     const layer = new DistantSurfaceLayer();
     const zone = parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true));
-    layer.updateView(torusCamera(0, 300, 0), 1000);
-    layer.setSettings({ screenErrorPx: 8 });
+    // Tall alternating columns have real refinable detail; an almost flat
+    // surface may correctly remain merged under the subpixel-error guard.
+    zone.heightsMicro = Uint16Array.from(zone.heightsMicro, (_, i) => 136 + (i % 2) * 160);
+    layer.updateView(torusCamera(0, 1000, 0), 1000);
+    layer.setSettings({ subdivisionSizePx2: 256 });
     layer.installZone(zone);
     await layer.finalizeConnections();
     const relaxed = layer.mesh.geometry.instanceCount;
-    layer.setSettings({ screenErrorPx: 0.5 });
+    layer.setSettings({ subdivisionSizePx2: 1 });
     await layer.finalizeConnections();
-    assert.ok(layer.mesh.geometry.instanceCount > relaxed * 2);
+    assert.ok(layer.mesh.geometry.instanceCount > relaxed * 2,
+      `1 px^2: ${layer.mesh.geometry.instanceCount}, 256 px^2: ${relaxed}`);
     const limited = new DistantSurfaceLayer();
-    limited.setSettings({ maxDistance: 500 });
+    limited.setSettings({ renderDistanceChunks: 32 });
     limited.installZone(parseSurfaceZoneSnapshot(makeZoneBytes(4, 0, true)));
     assert.equal(limited.mesh.geometry.instanceCount, 0);
 });
@@ -106,8 +115,8 @@ test('pixel budget controls refinement without fixed distance gates', async () =
 test('maximum exposed LOD controls remain within the surface instance budget', async () => {
   const layer = new DistantSurfaceLayer();
   layer.setNearField(512, 64, 8);
-  layer.setSettings({ screenErrorPx: DISTANT_SURFACE_SETTING_LIMITS.screenErrorPx.min,
-    maxDistance: DISTANT_SURFACE_SETTING_LIMITS.maxDistance.max });
+  layer.setSettings({ subdivisionSizePx2: DISTANT_SURFACE_SETTING_LIMITS.subdivisionSizePx2.min,
+    renderDistanceChunks: DISTANT_SURFACE_SETTING_LIMITS.renderDistanceChunks.max });
   const template = parseSurfaceZoneSnapshot(makeZoneBytes(0, 0, true));
   for (let zoneX = 0; zoneX < 32; zoneX++) {
     for (let zoneZ = 0; zoneZ < 4; zoneZ++) {
@@ -230,6 +239,7 @@ test('backend zones populate one instanced far layer and retain a near-field cut
     fragmentShader: '#include <common>\n#include <color_fragment>',
   };
   layer.sideMesh.material.onBeforeCompile(sideShader, null as any);
+  assert.equal(layer.sideMesh.material.side, THREE.FrontSide, 'correctly wound distant walls need no back-face shading');
   assert.match(sideShader.vertexShader, /surfaceBottomHeight/);
   assert.match(sideShader.vertexShader, /surfaceNormal/);
   assert.match(sideShader.vertexShader, /TORUS_SURFACE_AXIS/);
@@ -418,7 +428,7 @@ test('torus screen error preserves full world coverage and culls batches immedia
     assert.equal(area, 16384 * 2048);
     const visible = () => new Set(layer.mesh.children.filter(mesh => mesh.name.endsWith(':tops') && mesh.visible).map(mesh => mesh.name));
     const forward = visible();
-    assert.ok(forward.size > 0 && forward.size < 128);
+    assert.ok(forward.size > 0 && forward.size < 128 * 16);
     assert.ok([...forward].some(name => name.startsWith('DistantSurface:0,')), 'the opposite ring across the hole stays visible');
     const direction = camera.getWorldDirection(new THREE.Vector3());
     camera.lookAt(camera.position.clone().sub(direction));
@@ -435,7 +445,7 @@ test('replacing coarse data publishes complete batches and rejects an older terr
     layer.updateView(torusCamera(8192, 32, 1024), 800);
     layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2)));
     await layer.finalizeConnections();
-    const original = layer.mesh.children.find(mesh => mesh.name === 'DistantSurface:16,2:tops') as THREE.Mesh;
+    const original = layer.mesh.children.find(mesh => mesh.name === 'DistantSurface:16,2:0,0:tops') as THREE.Mesh;
     const originalHeights = original.geometry.getAttribute('surfaceHeight').array.slice();
     const fine = parseSurfaceZoneSnapshot(makeZoneBytes(16, 2, true));
     fine.sourceTerrainRevision = 8;
@@ -445,7 +455,7 @@ test('replacing coarse data publishes complete batches and rejects an older terr
     await layer.finalizeConnections();
     assert.deepEqual(original.geometry.getAttribute('surfaceHeight').array, originalHeights,
       'staging must not mutate active buffer storage');
-    const replacement = layer.mesh.children.find(mesh => mesh.name === 'DistantSurface:16,2:tops') as THREE.Mesh;
+    const replacement = layer.mesh.children.find(mesh => mesh.name === 'DistantSurface:16,2:0,0:tops') as THREE.Mesh;
     assert.notEqual(replacement, original);
     assert.equal(replacement.geometry.getAttribute('surfaceHeight').getX(0), 160);
     layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2, 64, 7)));
@@ -546,7 +556,7 @@ test('extreme zoom preserves whole-torus coverage within the geometry budget', a
     layer.updateView(torusCamera(), 1_000_000);
     await layer.finalizeConnections();
     const count = layer.mesh.geometry.instanceCount;
-    assert.ok(count <= 512 * 1024 && count > 8192);
+    assert.ok(count <= MAX_DISTANT_SURFACE_CELLS && count > 8192);
     const sizes = layer.mesh.geometry.getAttribute('surfaceSize');
     let area = 0;
     for (let i = 0; i < count; i++) area += sizes.getX(i) ** 2;
@@ -615,9 +625,9 @@ test('downloaded residual error drives data refinement across the ring', async (
     layer.updateView(torusCamera(8192, 100, 1024), 1600);
     layer.installZone(zone);
     assert.ok(layer.getZoneDemand(0, 2).sampleSize < 64);
-    layer.setSettings({ screenErrorPx: 8 });
+    layer.setSettings({ subdivisionSizePx2: 256 });
     const relaxed = layer.getZoneDemand(0, 2).sampleSize;
-    layer.setSettings({ screenErrorPx: 0.5 });
+    layer.setSettings({ subdivisionSizePx2: 1 });
     assert.ok(layer.getZoneDemand(0, 2).sampleSize < relaxed);
     await layer.finalizeConnections();
 });
@@ -670,7 +680,7 @@ test('authored distant geometry survives coarse replacement, near handoff and st
   await layer.finalizeConnections();
 });
 
-test('unknown fine source errors request real data rather than synthetic subdivision', async () => {
+test('unknown fine source errors refine only to the projected area budget', async () => {
   const layer = new DistantSurfaceLayer();
   try {
     const camera = torusCamera(8192, 100, 1024);
@@ -678,7 +688,9 @@ test('unknown fine source errors request real data rather than synthetic subdivi
     const zone = parseSurfaceZoneSnapshot(makeCoarseBytes(0, 2));
     zone.minHeightsMicro = new Uint16Array(64).fill(0);
     layer.installZone(zone);
-    assert.equal(layer.getZoneDemand(0, 2).sampleSize, 1, 'unavailable finer residuals are unknown, not range * size / 64');
+    assert.equal(layer.getZoneDemand(0, 2).sampleSize, 8, 'do not download 1m columns for subpixel footprints');
+    layer.setSettings({ subdivisionSizePx2: 1 });
+    assert.equal(layer.getZoneDemand(0, 2).sampleSize, 1, 'the quality control still requests real 1m source detail');
     await layer.finalizeConnections();
   } finally { layer.setEnabled(false); }
 });
@@ -779,8 +791,9 @@ test('new overviews trigger refinement immediately and updated fine zones never 
   await remote.loadAll(install,undefined,options);
   assert.deepEqual(installed,[64,2]);
   revision++;
+  options.getZoneDemand = () => ({sampleSize:64,priority:0});
   await remote.loadAll(install,undefined,options);
-  assert.deepEqual(installed,[64,2,2]);
+  assert.deepEqual(installed,[64,2,2], 'a new source revision retains the installed resolution even after residuals fall');
 });
 
 test('a complete v6 manifest fits with all seven authenticated digest URLs', async () => {
@@ -800,4 +813,126 @@ test('a complete v6 manifest fits with all seven authenticated digest URLs', asy
     (async input=>String(input).endsWith('/manifest')?Response.json(manifest):new Response('',{status:503})) as typeof fetch);
   await assert.rejects(remote.loadAll(()=>{},undefined,{getZoneDemand:()=>({sampleSize:64,priority:0})}),
     /zone failed with HTTP 503/, 'metadata must parse and reach the download, not hit the old 256KiB limit');
+});
+
+test('rotation never changes resident demand, published meshes or rebuild counters', async () => {
+  const layer = new DistantSurfaceLayer();
+  const camera = torusCamera();
+  layer.updateView(camera, 900);
+  for (const [x, z] of [[0, 1], [0, 2], [15, 1], [16, 2]]) {
+    layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(x, z)));
+  }
+  await layer.finalizeConnections();
+  const demand = () => [...layer.loadedZones].map(key => {
+    const [x, z] = key.split(',').map(Number);
+    return layer.getZoneDemand(x, z);
+  });
+  const initial = demand();
+  const publications = layer.mesh.userData.lodBuildStats.publications;
+  const batches = [...layer.mesh.children];
+  for (let turn = 0; turn < 24; turn++) {
+    camera.rotateY(Math.PI / 3); camera.updateMatrixWorld(true);
+    layer.updateView(camera, 900);
+    assert.deepEqual(demand(), initial);
+    await layer.finalizeConnections();
+    assert.equal(layer.mesh.userData.lodBuildStats.publications, publications);
+    assert.deepEqual(layer.mesh.children, batches);
+  }
+  layer.setEnabled(false);
+});
+
+test('resident 512m source zones cull as independent 128m draw tiles with exact coverage', async () => {
+  const layer = new DistantSurfaceLayer(), camera = torusCamera(8200, 150, 1032);
+  camera.fov = 30; camera.updateProjectionMatrix();
+  camera.lookAt(bendPoint(8220, 17, 1060)); camera.updateMatrixWorld(true);
+  layer.updateView(camera, 800);
+  layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2)));
+  await layer.finalizeConnections();
+  const tops = layer.mesh.children.filter(mesh => mesh.name.endsWith(':tops')) as THREE.Mesh<THREE.InstancedBufferGeometry>[];
+  assert.equal(tops.length, 16);
+  assert.ok(tops.filter(mesh => mesh.visible).length < 16, 'a near camera must not submit the entire source zone');
+  let area = 0;
+  for (const mesh of tops) {
+    const [tx, tz] = mesh.name.split(':')[2].split(',').map(Number);
+    const offsets = mesh.geometry.getAttribute('surfaceOffset'), sizes = mesh.geometry.getAttribute('surfaceSize');
+    for (let i = 0; i < mesh.geometry.instanceCount; i++) {
+      assert.ok(offsets.getX(i) >= 8192 + tx * 128 && offsets.getX(i) + sizes.getX(i) <= 8192 + (tx + 1) * 128);
+      assert.ok(offsets.getY(i) >= 1024 + tz * 128 && offsets.getY(i) + sizes.getX(i) <= 1024 + (tz + 1) * 128);
+      area += sizes.getX(i) ** 2;
+    }
+  }
+  assert.equal(area, 512 * 512, 'draw splitting must neither duplicate nor drop terrain');
+  const build = layer.mesh.userData.lodBuildStats.publications;
+  camera.rotateY(Math.PI); camera.updateMatrixWorld(true); layer.updateView(camera, 800);
+  await layer.finalizeConnections();
+  assert.equal(layer.mesh.userData.lodBuildStats.publications, build);
+  layer.removeZone(16, 2);
+  assert.equal(layer.mesh.children.filter(mesh => mesh.name.startsWith('DistantSurface:')).length, 0);
+  layer.setEnabled(false);
+});
+
+test('returning to evicted fine data and reloading reuse verified disk bytes', async () => {
+  const payloads = new Map<string, Uint8Array>(), saved = new Map<string, Uint8Array>();
+  const cache: SurfaceByteCache = {
+    async get(key) { return saved.get(key)?.slice(); },
+    async put(key, bytes) { saved.set(key, bytes.slice()); },
+    async remove(key) { saved.delete(key); },
+  };
+  const zones = [0, 1].map(x => {
+    const level = (size: number) => {
+      const bytes = size === 2 ? makeZoneBytes(x, 0, true) : makeCoarseBytes(x, 0);
+      const url = `/z/${x}/${size}`;
+      payloads.set(url, bytes);
+      return { sample_size: size, url, byte_length: bytes.length,
+        digest: createHash('sha256').update(bytes).digest('hex') };
+    };
+    return { zone_x: x, zone_z: 0, revision: 1, source_terrain_revision: 7, ...level(2), lods: [level(64)] };
+  });
+  let downloads = 0, manifests = 0, focus = 0;
+  const create = () => createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/manifest', 20260827, 1,
+    (async input => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/manifest') {
+        manifests++;
+        return Response.json({ schema_version: 5, samples_per_chunk_axis: 8, zone_size_chunks: 32,
+          width_chunks: 64, length_chunks: 32, complete: true, zones });
+      }
+      downloads++;
+      return new Response(payloads.get(path)!.slice().buffer);
+    }) as typeof fetch, cache);
+  const installed = new Map<number, number>();
+  const options = { getZoneDemand: (x: number) => ({ sampleSize: 2, priority: x === focus ? 0 : 1000 }),
+    getDataBudgetBytes: () => 400_000 };
+  const install = (zone: any) => installed.set(zone.zoneX, zone.sampleSize ?? 2);
+  const remote = create();
+  await remote.loadAll(install, undefined, options);
+  focus = 1;
+  await remote.loadAll(install, undefined, options);
+  assert.equal(installed.get(0), 64);
+  const warmedDownloads = downloads;
+  focus = 0;
+  await remote.loadAll(install, undefined, options);
+  assert.equal(installed.get(0), 2);
+  assert.equal(downloads, warmedDownloads);
+  await create().loadAll(install, undefined, options);
+  assert.equal(manifests, 2, 'persistent cache must not bypass authenticated manifests');
+  assert.equal(downloads, warmedDownloads);
+  saved.set(zones[0].digest, new Uint8Array([0]));
+  await create().loadAll(install, undefined, options);
+  assert.equal(downloads, warmedDownloads + 1, 'corrupt cached data is redownloaded and reverified');
+  const offlineCache: SurfaceByteCache = {
+    async get() { throw new Error('storage disabled'); },
+    async put() { throw new Error('quota'); },
+    async remove() { throw new Error('quota'); },
+  };
+  Object.assign(cache, offlineCache);
+  await create().loadAll(install, undefined, options);
+  assert.equal(installed.get(0), 2, 'storage failures must not block valid network snapshots');
+  let active = 0, peak = 0;
+  await create().loadAll(async zone => {
+    peak = Math.max(peak, ++active);
+    await new Promise(resolve => setTimeout(resolve, 1));
+    install(zone); active--;
+  }, undefined, options);
+  assert.equal(peak, 1, 'parallel downloads must not burst-install several fine mip pyramids in one task');
 });

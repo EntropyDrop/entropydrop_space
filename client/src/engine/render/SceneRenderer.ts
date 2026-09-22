@@ -3362,7 +3362,10 @@ export class SceneRenderer {
     try {
       applyCameraBend(this.camera);
       cullChunks(this.camera, this.world);
-      this.world.distantSurface?.updateView(this.camera, this.renderer.domElement.height);
+      // Auto resolution responds to GPU pressure while turning. It must not
+      // lower terrain LOD and then refine it again when the camera stops.
+      this.world.distantSurface?.updateView(this.camera,
+        this.renderer.domElement.clientHeight || this.renderer.domElement.height);
       this.updateSkyDome(this.camera.position);
       // Overlays use the same bent camera and interpolated component transforms
       // as this world pass, not the flat simulation pose or the editor preview.
