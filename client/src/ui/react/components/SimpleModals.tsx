@@ -534,7 +534,7 @@ export function PauseScreen() {
           <span><kbd className="key-badge">ESC</kbd> Settings / release cursor</span>
         </div>
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button id="start-btn" tabIndex={-1} className="start-btn" onClick={() => spaceUiStore.startGame()}>Enter Space</button>
+          <button id="start-btn" tabIndex={-1} className="start-btn" onClick={() => spaceUiStore.startGame()}>Play</button>
           {isAdmin ? (
             <button
               type="button"

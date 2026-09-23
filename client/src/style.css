@@ -4547,6 +4547,31 @@ button.palette-title:hover {
   padding: 1px 4px;
 }
 
+.node-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 10px;
+  color: var(--text-dim);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.component-tree-node:hover .node-delete-btn,
+.component-tree-node.selected .node-delete-btn {
+  opacity: 1;
+}
+
+.node-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
 .preview-camera-badge,
 .component-inspector-badge {
   color: var(--accent-active);
@@ -4869,6 +4894,17 @@ button.palette-title:hover {
 
 .small-action-btn:active {
   transform: translate(1px, 1px);
+}
+
+.small-action-btn.delete-btn {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.small-action-btn.delete-btn:hover {
+  background: #dc2626;
+  color: #fff;
+  border-color: #000;
 }
 
 /* Center: Code Area & Tabs */

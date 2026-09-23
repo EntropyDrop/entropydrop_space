@@ -1429,6 +1429,39 @@ export class SpaceUiStore {
     return success;
   }
 
+  deleteComponent(nodeId?: string): boolean {
+    const { editingContraption, selectedComponentNodeId, contraptions } = this.snapshot;
+    if (!editingContraption) return false;
+    if (editingContraption.serverManaged && !editingContraption.serverCanEdit) {
+      this.showToast('Read-only: cannot delete component');
+      return false;
+    }
+    const targetId = String(nodeId || selectedComponentNodeId || '');
+    const rootId = entityRootId(editingContraption);
+    if (!targetId || targetId === rootId || editingContraption.entityNodes?.get(targetId)?.parentId === null) {
+      this.showToast('The root body cannot be deleted');
+      return false;
+    }
+    if (!editingContraption.entityNodes?.has(targetId)) {
+      this.showToast('Component not found');
+      return false;
+    }
+
+    const result = editingContraption.removeComponentSubtree?.(targetId);
+    if (!result) {
+      this.showToast('Failed to delete component');
+      return false;
+    }
+
+    contraptions?.saveEntitiesToStorage?.();
+    this.notifyContraptionStructureChanged(editingContraption);
+    const message = result.components > 1
+      ? `Component [${targetId}] and ${result.components - 1} subcomponents deleted`
+      : `Component [${targetId}] deleted`;
+    this.showToast(message);
+    return true;
+  }
+
   setSelectedBodyType(bodyType: string): void {
     const { editingContraption, selectedComponentNodeId } = this.snapshot;
     const result = this.snapshot.contraptions?.performBasicAction?.({

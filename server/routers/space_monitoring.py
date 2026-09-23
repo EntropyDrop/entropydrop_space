@@ -18,7 +18,7 @@ router = APIRouter(prefix="/space/api/v2/admin/monitoring", tags=["space-monitor
 
 
 @router.get("")
-@limiter.limit("30/minute; 2000/hour", key_func=get_authenticated_or_remote_address)
+@limiter.limit("240/minute; 10000/hour", key_func=get_authenticated_or_remote_address, override_defaults=True)
 def get_space_monitoring(
     request: Request,
     range: Literal["1h", "6h", "12h", "24h"] = Query(

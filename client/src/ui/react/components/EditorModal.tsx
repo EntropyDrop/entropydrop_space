@@ -13,12 +13,8 @@ import { AgentApiKeySecurityNotice } from './AgentApiKeySecurityNotice.tsx';
 import { AgentModelField } from './AgentModelField.tsx';
 import { ThoughtBox } from './ThoughtBox.tsx';
 
-function nodeIcon(node: any): string {
-  if (node?.parentId === null) return '★';
-  return '•';
-}
-
 function HierarchyNode({ node, depth, selected }: { node: any; depth: number; selected: string }) {
+  const isChild = node.parentId !== null;
   return (
     <>
       <button
@@ -30,10 +26,26 @@ function HierarchyNode({ node, depth, selected }: { node: any; depth: number; se
       >
         <span className="node-left">
           <span className="node-indent">{depth > 0 ? '└ ' : ''}</span>
-          <span className="node-icon">{nodeIcon(node)}</span>
           <span className="node-name" title={node.id}>{node.name || node.id}{node.parentId === null ? ' (body)' : ''}</span>
         </span>
-        <span className="node-right"><span className="node-kind-tag">{node.bodyType}</span><span className="node-count-badge">{node.blockCount} blk</span></span>
+        <span className="node-right">
+          <span className="node-kind-tag">{node.bodyType}</span>
+          <span className="node-count-badge">{node.blockCount} blk</span>
+          {isChild ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              className="node-delete-btn"
+              title={`Delete component ${node.id}`}
+              onClick={event => {
+                event.stopPropagation();
+                spaceUiStore.deleteComponent(node.id);
+              }}
+            >
+              ✕
+            </span>
+          ) : null}
+        </span>
       </button>
       {(node.children || []).map((child: any) => <HierarchyNode key={child.id} node={child} depth={depth + 1} selected={selected} />)}
     </>
@@ -80,7 +92,7 @@ function ComponentInspector() {
   return (
     <div id="component-inspector-panel" className="component-inspector-panel">
       <div className="inspector-field"><label className="inspector-label" htmlFor="prop-component-name">Name</label><div className="inspector-input-row"><input id="prop-component-name" className="inspector-input" placeholder={properties.id} value={displayName} onChange={event => setDisplayName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') spaceUiStore.setSelectedComponentName(displayName); }} /><button tabIndex={-1} className="small-action-btn" title="Set display name; duplicate and empty names are allowed" onClick={() => spaceUiStore.setSelectedComponentName(displayName)}>Save</button></div></div>
-      <div className="inspector-field"><label className="inspector-label">ID</label><div className="inspector-input-row"><input id="prop-node-name" className="inspector-input" value={name} onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') spaceUiStore.renameSelectedComponent(name); }} /><button id="prop-rename-btn" tabIndex={-1} className="small-action-btn" title="Rename component id (unique across the whole entity)" onClick={() => spaceUiStore.renameSelectedComponent(name)}>Rename</button></div></div>
+      <div className="inspector-field"><label className="inspector-label">ID</label><div className="inspector-input-row"><input id="prop-node-name" className="inspector-input" value={name} onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') spaceUiStore.renameSelectedComponent(name); }} /><button id="prop-rename-btn" tabIndex={-1} className="small-action-btn" title="Rename component id (unique across the whole entity)" onClick={() => spaceUiStore.renameSelectedComponent(name)}>Rename</button>{properties.parentId !== null ? <button id="prop-delete-btn" tabIndex={-1} className="small-action-btn delete-btn" title="Delete this component and all its subcomponents" onClick={() => spaceUiStore.deleteComponent(properties.id)}>Delete</button> : null}</div></div>
       <div className="inspector-grid">
         <div className="inspector-field has-tooltip"><label className="inspector-sublabel" title="Derived hierarchy role: root body is the main rigid body, child is an attached sub-assembly">Role ⓘ</label><span id="prop-node-kind" className="inspector-val">{properties.kind === 'root' ? 'root body' : properties.kind}</span><div className="tooltip-text">Derived from the tree:<br /><b>root body</b> is the entity&apos;s main rigid body;<br /><b>child</b> is an attached sub-assembly.</div></div>
         <div className="inspector-field"><label className="inspector-sublabel">Parent</label><span id="prop-node-parent" className="inspector-val">{properties.parentId || 'None'}</span></div>
@@ -298,10 +310,10 @@ export function CodeEditorModal() {
             <div className="code-tab-bar" id="code-tab-bar">{nodes.map((node: any) => {
               const code = contraption.getNodeScript(node.id);
               const enabled = contraption.isNodeScriptEnabled(node.id);
-              return <button type="button" tabIndex={-1} key={node.id} className={`code-tab ${state.selectedComponentNodeId === node.id ? 'active' : ''} ${code?.trim?.() ? 'has-script' : ''} ${enabled ? 'enabled' : 'disabled'}`} onClick={() => spaceUiStore.selectComponentTreeNode(node.id)}><span className={`code-tab-dot ${enabled ? 'on' : 'off'}`} /><span>{nodeIcon(node)} {node.id}.js</span></button>;
+              return <button type="button" tabIndex={-1} key={node.id} className={`code-tab ${state.selectedComponentNodeId === node.id ? 'active' : ''} ${code?.trim?.() ? 'has-script' : ''} ${enabled ? 'enabled' : 'disabled'}`} onClick={() => spaceUiStore.selectComponentTreeNode(node.id)}><span>{node.id}.js</span></button>;
             })}</div>
             <div className="code-editor-main"><div className="code-gutter" id="code-gutter" /><textarea id="script-textarea" className="code-textarea" spellCheck={false} placeholder="// Write your controller code here..." value={state.scriptDraft} onChange={event => spaceUiStore.setScriptDraft(event.target.value)} /></div>
-            <div className="code-footer-hint" id="code-footer-hint"><span id="code-target-hint">Editing: {nodeIcon(contraption.getEntityNode?.(state.selectedComponentNodeId))} {state.selectedComponentNodeId}{contraption.getEntityNode?.(state.selectedComponentNodeId)?.parentId === null ? ' (body)' : ''}</span><span id="code-api-hint" className="code-api-hint">entityAPI: self · ctx</span></div>
+            <div className="code-footer-hint" id="code-footer-hint"><span id="code-target-hint">Editing: {state.selectedComponentNodeId}{contraption.getEntityNode?.(state.selectedComponentNodeId)?.parentId === null ? ' (body)' : ''}</span><span id="code-api-hint" className="code-api-hint">entityAPI: self · ctx</span></div>
           </div>
           <div className="telemetry-panel">
             <div className="telemetry-section-title">3D VIEW</div><div className="entity-preview-frame"><canvas id="entity-preview-canvas" aria-label="Interactive preview of the entity in the current world" ref={attachPreviewCanvas} /></div>
