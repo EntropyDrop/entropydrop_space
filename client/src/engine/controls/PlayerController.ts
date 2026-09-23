@@ -1175,6 +1175,7 @@ export class PlayerController {
   }
 
   handleLeftClick(e = null) {
+    if (this.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
     if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);

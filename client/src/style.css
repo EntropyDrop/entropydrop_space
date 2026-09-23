@@ -1411,9 +1411,9 @@ button.palette-title:hover {
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   max-width: min(480px, calc(100vw - 24px));
-  padding: 3px 3px 3px 10px;
+  padding: 3px;
   transform: translate(-50%, -100%);
   background: rgba(14, 16, 22, 0.86);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1424,18 +1424,57 @@ button.palette-title:hover {
   white-space: nowrap;
 }
 
-.entity-nameplate-labels { display: flex; flex-direction: column; gap: 1px; min-width: 20px; }
-.entity-nameplate-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; line-height: 22px; }
+.entity-nameplate-labels { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 20px; }
+.entity-nameplate-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; line-height: 22px; transform: translateY(1.5px); }
 .entity-nameplate-executor { overflow: hidden; text-overflow: ellipsis; color: #b7becb; font-size: 10px; line-height: 13px; }
 .entity-run-status { display: inline-flex; align-items: center; gap: 4px; min-width: 16px; font-size: 11px; color: #b7becb; overflow: hidden; }
 .entity-run-status svg { flex: 0 0 auto; }
-.entity-playback-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: var(--entity-nameplate-control-height, 22px); transition: background .12s ease, color .12s ease, box-shadow .12s ease; }
-.entity-playback-icon.play { --entity-control-hover-background: #3c8527; color: var(--accent-active); background: rgba(60, 133, 39, 0.3); }
-.entity-playback-icon.stop { --entity-control-hover-background: #b91c1c; color: #f87171; background: rgba(153, 27, 27, 0.3); }
-.entity-run-status.waiting .entity-playback-icon { --entity-control-hover-background: #a16207; }
-.entity-run-status.hosted .entity-playback-icon { --entity-control-hover-background: #7c3aed; color: inherit; background: rgba(139, 92, 246, 0.18); }
+.entity-run-status.is-clickable { cursor: pointer; }
+.entity-playback-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: var(--entity-nameplate-control-height, 22px);
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
+}
+.entity-playback-icon:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.entity-playback-icon:not(:disabled):active {
+  transform: scale(0.92);
+}
+.entity-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  flex: 0 0 8px;
+  pointer-events: none;
+}
+.entity-status-dot.running {
+  background: var(--accent-active);
+  box-shadow: 0 0 8px var(--accent-active);
+  animation: pixel-pulse 1.8s infinite ease-in-out;
+}
+.entity-status-dot.stopped {
+  background: #f87171;
+  box-shadow: 0 0 4px rgba(248, 113, 113, 0.4);
+}
+.entity-playback-icon.play { --entity-control-hover-background: rgba(60, 133, 39, 0.4); }
+.entity-playback-icon.stop { --entity-control-hover-background: rgba(153, 27, 27, 0.4); }
+.entity-run-status.waiting .entity-playback-icon { --entity-control-hover-background: rgba(161, 98, 7, 0.4); }
+.entity-run-status.hosted .entity-playback-icon { --entity-control-hover-background: rgba(139, 92, 246, 0.3); }
 .entity-nameplates:not(.is-pointer-locked) .entity-playback-icon:hover,
-.entity-nameplates .entity-playback-icon.is-aimed { background: var(--entity-control-hover-background, #475569); color: #fff; box-shadow: 0 0 0 1px rgba(255, 255, 255, .6), 0 0 10px rgba(255, 255, 255, .2); }
+.entity-nameplates .entity-playback-icon.is-aimed { background: var(--entity-control-hover-background, rgba(255, 255, 255, .16)); box-shadow: 0 0 0 1px rgba(255, 255, 255, .6), 0 0 10px rgba(255, 255, 255, .2); }
 .entity-nameplate .entity-run-status { pointer-events: auto; }
 .entity-run-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entity-run-status.running { color: #8ae5b0; }

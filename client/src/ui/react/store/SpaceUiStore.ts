@@ -894,6 +894,33 @@ export class SpaceUiStore {
     return true;
   }
 
+  async toggleEntityRun(contraption: any): Promise<boolean> {
+    if (!contraption) return false;
+    const status = entityRunStatus(contraption, this.snapshot.currentUserName);
+    const action = status.running ? 'stop' : 'start';
+    const success = await this.snapshot.controller?.performEntityMenuAction?.(contraption, action);
+    this.refresh();
+    return !!success;
+  }
+
+  tryToggleEntityPlaybackAtPointer(event: any): boolean {
+    if (!event || typeof document === 'undefined' || !document.elementFromPoint
+      || this.hasAnyModalOpen() || this.snapshot.entityContextMenu || this.snapshot.selectorContextMenu) return false;
+    const locked = this.snapshot.controller?.isLocked || this.snapshot.pointerLocked || document.pointerLockElement;
+    const x = locked ? window.innerWidth / 2 : Number(event.clientX);
+    const y = locked ? window.innerHeight / 2 : Number(event.clientY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const button = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-entity-playback-id]');
+    if (!button) return false;
+    const target = this.snapshot.contraptions?.contraptions?.find((entity: any) =>
+      String(entity.publicId || entity.id) === button.dataset.entityPlaybackId);
+    if (!target) return false;
+    void this.toggleEntityRun(target);
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    return true;
+  }
+
   /** Pointer-locked clicks target document.body, so hit-test the actual crosshair
    * against the visible DOM button before any active tool can consume input. */
   tryOpenEntityContextMenuAtPointer(event: any): boolean {

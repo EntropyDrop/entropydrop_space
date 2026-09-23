@@ -14,16 +14,45 @@ import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 
 const statusIcons = { play: FaPlay, stop: FaStop, pause: LiaPauseSolid, waiting: LiaHourglassHalfSolid };
 
-function EntityStatusBadge({ status, compact = true, showCaption = true, nameplate = false }:
-  { status: ReturnType<typeof entityRunStatus>; compact?: boolean; showCaption?: boolean; nameplate?: boolean }) {
-  const Icon = statusIcons[status.icon];
+function EntityStatusBadge({ status, compact = true, showCaption = true, nameplate = false, canControl = true, onToggle, entityId }:
+  { status: ReturnType<typeof entityRunStatus>; compact?: boolean; showCaption?: boolean; nameplate?: boolean; canControl?: boolean; onToggle?: () => void; entityId?: string }) {
   const caption = compact ? status.caption : status.text;
-  return <span className={`entity-run-status ${status.tone}`} role="img" aria-label={status.text} title={status.text}
+  const isRunning = status.running;
+  const isInteractive = canControl && !!onToggle;
+  const actionTitle = isInteractive
+    ? (isRunning ? 'Running · Click to stop' : 'Stopped · Click to start')
+    : (!canControl ? `${status.text} · read only` : status.text);
+  return <span className={['entity-run-status', status.tone, isInteractive && 'is-clickable'].filter(Boolean).join(' ')} role="img" aria-label={status.text} title={actionTitle}
     onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-    onMouseUp={event => event.stopPropagation()} onClick={event => event.stopPropagation()}
+    onMouseUp={event => event.stopPropagation()}
+    onClick={event => {
+      event.stopPropagation();
+      if (isInteractive) {
+        event.preventDefault();
+        onToggle();
+      }
+    }}
     onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}>
     {status.tone === 'hosted' && <LiaServerSolid size={16} aria-hidden="true" />}
-    <span className={`entity-playback-icon ${status.icon}`} data-entity-nameplate-control={nameplate ? 'playback' : undefined}><Icon size={12} aria-hidden="true" /></span>
+    <button
+      type="button"
+      tabIndex={-1}
+      className={`entity-playback-icon ${status.icon} ${isRunning ? 'running' : 'stopped'}`}
+      data-entity-nameplate-control={nameplate ? 'playback' : undefined}
+      data-entity-playback-id={nameplate && entityId ? entityId : undefined}
+      disabled={!canControl}
+      aria-label={actionTitle}
+      title={actionTitle}
+      onClick={event => {
+        event.stopPropagation();
+        if (isInteractive) {
+          event.preventDefault();
+          onToggle();
+        }
+      }}
+    >
+      <span className={`entity-status-dot ${isRunning ? 'running' : 'stopped'}`} aria-hidden="true" />
+    </button>
     {showCaption && caption && <span className="entity-run-caption">{caption}</span>}
   </span>;
 }
@@ -72,6 +101,7 @@ export function EntityNameplates() {
     {(contraptions?.contraptions || []).map((entity: any) => {
       const status = entityRunStatus(entity, currentUserName);
       const name = entityDisplayName(entity);
+      const canControl = !entity.serverManaged || entity.serverCanControl === true;
       const open = (event: React.MouseEvent) => {
         event.preventDefault();
         event.stopPropagation();
@@ -80,11 +110,18 @@ export function EntityNameplates() {
       };
       return <div key={entity.publicId || entity.id} className="entity-nameplate" style={{ display: 'none' }}
         ref={element => { if (element) elements.current.set(entity, element); else elements.current.delete(entity); }}>
+        <EntityStatusBadge
+          status={status}
+          showCaption={status.tone !== 'running'}
+          nameplate
+          canControl={canControl}
+          entityId={String(entity.publicId || entity.id)}
+          onToggle={() => void spaceUiStore.toggleEntityRun(entity)}
+        />
         <div className="entity-nameplate-labels">
           <span className="entity-nameplate-name" title={name}>{name}</span>
           {status.tone === 'running' && <span className="entity-nameplate-executor" title={`Executor: ${status.caption}`}>{status.caption}</span>}
         </div>
-        <EntityStatusBadge status={status} showCaption={status.tone !== 'running'} nameplate />
         <button type="button" tabIndex={-1} className="entity-menu-trigger" data-entity-menu-id={String(entity.publicId || entity.id)} data-entity-nameplate-control="menu"
           aria-label={`Entity actions: ${name}`} title="Entity actions · works with any tool"
           onMouseDown={event => { event.stopPropagation(); event.preventDefault(); }}

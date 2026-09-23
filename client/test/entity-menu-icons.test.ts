@@ -79,26 +79,52 @@ test('hosting initiator gets an English early Stop control with an icon, indepen
   assert.match(markup, /Dedicated core 128/);
 });
 
-test('nameplates show icon-only Stop, executor below the entity name, and distinct server-hosted icons/caption', () => {
+test('nameplates show square breathing light for running and static red for stopped, executor below the entity name, and distinct server-hosted icons/caption', () => {
   const stopped = render({ id: 'one', rootComponentName: 'Walker', scriptStatus: 'stopped' }, EntityNameplates);
-  assert.match(stopped, /aria-label="Stopped" title="Stopped"><span class="entity-playback-icon stop" data-entity-nameplate-control="playback"><svg/);
+  assert.match(stopped, /class="entity-playback-icon stop[^"]*"[^>]*data-entity-nameplate-control="playback"[^>]*><span class="entity-status-dot stopped"/);
   assert.doesNotMatch(stopped, />Stopped</);
   assert.doesNotMatch(stopped, /class="entity-nameplate-executor"/);
   const running = render({ id: 'one', rootComponentName: 'Walker', scriptStatus: 'running' }, EntityNameplates);
-  assert.match(running, /aria-label="Running · Alice &lt;Engineer&gt;"/);
-  assert.match(running, /class="entity-playback-icon play" data-entity-nameplate-control="playback"><svg/);
+  assert.match(running, /Running · Alice &lt;Engineer&gt;/);
+  assert.match(running, /class="entity-playback-icon play[^"]*"[^>]*data-entity-nameplate-control="playback"[^>]*><span class="entity-status-dot running"/);
   assert.match(running, /class="entity-nameplate-labels"><span class="entity-nameplate-name" title="Walker">Walker<\/span><span class="entity-nameplate-executor" title="Executor: Alice &lt;Engineer&gt;">Alice &lt;Engineer&gt;<\/span><\/div>/);
   assert.doesNotMatch(running, /class="entity-run-caption"/, 'executor is not duplicated beside the status icon');
   assert.match(button(running, 'Entity actions: Walker').attributes, /data-entity-menu-id="one"/);
-  assert.match(button(running, 'Entity actions: Walker').attributes, /data-entity-nameplate-control="menu"/);
+  assert.match(running, /class="entity-playback-icon play[\s\S]*?class="entity-nameplate-labels"/, 'breathing light is to the left of the entity name');
+  assert.match(stopped, /class="entity-playback-icon stop[\s\S]*?class="entity-nameplate-labels"/, 'stopped light is to the left of the entity name');
   const hosted = render({ id: 'two', rootComponentName: 'Beacon', serverManaged: true,
     serverExecutionMode: 'hosted', serverHostingEnabled: true, serverDesiredRunState: 'running' }, EntityNameplates);
-  const badge = hosted.match(/class="entity-run-status hosted"([\s\S]*?)<\/span><button/);
+  const badge = hosted.match(/class="entity-run-status hosted[^"]*"([\s\S]*?)<\/span><div/);
   assert.ok(badge);
-  assert.equal((badge[1].match(/<svg\b/g) || []).length, 2, 'server and playback icons distinguish hosting');
+  assert.equal((badge[1].match(/<svg\b/g) || []).length, 1, 'server icon distinguishes hosting alongside breathing light');
   assert.match(badge[1], /class="entity-run-caption">Server hosting</);
   assert.doesNotMatch(badge[1], /Alice/);
   assert.doesNotMatch(hosted, /class="entity-nameplate-executor"/);
+});
+
+test('clicking entity status indicator toggles running state between play and stop', async () => {
+  let performedAction = '';
+  const fakeController = {
+    performEntityMenuAction: async (_contraption: any, action: string) => {
+      performedAction = action;
+      return true;
+    }
+  };
+  const original = spaceUiStore.getSnapshot();
+  try {
+    (spaceUiStore as any).patch({ controller: fakeController });
+    const stoppedEntity = { id: 'test-1', scriptStatus: 'stopped' };
+    const success1 = await spaceUiStore.toggleEntityRun(stoppedEntity);
+    assert.equal(success1, true);
+    assert.equal(performedAction, 'start');
+
+    const runningEntity = { id: 'test-1', scriptStatus: 'running' };
+    const success2 = await spaceUiStore.toggleEntityRun(runningEntity);
+    assert.equal(success2, true);
+    assert.equal(performedAction, 'stop');
+  } finally {
+    (spaceUiStore as any).patch(original);
+  }
 });
 
 test('the smaller second nameplate line uses the actual remote executor, while menu status remains unchanged', () => {
