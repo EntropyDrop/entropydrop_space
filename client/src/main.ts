@@ -245,6 +245,7 @@ class Game {
     this.uiStore.setWorld(this.world);
     this.uiStore.setContraptions(this.contraptionManager);
     this.uiStore.setSceneRenderer(this.sceneRenderer);
+    this.uiStore.setParticleSystem(this.particleSystem);
     this.uiStore.setMinimap(this.minimap);
     this.navigationSystem = new NavigationSystem(
       this.playerPhysics,

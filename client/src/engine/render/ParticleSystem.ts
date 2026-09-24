@@ -4,6 +4,7 @@ export class ParticleSystem {
   private scene: THREE.Scene;
   private particles: any[] = [];
   private maxParticles = 600;
+  private enabled = true;
   private geometry: THREE.BoxGeometry;
   private material: THREE.MeshBasicMaterial;
   private instancedMesh: THREE.InstancedMesh;
@@ -23,6 +24,7 @@ export class ParticleSystem {
     });
 
     this.instancedMesh = new THREE.InstancedMesh(this.geometry, this.material, this.maxParticles);
+    this.instancedMesh.count = 0;
     this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.maxParticles * 3), 3);
     this.instancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -40,7 +42,22 @@ export class ParticleSystem {
     this.instancedMesh.instanceMatrix.needsUpdate = true;
   }
 
+  setEnabled(enabled: boolean): boolean {
+    this.enabled = Boolean(enabled);
+    this.instancedMesh.visible = this.enabled;
+    if (!this.enabled) {
+      this.particles.length = 0;
+      this.instancedMesh.count = 0;
+    }
+    return this.enabled;
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
   emitSteamPuff(worldPos, count = 15) {
+    if (!this.enabled) return;
     for (let i = 0; i < count; i++) {
       this.spawnParticle({
         x: worldPos.x + (Math.random() - 0.5) * 0.8,
@@ -58,6 +75,7 @@ export class ParticleSystem {
   }
 
   emitBlockBreak(worldPos, hexColor, count = 12) {
+    if (!this.enabled) return;
     const color = new THREE.Color(hexColor);
     for (let i = 0; i < count; i++) {
       this.spawnParticle({
@@ -76,6 +94,7 @@ export class ParticleSystem {
   }
 
   spawnParticle(config) {
+    if (!this.enabled) return;
     if (this.particles.length >= this.maxParticles) {
       this.particles.shift(); // remove oldest
     }
@@ -95,6 +114,7 @@ export class ParticleSystem {
   }
 
   update(dt) {
+    if (!this.enabled) return;
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.life -= dt;
@@ -109,25 +129,21 @@ export class ParticleSystem {
       p.z += p.vz * dt;
     }
 
-    // Update instanced mesh
-    for (let i = 0; i < this.maxParticles; i++) {
-      if (i < this.particles.length) {
-        const p = this.particles[i];
-        const progress = p.life / p.maxLife;
-        const currentScale = p.size * progress;
+    // Draw and update only live instances. With no particles, avoid uploading
+    // all 600 hidden matrices on every animation frame.
+    this.instancedMesh.count = this.particles.length;
+    if (this.particles.length === 0) return;
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      const progress = p.life / p.maxLife;
+      const currentScale = p.size * progress;
 
-        this.dummy.position.set(p.x, p.y, p.z);
-        this.dummy.scale.set(currentScale, currentScale, currentScale);
-        this.dummy.updateMatrix();
+      this.dummy.position.set(p.x, p.y, p.z);
+      this.dummy.scale.set(currentScale, currentScale, currentScale);
+      this.dummy.updateMatrix();
 
-        this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
-        this.instancedMesh.setColorAt(i, p.color);
-      } else {
-        this.dummy.position.set(0, -999, 0);
-        this.dummy.scale.set(0, 0, 0);
-        this.dummy.updateMatrix();
-        this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
-      }
+      this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+      this.instancedMesh.setColorAt(i, p.color);
     }
 
     this.instancedMesh.instanceMatrix.needsUpdate = true;

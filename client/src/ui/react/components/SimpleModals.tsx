@@ -334,6 +334,24 @@ export function GlobalSettingsModal() {
             </div>
             <div className="settings-section">
               <div className="settings-section-title">PERFORMANCE</div>
+              <div className="settings-row">
+                <div className="settings-label-group"><span className="settings-label">Particle Effects</span><span className="settings-desc">Block-break debris and assembly steam effects</span></div>
+                <div className="settings-segmented-control" id="setting-particles-group">
+                  {([
+                    [true, 'Enabled'],
+                    [false, 'Disabled']
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={String(value)}
+                      className={`segment-btn ${state.particlesEnabled === value ? 'active' : ''}`}
+                      aria-pressed={state.particlesEnabled === value}
+                      onClick={() => spaceUiStore.setParticlesEnabled(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="settings-row settings-lighting-row">
                 <div className="settings-label-group">
                   <span className="settings-label" id="setting-lighting-label">Lighting Quality</span>

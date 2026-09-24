@@ -245,6 +245,7 @@ export interface SpaceUiSnapshot {
   cameraDistance: number;
   renderDistance: number;
   minimapEnabled: boolean;
+  particlesEnabled: boolean;
   distantSurfaceSettings: DistantSurfaceSettings;
   resolutionScaleMode: ResolutionScaleSetting;
   resolutionScale: number;
@@ -354,6 +355,7 @@ export class SpaceUiStore {
   private lastHudPublishAt = 0;
   private toastSequence = 0;
   private remotePlayers: any[] = [];
+  private particleSystem: any = null;
   private marketClient: SpaceMarketClient | null = null;
   private apiKeyClient: SpaceApiKeyClient | null = null;
   private queueCancelHandler: (() => Promise<void>) | null = null;
@@ -411,6 +413,7 @@ export class SpaceUiStore {
     cameraDistance: 4,
     renderDistance: 12,
     minimapEnabled: false,
+    particlesEnabled: true,
     distantSurfaceSettings: { ...DEFAULT_DISTANT_SURFACE_SETTINGS },
     resolutionScaleMode: 'auto',
     resolutionScale: 1,
@@ -705,6 +708,16 @@ export class SpaceUiStore {
     } catch { }
     minimapEnabled = minimap?.setEnabled?.(minimapEnabled) ?? minimapEnabled;
     this.patch({ minimap, minimapEnabled });
+  }
+
+  setParticleSystem(particleSystem: any): void {
+    this.particleSystem = particleSystem;
+    let enabled = true;
+    try {
+      enabled = localStorage.getItem('space_setting_particles') !== 'false';
+    } catch { }
+    enabled = particleSystem?.setEnabled?.(enabled) ?? enabled;
+    this.patch({ particlesEnabled: enabled });
   }
 
   setRemotePlayers(players: any[]): void {
@@ -1783,6 +1796,15 @@ export class SpaceUiStore {
     const value = this.snapshot.minimap?.setEnabled?.(Boolean(enabled)) ?? Boolean(enabled);
     this.patch({ minimapEnabled: value });
     if (persist) try { localStorage.setItem('space_setting_minimap', String(value)); } catch { }
+  }
+
+  setParticlesEnabled(enabled: boolean, persist = true): void {
+    const value = this.particleSystem?.setEnabled?.(Boolean(enabled)) ?? Boolean(enabled);
+    this.patch({ particlesEnabled: value });
+    if (persist) {
+      try { localStorage.setItem('space_setting_particles', String(value)); } catch { }
+      this.showToast(value ? 'Particle effects enabled' : 'Particle effects disabled');
+    }
   }
 
   setDistantSurfaceSetting(
