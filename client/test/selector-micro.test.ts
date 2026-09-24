@@ -846,13 +846,13 @@ test('React UI store exposes palette, selector, and backpack tool modes', () => 
   ui.setController(controller);
 
   ui.selectHotbarSlot(0);
-  assert.equal(ui.getSnapshot().hotbarSlots[ui.getSnapshot().selectedHotbarIndex].value, SpecialTool.SHOVEL);
-
-  ui.selectHotbarSlot(2);
   assert.equal(ui.getSnapshot().hotbarSlots[ui.getSnapshot().selectedHotbarIndex].value, SpecialTool.SELECTOR);
 
+  ui.selectHotbarSlot(2);
+  assert.equal(ui.getSnapshot().hotbarSlots[ui.getSnapshot().selectedHotbarIndex].value, SpecialTool.WRENCH);
+
   ui.selectHotbarSlot(3);
-  assert.equal(ui.getSnapshot().hotbarSlots[ui.getSnapshot().selectedHotbarIndex].value, SpecialTool.HAMMER);
+  assert.equal(ui.getSnapshot().hotbarSlots[ui.getSnapshot().selectedHotbarIndex].value, SpecialTool.SHOVEL);
 });
 
 test('toggleSelectorMicroMode toggles between standard (1m) and micro (0.125m) mode with UI sync', () => {

@@ -188,7 +188,7 @@ test('React UI store applyActiveSlot clears selection when switching from Select
   manager.setCornerB({ x: 4, y: 4, z: 4 });
   assert.equal(manager.hasValidSelection(), true);
 
-  ui.applyActiveSlot();
+  ui.selectHotbarSlot(3);
 
   assert.equal(controller.activeTool, SpecialTool.SHOVEL);
   assert.equal(manager.hasValidSelection(), false);

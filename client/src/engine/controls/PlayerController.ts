@@ -334,11 +334,11 @@ type BulkEditJob = {
 };
 
 export const SpecialTool = {
-  SHOVEL: 'shovel',         // 1. Shovel (remove / place 1x1x1 standard blocks)
-  SPOON: 'spoon',           // 2. Spoon (carve 8x8x8 micro voxels)
-  SELECTOR: 'selector',     // 3. Selector (world/component selection and copy)
-  HAMMER: 'hammer',         // 4. Hammer (preview/place inventory items)
-  WRENCH: 'wrench',         // 5. Wrench (show pivot XYZ, hold to grab, right start/stop)
+  SELECTOR: 'selector',     // 1. Selector (world/component selection and copy)
+  HAMMER: 'hammer',         // 2. Hammer (preview/place inventory items)
+  WRENCH: 'wrench',         // 3. Wrench (show pivot XYZ, hold to grab, right start/stop)
+  SHOVEL: 'shovel',         // 4. Shovel (remove / place 1x1x1 standard blocks)
+  SPOON: 'spoon',           // 5. Spoon (carve 8x8x8 micro voxels)
   BRUSH: 'brush',           // 6. Brush (repaint block colors)
   PIPETTE: 'pipette',       // Legacy alias; color sampling is part of Brush
   SUPER_GLUE: 'selector'    // alias for backwards compatibility
@@ -548,7 +548,7 @@ export class PlayerController {
     this.yaw = 0;
 
     // Selected Item
-    this.activeTool = SpecialTool.SHOVEL;
+    this.activeTool = SpecialTool.SELECTOR;
     this.selectedBlock = BlockTypes.COLOR_BLOCK;
     this.selectedColor = 0xf2a93b;
     this.currentRaycast = { hit: false };
