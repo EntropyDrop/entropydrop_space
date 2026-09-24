@@ -292,7 +292,7 @@ function SelectorPanel() {
             <span id="selector-mode-badge" className={`mode-badge ${selector.micro ? 'micro' : 'std'}`}>{selector.micro ? 'MICRO' : 'STANDARD'}</span>
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
           </button>
-          <div className="selector-recent-color" id="selector-recent-color" title={`Recent Color: ${activeHex.toUpperCase()} · Click to pick · ${altLabel}+1~9 · Press I to set color`}>
+          <div className="selector-recent-color" id="selector-recent-color" title={`Recent color · Click to pick · ${altLabel}+1~9 · Press I to set color`}>
             <label className="selector-recent-color-chip" style={{ backgroundColor: activeHex }}>
               <input
                 id="selector-color-picker-input"
@@ -301,7 +301,6 @@ function SelectorPanel() {
                 onChange={event => spaceUiStore.setBuildColor(event.target.value)}
               />
             </label>
-            <span className="selector-recent-color-hex">{activeHex.toUpperCase()}</span>
           </div>
           <label className="selector-material-picker" htmlFor="selector-material-select">
             <span>Material</span>
@@ -316,7 +315,7 @@ function SelectorPanel() {
             </select>
           </label>
         </div>
-        <span className="palette-hotkey-hint"><b>{altLabel}+1~5</b> shape · <b>Arrows</b> rotate</span>
+        <span className="palette-hotkey-hint"><b>I</b> set color · <b>{altLabel}+1~5</b> shape · <b>Arrows</b> rotate</span>
       </div>
       <div className="selector-toolbox-content" id="selector-toolbox-content">
         <div className="selector-shapes-bar" id="selector-shapes-bar" role="group" aria-label="Selection Shape">
@@ -341,11 +340,11 @@ function SelectorPanel() {
         </div>
         <div className="selector-action-buttons">
           <button id="assemble-btn" tabIndex={-1} className="banner-btn primary" disabled={!selector.canAssemble} onClick={() => assembleCurrentSelection(controller)}>{selector.assembleLabel}</button>
-          <button id="fill-btn" tabIndex={-1} className="banner-btn secondary" title={`Fill selection with ${activeHex.toUpperCase()} (F)`} disabled={!selector.canModify} onClick={() => controller?.fillSelectionBlocks?.()}>
+          <button id="fill-btn" tabIndex={-1} className="banner-btn secondary" title="Fill selection with the active color (F)" disabled={!selector.canModify} onClick={() => controller?.fillSelectionBlocks?.()}>
             <span className="btn-color-dot" style={{ backgroundColor: activeHex }} />
             Fill (F)
           </button>
-          <button id="paint-btn" tabIndex={-1} className="banner-btn secondary" title={`Recolor selection with ${activeHex.toUpperCase()} (P)`} disabled={!selector.canModify} onClick={() => controller?.paintSelectionBlocks?.()}>
+          <button id="paint-btn" tabIndex={-1} className="banner-btn secondary" title="Recolor selection with the active color (P)" disabled={!selector.canModify} onClick={() => controller?.paintSelectionBlocks?.()}>
             <span className="btn-color-dot" style={{ backgroundColor: activeHex }} />
             Paint (P)
           </button>
@@ -682,7 +681,7 @@ export function Hud() {
           <div className="hud-bottom-stack">
             <BulkEditProgressPanel />
             <div className="builder-toolbar">
-              <div className={`toolbar-center-panel ${activeTool === SpecialTool.SELECTOR ? 'selector-toolbar-center-panel' : ''}`}>
+              <div className="toolbar-center-panel">
                 {activeTool === SpecialTool.HAMMER ? (
                   <InventoryBar />
                 ) : activeTool === SpecialTool.SELECTOR ? (

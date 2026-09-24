@@ -722,10 +722,6 @@ canvas {
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  width: 420px;
-}
-
-.toolbar-center-panel.selector-toolbar-center-panel {
   width: min(560px, calc(100vw - 32px));
 }
 
@@ -1251,16 +1247,6 @@ button.palette-title:hover {
   height: calc(100% + 12px);
   opacity: 0;
   cursor: pointer;
-}
-
-.selector-recent-color-hex {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-  line-height: 1;
-  user-select: none;
 }
 
 .selector-material-picker {
