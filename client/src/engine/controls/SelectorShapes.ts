@@ -7,6 +7,16 @@ export interface VoxelPoint {
   micro?: boolean;
 }
 
+export type SelectorAxis = 'x' | 'y' | 'z';
+
+/** Orientation of a stair-shaped selection inside its unchanged selection bounds. */
+export interface StairsOrientation {
+  runAxis: SelectorAxis;
+  riseAxis: SelectorAxis;
+  runDirection: 1 | -1;
+  riseDirection: 1 | -1;
+}
+
 export const SELECTOR_SHAPES: { key: SelectorShape; label: string; nameEn: string; shortcut: number }[] = [
   { key: 'box', label: 'Box', nameEn: 'Box', shortcut: 1 },
   { key: 'cylinder', label: 'Cylinder', nameEn: 'Cylinder', shortcut: 2 },
@@ -73,7 +83,8 @@ export function computeSelectionCells(
   pointB: { x: number; y: number; z: number },
   isMicro = false,
   cylinderAxis: 'x' | 'y' | 'z' = 'y',
-  stairsAxis?: 'x' | 'z'
+  stairsAxis?: 'x' | 'z',
+  stairsOrientation?: StairsOrientation
 ): VoxelPoint[] {
   const minX = Math.min(pointA.x, pointB.x);
   const maxX = Math.max(pointA.x, pointB.x);
@@ -188,6 +199,40 @@ export function computeSelectionCells(
   }
 
   if (shape === 'stairs') {
+    if (stairsOrientation && stairsOrientation.runAxis !== stairsOrientation.riseAxis) {
+      const { runAxis, riseAxis, runDirection, riseDirection } = stairsOrientation;
+      const axes: SelectorAxis[] = ['x', 'y', 'z'];
+      const widthAxis = axes.find(axis => axis !== runAxis && axis !== riseAxis)!;
+      const axisMin = { x: minX, y: minY, z: minZ };
+      const axisMax = { x: maxX, y: maxY, z: maxZ };
+      const runLength = axisMax[runAxis] - axisMin[runAxis] + 1;
+      const riseLength = axisMax[riseAxis] - axisMin[riseAxis] + 1;
+
+      for (let runStep = 0; runStep < runLength; runStep++) {
+        const u = runLength === 1 ? 0 : runStep / (runLength - 1);
+        const stepHeight = runLength === 1
+          ? riseLength
+          : (riseLength === 1 ? 1 : 1 + Math.floor(u * (riseLength - 1)));
+        const run = runDirection > 0
+          ? axisMin[runAxis] + runStep
+          : axisMax[runAxis] - runStep;
+
+        for (let riseStep = 0; riseStep < stepHeight; riseStep++) {
+          const rise = riseDirection > 0
+            ? axisMin[riseAxis] + riseStep
+            : axisMax[riseAxis] - riseStep;
+          for (let width = axisMin[widthAxis]; width <= axisMax[widthAxis]; width++) {
+            const point = { x: 0, y: 0, z: 0 };
+            point[runAxis] = run;
+            point[riseAxis] = rise;
+            point[widthAxis] = width;
+            cells.push(isMicro ? { ...point, micro: true } : point);
+          }
+        }
+      }
+      return cells;
+    }
+
     const dx = pointB.x - pointA.x;
     const dy = pointB.y - pointA.y;
     const dz = pointB.z - pointA.z;

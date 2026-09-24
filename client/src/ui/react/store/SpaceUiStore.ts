@@ -26,6 +26,7 @@ import {
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { triggerProtobufDownload } from '../browser/downloadProtobuf.ts';
 import { colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import { SpaceApiKeyClient } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import { SpaceMarketClient } from '../../../bootstrap/SpaceMarketClient.ts';
 import { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
@@ -211,6 +212,7 @@ export interface SpaceUiSnapshot {
   selectedHotbarIndex: number;
   selectedColor: number;
   selectedColorIndex: number;
+  selectedMaterialId: number;
   paletteColors: Array<{ hex: string; name: string }>;
   activeColorSetId: string | null;
   activeInventoryCategory: 'blockset' | 'entity' | 'colorset';
@@ -379,6 +381,7 @@ export class SpaceUiStore {
     selectedHotbarIndex: 0,
     selectedColor: normalizeColor(PRESET_COLORS[0]?.hex || '#f2a93b'),
     selectedColorIndex: 0,
+    selectedMaterialId: 0,
     paletteColors: PRESET_COLORS.slice(0, 9).map(item => ({ hex: item.hex, name: item.name })),
     activeColorSetId: null,
     activeInventoryCategory: 'blockset',
@@ -559,7 +562,14 @@ export class SpaceUiStore {
     const fov = Number(controller?.fov || 75);
     const perspective = (controller?.perspective || 'first_person') as PlayerPerspective;
     const cameraDistance = Number(controller?.thirdPersonDistance || 4);
-    this.patch({ controller, paletteColors, fov, perspective, cameraDistance });
+    this.patch({
+      controller,
+      paletteColors,
+      fov,
+      perspective,
+      cameraDistance,
+      selectedMaterialId: normalizeVoxelMaterialId(controller?.selectedMaterialId)
+    });
 
     this.setBuildColor(paletteColors[0]?.hex || '#f2a93b', false);
     this.applyActiveSlot(false);
@@ -1054,6 +1064,12 @@ export class SpaceUiStore {
       const name = selectedColorIndex >= 0 ? this.snapshot.paletteColors[selectedColorIndex].name : '';
       this.showToast(`Palette: ${hex.toUpperCase()}${name ? ` (${name})` : ''}`);
     }
+  }
+
+  setBuildMaterialId(value: unknown): void {
+    const selectedMaterialId = normalizeVoxelMaterialId(value);
+    if (this.snapshot.controller) this.snapshot.controller.selectedMaterialId = selectedMaterialId;
+    this.patch({ selectedMaterialId });
   }
 
   cycleColor(direction: number): void {

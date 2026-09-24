@@ -20,6 +20,7 @@ import {
 } from 'react-icons/lia';
 import { ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import { TbBox, TbCylinder, TbSphere, TbStairs, TbLine } from 'react-icons/tb';
 import { SpecialTool } from '../../../engine/controls/PlayerController.ts';
 import type { SelectorShape } from '../../../engine/controls/SelectorShapes.ts';
@@ -277,7 +278,7 @@ function assembleCurrentSelection(controller: any) {
 }
 
 function SelectorPanel() {
-  const { selector, controller, selectedColor } = useSpaceUi(state => state);
+  const { selector, controller, selectedColor, selectedMaterialId } = useSpaceUi(state => state);
   const activeHex = colorToHex(selectedColor ?? 0xf2a93b);
   const altLabel = getAltKeyLabel();
   const selectorShapeItems = getSelectorShapeItems();
@@ -302,8 +303,20 @@ function SelectorPanel() {
             </label>
             <span className="selector-recent-color-hex">{activeHex.toUpperCase()}</span>
           </div>
+          <label className="selector-material-picker" htmlFor="selector-material-select">
+            <span>Material</span>
+            <select
+              id="selector-material-select"
+              value={selectedMaterialId}
+              title="Material used by Fill and Paint"
+              onChange={event => spaceUiStore.setBuildMaterialId(event.target.value)}
+            >
+              <option value={VoxelMaterialIds.DEFAULT}>Default</option>
+              <option value={VoxelMaterialIds.EMISSIVE}>Emissive</option>
+            </select>
+          </label>
         </div>
-        <span className="palette-hotkey-hint"><b>{altLabel}+1~5</b> shape · <b>Arrows</b> rotate · <b>F</b> fill · <b>P</b> recolor</span>
+        <span className="palette-hotkey-hint"><b>{altLabel}+1~5</b> shape · <b>Arrows</b> rotate</span>
       </div>
       <div className="selector-toolbox-content" id="selector-toolbox-content">
         <div className="selector-shapes-bar" id="selector-shapes-bar" role="group" aria-label="Selection Shape">
@@ -669,7 +682,7 @@ export function Hud() {
           <div className="hud-bottom-stack">
             <BulkEditProgressPanel />
             <div className="builder-toolbar">
-              <div className="toolbar-center-panel">
+              <div className={`toolbar-center-panel ${activeTool === SpecialTool.SELECTOR ? 'selector-toolbar-center-panel' : ''}`}>
                 {activeTool === SpecialTool.HAMMER ? (
                   <InventoryBar />
                 ) : activeTool === SpecialTool.SELECTOR ? (

@@ -725,6 +725,10 @@ canvas {
   width: 420px;
 }
 
+.toolbar-center-panel.selector-toolbar-center-panel {
+  width: min(560px, calc(100vw - 32px));
+}
+
 .bulk-edit-progress {
   width: 520px;
   max-width: calc(100vw - 40px);
@@ -1257,6 +1261,34 @@ button.palette-title:hover {
   letter-spacing: 0.5px;
   line-height: 1;
   user-select: none;
+}
+
+.selector-material-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 2px;
+  color: var(--text-muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.selector-material-picker select {
+  max-width: 116px;
+  height: 21px;
+  padding: 1px 18px 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-main, #fff);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.selector-material-picker select:focus-visible {
+  outline: 1px solid var(--accent-light, #48dbfb);
+  outline-offset: 1px;
 }
 
 .btn-color-dot {

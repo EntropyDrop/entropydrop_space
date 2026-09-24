@@ -1556,10 +1556,15 @@ function executeSelectionAction(context: any, command: any) {
       return result;
     }
     case 'paint': {
-      const color = resolveColor(command.options ?? command.color);
+      const color = resolveColor(command.options?.color ?? command.color ?? command.options);
       const fromColor = command.options?.fromColor !== undefined || command.fromColor !== undefined
         ? resolveColor(command.options?.fromColor ?? command.fromColor)
         : null;
+      const options = {
+        ...(command.options || {}),
+        color,
+        ...(fromColor !== null ? { fromColor } : {})
+      };
       const selected = command.selection || owner.entitySelection;
       if (selected?.kind === 'entity-subtree' && selected?.contraption) {
         const nodeId = requestedNodeId(selected.contraption, selected.nodeId, selected.rootId);
@@ -1575,6 +1580,7 @@ function executeSelectionAction(context: any, command: any) {
           nodeId,
           blocks,
           color,
+          options,
           actor: command.actor
         });
       }
@@ -1589,6 +1595,7 @@ function executeSelectionAction(context: any, command: any) {
           nodeId: selected.nodeId,
           blocks: selected.blocks,
           color,
+          options,
           actor: command.actor
         });
       }
@@ -1605,7 +1612,7 @@ function executeSelectionAction(context: any, command: any) {
             if (world?.getBlock && world.getBlock(cell.x, cell.y, cell.z) !== BlockTypes.AIR) {
               const currentColor = world.getBlockColor ? world.getBlockColor(cell.x, cell.y, cell.z) : null;
               if (fromColor === null || currentColor === fromColor) {
-                if (executeWorldAction(context, { action: 'paint-standard', cell, color }).painted) {
+                if (executeWorldAction(context, { action: 'paint-standard', cell, color, options }).painted) {
                   paintedStandard++;
                 }
               }
@@ -1629,7 +1636,7 @@ function executeSelectionAction(context: any, command: any) {
               if (cellCount === MICRO_DIVISIONS ** 3 && matchCount === cellCount) {
                 // All 512 microblocks match: coalesce directly into 1 standard block!
                 world.clearMicroStandardCell?.(cell.x, cell.y, cell.z);
-                world.setBlock?.(cell.x, cell.y, cell.z, BlockTypes.COLOR_BLOCK, true, color);
+                world.setBlock?.(cell.x, cell.y, cell.z, BlockTypes.COLOR_BLOCK, true, color, commandMaterialId(options));
                 paintedStandard++;
               } else {
                 for (let dx = 0; dx < MICRO_DIVISIONS; dx++) {
@@ -1640,7 +1647,7 @@ function executeSelectionAction(context: any, command: any) {
                       const mz = baseZ + dz;
                       const mBlock = world.getMicroBlock?.(mx, my, mz);
                       if (mBlock && (fromColor === null || mBlock.color === fromColor)) {
-                        if (executeWorldAction(context, { action: 'paint-micro', micro: { x: mx, y: my, z: mz }, color }).painted) {
+                        if (executeWorldAction(context, { action: 'paint-micro', micro: { x: mx, y: my, z: mz }, color, options }).painted) {
                           paintedMicro++;
                         }
                       }
@@ -1670,7 +1677,7 @@ function executeSelectionAction(context: any, command: any) {
             if (cell.y < 0 || cell.y >= CHUNK_SIZE_Y * MICRO_DIVISIONS) continue;
             const mBlock = world?.getMicroBlock?.(cell.x, cell.y, cell.z);
             if (mBlock && (fromColor === null || mBlock.color === fromColor)) {
-              if (executeWorldAction(context, { action: 'paint-micro', micro: cell, color }).painted) {
+              if (executeWorldAction(context, { action: 'paint-micro', micro: cell, color, options }).painted) {
                 paintedMicro++;
               }
             }
@@ -1680,7 +1687,7 @@ function executeSelectionAction(context: any, command: any) {
           const cells = manager.microSelection || [];
           for (const cell of cells) {
             if (cell.y < 0 || cell.y >= CHUNK_SIZE_Y * MICRO_DIVISIONS) continue;
-            if (executeWorldAction(context, { action: 'paint-micro', micro: cell, color }).painted) {
+            if (executeWorldAction(context, { action: 'paint-micro', micro: cell, color, options }).painted) {
               paintedMicro++;
             }
           }
@@ -1708,7 +1715,7 @@ function executeSelectionAction(context: any, command: any) {
               return result;
             })()
           : [];
-      const worldResult = executeWorldAction(context, { action: 'paint-cells', cells, color });
+      const worldResult = executeWorldAction(context, { action: 'paint-cells', cells, color, options });
       let totalPainted = worldResult.painted || 0;
       if (bounds && Array.isArray(manager?.contraptions)) {
         for (const c of manager.contraptions) {
@@ -1732,6 +1739,7 @@ function executeSelectionAction(context: any, command: any) {
               nodeId: entityRootId(c),
               blocks: insideBlocks,
               color,
+              options,
               actor: command.actor
             });
             totalPainted += entityPaint.painted || 0;
@@ -1744,7 +1752,8 @@ function executeSelectionAction(context: any, command: any) {
       });
     }
     case 'fill': {
-      const color = resolveColor(command.options ?? command.color);
+      const color = resolveColor(command.options?.color ?? command.color ?? command.options);
+      const options = { ...(command.options || {}), color };
       const selected = command.selection || owner.entitySelection;
       if (selected?.kind === 'entity-blocks' && selected?.contraption) {
         return executeEntityAction(context, {
@@ -1753,6 +1762,7 @@ function executeSelectionAction(context: any, command: any) {
           nodeId: selected.nodeId,
           blocks: selected.blocks,
           color,
+          options,
           actor: command.actor
         });
       }
@@ -1767,7 +1777,7 @@ function executeSelectionAction(context: any, command: any) {
         if (partition && (partition.standardCells.length > 0 || partition.microCells.length > 0)) {
           // 1. Process merged standard cells as solid standard blocks
           for (const cell of partition.standardCells) {
-            const res = executeWorldAction(context, { action: 'place-standard', cell, color, replace: true });
+            const res = executeWorldAction(context, { action: 'place-standard', cell, color, options, replace: true });
             if (res.placed) placedStandard++;
           }
 
@@ -1788,14 +1798,14 @@ function executeSelectionAction(context: any, command: any) {
 
           for (const cell of partition.microCells) {
             if (cell.y < 0 || cell.y >= CHUNK_SIZE_Y * MICRO_DIVISIONS) continue;
-            const res = executeWorldAction(context, { action: 'place-micro', micro: cell, color, replace: true });
+            const res = executeWorldAction(context, { action: 'place-micro', micro: cell, color, options, replace: true });
             if (res.placed) placedMicro++;
           }
         } else {
           const cells = manager.microSelection || [];
           for (const cell of cells) {
             if (cell.y < 0 || cell.y >= CHUNK_SIZE_Y * MICRO_DIVISIONS) continue;
-            const res = executeWorldAction(context, { action: 'place-micro', micro: cell, color, replace: true });
+            const res = executeWorldAction(context, { action: 'place-micro', micro: cell, color, options, replace: true });
             if (res.placed) placedMicro++;
           }
         }
@@ -1826,7 +1836,7 @@ function executeSelectionAction(context: any, command: any) {
           : [];
       let totalPlaced = 0;
       for (const cell of cells) {
-        const res = executeWorldAction(context, { action: 'place-standard', cell, color, replace: true });
+        const res = executeWorldAction(context, { action: 'place-standard', cell, color, options, replace: true });
         if (res.placed) totalPlaced++;
       }
       return actionResult(command.action, totalPlaced, totalPlaced ? 'placed' : 'out_of_bounds', {

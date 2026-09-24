@@ -52,7 +52,7 @@ import {
 import { calculatePreviewDragForce, getInventoryPreviewBlocks, WRENCH_GIZMO_ROTATION_RADIUS } from '../render/SceneRenderer.ts';
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
-import { type SelectorShape, computeSelectionCells } from './SelectorShapes.ts';
+import { type SelectorShape, type StairsOrientation, computeSelectionCells } from './SelectorShapes.ts';
 import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
 import {
   decodeBackpack,
@@ -416,6 +416,7 @@ export class PlayerController {
   }
   selectedBlock: number;
   selectedColor: number;
+  selectedMaterialId: number;
   currentRaycast: any;
   hoveredContraption: any;
   hoveredContraptionHit: any;
@@ -452,6 +453,7 @@ export class PlayerController {
     micro: boolean;
     cylinderAxis?: 'x' | 'y' | 'z';
     stairsAxis?: 'x' | 'z';
+    stairsOrientation?: StairsOrientation;
   } | null = null;
   brushMicroMode: boolean;
   brushSelection: any;
@@ -551,6 +553,7 @@ export class PlayerController {
     this.activeTool = SpecialTool.SELECTOR;
     this.selectedBlock = BlockTypes.COLOR_BLOCK;
     this.selectedColor = 0xf2a93b;
+    this.selectedMaterialId = VoxelMaterialIds.DEFAULT;
     this.currentRaycast = { hit: false };
     this.hoveredContraption = null;
     this.hoveredContraptionHit = null;
@@ -4271,7 +4274,7 @@ export class PlayerController {
     return started;
   }
 
-  private startLargeWorldSelectionFill(manager, partition, bounds, color) {
+  private startLargeWorldSelectionFill(manager, partition, bounds, color, materialId: number = VoxelMaterialIds.DEFAULT) {
     let placedStandard = 0;
     let placedMicro = 0;
 
@@ -4291,6 +4294,7 @@ export class PlayerController {
               action: 'place-standard',
               cell,
               color,
+              options: { color, materialId },
               replace: true
             });
             if (result.placed) placedStandard++;
@@ -4317,6 +4321,7 @@ export class PlayerController {
               action: 'place-micro',
               micro: cell,
               color,
+              options: { color, materialId },
               replace: true
             });
             if (result.placed) placedMicro++;
@@ -4360,6 +4365,7 @@ export class PlayerController {
           action: 'place-standard',
           cell,
           color,
+          options: { color, materialId },
           replace: true
         });
         if (result.placed) placedStandard++;
@@ -4374,7 +4380,7 @@ export class PlayerController {
     return started;
   }
 
-  private startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor?: number) {
+  private startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor?: number, materialId: number = VoxelMaterialIds.DEFAULT) {
     let paintedStandard = 0;
     let paintedMicro = 0;
 
@@ -4395,7 +4401,8 @@ export class PlayerController {
                 domain: ActionDomain.WORLD,
                 action: 'paint-standard',
                 cell,
-                color
+                color,
+                options: { color, materialId }
               });
               if (result.painted) paintedStandard++;
               return result.painted || 0;
@@ -4424,7 +4431,8 @@ export class PlayerController {
                 domain: ActionDomain.WORLD,
                 action: 'paint-micro',
                 micro: cell,
-                color
+                color,
+                options: { color, materialId }
               });
               if (result.painted) paintedMicro++;
               return result.painted || 0;
@@ -4470,7 +4478,8 @@ export class PlayerController {
             domain: ActionDomain.WORLD,
             action: 'paint-standard',
             cell,
-            color
+            color,
+            options: { color, materialId }
           });
           if (result.painted) paintedStandard++;
           return result.painted || 0;
@@ -4692,6 +4701,7 @@ export class PlayerController {
     if (!this.requireConfirmedSelection('filling')) return;
 
     const color = targetColor ?? this.selectedColor;
+    const materialId = normalizeVoxelMaterialId(this.selectedMaterialId);
 
     // A whole-component (subtree) selection has no block box of its own. F must
     // still "fill/expand the component" instead of only recoloring it, so
@@ -4747,6 +4757,7 @@ export class PlayerController {
         nodeId,
         coords: targetCoords,
         color,
+        options: { color, materialId },
         micro: isMicro
       });
 
@@ -4785,14 +4796,15 @@ export class PlayerController {
           : (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1) * (bounds.maxZ - bounds.minZ + 1);
 
     if (largeSelectionCount > BULK_EDIT_THRESHOLD) {
-      this.startLargeWorldSelectionFill(manager, partition, bounds, color);
+      this.startLargeWorldSelectionFill(manager, partition, bounds, color, materialId);
       return;
     }
 
     const result = this.performBasicAction({
       domain: ActionDomain.SELECTION,
       action: 'fill',
-      color
+      color,
+      options: { color, materialId }
     });
 
     if (result.ok && (result.placed || 0) > 0) {
@@ -4819,6 +4831,7 @@ export class PlayerController {
     if (!this.requireConfirmedSelection('recoloring')) return;
 
     const color = targetColor ?? this.selectedColor;
+    const materialId = normalizeVoxelMaterialId(this.selectedMaterialId);
 
     // 1. Entity blocks recolor
     if (this.selectedBlockSelection && this.selectedBlockSelection.blocks.length > 0) {
@@ -4834,7 +4847,8 @@ export class PlayerController {
         target: { contraption },
         nodeId,
         blocks: targetBlocks,
-        color
+        color,
+        options: { color, materialId }
       });
       contraption.clearSubtreeHighlight?.();
       this.selectedBlockSelection = null;
@@ -4853,7 +4867,7 @@ export class PlayerController {
         action: 'paint',
         selection: { kind: 'entity-subtree', contraption, rootId, nodeId: rootId },
         color,
-        options: fromColor !== undefined ? { fromColor } : null
+        options: { color, materialId, ...(fromColor !== undefined ? { fromColor } : {}) }
       });
       contraption.clearSubtreeHighlight?.();
       this.selectedSubtree = null;
@@ -4883,7 +4897,7 @@ export class PlayerController {
           : (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1) * (bounds.maxZ - bounds.minZ + 1);
 
     if (largeSelectionCount > BULK_EDIT_THRESHOLD) {
-      this.startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor);
+      this.startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor, materialId);
       return;
     }
 
@@ -4891,7 +4905,7 @@ export class PlayerController {
       domain: ActionDomain.SELECTION,
       action: 'paint',
       color,
-      options: fromColor !== undefined ? { fromColor } : null
+      options: { color, materialId, ...(fromColor !== undefined ? { fromColor } : {}) }
     });
 
     if (result.ok && (result.painted || 0) > 0) {
@@ -6609,13 +6623,15 @@ export class PlayerController {
     const cornerB = anchorB || this.selectionShapeAnchor?.cornerB || { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
     const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
     const stairsAxis = this.selectionShapeAnchor?.stairsAxis;
+    const stairsOrientation = this.resolveStairsOrientation(cornerA, cornerB, stairsAxis);
 
     this.selectionShapeAnchor = {
       cornerA: { ...cornerA },
       cornerB: { ...cornerB },
       micro: isMicro,
       cylinderAxis,
-      stairsAxis
+      stairsAxis,
+      stairsOrientation
     };
 
     const minX = Math.min(cornerA.x, cornerB.x);
@@ -6645,7 +6661,7 @@ export class PlayerController {
           z >= bounds.minZ && z <= bounds.maxZ
         ), bounds) || [];
       } else {
-        shapeCells = computeSelectionCells(shape, cornerA, cornerB, true, cylinderAxis, stairsAxis);
+        shapeCells = computeSelectionCells(shape, cornerA, cornerB, true, cylinderAxis, stairsAxis, stairsOrientation);
         const cellSet = new Set(shapeCells.map(c => `${c.x},${c.y},${c.z}`));
         matchingBlocks = this.buildEntityMicroSelection(contraption, nodeId, (x: number, y: number, z: number) => (
           cellSet.has(`${x},${y},${z}`)
@@ -6679,7 +6695,7 @@ export class PlayerController {
           ? matchingMicro
           : (isMicro ? (matchingMicro.length > 0 ? matchingMicro : matchingStandard) : [...matchingMicro, ...matchingStandard]);
       } else {
-        shapeCells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis);
+        shapeCells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis, stairsOrientation);
         const cellSet = new Set(shapeCells.map(c => `${c.x},${c.y},${c.z}`));
         const matchingMicro: any[] = [];
         const matchingStandard: any[] = [];
@@ -6791,13 +6807,15 @@ export class PlayerController {
     const dx = cornerB.x - cornerA.x;
     const dz = cornerB.z - cornerA.z;
     const stairsAxis = this.selectionShapeAnchor?.stairsAxis || (Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z');
+    const stairsOrientation = this.resolveStairsOrientation(cornerA, cornerB, stairsAxis);
 
     this.selectionShapeAnchor = {
       cornerA: { ...cornerA },
       cornerB: { ...cornerB },
       micro: isMicro,
       cylinderAxis,
-      stairsAxis
+      stairsAxis,
+      stairsOrientation
     };
 
     if (shape === 'box') {
@@ -6816,7 +6834,7 @@ export class PlayerController {
         this.contraptions.selectionCornerB = { ...cornerB };
       }
     } else {
-      const cells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis);
+      const cells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis, stairsOrientation);
       if (isMicro) {
         this.contraptions.microSelection = cells;
         this.contraptions.microBounds = null;
@@ -6898,6 +6916,13 @@ export class PlayerController {
     }
 
     if (!cornerA || !cornerB) return false;
+
+    // Geometric stairs/cylinders are oriented inside their fixed selector box.
+    // Rotating their occupied cells must not move or resize that box.
+    if ((this.selectorShape === 'stairs' || this.selectorShape === 'cylinder') &&
+      this.rotateSelectionShapeInBounds(direction, axis, cornerA, cornerB)) {
+      return true;
+    }
 
     const minX = Math.min(cornerA.x, cornerB.x);
     const maxX = Math.max(cornerA.x, cornerB.x);
@@ -7044,6 +7069,97 @@ export class PlayerController {
       isMicro && this.selectorShape !== 'box'
     );
 
+    this.sound?.playWrenchClick?.();
+    this.ui?.updateToolPanelMode?.();
+    return true;
+  }
+
+  private resolveStairsOrientation(
+    cornerA: { x: number; y: number; z: number },
+    cornerB: { x: number; y: number; z: number },
+    stairsAxis?: 'x' | 'z'
+  ): StairsOrientation {
+    const current = this.selectionShapeAnchor?.stairsOrientation;
+    if (current && current.runAxis !== current.riseAxis) return { ...current };
+
+    const dx = cornerB.x - cornerA.x;
+    const dz = cornerB.z - cornerA.z;
+    const runAxis = stairsAxis || (Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z');
+    return {
+      runAxis,
+      riseAxis: 'y',
+      runDirection: (runAxis === 'x' ? dx : dz) < 0 ? -1 : 1,
+      riseDirection: cornerB.y - cornerA.y < 0 ? -1 : 1
+    };
+  }
+
+  private rotateSelectionShapeInBounds(
+    direction: number,
+    rotationAxis: 'x' | 'y',
+    cornerA: { x: number; y: number; z: number },
+    cornerB: { x: number; y: number; z: number }
+  ) {
+    const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
+    const stairsAxis = this.selectionShapeAnchor?.stairsAxis || (
+      Math.abs(cornerB.x - cornerA.x) >= Math.abs(cornerB.z - cornerA.z) ? 'x' : 'z'
+    );
+    let stairsOrientation: StairsOrientation | undefined;
+
+    if (this.selectorShape === 'cylinder') {
+      let nextCylinderAxis = cylinderAxis;
+      if (rotationAxis === 'y') {
+        if (cylinderAxis === 'x') nextCylinderAxis = 'z';
+        else if (cylinderAxis === 'z') nextCylinderAxis = 'x';
+      } else {
+        if (cylinderAxis === 'y') nextCylinderAxis = 'z';
+        else if (cylinderAxis === 'z') nextCylinderAxis = 'y';
+      }
+      this.selectionShapeAnchor = {
+        cornerA: { ...cornerA },
+        cornerB: { ...cornerB },
+        micro: this.selectorMicroMode === true,
+        cylinderAxis: nextCylinderAxis,
+        stairsAxis,
+        stairsOrientation: this.selectionShapeAnchor?.stairsOrientation
+      };
+    } else {
+      const orientation = this.resolveStairsOrientation(cornerA, cornerB, stairsAxis);
+      const rotateDirection = (vector: { axis: 'x' | 'y' | 'z'; sign: 1 | -1 }) => {
+        const value = { x: 0, y: 0, z: 0 };
+        value[vector.axis] = vector.sign;
+        const positive = direction > 0;
+        let rotated: typeof value;
+        if (rotationAxis === 'y') {
+          rotated = positive
+            ? { x: -value.z, y: value.y, z: value.x }
+            : { x: value.z, y: value.y, z: -value.x };
+        } else {
+          rotated = positive
+            ? { x: value.x, y: -value.z, z: value.y }
+            : { x: value.x, y: value.z, z: -value.y };
+        }
+        const nextAxis = (['x', 'y', 'z'] as const).find(key => rotated[key] !== 0)!;
+        return { axis: nextAxis, sign: rotated[nextAxis] as 1 | -1 };
+      };
+      const run = rotateDirection({ axis: orientation.runAxis, sign: orientation.runDirection });
+      const rise = rotateDirection({ axis: orientation.riseAxis, sign: orientation.riseDirection });
+      stairsOrientation = {
+        runAxis: run.axis,
+        runDirection: run.sign,
+        riseAxis: rise.axis,
+        riseDirection: rise.sign
+      };
+      this.selectionShapeAnchor = {
+        cornerA: { ...cornerA },
+        cornerB: { ...cornerB },
+        micro: this.selectorMicroMode === true,
+        cylinderAxis,
+        stairsAxis: run.axis === 'z' ? 'z' : 'x',
+        stairsOrientation
+      };
+    }
+
+    this.applySelectionShape(this.selectorShape);
     this.sound?.playWrenchClick?.();
     this.ui?.updateToolPanelMode?.();
     return true;
@@ -9539,6 +9655,7 @@ export class PlayerController {
           if (this.selectorShape !== 'box') {
             const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
             const stairsAxis = this.selectionShapeAnchor?.stairsAxis;
+            const stairsOrientation = this.selectionShapeAnchor?.stairsOrientation;
             if (isMicro) {
               const mb = this.contraptions.getMicroSelectionBounds();
               if (mb) {
@@ -9547,7 +9664,8 @@ export class PlayerController {
                   cornerB: { x: mb.maxX, y: mb.maxY, z: mb.maxZ },
                   micro: true,
                   cylinderAxis,
-                  stairsAxis
+                  stairsAxis,
+                  stairsOrientation
                 };
               }
             } else {
@@ -9557,14 +9675,15 @@ export class PlayerController {
                   cornerB: { ...this.contraptions.selectionCornerB },
                   micro: false,
                   cylinderAxis,
-                  stairsAxis
+                  stairsAxis,
+                  stairsOrientation
                 };
               }
             }
             const anchorA = this.selectionShapeAnchor?.cornerA;
             const anchorB = this.selectionShapeAnchor?.cornerB;
             if (anchorA && anchorB) {
-              const cells = computeSelectionCells(this.selectorShape, anchorA, anchorB, isMicro, cylinderAxis, stairsAxis);
+              const cells = computeSelectionCells(this.selectorShape, anchorA, anchorB, isMicro, cylinderAxis, stairsAxis, stairsOrientation);
               if (isMicro) {
                 this.contraptions.microSelection = cells;
                 this.contraptions.microBounds = null;
