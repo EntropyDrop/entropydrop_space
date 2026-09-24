@@ -137,6 +137,9 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
   const altLabel = getAltKeyLabel();
   return (
     <div className="color-palette-bar-wrapper" id="color-palette-wrapper">
+      <div className="palette-material-row">
+        <MaterialPicker id={isBrush ? 'brush-material-select' : 'palette-material-select'} />
+      </div>
       <div className="palette-info-row">
         {isBrush ? (
           <div className="selector-title-group">
@@ -277,8 +280,26 @@ function assembleCurrentSelection(controller: any) {
   return controller?.assembleSelection?.(ContraptionMode.PROGRAMMABLE);
 }
 
+function MaterialPicker({ id }: { id: string }) {
+  const { selectedMaterialId } = useSpaceUi(state => state);
+  return (
+    <label className="selector-material-picker" htmlFor={id}>
+      <span>Material</span>
+      <select
+        id={id}
+        value={selectedMaterialId}
+        title="Material used by building and paint tools"
+        onChange={event => spaceUiStore.setBuildMaterialId(event.target.value)}
+      >
+        <option value={VoxelMaterialIds.DEFAULT}>Default</option>
+        <option value={VoxelMaterialIds.EMISSIVE}>Emissive</option>
+      </select>
+    </label>
+  );
+}
+
 function SelectorPanel() {
-  const { selector, controller, selectedColor, selectedMaterialId } = useSpaceUi(state => state);
+  const { selector, controller, selectedColor } = useSpaceUi(state => state);
   const activeHex = colorToHex(selectedColor ?? 0xf2a93b);
   const altLabel = getAltKeyLabel();
   const selectorShapeItems = getSelectorShapeItems();
@@ -287,7 +308,6 @@ function SelectorPanel() {
     <div className="selector-panel-wrapper" id="selector-panel-wrapper">
       <div className="palette-info-row">
         <div className="selector-title-group">
-          <span className="palette-title">Selector</span>
           <button id="selector-mode-toggle" tabIndex={-1} className="selector-mode-btn" title="Click or press Tab to switch mode" onClick={() => controller?.toggleSelectorMicroMode?.()}>
             <span id="selector-mode-badge" className={`mode-badge ${selector.micro ? 'micro' : 'std'}`}>{selector.micro ? 'MICRO' : 'STANDARD'}</span>
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
@@ -302,18 +322,7 @@ function SelectorPanel() {
               />
             </label>
           </div>
-          <label className="selector-material-picker" htmlFor="selector-material-select">
-            <span>Material</span>
-            <select
-              id="selector-material-select"
-              value={selectedMaterialId}
-              title="Material used by Fill and Paint"
-              onChange={event => spaceUiStore.setBuildMaterialId(event.target.value)}
-            >
-              <option value={VoxelMaterialIds.DEFAULT}>Default</option>
-              <option value={VoxelMaterialIds.EMISSIVE}>Emissive</option>
-            </select>
-          </label>
+          <MaterialPicker id="selector-material-select" />
         </div>
         <span className="palette-hotkey-hint"><b>I</b> set color · <b>{altLabel}+1~5</b> shape · <b>Arrows</b> rotate</span>
       </div>
@@ -496,6 +505,8 @@ function SelectorContextMenu() {
 
 function WrenchPanel() {
   const { controller } = useSpaceUi(state => state);
+  const targetEntity = controller?.hoveredContraptionHit?.contraption || controller?.hoveredContraption || null;
+  const hasTargetEntity = Boolean(targetEntity);
   return (
     <div className="selector-panel-wrapper wrench-panel-wrapper" id="wrench-panel-wrapper">
       <div className="palette-info-row">
@@ -505,14 +516,14 @@ function WrenchPanel() {
           </span>
           <span className="mode-badge std">PHYSICS & CONTROL</span>
         </div>
-        <span className="palette-hotkey-hint"><b>XYZ</b> move · <b>Arrows</b> rotate · <b>Hold entity</b> lift · <b>RMB</b> start</span>
       </div>
       <div className="selector-toolbox-content" id="wrench-toolbox-content">
         <div className="wrench-action-buttons">
-          <button type="button" tabIndex={-1} className="banner-btn secondary" title="Hold left-click on an entity to stop and lift it (LMB)" onClick={() => controller?.startWrenchGrab?.()}><b>LMB</b> Stop & Lift</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" title="Right-click on an entity to start physics and scripts (RMB)" onClick={() => controller?.startHoveredEntity?.()}><b>RMB</b> Start</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" title="Point at an entity and press C to open its code editor" onClick={() => controller?.openCodeEditorForTarget?.()}><b>C</b> Code</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" title="Point at a seat block and press V to mount/drive" onClick={() => controller?.toggleDriveVehicle?.()}><b>V</b> Drive</button>
+          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Hold left-click on an entity to stop and lift it (LMB)" onClick={() => controller?.startWrenchGrab?.()}><b>LMB</b> Stop & Lift</button>
+          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="When focused on an entity, scroll to move it closer or farther"><b>Scroll</b> Closer / Farther</button>
+          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Open more actions for the focused entity (RMB)" onClick={event => targetEntity && spaceUiStore.showEntityContextMenu(targetEntity, { x: event.clientX, y: event.clientY })}><b>RMB</b> More Actions</button>
+          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Point at an entity and press C to open its code editor" onClick={() => controller?.openCodeEditorForTarget?.()}><b>C</b> Code</button>
+          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Point at a seat block and press V to mount/drive" onClick={() => controller?.toggleDriveVehicle?.()}><b>V</b> Drive</button>
         </div>
       </div>
     </div>

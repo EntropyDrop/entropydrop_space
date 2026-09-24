@@ -1251,12 +1251,24 @@ button.palette-title:hover {
 
 .selector-material-picker {
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   margin-left: 2px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 8px;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.palette-material-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+
+.palette-material-row .selector-material-picker {
+  margin-left: 0;
 }
 
 .selector-material-picker select {

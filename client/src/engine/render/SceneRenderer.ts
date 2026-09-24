@@ -997,11 +997,14 @@ export class SceneRenderer {
     const gridMat = new THREE.LineBasicMaterial({
       color: 0x48dbfb,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.72,
+      depthTest: false,
       depthWrite: false
     });
     const gridLines = new THREE.LineSegments(gridGeo, gridMat);
+    gridLines.renderOrder = 41;
     this.microCarveGroup.add(gridLines);
+    this.microCarveGroup.renderOrder = 41;
 
     // Highlight box for the focused micro cell (0.125³) with segments for curvature bending
     const cellGeo = new THREE.BoxGeometry(MICRO_SIZE, MICRO_SIZE, MICRO_SIZE, 2, 2, 2);
@@ -1010,9 +1013,11 @@ export class SceneRenderer {
       color: 0xff9f43,
       transparent: true,
       opacity: 0.95,
+      depthTest: false,
       depthWrite: false
     });
     this.microCarveFocusCell = new THREE.LineSegments(cellEdges, cellMat);
+    this.microCarveFocusCell.renderOrder = 42;
     this.microCarveFocusCell.visible = false;
     this.scene.add(this.microCarveFocusCell);
 

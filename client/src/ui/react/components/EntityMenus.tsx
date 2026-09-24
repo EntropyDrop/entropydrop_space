@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { IconType } from 'react-icons';
-import { FaPlay, FaStop } from 'react-icons/fa';
+import { FaPlay, FaStop, FaUndo } from 'react-icons/fa';
 import {
   LiaCheckSolid, LiaCodeSolid, LiaCopySolid, LiaEllipsisHSolid,
   LiaHourglassHalfSolid, LiaIdCardSolid, LiaPauseSolid,
@@ -158,6 +158,7 @@ export function EntityContextMenu() {
   const canEdit = !entity.serverManaged || entity.serverCanEdit === true;
   const hostingBusy = busy || hostingBusyIds.includes(String(entity.publicId));
   const isHosted = entity.serverExecutionMode === 'hosted';
+  const canResetRotation = canEdit && !isHosted && (!status.running || canControl);
   const hostingAction = async (enabled: boolean) => {
     if (hostingBusy) return;
     setBusy(true);
@@ -201,6 +202,9 @@ export function EntityContextMenu() {
           onClick={() => void run('start')} />
         <EntityActionButton label="Stop entity" caption="Stop" icon={FaStop} className="entity-action-stop"
           disabled={busy || !canControl || !status.running} onClick={() => void run('stop')} />
+        <EntityActionButton label="Reset entity rotation" caption="Reset rotation" icon={FaUndo} disabled={busy || !canResetRotation}
+          title={isHosted ? 'Hosted entities cannot be rotated from this client' : 'Stops execution and resets orientation while keeping position'}
+          onClick={() => void run('reset-rotation')} />
         {isHosted && entity.serverHostingEnabled ?
           <EntityActionButton label="Stop hosting" icon={FaStop} className="entity-action-stop" disabled={hostingBusy || entity.serverCanManageHosting !== true}
             title="Stop server execution early · preserve unused prepaid time" onClick={() => void hostingAction(false)} />

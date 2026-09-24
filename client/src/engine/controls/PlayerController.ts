@@ -422,6 +422,7 @@ export class PlayerController {
   hoveredContraptionHit: any;
   pendingInteractionStops: WeakSet<object>;
   wrenchGrab: any;
+  private wrenchScrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
   wrenchPivotTarget: any;
   hoveredWrenchGizmoHandle: any;
   activeWrenchGizmoDrag: any;
@@ -821,7 +822,7 @@ export class PlayerController {
 
     document.addEventListener('wheel', (e) => {
       this.handleWheel(e);
-    });
+    }, { passive: false });
   }
 
   handleKeyDown(e: KeyboardEvent) {
@@ -1039,7 +1040,30 @@ export class PlayerController {
     }
   }
 
-  handleWheel(e: { deltaY: number; shiftKey?: boolean }) {
+  handleWheel(e: { deltaY: number; deltaMode?: number; shiftKey?: boolean; ctrlKey?: boolean; preventDefault?: () => void }) {
+    if (this.activeTool === SpecialTool.WRENCH) {
+      const unitScale = e.deltaMode === 1
+        ? 16
+        : e.deltaMode === 2
+          ? (typeof window !== 'undefined' ? window.innerHeight : 800)
+          : 1;
+      const distanceChange = THREE.MathUtils.clamp(Number(e.deltaY) * unitScale * 0.01, -2, 2);
+      if (!Number.isFinite(distanceChange) || distanceChange === 0) return;
+      const focusedEntity = this.hoveredContraptionHit?.contraption || this.hoveredContraption || null;
+      const grab = this.wrenchGrab;
+      if (grab?.active && (!focusedEntity || focusedEntity === grab.contraption)) {
+        const nextDistance = THREE.MathUtils.clamp(grab.targetDistance + distanceChange, 0.75, 48);
+        if (nextDistance !== grab.targetDistance) {
+          grab.targetDistance = nextDistance;
+          e.preventDefault?.();
+        }
+        return;
+      }
+      if (focusedEntity && this.scrollFocusedWrenchEntity(focusedEntity, this.hoveredContraptionHit, distanceChange)) {
+        e.preventDefault?.();
+      }
+      return;
+    }
     if (!this.isLocked) return;
     if (this.ui) {
       if (this.activeTool === SpecialTool.HAMMER) {
@@ -1050,6 +1074,60 @@ export class PlayerController {
         this.ui.cycleColor(e.deltaY > 0 ? 1 : -1);
       }
     }
+  }
+
+  private scrollFocusedWrenchEntity(contraption, hit, distanceChange: number) {
+    if (!this.contraptions?.contraptions?.includes(contraption)) return false;
+    if (this.bulkEditJob) {
+      this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`, { tone: 'warning' });
+      return true;
+    }
+    if (contraption.serverManaged === true && contraption.serverCanEdit !== true) {
+      this.ui?.showToast?.('This entity is read-only or occupied by another endpoint', { tone: 'warning' });
+      return true;
+    }
+    if (this.handleRunningEntityInteraction(contraption)
+      && (this.pendingInteractionStops?.has(contraption) || this.isEntityRunning(contraption))) return true;
+    if (!this.canEditEntityInternals(contraption)) return true;
+
+    const eyePosition = this.physics?.getEyePosition?.() || this.camera?.position;
+    if (!eyePosition?.isVector3) return false;
+    const rootBody = contraption.getRigidBody?.(contraptionRootId(contraption));
+    const hitPoint = hit?.point?.isVector3
+      ? hit.point.clone()
+      : hit?.point
+        ? new THREE.Vector3(Number(hit.point.x), Number(hit.point.y), Number(hit.point.z))
+        : rootBody?.position?.clone?.();
+    if (!hitPoint?.isVector3) return false;
+
+    const hitDistance = Number(hit?.distance);
+    const targetSpace = Number.isFinite(hitDistance) && hitDistance >= 0 ? 'bent' : 'flat';
+    const currentDistance = targetSpace === 'bent' ? hitDistance : eyePosition.distanceTo(hitPoint);
+    const nextDistance = THREE.MathUtils.clamp(currentDistance + distanceChange, 0.75, 48);
+    if (nextDistance === currentDistance) return true;
+    const nextPoint = this.getWrenchTargetPosition(eyePosition, nextDistance, hitPoint, targetSpace);
+    const translation = nextPoint.sub(hitPoint);
+    if (translation.lengthSq() < 1e-10) return true;
+
+    for (const body of contraption.rigidBodies?.values?.() || []) {
+      body.position?.add?.(translation);
+      body.velocity?.set?.(0, 0, 0);
+      body.angularVelocity?.set?.(0, 0, 0);
+      body.appliedForces?.set?.(0, 0, 0);
+      body.appliedTorques?.set?.(0, 0, 0);
+      body.previousKinematicPosition?.copy?.(body.position);
+      body.previousKinematicQuaternion?.copy?.(body.quaternion);
+    }
+    contraption.position.add(translation);
+    contraption.syncAllBodyTransforms?.();
+    contraption.updateTransform?.();
+    contraption.capturePreviousEntityTransforms?.();
+    if (this.wrenchScrollSaveTimer) clearTimeout(this.wrenchScrollSaveTimer);
+    this.wrenchScrollSaveTimer = setTimeout(() => {
+      this.wrenchScrollSaveTimer = null;
+      this.contraptions?.saveEntitiesToStorage?.();
+    }, 180);
+    return true;
   }
 
   setHotbarSlot(index) {
@@ -4930,6 +5008,18 @@ export class PlayerController {
       });
       return true;
     }
+    // Wrench RMB opens the same entity action menu as the nameplate ellipsis.
+    if (this.activeTool === SpecialTool.WRENCH) {
+      const target = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
+      if (!target) {
+        this.ui?.showToast?.('Wrench: point at an entity to open its actions');
+        return false;
+      }
+      return this.ui?.showEntityContextMenu?.(target, {
+        x: Number(e?.clientX),
+        y: Number(e?.clientY)
+      }) ?? false;
+    }
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
@@ -5087,12 +5177,6 @@ export class PlayerController {
     // 4. Pipette -> Sample color on right click as well
     if (this.activeTool === SpecialTool.PIPETTE) {
       this.sampleTargetedColor();
-      return;
-    }
-
-    // Wrench right-click starts entity runtime.
-    if (this.activeTool === SpecialTool.WRENCH) {
-      this.startHoveredEntity();
       return;
     }
 
@@ -5584,7 +5668,7 @@ export class PlayerController {
     this.sceneRenderer?.clearWrenchPivotGizmo?.();
   }
 
-  private beginWrenchManipulation(contraption, simulationEnabled: boolean) {
+  private beginWrenchManipulation(contraption, simulationEnabled: boolean, updateServerRunState = true) {
     this.releaseWrenchGrab();
     const wasRunning = contraption.scriptStatus !== 'stopped'
       || contraption.isPhysicsSimulationEnabled?.() !== false;
@@ -5601,7 +5685,7 @@ export class PlayerController {
     } else {
       contraption.stopAllNodeScripts?.();
     }
-    if (contraption.serverManaged === true) {
+    if (contraption.serverManaged === true && updateServerRunState) {
       contraption.serverDesiredRunState = 'stopped';
       this.requestServerEntityRunState(contraption, 'stopped', { silent: true });
     }
@@ -6002,6 +6086,66 @@ export class PlayerController {
     this.serverEntityDeleteHandler = typeof handler === 'function' ? handler : null;
   }
 
+  private async resetEntityRotation(contraption): Promise<boolean> {
+    const rootId = contraptionRootId(contraption);
+    const rootBody = contraption.getRigidBody?.(rootId);
+    if (!rootBody?.position?.isVector3 || !rootBody?.quaternion?.isQuaternion) {
+      this.ui?.showToast?.('Entity rotation could not be reset', { tone: 'warning' });
+      return false;
+    }
+    if (contraption.serverManaged === true) {
+      if (contraption.serverExecutionMode === 'hosted' || contraption.serverCanEdit !== true) {
+        this.ui?.showToast?.('This entity cannot be rotated from this client', { tone: 'warning' });
+        return false;
+      }
+      if (this.isEntityRunning(contraption)) {
+        const stopped = await this.requestServerEntityRunState(contraption, 'stopped', { silent: true });
+        if (!stopped) return false;
+      }
+    }
+
+    this.beginWrenchManipulation(contraption, false, false);
+    const rootPosition = rootBody.position.clone();
+    const rootRotation = rootBody.quaternion.clone().normalize();
+    const inverseRootRotation = rootRotation.clone().invert();
+    const bodyFrames = [...(contraption.rigidBodies?.values?.() || [])].map((body: any) => ({
+      body,
+      localPosition: body.position.clone().sub(rootPosition).applyQuaternion(inverseRootRotation),
+      localQuaternion: inverseRootRotation.clone().multiply(body.quaternion).normalize()
+    }));
+    const resetRotation = new THREE.Quaternion();
+
+    for (const frame of bodyFrames) {
+      frame.body.position.copy(frame.localPosition).add(rootPosition);
+      frame.body.quaternion.copy(frame.localQuaternion).normalize();
+      frame.body.velocity?.set?.(0, 0, 0);
+      frame.body.angularVelocity?.set?.(0, 0, 0);
+      frame.body.appliedForces?.set?.(0, 0, 0);
+      frame.body.appliedTorques?.set?.(0, 0, 0);
+      frame.body.previousKinematicPosition?.copy?.(frame.body.position);
+      frame.body.previousKinematicQuaternion?.copy?.(frame.body.quaternion);
+    }
+    rootBody.quaternion.copy(resetRotation);
+    contraption.position.copy(rootPosition);
+    contraption.quaternion.copy(resetRotation);
+    contraption.velocity?.set?.(0, 0, 0);
+    contraption.angularVelocity?.set?.(0, 0, 0);
+    contraption.syncAllBodyTransforms?.();
+    contraption.updateTransform?.();
+    contraption.isWrenchGrabbed = false;
+    if (typeof contraption.setCollisionSimulationEnabled === 'function') {
+      contraption.setCollisionSimulationEnabled(true);
+    } else {
+      contraption.collisionSimulationEnabled = true;
+      contraption.invalidateCollisionPoseCache?.();
+    }
+    contraption.capturePreviousEntityTransforms?.();
+    this.contraptions?.saveEntitiesToStorage?.();
+    this.ui?.refresh?.();
+    this.ui?.showToast?.(`Entity #${contraption.id} rotation reset`);
+    return true;
+  }
+
   /** Whole-entity menu commands deliberately do not depend on hover, active
    * tool, or a Selector A/B range. Geometry selection retains its own gate. */
   async performEntityMenuAction(contraption, action: string): Promise<boolean> {
@@ -6036,6 +6180,7 @@ export class PlayerController {
       this.activateTool(SpecialTool.SELECTOR);
       return this.selectAllSelectionBlocks({ contraption, nodeId: contraptionRootId(contraption) });
     }
+    if (action === 'reset-rotation') return this.resetEntityRotation(contraption);
     if (!['start', 'stop', 'delete'].includes(action)) return false;
     if (contraption.serverManaged === true && contraption.serverCanControl !== true) {
       this.ui?.showToast?.('This entity is occupied by another endpoint', { tone: 'warning' });
