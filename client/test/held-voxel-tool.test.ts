@@ -361,3 +361,19 @@ test('the world tool follows the right arm and cached resources are released onc
   assert.equal(visibleTools(remote.object3d).length, 1);
   remote.dispose();
 });
+
+test('toolbar tools aiming raycast uses doubled maxDistance of 16m', () => {
+  let capturedCommand: any = null;
+  const mock = {
+    physics: { getEyePosition: () => new THREE.Vector3(0, 10, 0) },
+    camera: { quaternion: new THREE.Quaternion() },
+    performBasicAction: (cmd: any) => {
+      capturedCommand = cmd;
+      return { ok: true, hit: null };
+    }
+  };
+  PlayerController.prototype.performAimRaycast.call(mock as any);
+  assert.equal(capturedCommand?.domain, 'query');
+  assert.equal(capturedCommand?.action, 'raycast');
+  assert.equal(capturedCommand?.maxDistance, 16);
+});

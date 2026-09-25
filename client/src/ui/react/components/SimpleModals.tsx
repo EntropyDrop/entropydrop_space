@@ -331,6 +331,12 @@ export function GlobalSettingsModal() {
                   ))}
                 </div>
               </div>
+              <div className="settings-row">
+                <div className="settings-label-group"><span className="settings-label">Screenshot</span><span className="settings-desc">Save the current view as a PNG without HUD, player arms, or tools</span></div>
+                <div className="settings-control-group">
+                  <button id="setting-screenshot-btn" type="button" className="segment-btn" onClick={() => spaceUiStore.saveScreenshot()}>Save Screenshot</button>
+                </div>
+              </div>
             </div>
             <div className="settings-section">
               <div className="settings-section-title">PERFORMANCE</div>

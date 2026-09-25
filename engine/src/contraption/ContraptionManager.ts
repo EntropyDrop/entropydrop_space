@@ -2385,7 +2385,7 @@ export class ContraptionManager {
   // 4. RAYCAST CONTRAPTIONS
   // =========================================================================
 
-  raycastContraptionHit(rayOrigin, rayDir, maxDistance = 15) {
+  raycastContraptionHit(rayOrigin, rayDir, maxDistance = 30) {
     let closestHit = null;
     let closestDist = maxDistance;
 
@@ -2401,7 +2401,7 @@ export class ContraptionManager {
 
   /** Entity picking counterpart to World.raycastBent: both inputs are in the
    * visible torus space and returned distances can be compared directly. */
-  raycastContraptionHitBent(rayOriginBent, rayDirBent, maxDistance = 15) {
+  raycastContraptionHitBent(rayOriginBent, rayDirBent, maxDistance = 30) {
     let closestHit = null;
     let closestDist = maxDistance;
 
@@ -2415,7 +2415,7 @@ export class ContraptionManager {
     return closestHit;
   }
 
-  raycastContraption(rayOrigin, rayDir, maxDistance = 15) {
+  raycastContraption(rayOrigin, rayDir, maxDistance = 30) {
     return this.raycastContraptionHit(rayOrigin, rayDir, maxDistance)?.contraption || null;
   }
 

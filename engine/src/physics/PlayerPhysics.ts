@@ -283,6 +283,17 @@ export class PlayerPhysics {
         this.sweptBounds(previousYAABB, this.getAABB())), dy, previousYAABB);
     }
 
+    // The world has a hard lower boundary at y=0 even where no voxel is
+    // present. Keep a falling player above it instead of allowing gravity to
+    // move the character below the world indefinitely.
+    if (this.position.y < 0) {
+      this.position.y = 0;
+      this.velocity.y = 0;
+      this.isOnGround = true;
+      this.ridingContraption = null;
+      this.ridingBodyId = null;
+    }
+
     // -----------------------------------------------------------------------
     // 2. Move & Resolve Horizontal (X)
     // -----------------------------------------------------------------------

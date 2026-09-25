@@ -10,12 +10,15 @@ import {
 import { ActionDomain, executeBasicAction } from '../actions/BasicActions.ts';
 import {
   bendPoint,
+  bendPointForView,
   computeBentBoundsSphere,
+  projectBentSphereForView,
   TORUS_GREF,
   TORUS_K_PHI,
   TORUS_MAX_RHO,
   TORUS_R,
   TORUS_RHO,
+  torusTubeAngle,
   TORUS_SIZE_X,
   TORUS_SIZE_Z
 } from '../torus/TorusWorld.ts';
@@ -5865,6 +5868,7 @@ export class Contraption {
       transformVoxelBounds(local, node, transformed);
       if (bent) {
         computeBentBoundsSphere(transformed, sphere);
+        projectBentSphereForView(sphere, sphere);
         if (sphere.radius === Infinity) return true;
         const distance = delta.copy(sphere.center).sub(origin).dot(ray.direction);
         return distance >= -sphere.radius && distance <= maxDistance + sphere.radius
@@ -5877,7 +5881,7 @@ export class Contraption {
     });
   }
 
-  raycastCollisionCells(rayOrigin, rayDirection, maxDistance = 15) {
+  raycastCollisionCells(rayOrigin, rayDirection, maxDistance = 30) {
     let closest = null;
     let closestDistance = maxDistance;
     const nodeRays = new Map();
@@ -5936,7 +5940,7 @@ export class Contraption {
    * Each face is split exactly like createVoxelMesh, then its transformed flat
    * vertices are passed through bendPoint just as the vertex shader does.
    */
-  raycastBentCollisionCells(rayOriginBent, rayDirectionBent, maxDistance = 15) {
+  raycastBentCollisionCells(rayOriginBent, rayDirectionBent, maxDistance = 30) {
     const ray = new THREE.Ray(rayOriginBent.clone(), rayDirectionBent.clone().normalize());
     const barycentric = new THREE.Vector3();
     const flatCenter = new THREE.Vector3();
@@ -5969,11 +5973,18 @@ export class Contraption {
         baseY + size / 2,
         baseZ + size / 2
       ).applyMatrix4(node.group.matrixWorld);
-      bendPoint(flatCenter.x, flatCenter.y, flatCenter.z, bentCenter);
-      const rho = Math.min(TORUS_RHO + flatCenter.y - TORUS_GREF, TORUS_MAX_RHO);
-      const thetaScale = Math.abs((TORUS_R + rho * Math.cos(flatCenter.z * TORUS_K_PHI)) / TORUS_R);
-      const phiScale = Math.abs(rho / TORUS_RHO);
-      const maxLocalScale = Math.max(1, thetaScale, phiScale);
+      bendPointForView(flatCenter.x, flatCenter.y, flatCenter.z, bentCenter);
+      const phi = torusTubeAngle(flatCenter.z);
+      const cosine = Math.cos(phi);
+      const localScale = (TORUS_R + TORUS_RHO * cosine) / TORUS_R;
+      const rho = Math.min(TORUS_RHO + (flatCenter.y - TORUS_GREF) * localScale, TORUS_MAX_RHO);
+      const thetaScale = Math.abs((TORUS_R + rho * cosine) / TORUS_R);
+      const angleRate = (TORUS_R / TORUS_RHO + cosine)
+        / Math.sqrt((TORUS_R / TORUS_RHO) ** 2 - 1) * TORUS_K_PHI;
+      const phiScale = Math.abs(rho * angleRate);
+      const radialShear = Math.abs((flatCenter.y - TORUS_GREF)
+        * TORUS_RHO / TORUS_R * Math.sin(phi) * angleRate);
+      const maxLocalScale = Math.max(1, thetaScale, localScale, phiScale) + radialShear;
       const pickRadius = size * Math.sqrt(3) * 0.5 * maxLocalScale * 1.02 + 0.02;
       const centerDistance = centerDelta.copy(bentCenter).sub(rayOriginBent).dot(ray.direction);
       if (centerDistance < -pickRadius || centerDistance > closestDistance + pickRadius) continue;
@@ -5987,7 +5998,7 @@ export class Contraption {
             baseZ + z * size
           ));
           const flatCorners = localCorners.map(corner => corner.clone().applyMatrix4(node.group.matrixWorld));
-          const bentCorners = flatCorners.map(corner => bendPoint(corner.x, corner.y, corner.z));
+          const bentCorners = flatCorners.map(corner => bendPointForView(corner.x, corner.y, corner.z));
 
           for (const [ia, ib, ic] of [[0, 1, 2], [0, 2, 3]]) {
             const bentPoint = new THREE.Vector3();

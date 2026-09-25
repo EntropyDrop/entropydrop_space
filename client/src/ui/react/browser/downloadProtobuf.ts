@@ -11,3 +11,12 @@ export function triggerProtobufDownload(filename: string, data: Uint8Array | nul
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+export function triggerFileDownload(filename: string, href: string): void {
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}

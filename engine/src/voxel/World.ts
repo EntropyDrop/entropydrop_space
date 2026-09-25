@@ -26,7 +26,8 @@ import {
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
 import {
   wrapX, wrapZ, wrapChunkX, wrapChunkZ, wrapMicroX, wrapMicroZ,
-  bendPoint, unbendPoint, computeChunkBentSphere, hookSceneMaterials,
+  bendPoint, unbendPoint, bendPointForView, unbendPointForView,
+  computeChunkBentSphere, hookSceneMaterials,
   getWorldProjectionRevision, TORUS_SIZE_X, TORUS_SIZE_Z
 } from '../torus/TorusWorld.ts';
 
@@ -1181,7 +1182,7 @@ export class World {
    * occupied candidates; the final result comes from an exact intersection with
    * the same bent face triangles that LowPolyMesher sends to the GPU.
    */
-  raycastBent(originBent, dirBent, maxDistance = 8, usePublishedCollision = true) {
+  raycastBent(originBent, dirBent, maxDistance = 16, usePublishedCollision = true) {
     const result = this.raycastBentVoxelFaces(
       originBent,
       dirBent,
@@ -1218,7 +1219,7 @@ export class World {
   /**
    * Exact bent-face raycast for 0.125 m micro voxels.
    */
-  raycastMicroBent(originBent, dirBent, maxDistance = 8, usePublishedCollision = true) {
+  raycastMicroBent(originBent, dirBent, maxDistance = 16, usePublishedCollision = true) {
     const result = this.raycastBentVoxelFaces(
       originBent,
       dirBent,
@@ -1281,7 +1282,7 @@ export class World {
 
     for (let t = 0; t <= cappedDistance + step; t += step) {
       p.copy(originBent).addScaledVector(direction, Math.min(t, cappedDistance));
-      unbendPoint(p.x, p.y, p.z, flat);
+      unbendPointForView(p.x, p.y, p.z, flat);
       const sampleX = Math.floor(flat.x * divisions);
       const sampleY = Math.floor(flat.y * divisions);
       const sampleZ = Math.floor(flat.z * divisions);
@@ -1321,7 +1322,7 @@ export class World {
           originY + y * cellSize,
           originZ + z * cellSize
         ));
-        const bentCorners = flatCorners.map(corner => bendPoint(corner.x, corner.y, corner.z));
+        const bentCorners = flatCorners.map(corner => bendPointForView(corner.x, corner.y, corner.z));
 
         for (const [ia, ib, ic] of [[0, 1, 2], [0, 2, 3]]) {
           const bentPoint = new THREE.Vector3();

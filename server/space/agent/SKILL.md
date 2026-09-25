@@ -18,7 +18,7 @@ All world operations and position queries require a user-provided spaceAPI Key:
 - **World entities**: Authorship does not restrict operations. All world members may edit stopped/unoccupied entities; only the occupying browser endpoint may stop or modify a live entity. Market publisher permissions remain separate.
 
 ## Agent Workflow
-1. **API Key & Position**: Ensure you have the user's spaceAPI key. Then query the player's saved position via `GET /space/api/v2/players/me/position`. If the position is stale (> 30s) or unavailable, ask the user to enter the online Space world to refresh their coordinates.
+1. **API Key & Position**: Ensure you have the user's spaceAPI key. Then query the player's saved position via `GET /space/api/v2/players/me/position`. A stale position is still usable: use the latest saved coordinates to build nearby even when the player is offline or inactive. If no position is available, ask for the desired coordinates or placement location; do not require the player to enter the online world just to create an entity or blockset.
 2. **Requirements & Planning**: Clarify what the user wants to build. Plan voxel geometry, dimensions, colors, and components.
 3. **Programmable Scripts**: If the entity has programmable parts (thrusters, hinges, spinners, sensors), write `entityAPI` scripts using `self` and `ctx`.
 4. **Execution**: Submit the construction via spaceAPI. Keep operation IDs and request bodies stable across retries.

@@ -19,7 +19,7 @@ The preferred transport sends the canonical resource as raw bytes inside the
 `definition_base64` JSON example below uploads the same canonical bytes and remains
 accepted, so either form stores identical content and shares one content digest.
 
-The following example prepares **one stopped orange cube** six metres east of the player. Replace the component geometry and scripts with the user's requested construction. It refuses stale coordinates, saves a secret-free idempotent request file, and does not submit automatically. If the request file already exists, it preserves it for retry.
+The following example prepares **one stopped orange cube** six metres east of the player's latest saved position. The player may be offline or inactive; the example uses the saved coordinates even when the checkpoint is stale. Replace the component geometry and scripts with the user's requested construction. It saves a secret-free idempotent request file and does not submit automatically. If the request file already exists, it preserves it for retry.
 
 ```python
 import base64, json, os, pathlib, urllib.request, uuid
@@ -33,8 +33,6 @@ if not request_path.exists():
         headers={'Authorization': 'Bearer ' + key})
     with urllib.request.urlopen(request, timeout=20) as response:
         pose = json.load(response)
-    if pose['stale']:
-        raise SystemExit('Player position is stale. Refresh it before building nearby.')
     resource = pb.InventoryResource(schema_version=7)
     root = resource.entity.root
     root.id, root.name = 'chassis', 'Orange cube'

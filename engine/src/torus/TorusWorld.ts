@@ -9,8 +9,8 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 //
 // Bend mapping (flat → bent):
 //   θ = wx·2π/16384        major-ring angle
-//   φ = wz·2π/2048         tube angle
-//   ρ = r + (wy − GREF)    radial distance from the tube centerline
+//   t = wz·2π/2048; φ = 2 atan2(√((R/r+1)/(R/r−1)) sin(t/2), cos(t/2))
+//   s = (R + r·cosφ)/R; ρ = r + (wy − GREF)·s
 //   P = ((R + ρ·cosφ)·cosθ, ρ·sinφ, (R + ρ·cosφ)·sinθ)
 //   R = 16384/2π ≈ 2607.59, r = 2048/2π ≈ 325.95
 //
@@ -33,7 +33,7 @@ export const TORUS_MAX_RHO = TORUS_R - 1;             // Keep ρ ≤ R−1 so th
 export const TORUS_K_THETA = (Math.PI * 2) / TORUS_SIZE_X;
 export const TORUS_K_PHI = (Math.PI * 2) / TORUS_SIZE_Z;
 
-const WORLD_PROJECTION_REVISION = 0;
+const WORLD_PROJECTION_REVISION = 1;
 
 /** The torus projection is immutable, so cached bent-space bounds never need a mode revision. */
 export function getWorldProjectionRevision(): number {
@@ -83,22 +83,81 @@ export function unwrapPeriodicNear(value, anchor, period) {
 // -----------------------------------------------------------------------------
 // Bend and unbend.
 // -----------------------------------------------------------------------------
+const TORUS_ASPECT = TORUS_R / TORUS_RHO;
+const TORUS_TUBE_ANGLE_FACTOR = Math.sqrt((TORUS_ASPECT + 1) / (TORUS_ASPECT - 1));
+const TORUS_TUBE_ANGLE_FACTOR_SQUARED = TORUS_TUBE_ANGLE_FACTOR ** 2;
+const TORUS_TUBE_INVERSE_FACTOR = 1 / TORUS_TUBE_ANGLE_FACTOR;
+const _tubeTrig = new THREE.Vector2();
 const _vA = new THREE.Vector3();
 const _vB = new THREE.Vector3();
 const _vC = new THREE.Vector3();
 const _basis = new THREE.Matrix4();
 const _quatA = new THREE.Quaternion();
 const _quatB = new THREE.Quaternion();
+const _viewOrigin = new THREE.Vector3();
+const _viewMatrix = new THREE.Matrix3();
+const _viewInverse = new THREE.Matrix3();
+const _viewEnabled = { value: 0 };
+const VIEW_FLAT_RADIUS = 96;
+const VIEW_TORUS_RADIUS = 256;
+const _viewJacobian = new THREE.Matrix3();
+const _viewFrame = new THREE.Matrix3();
+const _viewDx = new THREE.Vector3();
+const _viewDy = new THREE.Vector3();
+const _viewDz = new THREE.Vector3();
+const _viewSample = new THREE.Vector3();
+const _viewProjected = new THREE.Vector3();
+let _viewNearBoundScale = 1;
+let _viewTransitionBoundScale = 1;
+
+function matrixOperatorBound(matrix: THREE.Matrix3, subtractIdentity = false) {
+  const e = matrix.elements;
+  const a = e.map((value, index) => value - (subtractIdentity && index % 4 === 0 ? 1 : 0));
+  const row = Math.max(
+    Math.abs(a[0]) + Math.abs(a[3]) + Math.abs(a[6]),
+    Math.abs(a[1]) + Math.abs(a[4]) + Math.abs(a[7]),
+    Math.abs(a[2]) + Math.abs(a[5]) + Math.abs(a[8]),
+  );
+  const column = Math.max(
+    Math.abs(a[0]) + Math.abs(a[1]) + Math.abs(a[2]),
+    Math.abs(a[3]) + Math.abs(a[4]) + Math.abs(a[5]),
+    Math.abs(a[6]) + Math.abs(a[7]) + Math.abs(a[8]),
+  );
+  return Math.sqrt(row * column);
+}
+
+/** Redistribute the tube angle so ground-level X and Z lengths differ by under 1%. */
+export function torusTubeAngle(z: number) {
+  const halfAngle = z * TORUS_K_PHI * 0.5;
+  return 2 * Math.atan2(
+    TORUS_TUBE_ANGLE_FACTOR * Math.sin(halfAngle),
+    Math.cos(halfAngle),
+  );
+}
+
+function torusTubeTrig(z: number, out: THREE.Vector2) {
+  const halfAngle = z * TORUS_K_PHI * 0.5;
+  const sine = Math.sin(halfAngle);
+  const cosine = Math.cos(halfAngle);
+  const sineSquared = sine * sine;
+  const cosineSquared = cosine * cosine;
+  const denominator = cosineSquared + TORUS_TUBE_ANGLE_FACTOR_SQUARED * sineSquared;
+  return out.set(
+    (cosineSquared - TORUS_TUBE_ANGLE_FACTOR_SQUARED * sineSquared) / denominator,
+    2 * TORUS_TUBE_ANGLE_FACTOR * sine * cosine / denominator,
+  );
+}
 
 function bendTorusPoint(x: number, y: number, z: number, out: THREE.Vector3) {
   const theta = x * TORUS_K_THETA;
-  const phi = z * TORUS_K_PHI;
-  let rho = TORUS_RHO + (y - TORUS_GREF);
+  torusTubeTrig(z, _tubeTrig);
+  const cp = _tubeTrig.x;
+  const sp = _tubeTrig.y;
+  const localScale = (TORUS_R + TORUS_RHO * cp) / TORUS_R;
+  let rho = TORUS_RHO + (y - TORUS_GREF) * localScale;
   if (rho > TORUS_MAX_RHO) rho = TORUS_MAX_RHO;
   const ct = Math.cos(theta);
   const st = Math.sin(theta);
-  const cp = Math.cos(phi);
-  const sp = Math.sin(phi);
   const rad = TORUS_R + rho * cp;
   return out.set(rad * ct, rho * sp, rad * st);
 }
@@ -113,11 +172,17 @@ export function bendPoint(x, y, z, out = new THREE.Vector3()) {
 export function computeBentBoundsSphere(bounds, out = new THREE.Sphere()) {
   bendPoint((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2,
     (bounds.minZ + bounds.maxZ) / 2, out.center);
-  const rho = Math.max(
-    Math.abs(Math.min(TORUS_RHO + bounds.minY - TORUS_GREF, TORUS_MAX_RHO)),
-    Math.abs(Math.min(TORUS_RHO + bounds.maxY - TORUS_GREF, TORUS_MAX_RHO)),
+  const maxHeightOffset = Math.max(
+    Math.abs(bounds.minY - TORUS_GREF),
+    Math.abs(bounds.maxY - TORUS_GREF),
   );
-  const scale = Math.max(1, (TORUS_R + rho) / TORUS_R, rho / TORUS_RHO);
+  const rho = Math.min(
+    TORUS_RHO + maxHeightOffset * (1 + TORUS_RHO / TORUS_R),
+    TORUS_MAX_RHO,
+  );
+  // Also cover the small radial component of the Z derivative above ground.
+  const scale = Math.max(1, (TORUS_R + rho) / TORUS_R,
+    rho / TORUS_RHO * 1.15 + maxHeightOffset * 0.0005);
   out.radius = Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY,
     bounds.maxZ - bounds.minZ) * 0.5 * scale + 1e-6;
   return out;
@@ -130,23 +195,29 @@ export function unbendPoint(bx, by, bz, out = new THREE.Vector3()) {
   if (u < -TORUS_MAX_RHO) u = -rxy - TORUS_R; // Hole fallback, outside the world and treated as air.
   const rho = Math.hypot(u, by);
   const phi = Math.atan2(by, u);
+  const halfPhi = phi * 0.5;
+  const tubeAngle = 2 * Math.atan2(
+    TORUS_TUBE_INVERSE_FACTOR * Math.sin(halfPhi),
+    Math.cos(halfPhi),
+  );
   let theta = Math.atan2(bz, bx);
   let wx = (theta / (Math.PI * 2)) * TORUS_SIZE_X;
-  let wz = (phi / (Math.PI * 2)) * TORUS_SIZE_Z;
+  let wz = (tubeAngle / (Math.PI * 2)) * TORUS_SIZE_Z;
   wx = ((wx % TORUS_SIZE_X) + TORUS_SIZE_X) % TORUS_SIZE_X;
   wz = ((wz % TORUS_SIZE_Z) + TORUS_SIZE_Z) % TORUS_SIZE_Z;
-  const wy = rho - TORUS_RHO + TORUS_GREF;
+  const localScale = (TORUS_R + TORUS_RHO * Math.cos(phi)) / TORUS_R;
+  const wy = (rho - TORUS_RHO) / localScale + TORUS_GREF;
   return out.set(wx, wy, wz);
 }
 
 // Local orthonormal frame: flat basis (X→eθ, Y→eρ, Z→eφ) to the bent tangent basis.
 function torusFrameAxes(x, y, z) {
   const theta = x * TORUS_K_THETA;
-  const phi = z * TORUS_K_PHI;
+  torusTubeTrig(z, _tubeTrig);
   const ct = Math.cos(theta);
   const st = Math.sin(theta);
-  const cp = Math.cos(phi);
-  const sp = Math.sin(phi);
+  const cp = _tubeTrig.x;
+  const sp = _tubeTrig.y;
   _vA.set(-st, 0, ct);           // e_θ
   _vB.set(cp * ct, sp, cp * st); // e_ρ is the surface normal.
   _vC.set(-sp * ct, cp, -sp * st); // e_φ
@@ -178,6 +249,107 @@ export function bendFrameQuaternion(x, y, z, out = _quatA) {
   torusFrameAxes(x, y, z);
   _basis.makeBasis(_vA, _vB, _vC);
   return out.setFromRotationMatrix(_basis);
+}
+
+/** Keep the player's nearby cubic geometry in a flat tangent chart. The chart
+ * smoothly rejoins the closed torus outside the interaction distance. */
+export function setTorusViewCorrection(flatCamera: THREE.Vector3 | null) {
+  if (!flatCamera) {
+    _viewEnabled.value = 0;
+    return;
+  }
+  const { x, y, z } = flatCamera;
+  bendPoint(x, y, z, _viewOrigin);
+  const epsilon = 0.01;
+  bendPoint(x + epsilon, y, z, _viewDx);
+  bendPoint(x, y + epsilon, z, _viewDy);
+  bendPoint(x, y, z + epsilon, _viewDz);
+  _viewDx.sub(_viewOrigin).divideScalar(epsilon);
+  _viewDy.sub(_viewOrigin).divideScalar(epsilon);
+  _viewDz.sub(_viewOrigin).divideScalar(epsilon);
+  _viewJacobian.set(
+    _viewDx.x, _viewDy.x, _viewDz.x,
+    _viewDx.y, _viewDy.y, _viewDz.y,
+    _viewDx.z, _viewDy.z, _viewDz.z,
+  );
+  bendFrameQuaternion(x, y, z, _quatB);
+  _viewDx.set(1, 0, 0).applyQuaternion(_quatB);
+  _viewDy.set(0, 1, 0).applyQuaternion(_quatB);
+  _viewDz.set(0, 0, 1).applyQuaternion(_quatB);
+  _viewFrame.set(
+    _viewDx.x, _viewDy.x, _viewDz.x,
+    _viewDx.y, _viewDy.y, _viewDz.y,
+    _viewDx.z, _viewDy.z, _viewDz.z,
+  );
+  _viewMatrix.copy(_viewFrame).multiply(_viewJacobian.invert());
+  _viewInverse.copy(_viewMatrix).invert();
+  _viewNearBoundScale = Math.max(1, matrixOperatorBound(_viewMatrix));
+  _viewTransitionBoundScale = _viewNearBoundScale
+    + matrixOperatorBound(_viewMatrix, true) * VIEW_TORUS_RADIUS * 1.5
+      / (VIEW_TORUS_RADIUS - VIEW_FLAT_RADIUS);
+  _viewEnabled.value = 1;
+}
+
+export function projectBentPointForView(point: THREE.Vector3, out = new THREE.Vector3()) {
+  if (!_viewEnabled.value) return out.copy(point);
+  const dx = point.x - _viewOrigin.x;
+  const dy = point.y - _viewOrigin.y;
+  const dz = point.z - _viewOrigin.z;
+  const distance = Math.hypot(dx, dy, dz);
+  if (distance >= VIEW_TORUS_RADIUS) return out.copy(point);
+  const t = THREE.MathUtils.clamp(
+    (distance - VIEW_FLAT_RADIUS) / (VIEW_TORUS_RADIUS - VIEW_FLAT_RADIUS), 0, 1,
+  );
+  const weight = 1 - t * t * (3 - 2 * t);
+  const e = _viewMatrix.elements;
+  return out.set(
+    point.x + weight * (e[0] * dx + e[3] * dy + e[6] * dz - dx),
+    point.y + weight * (e[1] * dx + e[4] * dy + e[7] * dz - dy),
+    point.z + weight * (e[2] * dx + e[5] * dy + e[8] * dz - dz),
+  );
+}
+
+export function bendPointForView(x: number, y: number, z: number, out = new THREE.Vector3()) {
+  return projectBentPointForView(bendPoint(x, y, z, out), out);
+}
+
+export function unbendPointForView(bx: number, by: number, bz: number, out = new THREE.Vector3()) {
+  if (!_viewEnabled.value) return unbendPoint(bx, by, bz, out);
+  const dx = bx - _viewOrigin.x;
+  const dy = by - _viewOrigin.y;
+  const dz = bz - _viewOrigin.z;
+  if (Math.hypot(dx, dy, dz) < VIEW_FLAT_RADIUS * 0.5) {
+    const e = _viewInverse.elements;
+    return unbendPoint(
+      _viewOrigin.x + e[0] * dx + e[3] * dy + e[6] * dz,
+      _viewOrigin.y + e[1] * dx + e[4] * dy + e[7] * dz,
+      _viewOrigin.z + e[2] * dx + e[5] * dy + e[8] * dz,
+      out,
+    );
+  }
+  // A few fixed-point steps cover the 96–256 m blend zone used by previews.
+  _viewSample.set(bx, by, bz);
+  for (let i = 0; i < 6; i++) {
+    projectBentPointForView(_viewSample, _viewProjected);
+    _viewSample.x += bx - _viewProjected.x;
+    _viewSample.y += by - _viewProjected.y;
+    _viewSample.z += bz - _viewProjected.z;
+  }
+  return unbendPoint(_viewSample.x, _viewSample.y, _viewSample.z, out);
+}
+
+export function projectBentSphereForView(sphere: THREE.Sphere, out = new THREE.Sphere()) {
+  const rawDistance = sphere.center.distanceTo(_viewOrigin);
+  projectBentPointForView(sphere.center, out.center);
+  // The blend can enlarge a bound near its transition. This covers both the
+  // local inverse Jacobian and the extra derivative of the blend weight.
+  const scale = !_viewEnabled.value || rawDistance - sphere.radius >= VIEW_TORUS_RADIUS
+    ? 1
+    : rawDistance + sphere.radius <= VIEW_FLAT_RADIUS
+      ? _viewNearBoundScale
+      : _viewTransitionBoundScale;
+  out.radius = sphere.radius * scale;
+  return out;
 }
 
 /** Bend a flat-space camera position and orientation onto the torus. */
@@ -259,46 +431,59 @@ uniform float uTorusR;
 uniform float uTorusRho;
 uniform float uTorusGRef;
 uniform float uTorusMaxRho;
+uniform float uTorusTubeAngleFactor;
+uniform float uTorusViewEnabled;
+uniform vec3 uTorusViewOrigin;
+uniform mat3 uTorusViewMatrix;
+
+vec2 torusTubeTrig( float z ) {
+	float halfAngle = z * uTorusKPhi * 0.5;
+	float factor = uTorusTubeAngleFactor;
+	float sine = sin(halfAngle);
+	float cosine = cos(halfAngle);
+	float sineSquared = sine * sine;
+	float cosineSquared = cosine * cosine;
+	float denominator = cosineSquared + factor * factor * sineSquared;
+	return vec2(
+		(cosineSquared - factor * factor * sineSquared) / denominator,
+		2.0 * factor * sine * cosine / denominator
+	);
+}
 
 vec3 torusBend( vec3 p ) {
 	float theta = p.x * uTorusKTheta;
-	float phi = p.z * uTorusKPhi;
-	float rho = uTorusRho + ( p.y - uTorusGRef );
+	vec2 tubeTrig = torusTubeTrig( p.z );
+	float cp = tubeTrig.x;
+	float localScale = (uTorusR + uTorusRho * cp) / uTorusR;
+	float rho = uTorusRho + ( p.y - uTorusGRef ) * localScale;
 	rho = min( rho, uTorusMaxRho );
 	float ct = cos( theta );
 	float st = sin( theta );
-	float cp = cos( phi );
-	float sp = sin( phi );
+	float sp = tubeTrig.y;
 	float rad = uTorusR + rho * cp;
 	return vec3( rad * ct, rho * sp, rad * st );
 }
 
-vec3 torusAxisTheta( vec3 p ) {
-	return vec3( -sin( p.x * uTorusKTheta ), 0.0, cos( p.x * uTorusKTheta ) );
-}
-
-vec3 torusAxisRho( vec3 p ) {
-	float theta = p.x * uTorusKTheta;
-	float phi = p.z * uTorusKPhi;
-	float ct = cos( theta );
-	float st = sin( theta );
-	float cp = cos( phi );
-	float sp = sin( phi );
-	return vec3( cp * ct, sp, cp * st );
-}
-
-vec3 torusAxisPhi( vec3 p ) {
-	float theta = p.x * uTorusKTheta;
-	float phi = p.z * uTorusKPhi;
-	float ct = cos( theta );
-	float st = sin( theta );
-	float cp = cos( phi );
-	float sp = sin( phi );
-	return vec3( -sp * ct, cp, -sp * st );
+vec3 torusBendForView( vec3 p ) {
+	vec3 bent = torusBend( p );
+	if (uTorusViewEnabled < 0.5) return bent;
+	vec3 delta = bent - uTorusViewOrigin;
+	float t = smoothstep(${VIEW_FLAT_RADIUS.toFixed(1)}, ${VIEW_TORUS_RADIUS.toFixed(1)}, length(delta));
+	return bent + (1.0 - t) * (uTorusViewMatrix * delta - delta);
 }
 
 mat3 torusFrame( vec3 p ) {
-	return mat3( torusAxisTheta( p ), torusAxisRho( p ), torusAxisPhi( p ) );
+	float theta = p.x * uTorusKTheta;
+	vec2 tubeTrig = torusTubeTrig( p.z );
+	float ct = cos( theta );
+	float st = sin( theta );
+	float cp = tubeTrig.x;
+	float sp = tubeTrig.y;
+	return mat3(
+		vec3( -st, 0.0, ct ),
+		vec3( cp * ct, sp, cp * st ),
+		vec3( -sp * ct, cp, -sp * st )
+	);
 }
 `;
 
@@ -307,7 +492,7 @@ vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
 	worldPosition = modelMatrix * ( instanceMatrix * vec4( transformed, 1.0 ) );
 #endif
-worldPosition.xyz = torusBend( worldPosition.xyz );
+worldPosition.xyz = torusBendForView( worldPosition.xyz );
 vec4 mvPosition = viewMatrix * worldPosition;
 gl_Position = projectionMatrix * mvPosition;
 `;
@@ -368,6 +553,10 @@ function hookMaterialForTorus(material) {
     u.uTorusRho = { value: TORUS_RHO };
     u.uTorusGRef = { value: TORUS_GREF };
     u.uTorusMaxRho = { value: TORUS_MAX_RHO };
+    u.uTorusTubeAngleFactor = { value: TORUS_TUBE_ANGLE_FACTOR };
+    u.uTorusViewEnabled = _viewEnabled;
+    u.uTorusViewOrigin = { value: _viewOrigin };
+    u.uTorusViewMatrix = { value: _viewMatrix };
     let vs = shader.vertexShader;
     if (!vs.includes('torusBend')) {
       vs = TORUS_GLSL_PREFIX + vs;
@@ -388,7 +577,7 @@ function hookMaterialForTorus(material) {
     const prior = typeof previousCacheKey === 'function'
       ? previousCacheKey.call(material)
       : '';
-    return `${prior}|torus-bend-v4`;
+    return `${prior}|torus-bend-v6`;
   };
   material.needsUpdate = true;
 }
@@ -428,7 +617,21 @@ export function hookSceneMaterials(root) {
 // -----------------------------------------------------------------------------
 const _projScreen = new THREE.Matrix4();
 const _frustum = new THREE.Frustum();
+const _cullingRawSphere = new THREE.Sphere();
+const _cullingViewSphere = new THREE.Sphere();
+const _cullingViewBounds = { cx: 0, cy: 0, cz: 0, radius: 0 };
 const TERRAIN_SHADOW_CASTER_DISTANCE = 64;
+
+function projectedCullingBounds(bs) {
+  _cullingRawSphere.center.set(bs.cx, bs.cy, bs.cz);
+  _cullingRawSphere.radius = bs.radius;
+  projectBentSphereForView(_cullingRawSphere, _cullingViewSphere);
+  _cullingViewBounds.cx = _cullingViewSphere.center.x;
+  _cullingViewBounds.cy = _cullingViewSphere.center.y;
+  _cullingViewBounds.cz = _cullingViewSphere.center.z;
+  _cullingViewBounds.radius = _cullingViewSphere.radius;
+  return _cullingViewBounds;
+}
 
 function isLocalShadowCaster(camera, bs): boolean {
   return Math.hypot(
@@ -485,7 +688,7 @@ export function cullChunks(camera, world) {
       mesh.userData.bentSphereRevision = WORLD_PROJECTION_REVISION;
     }
 
-    mesh.visible = isBentSphereVisible(camera, bs);
+    mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs));
     const castShadow = mesh.visible && isLocalShadowCaster(camera, bs);
     mesh.traverse((child) => {
       if (child.isMesh) child.castShadow = castShadow;
@@ -524,7 +727,7 @@ export function cullChunks(camera, world) {
       mesh.userData.bentSphere = bs;
       mesh.userData.bentSphereRevision = WORLD_PROJECTION_REVISION;
     }
-    mesh.visible = isBentSphereVisible(camera, bs);
+    mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs));
     mesh.castShadow = mesh.visible && isLocalShadowCaster(camera, bs);
   }
 }

@@ -76,7 +76,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   // these choices into the regular user's persisted graphics preferences.
   game.sceneRenderer.setLightingQuality('medium');
   game.sceneRenderer.setResolutionScale(1);
-  game.sceneRenderer.setShadowsEnabled(true);
+  game.sceneRenderer.setShadowsEnabled(false);
   game.playerPhysics.isFlying = true;
   game.controller.pitch = -0.85;
   const gate = document.getElementById('space-entry-gate');
@@ -213,7 +213,7 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
         const ordered = [...frames].sort((a, b) => a - b);
         const cpu = [...cpuFrames].sort((a, b) => a - b);
         const info = game.sceneRenderer.renderer.info;
-        stats.textContent = `FPS ${game.currentFps.toFixed(1)} | frame p50 ${(ordered[Math.floor(ordered.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(ordered[Math.floor(ordered.length * .95)] ?? 0).toFixed(1)} ms\nMain CPU p50 ${(cpu[Math.floor(cpu.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(cpu[Math.floor(cpu.length * .95)] ?? 0).toFixed(1)} ms\nDraw calls ${info.render.calls} | triangles ${info.render.triangles}\nActive chunks ${game.world.activeChunkKeys.size} (X ±${game.world.renderDistance}, Z ±${game.world.renderDistanceZ})\nMicro partitions ${game.world.microVoxels.meshChunks.size} → draw meshes ${game.world.microVoxels.renderMeshes.size}\nFixed medium lighting / 100% resolution / shadows on\nLocal near terrain only; not a live-server FPS measurement.`;
+        stats.textContent = `FPS ${game.currentFps.toFixed(1)} | frame p50 ${(ordered[Math.floor(ordered.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(ordered[Math.floor(ordered.length * .95)] ?? 0).toFixed(1)} ms\nMain CPU p50 ${(cpu[Math.floor(cpu.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(cpu[Math.floor(cpu.length * .95)] ?? 0).toFixed(1)} ms\nDraw calls ${info.render.calls} | triangles ${info.render.triangles}\nActive chunks ${game.world.activeChunkKeys.size} (X ±${game.world.renderDistance}, Z ±${game.world.renderDistanceZ})\nMicro partitions ${game.world.microVoxels.meshChunks.size} → draw meshes ${game.world.microVoxels.renderMeshes.size}\nFixed medium lighting / 100% resolution / shadows ${game.sceneRenderer.shadowsEnabled ? 'on' : 'off'}\nLocal near terrain only; not a live-server FPS measurement.`;
         stats.textContent = stats.textContent.replace('Local near terrain only; not a live-server FPS measurement.',
           surface ? 'Local near + distant fixture; not a live-server FPS measurement.'
             : 'Local near terrain only; not a live-server FPS measurement.');

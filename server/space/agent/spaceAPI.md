@@ -33,10 +33,10 @@ This reads the key owner's latest saved position in the server's default world. 
 }
 ```
 
-These coordinates are **integer centimetres**, not metres. `yaw_q15 / 32767 * π` converts yaw to radians; yaw 0 faces -Z. The position is the player's physics/feet position, not the camera eye. After the player moves or turns, the browser normally saves the changed pose within about five seconds. A stationary player may retain an older checkpoint; this is not a live tracking stream. To refresh an old position, move slightly in the online world and retry after a few seconds.
+These coordinates are **integer centimetres**, not metres. `yaw_q15 / 32767 * π` converts yaw to radians; yaw 0 faces -Z. The position is the player's physics/feet position, not the camera eye. After the player moves or turns, the browser normally saves the changed pose within about five seconds. A stationary player may retain an older checkpoint; this is not a live tracking stream. Use the latest saved coordinates for nearby creation while the player is offline. Refresh only when the user specifically needs their current position.
 
-- `stale: true`: the checkpoint is older than 30 seconds or has an invalid future timestamp. For a request to build "near me", obtain a fresh checkpoint or ask the user to confirm using the old position.
-- `404 PLAYER_POSITION_UNAVAILABLE`: there is no usable checkpoint. Ask the user to enter the online world and retry. Never use bootstrap's random fallback as their real location.
+- `stale: true`: the checkpoint is older than 30 seconds or has an invalid future timestamp. Staleness is informational and does not prevent creation: for a request to build "near me", use the latest saved coordinates even if the player is offline or inactive.
+- `404 PLAYER_POSITION_UNAVAILABLE`: there is no saved position to build near. Ask the user for the desired coordinates or placement location; do not require them to enter the online world just to create an entity or blockset. Never use bootstrap's random fallback as their real location.
 - `403 WORLD_MEMBERSHIP_REQUIRED`: the player has not joined that world.
 - `401`: missing, invalid, or revoked credentials. Do not retry with someone else's credential.
 

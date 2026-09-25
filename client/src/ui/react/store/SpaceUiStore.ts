@@ -24,7 +24,7 @@ import {
   type DistantSurfaceSettingKey,
   type DistantSurfaceSettings,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
-import { triggerProtobufDownload } from '../browser/downloadProtobuf.ts';
+import { triggerProtobufDownload, triggerFileDownload } from '../browser/downloadProtobuf.ts';
 import { colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import { SpaceApiKeyClient } from '../../../bootstrap/SpaceApiKeyClient.ts';
@@ -423,7 +423,7 @@ export class SpaceUiStore {
     resolutionPixelRatio: 1,
     resolutionEffectsQuality: 'full',
     resolutionTargetFps: 120,
-    shadowsEnabled: true,
+    shadowsEnabled: false,
     lightingQuality: DEFAULT_LIGHTING_QUALITY,
     skinWarning: null,
     currentSkin: null,
@@ -687,12 +687,12 @@ export class SpaceUiStore {
       };
     }
     let setting: ResolutionScaleSetting = 'auto';
-    let shadowsEnabled = true;
+    let shadowsEnabled = false;
     let lightingQuality = DEFAULT_LIGHTING_QUALITY;
     try {
       setting = normalizeResolutionScaleSetting(localStorage.getItem('space_setting_resolution_scale'));
       (localStorage as any).removeItem?.('space_setting_world_shape');
-      shadowsEnabled = localStorage.getItem('space_setting_shadows') !== 'false';
+      shadowsEnabled = localStorage.getItem('space_setting_shadows') === 'true';
       lightingQuality = normalizeLightingQuality(localStorage.getItem(LIGHTING_QUALITY_SETTING_KEY));
     } catch { }
     this.snapshot.world?.setDistantSurfaceEnabled?.(true);
@@ -1799,6 +1799,19 @@ export class SpaceUiStore {
     this.snapshot.controller?.setThirdPersonDistance?.(value);
     this.patch({ cameraDistance: value });
     if (persist) try { localStorage.setItem('space_setting_cam_dist', String(value)); } catch { }
+  }
+
+  saveScreenshot(): void {
+    try {
+      const png = this.snapshot.sceneRenderer?.captureCleanScreenshotPng?.();
+      if (!png) throw new Error('The scene is not ready.');
+      const filename = `EntropyDrop-Space-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+      triggerFileDownload(filename, png);
+      this.showToast('Screenshot download started');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown error';
+      this.showToast(`Screenshot failed: ${detail}`, { tone: 'warning' });
+    }
   }
 
   setRenderDistance(distance: number, persist = true): void {

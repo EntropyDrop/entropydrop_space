@@ -2,7 +2,8 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/Mic
 import * as THREE from 'three';
 import {
   applyCameraBend, hookSceneMaterials, cullChunks,
-  bendPoint, bendDirection, unbendPoint, unbendDirection,
+  bendPoint, bendPointForView, bendDirection, unbendPoint, unbendDirection,
+  setTorusViewCorrection,
   TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear, wrapX, wrapZ,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { CuteCharacter, loadCuteCharacter, type SkinModel } from './CuteCharacter.ts';
@@ -35,6 +36,7 @@ const ENTITY_PREVIEW_FRAME_INTERVAL_MS = 1000 / ENTITY_PREVIEW_MAX_FPS;
 const SELECTION_GIZMO_PICK_RADIUS = 0.32;
 /** Pick radius shared by the Wrench translation axes. */
 const WRENCH_GIZMO_PICK_RADIUS = 0.12;
+const WRENCH_GIZMO_ARROW_LENGTH = 0.8;
 export const WRENCH_GIZMO_ROTATION_RADIUS = 0.48;
 export const WRENCH_GIZMO_ROTATION_PICK_RADIUS = 0.075;
 const remotePlayerCullCamera = new THREE.PerspectiveCamera();
@@ -732,7 +734,7 @@ export class SceneRenderer {
     this.materialScanCountdown = 0;
     this.adaptiveResolution = new AdaptiveResolutionController();
     this.adaptiveEffectsQuality = 'full';
-    this.shadowsEnabled = true;
+    this.shadowsEnabled = false;
     this.lightingQuality = DEFAULT_LIGHTING_QUALITY;
     this.cinematicEffects = null;
     this.resolutionScale = this.adaptiveResolution.currentScale;
@@ -762,7 +764,7 @@ export class SceneRenderer {
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(this.cappedDevicePixelRatio() * this.resolutionScale);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = false;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
@@ -815,7 +817,7 @@ export class SceneRenderer {
 
     // Sun Light
     this.sunLight = new THREE.DirectionalLight(0xfffaed, 1.4);
-    this.sunLight.castShadow = true;
+    this.sunLight.castShadow = false;
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.layers.enable(ENTITY_PREVIEW_LAYER);
     this.scene.add(this.sunLight);
@@ -1568,6 +1570,7 @@ export class SceneRenderer {
     const sunDirection = this.skyDomeUniforms?.uSunDir.value.clone();
     const handVisible = this.playerFirstPersonHand?.visible;
     try {
+      setTorusViewCorrection(null);
       cullChunks(this.previewCamera, this.world);
       this.updateSkyDome(this.previewCamera.position);
       this.previewRenderer.setClearColor(this.skyColorDay, 1);
@@ -1576,6 +1579,7 @@ export class SceneRenderer {
       if (this.playerFirstPersonHand) this.playerFirstPersonHand.visible = false;
       this.previewRenderer.render(this.scene, this.previewCamera);
     } finally {
+      setTorusViewCorrection(this.camera.position);
       if (skyPosition) this.skyDome.position.copy(skyPosition);
       if (holeDirection) this.skyDomeUniforms.uHoleDir.value.copy(holeDirection);
       if (sunDirection) this.skyDomeUniforms.uSunDir.value.copy(sunDirection);
@@ -1669,7 +1673,7 @@ export class SceneRenderer {
       handle.name = `WrenchPivotMove_${axis.toUpperCase()}`;
       const movePickRadius = 0.10;
       const pickLocalPoints = [0.65, 0.82, 1].map(distance =>
-        direction.clone().multiplyScalar(distance));
+        direction.clone().multiplyScalar(distance * WRENCH_GIZMO_ARROW_LENGTH));
       handle.userData = {
         isWrenchGizmoHandle: true,
         handleKey,
@@ -1680,7 +1684,14 @@ export class SceneRenderer {
         pickLocalPoints
       };
 
-      const arrow = new THREE.ArrowHelper(direction, new THREE.Vector3(), 1, color, 0.24, 0.12);
+      const arrow = new THREE.ArrowHelper(
+        direction,
+        new THREE.Vector3(),
+        WRENCH_GIZMO_ARROW_LENGTH,
+        color,
+        0.19,
+        0.095
+      );
       arrow.name = `WrenchPivotAxis_${axis.toUpperCase()}`;
       for (const object of [arrow.line, arrow.cone]) {
         object.userData = handle.userData;
@@ -1862,7 +1873,7 @@ export class SceneRenderer {
     if (!this.wrenchPivotGizmo?.visible || !raycaster?.ray) return null;
     const flatOrigin = raycaster.ray.origin;
     const flatDirection = raycaster.ray.direction;
-    const eyeBent = bendPoint(flatOrigin.x, flatOrigin.y, flatOrigin.z, new THREE.Vector3());
+    const eyeBent = bendPointForView(flatOrigin.x, flatOrigin.y, flatOrigin.z, new THREE.Vector3());
     const directionBent = bendDirection(
       flatOrigin.x, flatOrigin.y, flatOrigin.z, flatDirection, new THREE.Vector3()
     );
@@ -1913,7 +1924,7 @@ export class SceneRenderer {
       for (const localPoint of data.pickLocalPoints || []) {
         flatPoint.copy(localPoint);
         this.wrenchPivotGizmo.localToWorld(flatPoint);
-        bendPoint(flatPoint.x, flatPoint.y, flatPoint.z, bentPoint);
+        bendPointForView(flatPoint.x, flatPoint.y, flatPoint.z, bentPoint);
         const distanceAlongRay = ray.direction.dot(bentPoint.clone().sub(ray.origin));
         if (distanceAlongRay < 0) continue;
         ray.at(distanceAlongRay, pointOnRay);
@@ -1925,8 +1936,8 @@ export class SceneRenderer {
         flatSegmentEnd.copy(localEnd);
         this.wrenchPivotGizmo.localToWorld(flatSegmentStart);
         this.wrenchPivotGizmo.localToWorld(flatSegmentEnd);
-        bendPoint(flatSegmentStart.x, flatSegmentStart.y, flatSegmentStart.z, bentSegmentStart);
-        bendPoint(flatSegmentEnd.x, flatSegmentEnd.y, flatSegmentEnd.z, bentSegmentEnd);
+        bendPointForView(flatSegmentStart.x, flatSegmentStart.y, flatSegmentStart.z, bentSegmentStart);
+        bendPointForView(flatSegmentEnd.x, flatSegmentEnd.y, flatSegmentEnd.z, bentSegmentEnd);
         const missDistanceSq = ray.distanceSqToSegment(
           bentSegmentStart,
           bentSegmentEnd,
@@ -2228,7 +2239,7 @@ export class SceneRenderer {
     if (!raycaster?.ray) return null;
     const flatOrigin = raycaster.ray.origin;
     const flatDirection = raycaster.ray.direction;
-    const eyeBent = bendPoint(flatOrigin.x, flatOrigin.y, flatOrigin.z, new THREE.Vector3());
+    const eyeBent = bendPointForView(flatOrigin.x, flatOrigin.y, flatOrigin.z, new THREE.Vector3());
     const directionBent = bendDirection(
       flatOrigin.x, flatOrigin.y, flatOrigin.z, flatDirection, new THREE.Vector3()
     );
@@ -2259,7 +2270,7 @@ export class SceneRenderer {
       pick.getWorldPosition(worldPos);
       const pickRadius = (pick.geometry as any)?.parameters?.radius || SELECTION_GIZMO_PICK_RADIUS;
       const radius = pickRadius * (handleGroup.scale?.x || 1);
-      bendPoint(worldPos.x, worldPos.y, worldPos.z, bentCenter);
+      bendPointForView(worldPos.x, worldPos.y, worldPos.z, bentCenter);
       sphere.center.copy(bentCenter);
       sphere.radius = radius;
       const hit = ray.intersectSphere(sphere, hitPoint);
@@ -2959,7 +2970,7 @@ export class SceneRenderer {
     // the edge of the screen. Farther players use a torus-bent center point so
     // ordinary flat-world frustum assumptions cannot hide the wrong player.
     if (distance <= 4) return true;
-    bendPoint(
+    bendPointForView(
       record.group.position.x,
       record.group.position.y + 0.9,
       record.group.position.z,
@@ -3341,11 +3352,56 @@ export class SceneRenderer {
     }
   }
 
-  render() {
+  private renderWorldForScreenshot() {
+    const overlays: Array<THREE.Object3D | null | undefined> = [
+      this.playerAvatar,
+      this.playerFirstPersonHand,
+      this.cursorMesh,
+      this.microCarveGroup,
+      this.microCarveFocusCell,
+      this.focusBlockGuide,
+      this.boxSelectionGroup,
+      this.wrenchTetherLine,
+      this.wrenchPivotGizmo,
+      this.selectionAxisGizmo,
+      this.inventoryPlacementGroup,
+      this.selectionGroup,
+      this.selectionCellsGroup,
+      this.selectionMicroCellsGroup,
+      this.previewForceArrow,
+    ];
+    for (const record of this.remotePlayers?.values() ?? []) overlays.push(record.nameTag);
+    const visibility = overlays.map(object => object?.visible);
+    try {
+      for (const object of overlays) if (object) object.visible = false;
+      this.renderWorld();
+    } finally {
+      overlays.forEach((object, index) => {
+        if (object) object.visible = visibility[index]!;
+      });
+    }
+  }
+
+  /** Capture the active camera's rendered world without DOM HUD or scene helpers. */
+  captureCleanScreenshotPng(): string {
+    const canvas = this.renderer.domElement;
+    if (!canvas.width || !canvas.height) throw new Error('The scene is not ready.');
+    this.render(true);
+    // Read synchronously after rendering: WebGL may discard its drawing buffer
+    // before an asynchronous toBlob callback when preserveDrawingBuffer is off.
+    const png = canvas.toDataURL('image/png');
+    if (!png.startsWith('data:image/png;base64,')) throw new Error('Could not capture the scene.');
+    return png;
+  }
+
+  render(cleanScreenshot = false) {
     this.updateAdaptiveResolution();
     if (!this.world) {
-      this.renderWorld();
-      this.renderEntityPreviewIfDue();
+      if (cleanScreenshot) this.renderWorldForScreenshot();
+      else {
+        this.renderWorld();
+        this.renderEntityPreviewIfDue();
+      }
       return;
     }
 
@@ -3365,6 +3421,7 @@ export class SceneRenderer {
     this.flatCameraPosition.copy(this.camera.position);
     this.flatCameraQuaternion.copy(this.camera.quaternion);
     try {
+      setTorusViewCorrection(this.flatCameraPosition);
       applyCameraBend(this.camera);
       cullChunks(this.camera, this.world);
       // Auto resolution responds to GPU pressure while turning. It must not
@@ -3375,12 +3432,13 @@ export class SceneRenderer {
       // Overlays use the same bent camera and interpolated component transforms
       // as this world pass, not the flat simulation pose or the editor preview.
       for (const listener of this.worldOverlayListeners || []) listener(this.camera);
-      this.renderWorld();
+      if (cleanScreenshot) this.renderWorldForScreenshot();
+      else this.renderWorld();
     } finally {
       this.camera.position.copy(this.flatCameraPosition);
       this.camera.quaternion.copy(this.flatCameraQuaternion);
       this.camera.updateMatrixWorld(true);
     }
-    this.renderEntityPreviewIfDue();
+    if (!cleanScreenshot) this.renderEntityPreviewIfDue();
   }
 }

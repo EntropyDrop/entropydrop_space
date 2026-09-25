@@ -263,13 +263,27 @@ test('Wrench right-click starts pointed entity, left-click stops and lifts it', 
   assert.equal(entity.isPhysicsSimulationEnabled(), false, 'releasing left click disables physics simulation');
   assert.equal(entity.isCollisionSimulationEnabled(), true, 'releasing left click restores collision simulation');
 
-  // Right click starts the stopped entity
-  controller.handleRightClick();
+  // Right click opens entity action menu
+  let openedMenuTarget: any = null;
+  controller.ui = {
+    showToast() { },
+    showEntityContextMenu(target: any) {
+      openedMenuTarget = target;
+      return true;
+    }
+  };
+  controller.startHoveredEntity = PlayerController.prototype.startHoveredEntity.bind(controller);
+  controller.isEntityRunning = PlayerController.prototype.isEntityRunning.bind(controller);
+  assert.equal(controller.handleRightClick(), true);
+  assert.equal(openedMenuTarget, entity);
+
+  // Starting the entity runs scripts and restores physics simulation
+  controller.startHoveredEntity();
   assert.equal(entity.isNodeScriptEnabled('root'), true);
   assert.equal(entity.isNodeScriptEnabled('arm'), true);
-  assert.equal(entity.scriptStatus, 'running', 'right click starts stopped entity');
-  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'right click re-enables physics simulation');
-  assert.equal(entity.isCollisionSimulationEnabled(), true, 'right click keeps collision enabled');
+  assert.equal(entity.scriptStatus, 'running', 'starting entity starts stopped entity');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'starting entity re-enables physics simulation');
+  assert.equal(entity.isCollisionSimulationEnabled(), true, 'starting entity keeps collision enabled');
 });
 
 test('Wrench hold grabs the exact dynamic-body point and releases cleanly', () => {
@@ -1602,7 +1616,7 @@ test('handleWheel does not switch tools/hotbar, but cycles Hammer inventory or B
   assert.equal(cycledHotbars.length, 0, 'must not cycle hotbar on Brush wheel');
 
   // 4. Shift+Wheel on non-Hammer tool cycles palette colors
-  controller.activeTool = SpecialTool.WRENCH;
+  controller.activeTool = SpecialTool.SHOVEL;
   controller.handleWheel({ deltaY: 100, shiftKey: true });
   assert.deepEqual(cycledColors, [1, -1, 1]);
   assert.equal(cycledHotbars.length, 0, 'must not cycle hotbar on Shift+Wheel');

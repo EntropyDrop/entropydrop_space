@@ -9,7 +9,9 @@ import {
   TORUS_SPAWN_X, TORUS_SPAWN_Z,
   wrapX, wrapZ, wrapChunkX, wrapChunkZ,
   bendPoint, unbendPoint, bendDirection, unbendDirection, bendFrameQuaternion,
-  applyCameraBend, computeChunkBentSphere, cullChunks, getWorldProjectionRevision,
+  bendPointForView, unbendPointForView, setTorusViewCorrection,
+  projectBentSphereForView,
+  applyCameraBend, computeBentBoundsSphere, computeChunkBentSphere, cullChunks, getWorldProjectionRevision,
   hookSceneMaterials
 } from '../src/torus/TorusWorld.ts';
 
@@ -210,7 +212,7 @@ test('bent micro ray returns the exact rendered face point near an edge', () => 
   assert.ok(entry.distanceTo(visibleTarget) < 1e-4, 'entry should coincide with the GPU-bent face under the crosshair');
 });
 
-test('torus constants preserve R/r=8 for the scaled 1024x128 chunk world', () => {
+test('torus projection keeps ground-level voxel edges nearly equal around the ring', () => {
   assert.equal(TORUS_SIZE_X, 16384);
   assert.equal(TORUS_SIZE_Z, 2048);
   assert.ok(Math.abs(TORUS_R / TORUS_RHO - 8) < 1e-9, 'R:r should equal the 8:1 aspect ratio');
@@ -218,11 +220,114 @@ test('torus constants preserve R/r=8 for the scaled 1024x128 chunk world', () =>
   assert.equal(CHUNK_SIZE_Y, 256);
   assert.ok(TORUS_RHO + (CHUNK_SIZE_Y - 1 - TORUS_GREF) < TORUS_R - 1, 'the full build height should not trigger fold protection');
 
-  const atSpawn = bendPoint(TORUS_SPAWN_X, 16, TORUS_SPAWN_Z);
-  const xEdge = atSpawn.distanceTo(bendPoint(TORUS_SPAWN_X + 1, 16, TORUS_SPAWN_Z));
-  const zEdge = atSpawn.distanceTo(bendPoint(TORUS_SPAWN_X, 16, TORUS_SPAWN_Z + 1));
-  assert.ok(xEdge > 0.874 && xEdge < 0.876, `inner-ring X edges should compress only 12.5%, got ${xEdge}`);
-  assert.ok(Math.abs(zEdge - 1) < 0.001, `inner-ring Z edges should remain about one cell, got ${zEdge}`);
+  for (const z of [0, TORUS_SIZE_Z / 4, TORUS_SPAWN_Z, TORUS_SIZE_Z * 3 / 4]) {
+    const origin = bendPoint(TORUS_SPAWN_X, TORUS_GREF, z);
+    const edges = [
+      origin.distanceTo(bendPoint(TORUS_SPAWN_X + 1, TORUS_GREF, z)),
+      origin.distanceTo(bendPoint(TORUS_SPAWN_X, TORUS_GREF + 1, z)),
+      origin.distanceTo(bendPoint(TORUS_SPAWN_X, TORUS_GREF, z + 1)),
+    ];
+    assert.ok(Math.max(...edges) / Math.min(...edges) < 1.01,
+      `ground-level cube edges at z=${z} should be within 1%, got ${edges.join(', ')}`);
+  }
+});
+
+test('camera-local projection keeps nearby cubes proportional even high above the surface', () => {
+  try {
+    for (const y of [16, 128, 192]) {
+      for (const z of [0, TORUS_SPAWN_Z]) {
+        setTorusViewCorrection(new THREE.Vector3(TORUS_SPAWN_X, y, z));
+        const center = bendPointForView(TORUS_SPAWN_X + 4, y, z + 4);
+        const edges = [
+          center.distanceTo(bendPointForView(TORUS_SPAWN_X + 5, y, z + 4)),
+          center.distanceTo(bendPointForView(TORUS_SPAWN_X + 4, y + 1, z + 4)),
+          center.distanceTo(bendPointForView(TORUS_SPAWN_X + 4, y, z + 5)),
+        ];
+        assert.ok(Math.max(...edges) / Math.min(...edges) < 1.02,
+          `nearby cube at y=${y}, z=${z} should be within 2%, got ${edges.join(', ')}`);
+        const flat = unbendPointForView(center.x, center.y, center.z);
+        assert.ok(flat.distanceTo(new THREE.Vector3(TORUS_SPAWN_X + 4, y, z + 4)) < 1e-5);
+        const far = bendPoint(TORUS_SPAWN_X + 400, y, z);
+        assert.ok(bendPointForView(TORUS_SPAWN_X + 400, y, z).distanceTo(far) < 1e-8,
+          'distant positions should retain the closed torus projection');
+      }
+    }
+  } finally {
+    setTorusViewCorrection(null);
+  }
+});
+
+test('a cube face keeps its proportions after the camera turns 90 degrees', () => {
+  const x = TORUS_SPAWN_X;
+  const y = 128;
+  const z = TORUS_SPAWN_Z;
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+  camera.rotation.order = 'YXZ';
+  const projectedLength = (a: THREE.Vector3, b: THREE.Vector3) => {
+    const p = bendPointForView(a.x, a.y, a.z).project(camera);
+    const q = bendPointForView(b.x, b.y, b.z).project(camera);
+    return Math.hypot(p.x - q.x, p.y - q.y);
+  };
+  try {
+    setTorusViewCorrection(new THREE.Vector3(x, y, z));
+    for (const [yaw, face, horizontal] of [
+      [0, new THREE.Vector3(x, y, z - 8), new THREE.Vector3(1, 0, 0)],
+      [-Math.PI / 2, new THREE.Vector3(x + 8, y, z), new THREE.Vector3(0, 0, 1)],
+    ] as const) {
+      camera.position.set(x, y, z);
+      camera.rotation.set(0, yaw, 0, 'YXZ');
+      applyCameraBend(camera);
+      const width = projectedLength(face, face.clone().add(horizontal));
+      const height = projectedLength(face, face.clone().add(new THREE.Vector3(0, 1, 0)));
+      assert.ok(Math.max(width, height) / Math.min(width, height) < 1.02,
+        `face viewed at yaw=${yaw} should remain square, got ${width} × ${height}`);
+    }
+  } finally {
+    setTorusViewCorrection(null);
+  }
+});
+
+test('camera-local raycast hits the face shown at high altitude', () => {
+  const world = new World(new THREE.Scene()) as any;
+  const x = TORUS_SPAWN_X + 4;
+  const y = 128;
+  const z = TORUS_SPAWN_Z + 4;
+  world.setBlock(x, y, z, BlockTypes.COLOR_BLOCK, false, 0xff3366);
+  const eye = new THREE.Vector3(x + 0.5, y + 4, z + 0.5);
+  try {
+    setTorusViewCorrection(eye);
+    const origin = bendPoint(eye.x, eye.y, eye.z);
+    const target = bendPointForView(x + 0.5, y + 0.5, z + 0.5);
+    const hit = world.raycastBent(origin, target.sub(origin).normalize(), 8);
+    assert.equal(hit.hit, true);
+    assert.deepEqual(hit.hitPos, { x, y, z });
+  } finally {
+    setTorusViewCorrection(null);
+  }
+});
+
+test('camera-local culling bounds contain geometry across the torus blend', () => {
+  setTorusViewCorrection(new THREE.Vector3(TORUS_SPAWN_X, 128, TORUS_SPAWN_Z));
+  try {
+    for (const offset of [0, 80, 160, 240, 320]) {
+      const bounds = {
+        minX: TORUS_SPAWN_X + offset, maxX: TORUS_SPAWN_X + offset + 16,
+        minY: 128, maxY: 144,
+        minZ: TORUS_SPAWN_Z, maxZ: TORUS_SPAWN_Z + 16,
+      };
+      const sphere = projectBentSphereForView(computeBentBoundsSphere(bounds));
+      for (const x of [bounds.minX, bounds.maxX]) {
+        for (const y of [bounds.minY, bounds.maxY]) {
+          for (const z of [bounds.minZ, bounds.maxZ]) {
+            const point = bendPointForView(x, y, z);
+            assert.ok(sphere.containsPoint(point), `projected corner should remain inside bounds at offset ${offset}`);
+          }
+        }
+      }
+    }
+  } finally {
+    setTorusViewCorrection(null);
+  }
 });
 
 test('torus rendering starts with no synthetic far terrain and preserves near-field culling contracts', () => {

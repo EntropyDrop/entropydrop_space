@@ -45,7 +45,7 @@ export {
 };
 import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import {
-  bendPoint, bendDirection, unbendPoint, unwrapPeriodicNear,
+  bendPointForView, bendDirection, unbendPointForView, unwrapPeriodicNear,
   TORUS_GREF, TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z,
   wrapMicroX, wrapMicroZ
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
@@ -5540,8 +5540,8 @@ export class PlayerController {
     target.quaternion = (rootBody?.quaternion || contraption.quaternion)?.clone?.();
     if (!target.position?.isVector3 || !target.quaternion?.isQuaternion) return null;
     const eye = this.physics?.getEyePosition?.() || this.camera?.position || new THREE.Vector3();
-    const eyeBent = bendPoint(eye.x, eye.y, eye.z, new THREE.Vector3());
-    const pivotBent = bendPoint(
+    const eyeBent = bendPointForView(eye.x, eye.y, eye.z, new THREE.Vector3());
+    const pivotBent = bendPointForView(
       target.position.x,
       target.position.y,
       target.position.z,
@@ -5576,7 +5576,7 @@ export class PlayerController {
     const forwardFlat = PlayerController._forwardFlat
       .set(0, 0, -1)
       .applyQuaternion(this.camera.quaternion);
-    const eyeBent = bendPoint(eyePos.x, eyePos.y, eyePos.z, PlayerController._bentEye);
+    const eyeBent = bendPointForView(eyePos.x, eyePos.y, eyePos.z, PlayerController._bentEye);
     const forwardBent = bendDirection(
       eyePos.x, eyePos.y, eyePos.z, forwardFlat, PlayerController._forwardBent
     );
@@ -5598,7 +5598,7 @@ export class PlayerController {
     this.wrenchGizmoRaycaster.setFromCamera(pointer, this.camera);
     const flatOrigin = this.wrenchGizmoRaycaster.ray.origin;
     const flatDirection = this.wrenchGizmoRaycaster.ray.direction;
-    const eyeBent = bendPoint(flatOrigin.x, flatOrigin.y, flatOrigin.z, PlayerController._bentEye);
+    const eyeBent = bendPointForView(flatOrigin.x, flatOrigin.y, flatOrigin.z, PlayerController._bentEye);
     const directionBent = bendDirection(
       flatOrigin.x, flatOrigin.y, flatOrigin.z, flatDirection, PlayerController._forwardBent
     );
@@ -5870,10 +5870,10 @@ export class PlayerController {
     // Picking follows the rendered torus surface in bent space. Keep a held
     // point on that same screen ray; a flat tangent ray can drift far enough
     // from the original hit to kick the body when grabbing begins.
-    const eyeBent = bendPoint(eyePos.x, eyePos.y, eyePos.z);
+    const eyeBent = bendPointForView(eyePos.x, eyePos.y, eyePos.z);
     const lookBent = bendDirection(eyePos.x, eyePos.y, eyePos.z, lookDir).normalize();
     const targetBent = eyeBent.addScaledVector(lookBent, targetDistance);
-    const target = unbendPoint(targetBent.x, targetBent.y, targetBent.z);
+    const target = unbendPointForView(targetBent.x, targetBent.y, targetBent.z);
     target.x = unwrapPeriodicNear(target.x, anchorPos.x, TORUS_SIZE_X);
     target.z = unwrapPeriodicNear(target.z, anchorPos.z, TORUS_SIZE_Z);
     return target;
@@ -8983,7 +8983,7 @@ export class PlayerController {
   performAimRaycast(include = 'all', usePublishedCollision: boolean | undefined = undefined) {
     const eyePos = this.physics.getEyePosition();
     const eyeBent = PlayerController._bentEye.copy(eyePos);
-    bendPoint(eyePos.x, eyePos.y, eyePos.z, eyeBent);
+    bendPointForView(eyePos.x, eyePos.y, eyePos.z, eyeBent);
     const forwardFlat = PlayerController._forwardFlat
       .set(0, 0, -1)
       .applyQuaternion(this.camera.quaternion);
@@ -8999,7 +8999,7 @@ export class PlayerController {
       action: 'raycast',
       origin: eyeBent,
       direction: forwardBent,
-      maxDistance: 8,
+      maxDistance: 16,
       space: 'bent',
       include,
       voxelKinds: ['standard', 'micro'],
@@ -9618,7 +9618,7 @@ export class PlayerController {
       const forwardFlat = PlayerController._forwardFlat
         .set(0, 0, -1)
         .applyQuaternion(this.camera.quaternion);
-      const eyeBent = bendPoint(eyePos.x, eyePos.y, eyePos.z, PlayerController._bentEye);
+      const eyeBent = bendPointForView(eyePos.x, eyePos.y, eyePos.z, PlayerController._bentEye);
       const forwardBent = bendDirection(
         eyePos.x, eyePos.y, eyePos.z, forwardFlat, PlayerController._forwardBent
       );
@@ -9640,7 +9640,7 @@ export class PlayerController {
     this.selectionGizmoRaycaster.setFromCamera(pointer, this.camera);
     const flatOrigin = this.selectionGizmoRaycaster.ray.origin;
     const flatDirection = this.selectionGizmoRaycaster.ray.direction;
-    const eyeBent = bendPoint(flatOrigin.x, flatOrigin.y, flatOrigin.z, PlayerController._bentEye);
+    const eyeBent = bendPointForView(flatOrigin.x, flatOrigin.y, flatOrigin.z, PlayerController._bentEye);
     const directionBent = bendDirection(
       flatOrigin.x, flatOrigin.y, flatOrigin.z, flatDirection, PlayerController._forwardBent
     );

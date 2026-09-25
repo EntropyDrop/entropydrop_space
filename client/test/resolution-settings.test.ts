@@ -87,7 +87,7 @@ test('shadow preference is applied to the renderer independently of adaptive qua
   store.setSceneRenderer(renderer);
   store.setShadowsEnabled(false, false);
 
-  assert.deepEqual(applied, [true, false]);
+  assert.deepEqual(applied, [false, false]);
   assert.equal(store.getSnapshot().shadowsEnabled, false);
 });
 
