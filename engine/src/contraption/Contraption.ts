@@ -684,6 +684,8 @@ export class Contraption {
   pendingScriptBlocksEvent: any;
   pendingScriptContacts: any[];
   pendingScriptCommandResults: any[];
+  pendingEntityMessages: any[];
+  pendingEntityMessageBytes: number;
   scriptRuntimeClient: EntityScriptRuntimeClient;
   behaviorPrompt: string;
   agentInterpretation: string;
@@ -802,6 +804,8 @@ export class Contraption {
     this.pendingScriptBlocksEvent = null;
     this.pendingScriptContacts = [];
     this.pendingScriptCommandResults = [];
+    this.pendingEntityMessages = [];
+    this.pendingEntityMessageBytes = 0;
     this.scriptRuntimeClient = new EntityScriptRuntimeClient();
     this.scriptRuntimeClient.onCompileResult = result => this.handleWorkerCompileResult(result);
     this.behaviorPrompt = options.behaviorPrompt || '';
@@ -1791,6 +1795,8 @@ export class Contraption {
     this.pendingScriptBlocksEvent = null;
     this.pendingScriptContacts = [];
     this.pendingScriptCommandResults = [];
+    this.pendingEntityMessages = [];
+    this.pendingEntityMessageBytes = 0;
     this.lastExecutionTimeMs = 0;
     this.slowScriptFrames.clear();
     this.scriptRuntimeClient.reset(this.getSerializableComponentStates());
@@ -5224,6 +5230,7 @@ export class Contraption {
         const { key: _key, ...visible } = contact;
         return visible;
       }),
+      messages: this.pendingEntityMessages,
       commandResults: this.pendingScriptCommandResults,
       components,
       states: this.getSerializableComponentStates(),
@@ -5315,6 +5322,46 @@ export class Contraption {
     if (this.pendingScriptCommandResults.length > 256) this.pendingScriptCommandResults.shift();
   }
 
+  /** Queue one validated, ephemeral message for the next submitted root-script tick. */
+  enqueueEntityMessage(message) {
+    if (!message || typeof message !== 'object' || message.targetId !== this.publicId) return false;
+    const messageId = String(message.messageId || '');
+    const sourceId = String(message.sourceId || '');
+    const targetId = String(message.targetId || '');
+    const type = String(message.type || '');
+    const encoding = message.encoding;
+    if (!messageId || messageId.length > 64 || !sourceId || sourceId.length > 64
+      || !targetId || targetId.length > 64 || !/^[a-z][a-z0-9._-]{0,15}$/.test(type)
+      || !['utf8', 'protobuf'].includes(encoding)) return false;
+
+    let payload;
+    let payloadBytes;
+    if (encoding === 'utf8') {
+      if (typeof message.payload !== 'string') return false;
+      payload = message.payload;
+      payloadBytes = new TextEncoder().encode(payload).byteLength;
+    } else {
+      if (!Array.isArray(message.payload) || message.payload.length > 4096
+        || message.payload.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) return false;
+      payload = message.payload.slice();
+      payloadBytes = payload.length;
+    }
+    if (payloadBytes > 4096) return false;
+
+    const entry = Object.freeze({ messageId, sourceId, targetId, type, encoding, payload });
+    while (this.pendingEntityMessages.length >= 64
+      || this.pendingEntityMessageBytes + payloadBytes > 256 * 1024) {
+      const removed = this.pendingEntityMessages.shift();
+      if (!removed) break;
+      this.pendingEntityMessageBytes -= removed.encoding === 'utf8'
+        ? new TextEncoder().encode(removed.payload).byteLength
+        : removed.payload.length;
+    }
+    this.pendingEntityMessages.push(entry);
+    this.pendingEntityMessageBytes += payloadBytes;
+    return true;
+  }
+
   capturePendingScriptEvents(inputState) {
     this.pendingScriptInputDown = scriptInputCodes(inputState, 'down');
     for (const code of scriptInputCodes(inputState, 'pressed')) {
@@ -5334,6 +5381,8 @@ export class Contraption {
     this.pendingScriptBlocksEvent = null;
     this.pendingScriptContacts = [];
     this.pendingScriptCommandResults = [];
+    this.pendingEntityMessages = [];
+    this.pendingEntityMessageBytes = 0;
   }
 
   applyLatchedScriptCommands(runtimeContext) {
@@ -5409,6 +5458,32 @@ export class Contraption {
       if (command?.scope === 'control' && command.path === 'stop') {
         this.stopAllNodeScripts();
         break;
+      }
+      if (command?.scope === 'messages' && command.path === 'send') {
+        const sendMessage = runtimeContext?.messages?.send;
+        if (typeof sendMessage !== 'function') {
+          this.recordScriptCommandResult(command, { ok: false, reason: 'message_transport_unavailable' });
+          continue;
+        }
+        try {
+          const outcome = sendMessage(this.publicId, ...args, {
+            commandId: command.commandId,
+            nodeId: command.nodeId === null || command.nodeId === undefined ? this.rootComponentId : String(command.nodeId),
+          });
+          if (outcome?.pending === true) continue;
+          if (outcome && typeof outcome.then === 'function') {
+            Promise.resolve(outcome).then(result => {
+              if (this.scriptStatus !== 'stopped') this.recordScriptCommandResult(command, result);
+            }).catch(error => {
+              if (this.scriptStatus !== 'stopped') this.recordScriptCommandResult(command, false, error);
+            });
+          } else {
+            this.recordScriptCommandResult(command, outcome);
+          }
+        } catch (error) {
+          this.recordScriptCommandResult(command, false, error);
+        }
+        continue;
       }
       if (command?.scope === 'component' && SCRIPT_COMPONENT_COMMANDS.has(command.path)) {
         const api = this.getChildScriptApi(String(command.nodeId || this.rootComponentId));

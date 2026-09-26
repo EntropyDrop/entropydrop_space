@@ -73,6 +73,22 @@ const QUICKJS_BOOTSTRAP = String.raw`
     return result;
   };
   const finite = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+  const utf8ByteLength = value => {
+    const text = String(value);
+    let bytes = 0;
+    for (let index = 0; index < text.length; index++) {
+      const code = text.charCodeAt(index);
+      if (code < 0x80) bytes++;
+      else if (code < 0x800) bytes += 2;
+      else if (code >= 0xd800 && code <= 0xdbff
+        && index + 1 < text.length
+        && text.charCodeAt(index + 1) >= 0xdc00 && text.charCodeAt(index + 1) <= 0xdfff) {
+        bytes += 4;
+        index++;
+      } else bytes += 3;
+    }
+    return bytes;
+  };
   const vector = value => Array.isArray(value)
     ? [finite(value[0]), finite(value[1]), finite(value[2])]
     : [0, 0, 0];
@@ -489,6 +505,52 @@ const QUICKJS_BOOTSTRAP = String.raw`
     });
   }
 
+  function makeEntityMessagesApi(entries, nodeId) {
+    const messages = clone(entries) || [];
+    const reject = reason => Object.freeze({ ok: false, queued: 0, reason, commandId: null });
+    Object.defineProperty(messages, 'send', {
+      enumerable: false,
+      value: (targetId, messageType, payload, encoding = 'utf8') => {
+        if (typeof targetId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetId)) {
+          return reject('invalid_target_id');
+        }
+        if (typeof messageType !== 'string' || !/^[a-z][a-z0-9._-]{0,15}$/.test(messageType)) {
+          return reject('invalid_message_type');
+        }
+        if (encoding !== 'utf8' && encoding !== 'protobuf') {
+          return reject('invalid_encoding');
+        }
+        if (messageType === 'chat' && encoding !== 'utf8') {
+          return reject('chat_requires_utf8');
+        }
+
+        let normalizedPayload;
+        if (encoding === 'utf8') {
+          if (typeof payload !== 'string') {
+            return reject('invalid_payload');
+          }
+          if (utf8ByteLength(payload) > 4096) {
+            return reject('payload_too_large');
+          }
+          normalizedPayload = payload;
+        } else {
+          const bytes = Array.isArray(payload)
+            ? payload
+            : (typeof Uint8Array !== 'undefined' && payload instanceof Uint8Array ? Array.from(payload) : null);
+          if (!bytes || bytes.length > 4096
+            || bytes.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+            return reject('invalid_payload');
+          }
+          normalizedPayload = Array.from(bytes);
+        }
+
+        const commandId = emit('messages', nodeId, 'send', [targetId.toLowerCase(), messageType, normalizedPayload, encoding]);
+        return queuedResult(commandId, { queued: 1 }, { queued: 0 });
+      }
+    });
+    return harden(messages);
+  }
+
   globalThis.__spaceSetScript = (nodeIdJson, codeJson) => {
     const nodeId = JSON.parse(nodeIdJson);
     const code = JSON.parse(codeJson);
@@ -558,6 +620,7 @@ const QUICKJS_BOOTSTRAP = String.raw`
       players: frozenClone(frame.players || []),
       driver: frozenClone(frame.driver || null),
       contacts: frozenClone(frame.contacts || []),
+      messages: makeEntityMessagesApi(nodeId === rootComponentId ? frame.messages || [] : [], nodeId),
       world: makeWorldApi(),
       selection: makeSelectionApi(),
       commands: makeCommandResultsApi(),

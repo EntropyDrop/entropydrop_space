@@ -1,6 +1,9 @@
 import * as THREE from 'three';
+import { decode as decodeMessagePack, encode as encodeMessagePack } from '@msgpack/msgpack';
 import {
   SpaceEntityClient,
+  type SpaceEntityMessageSendResult,
+  type SpaceEntityMessageTicket,
   type SpaceEntityRunState,
   type SpaceWorldEntityRecord,
   type SpaceHostingList,
@@ -10,11 +13,24 @@ import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts'
 import { CHUNK_SIZE_X } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear, wrapX, wrapZ } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { EntityPoseBuffer, parseEntityPose, type EntityPoseFrame } from './EntityPoseBuffer.ts';
-import type { MultiplayerSync } from './MultiplayerSync.ts';
+import { resolveWebSocketUrl, type MultiplayerSync } from './MultiplayerSync.ts';
 
 
 export const SPACE_ENTITY_POLL_INTERVAL_MS = 2_000;
 export const SPACE_ENTITY_CHECKPOINT_INTERVAL_MS = 6_000;
+const ENTITY_MESSAGE_PROTOCOL = 'space-entity-messages-v1';
+const ENTITY_MESSAGE_MAX_FRAME_BYTES = 8 * 1024;
+
+type EntityMessageConnection = {
+  epoch: number;
+  cancelled: boolean;
+  connecting: boolean;
+  ready: boolean;
+  retryMs: number;
+  socket: WebSocket | null;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  pingTimer: ReturnType<typeof setInterval> | null;
+};
 
 function wrappedCentimetres(value: number, wrap: (position: number) => number, extent: number) {
   return Math.round(wrap(value) * 100) % (extent * 100);
@@ -42,6 +58,7 @@ type SpaceEntitySyncOptions = {
  */
 export class SpaceEntitySync {
   private readonly client: SpaceEntityClient;
+  private readonly apiOrigin: string;
   private readonly currentUserId: string;
   private readonly controller: any;
   private readonly contraptions: any;
@@ -82,8 +99,10 @@ export class SpaceEntitySync {
   private poseSequence = 0;
   private readonly metadataLoading = new Set<string>();
   private readonly metadataRetryAt = new Map<string, number>();
+  private readonly entityMessageConnections = new Map<string, EntityMessageConnection>();
 
   constructor(options: SpaceEntitySyncOptions) {
+    this.apiOrigin = options.apiOrigin;
     this.client = new SpaceEntityClient(
       options.apiOrigin,
       options.token,
@@ -126,6 +145,7 @@ export class SpaceEntitySync {
 
   stop() {
     this.stopped = true;
+    for (const entityId of [...this.entityMessageConnections.keys()]) this.closeEntityMessageConnection(entityId);
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     if (this.hostingTimer) clearInterval(this.hostingTimer);
@@ -215,6 +235,33 @@ export class SpaceEntitySync {
         await this.applyRecord(record);
       }).catch(error => console.warn('Moving Space entity metadata could not be loaded.', error))
         .finally(() => this.metadataLoading.delete(frame.entity_id));
+    }
+  }
+
+  async sendMessage(
+    sourceId: string,
+    targetId: string,
+    messageType: string,
+    payload: string | readonly number[],
+    encoding: 'utf8' | 'protobuf' = 'utf8',
+  ): Promise<SpaceEntityMessageSendResult | { ok: false; reason: string; status?: number }> {
+    const entity = this.contraptions.findActiveContraptionByPublicId?.(sourceId)
+      || this.contraptions.contraptions?.find((item: any) => String(item.publicId) === sourceId);
+    const epoch = this.executionEpochs.get(sourceId) || 0;
+    if (this.stopped || !entity || entity.serverManaged !== true
+      || entity.serverExecutionMode === 'hosted' || entity.serverExecutesLocally !== true
+      || entity.serverDesiredRunState !== 'running' || entity.serverExecutionEpoch !== epoch
+      || entity.scriptStatus !== 'running' || !epoch || (this.leasedUntil.get(sourceId) || 0) <= Date.now()) {
+      return { ok: false, reason: 'source_inactive' };
+    }
+    try {
+      return await this.client.sendMessage(sourceId, targetId, messageType, payload, encoding);
+    } catch (error: any) {
+      return {
+        ok: false,
+        reason: String(error?.code || error?.message || 'message_send_failed'),
+        ...(Number.isInteger(error?.status) ? { httpStatus: error.status } : {}),
+      };
     }
   }
 
@@ -330,6 +377,172 @@ export class SpaceEntitySync {
         this.executionEpochs.delete(id);
       }
     }
+    this.syncEntityMessageConnections();
+  }
+
+  private syncEntityMessageConnections() {
+    const active = new Map<string, any>();
+    for (const entity of this.contraptions.contraptions || []) {
+      const id = String(entity.publicId || '');
+      if (!id) continue;
+      active.set(id, entity);
+    }
+    for (const [entityId, connection] of this.entityMessageConnections) {
+      const entity = active.get(entityId);
+      const stillActive = !!entity && !this.stopped
+        && entity.serverManaged === true
+        && entity.serverExecutionMode !== 'hosted'
+        && entity.serverExecutesLocally === true
+        && entity.serverDesiredRunState === 'running'
+        && entity.scriptStatus === 'running'
+        && !this.isWrenchManipulating(entity)
+        && connection.epoch === (this.executionEpochs.get(entityId) || 0)
+        && (this.leasedUntil.get(entityId) || 0) > Date.now();
+      if (!stillActive) this.closeEntityMessageConnection(entityId);
+    }
+    if (this.stopped || typeof WebSocket === 'undefined') return;
+    for (const [entityId, entity] of active) {
+      const epoch = this.executionEpochs.get(entityId) || 0;
+      if (entity.serverManaged !== true || entity.serverExecutionMode === 'hosted'
+        || entity.serverExecutesLocally !== true || entity.serverDesiredRunState !== 'running'
+        || entity.scriptStatus !== 'running' || this.isWrenchManipulating(entity)
+        || !epoch || (this.leasedUntil.get(entityId) || 0) <= Date.now()) continue;
+      this.ensureEntityMessageConnection(entityId, epoch);
+    }
+  }
+
+  private ensureEntityMessageConnection(entityId: string, epoch: number) {
+    const current = this.entityMessageConnections.get(entityId);
+    if (current && current.epoch === epoch && !current.cancelled) return;
+    if (current) this.closeEntityMessageConnection(entityId);
+    const entry: EntityMessageConnection = {
+      epoch, cancelled: false, connecting: false, ready: false, retryMs: 500,
+      socket: null, retryTimer: null, pingTimer: null,
+    };
+    this.entityMessageConnections.set(entityId, entry);
+    void this.connectEntityMessageSocket(entityId, entry);
+  }
+
+  private async connectEntityMessageSocket(entityId: string, entry: EntityMessageConnection) {
+    if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry || entry.connecting) return;
+    entry.connecting = true;
+    try {
+      const ticket = await this.client.createMessageTicket(entityId);
+      if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry) return;
+      const url = resolveWebSocketUrl(ticket.websocket_url, this.apiOrigin);
+      const socket = new WebSocket(url, ENTITY_MESSAGE_PROTOCOL);
+      entry.socket = socket;
+      socket.binaryType = 'arraybuffer';
+      socket.onopen = () => {
+        if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry) {
+          socket.close();
+          return;
+        }
+        try {
+          socket.send(encodeMessagePack({ type: 'hello', ticket: ticket.ticket }));
+        } catch (_) {
+          socket.close();
+        }
+      };
+      socket.onmessage = event => this.handleEntityMessageFrame(entityId, entry, ticket, event.data);
+      socket.onerror = () => socket.close();
+      socket.onclose = () => {
+        if (entry.socket === socket) entry.socket = null;
+        entry.ready = false;
+        if (entry.pingTimer) clearInterval(entry.pingTimer);
+        entry.pingTimer = null;
+        this.scheduleEntityMessageReconnect(entityId, entry);
+      };
+    } catch (_) {
+      this.scheduleEntityMessageReconnect(entityId, entry);
+    } finally {
+      entry.connecting = false;
+    }
+  }
+
+  private handleEntityMessageFrame(
+    entityId: string,
+    entry: EntityMessageConnection,
+    ticket: SpaceEntityMessageTicket,
+    data: unknown,
+  ) {
+    if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry) return;
+    let bytes: Uint8Array;
+    if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+    else if (data instanceof Uint8Array) bytes = data;
+    else return;
+    if (bytes.byteLength < 1 || bytes.byteLength > ENTITY_MESSAGE_MAX_FRAME_BYTES) return;
+    let frame: any;
+    try { frame = decodeMessagePack(bytes); } catch (_) { return; }
+    if (!frame || typeof frame !== 'object') return;
+    if (frame.type === 'ready') {
+      if (frame.protocol !== ticket.protocol || frame.protocol !== ENTITY_MESSAGE_PROTOCOL
+        || frame.entity_id !== entityId) return;
+      entry.ready = true;
+      entry.retryMs = 500;
+      if (entry.pingTimer) clearInterval(entry.pingTimer);
+      entry.pingTimer = setInterval(() => {
+        const socket = entry.socket;
+        if (!socket || socket.readyState !== WebSocket.OPEN || !entry.ready) return;
+        try { socket.send(encodeMessagePack({ type: 'ping' })); } catch (_) { socket.close(); }
+      }, 8_000);
+      entry.pingTimer.unref?.();
+      return;
+    }
+    if (frame.type !== 'entity_message' || frame.target_id !== entityId
+      || typeof frame.message_id !== 'string' || typeof frame.source_id !== 'string'
+      || typeof frame.message_type !== 'string' || !/^[a-z][a-z0-9._-]{0,15}$/.test(frame.message_type)
+      || !['utf8', 'protobuf'].includes(frame.encoding)
+      || !(frame.payload instanceof Uint8Array) || frame.payload.byteLength > 4096) return;
+
+    let payload: string | number[];
+    if (frame.encoding === 'utf8') {
+      try { payload = new TextDecoder('utf-8', { fatal: true }).decode(frame.payload); } catch (_) { return; }
+    } else {
+      payload = Array.from(frame.payload);
+    }
+    const entity = this.contraptions.findActiveContraptionByPublicId?.(entityId)
+      || this.contraptions.contraptions?.find((item: any) => String(item.publicId) === entityId);
+    if (!entity || entity.serverExecutionEpoch !== entry.epoch || entity.scriptStatus !== 'running') return;
+    entity.enqueueEntityMessage?.({
+      messageId: frame.message_id,
+      sourceId: frame.source_id,
+      targetId: entityId,
+      type: frame.message_type,
+      encoding: frame.encoding,
+      payload,
+    });
+  }
+
+  private scheduleEntityMessageReconnect(entityId: string, entry: EntityMessageConnection) {
+    if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry || this.stopped
+      || entry.retryTimer) return;
+    const delay = entry.retryMs;
+    entry.retryMs = Math.min(15_000, Math.ceil(entry.retryMs * 1.8));
+    entry.retryTimer = setTimeout(() => {
+      entry.retryTimer = null;
+      if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry) return;
+      void this.connectEntityMessageSocket(entityId, entry);
+    }, delay);
+    entry.retryTimer.unref?.();
+  }
+
+  private closeEntityMessageConnection(entityId: string) {
+    const entry = this.entityMessageConnections.get(entityId);
+    if (!entry) return;
+    this.entityMessageConnections.delete(entityId);
+    entry.cancelled = true;
+    if (entry.retryTimer) clearTimeout(entry.retryTimer);
+    if (entry.pingTimer) clearInterval(entry.pingTimer);
+    entry.retryTimer = null;
+    entry.pingTimer = null;
+    if (entry.socket) {
+      entry.socket.onclose = null;
+      entry.socket.onmessage = null;
+      entry.socket.onerror = null;
+      entry.socket.close();
+    }
+    entry.socket = null;
   }
 
   private acceptLeases(leases: Awaited<ReturnType<SpaceEntityClient['claimExecutionLeases']>>, requestedAt: number) {

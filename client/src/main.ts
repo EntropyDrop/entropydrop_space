@@ -231,6 +231,13 @@ class Game {
       const driven = this.controller.isDriving ? this.controller.drivenContraption : null;
       return {
         players: allPlayers,
+        messages: {
+          send: (...args: any[]) => {
+            if (!this.entitySync) return { ok: false, reason: 'message_transport_unavailable' };
+            const [sourceId, targetId, messageType, payload, encoding] = args;
+            return this.entitySync.sendMessage(sourceId, targetId, messageType, payload, encoding);
+          },
+        },
         driver: driven ? {
           entityId: driven.publicId,
           playerId: 'local',

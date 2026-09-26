@@ -8,8 +8,10 @@ milliseconds, snapshots, terrain events and credit logs commit or roll back toge
 import asyncio
 import base64
 import datetime as dt
+from collections import deque
 import json
 import logging
+import msgpack
 import os
 from pathlib import Path
 import time
@@ -24,6 +26,7 @@ from config import settings
 from space.database import SessionLocal
 from routers import space as terrain
 from routers.space_entities import _decode_entity_definition, _encode_snapshot, EntityPosition, _enforce_entity_storage_quota
+from routers.space_entity_messages import _message_channel, entity_message_hub, send_hosted_entity_message
 from routers.space_hosting import HOUR_MS, utc, validate_hosted_definition
 from space.hosting_cores import CORE_LEASE_SECONDS, MAX_HOSTING_CORES, available_cpu_ids, initialize_core_pool, clear_core
 
@@ -419,32 +422,220 @@ async def run_world(world_id, cpu_ids=None):
     pool = EntityRuntimePool()
 
     async def run_entity(entity_id, epoch, core_id, cpu_id):
-        started = time.monotonic()
-        payload = None
-        runtime = await pool.get(entity_id, epoch, cpu_id)
+        connection_id = f"{int(epoch)}.{uuid.uuid4().hex}"
+        channel = _message_channel(world_id, entity_id)
+        pubsub = entity_message_hub.redis.pubsub()
+        inbox = deque()
+        inbox_bytes = 0
+        message_results = deque()
+        presence_active = False
+        last_presence_refresh = time.monotonic()
         try:
-            def read():
-                with SessionLocal() as db:
-                    return prepare(db, world_id, instance_id, entity_id, cpu_ids)
-            payload = await asyncio.to_thread(read)
-            if payload:
-                result = await asyncio.wait_for(runtime.step(payload), timeout=10)
-                def commit():
-                    with SessionLocal() as db:
-                        return commit_result(db, world_id, instance_id, payload, result)
-                await asyncio.to_thread(commit)
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            await runtime.close()
-            log.exception('Hosted entity %s failed', entity_id)
-            if payload:
-                def fail():
-                    with SessionLocal() as db:
-                        commit_result(db, world_id, instance_id, payload, {'faults': [
-                            {'id': entity_id, 'reason': str(error)[:80] or 'runtime_error'}]})
-                await asyncio.to_thread(fail)
-        await asyncio.sleep(max(0.05, (payload['steps'] * 0.05 if payload else 1) - (time.monotonic() - started)))
+            try:
+                await pubsub.subscribe(channel)
+            except Exception:
+                log.exception('Hosted entity %s message subscription could not start', entity_id)
+                await asyncio.sleep(1)
+                return
+            while True:
+                started = time.monotonic()
+                payload = None
+                try:
+                    def read():
+                        with SessionLocal() as db:
+                            return prepare(db, world_id, instance_id, entity_id, cpu_ids)
+                    payload = await asyncio.to_thread(read)
+                    if not payload:
+                        if presence_active:
+                            await entity_message_hub.deactivate(world_id, entity_id, connection_id)
+                            presence_active = False
+                        inbox.clear()
+                        inbox_bytes = 0
+                        await asyncio.sleep(1)
+                        continue
+                    if int(payload['execution_epoch']) != int(epoch):
+                        return
+
+                    if not presence_active:
+                        try:
+                            presence_active = await entity_message_hub.activate(
+                                world_id, entity_id, connection_id, int(payload['execution_epoch']),
+                            )
+                        except Exception:
+                            log.exception('Hosted entity %s message receiver could not activate', entity_id)
+                            await asyncio.sleep(1)
+                            return
+                        if not presence_active:
+                            log.warning('Hosted entity %s already has a message receiver', entity_id)
+                            await asyncio.sleep(1)
+                            return
+                        last_presence_refresh = time.monotonic()
+                    elif time.monotonic() - last_presence_refresh >= 10:
+                        try:
+                            presence_active = await entity_message_hub.refresh(world_id, entity_id, connection_id)
+                        except Exception:
+                            log.exception('Hosted entity %s message receiver could not refresh', entity_id)
+                            await asyncio.sleep(1)
+                            return
+                        if not presence_active:
+                            log.warning('Hosted entity %s message receiver presence expired', entity_id)
+                            await asyncio.sleep(1)
+                            return
+                        last_presence_refresh = time.monotonic()
+
+                    while True:
+                        try:
+                            packet = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.001)
+                        except Exception:
+                            log.exception('Hosted entity %s message subscription failed', entity_id)
+                            await asyncio.sleep(1)
+                            return
+                        if not packet:
+                            break
+                        raw = packet.get('data')
+                        if not isinstance(raw, bytes) or len(raw) > 8192:
+                            continue
+                        try:
+                            frame = msgpack.unpackb(raw, raw=False, strict_map_key=False)
+                        except (ValueError, msgpack.UnpackException):
+                            continue
+                        if not isinstance(frame, dict) or frame.get('type') != 'entity_message' \
+                                or frame.get('target_id') != entity_id:
+                            continue
+                        message_type = frame.get('message_type')
+                        message_id = frame.get('message_id')
+                        source_id = frame.get('source_id')
+                        encoding = frame.get('encoding')
+                        body = frame.get('payload')
+                        if not isinstance(message_type, str) or not isinstance(message_id, str) \
+                                or not isinstance(source_id, str) or not isinstance(body, bytes) \
+                                or len(body) > 4096 or encoding not in ('utf8', 'protobuf'):
+                            continue
+                        try:
+                            script_payload = body.decode('utf-8', errors='strict') if encoding == 'utf8' else list(body)
+                        except UnicodeDecodeError:
+                            continue
+                        message = {
+                            'messageId': message_id,
+                            'sourceId': source_id,
+                            'targetId': entity_id,
+                            'type': message_type,
+                            'encoding': encoding,
+                            'payload': script_payload,
+                        }
+                        while len(inbox) >= 64 or inbox_bytes + len(body) > 256 * 1024:
+                            if not inbox:
+                                break
+                            _old_message, old_size = inbox.popleft()
+                            inbox_bytes -= old_size
+                        if len(inbox) < 64 and inbox_bytes + len(body) <= 256 * 1024:
+                            inbox.append((message, len(body)))
+                            inbox_bytes += len(body)
+
+                    message_batch = [message for message, _size in inbox]
+                    batch_size = len(message_batch)
+                    receipt_batch = list(message_results)
+                    receipt_batch_size = len(receipt_batch)
+                    for item in payload['entities']:
+                        if item['id'] == entity_id:
+                            item['messages'] = message_batch
+                            item['message_results'] = receipt_batch
+                            break
+                    runtime = await pool.get(entity_id, epoch, cpu_id)
+                    result = await asyncio.wait_for(runtime.step(payload), timeout=10)
+                    def commit():
+                        with SessionLocal() as db:
+                            return commit_result(db, world_id, instance_id, payload, result)
+                    committed = await asyncio.to_thread(commit)
+                    if committed:
+                        for _ in range(batch_size):
+                            _message, delivered_bytes = inbox.popleft()
+                            inbox_bytes -= delivered_bytes
+                        for _ in range(receipt_batch_size):
+                            message_results.popleft()
+                        for outgoing in result.get('messages', [])[:256]:
+                            if not isinstance(outgoing, dict) or outgoing.get('sourceId') != entity_id:
+                                continue
+                            command_id = outgoing.get('commandId')
+                            if not isinstance(command_id, str) or not command_id:
+                                continue
+                            try:
+                                delivery = await send_hosted_entity_message(
+                                    world_id,
+                                    entity_id,
+                                    int(epoch),
+                                    outgoing.get('targetId'),
+                                    outgoing.get('type'),
+                                    outgoing.get('encoding'),
+                                    outgoing.get('payload'),
+                                )
+                                receipt = {
+                                    'commandId': command_id,
+                                    'status': 'committed',
+                                    'scope': 'messages',
+                                    'path': 'send',
+                                    'nodeId': str(outgoing.get('nodeId') or ''),
+                                    'deliveryStatus': delivery.get('status', 'dropped'),
+                                }
+                                if delivery.get('message_id'):
+                                    receipt['messageId'] = delivery['message_id']
+                                if delivery.get('reason'):
+                                    receipt['reason'] = delivery['reason']
+                                message_results.append(receipt)
+                            except HTTPException as error:
+                                detail = error.detail if isinstance(error.detail, dict) else {}
+                                message_results.append({
+                                    'commandId': command_id,
+                                    'status': 'rejected',
+                                    'scope': 'messages',
+                                    'path': 'send',
+                                    'nodeId': str(outgoing.get('nodeId') or ''),
+                                    'reason': str(detail.get('code') or 'message_send_failed'),
+                                })
+                                if error.status_code not in (400, 413, 415, 429):
+                                    log.warning('Hosted entity %s could not route a message (%s)', entity_id, error.status_code)
+                            except Exception:
+                                message_results.append({
+                                    'commandId': command_id,
+                                    'status': 'rejected',
+                                    'scope': 'messages',
+                                    'path': 'send',
+                                    'nodeId': str(outgoing.get('nodeId') or ''),
+                                    'reason': 'message_send_failed',
+                                })
+                                log.exception('Hosted entity %s message routing failed', entity_id)
+                            while len(message_results) > 256:
+                                message_results.popleft()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    runtime_entry = pool.runtimes.pop(entity_id, None)
+                    if runtime_entry:
+                        await runtime_entry[1].close()
+                    log.exception('Hosted entity %s failed', entity_id)
+                    if payload:
+                        def fail():
+                            with SessionLocal() as db:
+                                commit_result(db, world_id, instance_id, payload, {'faults': [
+                                    {'id': entity_id, 'reason': str(error)[:80] or 'runtime_error'}]})
+                        try:
+                            await asyncio.to_thread(fail)
+                        except Exception:
+                            log.exception('Hosted entity %s fault could not be committed', entity_id)
+                    await asyncio.sleep(1)
+                    return
+                await asyncio.sleep(max(0.05, (payload['steps'] * 0.05) - (time.monotonic() - started)))
+        finally:
+            if presence_active:
+                try:
+                    await entity_message_hub.deactivate(world_id, entity_id, connection_id)
+                except Exception:
+                    log.exception('Hosted entity %s message presence could not be released', entity_id)
+            try:
+                await pubsub.unsubscribe(channel)
+                await pubsub.aclose()
+            except Exception:
+                pass
 
     tasks = {}
 

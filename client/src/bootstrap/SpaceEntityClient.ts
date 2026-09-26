@@ -109,6 +109,20 @@ export interface SpaceEntityExecutionLease {
   executor_name?: string | null;
 }
 
+export interface SpaceEntityMessageTicket {
+  ticket: string;
+  websocket_url: string;
+  expires_in_seconds: number;
+  protocol: 'space-entity-messages-v1';
+}
+
+export interface SpaceEntityMessageSendResult {
+  ok: true;
+  messageId: string;
+  deliveryStatus: 'routed' | 'dropped';
+  reason?: string;
+}
+
 export class SpaceEntityApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -290,6 +304,69 @@ export class SpaceEntityClient {
 
   async get(entityId: string) {
     return parseEntity(await this.request(`/${encodeURIComponent(entityId)}`));
+  }
+
+  async createMessageTicket(entityId: string): Promise<SpaceEntityMessageTicket> {
+    const body = await this.request(`/${encodeURIComponent(entityId)}/message-ticket`, { method: 'POST' });
+    if (typeof body?.ticket !== 'string' || body.ticket.length < 16 || body.ticket.length > 4096
+      || typeof body?.websocket_url !== 'string' || body.websocket_url.length > 2048
+      || body.protocol !== 'space-entity-messages-v1'
+      || !isInteger(body.expires_in_seconds) || body.expires_in_seconds < 1 || body.expires_in_seconds > 60) {
+      throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid entity message ticket response.', body);
+    }
+    return body as SpaceEntityMessageTicket;
+  }
+
+  async sendMessage(
+    sourceId: string,
+    targetId: string,
+    messageType: string,
+    payload: string | readonly number[],
+    encoding: 'utf8' | 'protobuf' = 'utf8',
+  ): Promise<SpaceEntityMessageSendResult> {
+    const path = `/${encodeURIComponent(sourceId)}/messages/${encodeURIComponent(targetId)}/${encodeURIComponent(messageType)}/${encoding}`;
+    const bytes = encoding === 'utf8'
+      ? new TextEncoder().encode(payload as string)
+      : Uint8Array.from(payload as readonly number[]);
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/octet-stream',
+      },
+      body: bytes,
+    });
+    let body: any;
+    try {
+      body = await readJsonResponse(response, MAX_ENTITY_API_RESPONSE_BYTES);
+    } catch (error) {
+      throw new SpaceEntityApiError(
+        response.status,
+        'ENTITY_API_INVALID_RESPONSE',
+        'The Space entity API returned an invalid or oversized message response.',
+        error,
+      );
+    }
+    if (!response.ok) {
+      const detail = body?.detail;
+      throw new SpaceEntityApiError(
+        response.status,
+        detail?.code || `HTTP_${response.status}`,
+        detail?.message || 'Space entity message send failed.',
+        detail,
+      );
+    }
+    if (typeof body?.message_id !== 'string' || !['routed', 'dropped'].includes(body?.status)
+      || !(body?.reason === undefined || typeof body.reason === 'string')) {
+      throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid entity message response.', body);
+    }
+    return {
+      ok: true,
+      messageId: body.message_id,
+      deliveryStatus: body.status,
+      ...(body.reason ? { reason: body.reason } : {}),
+    };
   }
 
   async createBrowser(payload: PersistBrowserWorldEntity, createOperationId = operationId()) {

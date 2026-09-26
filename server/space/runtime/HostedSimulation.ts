@@ -14,6 +14,7 @@ export class HostedSimulation {
   dirty = new Set<string>();
   allowed = new Set<string>();
   mutations: any[] = [];
+  outboundMessages: any[] = [];
   actor: string | null = null;
 
   inBounds(c: any, anchor: number[]) {
@@ -51,6 +52,35 @@ export class HostedSimulation {
     this.mutations.push({ ...mutation, actor_entity_id: this.actor });
   }
 
+  queueEntityMessage(sourceId: string, targetId: string, messageType: string,
+    payload: string | number[], encoding: 'utf8' | 'protobuf', command: any) {
+    if (!this.actor || this.actor !== sourceId) return { ok: false, reason: 'source_inactive' };
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetId)) {
+      return { ok: false, reason: 'invalid_target_id' };
+    }
+    if (!/^[a-z][a-z0-9._-]{0,15}$/.test(messageType)) return { ok: false, reason: 'invalid_message_type' };
+    if (encoding !== 'utf8' && encoding !== 'protobuf') return { ok: false, reason: 'invalid_encoding' };
+    if (messageType === 'chat' && encoding !== 'utf8') return { ok: false, reason: 'chat_requires_utf8' };
+    let body: string | number[];
+    if (encoding === 'utf8') {
+      if (typeof payload !== 'string') return { ok: false, reason: 'invalid_payload' };
+      if (new TextEncoder().encode(payload).byteLength > 4096) return { ok: false, reason: 'payload_too_large' };
+      body = payload;
+    } else {
+      if (!Array.isArray(payload) || payload.length > 4096
+        || payload.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+        return { ok: false, reason: 'invalid_payload' };
+      }
+      body = payload.slice();
+    }
+    if (this.outboundMessages.length >= 20) return { ok: false, reason: 'message_batch_limit' };
+    this.outboundMessages.push({
+      sourceId, targetId, type: messageType, encoding, payload: body,
+      commandId: String(command?.commandId || ''), nodeId: String(command?.nodeId || ''),
+    });
+    return { ok: true, queued: 1, pending: true, reason: 'queued' };
+  }
+
   async step(input: any) {
     await preloadQuickJSScriptRuntime();
     if (!Number.isInteger(input.steps) || input.steps < 1 || input.steps > 20
@@ -58,6 +88,7 @@ export class HostedSimulation {
     this.world.editPersistence = null;
     this.allowed = new Set(input.chunks.map(c => `${c.chunk_x},${c.chunk_z}`));
     this.mutations = [];
+    this.outboundMessages = [];
     for (const key of this.world.chunks.keys()) {
       if (!this.allowed.has(key)) {
         const [cx, cz] = key.split(',').map(Number);
@@ -109,6 +140,14 @@ export class HostedSimulation {
     const manager = new ContraptionManager(this.scene, this.world, null, null);
     manager.setPhysics(new ContraptionPhysics(this.world));
     manager.entityPersistenceMode = 'remote';
+    manager.setRuntimeContextProvider(() => ({
+      messages: {
+        send: (sourceId: string, targetId: string, messageType: string,
+          payload: string | number[], encoding: 'utf8' | 'protobuf', command: any) => (
+          this.queueEntityMessage(sourceId, targetId, messageType, payload, encoding, command)
+        ),
+      },
+    }));
     // Entity creation/assembly and player selection are outside the hosted base tier.
     manager.scriptSelectionApi = Object.freeze({});
     manager.syncContraptionsToLoadedChunks = () => {};
@@ -125,6 +164,15 @@ export class HostedSimulation {
         const c = manager.buildFromSlot(slot, origin, item.snapshot ? { ...item.snapshot, serverManaged: false } : null, false);
         if (!c) throw new Error('hosting_invalid_entity');
         c.publicId = item.id;
+        if (Array.isArray(item.messages)) {
+          for (const message of item.messages.slice(0, 64)) c.enqueueEntityMessage?.(message);
+        }
+        if (Array.isArray(item.message_results)) {
+          c.pendingScriptCommandResults.push(...item.message_results.slice(0, 256));
+          if (c.pendingScriptCommandResults.length > 256) {
+            c.pendingScriptCommandResults.splice(0, c.pendingScriptCommandResults.length - 256);
+          }
+        }
         if (!item.snapshot) {
           const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), item.yaw_quarter_turns * Math.PI / 2);
           c.position.copy(origin).add(c.localCenter.clone().applyQuaternion(rotation));
@@ -184,7 +232,7 @@ export class HostedSimulation {
         return { id, snapshot, definition_base64: Buffer.from(definition).toString('base64'),
           stopped: !c.isPhysicsSimulationEnabled(), elapsed_ms: elapsed, poses };
       });
-      return { entities: results, mutations: this.mutations, faults: [] };
+      return { entities: results, mutations: this.mutations, messages: this.outboundMessages, faults: [] };
     } finally {
       for (const c of [...manager.contraptions]) manager.removeContraption(c, { skipSave: true, skipRemoteDelete: true });
       this.world.dirtyChunks.clear();

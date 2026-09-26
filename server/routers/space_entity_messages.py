@@ -36,7 +36,6 @@ ENTITY_MESSAGE_TICKET_TTL_SECONDS = 30
 ENTITY_MESSAGE_PRESENCE_TTL_SECONDS = 30
 ENTITY_MESSAGE_PRESENCE_REFRESH_SECONDS = 10
 ENTITY_MESSAGE_PROTOCOL = "space-entity-messages-v1"
-PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
 _TYPE_RE = re.compile(r"^[a-z][a-z0-9._-]{0,15}$", re.ASCII)
 
 
@@ -265,7 +264,7 @@ entity_message_hub = EntityMessageHub()
 
 
 @router.post(
-    "/space/api/v2/worlds/{world_id}/entities/{source_id}/messages/{target_id}",
+    "/space/api/v2/worlds/{world_id}/entities/{source_id}/messages/{target_id}/{message_type}/{encoding}",
     status_code=202,
 )
 @limiter.limit("1200/minute; 50000/hour", key_func=get_authenticated_or_remote_address)
@@ -274,6 +273,8 @@ async def send_entity_message(
     world_id: uuid.UUID,
     source_id: uuid.UUID,
     target_id: uuid.UUID,
+    message_type: str,
+    encoding: str,
     db: Session = Depends(get_db),
     creator: EntityCreator = Depends(_entity_creator),
 ):
@@ -282,25 +283,9 @@ async def send_entity_message(
         db, str(world.id), str(source_id), user_id=creator.user.id,
     )
 
-    message_type = request.headers.get("message-type", "")
     if not message_type.isascii() or not _TYPE_RE.fullmatch(message_type):
         raise HTTPException(400, detail={"code": "ENTITY_MESSAGE_TYPE_INVALID", "max_bytes": MAX_TYPE_BYTES})
-
-    content_type_header = request.headers.get("content-type", "")
-    content_type, *parameters = [part.strip() for part in content_type_header.split(";")]
-    content_type = content_type.lower()
-    if content_type == "text/plain":
-        charset = "utf-8"
-        for parameter in parameters:
-            key, separator, value = parameter.partition("=")
-            if separator and key.strip().lower() == "charset":
-                charset = value.strip().strip('"').lower()
-        if charset != "utf-8":
-            raise HTTPException(415, detail={"code": "ENTITY_MESSAGE_ENCODING_UNSUPPORTED"})
-        encoding = "utf8"
-    elif content_type == PROTOBUF_CONTENT_TYPE:
-        encoding = "protobuf"
-    else:
+    if encoding not in ("utf8", "protobuf"):
         raise HTTPException(415, detail={"code": "ENTITY_MESSAGE_ENCODING_UNSUPPORTED"})
     if message_type == "chat" and encoding != "utf8":
         raise HTTPException(400, detail={"code": "ENTITY_CHAT_REQUIRES_UTF8"})
@@ -326,55 +311,8 @@ async def send_entity_message(
         except UnicodeDecodeError as exc:
             raise HTTPException(400, detail={"code": "ENTITY_MESSAGE_UTF8_INVALID"}) from exc
 
-    try:
-        rate_result = await asyncio.to_thread(
-            _check_entity_rate_limit,
-            str(world.id), str(source.id),
-        )
-    except Exception as exc:
-        if _is_production():
-            logger.exception("Redis is required for entity message rate limits")
-            raise HTTPException(503, detail={"code": "ENTITY_MESSAGE_SERVICE_UNAVAILABLE"}) from exc
-        raise HTTPException(503, detail={"code": "ENTITY_MESSAGE_SERVICE_UNAVAILABLE"}) from exc
-    allowed, retry_after_ms = rate_result
-    if not allowed:
-        retry_after = max(1, (retry_after_ms + 999) // 1000)
-        raise HTTPException(
-            429,
-            detail={"code": "ENTITY_MESSAGE_RATE_LIMITED", "limit_per_second": ENTITY_MESSAGE_RATE},
-            headers={"Retry-After": str(retry_after)},
-        )
-
-    message_id = str(uuid.uuid4())
-    target = db.get(models.SpaceWorldEntity, (str(world.id), str(target_id)))
-    if not _entity_is_running(target):
-        return JSONResponse(status_code=200, content={
-            "message_id": message_id,
-            "status": "dropped",
-            "reason": "target_inactive",
-        })
-
-    try:
-        routed = await entity_message_hub.route(
-            str(world.id), str(target_id), int(target.execution_epoch or 0),
-            {
-                "type": "entity_message",
-                "message_id": message_id,
-                "source_id": str(source.id),
-                "target_id": str(target_id),
-                "message_type": message_type,
-                "encoding": encoding,
-                "payload": payload,
-            },
-        )
-    except Exception as exc:
-        logger.exception("Entity message routing is unavailable")
-        raise HTTPException(503, detail={"code": "ENTITY_MESSAGE_SERVICE_UNAVAILABLE"}) from exc
-    return JSONResponse(status_code=202 if routed else 200, content={
-        "message_id": message_id,
-        "status": "routed" if routed else "dropped",
-        **({} if routed else {"reason": "target_inactive"}),
-    })
+    result = await _route_entity_message(str(world.id), str(source.id), str(target_id), message_type, encoding, payload)
+    return JSONResponse(status_code=202 if result["status"] == "routed" else 200, content=result)
 
 
 def _check_entity_rate_limit(world_id: str, source_id: str) -> tuple[bool, int]:
@@ -393,6 +331,128 @@ def _check_entity_rate_limit(world_id: str, source_id: str) -> tuple[bool, int]:
     return bool(int(result[0])), max(0, int(result[1]))
 
 
+def _normalize_entity_message_payload(payload, encoding: str) -> bytes:
+    if encoding == "utf8":
+        if isinstance(payload, str):
+            body = payload.encode("utf-8")
+        elif isinstance(payload, bytes):
+            body = payload
+            try:
+                body.decode("utf-8", errors="strict")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(400, detail={"code": "ENTITY_MESSAGE_UTF8_INVALID"}) from exc
+        else:
+            raise HTTPException(400, detail={"code": "ENTITY_MESSAGE_PAYLOAD_INVALID"})
+        if len(body) > MAX_PAYLOAD_BYTES:
+            raise HTTPException(413, detail={"code": "ENTITY_MESSAGE_TOO_LARGE", "limit_bytes": MAX_PAYLOAD_BYTES})
+        return body
+    if encoding == "protobuf":
+        if isinstance(payload, bytes):
+            body = payload
+        elif isinstance(payload, list) and all(type(byte) is int and 0 <= byte <= 255 for byte in payload):
+            body = bytes(payload)
+        else:
+            raise HTTPException(400, detail={"code": "ENTITY_MESSAGE_PAYLOAD_INVALID"})
+        if len(body) > MAX_PAYLOAD_BYTES:
+            raise HTTPException(413, detail={"code": "ENTITY_MESSAGE_TOO_LARGE", "limit_bytes": MAX_PAYLOAD_BYTES})
+        return body
+    raise HTTPException(415, detail={"code": "ENTITY_MESSAGE_ENCODING_UNSUPPORTED"})
+
+
+def _target_execution_epoch(world_id: str, target_id: str) -> int | None:
+    db = SessionLocal()
+    try:
+        target = db.get(models.SpaceWorldEntity, (world_id, target_id))
+        return int(target.execution_epoch or 0) if _entity_is_running(target) else None
+    finally:
+        db.close()
+
+
+def _hosted_source_is_active(world_id: str, source_id: str, execution_epoch: int) -> bool:
+    db = SessionLocal()
+    try:
+        source = db.get(models.SpaceWorldEntity, (world_id, source_id))
+        return bool(
+            source is not None
+            and source.execution_mode == "hosted"
+            and int(source.execution_epoch or 0) == int(execution_epoch)
+            and _entity_is_running(source)
+        )
+    finally:
+        db.close()
+
+
+async def _route_entity_message(
+    world_id: str,
+    source_id: str,
+    target_id: str,
+    message_type: str,
+    encoding: str,
+    payload,
+) -> dict:
+    if not isinstance(message_type, str) or not message_type.isascii() or not _TYPE_RE.fullmatch(message_type):
+        raise HTTPException(400, detail={"code": "ENTITY_MESSAGE_TYPE_INVALID", "max_bytes": MAX_TYPE_BYTES})
+    if encoding not in ("utf8", "protobuf"):
+        raise HTTPException(415, detail={"code": "ENTITY_MESSAGE_ENCODING_UNSUPPORTED"})
+    if message_type == "chat" and encoding != "utf8":
+        raise HTTPException(400, detail={"code": "ENTITY_CHAT_REQUIRES_UTF8"})
+    body = _normalize_entity_message_payload(payload, encoding)
+
+    try:
+        allowed, retry_after_ms = await asyncio.to_thread(_check_entity_rate_limit, world_id, source_id)
+    except Exception as exc:
+        logger.exception("Redis is required for entity message rate limits")
+        raise HTTPException(503, detail={"code": "ENTITY_MESSAGE_SERVICE_UNAVAILABLE"}) from exc
+    if not allowed:
+        retry_after = max(1, (retry_after_ms + 999) // 1000)
+        raise HTTPException(
+            429,
+            detail={"code": "ENTITY_MESSAGE_RATE_LIMITED", "limit_per_second": ENTITY_MESSAGE_RATE},
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    message_id = str(uuid.uuid4())
+    target_epoch = await asyncio.to_thread(_target_execution_epoch, world_id, target_id)
+    if target_epoch is None:
+        return {"message_id": message_id, "status": "dropped", "reason": "target_inactive"}
+    try:
+        routed = await entity_message_hub.route(
+            world_id, target_id, target_epoch,
+            {
+                "type": "entity_message",
+                "message_id": message_id,
+                "source_id": source_id,
+                "target_id": target_id,
+                "message_type": message_type,
+                "encoding": encoding,
+                "payload": body,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Entity message routing is unavailable")
+        raise HTTPException(503, detail={"code": "ENTITY_MESSAGE_SERVICE_UNAVAILABLE"}) from exc
+    return {
+        "message_id": message_id,
+        "status": "routed" if routed else "dropped",
+        **({} if routed else {"reason": "target_inactive"}),
+    }
+
+
+async def send_hosted_entity_message(
+    world_id: str,
+    source_id: str,
+    execution_epoch: int,
+    target_id: str,
+    message_type: str,
+    encoding: str,
+    payload,
+) -> dict:
+    """Route a send command emitted by the trusted hosted QuickJS runtime."""
+    if not await asyncio.to_thread(_hosted_source_is_active, world_id, source_id, execution_epoch):
+        return {"status": "dropped", "reason": "source_inactive"}
+    return await _route_entity_message(world_id, source_id, target_id, message_type, encoding, payload)
+
+
 @router.post("/space/api/v2/worlds/{world_id}/entities/{entity_id}/message-ticket")
 @limiter.limit("30/minute; 300/hour", key_func=get_authenticated_or_remote_address)
 def create_entity_message_ticket(
@@ -406,6 +466,8 @@ def create_entity_message_ticket(
     entity = _active_entity_or_error(
         db, str(world.id), str(entity_id), user_id=current_user.id,
     )
+    if entity.execution_mode == "hosted":
+        raise HTTPException(409, detail={"code": "ENTITY_MESSAGE_RECEIVER_MANAGED"})
     websocket_url = settings.SPACE_WS_URL.rstrip("/")
     if websocket_url.endswith("/space/ws/v2"):
         websocket_url = websocket_url[:-len("/space/ws/v2")]

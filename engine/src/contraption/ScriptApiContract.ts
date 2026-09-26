@@ -57,6 +57,7 @@ const ctxEntries: ApiEntry[] = [
   { signature: 'ctx.players', type: 'array', description: 'Frozen player observations. `position` remains the eye-position compatibility alias; records also expose `eyePosition`, nullable `feetPosition`/`velocity`/pose and movement flags, riding IDs, `isLocal`, and fixed 50 kg mass.' },
   { signature: 'ctx.driver', type: 'object|null', description: 'Current local driver for this entity as `{playerId,componentId,seatIndex}`, or `null` when it is not mounted.' },
   { signature: 'ctx.contacts', type: 'array', description: 'Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain|entity|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Player contacts are one-way observations with zero impulse and never modify entity dynamics. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity.' },
+  { signature: 'ctx.messages', type: 'array & {send(targetId,type,payload,encoding?)}', description: 'Frozen inbound messages plus `send(targetId,type,payload,encoding="utf8")`. Only the root component script receives messages; records are `{messageId,sourceId,targetId,type,encoding,payload}`. UTF-8 payloads are strings and Protobuf payloads are frozen byte-number arrays. `send` queues an authenticated entity message and returns `{ok,queued,reason,commandId}`; use `ctx.commands.get(commandId)` on a later frame to read `deliveryStatus` (`routed` or `dropped`). Payloads are limited to 4 KiB, types to 16 ASCII bytes, and the backend enforces 20 sends per second per source entity.' },
   { signature: 'ctx.world', type: 'object', description: 'World query and mutation API described below.' },
   { signature: 'ctx.selection', type: 'object', description: 'Shared engine selection command API described below.' },
   { signature: 'ctx.commands', type: 'object', description: 'Final main-thread command results from the previous submitted frame: `get(commandId)` and `all()`.' },
@@ -190,12 +191,31 @@ const dz = wrappedDelta(ctx.position[2], target[2], 2048);`
       facts: [
         'Every component script receives `(self, ctx)` once per fixed 20 Hz entity tick. `self` is the target component; root body fields in `ctx` always describe the root entity.',
         'The root script runs before child scripts. All components share one frozen frame-start `ctx` snapshot; admitted commands commit after the synchronous QuickJS tick.',
+        'Entity messages arrive only while this entity is active and connected. The root script reads the current batch from `ctx.messages`; a submitted frame consumes that batch. Messages are ephemeral and are not queued while the target is inactive or disconnected.',
+        'Send with `ctx.messages.send(targetId, type, payload, encoding?)`; UTF-8 is the default and `chat` requires UTF-8. The call queues an authenticated send outside QuickJS. Check `ctx.commands.get(commandId)` on a later frame for `deliveryStatus` and any rejection reason.',
         'Each component owns `self.state`. Completed state survives chunk streaming and disabling component code; Stop clears it.',
         "Queued mutation success means command-buffer admission (`reason:'queued'`), not final commit. Successful admission includes `commandId`; the main thread revalidates bounds, occupancy, and permissions and publishes the final result through `ctx.commands` on the next submitted frame.",
         'Limits: 4 MiB runtime memory, 512 KiB stack, 64 components per entity, 256 commands, 256 world voxel reads, and 64 raycasts per tick, 5 ms per component invocation, 25 ms aggregate entity time, and 64 VM interrupt checkpoints.',
         'A component exception disables that component. Aggregate time/checkpoint failure disables every component script and discards commands from the interrupted tick.',
         'Entities only exist and run while their wrapped root chunk is active; streaming serializes identity, hierarchy, physics, scripts, defaults, and completed state.'
-      ]
+      ],
+      examples: [{
+        title: 'Send once and inspect delivery',
+        code: `if (!self.state.chatSent) {
+  const queued = ctx.messages.send(targetId, 'chat', 'hello');
+  if (queued.ok) {
+    self.state.chatSent = true;
+    self.state.chatCommandId = queued.commandId;
+  }
+}
+const result = self.state.chatCommandId
+  ? ctx.commands.get(self.state.chatCommandId)
+  : null;
+if (result && (result.deliveryStatus || result.status === 'rejected')) {
+  ctx.log('Message ' + (result.deliveryStatus || result.reason || 'rejected'));
+  self.state.chatCommandId = null;
+}`
+      }]
     },
     { id: 'ctx', title: 'ctx — read-only frame snapshot', entries: ctxEntries },
     {
