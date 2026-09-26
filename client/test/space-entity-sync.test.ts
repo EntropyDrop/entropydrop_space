@@ -67,7 +67,7 @@ function record() {
     world_id: 'world-1',
     owner_user_id: 'owner-1',
     name: 'Walker',
-    schema_version: 7,
+    schema_version: 8,
     definition_digest: definitionDigest,
     definition_size_bytes: definition.byteLength,
     definition_url: '/definition',

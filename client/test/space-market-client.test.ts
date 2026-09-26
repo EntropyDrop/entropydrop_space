@@ -6,13 +6,13 @@ import { decodeInventoryResource, encodeInventoryResource } from '@entropydrop/s
 
 const COLORSET = {
   type: 'space-colorset',
-  version: 7,
+  version: 8,
   name: 'Sunset',
-  colors: [
+  entries: [
     '#111111', '#222222', '#333333',
     '#444444', '#555555', '#666666',
     '#777777', '#888888', '#999999',
-  ],
+  ].map(color => ({ stops: [{ color, position: 0 }], materialId: 0 })),
 };
 const COLORSET_PROTOBUF = encodeInventoryResource('colorset', COLORSET);
 const COLORSET_DIGEST = createHash('sha256')
@@ -21,22 +21,22 @@ const COLORSET_DIGEST = createHash('sha256')
 
 const BLOCKSET = {
   type: 'space-blockset',
-  version: 7,
+  version: 8,
   name: 'Signal tower',
   blocks: [{ dx: 1, dy: 2, dz: 3, block: 1, color: 0xf2a93b }],
 };
 const BLOCKSET_PROTOBUF = encodeInventoryResource('blockset', BLOCKSET);
 // Cross-language fixture for the backend's deterministic, name-omitting digest.
-const BLOCKSET_DIGEST = 'c190d16dabdeff20bbf2285fd6bb67c10c7cdace60227ae8eb4d7a1699446bb2';
+const BLOCKSET_DIGEST = '3a30b3772f867a8ba94d6b6854e9f906dc92eda3322c9e0b587ac976e2f00bc4';
 
 test('market component names match Python bytes and recursive name-free digests', async () => {
   const component = (id, name, children) => ({ id, name, body: { type: 'dynamic' }, blocks: [], seats: [], children });
-  const entity = { type: 'space-entity', version: 7, constraints: [],
+  const entity = { type: 'space-entity', version: 8, constraints: [],
     root: component('world', 'Chassis', [component('root', 'Module', [component('tip', 'Tip', [])])]) };
   const wire = encodeInventoryResource('entity', entity);
-  assert.equal(Buffer.from(wire).toString('hex'), '08075a3412320a05776f726c641a00421e0a04726f6f741a00420c0a037469701a00620354697062064d6f64756c65620743686173736973');
+  assert.equal(Buffer.from(wire).toString('hex'), '08085a3412320a05776f726c641a00421e0a04726f6f741a00420c0a037469701a00620354697062064d6f64756c65620743686173736973');
   assert.deepEqual(decodeInventoryResource(wire).portable, entity);
-  const digest = '3aa9f6f2d1a424d0f63d1fb4fe85d927eac86db793c6afa5d4095391b994f4c8';
+  const digest = 'e108348e263f37f66f8288beb95c9887a43943bfd07ae5b6cdb9fb481c197661';
   assert.equal(createHash('sha256').update(encodeInventoryResource('entity', entity, { includeNames: false })).digest('hex'), digest);
   assert.equal(entity.root.children[0].name, 'Module', 'digest encoding does not mutate names');
   let payload = wire;

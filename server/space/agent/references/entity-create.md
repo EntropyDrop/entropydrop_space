@@ -33,7 +33,7 @@ if not request_path.exists():
         headers={'Authorization': 'Bearer ' + key})
     with urllib.request.urlopen(request, timeout=20) as response:
         pose = json.load(response)
-    resource = pb.InventoryResource(schema_version=7)
+    resource = pb.InventoryResource(schema_version=8)
     root = resource.entity.root
     root.id, root.name = 'chassis', 'Orange cube'
     root.body.type = pb.BODY_TYPE_DYNAMIC

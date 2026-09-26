@@ -193,7 +193,7 @@ class MarketVoxel(StrictResourceModel):
 
 class BlockSetPayload(StrictResourceModel):
     type: Literal["space-blockset"]
-    version: Literal[7]
+    version: Literal[8]
     name: StrictStr = Field(min_length=1, max_length=80)
     blocks: list[MarketVoxel] = Field(min_length=1, max_length=SPACE_MARKET_MAX_BLOCKS)
 
@@ -328,7 +328,7 @@ class EntityConstraint(StrictResourceModel):
 
 class EntityPayload(StrictResourceModel):
     type: Literal["space-entity"]
-    version: Literal[7]
+    version: Literal[8]
     root: EntityComponent
     constraints: list[EntityConstraint] = Field(default_factory=list, max_length=SPACE_MARKET_MAX_CONSTRAINTS)
 
@@ -381,21 +381,42 @@ class EntityPayload(StrictResourceModel):
         return self
 
 
-class ColorSetPayload(StrictResourceModel):
-    type: Literal["space-colorset"]
-    version: Literal[7]
-    name: StrictStr = Field(min_length=1, max_length=80)
-    colors: list[StrictStr] = Field(min_length=9, max_length=9)
+class GradientStopPayload(StrictResourceModel):
+    color: StrictStr
+    position: Number
 
     @model_validator(mode="after")
-    def validate_colors(self):
+    def validate_stop(self):
+        self.color = self.color.lower()
+        if not HEX_COLOR_PATTERN.fullmatch(self.color):
+            raise ValueError("gradient stop colors must be six-digit #rrggbb values")
+        self.position = round(_finite_number(self.position, "gradient stop position", 0, 1) * 1000) / 1000
+        return self
+
+
+class PaletteEntryPayload(StrictResourceModel):
+    stops: list[GradientStopPayload] = Field(min_length=1, max_length=5)
+    material_id: StrictInt = Field(default=0, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_stops(self):
+        positions = [stop.position for stop in self.stops]
+        if positions != sorted(positions):
+            raise ValueError("gradient stops must be sorted by position")
+        return self
+
+
+class ColorSetPayload(StrictResourceModel):
+    type: Literal["space-colorset"]
+    version: Literal[8]
+    name: StrictStr = Field(min_length=1, max_length=80)
+    entries: list[PaletteEntryPayload] = Field(min_length=9, max_length=9)
+
+    @model_validator(mode="after")
+    def validate_entries(self):
         self.name = self.name.strip()
         if not self.name:
             raise ValueError("resource name may not be blank")
-        normalized = [color.lower() for color in self.colors]
-        if any(not HEX_COLOR_PATTERN.fullmatch(color) for color in normalized):
-            raise ValueError("colors must be six-digit #rrggbb values")
-        self.colors = normalized
         return self
 
 
@@ -758,9 +779,8 @@ def list_market_resources(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     filters = [
-        # Legacy inventory v6 rows are retained in the database but cannot be
-        # decoded by current clients, so they stay out of listings until the
-        # publisher re-uploads them as v7.
+        # Legacy inventory rows stay out of listings until their object bytes
+        # have been upgraded to the current schema.
         models.SpaceMarketResource.schema_version == INVENTORY_SCHEMA_VERSION,
     ]
     if kind:
@@ -993,8 +1013,8 @@ def download_market_resource(
         raise HTTPException(status_code=410, detail={
             "code": "MARKET_RESOURCE_LEGACY_SCHEMA",
             "message": (
-                "This resource was published with the retired inventory v6 schema. "
-                "It is retained but cannot be downloaded; re-publish it as v7."
+                "This resource uses a retired inventory schema. It is retained "
+                "but cannot be downloaded until its market object is migrated to v8."
             ),
         })
 

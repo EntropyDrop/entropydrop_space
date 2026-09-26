@@ -56,7 +56,7 @@ def _user(db, user_id: str = "market-user", email: str | None = None):
 def _blockset(name: str = "Signal tower", color: int = 0xF2A93B):
     return {
         "type": "space-blockset",
-        "version": 7,
+        "version": 8,
         "name": name,
         "blocks": [
             {"dx": 1, "dy": 0, "dz": 0, "block": 1, "color": color},
@@ -68,7 +68,7 @@ def _blockset(name: str = "Signal tower", color: int = 0xF2A93B):
 def _entity(name: str = "Walker"):
     return {
         "type": "space-entity",
-        "version": 7,
+        "version": 8,
         "root": {
             "name": name,
             "id": "root",
@@ -103,7 +103,15 @@ def _colorset(name: str = "Sunset", variant: int = 0):
         "#f1c40f", "#ff6b81", "#a55eea", "#48dbfb", "#2ed573",
         "#eb4d4b", "#f5f6fa", "#2f3542", f"#{variant:06x}",
     ]
-    return {"type": "space-colorset", "version": 7, "name": name, "colors": colors}
+    return {
+        "type": "space-colorset",
+        "version": 8,
+        "name": name,
+        "entries": [
+            {"stops": [{"color": color, "position": 0.0}], "material_id": 0}
+            for color in colors
+        ],
+    }
 
 
 def _publish(client, kind: str, payload: dict):
@@ -224,7 +232,7 @@ def test_market_stopped_grid_uses_the_explicit_root_pivot():
     def entity_with_root_pivot(local_position):
         return {
             "type": "space-entity",
-            "version": 7,
+            "version": 8,
             "root": {
                 "name": "Pivot",
                 "id": "root",
@@ -577,7 +585,7 @@ def test_market_publish_body_limit_allows_large_valid_protobuf_resources(client,
         })
     payload = {
         "type": "space-blockset",
-        "version": 7,
+        "version": 8,
         "name": "Large valid shape",
         "blocks": blocks,
     }
@@ -790,7 +798,7 @@ def test_market_resource_bounds_limits_enforced_to_256(client, db):
     # Span of exactly 256 (dx from 0 to 255) is allowed
     payload_valid = {
         "type": "space-blockset",
-        "version": 7,
+        "version": 8,
         "name": "256 span valid",
         "blocks": [
             {"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 0x123456},
@@ -803,7 +811,7 @@ def test_market_resource_bounds_limits_enforced_to_256(client, db):
     # Span of 257 (dx from 0 to 256) is rejected
     payload_invalid = {
         "type": "space-blockset",
-        "version": 7,
+        "version": 8,
         "name": "257 span invalid",
         "blocks": [
             {"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 0x123456},

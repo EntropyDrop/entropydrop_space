@@ -7,6 +7,12 @@ import {
   VoxelMaterialIds,
 } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import {
+  normalizeGradientStops,
+  normalizePaletteEntry,
+  sampleGradientColor,
+  type GradientStop,
+} from '@entropydrop/space-engine/voxel/Palette.ts';
+import {
   BodyType,
   ContraptionMode,
   isValidComponentId,
@@ -59,6 +65,7 @@ import {
   decodeInventoryResource,
   encodeBackpack,
   encodeInventoryResource,
+  INVENTORY_PROTOBUF_SCHEMA_VERSION,
   MAX_BACKPACK_SLOTS_PER_CATEGORY,
   portableEntityToRuntime,
   protobufFromBase64,
@@ -89,7 +96,8 @@ export type PlayerPerspective = 'first_person' | 'third_person' | 'third_person_
 
 const HEX_COLOR = /^#?[0-9a-f]{6}$/i;
 
-const INVENTORY_STORAGE_KEY = 'space.backpack.v8.pb';
+const INVENTORY_STORAGE_KEY = 'space.backpack.v9.pb';
+const LEGACY_INVENTORY_STORAGE_KEY = 'space.backpack.v8.pb';
 const INVENTORY_CATEGORIES = ['blockset', 'entity', 'colorset'];
 const DEFAULT_COLOR_SET_NAME = 'Default palette';
 export const BULK_EDIT_FRAME_BUDGET_MS = 5;
@@ -417,6 +425,7 @@ export class PlayerController {
   selectedBlock: number;
   selectedColor: number;
   selectedMaterialId: number;
+  selectedGradientStops: GradientStop[];
   currentRaycast: any;
   hoveredContraption: any;
   hoveredContraptionHit: any;
@@ -556,6 +565,7 @@ export class PlayerController {
     this.selectedBlock = BlockTypes.COLOR_BLOCK;
     this.selectedColor = 0xf2a93b;
     this.selectedMaterialId = VoxelMaterialIds.DEFAULT;
+    this.selectedGradientStops = normalizeGradientStops(null, this.selectedColor);
     this.currentRaycast = { hit: false };
     this.hoveredContraption = null;
     this.hoveredContraptionHit = null;
@@ -2055,7 +2065,8 @@ export class PlayerController {
       nodeId,
       pointA: min.sub(pivot).addScalar(1e-6),
       pointB: max.sub(pivot).addScalar(-1e-6),
-      allComponents: false
+      allComponents: false,
+      gradientEligible: false
     });
     const selected = this.selectedBlockSelection;
     if (!selected?.confirmedRange) return false;
@@ -2341,6 +2352,7 @@ export class PlayerController {
       blocks: selected,
       micro: isMicro,
       virtualMicro: selected.some((b: any) => b.virtualMicro === true),
+      gradientEligible: range.gradientEligible !== false,
       confirmedRange: { pointA: { ...pointA }, pointB: { ...pointB } },
       bounds: this.getEntitySelectionBounds(selected, isMicro)
     };
@@ -4393,7 +4405,56 @@ export class PlayerController {
     return started;
   }
 
-  private startLargeWorldSelectionFill(manager, partition, bounds, color, materialId: number = VoxelMaterialIds.DEFAULT) {
+  private gradientColorAt(
+    point: { x: number; y: number; z: number },
+    gradient: { stops: GradientStop[]; start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number } } | null,
+    fallback: number,
+  ): number {
+    if (!gradient || gradient.stops.length <= 1) return fallback;
+    const dx = gradient.end.x - gradient.start.x;
+    const dy = gradient.end.y - gradient.start.y;
+    const dz = gradient.end.z - gradient.start.z;
+    const lengthSquared = dx * dx + dy * dy + dz * dz;
+    if (lengthSquared <= 1e-12) return sampleGradientColor(gradient.stops, 0);
+    const progress = (
+      (point.x - gradient.start.x) * dx
+      + (point.y - gradient.start.y) * dy
+      + (point.z - gradient.start.z) * dz
+    ) / lengthSquared;
+    return sampleGradientColor(gradient.stops, progress);
+  }
+
+  private worldSelectionGradient(targetColor?: number) {
+    const stops = targetColor === undefined
+      ? normalizeGradientStops(this.selectedGradientStops, this.selectedColor)
+      : normalizeGradientStops(null, targetColor);
+    const manager = this.contraptions;
+    if (stops.length <= 1 || manager?.selectionBoxConfirmed !== true
+      || !manager.selectionCornerA || !manager.selectionCornerB) return null;
+    const micro = manager.selectionCornerA.micro === true || manager.selectionCornerB.micro === true;
+    const center = (point: any) => micro
+      ? { x: (point.x + 0.5) / MICRO_DIVISIONS, y: (point.y + 0.5) / MICRO_DIVISIONS, z: (point.z + 0.5) / MICRO_DIVISIONS }
+      : { x: point.x + 0.5, y: point.y + 0.5, z: point.z + 0.5 };
+    return { stops, start: center(manager.selectionCornerA), end: center(manager.selectionCornerB) };
+  }
+
+  private entitySelectionGradient(selection: any, targetColor?: number) {
+    const stops = targetColor === undefined
+      ? normalizeGradientStops(this.selectedGradientStops, this.selectedColor)
+      : normalizeGradientStops(null, targetColor);
+    const range = selection?.confirmedRange;
+    if (stops.length <= 1 || selection?.gradientEligible !== true
+      || !range?.pointA || !range?.pointB) return null;
+    const pivot = selection?.contraption?.entityNodes?.get?.(selection.nodeId)?.pivotLocal;
+    const point = (value: any) => ({
+      x: Number(value.x) + Number(pivot?.x || 0),
+      y: Number(value.y) + Number(pivot?.y || 0),
+      z: Number(value.z) + Number(pivot?.z || 0),
+    });
+    return { stops, start: point(range.pointA), end: point(range.pointB) };
+  }
+
+  private startLargeWorldSelectionFill(manager, partition, bounds, color, materialId: number = VoxelMaterialIds.DEFAULT, gradient = null) {
     let placedStandard = 0;
     let placedMicro = 0;
 
@@ -4408,18 +4469,26 @@ export class PlayerController {
         step: index => {
           if (index < stdCells.length) {
             const cell = stdCells[index];
+            const cellColor = this.gradientColorAt(
+              { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 }, gradient, color,
+            );
             const result = this.performBasicAction({
               domain: ActionDomain.WORLD,
               action: 'place-standard',
               cell,
-              color,
-              options: { color, materialId },
+              color: cellColor,
+              options: { color: cellColor, materialId },
               replace: true
             });
             if (result.placed) placedStandard++;
             return result.placed || 0;
           } else {
             const cell = microCells[index - stdCells.length];
+            const cellColor = this.gradientColorAt({
+              x: (cell.x + 0.5) / MICRO_DIVISIONS,
+              y: (cell.y + 0.5) / MICRO_DIVISIONS,
+              z: (cell.z + 0.5) / MICRO_DIVISIONS,
+            }, gradient, color);
             const wx = Math.floor(cell.x / MICRO_DIVISIONS);
             const wy = Math.floor(cell.y / MICRO_DIVISIONS);
             const wz = Math.floor(cell.z / MICRO_DIVISIONS);
@@ -4439,8 +4508,8 @@ export class PlayerController {
               domain: ActionDomain.WORLD,
               action: 'place-micro',
               micro: cell,
-              color,
-              options: { color, materialId },
+              color: cellColor,
+              options: { color: cellColor, materialId },
               replace: true
             });
             if (result.placed) placedMicro++;
@@ -4479,12 +4548,15 @@ export class PlayerController {
       total,
       step: index => {
         const cell = cellAt(index);
+        const cellColor = this.gradientColorAt(
+          { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 }, gradient, color,
+        );
         const result = this.performBasicAction({
           domain: ActionDomain.WORLD,
           action: 'place-standard',
           cell,
-          color,
-          options: { color, materialId },
+          color: cellColor,
+          options: { color: cellColor, materialId },
           replace: true
         });
         if (result.placed) placedStandard++;
@@ -4499,7 +4571,7 @@ export class PlayerController {
     return started;
   }
 
-  private startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor?: number, materialId: number = VoxelMaterialIds.DEFAULT) {
+  private startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor?: number, materialId: number = VoxelMaterialIds.DEFAULT, gradient = null) {
     let paintedStandard = 0;
     let paintedMicro = 0;
 
@@ -4514,14 +4586,17 @@ export class PlayerController {
         step: index => {
           if (index < stdCells.length) {
             const cell = stdCells[index];
+            const cellColor = this.gradientColorAt(
+              { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 }, gradient, color,
+            );
             const currColor = this.world.getBlockColor?.(cell.x, cell.y, cell.z);
             if (fromColor === undefined || currColor === fromColor) {
               const result = this.performBasicAction({
                 domain: ActionDomain.WORLD,
                 action: 'paint-standard',
                 cell,
-                color,
-                options: { color, materialId }
+                color: cellColor,
+                options: { color: cellColor, materialId }
               });
               if (result.painted) paintedStandard++;
               return result.painted || 0;
@@ -4529,6 +4604,11 @@ export class PlayerController {
             return 0;
           } else {
             const cell = microCells[index - stdCells.length];
+            const cellColor = this.gradientColorAt({
+              x: (cell.x + 0.5) / MICRO_DIVISIONS,
+              y: (cell.y + 0.5) / MICRO_DIVISIONS,
+              z: (cell.z + 0.5) / MICRO_DIVISIONS,
+            }, gradient, color);
             const wx = Math.floor(cell.x / MICRO_DIVISIONS);
             const wy = Math.floor(cell.y / MICRO_DIVISIONS);
             const wz = Math.floor(cell.z / MICRO_DIVISIONS);
@@ -4550,8 +4630,8 @@ export class PlayerController {
                 domain: ActionDomain.WORLD,
                 action: 'paint-micro',
                 micro: cell,
-                color,
-                options: { color, materialId }
+                color: cellColor,
+                options: { color: cellColor, materialId }
               });
               if (result.painted) paintedMicro++;
               return result.painted || 0;
@@ -4591,14 +4671,17 @@ export class PlayerController {
       total,
       step: index => {
         const cell = cellAt(index);
+        const cellColor = this.gradientColorAt(
+          { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 }, gradient, color,
+        );
         const currColor = this.world.getBlockColor?.(cell.x, cell.y, cell.z);
         if (fromColor === undefined || currColor === fromColor) {
           const result = this.performBasicAction({
             domain: ActionDomain.WORLD,
             action: 'paint-standard',
             cell,
-            color,
-            options: { color, materialId }
+            color: cellColor,
+            options: { color: cellColor, materialId }
           });
           if (result.painted) paintedStandard++;
           return result.painted || 0;
@@ -4819,7 +4902,10 @@ export class PlayerController {
     }
     if (!this.requireConfirmedSelection('filling')) return;
 
-    const color = targetColor ?? this.selectedColor;
+    const activeStops = targetColor === undefined
+      ? normalizeGradientStops(this.selectedGradientStops, this.selectedColor)
+      : normalizeGradientStops(null, targetColor);
+    const color = sampleGradientColor(activeStops, 0);
     const materialId = normalizeVoxelMaterialId(this.selectedMaterialId);
 
     // A whole-component (subtree) selection has no block box of its own. F must
@@ -4855,6 +4941,7 @@ export class PlayerController {
       if (!this.materializeMicroSelection()) return;
       const { contraption, nodeId, bounds, shapeCells } = this.selectedBlockSelection;
       const isMicro = this.selectorMicroMode === true;
+      const gradient = this.entitySelectionGradient(this.selectedBlockSelection, targetColor);
 
       let targetCoords: Array<{ x: number; y: number; z: number }> = [];
       if (Array.isArray(shapeCells) && shapeCells.length > 0) {
@@ -4875,6 +4962,13 @@ export class PlayerController {
         target: { contraption },
         nodeId,
         coords: targetCoords,
+        ...(gradient ? {
+          colors: targetCoords.map(coord => this.gradientColorAt({
+            x: isMicro ? (coord.x + 0.5) / MICRO_DIVISIONS : coord.x + 0.5,
+            y: isMicro ? (coord.y + 0.5) / MICRO_DIVISIONS : coord.y + 0.5,
+            z: isMicro ? (coord.z + 0.5) / MICRO_DIVISIONS : coord.z + 0.5,
+          }, gradient, color)),
+        } : {}),
         color,
         options: { color, materialId },
         micro: isMicro
@@ -4905,6 +4999,7 @@ export class PlayerController {
     const isMicroSelection = Array.isArray(manager.microSelection) || manager.microBounds !== null;
     const partition = isMicroSelection && manager.partitionMicroSelection ? manager.partitionMicroSelection() : null;
     const bounds = isMicroSelection ? null : manager.getSelectionBounds();
+    const gradient = this.worldSelectionGradient(targetColor);
 
     const largeSelectionCount = partition
       ? partition.standardCells.length + partition.microCells.length
@@ -4914,8 +5009,8 @@ export class PlayerController {
           ? manager.connectedSelection.length
           : (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1) * (bounds.maxZ - bounds.minZ + 1);
 
-    if (largeSelectionCount > BULK_EDIT_THRESHOLD) {
-      this.startLargeWorldSelectionFill(manager, partition, bounds, color, materialId);
+    if (gradient || largeSelectionCount > BULK_EDIT_THRESHOLD) {
+      this.startLargeWorldSelectionFill(manager, partition, bounds, color, materialId, gradient);
       return;
     }
 
@@ -4949,7 +5044,10 @@ export class PlayerController {
     }
     if (!this.requireConfirmedSelection('recoloring')) return;
 
-    const color = targetColor ?? this.selectedColor;
+    const activeStops = targetColor === undefined
+      ? normalizeGradientStops(this.selectedGradientStops, this.selectedColor)
+      : normalizeGradientStops(null, targetColor);
+    const color = sampleGradientColor(activeStops, 0);
     const materialId = normalizeVoxelMaterialId(this.selectedMaterialId);
 
     // 1. Entity blocks recolor
@@ -4957,6 +5055,7 @@ export class PlayerController {
       // Recoloring mutates geometry, so virtual micro cells are subdivided first.
       if (!this.materializeMicroSelection()) return;
       const { contraption, nodeId, blocks } = this.selectedBlockSelection;
+      const gradient = this.entitySelectionGradient(this.selectedBlockSelection, targetColor);
       const targetBlocks = fromColor !== undefined
         ? blocks.filter(b => b.color === fromColor)
         : blocks;
@@ -4966,6 +5065,13 @@ export class PlayerController {
         target: { contraption },
         nodeId,
         blocks: targetBlocks,
+        ...(gradient ? {
+          colors: targetBlocks.map(block => this.gradientColorAt({
+            x: Number(block.localX) + Number(block.size || 1) / 2,
+            y: Number(block.localY) + Number(block.size || 1) / 2,
+            z: Number(block.localZ) + Number(block.size || 1) / 2,
+          }, gradient, color)),
+        } : {}),
         color,
         options: { color, materialId }
       });
@@ -5006,6 +5112,7 @@ export class PlayerController {
     const isMicroSelection = Array.isArray(manager.microSelection) || manager.microBounds !== null;
     const partition = isMicroSelection && manager.partitionMicroSelection ? manager.partitionMicroSelection() : null;
     const bounds = isMicroSelection ? null : manager.getSelectionBounds();
+    const gradient = this.worldSelectionGradient(targetColor);
 
     const largeSelectionCount = partition
       ? partition.standardCells.length + partition.microCells.length
@@ -5015,8 +5122,8 @@ export class PlayerController {
           ? manager.connectedSelection.length
           : (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1) * (bounds.maxZ - bounds.minZ + 1);
 
-    if (largeSelectionCount > BULK_EDIT_THRESHOLD) {
-      this.startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor, materialId);
+    if (gradient || largeSelectionCount > BULK_EDIT_THRESHOLD) {
+      this.startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor, materialId, gradient);
       return;
     }
 
@@ -5099,7 +5206,8 @@ export class PlayerController {
           target: { contraption: c },
           nodeId: targetNodeId,
           cell: targetCell,
-          color: this.selectedColor
+          color: this.selectedColor,
+          options: { color: this.selectedColor, materialId: this.selectedMaterialId }
         });
         if (!result.ok) {
           if (result.reason === 'occupied' && this.ui) {
@@ -5135,7 +5243,8 @@ export class PlayerController {
         domain: ActionDomain.WORLD,
         action: 'place-standard',
         cell: target,
-        color: this.selectedColor
+        color: this.selectedColor,
+        options: { color: this.selectedColor, materialId: this.selectedMaterialId }
       });
       if (!result.ok && result.reason === 'occupied') {
         if (this.ui) this.ui.showToast('Target cell is occupied; the shovel never overwrites existing geometry');
@@ -5168,7 +5277,8 @@ export class PlayerController {
           target: { contraption: c },
           nodeId: targetNodeId,
           micro: [Math.round(mx * MICRO_DIVISIONS), Math.round(my * MICRO_DIVISIONS), Math.round(mz * MICRO_DIVISIONS)],
-          color: this.selectedColor
+          color: this.selectedColor,
+          options: { color: this.selectedColor, materialId: this.selectedMaterialId }
         });
 
         if (result.ok) {
@@ -5202,7 +5312,8 @@ export class PlayerController {
         domain: ActionDomain.WORLD,
         action: 'place-micro',
         micro: targetMicro,
-        color: this.selectedColor
+        color: this.selectedColor,
+        options: { color: this.selectedColor, materialId: this.selectedMaterialId }
       });
       if (result?.ok) {
         this.sound.playBlockPlace();
@@ -6363,7 +6474,8 @@ export class PlayerController {
                 Math.round(hit.block.localY * MICRO_DIVISIONS),
                 Math.round(hit.block.localZ * MICRO_DIVISIONS)
               ],
-              color: this.selectedColor
+              color: this.selectedColor,
+              options: { color: this.selectedColor, materialId: this.selectedMaterialId }
             });
             if (!result.ok) return;
             this.sound.playBlockPlace();
@@ -6391,7 +6503,8 @@ export class PlayerController {
                 target: { contraption: c },
                 nodeId,
                 micro: targetMicro,
-                color: this.selectedColor
+                color: this.selectedColor,
+                options: { color: this.selectedColor, materialId: this.selectedMaterialId }
               });
               this.ui?.notifyContraptionStructureChanged(c);
               this.sound.playBlockPlace();
@@ -6415,7 +6528,8 @@ export class PlayerController {
                 ]
               }
               : { cell: hit.cell }),
-            color: this.selectedColor
+            color: this.selectedColor,
+            options: { color: this.selectedColor, materialId: this.selectedMaterialId }
           });
           if (!result.ok) return;
           this.sound.playBlockPlace();
@@ -6435,7 +6549,8 @@ export class PlayerController {
           domain: ActionDomain.WORLD,
           action: 'paint-micro',
           micro: mp,
-          color: this.selectedColor
+          color: this.selectedColor,
+          options: { color: this.selectedColor, materialId: this.selectedMaterialId }
         });
         if (result.ok) {
           this.sound.playBlockPlace();
@@ -6464,7 +6579,8 @@ export class PlayerController {
             domain: ActionDomain.WORLD,
             action: 'paint-micro',
             micro: targetMicro,
-            color: this.selectedColor
+            color: this.selectedColor,
+            options: { color: this.selectedColor, materialId: this.selectedMaterialId }
           });
           this.sound.playBlockPlace();
           this.particles.emitBlockBreak(this.currentRaycast.hitPos, this.selectedColor, 4);
@@ -6478,7 +6594,8 @@ export class PlayerController {
           domain: ActionDomain.WORLD,
           action: 'paint-micro',
           micro: mp,
-          color: this.selectedColor
+          color: this.selectedColor,
+          options: { color: this.selectedColor, materialId: this.selectedMaterialId }
         });
         if (result.ok) {
           this.sound.playBlockPlace();
@@ -6491,7 +6608,8 @@ export class PlayerController {
           domain: ActionDomain.WORLD,
           action: 'paint-standard',
           cell: hp,
-          color: this.selectedColor
+          color: this.selectedColor,
+          options: { color: this.selectedColor, materialId: this.selectedMaterialId }
         });
         if (result.ok) {
           this.sound.playBlockPlace();
@@ -6620,7 +6738,8 @@ export class PlayerController {
         target: { contraption: c },
         nodeId,
         blocks,
-        color: this.selectedColor
+        color: this.selectedColor,
+        options: { color: this.selectedColor, materialId: this.selectedMaterialId }
       });
       this.performBasicAction({ domain: ActionDomain.SELECTION, action: 'clear' });
       c.clearSubtreeHighlight?.();
@@ -7463,6 +7582,15 @@ export class PlayerController {
     if (!this.inventories) this.inventoryCategory();
     const group = this.inventories?.[category];
     if (!group || !item) return null;
+    if (category === 'colorset') {
+      const source = Array.isArray(item.entries)
+        ? item.entries
+        : Array.isArray(item.colors)
+          ? item.colors.map(color => ({ stops: [{ color, position: 0 }], materialId: 0 }))
+          : [];
+      item.entries = source.map(entry => normalizePaletteEntry(entry, item.name || 'Custom'));
+      delete item.colors;
+    }
     if (!item.id) {
       const prefix = category === 'colorset' ? 'cs_' : category === 'blockset' ? 'bs_' : 'ent_';
       item.id = typeof globalThis.crypto?.randomUUID === 'function'
@@ -7566,14 +7694,21 @@ export class PlayerController {
     }
   }
 
-  /** Keep the built-in nine-color palette available as a color set. */
+  /** Keep the built-in nine-entry palette available as a color set. */
   ensureDefaultColorSet() {
     if (!this.inventories) this.inventoryCategory();
     const items = this.inventories.colorset.items;
-    const defaultColors = PRESET_COLORS.map(color => color.hex.toLowerCase());
-    const alreadyPresent = items.some(item => item && Array.isArray(item.colors)
-      && item.colors.length === defaultColors.length
-      && item.colors.every((color, index) => String(color).toLowerCase() === defaultColors[index]));
+    const defaultEntries = PRESET_COLORS.map(color => normalizePaletteEntry({
+      name: color.name,
+      stops: [{ color: color.hex, position: 0 }],
+      materialId: VoxelMaterialIds.DEFAULT,
+    }));
+    const alreadyPresent = items.some(item => item && Array.isArray(item.entries)
+      && item.entries.length === defaultEntries.length
+      && item.entries.every((entry, index) => (
+        normalizePaletteEntry(entry).hex === defaultEntries[index].hex
+        && normalizePaletteEntry(entry).stops.length === 1
+      )));
     if (alreadyPresent) {
       items.forEach(item => {
         if (item && !item.id) {
@@ -7591,7 +7726,7 @@ export class PlayerController {
         ? `cs_${globalThis.crypto.randomUUID()}`
         : `cs_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       name: DEFAULT_COLOR_SET_NAME,
-      colors: defaultColors
+      entries: defaultEntries
     };
     return true;
   }
@@ -7629,7 +7764,10 @@ export class PlayerController {
     let changed = false;
 
     try {
-      const raw = storage?.getBytes?.(INVENTORY_STORAGE_KEY) ?? storage?.getItem(INVENTORY_STORAGE_KEY);
+      const raw = storage?.getBytes?.(INVENTORY_STORAGE_KEY)
+        ?? storage?.getItem(INVENTORY_STORAGE_KEY)
+        ?? storage?.getBytes?.(LEGACY_INVENTORY_STORAGE_KEY)
+        ?? storage?.getItem(LEGACY_INVENTORY_STORAGE_KEY);
       if (raw) {
         const data = decodeBackpack(typeof raw === 'string' ? protobufFromBase64(raw) : raw);
         for (const category of INVENTORY_CATEGORIES) {
@@ -7672,7 +7810,7 @@ export class PlayerController {
     if (category === 'blockset') {
       return {
         type: 'space-blockset',
-        version: 7,
+        version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
         name: this.inventoryItemName('blockset', item),
         blocks: (item.blocks || []).map(b => {
           const shared = {
@@ -7833,9 +7971,10 @@ export class PlayerController {
     if (category === 'colorset') {
       return {
         type: 'space-colorset',
-        version: 7,
+        version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
         name: item.name || 'color set',
-        colors: item.colors
+        entries: (item.entries || item.colors?.map(color => ({ stops: [{ color, position: 0 }] })) || [])
+          .map(entry => normalizePaletteEntry(entry, item.name || 'Custom'))
       };
     }
     return null;
@@ -7907,7 +8046,7 @@ export class PlayerController {
     };
     const runtimeVoxel = (block, ownerId = null) => {
       if (block?.block !== undefined && block.block !== BlockTypes.COLOR_BLOCK) {
-        throw new Error('Inventory v7 supports only color block id 1');
+        throw new Error(`Inventory v${INVENTORY_PROTOBUF_SCHEMA_VERSION} supports only color block id 1`);
       }
       const color = Number(block?.color ?? 0xf2a93b);
       if (!Number.isSafeInteger(color) || color < 0 || color > 0xffffff) {
@@ -7945,8 +8084,8 @@ export class PlayerController {
     };
 
     if (category === 'blockset') {
-      if (data?.type !== 'space-blockset' || data?.version !== 7) {
-        return fail('Expected a space-blockset v7 Protobuf file');
+      if (data?.type !== 'space-blockset' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
+        return fail(`Expected a space-blockset v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
       }
       if (typeof data.name !== 'string' || !trimInventoryName(data.name)) return fail('A block set must have a name');
       if (inventoryNameLength(data.name) > MAX_INVENTORY_NAME_LENGTH) {
@@ -7980,8 +8119,8 @@ export class PlayerController {
     }
 
     if (category === 'entity') {
-      if (data?.type !== 'space-entity' || data?.version !== 7 || !data.root) {
-        return fail('Expected a recursive space-entity v7 Protobuf file');
+      if (data?.type !== 'space-entity' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION || !data.root) {
+        return fail(`Expected a recursive space-entity v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
       }
       if (Object.hasOwn(data, 'name')) return fail('Entity names belong to root.name');
 
@@ -8162,23 +8301,24 @@ export class PlayerController {
     }
 
     if (category === 'colorset') {
-      if (data?.type !== 'space-colorset' || data?.version !== 7) {
-        return fail('Expected a space-colorset v7 Protobuf file');
+      if (data?.type !== 'space-colorset' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
+        return fail(`Expected a space-colorset v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
       }
       if (typeof data.name !== 'string' || !trimInventoryName(data.name)) return fail('A color set must have a name');
       if (inventoryNameLength(data.name) > MAX_INVENTORY_NAME_LENGTH) {
         return fail(`A color set name may contain at most ${MAX_INVENTORY_NAME_LENGTH} characters`);
       }
-      if (!Array.isArray(data.colors) || data.colors.length !== 9) {
-        return fail('A color set must contain exactly 9 hex colors');
+      if (!Array.isArray(data.entries) || data.entries.length !== 9) {
+        return fail('A color set must contain exactly 9 palette entries');
       }
-      const colors = data.colors.map(color => `#${String(color ?? '').replace(/^#/, '').toLowerCase()}`);
-      if (!colors.every(color => HEX_COLOR.test(color))) {
-        return fail('Every color must be a 6-digit hex value like #48dbfb');
+      const entries = data.entries.map(entry => normalizePaletteEntry(entry, data.name));
+      if (entries.some(entry => entry.stops.length < 1 || entry.stops.length > 5
+        || entry.stops.some(stop => !HEX_COLOR.test(stop.color)))) {
+        return fail('Every palette entry must contain 1 to 5 valid gradient stops');
       }
       return {
         ok: true,
-        item: { name: truncateInventoryName(trimInventoryName(data.name)), colors }
+        item: { name: truncateInventoryName(trimInventoryName(data.name)), entries }
       };
     }
 

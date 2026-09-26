@@ -20,7 +20,7 @@ import {
 } from 'react-icons/lia';
 import { ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import { gradientCss, MAX_GRADIENT_STOPS, normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { TbBox, TbCylinder, TbSphere, TbStairs, TbLine } from 'react-icons/tb';
 import { SpecialTool } from '../../../engine/controls/PlayerController.ts';
 import type { SelectorShape } from '../../../engine/controls/SelectorShapes.ts';
@@ -132,14 +132,138 @@ function NearbyEntities() {
   );
 }
 
+function hexToHsv(hex: string) {
+  const value = Number.parseInt(hex.replace('#', ''), 16);
+  const r = ((value >> 16) & 255) / 255;
+  const g = ((value >> 8) & 255) / 255;
+  const b = (value & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
+  let h = 0;
+  if (delta > 0) {
+    if (max === r) h = 60 * (((g - b) / delta) % 6);
+    else if (max === g) h = 60 * ((b - r) / delta + 2);
+    else h = 60 * ((r - g) / delta + 4);
+  }
+  if (h < 0) h += 360;
+  return { h, s: max === 0 ? 0 : delta / max, v: max };
+}
+
+function hsvToHex(h: number, s: number, v: number) {
+  const chroma = v * s;
+  const x = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - chroma;
+  const sector = Math.floor((h % 360) / 60);
+  const rgb = [
+    [chroma, x, 0], [x, chroma, 0], [0, chroma, x],
+    [0, x, chroma], [x, 0, chroma], [chroma, 0, x],
+  ][sector] || [chroma, x, 0];
+  return `#${rgb.map(channel => Math.round((channel + m) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function PaletteEditor() {
+  const { paletteColors, selectedColorIndex, paletteEditorOpen } = useSpaceUi(state => state);
+  const [activeStop, setActiveStop] = useState(0);
+  const entry = normalizePaletteEntry(paletteColors[selectedColorIndex]);
+  const stopIndex = Math.min(activeStop, entry.stops.length - 1);
+  const stop = entry.stops[stopIndex];
+  const hsv = hexToHsv(stop.color);
+
+  useEffect(() => setActiveStop(0), [selectedColorIndex]);
+  useEffect(() => {
+    if (activeStop >= entry.stops.length) setActiveStop(Math.max(0, entry.stops.length - 1));
+  }, [activeStop, entry.stops.length]);
+
+  if (!paletteEditorOpen) return null;
+
+  const updateSv = (event: React.PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const s = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const v = Math.max(0, Math.min(1, 1 - (event.clientY - rect.top) / rect.height));
+    spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { color: hsvToHex(hsv.h, s, v) });
+  };
+
+  return (
+    <div className="palette-editor" role="dialog" aria-label="Palette editor">
+      <div className="palette-editor-header">
+        <div>
+          <strong>Palette {selectedColorIndex + 1}</strong>
+          <span>{entry.stops.length > 1 ? `${entry.stops.length}-stop gradient` : 'Solid color'}</span>
+        </div>
+        <button type="button" className="palette-editor-close" onClick={() => spaceUiStore.closeColorPicker()} aria-label="Close palette editor">×</button>
+      </div>
+      <div className="palette-editor-preview" style={{ background: gradientCss(entry.stops) }} />
+      <div className="gradient-stop-rail" style={{ background: gradientCss(entry.stops) }}>
+        {entry.stops.map((gradientStop, index) => (
+          <button
+            type="button"
+            key={`${gradientStop.color}:${gradientStop.position}:${index}`}
+            className={`gradient-stop-node ${index === stopIndex ? 'active' : ''}`}
+            style={{ left: `${gradientStop.position * 100}%`, background: gradientStop.color }}
+            title={`Stop ${index + 1}`}
+            onClick={() => setActiveStop(index)}
+          />
+        ))}
+      </div>
+      <div className="gradient-stop-actions">
+        <button
+          type="button"
+          disabled={entry.stops.length >= MAX_GRADIENT_STOPS}
+          onClick={() => {
+            const index = spaceUiStore.addPaletteStop(selectedColorIndex);
+            if (index !== null) setActiveStop(index);
+          }}
+        >+ Add stop</button>
+        <button type="button" disabled={entry.stops.length <= 1} onClick={() => spaceUiStore.removePaletteStop(selectedColorIndex, stopIndex)}>Remove</button>
+        <span>{entry.stops.length}/{MAX_GRADIENT_STOPS}</span>
+      </div>
+      <div
+        className="palette-sv-field"
+        style={{ backgroundColor: hsvToHex(hsv.h, 1, 1) }}
+        onPointerDown={event => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          updateSv(event);
+        }}
+        onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) updateSv(event); }}
+      >
+        <span className="palette-sv-cursor" style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }} />
+      </div>
+      <label className="palette-editor-field hue-field">
+        <span>Hue</span>
+        <input type="range" min="0" max="359" value={Math.round(hsv.h)} onChange={event => {
+          spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { color: hsvToHex(Number(event.target.value), hsv.s, hsv.v) });
+        }} />
+      </label>
+      <div className="palette-editor-fields">
+        <label className="palette-editor-field">
+          <span>Hex</span>
+          <input value={stop.color.toUpperCase()} maxLength={7} onChange={event => {
+            if (/^#[0-9a-f]{6}$/i.test(event.target.value)) {
+              spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { color: event.target.value });
+            }
+          }} />
+        </label>
+        <label className="palette-editor-field">
+          <span>Position</span>
+          <input type="range" min="0" max="100" value={Math.round(stop.position * 100)} onChange={event => {
+            spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { position: Number(event.target.value) / 100 });
+          }} />
+        </label>
+      </div>
+      <div className="palette-material-options" role="group" aria-label="Material">
+        <span>Material</span>
+        <button type="button" className={entry.materialId === 0 ? 'active' : ''} onClick={() => spaceUiStore.setPaletteMaterial(selectedColorIndex, 0)}>Default</button>
+        <button type="button" className={entry.materialId === 1 ? 'active' : ''} onClick={() => spaceUiStore.setPaletteMaterial(selectedColorIndex, 1)}>Emissive</button>
+      </div>
+      <p className="palette-editor-note">Selector gradients run from point A to B. Brush, shovel, spoon, and non-box selections use the first stop.</p>
+    </div>
+  );
+}
+
 function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
   const { paletteColors, selectedColorIndex, brushMicro, controller } = useSpaceUi(state => state);
   const altLabel = getAltKeyLabel();
   return (
     <div className="color-palette-bar-wrapper" id="color-palette-wrapper">
-      <div className="palette-material-row">
-        <MaterialPicker id={isBrush ? 'brush-material-select' : 'palette-material-select'} />
-      </div>
       <div className="palette-info-row">
         {isBrush ? (
           <div className="selector-title-group">
@@ -185,8 +309,8 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
               key={`${item.hex}:${index}`}
               id={isActive ? 'active-palette-color-chip' : undefined}
               className={`color-chip ${isActive ? 'active' : ''}`}
-              style={{ backgroundColor: item.hex }}
-              title={`${item.name || 'Custom'} (${item.hex.toUpperCase()}) · ${altLabel}+${index + 1}${isActive ? ' · I to set color' : ''}`}
+              style={{ background: gradientCss(item.stops) }}
+              title={`${item.name || 'Custom'} (${item.stops.length > 1 ? `${item.stops.length}-stop gradient` : item.hex.toUpperCase()}) · ${item.materialId === 1 ? 'Emissive' : 'Default'} · ${altLabel}+${index + 1}${isActive ? ' · I to edit' : ''}`}
               onClick={() => {
                 if (isActive) {
                   spaceUiStore.openColorPicker();
@@ -196,23 +320,12 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
               }}
             >
               <span className="chip-num">{index + 1}</span>
-              {isActive && (
-                <input
-                  id="active-color-picker-input"
-                  type="color"
-                  className="palette-color-picker-input"
-                  value={item.hex}
-                  tabIndex={-1}
-                  aria-label={`Set color for slot ${index + 1}`}
-                  onChange={e => spaceUiStore.setPaletteColor(index, e.target.value, true)}
-                  onInput={e => spaceUiStore.setPaletteColor(index, (e.target as HTMLInputElement).value, false)}
-                  onClick={e => e.stopPropagation()}
-                />
-              )}
+              {item.materialId === 1 && <span className="chip-material">E</span>}
             </button>
           );
         })}
       </div>
+      <PaletteEditor />
     </div>
   );
 }
@@ -280,27 +393,11 @@ function assembleCurrentSelection(controller: any) {
   return controller?.assembleSelection?.(ContraptionMode.PROGRAMMABLE);
 }
 
-function MaterialPicker({ id }: { id: string }) {
-  const { selectedMaterialId } = useSpaceUi(state => state);
-  return (
-    <label className="selector-material-picker" htmlFor={id}>
-      <span>Material</span>
-      <select
-        id={id}
-        value={selectedMaterialId}
-        title="Material used by building and paint tools"
-        onChange={event => spaceUiStore.setBuildMaterialId(event.target.value)}
-      >
-        <option value={VoxelMaterialIds.DEFAULT}>Default</option>
-        <option value={VoxelMaterialIds.EMISSIVE}>Emissive</option>
-      </select>
-    </label>
-  );
-}
-
 function SelectorPanel() {
-  const { selector, controller, selectedColor } = useSpaceUi(state => state);
+  const { selector, controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUi(state => state);
   const activeHex = colorToHex(selectedColor ?? 0xf2a93b);
+  const activeEntry = normalizePaletteEntry(paletteColors[selectedColorIndex], activeHex);
+  const activeBackground = gradientCss(activeEntry.stops);
   const altLabel = getAltKeyLabel();
   const selectorShapeItems = getSelectorShapeItems();
 
@@ -312,17 +409,9 @@ function SelectorPanel() {
             <span id="selector-mode-badge" className={`mode-badge ${selector.micro ? 'micro' : 'std'}`}>{selector.micro ? 'MICRO' : 'STANDARD'}</span>
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
           </button>
-          <div className="selector-recent-color" id="selector-recent-color" title={`Recent color · Click to pick · ${altLabel}+1~9 · Press I to set color`}>
-            <label className="selector-recent-color-chip" style={{ backgroundColor: activeHex }}>
-              <input
-                id="selector-color-picker-input"
-                type="color"
-                value={activeHex}
-                onChange={event => spaceUiStore.setBuildColor(event.target.value)}
-              />
-            </label>
+          <div className="selector-recent-color" id="selector-recent-color" title={`Active palette · Click to edit · ${altLabel}+1~9`}>
+            <button type="button" className="selector-recent-color-chip" style={{ background: activeBackground }} onClick={() => spaceUiStore.openColorPicker()} />
           </div>
-          <MaterialPicker id="selector-material-select" />
         </div>
         <span className="palette-hotkey-hint"><b>I</b> set color · <b>{altLabel}+1~5</b> shape · <b>Arrows</b> rotate</span>
       </div>
@@ -350,23 +439,24 @@ function SelectorPanel() {
         <div className="selector-action-buttons">
           <button id="assemble-btn" tabIndex={-1} className="banner-btn primary" disabled={!selector.canAssemble} onClick={() => assembleCurrentSelection(controller)}>{selector.assembleLabel}</button>
           <button id="fill-btn" tabIndex={-1} className="banner-btn secondary" title="Fill selection with the active color (F)" disabled={!selector.canModify} onClick={() => controller?.fillSelectionBlocks?.()}>
-            <span className="btn-color-dot" style={{ backgroundColor: activeHex }} />
+            <span className="btn-color-dot" style={{ background: activeBackground }} />
             Fill (F)
           </button>
           <button id="paint-btn" tabIndex={-1} className="banner-btn secondary" title="Recolor selection with the active color (P)" disabled={!selector.canModify} onClick={() => controller?.paintSelectionBlocks?.()}>
-            <span className="btn-color-dot" style={{ backgroundColor: activeHex }} />
+            <span className="btn-color-dot" style={{ background: activeBackground }} />
             Paint (P)
           </button>
           <button id="copy-btn" tabIndex={-1} className="banner-btn secondary" title="Copy selection to backpack (R)" disabled={!selector.canCopy} onClick={() => controller?.copySelectionSmart?.()}>Copy (R)</button>
           <button id="delete-btn" tabIndex={-1} className="banner-btn danger" title="Delete selection (Del)" disabled={!selector.canDelete} onClick={() => controller?.deleteSelectionBlocks?.()}>Delete (Del)</button>
         </div>
       </div>
+      <PaletteEditor />
     </div>
   );
 }
 
 function SelectorContextMenu() {
-  const { selectorContextMenu, selector, controller, selectedColor } = useSpaceUi(state => state);
+  const { selectorContextMenu, selector, controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUi(state => state);
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   useLayoutEffect(() => {
@@ -390,6 +480,7 @@ function SelectorContextMenu() {
   if (!selectorContextMenu) return null;
 
   const activeHex = colorToHex(selectedColor ?? 0xf2a93b);
+  const activeBackground = gradientCss(normalizePaletteEntry(paletteColors[selectedColorIndex], activeHex).stops);
   const selectorShapeItems = getSelectorShapeItems();
   const selectedEntity = controller?.selectedBlockSelection?.contraption
     || controller?.selectedSubtree?.contraption
@@ -482,11 +573,10 @@ function SelectorContextMenu() {
         <div className="selector-context-section">
           <div className="selector-context-section-title selector-context-color-title">
             <span>Actions</span>
-            <label className="selector-context-color" title={`Edit color ${activeHex.toUpperCase()}`}>
-              <span style={{ backgroundColor: activeHex }} />
+            <button type="button" className="selector-context-color" title="Edit active palette" onClick={() => run(() => spaceUiStore.openColorPicker())}>
+              <span style={{ background: activeBackground }} />
               <code>{activeHex.toUpperCase()}</code>
-              <input type="color" value={activeHex} aria-label="Selector action color" onChange={event => spaceUiStore.setBuildColor(event.target.value)} />
-            </label>
+            </button>
           </div>
           <div className="selector-context-actions">
             <button type="button" role="menuitem" disabled={!canSelectAll} title="Select all directly owned blocks of the current entity component and confirm A/B" onClick={() => run(() => controller?.selectAllSelectionBlocks?.())}>Select All</button>

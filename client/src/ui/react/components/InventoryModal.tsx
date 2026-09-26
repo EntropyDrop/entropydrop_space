@@ -30,7 +30,7 @@ import {
   extractModelArchive,
   MAX_MODEL_ARCHIVE_BYTES,
 } from '../../../engine/voxel/ModelImportArchive.ts';
-import { colorToHex, normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { gradientCss, normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
 import {
   decodeInventoryResource,
   inventoryResourcePreviewItem,
@@ -765,16 +765,6 @@ function ColorSetCard({
     state.activeColorSetId ? state.activeColorSetId === item.id : index === 0
   );
 
-  const updateColor = (colorIndex: number, value: string) => {
-    item.colors[colorIndex] = colorToHex(normalizeColor(value));
-    controller?.saveInventoriesToLocalStorage?.();
-    if (isCurrent) {
-      spaceUiStore.applyColorSetToPalette(item);
-    } else {
-      spaceUiStore.refresh();
-    }
-  };
-
   return (
     <div
       className={`inventory-card backpack-item colorset-card ${isCurrent ? 'active' : ''}`}
@@ -784,25 +774,23 @@ function ColorSetCard({
       }}
     >
       <div className="colorset-colors-row">
-        {(item.colors || []).slice(0, 9).map((hex: string, colorIndex: number) => {
-          const safe = colorToHex(normalizeColor(hex));
+        {(item.entries || []).slice(0, 9).map((value: any, colorIndex: number) => {
+          const entry = normalizePaletteEntry(value, name);
           return (
-            <label
+            <button
+              type="button"
               key={colorIndex}
               className="colorset-cell-swatch"
-              style={{ background: safe }}
-              title={`Recolor color ${colorIndex + 1} (${safe})`}
-              onClick={event => event.stopPropagation()}
-            >
-              <input
-                type="color"
-                value={safe}
-                onChange={event => {
-                  event.stopPropagation();
-                  updateColor(colorIndex, event.target.value);
-                }}
-              />
-            </label>
+              style={{ background: gradientCss(entry.stops) }}
+              title={`Edit palette ${colorIndex + 1} · ${entry.stops.length > 1 ? `${entry.stops.length}-stop gradient` : entry.hex}`}
+              onClick={event => {
+                event.stopPropagation();
+                spaceUiStore.applyColorSetToPalette(item);
+                spaceUiStore.selectPresetColor(colorIndex);
+                spaceUiStore.toggleInventoryModal(false);
+                spaceUiStore.openColorPicker();
+              }}
+            />
           );
         })}
       </div>
@@ -969,8 +957,8 @@ function MarketResourceCard({
       <div className={`market-resource-preview ${resource.kind}`}>
         {resource.kind === 'colorset' && previewItem ? (
           <div className="market-colorset-preview">
-            {(previewItem?.colors || []).map((color: string, index: number) => (
-              <span key={`${color}:${index}`} style={{ background: color }} />
+            {(previewItem?.entries || []).map((entry: any, index: number) => (
+              <span key={index} style={{ background: gradientCss(normalizePaletteEntry(entry).stops) }} />
             ))}
           </div>
         ) : thumbnail ? (
@@ -991,7 +979,7 @@ function MarketResourceCard({
         <div className="market-resource-author">by {publisher}</div>
         <div className="market-resource-meta">
           {resource.kind === 'colorset'
-            ? '9 colors'
+            ? '9 palette entries · gradients & materials'
             : `${resource.block_count} voxels${resource.kind === 'entity' ? ` · ${resource.node_count} nodes · ${resource.script_count} scripts` : ''}`}
         </div>
         <div className="market-resource-meta">{Number.isNaN(publishedAt.getTime()) ? resource.created_at : publishedAt.toLocaleDateString()}</div>

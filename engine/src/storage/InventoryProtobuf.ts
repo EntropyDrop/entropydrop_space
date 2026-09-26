@@ -1,5 +1,6 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import { parseVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
+import { normalizeGradientStops, normalizePaletteEntry } from '../voxel/Palette.ts';
 import {
   createFileRegistry,
   fromBinary,
@@ -25,15 +26,15 @@ import {
 } from '../generated/inventory.ts';
 import { INVENTORY_DESCRIPTOR_SET_BYTES } from '../generated/inventory_descriptor.ts';
 
-export const INVENTORY_PROTOBUF_SCHEMA_VERSION = 7;
-export const BACKPACK_PROTOBUF_SCHEMA_VERSION = 8;
+export const INVENTORY_PROTOBUF_SCHEMA_VERSION = 8;
+export const BACKPACK_PROTOBUF_SCHEMA_VERSION = 9;
 export const INVENTORY_PROTOBUF_MIME = 'application/x-protobuf';
 export { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
 import { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
 export type InventoryKind = 'blockset' | 'entity' | 'colorset';
 
 export interface PortableBackpack {
-  sourceSchemaVersion?: 8;
+  sourceSchemaVersion?: 8 | 9;
   activeCategory: InventoryKind;
   categories: Record<InventoryKind, {
     selected: number;
@@ -89,10 +90,10 @@ function requiredMessageDescriptor(typeName: string): DescMessage {
 }
 
 const INVENTORY_RESOURCE_DESCRIPTOR = requiredMessageDescriptor(
-  'entropydrop.space.inventory.v7.InventoryResource',
+  'entropydrop.space.inventory.v8.InventoryResource',
 );
 const BACKPACK_DESCRIPTOR = requiredMessageDescriptor(
-  'entropydrop.space.backpack.v8.Backpack',
+  'entropydrop.space.backpack.v9.Backpack',
 );
 
 function scalarWireType(type: ScalarType): WireType {
@@ -353,7 +354,7 @@ function portableVoxel(block: Voxel): any {
   return portable;
 }
 
-/** Copy only the fields carried by the portable v7 voxel shape. */
+/** Copy only the fields carried by the portable v8 voxel shape. */
 function portableVoxelFields(block: any): any {
   const portable: any = {
     dx: canonicalDouble(block?.dx),
@@ -513,15 +514,21 @@ function resourceMessage(category: InventoryKind, portable: any, includeNames = 
     };
   }
   if (category === 'colorset') {
+    const entries = (portable.entries || []).map((entry: any) => normalizePaletteEntry(entry));
     return {
       schemaVersion: INVENTORY_PROTOBUF_SCHEMA_VERSION,
       content: {
         $case: 'colorSet',
         value: {
           name: includeNames ? String(portable.name || '') : '',
-          colors: (portable.colors || []).map((color: string) => (
-            Number.parseInt(String(color).replace(/^#/, ''), 16) >>> 0
-          )),
+          legacyColors: [],
+          entries: entries.map((entry: any) => ({
+            stops: entry.stops.map((stop: any) => ({
+              colorRgb: Number.parseInt(stop.color.replace(/^#/, ''), 16) >>> 0,
+              offsetMillis: Math.round(stop.position * 1000),
+            })),
+            materialId: parseVoxelMaterialId(entry.materialId),
+          })),
         },
       },
     };
@@ -570,8 +577,14 @@ function resourceContent(message: any): InventoryResourceMessage['content'] {
   return undefined;
 }
 
-function portableResource(message: any): { category: InventoryKind; portable: any } {
-  if (Number(message.schemaVersion) !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
+function portablePaletteEntry(value: any): { stops: Array<{ color: string; position: number }>; materialId: number } {
+  const normalized = normalizePaletteEntry(value);
+  return { stops: normalized.stops, materialId: normalized.materialId };
+}
+
+function portableResource(message: any, allowLegacyV7 = false): { category: InventoryKind; portable: any } {
+  const schemaVersion = Number(message.schemaVersion);
+  if (schemaVersion !== INVENTORY_PROTOBUF_SCHEMA_VERSION && !(allowLegacyV7 && schemaVersion === 7)) {
     throw new Error(`Expected inventory Protobuf v${INVENTORY_PROTOBUF_SCHEMA_VERSION}.`);
   }
   const content = resourceContent(message);
@@ -590,13 +603,28 @@ function portableResource(message: any): { category: InventoryKind; portable: an
   }
   if (content?.$case === 'colorSet') {
     const colorSet = content.value;
+    const entries = (colorSet.entries || []).map((entry: any) => portablePaletteEntry({
+      stops: (entry.stops || []).map((stop: any) => ({
+        color: `#${(Number(stop.colorRgb) >>> 0).toString(16).padStart(6, '0')}`,
+        position: Math.max(0, Math.min(1000, Number(stop.offsetMillis))) / 1000,
+      })),
+      materialId: parseVoxelMaterialId(entry.materialId),
+      name: colorSet.name,
+    }));
+    if (entries.length === 0 && allowLegacyV7) {
+      entries.push(...(colorSet.legacyColors || []).map((color: number) => portablePaletteEntry({
+        stops: [{ color: `#${(Number(color) >>> 0).toString(16).padStart(6, '0')}`, position: 0 }],
+        materialId: VoxelMaterialIds.DEFAULT,
+        name: colorSet.name,
+      })));
+    }
     return {
       category: 'colorset',
       portable: {
         type: 'space-colorset',
         version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
         name: colorSet.name,
-        colors: (colorSet.colors || []).map(color => `#${(Number(color) >>> 0).toString(16).padStart(6, '0')}`),
+        entries,
       },
     };
   }
@@ -864,7 +892,7 @@ function previewVoxel(block: any, entity: boolean): any {
   return preview;
 }
 
-/** Convert portable v7 coordinates into the runtime shape used by thumbnail rendering. */
+/** Convert portable v8 coordinates into the runtime shape used by thumbnail rendering. */
 export function inventoryResourcePreviewItem(category: InventoryKind, portable: any): any {
   if (category === 'colorset') {
     return {
@@ -872,7 +900,7 @@ export function inventoryResourcePreviewItem(category: InventoryKind, portable: 
       version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
       name: String(portable?.name || ''),
       kind: 'colorset',
-      colors: (portable?.colors || []).map((color: any) => String(color)),
+      entries: (portable?.entries || []).map((entry: any) => portablePaletteEntry(entry)),
     };
   }
 
@@ -965,7 +993,7 @@ export function encodeBackpack(backpack: PortableBackpack): Uint8Array {
 export function decodeBackpack(encoded: Uint8Array): PortableBackpack {
   const backpack: any = decodeInventoryMessage(BACKPACK_DESCRIPTOR, encoded);
   const sourceSchemaVersion = Number(backpack.schemaVersion);
-  if (sourceSchemaVersion !== BACKPACK_PROTOBUF_SCHEMA_VERSION) {
+  if (sourceSchemaVersion !== BACKPACK_PROTOBUF_SCHEMA_VERSION && sourceSchemaVersion !== 8) {
     throw new Error(`Expected backpack Protobuf v${BACKPACK_PROTOBUF_SCHEMA_VERSION}.`);
   }
   const decodeGroup = (category: InventoryKind, group: any) => {
@@ -985,7 +1013,7 @@ export function decodeBackpack(encoded: Uint8Array): PortableBackpack {
         items[position] = null;
         continue;
       }
-      const decoded = portableResource(slot.resource);
+      const decoded = portableResource(slot.resource, sourceSchemaVersion === 8);
       if (decoded.category !== category) {
         throw new Error(`Backpack ${category} group contains a ${decoded.category} resource.`);
       }

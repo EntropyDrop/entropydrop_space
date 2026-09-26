@@ -4,8 +4,8 @@
 
 The canonical schemas live in `entropydrop_space/proto/`:
 
-- `inventory.proto` — portable `InventoryResource` (v7) and backpack-independent content.
-- `backpack.proto` — browser-local backpack state (v8), never uploaded.
+- `inventory.proto` — portable `InventoryResource` (v8) and backpack-independent content.
+- `backpack.proto` — browser-local backpack state (v9), never uploaded.
 - `space_api.proto` — `entropydrop.space.api.v2` binary REST request envelopes whose
   `definition` field carries raw canonical `InventoryResource` bytes.
 
@@ -38,11 +38,14 @@ pass when the buf CLI is available on PATH or in the sibling
 `entropydrop_space/node_modules` or `entropydrop_space/engine/node_modules` (pinned `@bufbuild/buf` dev dependency). The
 pinned protoc is 33.2, matching the checked-in Python bindings.
 
-The current construction grid has 8 divisions per metre and inventory schema v7 is
+The current construction grid has 8 divisions per metre and inventory schema v8 is
 required. Standalone migration `space_0003` resets the pre-8×8×8 terrain, entities, market
 resources and derived surface data, and moves the market check constraint to version 6.
 `space_0004` then migrates stored v6 entity definitions in place to canonical v7 (content
 digest, byte size and revision are recomputed), leaves terrain, surface, player-position
 and hosting data untouched, and retains market rows on schema 6 while hiding them from
-listings and returning `410 MARKET_RESOURCE_LEGACY_SCHEMA` on download. No automatic
-deletion of database or object-store contents is performed.
+listings and returning `410 MARKET_RESOURCE_LEGACY_SCHEMA` on download. `space_0009`
+rewrites v7 world entities to v8, then `python -m space.migrate_market_v8` upgrades v7
+market objects and rows to the gradient-aware v8 contract. No database or object-store
+content is deleted except superseded v7 market objects after their v8 replacements are
+durably stored and committed.

@@ -706,6 +706,9 @@ function executeEntityAction(context: any, command: any) {
     case 'fill-blocks': {
       const coords = Array.isArray(command.coords) ? command.coords : [];
       const color = resolveColor(command.options ?? command.color);
+      const colors = Array.isArray(command.colors)
+        ? command.colors.map((value: any) => resolveColor(value))
+        : null;
       const materialId = commandMaterialId(command.options);
       const changesMaterial = command.options?.materialId !== undefined;
       const isMicro = command.micro === true;
@@ -721,13 +724,15 @@ function executeEntityAction(context: any, command: any) {
           blockMap.set(`${gx},${gy},${gz}`, b);
         }
       }
-      for (const c of coords) {
+      for (let index = 0; index < coords.length; index++) {
+        const c = coords[index];
+        const targetColor = colors?.[index] ?? color;
         const key = `${c.x},${c.y},${c.z}`;
         const existing = blockMap.get(key);
         if (existing) {
-          if (existing.color !== color
+          if (existing.color !== targetColor
             || (changesMaterial && normalizeVoxelMaterialId(existing.materialId) !== materialId)) {
-            existing.color = color;
+            existing.color = targetColor;
             if (changesMaterial) existing.materialId = materialId;
             recoloredCount++;
           }
@@ -740,7 +745,7 @@ function executeEntityAction(context: any, command: any) {
             localY,
             localZ,
             size: blockSize,
-            color,
+            color: targetColor,
             materialId,
             entityId: nodeId
           });
@@ -759,11 +764,15 @@ function executeEntityAction(context: any, command: any) {
       const selectedBlocks = Array.isArray(command.blocks) ? command.blocks : [];
       if (selectedBlocks.length === 0) return actionResult(command.action, 0, 'not_found', { painted: 0 });
       const color = resolveColor(command.options ?? command.color);
+      const colors = Array.isArray(command.colors)
+        ? command.colors.map((value: any) => resolveColor(value))
+        : null;
       const changesMaterial = command.options?.materialId !== undefined;
       const materialId = commandMaterialId(command.options);
       let painted = 0;
-      for (const block of selectedBlocks) {
-        block.color = color;
+      for (let index = 0; index < selectedBlocks.length; index++) {
+        const block = selectedBlocks[index];
+        block.color = colors?.[index] ?? color;
         if (changesMaterial) block.materialId = materialId;
         painted++;
       }

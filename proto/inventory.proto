@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package entropydrop.space.inventory.v7;
+package entropydrop.space.inventory.v8;
 
 // Canonical binary contract for portable files, market uploads, and immutable
 // CDN objects. Derived counts and the constant block id
@@ -16,8 +16,9 @@ package entropydrop.space.inventory.v7;
 // (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb,material_id);
 // and sort Component.children and Entity.constraints by Unicode code-point id
 // order. Color and seat order remains significant and is preserved.
-// Schema v7 is a wire-breaking change: v6 files, backpacks and CDN objects are
-// intentionally rejected and are not migrated.
+// Schema v8 adds portable palette gradients and per-entry materials. V7 entity
+// and block-set bytes remain wire-compatible and are upgraded by the database
+// and market migrations; v7 color arrays become one-stop palette entries.
 message InventoryResource {
   uint32 schema_version = 1;
 
@@ -56,8 +57,23 @@ message BlockSet {
 
 message ColorSet {
   string name = 1;
-  // Packed 0xRRGGBB values, matching Voxel.color_rgb.
-  repeated uint32 colors = 2 [packed = true];
+  // Retained only so the v7 migration can read the old nine solid colors. New
+  // v8 encoders leave this field empty and write entries instead.
+  repeated uint32 legacy_colors = 2 [packed = true];
+  repeated PaletteEntry entries = 3;
+}
+
+message GradientStop {
+  uint32 color_rgb = 1;
+  // Position along the linear gradient, in 0..1000 inclusive.
+  uint32 offset_millis = 2;
+}
+
+message PaletteEntry {
+  // One solid stop or up to five gradient stops, sorted by offset_millis.
+  repeated GradientStop stops = 1;
+  // Uses the same Voxel material preset ids (0 default, 1 emissive).
+  uint32 material_id = 2;
 }
 
 message Vector3 {

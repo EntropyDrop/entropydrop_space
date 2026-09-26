@@ -22,7 +22,7 @@ def _user(db, user_id: str):
 def _entity(name="External Walker"):
     return {
         "type": "space-entity",
-        "version": 7,
+        "version": 8,
         "root": {
             "name": name,
             "id": "root",
@@ -332,7 +332,7 @@ def test_external_create_accepts_binary_protobuf_envelope(client, db):
     assert response.status_code == 201, response.text
     stored = db.query(SpaceWorldEntity).filter_by(id=response.json()["id"]).one()
     assert stored.definition == definition
-    assert stored.schema_version == 7
+    assert stored.schema_version == 8
 
 
 def test_binary_protobuf_envelope_rejects_invalid_definition(client, db):

@@ -3,7 +3,7 @@ syntax = "proto3";
 package entropydrop.space.api.v2;
 
 // Binary request envelopes for spaceAPI resource mutations. `definition` always
-// carries canonical `entropydrop.space.inventory.v7.InventoryResource` bytes, so
+// carries canonical `entropydrop.space.inventory.v8.InventoryResource` bytes, so
 // the resource itself uses the same raw `application/x-protobuf` encoding on
 // upload and download instead of a base64 JSON field. Keeping the resource as
 // opaque bytes also mirrors `space.multiplayer.v2.LocalBuildPlacement.payload`

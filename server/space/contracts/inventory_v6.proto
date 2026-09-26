@@ -4,7 +4,7 @@ package entropydrop.space.inventory.v6;
 
 // Legacy v6 portable resource schema, kept only so the space_0004 data migration
 // can read definitions written before inventory v7. New code must use
-// entropydrop_space/proto/inventory.proto (v7); this file is not served
+// entropydrop_space/proto/inventory.proto (v8); this file is not served
 // publicly and is never used by the running API. Do not add features here.
 
 message InventoryResource {

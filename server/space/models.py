@@ -126,7 +126,7 @@ class SpaceWorldEntity(Base):
         nullable=False,
     )
     name = Column(String(80), nullable=False)
-    schema_version = Column(SmallInteger, nullable=False, default=7, server_default="7")
+    schema_version = Column(SmallInteger, nullable=False, default=8, server_default="8")
     content_digest = Column(LargeBinary(32), nullable=False)
     definition = Column(LargeBinary, nullable=False)
     size_bytes = Column(Integer, nullable=False)
@@ -355,9 +355,9 @@ class SpaceMarketResource(Base):
             name="ck_space_market_resource_kind",
         ),
         CheckConstraint(
-            # v6 rows are retained for reference only; the API rejects their
-            # download until they are re-published as v7.
-            "schema_version IN (6, 7)",
+            # v6/v7 rows remain valid while the market migration upgrades v7
+            # objects to the gradient-aware v8 contract.
+            "schema_version IN (6, 7, 8)",
             name="ck_space_market_resource_schema_version",
         ),
         CheckConstraint("license = 'AGPL-3.0-only'", name="ck_space_market_resource_license"),
@@ -394,7 +394,7 @@ class SpaceMarketResource(Base):
         nullable=True,
     )
     kind = Column(String(16), nullable=False)
-    schema_version = Column(SmallInteger, nullable=False, default=7, server_default="7")
+    schema_version = Column(SmallInteger, nullable=False, default=8, server_default="8")
     name = Column(String(80), nullable=False)
     license = Column(String(32), nullable=False, default="AGPL-3.0-only", server_default="AGPL-3.0-only")
     content_digest = Column(LargeBinary(32), nullable=False)

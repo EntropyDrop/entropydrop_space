@@ -1,7 +1,7 @@
-"""Read legacy inventory v6 definitions and convert them to canonical v7.
+"""Read legacy inventory v6 definitions and convert them to canonical v8.
 
 Only the ``space_0004`` data migration and its tests use this module. New code must
-use :mod:`space.inventory_codec` (v7); the v6 schema exists solely in
+use :mod:`space.inventory_codec` (v8); the v6 schema exists solely in
 ``space/contracts/inventory_v6.proto`` so old entity bytes can be read once.
 """
 from __future__ import annotations
@@ -143,7 +143,7 @@ def _decode_constraint_v6(constraint) -> dict[str, Any]:
 
 
 def decode_v6_inventory_resource(encoded: bytes) -> tuple[str, dict[str, Any]]:
-    """Decode v6 bytes into the portable dict shape used by the v7 codec."""
+    """Decode v6 bytes into the portable dict shape used by the v8 codec."""
     resource = pb_v6.InventoryResource()
     try:
         resource.ParseFromString(encoded)
@@ -166,7 +166,13 @@ def decode_v6_inventory_resource(encoded: bytes) -> tuple[str, dict[str, Any]]:
             "type": "space-colorset",
             "version": SCHEMA_VERSION,
             "name": resource.color_set.name,
-            "colors": [f"#{int(color):06x}" for color in resource.color_set.colors],
+            "entries": [
+                {
+                    "stops": [{"color": f"#{int(color):06x}", "position": 0.0}],
+                    "material_id": 0,
+                }
+                for color in resource.color_set.colors
+            ],
         }
     if content == "entity":
         if not resource.entity.HasField("root"):
@@ -184,7 +190,7 @@ def decode_v6_inventory_resource(encoded: bytes) -> tuple[str, dict[str, Any]]:
 
 
 def convert_v6_inventory_resource(encoded: bytes) -> tuple[str, dict[str, Any], bytes, bytes]:
-    """Return ``(kind, portable, canonical_v7_bytes, name-free_digest)``."""
+    """Return ``(kind, portable, canonical_v8_bytes, name-free_digest)``."""
     kind, portable = decode_v6_inventory_resource(encoded)
     canonical = encode_inventory_resource(kind, portable)
     digest = inventory_content_digest(kind, portable)

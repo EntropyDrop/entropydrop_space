@@ -12,7 +12,7 @@ from space.contracts import inventory_pb2
 
 from space.voxel_grid import MICRO_DIVISIONS
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 InventoryKind = Literal["blockset", "entity", "colorset"]
 
 
@@ -158,15 +158,48 @@ def _decode_block_set(message) -> dict[str, Any]:
 def _encode_color_set(message, canonical: dict[str, Any], include_name: bool) -> None:
     if include_name:
         message.name = canonical["name"]
-    message.colors.extend(int(color.removeprefix("#"), 16) for color in canonical["colors"])
+    for entry in canonical["entries"]:
+        encoded_entry = message.entries.add()
+        encoded_entry.material_id = _material_id(entry.get("material_id", 0))
+        stops = entry.get("stops", [])
+        if not 1 <= len(stops) <= 5:
+            raise InventoryCodecError("palette entries must contain between 1 and 5 stops")
+        previous = -1
+        for stop in stops:
+            offset = round(float(stop["position"]) * 1000)
+            if not 0 <= offset <= 1000 or offset < previous:
+                raise InventoryCodecError("gradient stop positions must be sorted within 0..1")
+            color = str(stop["color"]).lower()
+            if len(color) != 7 or not color.startswith("#"):
+                raise InventoryCodecError("gradient stop colors must be #rrggbb values")
+            encoded_stop = encoded_entry.stops.add()
+            encoded_stop.color_rgb = int(color[1:], 16)
+            encoded_stop.offset_millis = offset
+            previous = offset
 
 
 def _decode_color_set(message) -> dict[str, Any]:
+    entries = []
+    for entry in message.entries:
+        if not 1 <= len(entry.stops) <= 5:
+            raise InventoryCodecError("palette entries must contain between 1 and 5 stops")
+        stops = []
+        previous = -1
+        for stop in entry.stops:
+            offset = int(stop.offset_millis)
+            color = int(stop.color_rgb)
+            if offset > 1000 or offset < previous:
+                raise InventoryCodecError("gradient stop positions must be sorted within 0..1")
+            if color > 0xFFFFFF:
+                raise InventoryCodecError("gradient stop color is outside 0x000000..0xffffff")
+            stops.append({"color": f"#{color:06x}", "position": offset / 1000})
+            previous = offset
+        entries.append({"stops": stops, "material_id": _material_id(entry.material_id)})
     return {
         "type": "space-colorset",
         "version": SCHEMA_VERSION,
         "name": message.name,
-        "colors": [f"#{int(color):06x}" for color in message.colors],
+        "entries": entries,
     }
 
 

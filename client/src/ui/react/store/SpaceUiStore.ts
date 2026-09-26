@@ -27,6 +27,13 @@ import {
 import { triggerProtobufDownload, triggerFileDownload } from '../browser/downloadProtobuf.ts';
 import { colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import {
+  MAX_GRADIENT_STOPS,
+  normalizeGradientStops,
+  normalizePaletteEntry,
+  sampleGradientColor,
+  type PaletteEntry,
+} from '@entropydrop/space-engine/voxel/Palette.ts';
 import { SpaceApiKeyClient } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import { SpaceMarketClient } from '../../../bootstrap/SpaceMarketClient.ts';
 import { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
@@ -35,7 +42,6 @@ import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, LIGHTING_QUALITY_SETTING_KEY,
   normalizeLightingQuality, type LightingQuality,
 } from '../../../engine/render/LightingQuality.ts';
-import { triggerColorPickerInput } from '../utils/colorPickerInput.ts';
 import { entityRunStatus } from '../utils/entityNameplate.ts';
 import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
 import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
@@ -213,7 +219,8 @@ export interface SpaceUiSnapshot {
   selectedColor: number;
   selectedColorIndex: number;
   selectedMaterialId: number;
-  paletteColors: Array<{ hex: string; name: string }>;
+  paletteColors: PaletteEntry[];
+  paletteEditorOpen: boolean;
   activeColorSetId: string | null;
   activeInventoryCategory: 'blockset' | 'entity' | 'colorset';
   selectedInventoryIndex: number;
@@ -386,7 +393,12 @@ export class SpaceUiStore {
     selectedColor: normalizeColor(PRESET_COLORS[0]?.hex || '#f2a93b'),
     selectedColorIndex: 0,
     selectedMaterialId: 0,
-    paletteColors: PRESET_COLORS.slice(0, 9).map(item => ({ hex: item.hex, name: item.name })),
+    paletteColors: PRESET_COLORS.slice(0, 9).map(item => normalizePaletteEntry({
+      name: item.name,
+      stops: [{ color: item.hex, position: 0 }],
+      materialId: 0,
+    })),
+    paletteEditorOpen: false,
     activeColorSetId: null,
     activeInventoryCategory: 'blockset',
     selectedInventoryIndex: 0,
@@ -557,10 +569,7 @@ export class SpaceUiStore {
       const saved = localStorage.getItem('space_palette_colors');
       const parsed = saved ? JSON.parse(saved) : null;
       if (Array.isArray(parsed) && parsed.length >= 9) {
-        paletteColors = parsed.slice(0, 9).map((item: any) => ({
-          hex: colorToHex(normalizeColor(item.hex || item)),
-          name: item.name || 'Custom'
-        }));
+        paletteColors = parsed.slice(0, 9).map((item: any) => normalizePaletteEntry(item));
       }
     } catch { }
 
@@ -576,7 +585,7 @@ export class SpaceUiStore {
       selectedMaterialId: normalizeVoxelMaterialId(controller?.selectedMaterialId)
     });
 
-    this.setBuildColor(paletteColors[0]?.hex || '#f2a93b', false);
+    this.applyPaletteEntry(0, false);
     this.applyActiveSlot(false);
     this.syncInventoryState();
 
@@ -1094,7 +1103,10 @@ export class SpaceUiStore {
   setBuildColor(value: string | number, notify = true): void {
     const selectedColor = normalizeColor(value);
     const hex = colorToHex(selectedColor);
-    if (this.snapshot.controller) this.snapshot.controller.selectedColor = selectedColor;
+    if (this.snapshot.controller) {
+      this.snapshot.controller.selectedColor = selectedColor;
+      this.snapshot.controller.selectedGradientStops = normalizeGradientStops(null, hex);
+    }
     const selectedColorIndex = this.snapshot.paletteColors.findIndex(item => item.hex.toLowerCase() === hex.toLowerCase());
     this.patch({
       selectedColor,
@@ -1107,9 +1119,7 @@ export class SpaceUiStore {
   }
 
   setBuildMaterialId(value: unknown): void {
-    const selectedMaterialId = normalizeVoxelMaterialId(value);
-    if (this.snapshot.controller) this.snapshot.controller.selectedMaterialId = selectedMaterialId;
-    this.patch({ selectedMaterialId });
+    this.setPaletteMaterial(this.snapshot.selectedColorIndex, value);
   }
 
   cycleColor(direction: number): void {
@@ -1132,66 +1142,146 @@ export class SpaceUiStore {
   }
 
   selectPresetColor(index: number): void {
-    const item = this.snapshot.paletteColors[index];
-    if (!item) return;
-    this.patch({ selectedColorIndex: index });
-    this.setBuildColor(item.hex);
+    this.applyPaletteEntry(index, true);
   }
 
   openColorPicker(): void {
     this.snapshot.controller?.unlock?.();
-    triggerColorPickerInput();
+    this.patch({ paletteEditorOpen: true });
+  }
+
+  closeColorPicker(): void {
+    this.patch({ paletteEditorOpen: false });
+  }
+
+  private persistPalette(paletteColors: PaletteEntry[]): void {
+    try { localStorage.setItem('space_palette_colors', JSON.stringify(paletteColors)); } catch { }
+    const activeColorSetId = this.snapshot.activeColorSetId;
+    if (!activeColorSetId || !this.snapshot.controller?.inventories?.colorset?.items) return;
+    const found = this.snapshot.controller.inventories.colorset.items
+      .find((item: any) => item && item.id === activeColorSetId);
+    if (found) {
+      found.entries = paletteColors.map(entry => normalizePaletteEntry(entry));
+      delete found.colors;
+      this.snapshot.controller.saveInventoriesToLocalStorage?.();
+    }
+  }
+
+  private applyPaletteEntry(index: number, notify = true): void {
+    const item = this.snapshot.paletteColors[index];
+    if (!item) return;
+    const entry = normalizePaletteEntry(item);
+    const selectedColor = sampleGradientColor(entry.stops, 0);
+    const selectedMaterialId = normalizeVoxelMaterialId(entry.materialId);
+    if (this.snapshot.controller) {
+      this.snapshot.controller.selectedColor = selectedColor;
+      this.snapshot.controller.selectedMaterialId = selectedMaterialId;
+      this.snapshot.controller.selectedGradientStops = entry.stops.map(stop => ({ ...stop }));
+    }
+    this.patch({ selectedColorIndex: index, selectedColor, selectedMaterialId });
+    if (notify && this.snapshot.hasStarted) {
+      this.showToast(`${entry.stops.length > 1 ? 'Gradient' : 'Color'}: ${entry.hex.toUpperCase()} · ${selectedMaterialId === 1 ? 'Emissive' : 'Default'}`);
+    }
+  }
+
+  setPaletteEntry(index: number, value: any, notify = false): void {
+    if (index < 0 || index >= this.snapshot.paletteColors.length) return;
+    const paletteColors = this.snapshot.paletteColors.map((item, itemIndex) => (
+      itemIndex === index ? normalizePaletteEntry({ ...item, ...value }, item.name) : item
+    ));
+    this.patch({ paletteColors, selectedColorIndex: index });
+    this.persistPalette(paletteColors);
+    this.applyPaletteEntry(index, notify);
   }
 
   setPaletteColor(index: number, hex: string, notify = true): void {
     if (index < 0 || index >= this.snapshot.paletteColors.length) return;
     const safe = colorToHex(normalizeColor(hex));
-    const paletteColors = this.snapshot.paletteColors.map((item, i) =>
-      i === index ? { ...item, hex: safe } : item
-    );
-    this.patch({ paletteColors, selectedColorIndex: index });
-    this.setBuildColor(safe, notify);
-    try {
-      localStorage.setItem('space_palette_colors', JSON.stringify(paletteColors));
-    } catch { }
+    const item = normalizePaletteEntry(this.snapshot.paletteColors[index]);
+    const stops = item.stops.map((stop, stopIndex) => stopIndex === 0 ? { ...stop, color: safe } : stop);
+    this.setPaletteEntry(index, { stops }, notify);
+  }
 
-    const activeColorSetId = this.snapshot.activeColorSetId;
-    if (activeColorSetId && this.snapshot.controller?.inventories?.colorset?.items) {
-      const items = this.snapshot.controller.inventories.colorset.items;
-      const found = items.find((item: any) => item && item.id === activeColorSetId);
-      if (found && Array.isArray(found.colors)) {
-        found.colors[index] = safe;
-        this.snapshot.controller.saveInventoriesToLocalStorage?.();
+  setPaletteStop(index: number, stopIndex: number, patch: Partial<{ color: string; position: number }>): void {
+    const entry = this.snapshot.paletteColors[index];
+    if (!entry || stopIndex < 0 || stopIndex >= entry.stops.length) return;
+    const stops = entry.stops.map((stop, itemIndex) => itemIndex === stopIndex ? {
+      color: patch.color === undefined ? stop.color : colorToHex(normalizeColor(patch.color)).toLowerCase(),
+      position: patch.position === undefined ? stop.position : Math.max(0, Math.min(1, Number(patch.position))),
+    } : stop);
+    this.setPaletteEntry(index, { stops });
+  }
+
+  addPaletteStop(index: number): number | null {
+    const entry = this.snapshot.paletteColors[index];
+    if (!entry || entry.stops.length >= MAX_GRADIENT_STOPS) return null;
+    const sorted = normalizeGradientStops(entry.stops);
+    let left = sorted[0];
+    let right = sorted[sorted.length - 1];
+    let gap = -1;
+    const boundaries = [{ color: sorted[0].color, position: 0 }, ...sorted, { color: sorted[sorted.length - 1].color, position: 1 }];
+    for (let cursor = 1; cursor < boundaries.length; cursor += 1) {
+      const candidateGap = boundaries[cursor].position - boundaries[cursor - 1].position;
+      if (candidateGap > gap) {
+        gap = candidateGap;
+        left = boundaries[cursor - 1];
+        right = boundaries[cursor];
       }
     }
+    const position = Math.round(((left.position + right.position) / 2) * 1000) / 1000;
+    const color = colorToHex(sampleGradientColor(sorted, position));
+    const stops = normalizeGradientStops([...sorted, { color, position }]);
+    this.setPaletteEntry(index, { stops });
+    return stops.findIndex(stop => stop.position === position && stop.color === color.toLowerCase());
+  }
+
+  removePaletteStop(index: number, stopIndex: number): void {
+    const entry = this.snapshot.paletteColors[index];
+    if (!entry || entry.stops.length <= 1) return;
+    this.setPaletteEntry(index, { stops: entry.stops.filter((_stop, itemIndex) => itemIndex !== stopIndex) });
+  }
+
+  setPaletteMaterial(index: number, value: unknown): void {
+    if (index < 0 || index >= this.snapshot.paletteColors.length) return;
+    this.setPaletteEntry(index, { materialId: normalizeVoxelMaterialId(value) });
   }
 
   getPaletteColors(): string[] {
     return this.snapshot.paletteColors.map(item => item.hex.toLowerCase());
   }
 
+  getPaletteEntries(): PaletteEntry[] {
+    return this.snapshot.paletteColors.map(item => normalizePaletteEntry(item));
+  }
+
   applyColorSetToPalette(colorset: any): boolean {
-    if (!colorset || !Array.isArray(colorset.colors)) return false;
+    if (!colorset) return false;
     if (!colorset.id) {
       colorset.id = typeof globalThis.crypto?.randomUUID === 'function'
         ? `cs_${globalThis.crypto.randomUUID()}`
         : `cs_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     }
-    const paletteColors = colorset.colors.slice(0, 9).map((value: any) => ({
-      hex: colorToHex(normalizeColor(value)),
-      name: colorset.name || 'Custom'
+    const source = Array.isArray(colorset.entries)
+      ? colorset.entries
+      : Array.isArray(colorset.colors)
+        ? colorset.colors.map((color: any) => ({ stops: [{ color, position: 0 }], materialId: 0 }))
+        : [];
+    if (source.length === 0) return false;
+    const paletteColors = source.slice(0, 9).map((value: any) => normalizePaletteEntry({
+      ...value,
+      name: value?.name || colorset.name || 'Custom',
     }));
-    while (paletteColors.length < 9) paletteColors.push({ hex: '#f2a93b', name: 'Custom' });
+    while (paletteColors.length < 9) paletteColors.push(normalizePaletteEntry('#f2a93b'));
     const selectedColorIndex = Math.min(this.snapshot.selectedColorIndex, paletteColors.length - 1);
     this.patch({ paletteColors, selectedColorIndex, activeColorSetId: colorset.id });
-    this.setBuildColor(paletteColors[selectedColorIndex].hex, false);
-    try { localStorage.setItem('space_palette_colors', JSON.stringify(paletteColors)); } catch { }
+    this.persistPalette(paletteColors);
+    this.applyPaletteEntry(selectedColorIndex, false);
     return true;
   }
 
   savePaletteAsColorSet(): number | null {
     const name = `Palette ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    const index = this.snapshot.controller?.addInventoryItem?.('colorset', { name, colors: this.getPaletteColors() });
+    const index = this.snapshot.controller?.addInventoryItem?.('colorset', { name, entries: this.getPaletteEntries() });
     if (index === null || index === undefined) {
       this.showToast(`Color set inventory is full (${MAX_BACKPACK_SLOTS_PER_CATEGORY}) - delete one first`);
       return null;

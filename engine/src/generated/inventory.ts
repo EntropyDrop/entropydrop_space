@@ -7,7 +7,7 @@
 /* eslint-disable */
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 
-export const protobufPackage = "entropydrop.space.inventory.v7";
+export const protobufPackage = "entropydrop.space.inventory.v8";
 
 export const BodyType = { BODY_TYPE_DYNAMIC: 0, BODY_TYPE_KINEMATIC: 1, UNRECOGNIZED: -1 } as const;
 
@@ -50,8 +50,9 @@ export namespace ConstraintType {
  * (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb,material_id);
  * and sort Component.children and Entity.constraints by Unicode code-point id
  * order. Color and seat order remains significant and is preserved.
- * Schema v7 is a wire-breaking change: v6 files, backpacks and CDN objects are
- * intentionally rejected and are not migrated.
+ * Schema v8 adds portable palette gradients and per-entry materials. V7 entity
+ * and block-set bytes remain wire-compatible and are upgraded by the database
+ * and market migrations; v7 color arrays become one-stop palette entries.
  */
 export interface InventoryResource {
   schemaVersion?: number | undefined;
@@ -107,8 +108,29 @@ export interface ColorSet {
   name?:
     | string
     | undefined;
-  /** Packed 0xRRGGBB values, matching Voxel.color_rgb. */
-  colors?: number[] | undefined;
+  /**
+   * Retained only so the v7 migration can read the old nine solid colors. New
+   * v8 encoders leave this field empty and write entries instead.
+   */
+  legacyColors?: number[] | undefined;
+  entries?: PaletteEntry[] | undefined;
+}
+
+export interface GradientStop {
+  colorRgb?:
+    | number
+    | undefined;
+  /** Position along the linear gradient, in 0..1000 inclusive. */
+  offsetMillis?: number | undefined;
+}
+
+export interface PaletteEntry {
+  /** One solid stop or up to five gradient stops, sorted by offset_millis. */
+  stops?:
+    | GradientStop[]
+    | undefined;
+  /** Uses the same Voxel material preset ids (0 default, 1 emissive). */
+  materialId?: number | undefined;
 }
 
 export interface Vector3 {
@@ -564,7 +586,7 @@ export const BlockSet: MessageFns<BlockSet> = {
 };
 
 function createBaseColorSet(): ColorSet {
-  return { name: "", colors: [] };
+  return { name: "", legacyColors: [], entries: [] };
 }
 
 export const ColorSet: MessageFns<ColorSet> = {
@@ -572,12 +594,17 @@ export const ColorSet: MessageFns<ColorSet> = {
     if (message.name !== undefined && message.name !== "") {
       writer.uint32(10).string(message.name);
     }
-    if (message.colors !== undefined && message.colors.length !== 0) {
+    if (message.legacyColors !== undefined && message.legacyColors.length !== 0) {
       writer.uint32(18).fork();
-      for (const v of message.colors) {
+      for (const v of message.legacyColors) {
         writer.uint32(v);
       }
       writer.join();
+    }
+    if (message.entries !== undefined && message.entries.length !== 0) {
+      for (const v of message.entries) {
+        PaletteEntry.encode(v!, writer.uint32(26).fork()).join();
+      }
     }
     return writer;
   },
@@ -605,7 +632,7 @@ export const ColorSet: MessageFns<ColorSet> = {
           }
           case 2: {
             if (tag === 16) {
-              message.colors!.push(reader.uint32());
+              message.legacyColors!.push(reader.uint32());
 
               continue;
             }
@@ -613,13 +640,24 @@ export const ColorSet: MessageFns<ColorSet> = {
             if (tag === 18) {
               const end2 = reader.uint32() + reader.pos;
               while (reader.pos < end2) {
-                message.colors!.push(reader.uint32());
+                message.legacyColors!.push(reader.uint32());
               }
 
               continue;
             }
 
             break;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            const el = PaletteEntry.decode(reader, reader.uint32());
+            if (el !== undefined) {
+              message.entries!.push(el);
+            }
+            continue;
           }
         }
         if ((tag & 7) === 4 || tag === 0) {
@@ -639,7 +677,147 @@ export const ColorSet: MessageFns<ColorSet> = {
   fromPartial<I extends Exact<DeepPartial<ColorSet>, I>>(object: I): ColorSet {
     const message = createBaseColorSet();
     message.name = object.name ?? "";
-    message.colors = object.colors?.map((e) => e) || [];
+    message.legacyColors = object.legacyColors?.map((e) => e) || [];
+    message.entries = object.entries?.map((e) => PaletteEntry.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseGradientStop(): GradientStop {
+  return { colorRgb: 0, offsetMillis: 0 };
+}
+
+export const GradientStop: MessageFns<GradientStop> = {
+  encode(message: GradientStop, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.colorRgb !== undefined && message.colorRgb !== 0) {
+      writer.uint32(8).uint32(message.colorRgb);
+    }
+    if (message.offsetMillis !== undefined && message.offsetMillis !== 0) {
+      writer.uint32(16).uint32(message.offsetMillis);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GradientStop {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseGradientStop();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.colorRgb = reader.uint32();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.offsetMillis = reader.uint32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  create<I extends Exact<DeepPartial<GradientStop>, I>>(base?: I): GradientStop {
+    return GradientStop.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GradientStop>, I>>(object: I): GradientStop {
+    const message = createBaseGradientStop();
+    message.colorRgb = object.colorRgb ?? 0;
+    message.offsetMillis = object.offsetMillis ?? 0;
+    return message;
+  },
+};
+
+function createBasePaletteEntry(): PaletteEntry {
+  return { stops: [], materialId: 0 };
+}
+
+export const PaletteEntry: MessageFns<PaletteEntry> = {
+  encode(message: PaletteEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.stops !== undefined && message.stops.length !== 0) {
+      for (const v of message.stops) {
+        GradientStop.encode(v!, writer.uint32(10).fork()).join();
+      }
+    }
+    if (message.materialId !== undefined && message.materialId !== 0) {
+      writer.uint32(16).uint32(message.materialId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PaletteEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBasePaletteEntry();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            const el = GradientStop.decode(reader, reader.uint32());
+            if (el !== undefined) {
+              message.stops!.push(el);
+            }
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.materialId = reader.uint32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  create<I extends Exact<DeepPartial<PaletteEntry>, I>>(base?: I): PaletteEntry {
+    return PaletteEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PaletteEntry>, I>>(object: I): PaletteEntry {
+    const message = createBasePaletteEntry();
+    message.stops = object.stops?.map((e) => GradientStop.fromPartial(e)) || [];
+    message.materialId = object.materialId ?? 0;
     return message;
   },
 };

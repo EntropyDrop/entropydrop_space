@@ -35,7 +35,7 @@ function entity(overrides: Record<string, unknown> = {}) {
     world_id: 'world-1',
     owner_user_id: 'owner-1',
     name: 'Walker',
-    schema_version: 7,
+    schema_version: 8,
     definition_digest: definitionDigest,
     definition_size_bytes: definition.byteLength,
     definition_url: '/ignored/untrusted/path',
@@ -133,7 +133,7 @@ test('SpaceEntityClient lists, verifies definitions, creates, and changes run st
   );
 
   assert.equal(listed.items[0].name, 'Walker');
-  assert.equal(listed.items[0].schema_version, 7);
+  assert.equal(listed.items[0].schema_version, 8);
   assert.deepEqual(loadedSnapshot, { position: [1, 32, 2] });
   assert.equal(stopped.revision, 2);
   assert.equal(leases[0].granted, true);
@@ -166,7 +166,7 @@ test('SpaceEntityClient lists, verifies definitions, creates, and changes run st
 });
 
 test('SpaceEntityClient rejects entity records outside the supported inventory schema', async () => {
-  for (const schema_version of [5, 8]) {
+  for (const schema_version of [5, 7]) {
     const client = new SpaceEntityClient('https://api.example.test', 'token', 'world-1',
       (async () => Response.json({
         items: [entity({ schema_version })], truncated: false, limit: 256,

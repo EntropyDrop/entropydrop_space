@@ -5,8 +5,8 @@ crosses a process boundary.
 
 | File | Package | Purpose | Current version |
 | --- | --- | --- | --- |
-| `inventory.proto` | `entropydrop.space.inventory` | Portable `InventoryResource`: blocksets, entities, color sets. Used by backpack export, market upload/CDN, entity create/checkpoint and `.edpb` files. | **v7** |
-| `backpack.proto` | `entropydrop.space.backpack` | Browser-local backpack UI state. Never uploaded; the backend has no backpack endpoint or message. | **v8** |
+| `inventory.proto` | `entropydrop.space.inventory` | Portable `InventoryResource`: blocksets, entities, gradient color sets and materials. Used by backpack export, market upload/CDN, entity create/checkpoint and `.edpb` files. | **v8** |
+| `backpack.proto` | `entropydrop.space.backpack` | Browser-local backpack UI state. Never uploaded; the backend has no backpack endpoint or message. | **v9** |
 | `space_api.proto` | `entropydrop.space.api` | Binary REST request envelopes (`CreateEntityRequest`, `CheckpointEntityRequest`, `BuildBlocksetRequest`). `definition` carries raw canonical `InventoryResource` bytes. | **v2** |
 
 `space.multiplayer.v2` (the authoritative realtime protocol) lives in the backend at
@@ -21,9 +21,9 @@ compiled or implemented; the running realtime channel is the transitional
   (0..7), color is the varint `color_rgb` (`0xRRGGBB`), and `material_id` is
   `0` (default) or `1` (emissive). The removed v6 packed
   `micro_index` and `fixed32 color` are not accepted.
-- A wire-breaking change bumps the package version (`.v7` -> `.v8`) and the
-  `schema_version` carried in the message. Old versions are intentionally rejected, not
-  migrated, matching the project's "reset Space content" deployment policy.
+- A wire-breaking change bumps the package version (`.v8` -> `.v9`) and the
+  `schema_version` carried in the message. Release migrations may read the immediately
+  preceding schema explicitly, but normal API decoding accepts only the current version.
 - Never reuse a retired field number or name; add `reserved` entries instead. Additive,
   backward-compatible fields may stay in the current package version.
 - Keep `space_api.proto` free of secrets and of typed imports; its `bytes definition`
@@ -62,7 +62,7 @@ cd proto && buf breaking --against '.git#branch=main'   # manual / CI only
 The lint exceptions are intentional: enum zero values are semantic
 (`BODY_TYPE_DYNAMIC`, `CONSTRAINT_TYPE_POINT`, …), the versioned package names do not
 mirror the proto directory, and the directory deliberately carries three independently
-versioned packages (`inventory.v7`, `backpack.v8`, `api.v2`) side by side. `buf breaking`
+versioned packages (`inventory.v8`, `backpack.v9`, `api.v2`) side by side. `buf breaking`
 compares the working tree against the last released branch, so a wire change without a
 package version bump fails the check; run it before releasing, not on every commit.
 `protoc` 33.2 and `protoc-gen-ts_proto` 2.12.1 generated the checked-in bindings; the

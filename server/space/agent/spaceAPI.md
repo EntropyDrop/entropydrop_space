@@ -45,7 +45,7 @@ Both position routes are self-only. All existing keys work without reissuing the
 ## Create the requested object
 
 1. Read [entity encoding and a complete request example](references/entity-create.md).
-2. Encode a canonical **InventoryResource Protobuf v7** using [inventory.proto](references/inventory.proto). Raw JSON in `definition_base64` is not accepted.
+2. Encode a canonical **InventoryResource Protobuf v8** using [inventory.proto](references/inventory.proto). Raw JSON in `definition_base64` is not accepted.
 3. Preferred transport: send the request body as `application/x-protobuf` using the
    `entropydrop.space.api.v2.CreateEntityRequest` envelope from
    [space_api.proto](references/space_api.proto), whose `definition` field holds the raw
@@ -66,7 +66,7 @@ Use the entity ID returned by creation or copied from the Entity Editor. The fol
 
 | Request | Purpose |
 | --- | --- |
-| `GET /configuration` | Read `{ "entity": <metadata>, "definition": <decoded InventoryResource v7 JSON> }`, including component code and authored body defaults |
+| `GET /configuration` | Read `{ "entity": <metadata>, "definition": <decoded InventoryResource v8 JSON> }`, including component code and authored body defaults |
 | `PATCH /configuration` | Modify selected components' code, names, body defaults and voxels while stopped |
 | `PUT /run-state` | Set `desired_run_state` to `running` or `stopped` |
 
