@@ -36,7 +36,7 @@ const ENTITY_PREVIEW_FRAME_INTERVAL_MS = 1000 / ENTITY_PREVIEW_MAX_FPS;
 const SELECTION_GIZMO_PICK_RADIUS = 0.32;
 /** Pick radius shared by the Wrench translation axes. */
 const WRENCH_GIZMO_PICK_RADIUS = 0.12;
-const WRENCH_GIZMO_ARROW_LENGTH = 0.8;
+const WRENCH_GIZMO_ARROW_LENGTH = 0.2;
 export const WRENCH_GIZMO_ROTATION_RADIUS = 0.48;
 export const WRENCH_GIZMO_ROTATION_PICK_RADIUS = 0.075;
 const remotePlayerCullCamera = new THREE.PerspectiveCamera();
@@ -1814,6 +1814,7 @@ export class SceneRenderer {
       })
     );
     center.name = 'WrenchPivotOrigin';
+    center.visible = false;
     center.renderOrder = 97;
     center.frustumCulled = false;
     this.wrenchPivotOrigin = center;
@@ -1841,6 +1842,10 @@ export class SceneRenderer {
       quaternion?.isQuaternion ? quaternion : new THREE.Quaternion()
     );
     this.wrenchPivotGizmo.scale.setScalar(Math.max(0.1, Number(axisLength) || 1));
+    const moveHandleScale = 0.7 / this.wrenchPivotGizmo.scale.x;
+    for (const axis of ['x', 'y', 'z']) {
+      this.wrenchPivotHandles.get(`move-${axis}`)?.scale.setScalar(moveHandleScale);
+    }
     this.highlightWrenchPivotHandle(hoveredHandle, activeHandle);
     if (this.wrenchPivotOrigin) {
       const material = this.wrenchPivotOrigin.material as THREE.MeshBasicMaterial;
@@ -1923,7 +1928,7 @@ export class SceneRenderer {
 
       for (const localPoint of data.pickLocalPoints || []) {
         flatPoint.copy(localPoint);
-        this.wrenchPivotGizmo.localToWorld(flatPoint);
+        handle.localToWorld(flatPoint);
         bendPointForView(flatPoint.x, flatPoint.y, flatPoint.z, bentPoint);
         const distanceAlongRay = ray.direction.dot(bentPoint.clone().sub(ray.origin));
         if (distanceAlongRay < 0) continue;
@@ -1934,8 +1939,8 @@ export class SceneRenderer {
       for (const [localStart, localEnd] of data.pickLocalSegments || []) {
         flatSegmentStart.copy(localStart);
         flatSegmentEnd.copy(localEnd);
-        this.wrenchPivotGizmo.localToWorld(flatSegmentStart);
-        this.wrenchPivotGizmo.localToWorld(flatSegmentEnd);
+        handle.localToWorld(flatSegmentStart);
+        handle.localToWorld(flatSegmentEnd);
         bendPointForView(flatSegmentStart.x, flatSegmentStart.y, flatSegmentStart.z, bentSegmentStart);
         bendPointForView(flatSegmentEnd.x, flatSegmentEnd.y, flatSegmentEnd.z, bentSegmentEnd);
         const missDistanceSq = ray.distanceSqToSegment(

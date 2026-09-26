@@ -65,6 +65,8 @@ export class EntityNameplateProjector {
   private bounds = new THREE.Box3();
   private partBounds = new THREE.Box3();
   private point = new THREE.Vector3();
+  private rootInverse = new THREE.Matrix4();
+  private relativeMatrix = new THREE.Matrix4();
 
   project(entity: any, camera: THREE.Camera, viewport: { width: number; height: number }) {
     let cached = this.shapes.get(entity);
@@ -82,7 +84,10 @@ export class EntityNameplateProjector {
       cached = { shape, blocks: entity.blocks, bounds };
       this.shapes.set(entity, cached);
     }
-    entity.rootGroup?.updateWorldMatrix(true, true);
+    const rootGroup = entity.rootGroup;
+    if (!rootGroup) return null;
+    rootGroup.updateWorldMatrix(true, true);
+    this.rootInverse.copy(rootGroup.matrixWorld).invert();
     this.bounds.makeEmpty();
     for (const [id, local] of cached.bounds) {
       const node = entity.entityNodes?.get(id);
@@ -90,12 +95,14 @@ export class EntityNameplateProjector {
       this.partBounds.copy(local);
       this.partBounds.min.sub(node.pivotLocal);
       this.partBounds.max.sub(node.pivotLocal);
-      this.partBounds.applyMatrix4(node.group.matrixWorld);
+      this.relativeMatrix.multiplyMatrices(this.rootInverse, node.group.matrixWorld);
+      this.partBounds.applyMatrix4(this.relativeMatrix);
       this.bounds.union(this.partBounds);
     }
     if (this.bounds.isEmpty() || viewport.width <= 0 || viewport.height <= 0) return null;
     this.bounds.getCenter(this.point);
     this.point.y = this.bounds.max.y + 0.3;
+    this.point.applyMatrix4(rootGroup.matrixWorld);
     bendPoint(this.point.x, this.point.y, this.point.z, this.point);
     this.point.project(camera);
     if (![this.point.x, this.point.y, this.point.z].every(Number.isFinite)
