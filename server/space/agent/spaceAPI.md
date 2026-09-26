@@ -60,6 +60,29 @@ All keys can create entities (stopped or running), read their account's position
 
 Creation and blockset building are free within quotas. `running` uses an exclusive browser execution lease; it does not buy hosting and needs an online endpoint. Any nearby world participant may claim available running intent, regardless of author. Ordinary nearby browsers discover entities through a roughly two-second poll. Creation can succeed before the object is visible or simulating.
 
+## Program entity communication
+
+Running entity code sends and receives ephemeral messages through
+`ctx.messages`; see the [entity messaging protocol](entityMessaging.md) and the
+[entityAPI reference](entityAPI.md). Generate this code as part of the entity
+definition or update it through the stopped-entity configuration API.
+
+The transport endpoint is
+`POST /space/api/v2/worlds/{world_id}/entities/{source_id}/messages/{target_id}/{type}/{encoding}`
+with the raw payload as `application/octet-stream`. It requires the current
+browser execution instance UUID and epoch in `Entity-Execution-Instance` and
+`Entity-Execution-Epoch`. A spaceAPI key by itself does not possess an entity's
+execution-instance capability, so Agents should program `ctx.messages.send`
+instead of impersonating a running entity. The browser or hosted runtime adds
+the credential, execution identity and idempotency key outside QuickJS.
+
+Messages are best-effort and at-most-once per idempotency key. They are limited
+to 4096 bytes and 20 sends per second per source entity. Inactive targets are
+dropped, messages are never stored for later delivery, `routed` does not mean
+the recipient processed the message, and ordering is not guaranteed. `chat` is
+reserved for UTF-8. Protobuf message types must name a schema version with a
+suffix such as `radar.v1`.
+
 ## Read and edit an existing entity
 
 Use the entity ID returned by creation or copied from the Entity Editor. The following paths share the prefix `/space/api/v2/worlds/{world_id}/entities/{entity_id}`. They accept a player login token or a spaceAPI key and enforce world membership and exclusive execution occupancy, not authorship. All world participants are equal, including authors and administrators.

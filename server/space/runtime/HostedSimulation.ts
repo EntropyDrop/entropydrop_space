@@ -61,6 +61,9 @@ export class HostedSimulation {
     if (!/^[a-z][a-z0-9._-]{0,15}$/.test(messageType)) return { ok: false, reason: 'invalid_message_type' };
     if (encoding !== 'utf8' && encoding !== 'protobuf') return { ok: false, reason: 'invalid_encoding' };
     if (messageType === 'chat' && encoding !== 'utf8') return { ok: false, reason: 'chat_requires_utf8' };
+    if (encoding === 'protobuf' && !/\.v[1-9][0-9]*$/.test(messageType)) {
+      return { ok: false, reason: 'protobuf_type_requires_version' };
+    }
     let body: string | number[];
     if (encoding === 'utf8') {
       if (typeof payload !== 'string') return { ok: false, reason: 'invalid_payload' };
@@ -182,7 +185,12 @@ export class HostedSimulation {
         if (item.running) {
           c.physicsSimulationEnabled = true;
           if (c.scriptStatus !== 'error') c.scriptStatus = 'running';
-          const runtime = { c, item, elapsed: 0, poses: [] as any[] };
+          const priorMessageResultIds = new Set(
+            (Array.isArray(item.message_results) ? item.message_results : [])
+              .map((result: any) => String(result?.commandId || ''))
+              .filter(Boolean),
+          );
+          const runtime = { c, item, elapsed: 0, poses: [] as any[], priorMessageResultIds };
           hosted.set(item.id, runtime);
           const update = c.update.bind(c);
           c.update = (...args) => {
@@ -216,7 +224,7 @@ export class HostedSimulation {
         }
         if (faults.length) return { faults }; // discard the entire candidate, including world edits
       }
-      const results = [...hosted].map(([id, { c, elapsed, poses }]) => {
+      const results = [...hosted].map(([id, { c, elapsed, poses, priorMessageResultIds }]) => {
         const snapshot: any = manager.captureContraptionForStreaming(c, manager.getContraptionChunk(c));
         const slot = snapshot.slot;
         slot.blocks = slot.blocks.map(b => {
@@ -229,8 +237,13 @@ export class HostedSimulation {
         const definition = encodeInventoryResource('entity', runtimeEntityToPortable(slot));
         delete snapshot.slot;
         for (const key of Object.keys(snapshot)) if (key.startsWith('server')) delete snapshot[key];
+        const messageResults = c.pendingScriptCommandResults
+          .filter((receipt: any) => receipt?.scope === 'messages'
+            && !priorMessageResultIds.has(String(receipt.commandId || '')));
         return { id, snapshot, definition_base64: Buffer.from(definition).toString('base64'),
-          stopped: !c.isPhysicsSimulationEnabled(), elapsed_ms: elapsed, poses };
+          stopped: !c.isPhysicsSimulationEnabled(), elapsed_ms: elapsed, poses,
+          consumed_message_count: c.consumedEntityMessageCount,
+          message_results: messageResults };
       });
       return { entities: results, mutations: this.mutations, messages: this.outboundMessages, faults: [] };
     } finally {

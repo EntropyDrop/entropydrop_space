@@ -26,7 +26,12 @@ from config import settings
 from space.database import SessionLocal
 from routers import space as terrain
 from routers.space_entities import _decode_entity_definition, _encode_snapshot, EntityPosition, _enforce_entity_storage_quota
-from routers.space_entity_messages import _message_channel, entity_message_hub, send_hosted_entity_message
+from routers.space_entity_messages import (
+    _message_channel,
+    _validate_message_type,
+    entity_message_hub,
+    send_hosted_entity_message,
+)
 from routers.space_hosting import HOUR_MS, utc, validate_hosted_definition
 from space.hosting_cores import CORE_LEASE_SECONDS, MAX_HOSTING_CORES, available_cpu_ids, initialize_core_pool, clear_core
 
@@ -423,7 +428,7 @@ async def run_world(world_id, cpu_ids=None):
 
     async def run_entity(entity_id, epoch, core_id, cpu_id):
         connection_id = f"{int(epoch)}.{uuid.uuid4().hex}"
-        channel = _message_channel(world_id, entity_id)
+        channel = _message_channel(world_id, entity_id, int(epoch))
         pubsub = entity_message_hub.redis.pubsub()
         inbox = deque()
         inbox_bytes = 0
@@ -500,7 +505,8 @@ async def run_world(world_id, cpu_ids=None):
                         except (ValueError, msgpack.UnpackException):
                             continue
                         if not isinstance(frame, dict) or frame.get('type') != 'entity_message' \
-                                or frame.get('target_id') != entity_id:
+                                or frame.get('target_id') != entity_id \
+                                or frame.get('target_execution_epoch') != int(epoch):
                             continue
                         message_type = frame.get('message_type')
                         message_id = frame.get('message_id')
@@ -510,6 +516,10 @@ async def run_world(world_id, cpu_ids=None):
                         if not isinstance(message_type, str) or not isinstance(message_id, str) \
                                 or not isinstance(source_id, str) or not isinstance(body, bytes) \
                                 or len(body) > 4096 or encoding not in ('utf8', 'protobuf'):
+                            continue
+                        try:
+                            _validate_message_type(message_type, encoding)
+                        except HTTPException:
                             continue
                         try:
                             script_payload = body.decode('utf-8', errors='strict') if encoding == 'utf8' else list(body)
@@ -533,7 +543,6 @@ async def run_world(world_id, cpu_ids=None):
                             inbox_bytes += len(body)
 
                     message_batch = [message for message, _size in inbox]
-                    batch_size = len(message_batch)
                     receipt_batch = list(message_results)
                     receipt_batch_size = len(receipt_batch)
                     for item in payload['entities']:
@@ -548,11 +557,23 @@ async def run_world(world_id, cpu_ids=None):
                             return commit_result(db, world_id, instance_id, payload, result)
                     committed = await asyncio.to_thread(commit)
                     if committed:
-                        for _ in range(batch_size):
+                        committed_entity = next(
+                            (item for item in result.get('entities', []) if item.get('id') == entity_id),
+                            {},
+                        )
+                        consumed_message_count = committed_entity.get('consumed_message_count', 0)
+                        if not isinstance(consumed_message_count, int) or not 0 <= consumed_message_count <= len(message_batch):
+                            raise ValueError('invalid consumed message count')
+                        for _ in range(consumed_message_count):
                             _message, delivered_bytes = inbox.popleft()
                             inbox_bytes -= delivered_bytes
                         for _ in range(receipt_batch_size):
                             message_results.popleft()
+                        for receipt in committed_entity.get('message_results', [])[:256]:
+                            if not isinstance(receipt, dict) or receipt.get('scope') != 'messages' \
+                                    or not isinstance(receipt.get('commandId'), str):
+                                continue
+                            message_results.append(receipt)
                         for outgoing in result.get('messages', [])[:256]:
                             if not isinstance(outgoing, dict) or outgoing.get('sourceId') != entity_id:
                                 continue
@@ -568,6 +589,7 @@ async def run_world(world_id, cpu_ids=None):
                                     outgoing.get('type'),
                                     outgoing.get('encoding'),
                                     outgoing.get('payload'),
+                                    f"{int(epoch)}:{command_id}",
                                 )
                                 receipt = {
                                     'commandId': command_id,

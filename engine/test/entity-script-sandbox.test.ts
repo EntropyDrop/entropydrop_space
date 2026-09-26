@@ -203,6 +203,77 @@ if (!self.state.commandId) {
   assert.equal(state.receiptsFrozen, true);
 });
 
+test('ctx.messages exposes frozen received batches without charging burst preparation to script time', () => {
+  const contraption = entity(93);
+  const publicId = '10000000-0000-4000-8000-000000000001';
+  contraption.publicId = publicId;
+  contraption.setScript(`
+self.state.received = (self.state.received || 0) + ctx.messages.received.length;
+self.state.frozen = Object.isFrozen(ctx.messages)
+  && Object.isFrozen(ctx.messages.received)
+  && ctx.messages.received.every(message => Object.isFrozen(message)
+    && Object.isFrozen(message.payload));
+`);
+  assert.equal(contraption.enqueueEntityMessage({
+    messageId: 'invalid-version',
+    sourceId: '10000000-0000-4000-8000-000000000002',
+    targetId: publicId,
+    type: 'data',
+    encoding: 'protobuf',
+    payload: [1],
+  }), false);
+  for (let index = 0; index < 8; index++) {
+    assert.equal(contraption.enqueueEntityMessage({
+      messageId: `message-${index}`,
+      sourceId: '10000000-0000-4000-8000-000000000002',
+      targetId: publicId,
+      type: 'data.v1',
+      encoding: 'protobuf',
+      payload: Array(4096).fill(index),
+    }), true);
+  }
+
+  contraption.update(0.05, null, {});
+  assert.equal(contraption.scriptStatus, 'running');
+  assert.equal(contraption.getComponentState('root').received, 4, 'one frame is capped at 16 KiB');
+  contraption.update(0.05, null, {});
+  assert.equal(contraption.scriptStatus, 'running');
+  assert.equal(contraption.getComponentState('root').received, 8);
+  assert.equal(contraption.getComponentState('root').frozen, true);
+});
+
+test('message sends validate schema versions and publish unique command receipts', () => {
+  const contraption = entity(94);
+  contraption.setScript(`
+if (!self.state.sent) {
+  self.state.invalid = ctx.messages.send('10000000-0000-4000-8000-000000000002', 'radar', [1], 'protobuf');
+  self.state.valid = ctx.messages.send('10000000-0000-4000-8000-000000000002', 'radar.v1', [1], 'protobuf');
+  self.state.sent = true;
+} else {
+  self.state.receipt = ctx.commands.get(self.state.valid.commandId);
+}
+`);
+  const sent: any[] = [];
+  const runtimeContext = { messages: { send: (...args) => {
+    sent.push(args);
+    return { ok: true, deliveryStatus: 'routed' };
+  } } };
+  contraption.update(0.05, null, runtimeContext);
+  const state = contraption.getComponentState('root');
+  assert.equal(state.invalid.reason, 'protobuf_type_requires_version');
+  assert.equal(state.valid.ok, true);
+  assert.match(state.valid.commandId, /^cmd-\d+$/);
+  assert.equal(sent.length, 1);
+  contraption.update(0.05, null, runtimeContext);
+  assert.equal(contraption.getComponentState('root').receipt.deliveryStatus, 'routed');
+
+  const firstCommandId = state.valid.commandId;
+  contraption.resetAllComponentState();
+  contraption.update(0.05, null, runtimeContext);
+  const resetCommandId = contraption.getComponentState('root').valid.commandId;
+  assert.notEqual(resetCommandId, firstCommandId, 'runtime state resets must not reuse operation ids');
+});
+
 test('ctx exposes grounded, driver and bounded contact observations', () => {
   const contraption = entity(93);
   contraption.recordScriptContact({
@@ -316,10 +387,19 @@ self.state.collision = self.body.setCollisionEnabled(false);
   assert.equal(contraption.getNodeCollisionEnabled('root'), false);
   assert.equal(contraption.getCollisionWorldAABBs().length, 0,
     'disabling root collision must remove its cached collision shapes');
-  assert.deepEqual(contraption.getComponentState('root').gravity,
-    { ok: true, enabled: false, reason: 'queued', commandId: 'cmd-4' });
-  assert.deepEqual(contraption.getComponentState('root').collision,
-    { ok: true, enabled: false, reason: 'queued', commandId: 'cmd-5' });
+  const gravityResult = contraption.getComponentState('root').gravity;
+  const collisionResult = contraption.getComponentState('root').collision;
+  assert.deepEqual(
+    { ...gravityResult, commandId: undefined },
+    { ok: true, enabled: false, reason: 'queued', commandId: undefined }
+  );
+  assert.deepEqual(
+    { ...collisionResult, commandId: undefined },
+    { ok: true, enabled: false, reason: 'queued', commandId: undefined }
+  );
+  assert.match(gravityResult.commandId, /^cmd-\d+$/);
+  assert.match(collisionResult.commandId, /^cmd-\d+$/);
+  assert.notEqual(gravityResult.commandId, collisionResult.commandId);
 
   const serializedWhileRunning = contraption.serializeSubtree('root');
   assert.equal(serializedWhileRunning.bodyType, 'dynamic');
@@ -381,7 +461,11 @@ self.state.entityX = ctx.world.entities.get('ent_other').position[0];
   const armState = contraption.getComponentState('arm');
   assert.equal(rootState.frozen, true);
   assert.deepEqual(rootState.massResult, { ok: false, mass: 10, reason: 'invalid_mass' });
-  assert.deepEqual(rootState.writeResult, { ok: true, placed: 1, reason: 'queued', commandId: 'cmd-1' });
+  assert.deepEqual(
+    { ...rootState.writeResult, commandId: undefined },
+    { ok: true, placed: 1, reason: 'queued', commandId: undefined }
+  );
+  assert.match(rootState.writeResult.commandId, /^cmd-\d+$/);
   assert.deepEqual(armState.voxel, { block: 1, color: 0x123456, materialId: 1 });
   assert.equal(armState.near, 1, 'query radius must be measured from the supplied origin');
   assert.equal(armState.entityX, 10, 'one component must not mutate another component\'s snapshot');

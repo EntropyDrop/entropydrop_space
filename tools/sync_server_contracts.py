@@ -44,6 +44,30 @@ for source, filename in references.items():
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(expected)
+messaging_source = root / 'docs/entity-messaging.md'
+messaging_destination = root / 'space/agent/entityMessaging.md'
+messaging_expected = messaging_source.read_bytes()
+# Keep canonical documentation links valid from server/docs while publishing the
+# Agent copy with links to its served sibling references.
+messaging_navigation = (
+    b'[spaceAPI](../space/agent/spaceAPI.md) \xc2\xb7 '
+    b'[entityAPI](../space/agent/entityAPI.md)'
+)
+assert messaging_expected.count(messaging_navigation) == 1, (
+    'Entity messaging navigation changed'
+)
+messaging_expected = messaging_expected.replace(
+    messaging_navigation,
+    b'[spaceAPI](spaceAPI.md) \xc2\xb7 [entityAPI](entityAPI.md)',
+)
+if args.check:
+    if not messaging_destination.exists() or messaging_destination.read_bytes() != messaging_expected:
+        raise SystemExit(
+            f'Outdated public reference: {messaging_destination}; '
+            'run python3 tools/sync_server_contracts.py'
+        )
+else:
+    messaging_destination.write_bytes(messaging_expected)
 print('Public Space Agent references are current.')
 
 

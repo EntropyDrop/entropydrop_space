@@ -20,7 +20,8 @@ test('entityAPI V2 contract is valid and renders every supported view', () => {
     'self.constraints.create',
     'ctx.world.voxels.set',
     'ctx.selection.createChild',
-    'ctx.groundDistance'
+    'ctx.groundDistance',
+    'ctx.messages.received'
   ]) {
     assert.ok(html.includes(required), `in-game reference must contain ${required}`);
     assert.ok(markdown.includes(required), `Markdown reference must contain ${required}`);

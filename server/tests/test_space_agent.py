@@ -92,6 +92,12 @@ def test_public_markdown_links_work_without_auth_and_do_not_expose_files(client)
     assert 'color_rgb=0xE58024' in entity_create
     assert 'color=0xE58024' not in entity_create
 
+    skill = client.get('/space/agent/SKILL.md').text
+    assert 'Classify the Build Autonomously' in skill
+    assert 'Do not ask the player to choose this implementation category' in skill
+    assert 'Use a **blockset** for static construction' in skill
+    assert 'Use an **entity** when the creation must remain a distinct object' in skill
+
 
 def test_standalone_identity_uses_remote_key_owner(client, db, monkeypatch):
     owner, world, headers, _ = setup(client, db)

@@ -306,8 +306,18 @@ export class SpaceEntityClient {
     return parseEntity(await this.request(`/${encodeURIComponent(entityId)}`));
   }
 
-  async createMessageTicket(entityId: string): Promise<SpaceEntityMessageTicket> {
-    const body = await this.request(`/${encodeURIComponent(entityId)}/message-ticket`, { method: 'POST' });
+  async createMessageTicket(
+    entityId: string,
+    executionInstanceId: string,
+    executionEpoch: number,
+  ): Promise<SpaceEntityMessageTicket> {
+    const body = await this.request(`/${encodeURIComponent(entityId)}/message-ticket`, {
+      method: 'POST',
+      headers: {
+        'Entity-Execution-Instance': executionInstanceId,
+        'Entity-Execution-Epoch': String(executionEpoch),
+      },
+    });
     if (typeof body?.ticket !== 'string' || body.ticket.length < 16 || body.ticket.length > 4096
       || typeof body?.websocket_url !== 'string' || body.websocket_url.length > 2048
       || body.protocol !== 'space-entity-messages-v1'
@@ -322,9 +332,12 @@ export class SpaceEntityClient {
     targetId: string,
     messageType: string,
     payload: string | readonly number[],
-    encoding: 'utf8' | 'protobuf' = 'utf8',
+    encoding: 'utf8' | 'protobuf',
+    executionInstanceId: string,
+    executionEpoch: number,
+    idempotencyKey: string,
   ): Promise<SpaceEntityMessageSendResult> {
-    const path = `/${encodeURIComponent(sourceId)}/messages/${encodeURIComponent(targetId)}/${encodeURIComponent(messageType)}/${encoding}`;
+    const path = `/${encodeURIComponent(sourceId)}/messages/${encodeURIComponent(targetId)}/${encodeURIComponent(messageType)}/${encodeURIComponent(encoding)}`;
     const bytes = encoding === 'utf8'
       ? new TextEncoder().encode(payload as string)
       : Uint8Array.from(payload as readonly number[]);
@@ -334,6 +347,9 @@ export class SpaceEntityClient {
         Authorization: `Bearer ${this.token}`,
         Accept: 'application/json',
         'Content-Type': 'application/octet-stream',
+        'Entity-Execution-Instance': executionInstanceId,
+        'Entity-Execution-Epoch': String(executionEpoch),
+        'Idempotency-Key': idempotencyKey,
       },
       body: bytes,
     });

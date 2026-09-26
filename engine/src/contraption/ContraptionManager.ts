@@ -625,6 +625,7 @@ export class ContraptionManager {
       nodeScriptErrors: [...contraption.nodeScriptErrors.entries()],
       scriptRuntime: contraption.scriptRuntime,
       tickCount: contraption.tickCount,
+      scriptCommandSequence: contraption.scriptCommandSequence,
       totalRuntime: contraption.totalRuntime,
       lastExecutionTimeMs: contraption.lastExecutionTimeMs,
       scriptLogs: contraption.scriptLogs.slice(-100),
@@ -808,6 +809,10 @@ export class ContraptionManager {
     contraption.nodeScriptErrors = new Map(record.nodeScriptErrors || []);
     contraption.scriptRuntime = Number(record.scriptRuntime) || 0;
     contraption.tickCount = Number(record.tickCount) || 0;
+    contraption.scriptCommandSequence = Number.isSafeInteger(record.scriptCommandSequence)
+      && record.scriptCommandSequence >= 0
+      ? record.scriptCommandSequence
+      : contraption.tickCount * 256;
     contraption.totalRuntime = Number(record.totalRuntime) || 0;
     contraption.lastExecutionTimeMs = Number(record.lastExecutionTimeMs) || 0;
     contraption.scriptLogs = Array.isArray(record.scriptLogs) ? [...record.scriptLogs] : [];
@@ -2296,7 +2301,7 @@ export class ContraptionManager {
   // 3. CONTRAPTION DISASSEMBLY / SOLIDIFY (restore to static voxels)
   // =========================================================================
 
-  disassembleContraption(contraption) {
+  disassembleContraption(contraption, options: any = {}) {
     if (!contraption) return false;
 
     // Ensure running entities are stopped and reset to base rest pose before converting to voxels
@@ -2344,7 +2349,9 @@ export class ContraptionManager {
       this.particles.emitSteamPuff?.(contraption.position, 35);
     }
 
-    this.removeContraption(contraption);
+    this.removeContraption(contraption, {
+      skipRemoteDelete: options.skipRemoteDelete === true
+    });
     return true;
   }
 

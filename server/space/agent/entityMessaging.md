@@ -1,6 +1,6 @@
 # Entity messaging API
 
-[spaceAPI](../space/agent/spaceAPI.md) · [entityAPI](../space/agent/entityAPI.md)
+[spaceAPI](spaceAPI.md) · [entityAPI](entityAPI.md)
 
 Messages are ephemeral and best effort. The sender uses an authenticated HTTP request. The
 active execution runtime maintains the receiving WebSocket connection; entity

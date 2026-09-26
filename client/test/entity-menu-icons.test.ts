@@ -39,7 +39,7 @@ function button(markup: string, label: string) {
 test('every entity action retains a shortened visible caption alongside its icon and descriptive hover title', () => {
   const markup = render({ id: 'one', rootComponentName: 'Walker', scriptStatus: 'stopped' }, EntityContextMenu);
   for (const [label, caption] of [['Start entity', 'Start'], ['Stop entity', 'Stop'], ['Copy entity to backpack', 'Copy to backpack'],
-    ['Host on server', 'Host…'],
+    ['Reset entity rotation', 'Reset rotation'], ['Disassemble entity', 'Disassemble'], ['Host on server', 'Host…'],
     ['Open programming interface', 'Program'], ['Select all root blocks', 'Select all'], ['Copy entity ID', 'Copy ID'], ['Delete entity…', 'Delete…']]) {
     const action = button(markup, label);
     assert.match(action.attributes, /title="[^"]+"/);
@@ -58,7 +58,7 @@ test('iconifying actions preserves remote occupancy and server-hosting availabil
   const markup = render({ id: 'hosted', rootComponentName: 'Beacon', serverManaged: true,
     serverExecutionMode: 'hosted', serverHostingEnabled: true, serverDesiredRunState: 'running',
     serverCanControl: false, serverCanEdit: false }, EntityContextMenu);
-  for (const label of ['Start entity', 'Stop entity', 'Open programming interface', 'Select all root blocks', 'Delete entity…', 'Copy entity to backpack']) {
+  for (const label of ['Start entity', 'Stop entity', 'Reset entity rotation', 'Disassemble entity', 'Open programming interface', 'Select all root blocks', 'Delete entity…', 'Copy entity to backpack']) {
     assert.match(button(markup, label).attributes, /disabled=/);
   }
   for (const label of ['Copy entity ID']) {

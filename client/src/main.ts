@@ -234,8 +234,8 @@ class Game {
         messages: {
           send: (...args: any[]) => {
             if (!this.entitySync) return { ok: false, reason: 'message_transport_unavailable' };
-            const [sourceId, targetId, messageType, payload, encoding] = args;
-            return this.entitySync.sendMessage(sourceId, targetId, messageType, payload, encoding);
+            const [sourceId, targetId, messageType, payload, encoding, command] = args;
+            return this.entitySync.sendMessage(sourceId, targetId, messageType, payload, encoding, command);
           },
         },
         driver: driven ? {

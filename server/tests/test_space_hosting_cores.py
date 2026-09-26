@@ -293,6 +293,22 @@ def test_affinity_failure_kills_and_waits_before_any_guest_input(monkeypatch):
 def test_coordinator_closes_running_process_before_releasing_stopped_core(monkeypatch):
     import space.hosting_worker as worker
     actions, tick = [], [0]
+    class PubSub:
+        async def subscribe(self, *_args):
+            return None
+        async def get_message(self, **_kwargs):
+            return None
+        async def aclose(self):
+            return None
+    class Redis:
+        def pubsub(self):
+            return PubSub()
+    class MessageHub:
+        redis = Redis()
+        async def activate(self, *_args):
+            return True
+        async def deactivate(self, *_args):
+            return None
     class Runtime:
         def __init__(self, cpu_id):
             self.cpu_id = cpu_id
@@ -315,8 +331,13 @@ def test_coordinator_closes_running_process_before_releasing_stopped_core(monkey
     monkeypatch.setattr(worker, 'NodeRuntime', Runtime)
     monkeypatch.setattr(worker, 'SessionLocal', lambda: nullcontext(object()))
     monkeypatch.setattr(worker, 'world_jobs', jobs)
-    monkeypatch.setattr(worker, 'prepare', lambda *args: {'steps': 20})
+    monkeypatch.setattr(worker, 'prepare', lambda *args: {
+        'steps': 20,
+        'execution_epoch': 1,
+        'entities': [{'id': 'actor'}],
+    })
     monkeypatch.setattr(worker, 'release_drained_cores', release)
+    monkeypatch.setattr(worker, 'entity_message_hub', MessageHub())
     async def run():
         with pytest.raises(asyncio.CancelledError):
             await worker.run_world('world', [2])

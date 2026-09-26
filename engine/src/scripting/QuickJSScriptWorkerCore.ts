@@ -48,6 +48,7 @@ const QUICKJS_BOOTSTRAP = String.raw`
   let selfCache = new Map();
   let commands = [];
   let nextCommandId = 1;
+  let rootMessages = Object.freeze([]);
   let errors = [];
   let stopped = false;
   let worldVoxelOverlays = new Map();
@@ -505,12 +506,32 @@ const QUICKJS_BOOTSTRAP = String.raw`
     });
   }
 
-  function makeEntityMessagesApi(entries, nodeId) {
-    const messages = clone(entries) || [];
+  function prepareEntityMessages(entries) {
+    if (!Array.isArray(entries)) return Object.freeze([]);
+    const messages = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const encoding = entry.encoding;
+      const payload = encoding === 'utf8'
+        ? String(entry.payload ?? '')
+        : (Array.isArray(entry.payload) ? Object.freeze(entry.payload) : Object.freeze([]));
+      messages.push(Object.freeze({
+        messageId: String(entry.messageId || ''),
+        sourceId: String(entry.sourceId || ''),
+        targetId: String(entry.targetId || ''),
+        type: String(entry.type || ''),
+        encoding,
+        payload
+      }));
+    }
+    return Object.freeze(messages);
+  }
+
+  function makeEntityMessagesApi(nodeId) {
     const reject = reason => Object.freeze({ ok: false, queued: 0, reason, commandId: null });
-    Object.defineProperty(messages, 'send', {
-      enumerable: false,
-      value: (targetId, messageType, payload, encoding = 'utf8') => {
+    return Object.freeze({
+      received: nodeId === rootComponentId ? rootMessages : Object.freeze([]),
+      send: (targetId, messageType, payload, encoding = 'utf8') => {
         if (typeof targetId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetId)) {
           return reject('invalid_target_id');
         }
@@ -522,6 +543,9 @@ const QUICKJS_BOOTSTRAP = String.raw`
         }
         if (messageType === 'chat' && encoding !== 'utf8') {
           return reject('chat_requires_utf8');
+        }
+        if (encoding === 'protobuf' && !/\.v[1-9][0-9]*$/.test(messageType)) {
+          return reject('protobuf_type_requires_version');
         }
 
         let normalizedPayload;
@@ -548,7 +572,6 @@ const QUICKJS_BOOTSTRAP = String.raw`
         return queuedResult(commandId, { queued: 1 }, { queued: 0 });
       }
     });
-    return harden(messages);
   }
 
   globalThis.__spaceSetScript = (nodeIdJson, codeJson) => {
@@ -574,6 +597,11 @@ const QUICKJS_BOOTSTRAP = String.raw`
       || (frame.components || []).find(node => node.parentId === null)?.id
       || ''
     );
+    nextCommandId = Math.max(
+      nextCommandId,
+      Math.max(0, Math.floor(finite(frame.commandSequence))) + 1
+    );
+    rootMessages = prepareEntityMessages(frame.messages);
     selfCache = new Map();
     commands = [];
     errors = [];
@@ -620,7 +648,7 @@ const QUICKJS_BOOTSTRAP = String.raw`
       players: frozenClone(frame.players || []),
       driver: frozenClone(frame.driver || null),
       contacts: frozenClone(frame.contacts || []),
-      messages: makeEntityMessagesApi(nodeId === rootComponentId ? frame.messages || [] : [], nodeId),
+      messages: makeEntityMessagesApi(nodeId),
       world: makeWorldApi(),
       selection: makeSelectionApi(),
       commands: makeCommandResultsApi(),

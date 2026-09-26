@@ -175,6 +175,31 @@ test('SpaceEntityClient rejects entity records outside the supported inventory s
   }
 });
 
+test('SpaceEntityClient sends raw payloads with fenced execution identity and idempotency', async () => {
+  let call: any;
+  const client = new SpaceEntityClient('https://api.example.test', 'token', 'world-1', (async (url, options) => {
+    call = { url: String(url), options };
+    return Response.json({ message_id: 'message-1', status: 'routed' }, { status: 202 });
+  }) as typeof fetch);
+  const result = await client.sendMessage(
+    entity().id,
+    '10000000-0000-4000-8000-000000000002',
+    'radar.v1',
+    [1, 2, 3],
+    'protobuf',
+    '55437452-a51f-4d26-93b9-24c6a41f5e1a',
+    7,
+    '55437452-a51f-4d26-93b9-24c6a41f5e1a:7:cmd-257',
+  );
+  assert.equal(result.deliveryStatus, 'routed');
+  assert.match(call.url, /\/messages\/10000000-0000-4000-8000-000000000002\/radar\.v1\/protobuf$/);
+  assert.equal(call.options.headers['Content-Type'], 'application/octet-stream');
+  assert.equal(call.options.headers['Entity-Execution-Instance'], '55437452-a51f-4d26-93b9-24c6a41f5e1a');
+  assert.equal(call.options.headers['Entity-Execution-Epoch'], '7');
+  assert.equal(call.options.headers['Idempotency-Key'], '55437452-a51f-4d26-93b9-24c6a41f5e1a:7:cmd-257');
+  assert.deepEqual(Array.from(call.options.body), [1, 2, 3]);
+});
+
 test('SpaceEntityClient rejects a definition whose exact-byte digest does not match', async () => {
   const client = new SpaceEntityClient(
     'https://api.example.test',

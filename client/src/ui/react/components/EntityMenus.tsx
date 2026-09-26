@@ -3,7 +3,7 @@ import type { IconType } from 'react-icons';
 import { FaPlay, FaStop, FaUndo } from 'react-icons/fa';
 import {
   LiaCheckSolid, LiaCodeSolid, LiaCopySolid, LiaEllipsisHSolid,
-  LiaHourglassHalfSolid, LiaIdCardSolid, LiaPauseSolid,
+  LiaHourglassHalfSolid, LiaIdCardSolid, LiaObjectUngroupSolid, LiaPauseSolid,
   LiaServerSolid, LiaTimesSolid, LiaTrashAltSolid, LiaVectorSquareSolid
 } from 'react-icons/lia';
 import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
@@ -159,6 +159,7 @@ export function EntityContextMenu() {
   const hostingBusy = busy || hostingBusyIds.includes(String(entity.publicId));
   const isHosted = entity.serverExecutionMode === 'hosted';
   const canResetRotation = canEdit && !isHosted && (!status.running || canControl);
+  const canDisassemble = canEdit && canControl && !isHosted;
   const hostingAction = async (enabled: boolean) => {
     if (hostingBusy) return;
     setBusy(true);
@@ -205,6 +206,9 @@ export function EntityContextMenu() {
         <EntityActionButton label="Reset entity rotation" caption="Reset rotation" icon={FaUndo} disabled={busy || !canResetRotation}
           title={isHosted ? 'Hosted entities cannot be rotated from this client' : 'Stops execution and resets orientation while keeping position'}
           onClick={() => void run('reset-rotation')} />
+        <EntityActionButton label="Disassemble entity" caption="Disassemble" icon={LiaObjectUngroupSolid} disabled={busy || !canDisassemble}
+          title={isHosted ? 'Hosted entities cannot be disassembled from this client' : 'Align to the nearest grid orientation, then convert the entity to terrain voxels'}
+          onClick={() => void run('disassemble')} />
         {isHosted && entity.serverHostingEnabled ?
           <EntityActionButton label="Stop hosting" icon={FaStop} className="entity-action-stop" disabled={hostingBusy || entity.serverCanManageHosting !== true}
             title="Stop server execution early · preserve unused prepaid time" onClick={() => void hostingAction(false)} />

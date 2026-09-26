@@ -183,6 +183,46 @@ function quaternionForwardYaw(quaternion: any, fallback = 0): number {
   return planar < 1e-6 ? fallback : Math.atan2(-forward.x, -forward.z);
 }
 
+const GRID_ALIGNED_ORIENTATIONS = (() => {
+  const directions = [
+    new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
+  ];
+  const orientations: THREE.Quaternion[] = [];
+  for (const xAxis of directions) {
+    for (const yAxis of directions) {
+      if (Math.abs(xAxis.dot(yAxis)) > 1e-9) continue;
+      const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis);
+      const quaternion = new THREE.Quaternion()
+        .setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis))
+        .normalize();
+      // A quaternion and its negation describe the same orientation. Keeping a
+      // canonical sign makes ties deterministic and the helper easy to test.
+      if (quaternion.w < 0) quaternion.set(-quaternion.x, -quaternion.y, -quaternion.z, -quaternion.w);
+      orientations.push(quaternion);
+    }
+  }
+  return Object.freeze(orientations);
+})();
+
+/** Return the closest of the 24 proper rotations whose axes align to the voxel grid. */
+export function nearestGridAlignedQuaternion(quaternion: any): THREE.Quaternion {
+  const current = quaternion?.isQuaternion
+    ? quaternion.clone().normalize()
+    : new THREE.Quaternion();
+  let nearest = GRID_ALIGNED_ORIENTATIONS[0];
+  let nearestDot = -1;
+  for (const candidate of GRID_ALIGNED_ORIENTATIONS) {
+    const dot = Math.abs(current.dot(candidate));
+    if (dot > nearestDot) {
+      nearestDot = dot;
+      nearest = candidate;
+    }
+  }
+  return nearest.clone();
+}
+
 function contraptionRootId(contraption: any): string {
   const explicit = contraption?.rootComponentId;
   if (typeof explicit === 'string' && explicit.length > 0) return explicit;
@@ -6272,22 +6312,12 @@ export class PlayerController {
     this.serverEntityDeleteHandler = typeof handler === 'function' ? handler : null;
   }
 
-  private async resetEntityRotation(contraption): Promise<boolean> {
+  private applyEntityRotation(contraption, targetRotation: THREE.Quaternion, options: any = {}): boolean {
     const rootId = contraptionRootId(contraption);
     const rootBody = contraption.getRigidBody?.(rootId);
     if (!rootBody?.position?.isVector3 || !rootBody?.quaternion?.isQuaternion) {
       this.ui?.showToast?.('Entity rotation could not be reset', { tone: 'warning' });
       return false;
-    }
-    if (contraption.serverManaged === true) {
-      if (contraption.serverExecutionMode === 'hosted' || contraption.serverCanEdit !== true) {
-        this.ui?.showToast?.('This entity cannot be rotated from this client', { tone: 'warning' });
-        return false;
-      }
-      if (this.isEntityRunning(contraption)) {
-        const stopped = await this.requestServerEntityRunState(contraption, 'stopped', { silent: true });
-        if (!stopped) return false;
-      }
     }
 
     this.beginWrenchManipulation(contraption, false, false);
@@ -6299,11 +6329,11 @@ export class PlayerController {
       localPosition: body.position.clone().sub(rootPosition).applyQuaternion(inverseRootRotation),
       localQuaternion: inverseRootRotation.clone().multiply(body.quaternion).normalize()
     }));
-    const resetRotation = new THREE.Quaternion();
+    const nextRotation = targetRotation.clone().normalize();
 
     for (const frame of bodyFrames) {
-      frame.body.position.copy(frame.localPosition).add(rootPosition);
-      frame.body.quaternion.copy(frame.localQuaternion).normalize();
+      frame.body.position.copy(frame.localPosition).applyQuaternion(nextRotation).add(rootPosition);
+      frame.body.quaternion.copy(nextRotation).multiply(frame.localQuaternion).normalize();
       frame.body.velocity?.set?.(0, 0, 0);
       frame.body.angularVelocity?.set?.(0, 0, 0);
       frame.body.appliedForces?.set?.(0, 0, 0);
@@ -6311,9 +6341,9 @@ export class PlayerController {
       frame.body.previousKinematicPosition?.copy?.(frame.body.position);
       frame.body.previousKinematicQuaternion?.copy?.(frame.body.quaternion);
     }
-    rootBody.quaternion.copy(resetRotation);
+    rootBody.quaternion.copy(nextRotation);
     contraption.position.copy(rootPosition);
-    contraption.quaternion.copy(resetRotation);
+    contraption.quaternion.copy(nextRotation);
     contraption.velocity?.set?.(0, 0, 0);
     contraption.angularVelocity?.set?.(0, 0, 0);
     contraption.syncAllBodyTransforms?.();
@@ -6326,9 +6356,97 @@ export class PlayerController {
       contraption.invalidateCollisionPoseCache?.();
     }
     contraption.capturePreviousEntityTransforms?.();
-    this.contraptions?.saveEntitiesToStorage?.();
+    if (options.save !== false) this.contraptions?.saveEntitiesToStorage?.();
+    if (options.refresh !== false) this.ui?.refresh?.();
+    if (options.toast) this.ui?.showToast?.(options.toast);
+    return true;
+  }
+
+  private async rotateEntityToGrid(contraption, targetRotation: THREE.Quaternion, options: any = {}): Promise<boolean> {
+    if (contraption.serverManaged === true) {
+      if (contraption.serverExecutionMode === 'hosted' || contraption.serverCanEdit !== true) {
+        this.ui?.showToast?.('This entity cannot be rotated from this client', { tone: 'warning' });
+        return false;
+      }
+      if (this.isEntityRunning(contraption)) {
+        const stopped = await this.requestServerEntityRunState(contraption, 'stopped', { silent: true });
+        if (!stopped) return false;
+      }
+    }
+    return this.applyEntityRotation(contraption, targetRotation, options);
+  }
+
+  private async resetEntityRotation(contraption): Promise<boolean> {
+    return this.rotateEntityToGrid(contraption, new THREE.Quaternion(), {
+      toast: `Entity #${contraption.id} rotation reset`
+    });
+  }
+
+  private async snapEntityRotationToGrid(contraption, options: any = {}): Promise<boolean> {
+    const rootBody = contraption.getRigidBody?.(contraptionRootId(contraption));
+    if (!rootBody?.quaternion?.isQuaternion) {
+      this.ui?.showToast?.('Entity rotation could not be aligned to the grid', { tone: 'warning' });
+      return false;
+    }
+    return this.rotateEntityToGrid(
+      contraption,
+      nearestGridAlignedQuaternion(rootBody.quaternion),
+      options
+    );
+  }
+
+  private async disassembleEntity(contraption): Promise<boolean> {
+    const isServerManaged = contraption.serverManaged === true;
+    if (isServerManaged
+      && (contraption.serverExecutionMode === 'hosted'
+        || contraption.serverCanControl !== true
+        || contraption.serverCanEdit !== true)) {
+      this.ui?.showToast?.('This entity cannot be disassembled from this client', { tone: 'warning' });
+      return false;
+    }
+    if (isServerManaged && !this.serverEntityDeleteHandler) {
+      this.ui?.showToast?.('Entity disassembly is temporarily unavailable', { tone: 'warning' });
+      return false;
+    }
+    const originalRootRotation = contraption.getRigidBody?.(contraptionRootId(contraption))?.quaternion?.clone?.();
+    if (this.wrenchGrab?.contraption === contraption) this.releaseWrenchGrab();
+    const aligned = await this.snapEntityRotationToGrid(contraption, {
+      save: false,
+      refresh: false
+    });
+    if (!aligned) return false;
+    if (!this.contraptions?.contraptions?.includes(contraption)) {
+      this.ui?.showToast?.('This entity is no longer available', { tone: 'warning' });
+      return false;
+    }
+
+    if (isServerManaged) {
+      try {
+        await this.serverEntityDeleteHandler(contraption);
+      } catch {
+        if (originalRootRotation?.isQuaternion) {
+          this.applyEntityRotation(contraption, originalRootRotation, { save: false });
+        }
+        this.ui?.showToast?.('Entity could not be disassembled; please try again', { tone: 'warning' });
+        return false;
+      }
+    }
+
+    if (this.isDriving && this.drivenContraption === contraption) this.toggleDriveVehicle();
+    if ([this.selectedBlockSelection, this.selectedSubtree, this.selectorLevel, this.selectorRange]
+      .some(selection => selection?.contraption === contraption)) this.clearSelection();
+    if (this.hoveredContraption === contraption) this.hoveredContraption = null;
+    if (this.hoveredContraptionHit?.contraption === contraption) this.hoveredContraptionHit = null;
+    const disassembled = this.contraptions.disassembleContraption?.(contraption, {
+      skipRemoteDelete: isServerManaged
+    }) === true;
+    if (!disassembled) {
+      this.ui?.showToast?.('Entity could not be disassembled', { tone: 'warning' });
+      return false;
+    }
+    this.ui?.notifyContraptionRemoved?.(contraption);
     this.ui?.refresh?.();
-    this.ui?.showToast?.(`Entity #${contraption.id} rotation reset`);
+    this.ui?.showToast?.(`Entity #${contraption.id} aligned to the grid and disassembled`);
     return true;
   }
 
@@ -6367,6 +6485,7 @@ export class PlayerController {
       return this.selectAllSelectionBlocks({ contraption, nodeId: contraptionRootId(contraption) });
     }
     if (action === 'reset-rotation') return this.resetEntityRotation(contraption);
+    if (action === 'disassemble') return this.disassembleEntity(contraption);
     if (!['start', 'stop', 'delete'].includes(action)) return false;
     if (contraption.serverManaged === true && contraption.serverCanControl !== true) {
       this.ui?.showToast?.('This entity is occupied by another endpoint', { tone: 'warning' });

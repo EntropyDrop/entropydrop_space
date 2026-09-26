@@ -244,6 +244,7 @@ export class SpaceEntitySync {
     messageType: string,
     payload: string | readonly number[],
     encoding: 'utf8' | 'protobuf' = 'utf8',
+    command?: { commandId?: string },
   ): Promise<SpaceEntityMessageSendResult | { ok: false; reason: string; status?: number }> {
     const entity = this.contraptions.findActiveContraptionByPublicId?.(sourceId)
       || this.contraptions.contraptions?.find((item: any) => String(item.publicId) === sourceId);
@@ -255,7 +256,12 @@ export class SpaceEntitySync {
       return { ok: false, reason: 'source_inactive' };
     }
     try {
-      return await this.client.sendMessage(sourceId, targetId, messageType, payload, encoding);
+      const operation = String(command?.commandId || globalThis.crypto.randomUUID());
+      const idempotencyKey = `${this.instanceId}:${epoch}:${operation}`;
+      return await this.client.sendMessage(
+        sourceId, targetId, messageType, payload, encoding,
+        this.instanceId, epoch, idempotencyKey,
+      );
     } catch (error: any) {
       return {
         ok: false,
@@ -427,7 +433,7 @@ export class SpaceEntitySync {
     if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry || entry.connecting) return;
     entry.connecting = true;
     try {
-      const ticket = await this.client.createMessageTicket(entityId);
+      const ticket = await this.client.createMessageTicket(entityId, this.instanceId, entry.epoch);
       if (entry.cancelled || this.entityMessageConnections.get(entityId) !== entry) return;
       const url = resolveWebSocketUrl(ticket.websocket_url, this.apiOrigin);
       const socket = new WebSocket(url, ENTITY_MESSAGE_PROTOCOL);
@@ -490,9 +496,12 @@ export class SpaceEntitySync {
       return;
     }
     if (frame.type !== 'entity_message' || frame.target_id !== entityId
+      || frame.target_execution_epoch !== entry.epoch
       || typeof frame.message_id !== 'string' || typeof frame.source_id !== 'string'
       || typeof frame.message_type !== 'string' || !/^[a-z][a-z0-9._-]{0,15}$/.test(frame.message_type)
       || !['utf8', 'protobuf'].includes(frame.encoding)
+      || (frame.message_type === 'chat' && frame.encoding !== 'utf8')
+      || (frame.encoding === 'protobuf' && !/\.v[1-9][0-9]*$/.test(frame.message_type))
       || !(frame.payload instanceof Uint8Array) || frame.payload.byteLength > 4096) return;
 
     let payload: string | number[];

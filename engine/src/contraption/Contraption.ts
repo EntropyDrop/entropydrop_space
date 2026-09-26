@@ -271,6 +271,9 @@ const SCRIPT_SELECTION_COMMANDS = new Set([
   'clear', 'cornerA', 'cornerB', 'box', 'cells', 'toggle', 'entity', 'entityBox',
   'delete', 'assemble', 'createChild'
 ]);
+const SCRIPT_COMMANDS_PER_FRAME = 256;
+const SCRIPT_MESSAGE_BATCH_LIMIT = 8;
+const SCRIPT_MESSAGE_BATCH_BYTES = 16 * 1024;
 
 function cloneScriptData(value: any, fallback: any = null, maxBytes = SCRIPT_STATE_LIMIT_BYTES) {
   try {
@@ -675,6 +678,7 @@ export class Contraption {
   scriptLogs: string[];
   lastExecutionTimeMs: number;
   tickCount: number;
+  scriptCommandSequence: number;
   scriptRuntime: number;
   totalRuntime: number;
   latchedScriptCommands: any[];
@@ -686,6 +690,8 @@ export class Contraption {
   pendingScriptCommandResults: any[];
   pendingEntityMessages: any[];
   pendingEntityMessageBytes: number;
+  pendingEntityMessageBatchSize: number;
+  consumedEntityMessageCount: number;
   scriptRuntimeClient: EntityScriptRuntimeClient;
   behaviorPrompt: string;
   agentInterpretation: string;
@@ -795,6 +801,10 @@ export class Contraption {
     this.scriptLogs = [];
     this.lastExecutionTimeMs = 0;
     this.tickCount = 0;
+    this.scriptCommandSequence = Number.isSafeInteger(options.scriptCommandSequence)
+      && options.scriptCommandSequence >= 0
+      ? options.scriptCommandSequence
+      : 0;
     this.scriptRuntime = 0;
     this.totalRuntime = 0;
     this.latchedScriptCommands = [];
@@ -806,6 +816,8 @@ export class Contraption {
     this.pendingScriptCommandResults = [];
     this.pendingEntityMessages = [];
     this.pendingEntityMessageBytes = 0;
+    this.pendingEntityMessageBatchSize = 0;
+    this.consumedEntityMessageCount = 0;
     this.scriptRuntimeClient = new EntityScriptRuntimeClient();
     this.scriptRuntimeClient.onCompileResult = result => this.handleWorkerCompileResult(result);
     this.behaviorPrompt = options.behaviorPrompt || '';
@@ -1797,6 +1809,8 @@ export class Contraption {
     this.pendingScriptCommandResults = [];
     this.pendingEntityMessages = [];
     this.pendingEntityMessageBytes = 0;
+    this.pendingEntityMessageBatchSize = 0;
+    this.consumedEntityMessageCount = 0;
     this.lastExecutionTimeMs = 0;
     this.slowScriptFrames.clear();
     this.scriptRuntimeClient.reset(this.getSerializableComponentStates());
@@ -5193,12 +5207,25 @@ export class Contraption {
       if (right === this.rootComponentId) return 1;
       return compareComponentIds(left, right);
     });
+    const messageBatch: any[] = [];
+    let messageBatchBytes = 0;
+    for (const message of this.pendingEntityMessages) {
+      if (messageBatch.length >= SCRIPT_MESSAGE_BATCH_LIMIT) break;
+      const bytes = message.encoding === 'utf8'
+        ? new TextEncoder().encode(message.payload).byteLength
+        : message.payload.length;
+      if (messageBatch.length && messageBatchBytes + bytes > SCRIPT_MESSAGE_BATCH_BYTES) break;
+      messageBatch.push(message);
+      messageBatchBytes += bytes;
+    }
+    this.pendingEntityMessageBatchSize = messageBatch.length;
     return cloneScriptData({
       entityId: this.publicId,
       rootComponentId: this.rootComponentId,
       time,
       deltaTime: dt,
       tick,
+      commandSequence: this.scriptCommandSequence,
       position: this.position.toArray(),
       velocity: this.velocity.toArray(),
       rotation: [euler.x, euler.y, euler.z],
@@ -5230,7 +5257,7 @@ export class Contraption {
         const { key: _key, ...visible } = contact;
         return visible;
       }),
-      messages: this.pendingEntityMessages,
+      messages: messageBatch,
       commandResults: this.pendingScriptCommandResults,
       components,
       states: this.getSerializableComponentStates(),
@@ -5332,7 +5359,9 @@ export class Contraption {
     const encoding = message.encoding;
     if (!messageId || messageId.length > 64 || !sourceId || sourceId.length > 64
       || !targetId || targetId.length > 64 || !/^[a-z][a-z0-9._-]{0,15}$/.test(type)
-      || !['utf8', 'protobuf'].includes(encoding)) return false;
+      || !['utf8', 'protobuf'].includes(encoding)
+      || (type === 'chat' && encoding !== 'utf8')
+      || (encoding === 'protobuf' && !/\.v[1-9][0-9]*$/.test(type))) return false;
 
     let payload;
     let payloadBytes;
@@ -5381,8 +5410,15 @@ export class Contraption {
     this.pendingScriptBlocksEvent = null;
     this.pendingScriptContacts = [];
     this.pendingScriptCommandResults = [];
-    this.pendingEntityMessages = [];
-    this.pendingEntityMessageBytes = 0;
+    const consumed = Math.min(this.pendingEntityMessageBatchSize, this.pendingEntityMessages.length);
+    for (const message of this.pendingEntityMessages.splice(0, consumed)) {
+      this.pendingEntityMessageBytes -= message.encoding === 'utf8'
+        ? new TextEncoder().encode(message.payload).byteLength
+        : message.payload.length;
+    }
+    this.pendingEntityMessageBytes = Math.max(0, this.pendingEntityMessageBytes);
+    this.pendingEntityMessageBatchSize = 0;
+    this.consumedEntityMessageCount += consumed;
   }
 
   applyLatchedScriptCommands(runtimeContext) {
@@ -5556,6 +5592,7 @@ export class Contraption {
     }
     this.scriptRuntime = nextTime;
     this.tickCount = nextTick;
+    this.scriptCommandSequence += SCRIPT_COMMANDS_PER_FRAME;
     this.clearPendingScriptEvents();
     if (submission.result) this.applyScriptRuntimeResult(submission.result, runtimeContext);
   }

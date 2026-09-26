@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
+import * as THREE from 'three';
+import { nearestGridAlignedQuaternion, PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
 function harness() {
@@ -87,7 +88,7 @@ test('online control permissions are checked at action time, including hosted de
   const { controller, target, calls } = harness();
   Object.assign(target, { serverManaged: true, serverCanControl: false, serverCanEdit: false, serverExecutionMode: 'hosted' });
   controller.serverEntityDeleteHandler = async () => { throw new Error('must not call backend'); };
-  for (const action of ['start', 'stop', 'delete', 'program']) assert.equal(await controller.performEntityMenuAction(target, action), false);
+  for (const action of ['start', 'stop', 'delete', 'disassemble', 'program']) assert.equal(await controller.performEntityMenuAction(target, action), false);
   assert.equal(calls.some(call => call[0] === 'remove' || call[0] === 'action'), false);
   target.serverCanControl = true;
   controller.serverEntityDeleteHandler = async entity => { assert.equal(entity, target); calls.push(['remote-delete']); };
@@ -118,7 +119,7 @@ test('remote delete waits for acknowledgement and keeps entity after failure or 
 test('opening a menu during bulk editing is allowed but commands cannot race its captured entity', async () => {
   const { controller, target, calls } = harness();
   controller.bulkEditJob = { label: 'Filling selection' };
-  for (const action of ['start', 'stop', 'copy', 'delete', 'program', 'select-all']) {
+  for (const action of ['start', 'stop', 'copy', 'delete', 'disassemble', 'program', 'select-all']) {
     assert.equal(await controller.performEntityMenuAction(target, action), false);
   }
   assert.equal(calls.every(call => call[0] === 'toast'), true);
@@ -128,6 +129,80 @@ test('menu Select All uses explicit root target, while confirmed A/B selection g
   const { controller, target } = harness();
   controller.selectAllSelectionBlocks = selection => { assert.equal(selection.contraption, target); assert.equal(selection.nodeId, 'root'); return true; };
   assert.equal(await controller.performEntityMenuAction(target, 'select-all'), true);
+});
+
+test('nearest grid orientation chooses the closest proper 90-degree 3D rotation', () => {
+  const nearQuarterTurn = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    THREE.MathUtils.degToRad(4), THREE.MathUtils.degToRad(82), THREE.MathUtils.degToRad(-7), 'XYZ'
+  ));
+  const snapped = nearestGridAlignedQuaternion(nearQuarterTurn);
+  const expected = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  assert.ok(Math.abs(snapped.dot(expected)) > 1 - 1e-9);
+
+  const tilted = nearestGridAlignedQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    THREE.MathUtils.degToRad(87), THREE.MathUtils.degToRad(3), THREE.MathUtils.degToRad(91), 'XYZ'
+  )));
+  for (const axis of [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)]) {
+    const transformed = axis.applyQuaternion(tilted);
+    assert.equal(Math.round(Math.abs(transformed.x) + Math.abs(transformed.y) + Math.abs(transformed.z)), 1);
+    assert.ok([transformed.x, transformed.y, transformed.z].every(value => Math.abs(value - Math.round(value)) < 1e-9));
+  }
+});
+
+test('menu disassembly aligns first, then uses the canonical manager conversion and removes the menu target', async () => {
+  const { controller, target, calls } = harness();
+  controller.snapEntityRotationToGrid = async (entity, options) => {
+    assert.equal(entity, target);
+    assert.deepEqual(options, { save: false, refresh: false });
+    calls.push(['align']);
+    return true;
+  };
+  controller.contraptions.disassembleContraption = (entity, options) => {
+    calls.push(['disassemble', entity, options]);
+    return true;
+  };
+  controller.ui.refresh = () => calls.push(['refresh']);
+
+  assert.equal(await controller.performEntityMenuAction(target, 'disassemble'), true);
+  assert.ok(calls.findIndex(call => call[0] === 'align') < calls.findIndex(call => call[0] === 'disassemble'));
+  assert.deepEqual(calls.find(call => call[0] === 'disassemble').slice(1), [target, { skipRemoteDelete: false }]);
+  assert.ok(calls.some(call => call[0] === 'notify' && call[1] === target));
+  assert.ok(calls.some(call => call[0] === 'toast' && call[1].includes('aligned to the grid and disassembled')));
+});
+
+test('menu disassembly applies the nearest grid rotation to the full rigid-body frame before conversion', async () => {
+  const rootPosition = new THREE.Vector3(8.25, 12.5, -3.75);
+  const startRotation = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(82)
+  );
+  const rootBody = { position: rootPosition.clone(), quaternion: startRotation.clone() };
+  const childBody = {
+    position: new THREE.Vector3(2, 0, 0).applyQuaternion(startRotation).add(rootPosition),
+    quaternion: startRotation.clone()
+  };
+  const entity: any = {
+    id: 'rotated', rootComponentId: 'root', scriptStatus: 'stopped',
+    position: rootPosition.clone(), quaternion: startRotation.clone(),
+    rigidBodies: new Map([['root', rootBody], ['child', childBody]]),
+    getRigidBody(id) { return this.rigidBodies.get(id); },
+    syncAllBodyTransforms() {}, updateTransform() {}, capturePreviousEntityTransforms() {},
+    setCollisionSimulationEnabled() {}
+  };
+  let convertedRotation: THREE.Quaternion | null = null;
+  const controller: any = Object.create(PlayerController.prototype);
+  controller.contraptions = {
+    contraptions: [entity],
+    disassembleContraption() { convertedRotation = rootBody.quaternion.clone(); return true; }
+  };
+  controller.beginWrenchManipulation = () => {};
+  controller.ui = { showToast() {}, refresh() {}, notifyContraptionRemoved() {} };
+
+  assert.equal(await controller.performEntityMenuAction(entity, 'disassemble'), true);
+  const expected = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  assert.ok(convertedRotation && Math.abs(convertedRotation.dot(expected)) > 1 - 1e-9);
+  assert.ok(rootBody.position.distanceTo(rootPosition) < 1e-9, 'root position stays fixed while orientation snaps');
+  const expectedChildPosition = new THREE.Vector3(2, 0, 0).applyQuaternion(expected).add(rootPosition);
+  assert.ok(childBody.position.distanceTo(expectedChildPosition) < 1e-9, 'child bodies follow the root rotation delta');
 });
 
 test('entity menu blocks keyboard tools and is cleared when target is removed', () => {

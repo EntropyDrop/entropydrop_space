@@ -10,6 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && node build.mjs",
+    "test": "node --import ../../../engine/test/setup.ts --test --test-concurrency=1 \"*.test.ts\"",
     "start": "node dist/hosting-runtime.mjs"
   },
   "dependencies": {
