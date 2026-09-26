@@ -5852,12 +5852,14 @@ export class PlayerController {
 
   getWrenchGrabBodyId(contraption, nodeId = contraptionRootId(contraption)) {
     let currentId = String(nodeId ?? contraptionRootId(contraption));
+    let kinematicId = null;
     while (currentId) {
       const body = contraption.getRigidBody?.(currentId);
       if (body?.type === BodyType.DYNAMIC) return currentId;
+      if (body?.type === BodyType.KINEMATIC && kinematicId === null) kinematicId = currentId;
       currentId = contraption.getEntityNode?.(currentId)?.parentId || '';
     }
-    return null;
+    return kinematicId;
   }
 
   getWrenchTargetPosition(eyePos, targetDistance, anchorPos = eyePos, targetSpace = 'flat') {
@@ -5895,12 +5897,27 @@ export class PlayerController {
       this.hoveredContraptionHit?.entityId ?? contraptionRootId(contraption)
     );
     if (!bodyId) {
-      this.ui?.showToast?.('Wrench: this entity has no dynamic body to grab');
+      this.ui?.showToast?.('Wrench: this entity has no movable body to grab');
+      return false;
+    }
+    const body = contraption.getRigidBody?.(bodyId);
+    const originalBodyType = body?.type;
+    if (originalBodyType === BodyType.KINEMATIC && typeof contraption.setNodeBodyType !== 'function') {
+      this.ui?.showToast?.('Wrench: this kinematic body cannot be moved');
       return false;
     }
     // Point-grabbing uses the existing velocity servo, unlike the COM gizmo's
-    // direct stopped transform. Validate the body before changing entity state.
+    // direct stopped transform. Kinematic bodies temporarily become dynamic
+    // while held so the same collision-aware servo can move them.
     const wasRunning = this.beginWrenchManipulation(contraption, true);
+    if (originalBodyType === BodyType.KINEMATIC
+      && !contraption.setNodeBodyType(bodyId, BodyType.DYNAMIC, { runtimeOnly: true, captureDefault: false })) {
+      contraption.isWrenchGrabbed = false;
+      contraption.setPhysicsSimulationEnabled?.(false);
+      contraption.setCollisionSimulationEnabled?.(true);
+      this.ui?.showToast?.('Wrench: this kinematic body cannot be moved');
+      return false;
+    }
     const eyePos = this.physics?.getEyePosition ? this.physics.getEyePosition() : (this.camera?.position ? this.camera.position.clone() : new THREE.Vector3());
     const hitPoint = this.hoveredContraptionHit?.point
       ? (this.hoveredContraptionHit.point.isVector3
@@ -5927,6 +5944,7 @@ export class PlayerController {
     this.wrenchGrab = {
       contraption,
       bodyId,
+      originalBodyType,
       localPoint,
       targetDistance: initialDistance,
       targetSpace,
@@ -5963,6 +5981,13 @@ export class PlayerController {
       }
       contraption.velocity?.set?.(0, 0, 0);
       contraption.angularVelocity?.set?.(0, 0, 0);
+      if (this.wrenchGrab?.originalBodyType === BodyType.KINEMATIC) {
+        contraption.setNodeBodyType?.(
+          this.wrenchGrab.bodyId,
+          BodyType.KINEMATIC,
+          { runtimeOnly: true, captureDefault: false }
+        );
+      }
       contraption.setPhysicsSimulationEnabled?.(false);
       // A stopped network replica receives no further local history updates.
       contraption.capturePreviousEntityTransforms?.();
