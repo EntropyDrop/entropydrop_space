@@ -34,6 +34,8 @@ The new worker probes its runtime, detects cpuset/physical cores/container CPU q
 and advertises the actual capacity. Linux entity processes bind to their assigned CPU;
 non-Linux development uses separate processes without hard affinity. See the
 [hosting controls and deployment guide](docs/entity-hosting.md).
+The ephemeral entity-to-entity message API is described in
+[entity-messaging.md](docs/entity-messaging.md).
 Development deploys reuse the existing isolated volumes.
 
 Monitoring workers retain separate minute buffers and publish cumulative latency

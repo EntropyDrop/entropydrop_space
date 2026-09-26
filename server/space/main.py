@@ -13,7 +13,10 @@ from rate_limit import limiter
 from contextlib import asynccontextmanager
 from contextlib import suppress
 import space_surface
-from routers import space, space_entities, space_hosting, space_external, space_agent, space_market, space_realtime, space_monitoring
+from routers import (
+    space, space_entities, space_hosting, space_external, space_agent, space_market,
+    space_realtime, space_monitoring, space_entity_messages,
+)
 from space.metrics import metrics_collector
 
 if not settings.SPACE_JOIN_TICKET_SECRET:
@@ -39,7 +42,7 @@ app = FastAPI(title="EntropyDrop Space API", docs_url=None, redoc_url=None, open
 configure_http(app)
 for router in (space.router, space_entities.router, space_hosting.router, space_external.router,
                space_market.router, space_realtime.api_router, space_realtime.realtime_router,
-               space_monitoring.router):
+               space_monitoring.router, space_entity_messages.router):
     app.include_router(router)
 app.include_router(space_agent.router)
 app.include_router(space_agent.public_router)
