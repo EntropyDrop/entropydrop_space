@@ -354,6 +354,10 @@ export class SpaceUiStore {
   private listeners = new Set<Listener>();
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private bulkEditClearTimer: ReturnType<typeof setTimeout> | null = null;
+  private scriptCompileTimer: ReturnType<typeof setTimeout> | null = null;
+  private codeEditorStopPromise: Promise<void> = Promise.resolve();
+  private codeEditorIsStoppedForEdits = false;
+  private codeEditorSession = 0;
   private lastHudPublishAt = 0;
   private toastSequence = 0;
   private remotePlayers: any[] = [];
@@ -446,6 +450,7 @@ export class SpaceUiStore {
 
   private patch(partial: Partial<SpaceUiSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...partial, revision: this.snapshot.revision + 1 };
+    this.snapshot.controller?.setWorldPickingSuspended?.(this.snapshot.activeModal === 'code');
     for (const listener of this.listeners) listener();
   }
 
@@ -763,8 +768,40 @@ export class SpaceUiStore {
     }
   }
 
+  private cancelPendingScriptCompile(): void {
+    if (this.scriptCompileTimer) clearTimeout(this.scriptCompileTimer);
+    this.scriptCompileTimer = null;
+    this.codeEditorSession++;
+    this.codeEditorStopPromise = Promise.resolve();
+    this.codeEditorIsStoppedForEdits = false;
+  }
+
+  private scheduleScriptCompile(contraption: any, nodeId: string): void {
+    if (this.scriptCompileTimer) clearTimeout(this.scriptCompileTimer);
+    const session = this.codeEditorSession;
+    const stopPromise = this.codeEditorStopPromise;
+    this.scriptCompileTimer = setTimeout(async () => {
+      this.scriptCompileTimer = null;
+      await stopPromise;
+      const state = this.snapshot;
+      if (session !== this.codeEditorSession
+        || state.activeModal !== 'code'
+        || state.editingContraption !== contraption
+        || state.selectedComponentNodeId !== nodeId) return;
+
+      const success = contraption.setNodeScript(nodeId, state.scriptDraft);
+      if (!success) {
+        const error = contraption.nodeScriptErrors?.get?.(nodeId) || contraption.scriptError;
+        this.showToast(`Compile error: ${error}`);
+      }
+      this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
+      this.refresh();
+    }, 350);
+  }
+
   closeAllModals(resumePointerLock = false): void {
     this.saveCurrentDraft();
+    if (this.snapshot.activeModal === 'code') this.cancelPendingScriptCompile();
     const { editingContraption, sceneRenderer, controller } = this.snapshot;
     sceneRenderer?.setEntityPreviewTarget?.(null);
     editingContraption?.setHighlightedNode?.(null);
@@ -804,7 +841,10 @@ export class SpaceUiStore {
       this.snapshot.controller?.unlock?.();
       if (modal === 'inventory') this.syncInventoryState();
     } else {
-      if (modal === 'code') this.saveCurrentDraft();
+      if (modal === 'code') {
+        this.saveCurrentDraft();
+        this.cancelPendingScriptCompile();
+      }
       this.patch({
         activeModal: null,
         agentSetupOpen: false
@@ -1365,6 +1405,7 @@ export class SpaceUiStore {
 
   openCodeEditor(contraption: any): void {
     if (!contraption) return;
+    this.cancelPendingScriptCompile();
     const selectedComponentNodeId = entityRootId(contraption);
     const rootNode = contraption.getEntityNode?.(selectedComponentNodeId);
     const existing = contraption.getNodeScript?.(selectedComponentNodeId);
@@ -1391,6 +1432,11 @@ export class SpaceUiStore {
       if (selectedComponentNodeId === entityRootId(editingContraption)) editingContraption.scriptCode = scriptDraft;
     }
     this.patch({ scriptDraft });
+    if (!this.codeEditorIsStoppedForEdits) {
+      this.codeEditorIsStoppedForEdits = true;
+      this.codeEditorStopPromise = this.setGlobalPlayback('stop', true);
+    }
+    if (editingContraption) this.scheduleScriptCompile(editingContraption, selectedComponentNodeId);
   }
 
   selectComponentTreeNode(nodeId: string): void {
@@ -1405,26 +1451,19 @@ export class SpaceUiStore {
     this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
   }
 
-  applyAndRunScript(): boolean {
-    const { editingContraption, selectedComponentNodeId, scriptDraft } = this.snapshot;
-    if (!editingContraption) return false;
-    const success = editingContraption.setNodeScript(selectedComponentNodeId, scriptDraft);
-    this.refresh();
-    if (success) {
-      const enabled = editingContraption.isNodeScriptEnabled(selectedComponentNodeId) ? 'ON' : 'OFF';
-      this.showToast(`[${selectedComponentNodeId}] script updated · switch ${enabled}`);
-    } else {
-      const error = editingContraption.nodeScriptErrors?.get?.(selectedComponentNodeId) || editingContraption.scriptError;
-      this.showToast(`Compile error: ${error}`);
-    }
-    return success;
-  }
-
-  async setGlobalPlayback(value: 'play' | 'stop'): Promise<void> {
+  async setGlobalPlayback(value: 'play' | 'stop', silent = false): Promise<void> {
     const contraption = this.snapshot.editingContraption;
     if (!contraption) return;
+    this.codeEditorIsStoppedForEdits = value === 'stop';
     if (contraption.serverManaged === true) {
-      await this.snapshot.controller?.requestServerEntityRunState?.(contraption, value === 'play' ? 'running' : 'stopped');
+      const success = await this.snapshot.controller?.requestServerEntityRunState?.(
+        contraption,
+        value === 'play' ? 'running' : 'stopped',
+        { silent }
+      );
+      if (silent && value === 'stop' && success === false) {
+        this.showToast('Could not stop this entity automatically; check its control access');
+      }
       this.refresh();
       return;
     }
@@ -1436,10 +1475,12 @@ export class SpaceUiStore {
     });
     this.patch({ globalPlaybackState: value });
     this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
-    const message = value === 'play'
-      ? 'STARTED: entity physics active; component scripts running'
-      : 'STOPPED: physics disabled; PB defaults and construction pose restored';
-    this.showToast(message);
+    if (!silent) {
+      const message = value === 'play'
+        ? 'STARTED: entity physics active; component scripts running'
+        : 'STOPPED: physics disabled; PB defaults and construction pose restored';
+      this.showToast(message);
+    }
   }
 
   getGlobalPlayback(): 'play' | 'stop' | null {
@@ -1611,6 +1652,7 @@ export class SpaceUiStore {
   notifyContraptionRemoved(contraption: any): void {
     if (this.snapshot.entityContextMenu?.contraption === contraption) this.closeEntityContextMenu();
     if (!contraption || this.snapshot.editingContraption !== contraption) return;
+    this.cancelPendingScriptCompile();
     this.snapshot.sceneRenderer?.setEntityPreviewTarget?.(null);
     this.patch({ editingContraption: null, selectedComponentNodeId: '', scriptDraft: '', activeModal: null });
   }

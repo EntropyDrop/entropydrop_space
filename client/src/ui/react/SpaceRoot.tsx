@@ -40,9 +40,8 @@ export function SpaceRoot() {
         && spaceUiStore.getSnapshot().activeModal === 'code') {
         event.preventDefault();
         event.stopPropagation();
-        spaceUiStore.applyAndRunScript();
         spaceUiStore.closeAllModals(true);
-        spaceUiStore.showToast('Script saved & applied, back to the game!');
+        spaceUiStore.showToast('Script saved, back to the game!');
       }
     };
 

@@ -294,7 +294,6 @@ export function CodeEditorModal() {
             <div className="pb-radio-group" id="global-playback-group" title="Entity physics and script control">
               {([['play', '▶', 'Start: enable entity physics and all component scripts'], ['stop', '⏹', 'Stop: disable entity physics and scripts, then restore PB BodyConfig defaults, state, clock, transforms, and forces']] as const).map(([value, label, title]) => <React.Fragment key={value}><input type="radio" id={`pb-global-${value}`} name="pb-global" value={value} checked={playback === value} onChange={() => { void spaceUiStore.setGlobalPlayback(value); }} /><label htmlFor={`pb-global-${value}`} className={`pb-option ${value}`} title={title}>{label}</label></React.Fragment>)}
             </div>
-            <button id="run-script-btn" tabIndex={-1} className="editor-btn run-btn" onClick={() => spaceUiStore.applyAndRunScript()}>Apply Code</button>
             <button id="api-docs-btn" tabIndex={-1} className="editor-btn" title="Open entityAPI docs for entity code, with links to spaceAPI for Agent HTTP requests" onClick={() => spaceUiStore.toggleApiDocs(true)}>📖 entityAPI Docs</button>
             <button id="close-code-btn" tabIndex={-1} className="icon-btn" style={{ width: 28, height: 28, fontSize: 13 }} title="Close terminal (ESC)" onClick={() => spaceUiStore.toggleCodeEditorModal(false)}>✕</button>
           </div>

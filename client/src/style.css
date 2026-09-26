@@ -4433,20 +4433,6 @@ button.palette-title:hover {
   white-space: nowrap;
 }
 
-.editor-btn.run-btn {
-  background: var(--accent-base);
-  color: #ffffff;
-}
-
-.editor-btn.run-btn:hover {
-  background: var(--accent-hover);
-  transform: translate(-1px, -1px);
-}
-
-.editor-btn.run-btn:active {
-  transform: translate(1px, 1px);
-}
-
 .pb-radio-group {
   display: inline-flex;
   align-items: center;

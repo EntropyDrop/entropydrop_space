@@ -420,6 +420,7 @@ export class PlayerController {
   currentRaycast: any;
   hoveredContraption: any;
   hoveredContraptionHit: any;
+  worldPickingSuspended = false;
   pendingInteractionStops: WeakSet<object>;
   wrenchGrab: any;
   private wrenchScrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -699,6 +700,7 @@ export class PlayerController {
   setupEventListeners() {
     // Mouse Look
     document.addEventListener('mousemove', (e) => {
+      if (this.worldPickingSuspended) return;
       if (this.activeWrenchGizmoDrag) {
         this.updateWrenchGizmoDrag(e);
         return;
@@ -742,6 +744,7 @@ export class PlayerController {
 
     // Mouse Clicks
     document.addEventListener('mousedown', (e) => {
+      if (this.worldPickingSuspended) return;
       if (!this.isLocked) {
         if (this.activeTool === SpecialTool.SELECTOR && e.button === 0) {
           this.updateSelectionGizmoPointerHover(e);
@@ -1041,6 +1044,7 @@ export class PlayerController {
   }
 
   handleWheel(e: { deltaY: number; deltaMode?: number; shiftKey?: boolean; ctrlKey?: boolean; preventDefault?: () => void }) {
+    if (this.worldPickingSuspended) return;
     if (this.activeTool === SpecialTool.WRENCH) {
       const unitScale = e.deltaMode === 1
         ? 16
@@ -1197,6 +1201,41 @@ export class PlayerController {
     return result;
   }
 
+  setWorldPickingSuspended(suspended: boolean): void {
+    const next = Boolean(suspended);
+    if (this.worldPickingSuspended === next) return;
+    this.worldPickingSuspended = next;
+    if (!next) return;
+
+    this.releaseWrenchGizmoDrag();
+    this.releaseGizmoDrag();
+    this.releaseWrenchGrab();
+
+    const hovered = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
+    if (hovered) {
+      hovered.setHighlighted?.(false);
+      hovered.clearFocusHighlight?.();
+    }
+    this.currentRaycast = { hit: false };
+    this.hoveredContraption = null;
+    this.hoveredContraptionHit = null;
+    this.hoveredGizmoHandle = null;
+    this.hoveredWrenchGizmoHandle = null;
+    this.microCarvePreview = null;
+    this.focusBlockPreview = null;
+    this.boxSelectionPreview = null;
+    this.inventoryPlacementPreview = null;
+    this.clearWrenchPivotDisplay();
+
+    this.sceneRenderer?.setCursor?.(null);
+    this.sceneRenderer?.setMicroCarvePreview?.(null);
+    this.sceneRenderer?.clearFocusBlockGuide?.();
+    this.sceneRenderer?.clearBoxSelectionPreview?.();
+    this.sceneRenderer?.setInventoryPlacementPreview?.(null);
+    this.sceneRenderer?.clearSelectionAxisGizmo?.();
+    this.sceneRenderer?.highlightSelectionGizmoHandle?.(null);
+  }
+
   clearBrushSelection() {
     this.brushSelection = null;
     if (this.activeTool === SpecialTool.BRUSH) {
@@ -1256,6 +1295,7 @@ export class PlayerController {
   }
 
   handleLeftClick(e = null) {
+    if (this.worldPickingSuspended) return false;
     if (this.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
     if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     if (this.bulkEditJob) {
@@ -3985,6 +4025,7 @@ export class PlayerController {
   /** Refresh the Hammer hover ghost without mutating either world or entity state. */
   updateInventoryPlacementPreview() {
     this.inventoryPlacementPreview = null;
+    if (this.worldPickingSuspended) return;
     if (this.activeTool !== SpecialTool.HAMMER) return;
     // Color sets apply to the palette with left-click — no placement ghost.
     if (this.activeInventoryCategory === 'colorset') return;
@@ -4998,6 +5039,7 @@ export class PlayerController {
   }
 
   handleRightClick(e = null) {
+    if (this.worldPickingSuspended) return false;
     if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     // Selector RMB opens the complete action menu. Pointer lock is released by
     // the UI bridge so the player can choose an item, then restored on close.
@@ -5584,6 +5626,10 @@ export class PlayerController {
   }
 
   updateWrenchGizmoPointerHover(e: MouseEvent) {
+    if (this.worldPickingSuspended) {
+      this.hoveredWrenchGizmoHandle = null;
+      return null;
+    }
     if (this.activeTool !== SpecialTool.WRENCH || !this.wrenchPivotTarget || !this.sceneRenderer) {
       this.hoveredWrenchGizmoHandle = null;
       return null;
@@ -5611,6 +5657,10 @@ export class PlayerController {
   }
 
   updateWrenchPivotGizmo(entityHit) {
+    if (this.worldPickingSuspended) {
+      this.clearWrenchPivotDisplay();
+      return null;
+    }
     if (this.activeTool !== SpecialTool.WRENCH) {
       this.wrenchPivotTarget = null;
       this.hoveredWrenchGizmoHandle = null;
@@ -8952,6 +9002,7 @@ export class PlayerController {
     // point in the frame where the mounted body's final physics pose exists.
     this.syncDrivenVehiclePose();
     this.updateCameraPosition();
+    if (this.worldPickingSuspended) return;
     const query = this.performAimRaycast('all');
     this.currentRaycast = query.worldHit || { hit: false };
 
@@ -9006,6 +9057,9 @@ export class PlayerController {
 
   /** Query along the current crosshair without changing hover presentation. */
   performAimRaycast(include = 'all', usePublishedCollision: boolean | undefined = undefined) {
+    if (this.worldPickingSuspended) {
+      return { kind: null, worldHit: { hit: false }, entityHit: null };
+    }
     const eyePos = this.physics.getEyePosition();
     const eyeBent = PlayerController._bentEye.copy(eyePos);
     bendPointForView(eyePos.x, eyePos.y, eyePos.z, eyeBent);
@@ -9054,6 +9108,7 @@ export class PlayerController {
    * @returns {null | { pos: {x,y,z}, size: number, quaternion?: any, center?: any, isEntity?: boolean }}
    */
   getCursorHighlight() {
+    if (this.worldPickingSuspended) return null;
     if (this.hoveredContraptionHit) {
       const hit = this.hoveredContraptionHit;
       const contraption = hit.contraption;
@@ -9175,6 +9230,7 @@ export class PlayerController {
    */
   updateMicroCarvePreview() {
     this.microCarvePreview = null;
+    if (this.worldPickingSuspended) return;
     // Spoon: show 8×8 micro-voxel focus grid.
     // Selector (after a level has been selected): show a 1×1×1 outline on hover to help the user
     // aim their first box-selection corner.
@@ -9564,6 +9620,11 @@ export class PlayerController {
   }
 
   updateSelectionAxisGizmo() {
+    if (this.worldPickingSuspended) {
+      this.hoveredGizmoHandle = null;
+      this.sceneRenderer?.clearSelectionAxisGizmo?.();
+      return;
+    }
     if (this.activeTool !== SpecialTool.SELECTOR) {
       this.hoveredGizmoHandle = null;
       this.sceneRenderer?.clearSelectionAxisGizmo?.();
@@ -9654,6 +9715,11 @@ export class PlayerController {
   }
 
   updateSelectionGizmoPointerHover(e: MouseEvent) {
+    if (this.worldPickingSuspended) {
+      this.hoveredGizmoHandle = null;
+      this.sceneRenderer?.highlightSelectionGizmoHandle?.(null);
+      return null;
+    }
     if (this.activeTool !== SpecialTool.SELECTOR || !this.sceneRenderer) return;
     if (!this.selectionGizmoRaycaster) {
       this.selectionGizmoRaycaster = new THREE.Raycaster();
