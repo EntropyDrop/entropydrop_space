@@ -131,6 +131,21 @@ def upload(directory, prefix):
     count += sum(put(p) for p in html)
     print(f'Uploaded {count} changed objects through 19100; HTML published last; no objects deleted.')
 
+def validate_production_build(directory):
+    directory = Path(directory)
+    files = [path for path in directory.rglob('*') if path.is_file() and path.suffix in ('.html', '.js')]
+    if not files:
+        raise RuntimeError(f'Production build is empty: {directory}')
+    values = dotenv_values(ROOT.parent / 'entropydrop_backend/.env.prod')
+    google_client_id = (values.get('GOOGLE_CLIENT_ID') or '').strip()
+    required = [google_client_id, 'https://api.entropydrop.com']
+    if not google_client_id.endswith('.apps.googleusercontent.com'):
+        raise RuntimeError('Production GOOGLE_CLIENT_ID is missing or invalid')
+    bodies = [path.read_bytes() for path in files]
+    missing = [value for value in required if not any(value.encode() in body for body in bodies)]
+    if missing:
+        raise RuntimeError('Production build is missing explicit account configuration: ' + ', '.join(missing))
+
 def activate():
     current = json.loads((STATE / 'release.json').read_text())
     cf = client('cloudfront')
@@ -172,6 +187,7 @@ def main():
     if args.action == 'prepare': prepare(args.release)
     elif args.action == 'upload-space':
         state = json.loads((STATE / 'release.json').read_text())
+        validate_production_build(ROOT / 'client/dist')
         upload(ROOT / 'client/dist', 'space-app/' + state['release'] + '/')
         result = client('cloudfront').create_invalidation(
             DistributionId=state['id'],
@@ -179,6 +195,7 @@ def main():
         )
         print('Space invalidation:', result['Invalidation']['Id'])
     elif args.action == 'upload-main':
+        validate_production_build(ROOT.parent / 'entropydrop_frontend/dist')
         upload(ROOT.parent / 'entropydrop_frontend/dist', '')
         result = client('cloudfront').create_invalidation(DistributionId=MAIN_DISTRIBUTION, InvalidationBatch={'Paths': {'Quantity': 1, 'Items': ['/*']}, 'CallerReference': str(time.time_ns())})
         print('Main invalidation:', result['Invalidation']['Id'])

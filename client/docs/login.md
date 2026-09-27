@@ -8,6 +8,12 @@ The account service's public `/api/auth/config` returns `google_client_id` from
 `GOOGLE_CLIENT_ID`. A build may override it with `VITE_GOOGLE_CLIENT_ID`, which
 must identify the same Google client accepted by the account service.
 
+Build production assets with `tools/build_prod_domain.py`. It reads the
+production account client ID from the private backend environment and supplies
+explicit account, Space and main-site origins to both Vite builds. The upload
+tool rejects bundles that do not contain the production account origin and
+Google client ID, so a developer `.env` cannot be published by mistake.
+
 In that Google OAuth client's **Authorized JavaScript origins**, include both
 `https://entropydrop.com` and `https://space.entropydrop.com` (and any explicitly
 used development origin). Include the same browser origins in the account
