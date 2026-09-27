@@ -20,6 +20,11 @@ Terrain generation and surface LOD preparation use shared allocation-free WASM
 kernels in browser workers, Node and Python, with reference fallbacks. See the
 [terrain kernel guide](wasm/README.md) for scope, deterministic checks and benchmarks.
 
+Picking intersections, batched oriented-box contacts and model-import grid passes
+also use AssemblyScript kernels, together with joint, impulse and friction solvers.
+See the [geometry kernel guide](wasm/GEOMETRY.md)
+for execution boundaries, memory limits, JS fallback controls and CPU benchmarks.
+
 ## Local setup
 
 Install from the Space workspace root (`entropydrop_space/`) with Node 24+ and npm 10+:

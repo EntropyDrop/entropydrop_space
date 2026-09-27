@@ -4,6 +4,7 @@ import type { SpaceStorage } from '../engine/storage/BrowserStorage.ts';
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { readResponseBytes } from '../bootstrap/NetworkSafety.ts';
 import { networkTraffic } from '../bootstrap/NetworkTraffic.ts';
+import { installFrameDiagnostics } from './FrameDiagnostics.ts';
 
 interface OfflineGame {
   world: World;
@@ -31,6 +32,11 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
     terrain_edit_remote: null, surface_snapshot_remote: null, latency_monitor: null,
     player_position_remote: { async save() {} },
   };
+  if (world === 'nature' || world === 'default') {
+    session.world = { ...session.world, id: 'dev-offline-nature', name: 'Offline Nature (development only)',
+      seed: 42, terrain_generator_version: 1 };
+    Object.assign(session.player, { start_x_cm: 537760, start_y_cm: 1800, start_z_cm: 82130 });
+  }
   if (world === 'aether-archipelago') {
     session.world = { ...session.world, id: 'dev-offline-aether', name: 'Offline Aether (development only)',
       seed: 42, terrain_generator_version: 3 };
@@ -97,6 +103,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
     const surface = ['1', 'world'].includes(parameters.get('dev_lod') ?? '')
       ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world, parameters.get('dev_lod') === 'world') : null;
     installDiagnostics(game, baseline, surface, busyStreaming);
+    if (parameters.get('dev_perf') === '1') installFrameDiagnostics(game);
   } catch (error) {
     if (status) status.textContent = `Offline development failed: ${String(error)}`;
     console.error(error);

@@ -340,6 +340,14 @@ export function GlobalSettingsModal() {
             </div>
             <div className="settings-section">
               <div className="settings-section-title">PERFORMANCE</div>
+              {import.meta.env.DEV && <div className="settings-row">
+                <div className="settings-label-group"><span className="settings-label">Frame Diagnostics</span><span className="settings-desc">Temporary render isolation switches, CPU/GPU timing and whole-frame draw counts. Does not edit the world or save preferences.</span></div>
+                <button className="segment-btn" onClick={async () => {
+                  const { installFrameDiagnostics } = await import('../../../dev/FrameDiagnostics.ts');
+                  installFrameDiagnostics((window as any).game);
+                  spaceUiStore.toggleGlobalSettingsModal(false);
+                }}>Open Frame Profiler</button>
+              </div>}
               <div className="settings-row">
                 <div className="settings-label-group"><span className="settings-label">Particle Effects</span><span className="settings-desc">Block-break debris and assembly steam effects</span></div>
                 <div className="settings-segmented-control" id="setting-particles-group">

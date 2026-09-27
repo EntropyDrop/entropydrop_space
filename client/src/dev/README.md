@@ -12,7 +12,7 @@ unavailable. Local bundled assets and terrain workers still load normally.
 
 The panel shows frame p50/p95, main-thread CPU p50/p95, Three render calls and
 triangles, and independent edit-partition/render-mesh counts. Graphics are fixed
-at medium lighting, 100% resolution and shadows enabled. Baseline reloads with
+at medium lighting, 100% resolution and shadows disabled. Baseline reloads with
 the previous square detailed window and separate micro meshes; Optimized uses
 the rectangular window and bounded per-chunk render batches. Both retain WASM.
 Use Rotate camera to exercise visibility changes without editing the world.
@@ -21,6 +21,39 @@ The fixture measures **near terrain only**; it does not fetch the server's far
 surface snapshots, remote players or entities. Its frame rates are not a claim
 about the full online world. Keep viewport size and browser visibility unchanged
 and wait for initial compilation/warm-up before comparing results.
+
+## Frame diagnostics
+
+Use `?dev_offline=1&world=nature&dev_perf=1` for green nature terrain (generator
+version 1), or select `world=aether-archipelago` / `world=copper-metropolis`.
+The nature fixture starts at (5377.6, 18, 821.3). It still has **no entities or far
+terrain** unless `dev_lod` is added; do not treat it as an online-world benchmark.
+
+In a normal development session, **Settings > Graphics > Performance > Open
+Frame Profiler** opens the same panel on the actual loaded world. The module
+and entry button are stripped from production builds.
+
+The panel reports CPU frame/stage p50/p95, asynchronous GPU timer queries (when
+supported), drawing-buffer dimensions, and whole-frame calls/triangles including
+all Ultra passes. CPU stages are nested, not additive. GPU samples are discarded
+on disjoint events and across test boundaries; no synchronous GPU wait is used.
+GPU timing samples one in six frames and can be disabled to check its overhead.
+GPU time does not include browser compositing or presentation, and CPU timing
+does not include other browser tasks outside `Game.animate`.
+
+Temporary switches isolate scene drawing, distant LOD, standard near terrain,
+micro terrain, sky and Ultra post-processing. They only hide rendering for the
+draw and restore visibility immediately; simulation, streaming and world data
+are unchanged. **Run render A/B** holds the current resolution fixed and uses
+full effects (fixed mode disables Auto's effect degradation), warms each
+case for 1.5 seconds, samples for 4 seconds and repeats the baseline at the end.
+It also compares 50% resolution, or 100% if already at 50%. The results label
+these conditions; do not compare this full-effects baseline directly with an
+Auto/reduced-effects baseline. Click Play, then Escape before measuring to
+exclude the full-screen startup blur. Avoid moving the camera, resizing the window or
+running builds during sampling. Hiding the tab cancels the test. Completion,
+cancellation and closing the panel restore the original graphics preferences
+without writing localStorage. Close removes instrumentation and GPU queries.
 
 ## Distant terrain regression
 

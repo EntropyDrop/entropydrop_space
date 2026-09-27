@@ -21,7 +21,7 @@
     "docs:check": "node ../tools/generate-api-docs.ts --check",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./test/setup.ts --test --test-concurrency=1 \"test/*.test.ts\"",
-    "check": "npm run check:script-sdk && node ../tools/build-terrain-wasm.mjs --check && npm run check:protobuf && npm run check:buf && npm run docs:check && npm run typecheck && npm test",
+    "check": "npm run check:script-sdk && node ../tools/build-terrain-wasm.mjs --check && node ../tools/build-geometry-wasm.mjs --check && npm run check:protobuf && npm run check:buf && npm run docs:check && npm run typecheck && npm test",
     "generate:script-sdk": "node ../tools/build-entity-script-sdk.mjs",
     "check:script-sdk": "node ../tools/build-entity-script-sdk.mjs --check"
   },

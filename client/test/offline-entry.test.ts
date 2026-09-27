@@ -28,3 +28,13 @@ test('offline entry is dynamically imported behind a build-time development guar
   const entry = readFileSync(new URL('../src/dev/OfflineEntry.ts', import.meta.url), 'utf8');
   assert.match(entry, /!import\.meta\.env\.DEV \|\|.*location\.hostname/);
 });
+
+test('nature and default offline fixtures select green terrain instead of silently using Copper', () => {
+  for (const world of ['nature', 'default']) {
+    const session = offlineSession(world);
+    assert.equal(session.world.terrain_generator_version, 1);
+    assert.equal(session.world.seed, 42);
+    assert.equal(session.token, '');
+    assert.equal(session.player.start_y_cm, 1800);
+  }
+});

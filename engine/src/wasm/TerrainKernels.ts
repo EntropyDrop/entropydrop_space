@@ -3,6 +3,7 @@ import { DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import type { Chunk } from '../voxel/Chunk.ts';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
 import type { SurfaceSelection } from './SurfaceSelection.ts';
+import { VoxelSurfaceColumn, type VoxelSurfaceExports } from './VoxelSurfaceKernels.ts';
 
 export interface SurfaceMip {
   cellSize: number;
@@ -19,7 +20,7 @@ export interface SurfaceConnectionKernel {
   edges(records: Int32Array): Int32Array;
 }
 
-type KernelExports = {
+type KernelExports = VoxelSurfaceExports & {
   memory: WebAssembly.Memory;
   abiVersion(): number;
   natureHeights(...args: number[]): void;
@@ -106,6 +107,10 @@ export class TerrainKernels {
     const blocks = this.alloc(65536), colors = this.alloc(65536 * 4);
     this.exports.clearChunk(blocks, colors, DEFAULT_BLOCK_COLOR);
     return { blocks, colors };
+  }
+
+  createVoxelSurfaceColumn(): VoxelSurfaceColumn {
+    return new VoxelSurfaceColumn(new WebAssembly.Instance(compiledModule).exports as KernelExports);
   }
 
   selectSurfaceBatch(root: SurfaceSelection, visibleCount: number): Int32Array {

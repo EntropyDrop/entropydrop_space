@@ -1,5 +1,6 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import * as THREE from 'three';
+import { ModelVoxelKernels } from '@entropydrop/space-engine/wasm/ModelVoxelKernels.ts';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
@@ -1105,6 +1106,10 @@ export function voxelizeModel(
     }
   }
 
+  const modelKernels = ModelVoxelKernels.create(processedTriangles, bucket, bucketSize, {
+    sx: gsx, sy: gsy, sz: gsz, minX: gminX, minY: gminY, minZ: gminZ, size: s,
+  });
+
   const pointInsideMesh = (px: number, py: number, pz: number): boolean => {
     const list = bucket.get(bucketKey(Math.floor(py / bucketSize), Math.floor(pz / bucketSize))) || [];
     let crossings = 0;
@@ -1208,25 +1213,29 @@ export function voxelizeModel(
     }
   }
 
-  // 2) Interior pass: ray parity
-  const hash01 = (n: number, salt: number): number => {
-    let v = (n * 73856093) ^ (salt * 19349663);
-    v = Math.imul(v ^ (v >>> 13), 1274126177);
-    v = (v ^ (v >>> 16)) >>> 0;
-    return 0.1 + 0.8 * (v / 4294967296);
-  };
-  const jitterScale = s * 1e-3;
-  for (let x = 0; x < gsx; x++) {
-    for (let y = 0; y < gsy; y++) {
-      for (let z = 0; z < gsz; z++) {
-        const cell = idx(x, y, z);
-        if (grid[cell] === 1) continue;
-        const wx = (x + gminX) * s + s * 0.5;
-        const wy = (y + gminY) * s + s * 0.5 + hash01(x, 1) * jitterScale;
-        const wz = (z + gminZ) * s + s * 0.5 + hash01(z, 2) * jitterScale;
-        if (pointInsideMesh(wx, wy, wz)) {
-          grid[cell] = 1;
-          if (colorGrid[cell] < 0) colorGrid[cell] = fallbackColor;
+  // Occupancy runs against resident packed geometry; surface color semantics stay shared.
+  if (modelKernels) modelKernels.fill(grid, colorGrid, fallbackColor);
+  else {
+    // 2) Interior pass: ray parity
+    const hash01 = (n: number, salt: number): number => {
+      let v = (n * 73856093) ^ (salt * 19349663);
+      v = Math.imul(v ^ (v >>> 13), 1274126177);
+      v = (v ^ (v >>> 16)) >>> 0;
+      return 0.1 + 0.8 * (v / 4294967296);
+    };
+    const jitterScale = s * 1e-3;
+    for (let x = 0; x < gsx; x++) {
+      for (let y = 0; y < gsy; y++) {
+        for (let z = 0; z < gsz; z++) {
+          const cell = idx(x, y, z);
+          if (grid[cell] === 1) continue;
+          const wx = (x + gminX) * s + s * 0.5;
+          const wy = (y + gminY) * s + s * 0.5 + hash01(x, 1) * jitterScale;
+          const wz = (z + gminZ) * s + s * 0.5 + hash01(z, 2) * jitterScale;
+          if (pointInsideMesh(wx, wy, wz)) {
+            grid[cell] = 1;
+            if (colorGrid[cell] < 0) colorGrid[cell] = fallbackColor;
+          }
         }
       }
     }
@@ -1234,54 +1243,64 @@ export function voxelizeModel(
 
   // 2.5) Hollow pass: preserve surface shell, eliminate enclosed interior voxels
   const hollow = opts.hollow !== false;
-  const hollowGrid = new Uint8Array(gsx * gsy * gsz);
-  if (hollow) {
-    for (let x = 1; x < gsx - 1; x++) {
-      for (let y = 1; y < gsy - 1; y++) {
-        for (let z = 1; z < gsz - 1; z++) {
-          const cell = idx(x, y, z);
-          if (grid[cell] !== 1) continue;
-          const isInterior =
-            grid[idx(x + 1, y, z)] === 1 &&
-            grid[idx(x - 1, y, z)] === 1 &&
-            grid[idx(x, y + 1, z)] === 1 &&
-            grid[idx(x, y - 1, z)] === 1 &&
-            grid[idx(x, y, z + 1)] === 1 &&
-            grid[idx(x, y, z - 1)] === 1;
-          if (!isInterior) {
-            hollowGrid[cell] = 1;
+  let effectiveGrid: Uint8Array;
+  if (modelKernels) effectiveGrid = modelKernels.hollow(hollow);
+  else {
+    const hollowGrid = new Uint8Array(gsx * gsy * gsz);
+    if (hollow) {
+      for (let x = 1; x < gsx - 1; x++) {
+        for (let y = 1; y < gsy - 1; y++) {
+          for (let z = 1; z < gsz - 1; z++) {
+            const cell = idx(x, y, z);
+            if (grid[cell] !== 1) continue;
+            const isInterior =
+              grid[idx(x + 1, y, z)] === 1 &&
+              grid[idx(x - 1, y, z)] === 1 &&
+              grid[idx(x, y + 1, z)] === 1 &&
+              grid[idx(x, y - 1, z)] === 1 &&
+              grid[idx(x, y, z + 1)] === 1 &&
+              grid[idx(x, y, z - 1)] === 1;
+            if (!isInterior) {
+              hollowGrid[cell] = 1;
+            }
           }
         }
       }
     }
+    effectiveGrid = hollow ? hollowGrid : grid;
   }
-  const effectiveGrid = hollow ? hollowGrid : grid;
 
-  // Re-sample every visible shell voxel at the closest point on the source
-  // mesh. This is the important color-preservation pass: the parity fill only
-  // determines occupancy and must not decide a textured voxel's color.
-  for (let x = 0; x < gsx; x++) {
-    for (let y = 0; y < gsy; y++) {
-      for (let z = 0; z < gsz; z++) {
-        const cell = idx(x, y, z);
-        if (effectiveGrid[cell] !== 1) continue;
-        const exposed =
-          x === 0 || x === gsx - 1 ||
-          y === 0 || y === gsy - 1 ||
-          z === 0 || z === gsz - 1 ||
-          grid[idx(x + 1, y, z)] === 0 ||
-          grid[idx(x - 1, y, z)] === 0 ||
-          grid[idx(x, y + 1, z)] === 0 ||
-          grid[idx(x, y - 1, z)] === 0 ||
-          grid[idx(x, y, z + 1)] === 0 ||
-          grid[idx(x, y, z - 1)] === 0;
-        if (!exposed) continue;
+  if (modelKernels) {
+    modelKernels.sampleSurface((cell, triangle, u, v, w) => {
+      colorGrid[cell] = sampleTriangleColor(processedTriangles[triangle], u, v, w, fallbackColor);
+    });
+  } else {
+    // Re-sample every visible shell voxel at the closest point on the source
+    // mesh. This is the important color-preservation pass: the parity fill only
+    // determines occupancy and must not decide a textured voxel's color.
+    for (let x = 0; x < gsx; x++) {
+      for (let y = 0; y < gsy; y++) {
+        for (let z = 0; z < gsz; z++) {
+          const cell = idx(x, y, z);
+          if (effectiveGrid[cell] !== 1) continue;
+          const exposed =
+            x === 0 || x === gsx - 1 ||
+            y === 0 || y === gsy - 1 ||
+            z === 0 || z === gsz - 1 ||
+            grid[idx(x + 1, y, z)] === 0 ||
+            grid[idx(x - 1, y, z)] === 0 ||
+            grid[idx(x, y + 1, z)] === 0 ||
+            grid[idx(x, y - 1, z)] === 0 ||
+            grid[idx(x, y, z + 1)] === 0 ||
+            grid[idx(x, y, z - 1)] === 0;
+          if (!exposed) continue;
 
-        const wx = (x + gminX) * s + s * 0.5;
-        const wy = (y + gminY) * s + s * 0.5;
-        const wz = (z + gminZ) * s + s * 0.5;
-        const sampled = nearestSurfaceColor(wx, wy, wz);
-        if (sampled !== null) colorGrid[cell] = sampled;
+          const wx = (x + gminX) * s + s * 0.5;
+          const wy = (y + gminY) * s + s * 0.5;
+          const wz = (z + gminZ) * s + s * 0.5;
+          const sampled = nearestSurfaceColor(wx, wy, wz);
+          if (sampled !== null) colorGrid[cell] = sampled;
+        }
       }
     }
   }

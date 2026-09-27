@@ -6,6 +6,7 @@ export { surfaceSelect } from './surface-selection';
 export { solidRuns, mergeSolidRuns } from './authored-solids';
 export { standardFaces, standardMesh } from './standard-mesh';
 export { collisionSamples } from './collision-samples';
+export { voxelColumnChunk, voxelColumnMicro, voxelColumnRecords, reduceVoxelBrick, meshVoxelBrick } from './voxel-surface';
 const GRAD = memory.data<i8>([
   1, 1, 0, -1, 1, 0, 1, -1, 0, -1, -1, 0,
   1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, -1,

@@ -1,5 +1,6 @@
 import { Chunk } from '../voxel/Chunk.ts';
 import type { TerrainGenerator } from './TerrainGenerator.ts';
+import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 
 export const VOXEL_LOD_SIZES = [1, 2, 4, 8, 16, 32, 64] as const;
 export const VOXEL_FACE_BYTES = 16;
@@ -66,11 +67,20 @@ class FaceWriter {
   private bytes = new Uint8Array(65536);
   private view = new DataView(this.bytes.buffer);
   length = 0;
+  private reserve(length: number) {
+    if (length <= this.bytes.length) return;
+    let capacity = this.bytes.length;
+    while (capacity < length) capacity *= 2;
+    const next = new Uint8Array(capacity); next.set(this.bytes);
+    this.bytes = next; this.view = new DataView(next.buffer);
+  }
+  append(bytes: Uint8Array) {
+    this.reserve(this.length + bytes.length);
+    this.bytes.set(bytes, this.length);
+    this.length += bytes.length;
+  }
   emit = (x: number, y: number, z: number, w: number, h: number, dir: number, value: number) => {
-    if (this.length + 16 > this.bytes.length) {
-      const next = new Uint8Array(this.bytes.length * 2); next.set(this.bytes);
-      this.bytes = next; this.view = new DataView(next.buffer);
-    }
+    this.reserve(this.length + 16);
     const at = this.length;
     for (const [i, n] of [x, y, z, w, h].entries()) this.view.setUint16(at + i * 2, n * 8, true);
     this.bytes[at + 10] = dir; this.bytes[at + 11] = value >>> 24 & 1;
@@ -88,7 +98,26 @@ export function generateVoxelSurfaceZone(generator: TerrainGenerator, zoneX: num
   const records = new Uint8Array(512 * 512 * 8), view = new DataView(records.buffer);
   const writers = VOXEL_LOD_SIZES.map(() => new FaceWriter());
   const chunk = new Chunk(0, 0, null);
+  const column = getTerrainKernels()?.createVoxelSurfaceColumn();
   for (let bx = 0; bx < 8; bx++) for (let bz = 0; bz < 8; bz++) {
+    if (column) {
+      column.reset();
+      for (let cx = 0; cx < 4; cx++) for (let cz = 0; cz < 4; cz++) {
+        chunk.reuseAt(zoneX * 32 + bx * 4 + cx, zoneZ * 32 + bz * 4 + cz, null);
+        generator.generateChunk(chunk);
+        column.addChunk(chunk, cx, cz);
+      }
+      const localRecords = column.surfaceRecords();
+      for (let x = 0; x < 64; x++) {
+        records.set(localRecords.subarray(x * 64 * 8, (x + 1) * 64 * 8), ((bx * 64 + x) * 512 + bz * 64) * 8);
+      }
+      for (let by = 0; by < 4; by++) {
+        const levels = column.meshBrick(by, bx * 64, bz * 64);
+        if (levels) for (let level = 0; level < levels.length; level++) writers[level].append(levels[level]);
+      }
+      onProgress?.(bx * 8 + bz + 1);
+      continue;
+    }
     const bricks = Array.from({ length: 4 }, () => new Uint32Array(64 ** 3));
     const occupied = new Uint8Array(4);
     for (let cx = 0; cx < 4; cx++) for (let cz = 0; cz < 4; cz++) {

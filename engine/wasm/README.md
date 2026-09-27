@@ -14,6 +14,9 @@ Run from the workspace root:
 npm run build:terrain-wasm
 npm run check:terrain-wasm
 npm run bench:terrain
+npm run bench:voxel-surface
+# All generators; one warmup and three measured rounds per backend:
+npm run bench:voxel-surface -- --versions=1,2,3,4,5,6,7,8 --rounds=3
 npm run bench:render-kernels
 npm run bench:physics
 # Optional full server Copper zone, after npm run build:server-runtime:
@@ -24,7 +27,7 @@ PYTHONPATH=server DATABASE_URL=sqlite:///:memory: python server/tools/benchmark_
 
 Both generated files are committed. `npm run check` recompiles and checks their
 bytes, so production bundlers do not need a native WASM toolchain. The approximately
-11 KB module is compiled once per JS realm; Python caches the compiled module per
+13 KB module is compiled once per JS realm; Python caches the compiled module per
 process and gives each thread its own store. The compiler is development-only.
 
 ## Scope and compatibility
@@ -33,8 +36,9 @@ WASM handles batched 3D simplex heights, standard box paints, Copper micro-shell
 rasterization/filtering, occupied bounds, frontend linear-color LOD pyramids and
 backend packed sRGB LOD reductions, world microvoxel greedy meshing, camera-dependent
 LOD subdivision, far-surface connection runs, standard chunk meshes, authored
-solid extraction/merging and collision probe transforms. Copper's seeded building/parcel grammar stays
-in one TypeScript implementation. Nature copies only its occupied-height slab.
+solid extraction/merging, volumetric voxel LOD generation and collision probe
+transforms. Copper's seeded building/parcel grammar stays in one TypeScript
+implementation. Nature copies only its occupied-height slab.
 Generated decorations still enter `World.microVoxels` as real editable/collidable
 microterrain; they are not a second visual-only mesh.
 
@@ -49,6 +53,18 @@ Micro meshing packs one 16x16x16 partition plus its neighbor halo. Packing can
 yield; mesh and collision publication still use the existing revision checks and
 handoff barriers. Material groups, normals, winding and Three color conversion
 match the JS reference. Other working color spaces retain the JS path.
+
+Volumetric LOD generation uses a private WASM instance per zone and reuses one
+64x256x64 column across its 64 horizontal positions. Chunk packing, micro-ornament
+occupancy, height records, seven 3D mip levels and six-direction greedy meshing
+run in that arena. The shared terrain generator can run between column calls
+without overwriting it. Scratch stays below 18 MiB, including a worst-case face
+buffer; no full-zone dense volume is allocated. Only packed records and faces
+are copied back. Black solids, first micro representatives, colour rounding,
+emission ties, brick boundary faces, the fine-level 8m quad-span cap and face order
+match the JS reference. VXL7 bytes and snapshot digests are unchanged; no regeneration or
+schema migration is required. The existing JS path remains the initialization
+fallback and can be selected with `SPACE_TERRAIN_BACKEND=js`.
 
 LOD subdivision visits at most 256 quadtree nodes per call and keeps its frontier
 and compact hysteresis bitset in host-owned arrays between calls. Root caches,
@@ -68,8 +84,10 @@ overlays request at most 32 procedural chunks per Node process, bounding IPC to
 Collision sample templates cache geometry-only local probes until the source
 geometry changes; live pivots, body attachment, collision flags and poses are
 applied in f64 batches. Returned vectors remain independent across pose changes.
-Templates above 262144 points retain JS. SAT, sweeps, impulses, resting support,
-sleep, scene publication and GPU drawing stay on their existing paths. A negative
+Templates above 262144 points retain JS. SAT, joint iterations, impulses,
+friction and numerical resting stabilization run in the separate
+[geometry module](GEOMETRY.md). Sweeps, resting-support cache validation, sleep,
+scene publication and GPU drawing stay on their existing paths. A negative
 terrain broadphase skips redundant probes only for unit-scale rigid transforms,
 complete micro-occupancy queries and non-sweeping motion. Point-only hosts and
 fast sweeps always retain the full path. `bench:physics` compares the old full
@@ -80,6 +98,13 @@ These benchmarks measure CPU work, **not FPS** or complete
 world-loading time. `bench:render-kernels` alternates JS/WASM, discards two warmup
 rounds, reports nine-sample medians and verifies geometry hashes. Its full Copper
 LOD rebuild deliberately excludes cache reuse and yield waiting.
+
+`bench:voxel-surface` compares complete 512x512 zone generation (Copper and Aether
+by default), alternates backends, discards one warmup round and verifies the hash
+of all records and seven encoded mip levels. Terrain generation uses WASM in
+both runs, isolating the new volumetric kernels. It reports total CPU time and
+LOD preparation time after subtracting measured terrain-generation calls;
+neither includes Node startup, IPC, compression, network or GPU work.
 
 ## Memory and fallback
 

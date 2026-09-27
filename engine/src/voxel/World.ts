@@ -1,4 +1,5 @@
 import { captureDistantChunk } from '../render/DistantChunkLayer.ts';
+import { getGeometryKernels } from '../wasm/GeometryKernels.ts';
 import * as THREE from 'three';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from './Chunk.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
@@ -1267,7 +1268,6 @@ export class World {
    */
   raycastBentVoxelFaces(originBent, dirBent, maxDistance, divisions, getValue, isOccupied) {
     const direction = dirBent.clone().normalize();
-    const ray = new THREE.Ray(originBent.clone(), direction);
     const cellSize = 1 / divisions;
     // Candidate discovery can be coarser than the cell because every sample
     // checks its full one-cell neighborhood; exact triangles decide the hit.
@@ -1277,6 +1277,17 @@ export class World {
     const periodZ = TORUS_SIZE_Z * divisions;
     const maxY = CHUNK_SIZE_Y * divisions;
     const candidates = new Map();
+    // Include air in the cache. Adjacent samples otherwise repeat most sparse
+    // world lookups. This cache lives for one ray, so publication/edits stay live.
+    const values = new Map<number, any>();
+    const keyOf = (x, y, z) => (x * (maxY + 2) + y + 1) * periodZ + z;
+    const readValue = (x, y, z) => {
+      const key = keyOf(x, y, z);
+      if (values.has(key)) return values.get(key);
+      const value = getValue(x, y, z);
+      values.set(key, value);
+      return value;
+    };
     const p = this.rayBentPoint;
     const flat = this.rayFlatPoint;
 
@@ -1294,15 +1305,47 @@ export class World {
           for (let dz = -1; dz <= 1; dz++) {
             const x = ((sampleX + dx) % periodX + periodX) % periodX;
             const z = ((sampleZ + dz) % periodZ + periodZ) % periodZ;
-            const key = `${x},${y},${z}`;
+            const key = keyOf(x, y, z);
             if (candidates.has(key)) continue;
-            const value = getValue(x, y, z);
+            const value = readValue(x, y, z);
             if (isOccupied(value)) candidates.set(key, { x, y, z, value });
           }
         }
       }
     }
 
+    const kernels = getGeometryKernels();
+    if (kernels && candidates.size) {
+      const faces: { cell: any; face: typeof BENT_VOXEL_RAYCAST_FACES[number] }[] = [];
+      for (const cell of candidates.values()) for (const face of BENT_VOXEL_RAYCAST_FACES) {
+        const [nx, ny, nz] = face.normal;
+        if (!isOccupied(readValue((cell.x + nx + periodX) % periodX, cell.y + ny,
+          (cell.z + nz + periodZ) % periodZ))) faces.push({ cell, face });
+      }
+      if (!faces.length) return null;
+      const quads = new Float64Array(faces.length * 12);
+      for (let i = 0; i < faces.length; i++) {
+        const { cell, face } = faces[i];
+        for (let j = 0; j < 4; j++) {
+          const corner = face.quad[j];
+          bendPointForView(cell.x * cellSize + corner[0] * cellSize,
+            cell.y * cellSize + corner[1] * cellSize, cell.z * cellSize + corner[2] * cellSize, p);
+          p.toArray(quads, i * 12 + j * 3);
+        }
+      }
+      const hit = kernels.rayQuads(quads, originBent, direction, cappedDistance);
+      if (!hit) return null;
+      const { cell, face } = faces[hit[0]], corners = hit[1] === 0 ? [0, 1, 2] : [0, 2, 3];
+      const flatCorners = corners.map(index => new THREE.Vector3(
+        cell.x * cellSize + face.quad[index][0] * cellSize,
+        cell.y * cellSize + face.quad[index][1] * cellSize,
+        cell.z * cellSize + face.quad[index][2] * cellSize));
+      const entry = flatCorners[0].multiplyScalar(hit[2]).addScaledVector(flatCorners[1], hit[3]).addScaledVector(flatCorners[2], hit[4]);
+      return { cell, value: cell.value, normal: { x: face.normal[0], y: face.normal[1], z: face.normal[2] },
+        distance: hit[5], entry: { x: entry.x, y: entry.y, z: entry.z } };
+    }
+
+    const ray = new THREE.Ray(originBent.clone(), direction);
     const barycentric = new THREE.Vector3();
     let closest = null;
     let closestDistance = cappedDistance;
@@ -1315,7 +1358,7 @@ export class World {
         const [nx, ny, nz] = face.normal;
         const neighborX = ((cell.x + nx) % periodX + periodX) % periodX;
         const neighborZ = ((cell.z + nz) % periodZ + periodZ) % periodZ;
-        if (isOccupied(getValue(neighborX, cell.y + ny, neighborZ))) continue;
+        if (isOccupied(readValue(neighborX, cell.y + ny, neighborZ))) continue;
 
         const flatCorners = face.quad.map(([x, y, z]) => new THREE.Vector3(
           originX + x * cellSize,

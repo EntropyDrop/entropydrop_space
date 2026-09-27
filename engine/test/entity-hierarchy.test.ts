@@ -1308,7 +1308,7 @@ test('world API supports color reads, raycast metadata, nearby entities, and bui
   world.setBlock(7, 1, 5, BlockTypes.AIR, true);
   world.setBlock(8, 1, 8, BlockTypes.AIR, true);
   const api = manager.scriptWorldApi;
-  assert.equal(api.apiVersion, 2);
+  assert.equal(api.apiVersion, 3);
   assert.equal(api.getBlock, undefined);
   assert.equal(api.setBlock, undefined);
   assert.equal(api.placeBlock, undefined);

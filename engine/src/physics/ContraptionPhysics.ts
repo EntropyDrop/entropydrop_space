@@ -6,6 +6,8 @@ import { PHYSICS_SUBSTEPS_PER_ENTITY_UPDATE } from '../simulation/EntitySimulati
 import type { World } from '../voxel/World.ts';
 import { CollisionBoxIndex, collisionBoundsOf, collisionBoundsOverlap } from './CollisionGeometry.ts';
 import { ContraptionSleep } from './ContraptionSleep.ts';
+import { getGeometryKernels } from '../wasm/GeometryKernels.ts';
+import { getPhysicsSolverKernels } from '../wasm/PhysicsSolverKernels.ts';
 
 const ENTITY_BROADPHASE_CELL_SIZE = 32;
 const ENTITY_SWEEP_THRESHOLD = 0.05;
@@ -30,6 +32,18 @@ const TERRAIN_FACE_NORMALS = [
   new THREE.Vector3(0, 0, -1),
   new THREE.Vector3(0, 0, 1)
 ];
+
+/** Keep candidate packing bounded even when many authored boxes overlap. */
+function* collisionPairBatches(boxesA, boxesB, indexB) {
+  let pairs: any[][] = [];
+  for (const a of boxesA) for (const b of indexB ? indexB.query(a) : boxesB) {
+    if (a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY
+      || a.maxZ < b.minZ || a.minZ > b.maxZ) continue;
+    pairs.push([a, b]);
+    if (pairs.length === 1024) { yield pairs; pairs = []; }
+  }
+  if (pairs.length) yield pairs;
+}
 
 type RestingTerrainSupport = {
   shape: any;
@@ -367,6 +381,8 @@ export class ContraptionPhysics {
     const constraints = contraption.constraintDefinitions?.values?.();
     if (!constraints) return;
     const list = [...constraints];
+    const solver = getPhysicsSolverKernels();
+    if (solver?.solveConstraints(contraption, list, iterations)) return;
     for (let iteration = 0; iteration < iterations; iteration++) {
       for (const constraint of list) {
         const bodyA = constraint.bodyA === null ? null : contraption.getRigidBody?.(constraint.bodyA);
@@ -838,6 +854,9 @@ export class ContraptionPhysics {
   /** Keep a kinematic collision shape's own scripted velocity and material,
    * while applying the resulting impulse to its dynamic carrier (if any). */
   applyEntityCollisionImpulse(bodyA, bodyB, ownerA, ownerB, normal, contactPoint, invA, invB) {
+    const solver = getPhysicsSolverKernels();
+    if (solver) return solver.solvePairImpulse(bodyA, bodyB, ownerA, ownerB, normal, contactPoint,
+      invA, invB, RESTING_CONTACT_VELOCITY);
     let appliedImpulseMagnitude = 0;
     const leverA = contactPoint.clone().sub(bodyA.position);
     const leverB = contactPoint.clone().sub(bodyB.position);
@@ -1020,16 +1039,18 @@ export class ContraptionPhysics {
     const movedKinematicA = new Set();
     const movedKinematicB = new Set();
 
-    for (const ba of boxesA) {
-      for (const bb of indexB ? indexB.query(ba) : boxesB) {
-        // min/max include both previous and current poses. If these swept
-        // hulls are disjoint, neither the current SAT nor CCD can possibly
-        // produce a contact, so avoid all body lookup/vector allocation work.
-        if (
-          ba.maxX < bb.minX || ba.minX > bb.maxX
-          || ba.maxY < bb.minY || ba.minY > bb.maxY
-          || ba.maxZ < bb.minZ || ba.minZ > bb.maxZ
-        ) continue;
+    const kernels = getGeometryKernels();
+    for (const pairs of collisionPairBatches(boxesA, boxesB, indexB)) {
+      const currentPairs = kernels ? pairs.map(([ba, bb]) => (
+        Math.min(ba.currentMaxX, bb.currentMaxX) > Math.max(ba.currentMinX, bb.currentMinX)
+        && Math.min(ba.currentMaxY, bb.currentMaxY) > Math.max(ba.currentMinY, bb.currentMinY)
+        && Math.min(ba.currentMaxZ, bb.currentMaxZ) > Math.max(ba.currentMinZ, bb.currentMinZ)
+          ? [this.entityCollisionObb(ba, obbCache), this.entityCollisionObb(bb, obbCache)] : [null, null]
+      )) : null;
+      // Poses do not change until this entire contact manifold is collected.
+      const batchContacts = kernels?.obbContacts(currentPairs!.map(pair => pair[0]), currentPairs!.map(pair => pair[1]));
+      for (let pairIndex = 0; pairIndex < pairs.length; pairIndex++) {
+        const [ba, bb] = pairs[pairIndex];
         const ownerA = a.getRigidBody?.(ba.bodyId || ba.entityId || a.rootComponentId);
         const ownerB = b.getRigidBody?.(bb.bodyId || bb.entityId || b.rootComponentId);
         if (!ownerA || !ownerB) continue;
@@ -1048,7 +1069,7 @@ export class ContraptionPhysics {
         const oy = Math.min(ba.currentMaxY, bb.currentMaxY) - Math.max(ba.currentMinY, bb.currentMinY);
         const oz = Math.min(ba.currentMaxZ, bb.currentMaxZ) - Math.max(ba.currentMinZ, bb.currentMinZ);
         if (ox > 0 && oy > 0 && oz > 0) {
-          const contact = this.orientedBoxPairContact(ba, bb, obbCache);
+          const contact = batchContacts ? batchContacts[pairIndex] : this.orientedBoxPairContact(ba, bb, obbCache);
           if (!contact) continue;
           // Match terrain support: use the separating axis of the actual
           // oriented features and create rotation through the contact-point
@@ -1483,36 +1504,42 @@ export class ContraptionPhysics {
   exactTerrainContacts(contraption, body, cachedObbs = null, cachedTerrainBoxes = null) {
     const contacts = [];
     const obbs = cachedObbs || this.getBodyCollisionWorldOBBs(contraption, body);
+    const kernels = getGeometryKernels();
     for (const obb of obbs) {
       const terrainBoxes = cachedTerrainBoxes?.get(obb) || this.terrainBoxesOverlapping(obb);
-      for (const terrainBox of terrainBoxes) {
-        const contact = this.orientedBoxAabbContact(obb, terrainBox);
-        if (!contact) continue;
-        // A diagonal SAT normal selects a terrain edge or vertex. It is only a
-        // real feature of the voxel union when every incident face selected by
-        // that normal is exposed. Testing just beyond the diagonal corner is
-        // insufficient: on a tiled floor that point is in the air even though
-        // the horizontal face is an internal seam shared with its neighbour.
-        const terrainCenter = new THREE.Vector3(
-          (terrainBox.minX + terrainBox.maxX) / 2,
-          (terrainBox.minY + terrainBox.maxY) / 2,
-          (terrainBox.minZ + terrainBox.maxZ) / 2
-        );
-        let exposed = true;
-        for (const axis of ['x', 'y', 'z'] as const) {
-          if (Math.abs(contact.normal[axis]) <= 1e-6) continue;
-          const facePoint = terrainCenter.clone();
-          facePoint[axis] = contact.normal[axis] > 0
-            ? terrainBox[`max${axis.toUpperCase()}`]
-            : terrainBox[`min${axis.toUpperCase()}`];
-          facePoint[axis] += Math.sign(contact.normal[axis]) * 0.002;
-          if (this.terrainCellAtPoint(facePoint)) {
-            exposed = false;
-            break;
+      for (let start = 0; start < terrainBoxes.length; start += 1024) {
+        const boxes = terrainBoxes.slice(start, start + 1024);
+        const batchContacts = kernels?.obbContacts(new Array(boxes.length).fill(obb), boxes, true);
+        for (let i = 0; i < boxes.length; i++) {
+          const terrainBox = boxes[i];
+          const contact = batchContacts ? batchContacts[i] : this.orientedBoxAabbContact(obb, terrainBox);
+          if (!contact) continue;
+          // A diagonal SAT normal selects a terrain edge or vertex. It is only a
+          // real feature of the voxel union when every incident face selected by
+          // that normal is exposed. Testing just beyond the diagonal corner is
+          // insufficient: on a tiled floor that point is in the air even though
+          // the horizontal face is an internal seam shared with its neighbour.
+          const terrainCenter = new THREE.Vector3(
+            (terrainBox.minX + terrainBox.maxX) / 2,
+            (terrainBox.minY + terrainBox.maxY) / 2,
+            (terrainBox.minZ + terrainBox.maxZ) / 2
+          );
+          let exposed = true;
+          for (const axis of ['x', 'y', 'z'] as const) {
+            if (Math.abs(contact.normal[axis]) <= 1e-6) continue;
+            const facePoint = terrainCenter.clone();
+            facePoint[axis] = contact.normal[axis] > 0
+              ? terrainBox[`max${axis.toUpperCase()}`]
+              : terrainBox[`min${axis.toUpperCase()}`];
+            facePoint[axis] += Math.sign(contact.normal[axis]) * 0.002;
+            if (this.terrainCellAtPoint(facePoint)) {
+              exposed = false;
+              break;
+            }
           }
+          if (!exposed) continue;
+          contacts.push(contact);
         }
-        if (!exposed) continue;
-        contacts.push(contact);
       }
     }
     return contacts;
@@ -1893,6 +1920,8 @@ export class ContraptionPhysics {
    */
   toppleNarrowSupport(body, normal, dt) {
     if (!this.isSimulatedDynamicBody(body)) return;
+    const solver = getPhysicsSolverKernels();
+    if (solver) { solver.toppleSupport(body, normal, dt, this.gravity.length()); return; }
     const bodyAxes = [
       new THREE.Vector3(1, 0, 0).applyQuaternion(body.quaternion),
       new THREE.Vector3(0, 1, 0).applyQuaternion(body.quaternion),
@@ -1915,6 +1944,12 @@ export class ContraptionPhysics {
   }
 
   solveTerrainContact(body, normal, hitPosition, penetration, contactPoints, dt, manifold = [hitPosition], allowRestitution = true, contactIterations = TERRAIN_CONTACT_ITERATIONS) {
+    const solver = getPhysicsSolverKernels();
+    if (solver) {
+      const impulse = solver.solveTerrainImpulse(body, normal, hitPosition, penetration, contactPoints,
+        dt, manifold, allowRestitution, contactIterations, this.gravity.length(), RESTING_CONTACT_VELOCITY, SUPPORT_WIDTH_NARROW);
+      if (impulse !== null) return impulse;
+    }
     body.position.addScaledVector(normal, Math.max(0, penetration - 0.001));
     if (normal.y > 0.5) body.isOnGround = true;
 

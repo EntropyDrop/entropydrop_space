@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-09 — Joint and contact solvers in WASM
+
+- Run all point, hinge, limited-hinge and weld iterations against resident f64
+  body poses, packing once and publishing once per constraint solve.
+- Move entity impulses, terrain manifold iterations, friction, resting velocity
+  stabilization and narrow-support toppling into the trusted WASM module.
+- Retain host Math sin/cos/atan2 rounding through three scalar imports so tiny
+  orientation differences do not change subsequent contact-feature choices.
+- Preserve solver order, kinematic carrier velocities, material response and
+  JS initialization/oversized-arena fallback; add a solver-only JS override.
+- Add differential solver tests and `bench:physics-solver`, comparing complete
+  updates with WASM collision geometry in both modes.
+
+## 2026-09 — Picking, contact and import WASM
+
+- Cache both air and occupied picking samples, and batch inclusive projected
+  quad intersections through a shared f64 WASM kernel.
+- Batch entity/entity and entity/terrain SAT contacts while preserving solver
+  ordering, support features, sweeps, sleep and collision publication.
+- Accelerate model parity fill, hollowing and nearest-surface queries in private
+  bounded WASM arenas, retaining exact host texture/color and block semantics.
+- Add differential trajectory/model tests, reproducible binary checks and
+  `bench:geometry` with packing/copy costs included.
+
+## 2026-09 — Volumetric LOD WASM
+
+- Generate far-terrain columns and all seven voxel mip levels in a private,
+  reusable WASM arena, including chunk packing, micro occupancy, height records,
+  colour/emission reduction and greedy face output.
+- Preserve VXL7 snapshot bytes, brick boundaries and JS fallback behavior, with
+  less than 18 MiB of scratch memory per zone generation.
+- Add adversarial byte-equivalence tests and `bench:voxel-surface` to compare
+  complete zone CPU time with the same terrain backend in both runs.
+
 ## 2026-09 — Shared terrain WASM
 
 - Share deterministic terrain rasterization and LOD reduction kernels across
