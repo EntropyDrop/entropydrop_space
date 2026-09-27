@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SurfaceBatch } from './SurfaceBatch.ts';
 import { TERRAIN_DITHER_GLSL } from './TerrainHandoff.ts';
+import { createVoxelEmissionMaskUniform, VOXEL_EMISSION_GLSL } from './VoxelEmission.ts';
 import { computeBentBoundsSphere, hookSceneMaterials, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
 import { surfaceSubdivisionWorldArea, SURFACE_AREA_HYSTERESIS } from './SurfaceSubdivision.ts';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
@@ -26,7 +27,9 @@ function geometry() {
 }
 function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THREE.Vector3) {
   const result = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .65, metalness: .15 });
+  const emissionMask = createVoxelEmissionMaskUniform(result);
   result.onBeforeCompile = shader => {
+    shader.uniforms.uVoxelEmissionMask = emissionMask;
     shader.uniforms.uVoxelHandoff = { value: mask };
     shader.uniforms.uVoxelTransition = { value: coverage };
     shader.uniforms.uVoxelOrigin = { value: origin };
@@ -56,7 +59,8 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THRE
       uniform vec2 uVoxelTransition;
       varying vec2 vVoxelFlat;
       varying float vVoxelEmission;
-      ${TERRAIN_DITHER_GLSL}`)
+      ${TERRAIN_DITHER_GLSL}
+      ${VOXEL_EMISSION_GLSL}`)
       .replace('#include <color_fragment>', `
         vec2 chunk = floor(mod(mod(vVoxelFlat, vec2(16384.,2048.)) + vec2(16384.,2048.), vec2(16384.,2048.)) / 16.);
         vec2 handoff = texture2D(uVoxelHandoff, (chunk + .5) / vec2(1024.,128.)).rg;
@@ -64,9 +68,16 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THRE
         float transition = terrainDither(gl_FragCoord.xy + vec2(37.,19.));
         if (transition < uVoxelTransition.x || transition >= uVoxelTransition.y) discard;
         #include <color_fragment>`)
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vVoxelEmission * vColor.rgb * 3.0;');
+      .replace('#include <opaque_fragment>', `
+        if (vVoxelEmission > 0.5) outgoingLight = voxelEmissionColor(vColor.rgb);
+        #include <opaque_fragment>
+        if (vVoxelEmission > 0.5) gl_FragColor.a += uVoxelEmissionMask;`)
+      .replace('#include <fog_fragment>', `
+        if (vVoxelEmission < 0.5) {
+          #include <fog_fragment>
+        }`);
   };
-  result.customProgramCacheKey = () => 'volumetric-terrain-packed-v2';
+  result.customProgramCacheKey = () => 'volumetric-terrain-packed-v5';
   return result;
 }
 
@@ -200,9 +211,10 @@ export class DistantVoxelLayer {
           span[index * 2] = view.getUint16(at + 6,true);
           span[index * 2 + 1] = view.getUint16(at + 8,true);
           directions[index] = range.faces[at + 10]; emission[index] = range.faces[at + 11];
-          colors[index * 3] = LINEAR[range.faces[at+12]];
-          colors[index * 3 + 1] = LINEAR[range.faces[at+13]];
-          colors[index * 3 + 2] = LINEAR[range.faces[at+14]];
+          for (let channel = 0; channel < 3; channel++) {
+            const value = range.faces[at + 12 + channel];
+            colors[index * 3 + channel] = emission[index] ? value : LINEAR[value];
+          }
           index++;
         }
       }

@@ -5,9 +5,13 @@ export const VoxelMaterialIds = Object.freeze({
 
 export type VoxelMaterialId = typeof VoxelMaterialIds[keyof typeof VoxelMaterialIds];
 
-// Cinematic bloom starts above 2.2; this keeps emissive voxels visibly bright
-// without allocating one real-time light per voxel.
-export const VOXEL_EMISSIVE_INTENSITY = 3;
+// Target linear luminance of the bloom source, independent of tint.
+// This is self-illumination, without allocating one real-time light per voxel.
+export const VOXEL_EMISSIVE_INTENSITY = 1.5;
+
+// A luminous surface needs its own radiance, including for dark palette tints.
+// Keep it below the halo source so tone mapping leaves a soft colored core.
+export const VOXEL_EMISSIVE_SURFACE_LUMINANCE = 0.65;
 
 export function parseVoxelMaterialId(value: unknown): VoxelMaterialId {
   const materialId = value === undefined || value === null

@@ -9,6 +9,8 @@ test('cinematic buffers follow render resolution and cap HDR allocation while re
   assert.equal(effects.sceneTarget.width, 2560);
   assert.equal(effects.sceneTarget.height, 1440);
   assert.equal(effects.sceneTarget.texture.type, THREE.HalfFloatType);
+  assert.equal(effects.sceneTarget.texture.userData.voxelEmissionMask, true);
+  assert.equal(effects.bloom.materialHighPassFilter.uniforms.tVoxelScene.value, effects.sceneTarget.texture);
   assert.ok(effects.sceneTarget.depthTexture);
   assert.equal(effects.atmosphereTarget.depthBuffer, false);
   effects.setSize(960, 540);
@@ -63,10 +65,15 @@ test('HDR stages render in order, restore renderer state and retain atmosphere d
   stages.length = 0;
   // Sun parallel to the view plane must never send infinities into the shader.
   effects.render(renderer, scene, camera, new THREE.Vector3(1, 0, 0), up, false);
-  assert.deepEqual(stages, ['reset', 'scene', 'atmosphere', 'tone-map', 'fxaa']);
+  assert.deepEqual(stages, ['reset', 'scene', 'atmosphere', 'bloom', 'tone-map', 'fxaa']);
   assert.equal(effects.atmosphere.uniforms.secondaryEffects.value, 0);
   assert.equal(effects.atmosphere.uniforms.sunVisibility.value, 0);
   assert.ok(Number.isFinite(effects.atmosphere.uniforms.sunUv.value.x));
+
+  stages.length = 0;
+  effects.render(renderer, scene, camera, sun, up, true);
+  assert.deepEqual(stages, ['reset', 'scene', 'atmosphere', 'bloom', 'tone-map', 'fxaa'],
+    'recovering Auto quality retains the same emission pipeline');
 
   renderer.render = () => { throw new Error('lost render'); };
   assert.throws(() => effects.render(renderer, scene, camera, sun, up, true), /lost render/);

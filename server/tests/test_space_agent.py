@@ -27,6 +27,29 @@ def save_position(db, user_id, world_id, *, age=1, state=None):
     return position
 
 
+def test_public_authorization_discovery_uses_configured_account_origin(client, monkeypatch):
+    monkeypatch.setattr(settings, 'SPACE_ACCOUNT_API_URL', 'https://accounts.example.test')
+    monkeypatch.setattr(settings, 'SPACE_ACCOUNT_PUBLIC_API_URL', '')
+    response = client.get('/space/api/v2/agent/authorization')
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'no-store'
+    assert response.json() == {
+        'authorization_endpoint': 'https://accounts.example.test/space/api/v2/agent-authorizations/requests',
+        'token_endpoint': 'https://accounts.example.test/space/api/v2/agent-authorizations/token',
+    }
+    monkeypatch.setattr(settings, 'SPACE_ACCOUNT_PUBLIC_API_URL', 'https://public-accounts.example.test/')
+    assert client.get('/space/api/v2/agent/authorization').json()['token_endpoint'].startswith('https://public-accounts.example.test/')
+
+
+@pytest.mark.parametrize('origin', ['', 'http://unsafe.example.test', 'https://user:pass@example.test', 'https://example.test?key=secret', 'https://example.test/internal'])
+def test_authorization_discovery_does_not_publish_invalid_origins(client, monkeypatch, origin):
+    monkeypatch.setattr(settings, 'SPACE_ACCOUNT_API_URL', origin)
+    monkeypatch.setattr(settings, 'SPACE_ACCOUNT_PUBLIC_API_URL', '')
+    response = client.get('/space/api/v2/agent/authorization')
+    assert response.status_code == 503
+    assert response.json()['detail']['code'] == 'AGENT_AUTHORIZATION_NOT_CONFIGURED'
+
+
 
 
 

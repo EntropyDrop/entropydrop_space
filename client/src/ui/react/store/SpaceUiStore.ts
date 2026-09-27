@@ -1107,13 +1107,23 @@ export class SpaceUiStore {
   setBuildColor(value: string | number, notify = true): void {
     const selectedColor = normalizeColor(value);
     const hex = colorToHex(selectedColor);
+    const activeIndex = this.snapshot.selectedColorIndex;
+    const selectedColorIndex = this.snapshot.paletteColors[activeIndex]?.hex.toLowerCase() === hex.toLowerCase()
+      ? activeIndex
+      : this.snapshot.paletteColors.findIndex(item => item.hex.toLowerCase() === hex.toLowerCase());
+    // Sampling can select a palette entry too. Keep its displayed material
+    // and the controller's placement/Fill material in sync with that choice.
+    const selectedMaterialId = normalizeVoxelMaterialId(selectedColorIndex >= 0
+      ? this.snapshot.paletteColors[selectedColorIndex].materialId
+      : this.snapshot.controller?.selectedMaterialId ?? this.snapshot.selectedMaterialId);
     if (this.snapshot.controller) {
       this.snapshot.controller.selectedColor = selectedColor;
+      this.snapshot.controller.selectedMaterialId = selectedMaterialId;
       this.snapshot.controller.selectedGradientStops = normalizeGradientStops(null, hex);
     }
-    const selectedColorIndex = this.snapshot.paletteColors.findIndex(item => item.hex.toLowerCase() === hex.toLowerCase());
     this.patch({
       selectedColor,
+      selectedMaterialId,
       selectedColorIndex: selectedColorIndex >= 0 ? selectedColorIndex : this.snapshot.selectedColorIndex
     });
     if (notify && this.snapshot.hasStarted) {

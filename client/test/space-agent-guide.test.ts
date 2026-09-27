@@ -25,5 +25,8 @@ test('copyable instructions strip legacy account paths and never include URL cre
   assert.ok(!/secret|token=|user:/.test(markup));
   const prompt = spaceAgentPrompt(origin);
   assert.ok(prompt.includes(guide.skillUrl));
+  assert.ok(prompt.includes('browser authorization'));
+  assert.ok(prompt.includes('wait for me to approve'));
+  assert.ok(prompt.includes('without asking me to copy a key'));
   assert.ok(!/secret|token=|user:/.test(prompt));
 });

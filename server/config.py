@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     SPACE_MIXED_WORLD_SEED: int = 42
     SPACE_STANDALONE: bool = True
     SPACE_ACCOUNT_API_URL: str = ""
+    SPACE_ACCOUNT_PUBLIC_API_URL: str = ""
     SPACE_OUTBOUND_PROXY_URL: str = ""
     SPACE_ACCOUNT_SERVICE_TOKEN: str = ""
     SPACE_IDENTITY_CACHE_SECONDS: int = 30

@@ -3,6 +3,7 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FXAAPass } from 'three/addons/postprocessing/FXAAPass.js';
+import { VOXEL_EMISSIVE_INTENSITY } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 
 const vertexShader = /* glsl */ `
   varying vec2 vUv;
@@ -84,12 +85,14 @@ const atmosphereShader = /* glsl */ `
   }
 
   void main() {
-    vec3 color = texture2D(tColor, vUv).rgb;
+    vec4 scene = texture2D(tColor, vUv);
+    vec3 color = scene.rgb;
+    float emissionCoverage = clamp(scene.a - 1.0, 0.0, 1.0);
     float depth = texture2D(tDepth, vUv).r;
     vec3 position = viewPosition(vUv, depth);
     vec3 ray = normalize(mat3(cameraWorld) * position);
     if (depth < 0.999999 && -position.z > 0.8) {
-      if (secondaryEffects > 0.5) color *= contactOcclusion(position);
+      if (secondaryEffects > 0.5) color *= mix(contactOcclusion(position), 1.0, emissionCoverage);
       float distanceToCamera = length(position);
       float elevation = dot(ray, surfaceUp);
       float lowMist = exp(-max(elevation * distanceToCamera + 12.0, 0.0) * 0.012);
@@ -98,13 +101,13 @@ const atmosphereShader = /* glsl */ `
       float haze = (1.0 - exp(-distanceToCamera * (0.00012 + lowMist * 0.0005))) * 0.32;
       float sunFacing = pow(max(dot(ray, sunDirection), 0.0), 8.0);
       vec3 hazeColor = mix(vec3(0.24, 0.40, 0.62), vec3(0.78, 0.58, 0.38), sunFacing);
-      color = mix(color, hazeColor, haze);
+      color = mix(color, hazeColor, haze * (1.0 - emissionCoverage));
     }
     // Warm highlights and cool shadows, with restrained extra saturation.
     float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
     color = mix(vec3(luminance), color, 1.12);
     color *= mix(vec3(0.91, 0.97, 1.06), vec3(1.035, 1.015, 0.96), smoothstep(0.05, 0.9, luminance));
-    if (secondaryEffects > 0.5 && -position.z > 0.8) color += sunlightShafts();
+    if (secondaryEffects > 0.5 && -position.z > 0.8) color += sunlightShafts() * (1.0 - emissionCoverage);
     gl_FragColor = vec4(max(color, vec3(0.0)), 1.0);
   }
 `;
@@ -133,6 +136,7 @@ export class CinematicEffects {
       depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
     });
     this.sceneTarget.texture.name = 'Space.Ultra.SceneHDR';
+    this.sceneTarget.texture.userData.voxelEmissionMask = true;
     this.atmosphereTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
     this.atmosphereTarget.texture.name = 'Space.Ultra.AtmosphereHDR';
     this.displayTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
@@ -154,21 +158,34 @@ export class CinematicEffects {
       },
     });
     this.quad = new FullScreenQuad(this.atmosphere);
-    // Bloom belongs to the sun and bright cloud rims; ordinary lit terrain
+    // Bloom belongs to emissive voxels, the sun and bright cloud rims; lit terrain
     // must retain its albedo instead of bleeding a white glow across the ring.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(64, 64), 0.16, 0.35, 2.2);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(64, 64), 0.06, 0.15, 1.5);
+    // Extract voxel glow from surface radiance and HDR emission coverage.
+    // This keeps dark/red/blue tints glowing with a restrained halo intensity
+    // or letting atmosphere grading change the hue of the bloom source.
+    this.bloom.materialHighPassFilter.uniforms.tVoxelScene = { value: this.sceneTarget.texture };
+    this.bloom.materialHighPassFilter.fragmentShader = this.bloom.materialHighPassFilter.fragmentShader
+      .replace('uniform sampler2D tDiffuse;', 'uniform sampler2D tDiffuse;\nuniform sampler2D tVoxelScene;')
+      .replace('gl_FragColor = mix( outputColor, texel, alpha );', `
+        vec4 scene = texture2D(tVoxelScene, vUv);
+        float coverage = clamp(scene.a - 1.0, 0.0, 1.0);
+        float brightness = dot(scene.rgb, vec3(0.2126, 0.7152, 0.0722));
+        vec3 emission = scene.rgb * (${VOXEL_EMISSIVE_INTENSITY.toFixed(1)} / max(brightness, 0.000001));
+        gl_FragColor = mix(mix(outputColor, texel, alpha), vec4(emission, 1.0), coverage);`);
     // Grade after tone mapping so the high dynamic range does not turn into a
-    // grey veil. Keep a soft shoulder for the sun and illuminated cloud rims.
-    this.antialias.material.fragmentShader = this.antialias.material.fragmentShader.replace(
-      'gl_FragColor = ApplyFXAA( tDiffuse, resolution.xy, vUv );',
-      `vec3 color = ApplyFXAA(tDiffuse, resolution.xy, vUv).rgb;
+    // grey veil. Emissive cores and halos pass through the same soft highlight
+    // mapping; restoring original RGB here would cut a dark hole in the glow.
+    this.output.material.fragmentShader = this.output.material.fragmentShader
+      .replace(/\n\s*}\s*$/, `
+       vec3 color = gl_FragColor.rgb;
        color = clamp((color - 0.5) * 1.08 + 0.5, 0.0, 1.0);
        float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
        color = mix(vec3(luminance), color, 1.12);
        vec2 edge = vUv * 2.0 - 1.0;
        color *= 1.0 - dot(edge, edge) * 0.035;
-       gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);`,
-    );
+       gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+      }`);
     this.antialias.material.toneMapped = false;
     this.antialias.material.depthTest = false;
     this.antialias.material.depthWrite = false;
@@ -221,7 +238,9 @@ export class CinematicEffects {
       this.quad.render(renderer);
       // Bloom adds back into the HDR atmosphere target; tone mapping follows
       // exactly once, before FXAA's sRGB edge detection.
-      if (fullEffects) this.bloom.render(renderer, this.sceneTarget, this.atmosphereTarget, 0, false);
+      // Emission is a material property, so Auto must retain its bloom while
+      // dropping secondary effects. Its buffers already follow render scale.
+      this.bloom.render(renderer, this.sceneTarget, this.atmosphereTarget, 0, false);
       this.output.render(renderer, this.displayTarget, this.atmosphereTarget, 0, false);
       this.antialias.render(renderer, this.displayTarget, this.displayTarget, 0, false);
     } finally {

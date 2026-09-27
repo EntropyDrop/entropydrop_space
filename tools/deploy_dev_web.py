@@ -12,7 +12,7 @@ def validate_gateway_config(path):
  # Space uses /api/auth/*, while the account UI also uses /skin/api/*.
  # Missing aliases must fail before any upload/container replacement; otherwise
  # the SPA fallback returns HTML/405 instead of a terminal auth response.
- for route in ('/api/','/skin/api/'):
+ for route in ('/api/','/skin/api/','/space/api/v2/agent-authorizations'):
   if not re.search(r'location\s+'+re.escape(route)+r'\s*\{\s*proxy_pass\s+http://127\.0\.0\.1:18082;\s*\}',source):
    raise RuntimeError('Development gateway must route '+route+' to the Mac account API')
  if not re.search(r'location\s+/internal/\s*\{\s*return\s+404;\s*\}',source):

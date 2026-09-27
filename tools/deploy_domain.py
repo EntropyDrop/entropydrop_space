@@ -158,7 +158,7 @@ def redirect_main():
         var destination = 'https://space.entropydrop.com/' + (parts.length ? '?' + parts.join('&') : '');
         return {statusCode: 302, statusDescription: 'Found', headers: {location: {value: 'https://entropydrop.com/space/login?destination=' + encodeURIComponent(destination)}, 'cache-control': {value: 'no-store'}}};
     }
-    if (uri === '/space' || uri === '/space/intro' || uri === '/space/apikeys' || uri === '/space/login' || uri === '/space/monitor' || uri === '/space/monitoring') request.uri = uri + '/index.html';
+    if (uri === '/space' || uri === '/space/intro' || uri === '/space/apikeys' || uri === '/space/authorize' || uri === '/space/login' || uri === '/space/monitor' || uri === '/space/monitoring') request.uri = uri + '/index.html';
     else if (uri.endsWith('/')) request.uri += 'index.html';
     return request;
 }''', 'Main-site routes and legacy Space entry redirect')

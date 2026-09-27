@@ -62,6 +62,8 @@ export function SpaceApiKeysSettings() {
 
   React.useEffect(() => {
     void load();
+    window.addEventListener('focus', load);
+    return () => window.removeEventListener('focus', load);
   }, [load]);
 
   const loadUsage = React.useCallback(async () => {
@@ -167,42 +169,45 @@ export function SpaceApiKeysSettings() {
         <div className="settings-api-refresh"><span className="settings-desc">Updated {new Date(usage.updated_at).toLocaleTimeString()}</span><button className="small-btn" onClick={() => void loadUsage()}>Refresh allowance</button></div>
       </> : <div className="settings-api-empty">{worldId ? 'Loading pricing and allowances…' : 'Enter an online world to view pricing and allowances.'}</div>}
       {usageError ? <div className="settings-api-message" role="status">{usageError} <button className="small-btn" onClick={() => void loadUsage()}>Retry</button></div> : null}
-      <div className="settings-section-title">API KEYS</div>
-      <div className="settings-api-create">
-        <input
-          className="settings-api-name"
-          value={name}
-          maxLength={80}
-          aria-label="API key name"
-          onChange={event => setName(event.target.value)}
-          placeholder="Key name"
-        />
-        <span className="settings-desc">All Space permissions included</span>
-        <button className="small-btn primary" disabled={busy || !name.trim()} onClick={() => void create()}>
-          {busy ? 'Working…' : 'Create key'}
-        </button>
-      </div>
-      {secret ? (
-        <div className="settings-api-secret">
-          <strong>Copy this key now. It will not be shown again.</strong>
-          <div className="settings-api-secret-row">
-            <input readOnly value={secret} aria-label="New spaceAPI key" onFocus={event => event.currentTarget.select()} />
-            <button className="small-btn" onClick={() => {
-              if (!navigator.clipboard?.writeText) {
-                setMessage('Clipboard access is unavailable. Select the key and copy it manually.');
-                return;
-              }
-              void navigator.clipboard.writeText(secret).then(
-                () => setMessage('API key copied.'),
-                () => setMessage('Copy failed. Select the key and copy it manually.'),
-              );
-            }}>Copy</button>
-          </div>
+      <div className="settings-section-title">CONNECTED AGENTS &amp; KEYS</div>
+      <details>
+        <summary>Advanced: create a key manually</summary>
+        <div className="settings-api-create">
+          <input
+            className="settings-api-name"
+            value={name}
+            maxLength={80}
+            aria-label="API key name"
+            onChange={event => setName(event.target.value)}
+            placeholder="Key name"
+          />
+          <span className="settings-desc">All Space permissions included</span>
+          <button className="small-btn primary" disabled={busy || !name.trim()} onClick={() => void create()}>
+            {busy ? 'Working…' : 'Create key'}
+          </button>
         </div>
-      ) : null}
+        {secret ? (
+          <div className="settings-api-secret">
+            <strong>Copy this key now. It will not be shown again.</strong>
+            <div className="settings-api-secret-row">
+              <input readOnly value={secret} aria-label="New spaceAPI key" onFocus={event => event.currentTarget.select()} />
+              <button className="small-btn" onClick={() => {
+                if (!navigator.clipboard?.writeText) {
+                  setMessage('Clipboard access is unavailable. Select the key and copy it manually.');
+                  return;
+                }
+                void navigator.clipboard.writeText(secret).then(
+                  () => setMessage('API key copied.'),
+                  () => setMessage('Copy failed. Select the key and copy it manually.'),
+                );
+              }}>Copy</button>
+            </div>
+          </div>
+        ) : null}
+      </details>
       {message ? <div className="settings-api-message" role="status">{message}</div> : null}
       <div className="settings-api-list">
-        {keys.length === 0 ? <div className="settings-api-empty">No API keys yet.</div> : keys.map(apiKey => (
+        {keys.length === 0 ? <div className="settings-api-empty">No connections yet. Copy the Agent Prompt above to connect.</div> : keys.map(apiKey => (
           <div className="settings-api-key" key={apiKey.id}>
             <div>
               <div className="settings-api-key-name">{apiKey.name}</div>
@@ -373,7 +378,7 @@ export function GlobalSettingsModal() {
                     {LIGHTING_PRESETS[state.lightingQuality].description}
                     {state.lightingQuality !== 'low' && state.resolutionEffectsQuality === 'reduced'
                       ? (state.lightingQuality === 'ultra'
-                        ? ' · Auto has paused bloom, sun rays and contact shadows; cinematic sky and color remain'
+                        ? ' · Auto has paused sun rays and contact shadows; bloom, cinematic sky and color remain'
                         : ' · Auto resolution has temporarily reduced effects; your selected quality is saved')
                       : ''}
                   </span>

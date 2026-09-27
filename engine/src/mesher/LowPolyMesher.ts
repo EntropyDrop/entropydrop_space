@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
-import { VOXEL_EMISSIVE_INTENSITY, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
+import { VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
+import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
 
@@ -54,15 +55,7 @@ export class LowPolyMesher {
       metalness: 0.15,
       shadowSide: THREE.DoubleSide
     });
-    this.emissiveMaterial = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(
-        VOXEL_EMISSIVE_INTENSITY,
-        VOXEL_EMISSIVE_INTENSITY,
-        VOXEL_EMISSIVE_INTENSITY,
-      ),
-      vertexColors: true,
-      toneMapped: false,
-    });
+    this.emissiveMaterial = createVoxelEmissiveMaterial();
 
     this.waterMaterial = new THREE.MeshStandardMaterial({
       color: 0x2980b9,
@@ -300,7 +293,10 @@ export class LowPolyMesher {
       const color = visibleFaces[faceOffset + 5];
       const materialId = visibleFaces[faceOffset + 6];
       const verticalSpan = visibleFaces[faceOffset + 7];
-      this._tempColor.setHex(color);
+      // Emission decodes sRGB in its shader; converting before byte packing
+      // would round the darkest tints to zero. Lit geometry stays linear.
+      this._tempColor.setHex(color, materialId === VoxelMaterialIds.EMISSIVE
+        ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace);
       const shade = materialId === VoxelMaterialIds.EMISSIVE
         ? 1
         : face.face === 'top' ? 1 : face.face === 'bottom' ? 0.6 : cutEdge ? 1 : 0.85;

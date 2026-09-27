@@ -4,9 +4,9 @@ import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import {
   normalizeVoxelMaterialId,
-  VOXEL_EMISSIVE_INTENSITY,
   VoxelMaterialIds
 } from '../voxel/VoxelMaterials.ts';
+import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import { ActionDomain, executeBasicAction } from '../actions/BasicActions.ts';
 import {
   bendPoint,
@@ -4507,7 +4507,10 @@ export class Contraption {
 
       for (const f of faces) {
         const hexColor = b.color ?? DEFAULT_BLOCK_COLOR;
-        tempColor.set(hexColor);
+        if (materialId === VoxelMaterialIds.EMISSIVE) {
+          if (typeof hexColor === 'string') tempColor.setStyle(hexColor, THREE.LinearSRGBColorSpace);
+          else tempColor.setHex(hexColor, THREE.LinearSRGBColorSpace);
+        } else tempColor.set(hexColor);
         const shade = materialId === VoxelMaterialIds.EMISSIVE
           ? 1.0
           : f.face === 'top' ? 1.0 : f.face === 'bottom' ? 0.6 : 0.85;
@@ -4556,15 +4559,7 @@ export class Contraption {
           roughness: 0.65,
           metalness: 0.15
         }),
-        new THREE.MeshBasicMaterial({
-          color: new THREE.Color(
-            VOXEL_EMISSIVE_INTENSITY,
-            VOXEL_EMISSIVE_INTENSITY,
-            VOXEL_EMISSIVE_INTENSITY
-          ),
-          vertexColors: true,
-          toneMapped: false
-        })
+        createVoxelEmissiveMaterial()
       ];
 
       const mesh = new THREE.Mesh(geo, mat);

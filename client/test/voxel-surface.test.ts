@@ -77,6 +77,8 @@ test('volumetric zones never emit legacy pillars, preserve underside and hand of
     (object as THREE.Mesh<THREE.InstancedBufferGeometry>).geometry.instanceCount > 0) as THREE.Mesh;
   assert.ok(face.geometry.getAttribute('voxelOffset').array instanceof Uint16Array);
   assert.ok(face.geometry.getAttribute('voxelSpan').array instanceof Uint16Array);
+  assert.deepEqual(Array.from(face.geometry.getAttribute('color').array.slice(0, 3)), [128,192,255],
+    'emissive distant faces retain the same sRGB tint as near geometry');
   assert.equal(face.geometry.getAttribute('voxelOffset').getY(0), 64 * 8,
     'packed coordinates retain exact eighth-metre units');
   const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
@@ -86,6 +88,13 @@ test('volumetric zones never emit legacy pillars, preserve underside and hand of
   assert.deepEqual((shader.uniforms as any).uVoxelOrigin.value.toArray(), [8192,0,1024],
     'the per-zone shader origin restores world coordinates before torus bending');
   assert.match(shader.vertexShader, /uVoxelOrigin \+ voxelOffset \* \.125/);
+  assert.match(shader.fragmentShader, /outgoingLight = voxelEmissionColor\(vColor.rgb\)/,
+    'distant emission replaces lighting instead of adding a lit surface');
+  assert.doesNotMatch(shader.fragmentShader, /if \(vVoxelEmission < 0.5\) \{\s*#include <tonemapping_fragment>/,
+    'distant and near emission both use the scene tone mapping');
+  assert.match(shader.fragmentShader, /if \(vVoxelEmission > 0.5\) gl_FragColor.a \+= uVoxelEmissionMask/);
+  assert.match(shader.fragmentShader, /if \(vVoxelEmission < 0.5\) \{\s*#include <fog_fragment>/,
+    'fog must not tint emitted distant surfaces when near surfaces preserve their color');
   layer.setDetailChunkReady(512,64,true,true);
   assert.equal(layer.handoff.data[(64*1024+512)*2],255);
   layer.setDetailChunkReady(512,64,false,true);

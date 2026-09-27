@@ -4,7 +4,8 @@ import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
 import { MicroRenderBatches } from '../render/MicroRenderBatches.ts';
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
-import { VOXEL_EMISSIVE_INTENSITY, VoxelMaterialIds, normalizeVoxelMaterialId } from './VoxelMaterials.ts';
+import { VoxelMaterialIds, normalizeVoxelMaterialId } from './VoxelMaterials.ts';
+import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import {
   computeChunkBentSphere,
   getWorldProjectionRevision,
@@ -184,15 +185,7 @@ export class MicroVoxelLayer {
         roughness: 0.65,
         metalness: 0.15
       }),
-      new THREE.MeshBasicMaterial({
-        color: new THREE.Color(
-          VOXEL_EMISSIVE_INTENSITY,
-          VOXEL_EMISSIVE_INTENSITY,
-          VOXEL_EMISSIVE_INTENSITY,
-        ),
-        vertexColors: true,
-        toneMapped: false,
-      }),
+      createVoxelEmissiveMaterial(),
     ];
     this.renderBatches = new MicroRenderBatches(this.group, this.renderMaterials);
   }
@@ -1269,7 +1262,9 @@ export class MicroVoxelLayer {
     const token = job.quads[offset + 11];
     const materialId = token >>> 24;
     const color = token & 0xffffff;
-    this.meshTempColor.setHex(color);
+    // Keep emissive sRGB bytes intact; its shader converts before normalization.
+    this.meshTempColor.setHex(color, materialId === VoxelMaterialIds.EMISSIVE
+      ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace);
     const shade = materialId === VoxelMaterialIds.EMISSIVE
       ? 1
       : axis === 1 ? (positive ? 1 : 0.6) : 0.85;

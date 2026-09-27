@@ -26,10 +26,12 @@ ENVIRONMENTS = {
     "prod": {"prefix": "entropydrop-space", "port": 18080, "workers": 2,
              "db_port": 25432, "database": "space", "redis_port": 26379,
              "account": "https://api.entropydrop.com", "environment": "production",
+             "account_public": "https://api.entropydrop.com",
              "public": "https://space-api.entropydrop.com/space/ready"},
     "dev": {"prefix": "entropydrop-space-dev", "port": 18081, "workers": 1,
             "db_port": 18432, "database": "space_dev", "redis_port": 18379,
             "account": "http://127.0.0.1:18082", "environment": "development",
+            "account_public": "https://space-dev-908123.entropydrop.com",
             "public": "http://localhost:8000/space/ready"},
 
 }
@@ -160,6 +162,7 @@ def validate_env(config, environment):
         checks = {
             "ENVIRONMENT": expected["environment"], "SPACE_STANDALONE": "true",
             "SPACE_ACCOUNT_API_URL": expected["account"],
+            "SPACE_ACCOUNT_PUBLIC_API_URL": expected["account_public"],
             "SPACE_OBJECT_DIR": "/var/lib/space/objects",
             # A live worker cannot serve hosting when its API still rejects it.
             # Validate the opt-in on both roles; never silently enable purchases.

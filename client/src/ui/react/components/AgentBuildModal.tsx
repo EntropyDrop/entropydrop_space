@@ -18,10 +18,10 @@ export function AgentBuildModal() {
         <p className="modal-sub">Use your external agent to build structures and entities through spaceAPI.</p>
         <ol className="agent-build-steps">
           <li>Copy the Agent Prompt below to your agent.</li>
-          <li>Create a spaceAPI key or use an existing key, then give it to your trusted agent when asked.</li>
+          <li>Open the authorization link your agent provides, check the matching code, and approve the connection.</li>
           <li>Describe what to build. Keep Space open so the agent can locate you and run browser-executed entities.</li>
         </ol>
-        <p className="settings-desc">A spaceAPI key grants full Space access. Share it only with an agent you trust, and revoke it here when no longer needed. This is not a model API key.</p>
+        <p className="settings-desc">Your agent receives its own key automatically after approval. The connection grants full Space access and can be revoked below.</p>
         <SpaceApiKeysSettings />
       </div>
     </div>

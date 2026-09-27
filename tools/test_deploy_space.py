@@ -161,6 +161,7 @@ class IsolationTests(SpaceTestCase):
         values = {
             "ENVIRONMENT": settings["environment"], "SPACE_STANDALONE": "true",
             "SPACE_ACCOUNT_API_URL": settings["account"], "SPACE_OBJECT_DIR": "/var/lib/space/objects",
+            "SPACE_ACCOUNT_PUBLIC_API_URL": settings["account_public"],
             "SPACE_HOSTING_ENABLED": "true", "SPACE_DEFAULT_WORLD_ID": deploy.DEV_WORLD,
             "DATABASE_URL": f"postgresql://user:SECRET@127.0.0.1:{settings['db_port']}/{settings['database']}",
             "REDIS_URL": f"redis://:SECRET@127.0.0.1:{settings['redis_port']}/0",

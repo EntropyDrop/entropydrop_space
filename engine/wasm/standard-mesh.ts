@@ -72,7 +72,8 @@ export function standardMesh(faces: usize, faceCount: i32, vertexCount: i32,
         : c == 1 ? (face == 1 ? -127 : face == 0 ? 127 : 0) : (face == 2 ? -127 : face == 3 ? 127 : 0);
       store<i8>(normals + offset, normal);
       const channel = (color >> ((2 - c) * 8)) & 255;
-      store<u8>(colors + offset, i32(Math.floor(load<f64>(linear + channel * 8) * shade * 255 + 0.5)));
+      store<u8>(colors + offset, material == 1 ? channel
+        : i32(Math.floor(load<f64>(linear + channel * 8) * shade * 255 + 0.5)));
     }
     for (let k = 0; k < 6; k++) {
       const value = written * 4 + (k == 0 || k == 3 ? 0 : k == 1 ? 1 : k == 5 ? 3 : 2);

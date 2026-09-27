@@ -62,3 +62,12 @@ X/Z snapshot radii 16/12 and maximum detailed radii 16/6. Detailed meshes are
 clipped to the last synchronized AOI; its unsynchronized fringe stays in far
 LOD while the next tiled snapshot loads. Nearby terrain defaults to radii 8/4; far
 surface snapshots still cover the world, including when flying above the tube.
+
+
+Agent connection discovery is public at `GET /space/api/v2/agent/authorization`.
+Set `SPACE_ACCOUNT_PUBLIC_API_URL` if the agent-reachable account origin differs
+from `SPACE_ACCOUNT_API_URL`; the latter is the default. The account backend must
+include its agent-authorization migration and endpoints, and the main site must
+serve `/space/authorize`. Account-side `SPACE_AGENT_VERIFICATION_URI` selects the
+consent page (use the local frontend URL in development). Space stores no pairing
+codes or account keys. Deploy all three applications together for the new Prompt.

@@ -53,9 +53,12 @@ export function microMesh(halo: usize, height: i32, minY: i32, mask: usize, quad
       const axis = load<i32>(q + 12), u = (axis + 1) % 3, v = (axis + 2) % 3;
       const positive = load<i32>(q + 24) != 0;
       const shade: f64 = material == 1 ? 1 : axis == 1 ? (positive ? 1 : 0.6) : 0.85;
-      const r = i32(Math.floor(load<f64>(linear + ((token >> 16) & 255) * 8) * shade * 255 + 0.5));
-      const g = i32(Math.floor(load<f64>(linear + ((token >> 8) & 255) * 8) * shade * 255 + 0.5));
-      const b = i32(Math.floor(load<f64>(linear + (token & 255) * 8) * shade * 255 + 0.5));
+      const r = material == 1 ? i32((token >> 16) & 255)
+        : i32(Math.floor(load<f64>(linear + ((token >> 16) & 255) * 8) * shade * 255 + 0.5));
+      const g = material == 1 ? i32((token >> 8) & 255)
+        : i32(Math.floor(load<f64>(linear + ((token >> 8) & 255) * 8) * shade * 255 + 0.5));
+      const b = material == 1 ? i32(token & 255)
+        : i32(Math.floor(load<f64>(linear + (token & 255) * 8) * shade * 255 + 0.5));
       for (let vertex = 0; vertex < 4; vertex++) {
         const alongU = positive ? (vertex == 1 || vertex == 2 ? 1 : 0) : (vertex >= 2 ? 1 : 0);
         const alongV = positive ? (vertex >= 2 ? 1 : 0) : (vertex == 1 || vertex == 2 ? 1 : 0);

@@ -13,7 +13,7 @@ Keep three product entry points while reusing one agent tool executor, one space
 | Entry point | Intended use | Authorization boundary | Current implementation |
 | --- | --- | --- | --- |
 | Programming agent in the entity editor | Edit the current entity's structure, color, physics configuration, constraints, components, and code | The current `world_id + entity_id` and all editable fields and components; cannot change owners, permissions, or system-maintained fields | Generates component scripts that the player applies by clicking Apply |
-| HUD Agent Build | Connect an external agent to query the world and build near the player | Full Space API-key permissions, constrained by world access and exclusive execution occupancy | Agent prompt, public API/Skill links, and API-key management; replaces the retired AI BUILD plan assistant |
+| HUD Agent Build | Connect an external agent to query the world and build near the player | Full Space API-key permissions, constrained by world access and exclusive execution occupancy | Agent prompt, browser consent with automatic key retrieval, public API/Skill links, and connection management; replaces the retired AI BUILD plan assistant |
 | External spaceAPI agent | Perform the same kinds of world tasks from an external agent, terminal, or automation | Full Space permissions, constrained by world access and exclusive execution occupancy | Reads its own position; creates entities; reads world entities and edits stopped/unoccupied code and defaults; starts/stops unoccupied entities; builds blocksets |
 
 “General-purpose” means the agent can use all authorized Space capabilities available to that player. Service administration, execution leases, billing management, and other players' private resources do not become available merely because the caller is an agent.
@@ -87,3 +87,15 @@ The main site should describe the entry points, intended uses, and implemented c
 - Backend `routers/space_entities.py`, `routers/space_agent.py`, and `routers/space_external.py`: current entity, position, and construction interfaces.
 - Shared-engine `docs/generated/agent-api-v2.md`: entityAPI, including `ctx.selection`.
 - [RFC 9396: Rich Authorization Requests](https://www.rfc-editor.org/rfc/rfc9396.html) shows how resources and actions can be expressed as authorization data. This design borrows its authorization-boundary model without requiring the complete OAuth extension immediately.
+
+
+## External-agent browser consent
+
+The external onboarding flow now uses a ten-minute device-style pairing request.
+Space exposes public account-endpoint discovery; the account service owns request
+state and key issuance. The main site's `/space/authorize` page authenticates the
+user, displays their account, the agent-supplied name and matching code, and requires
+an explicit approve/deny action. Agents poll with a private device code and receive
+their own revocable key without asking users to paste credentials. Keys keep the
+existing full-Space permissions and lifetime. Manual creation remains available in
+advanced settings. See the public Skill for polling, expiry and retry behavior.

@@ -2,6 +2,7 @@
 import datetime as dt
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
@@ -18,6 +19,24 @@ router = APIRouter(prefix="/space/api/v2", tags=["space-agent"])
 public_router = APIRouter(prefix="/space/agent", tags=["space-agent-docs"])
 DOCS_DIR = Path(__file__).resolve().parent.parent / "space" / "agent"
 POSITION_STALE_AFTER_SECONDS = 30
+
+
+@router.get("/agent/authorization")
+@limiter.limit(space.SPACE_PUBLIC_STATUS_RATE_LIMIT)
+def get_agent_authorization(request: Request, response: Response):
+    """Public discovery only; the account service owns consent and credential issuance."""
+    response.headers["Cache-Control"] = "no-store"
+    base = (settings.SPACE_ACCOUNT_PUBLIC_API_URL or settings.SPACE_ACCOUNT_API_URL).rstrip("/")
+    parsed = urlsplit(base)
+    if (not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment
+        or parsed.path not in ("", "/")
+        or not (parsed.scheme == "https" or (parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}))):
+        raise HTTPException(503, detail={"code": "AGENT_AUTHORIZATION_NOT_CONFIGURED"},
+                            headers={"Cache-Control": "no-store"})
+    return {
+        "authorization_endpoint": f"{base}/space/api/v2/agent-authorizations/requests",
+        "token_endpoint": f"{base}/space/api/v2/agent-authorizations/token",
+    }
 
 
 class PlayerPosition(BaseModel):

@@ -4,11 +4,20 @@
 
 **spaceAPI** is used by agents and clients for authenticated HTTP requests. **entityAPI** is called only by entity component code through `self` and `ctx` inside the runtime. To program an entity, generate entityAPI code and submit it as part of the entity definition through spaceAPI. Reading entityAPI documentation does not grant direct runtime access.
 
-Use the backend origin and `edapi_…` API key supplied by the user. A complete handoff contains **backend origin + API key + this document URL + the requested build**. Documentation is public; player positions and writes require authentication. Send the key only to the user-approved backend in `Authorization: Bearer <API_KEY>`, never in a URL or a public artifact.
+Use the designated backend origin and an authorized `edapi_…` API key. A handoff needs **backend origin + this document URL + the requested build**; credentials are obtained through browser authorization. Documentation and authorization discovery are public; player positions and writes require authentication. Send the key only to the user-approved Space backend in `Authorization: Bearer <API_KEY>`, never in a URL or public artifact.
 
-`localhost` means the machine executing the request. A remote Agent needs a backend address it can reach. Preserve the user's intended server; do not substitute another server when a connection fails.
+`localhost` means the machine executing the request. A remote agent needs a reachable backend. Preserve the user's intended server; do not substitute another server when a connection fails.
 
-All valid spaceAPI keys, including existing keys, have full Space permissions. Create keys under **Space → API Keys** or **Settings → API** using only a name; no permission selection or reissue is needed. World membership, exclusive execution occupancy, quotas and any hosting budget still apply. World-entity operations do not check authorship; market resources retain publisher permissions.
+## Connect through browser authorization
+
+Follow the [Agent Skill](SKILL.md) authorization workflow. `GET /space/api/v2/agent/authorization` returns the account service's `authorization_endpoint` and `token_endpoint`. This is a device-style JSON protocol; it does not require an OAuth client registration or a callback server in the agent.
+
+- `POST authorization_endpoint` with `{ "name": "My external agent" }` returns `device_code`, `user_code`, `verification_uri`, `verification_uri_complete`, `expires_in` (600 seconds), and `interval` (5 seconds).
+- Show the authorization link and matching user code. The user signs in to the main site and explicitly approves full Space access. A name supplied by the agent is not a verified identity.
+- Poll `POST token_endpoint` with `{ "device_code": "..." }`, respecting the interval. Error responses use `{ "error": "authorization_pending" }` or `slow_down` (with an increased `interval`), `access_denied`, `expired_token`, or `invalid_grant`. A rate limit may use HTTP 429 and `Retry-After`. `SPACE_API_KEY_LIMIT_REACHED` requires revoking an unused account key.
+- Success returns the existing key record (`id`, `name`, `key_prefix`, `scopes`, `created_at`, `last_used_at`) plus `api_key` and `token_type: "Bearer"`. Stop polling and keep the key private. Response-loss retries within the original request lifetime return the same key, never a duplicate. Revocation also blocks later retries.
+
+All valid spaceAPI keys, including existing keys, have full Space permissions and remain valid until revoked. Manage connections under **Space → API Keys** or **Settings → API**. Manual creation remains an advanced option. World membership, exclusive execution occupancy, quotas and any hosting budget still apply. World-entity operations do not check authorship; market resources retain publisher permissions.
 
 ## Find the player's position first
 

@@ -40,8 +40,8 @@ test('entity voxel meshes keep default and emissive materials independently edit
   assert.ok(meshes[0].material[0] instanceof THREE.MeshStandardMaterial);
   assert.ok(meshes[0].material[1] instanceof THREE.MeshBasicMaterial);
   assert.deepEqual(meshes[0].geometry.groups.map(group => group.materialIndex), [0, 1]);
-  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).toneMapped, false);
-  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).color.r, 3);
+  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).toneMapped, true);
+  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).color.r, 1);
 
   const slot = contraption.serializeSubtree('root');
   assert.deepEqual(slot.blocks.map(block => block.materialId), [0, 1]);

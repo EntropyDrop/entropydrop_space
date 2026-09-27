@@ -11,7 +11,7 @@ export function SpaceAgentInstructions() {
   const [message, setMessage] = React.useState('');
   return <section className="settings-agent-guide" aria-labelledby="settings-agent-guide-title">
     <div className="settings-section-title" id="settings-agent-guide-title">Build nearby with an external agent</div>
-    <p>Directly copy the prompt below to your agent (e.g. Claude, Cursor). The agent will ask you for an API key and build structures in the online world.</p>
+    <p>Copy the prompt below to your agent (e.g. Claude, Cursor). Open the link it provides, check the matching code, and approve the connection. Your agent receives a key automatically and can start building.</p>
     <p>Agents send HTTP requests through spaceAPI. Entity code calls entityAPI (self / ctx) inside the runtime. Both public documents link to each other.</p>
     <dl>
       <div><dt>Backend URL</dt><dd><code>{connection.origin}</code></dd></div>

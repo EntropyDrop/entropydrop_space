@@ -11,5 +11,5 @@ export function spaceAgentConnection(apiOrigin: string) {
 
 export function spaceAgentPrompt(apiOrigin: string): string {
   const { origin, skillUrl } = spaceAgentConnection(apiOrigin);
-  return `Please read ${skillUrl} (Backend URL: ${origin}).\nFollow the skill guide to ask me for my spaceAPI key and build request, and build it in EntropyDrop Space.`;
+  return `Please read ${skillUrl} (Backend URL: ${origin}).\nFollow the skill guide to connect through browser authorization: start a pairing request, show me the authorization link and matching code, and wait for me to approve it. Retrieve the spaceAPI key yourself without asking me to copy a key. Reuse an existing authorized connection when available. Then help me build in EntropyDrop Space. Keep credentials private.`;
 }
