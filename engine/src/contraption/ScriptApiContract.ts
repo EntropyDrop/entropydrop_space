@@ -1,10 +1,12 @@
 /**
- * Canonical entityAPI V2 contract.
+ * Canonical entityAPI V3 contract.
  *
  * API facts belong here exactly once. The in-game HTML reference, generated
  * Markdown, entityAPI code-generation reference, and runtime-surface tests all consume this
  * structure. Agent behavior/output policy deliberately remains in AgentChat.
  */
+
+import { AS_LANGUAGE_SECTION, AS_SDK_SECTION } from './AssemblyScriptContract.ts';
 
 export type ApiPromptVisibility = 'full' | 'omit';
 
@@ -36,40 +38,40 @@ export interface ScriptApiContract {
 }
 
 const ctxEntries: ApiEntry[] = [
-  { signature: 'ctx.apiVersion', type: 'number', description: 'Current entityAPI version: `2`.' },
+  { signature: 'ctx.apiVersion', type: 'i32', description: 'Current entityAPI version: `3`.' },
   { signature: 'ctx.entityId', type: 'string', description: 'Stable random ID of the current entity.' },
   { signature: 'ctx.root', type: 'ComponentAPI', description: 'Root component and entry point for recursive tree traversal.' },
-  { signature: 'ctx.time', type: 'number', description: 'Seconds with at least one component script enabled; disabled code does not advance it and Stop resets it.' },
-  { signature: 'ctx.deltaTime', type: 'number', description: 'Fixed entity simulation step: always `0.05` seconds (20 Hz); scripts cannot change it.' },
-  { signature: 'ctx.tick', type: 'number', description: 'Executed script-frame count; disabled code does not advance it and Stop resets it.' },
+  { signature: 'ctx.time', type: 'f64', description: 'Seconds with at least one component script enabled; disabled code does not advance it and Stop resets it.' },
+  { signature: 'ctx.deltaTime', type: 'f64', description: 'Fixed entity simulation step: always `0.05` seconds (20 Hz); scripts cannot change it.' },
+  { signature: 'ctx.tick', type: 'f64', description: 'Executed script-frame count; disabled code does not advance it and Stop resets it.' },
   { signature: 'ctx.position', type: '[x,y,z]', description: 'Root entity world position. It is continuous and does not wrap at the torus seam.' },
   { signature: 'ctx.velocity', type: '[x,y,z]', description: 'Root world-space velocity in m/s.' },
   { signature: 'ctx.rotation', type: '[x,y,z]', description: 'Root Euler angles in radians using YXZ order.' },
   { signature: 'ctx.angularVelocity', type: '[x,y,z]', description: 'Root angular velocity in rad/s.' },
-  { signature: 'ctx.groundDistance', type: 'number', description: 'Distance in metres to the ground below.' },
-  { signature: 'ctx.isOnGround', type: 'boolean', description: 'Whether the root dynamic body was supported during the latest completed physics frame.' },
-  { signature: 'ctx.mass', type: 'number', description: 'Root entity mass in kg.' },
+  { signature: 'ctx.groundDistance', type: 'f64', description: 'Distance in metres to the ground below.' },
+  { signature: 'ctx.isOnGround', type: 'bool', description: 'Whether the root dynamic body was supported during the latest completed physics frame.' },
+  { signature: 'ctx.mass', type: 'f64', description: 'Root entity mass in kg.' },
   { signature: 'ctx.bodyType', type: 'string', description: "Root body type: `'kinematic'` or `'dynamic'`." },
   { signature: 'ctx.gravity', type: '[x,y,z]', description: 'Current gravity vector; default `[0,-18,0]`.' },
   { signature: 'ctx.limits', type: 'object', description: '`{maxForce,maxTorque}` for the legacy root-body force surface only.' },
   { signature: 'ctx.input', type: 'object', description: 'Keyboard edge/held-state API described below.' },
   { signature: 'ctx.blocks', type: 'object', description: "Block-edit snapshot: `pressed(type?)` and `event()`; types are `'place'|'remove'|'color'|'subdivide'`." },
-  { signature: 'ctx.players', type: 'array', description: 'Frozen player observations. `position` remains the eye-position compatibility alias; records also expose `eyePosition`, nullable `feetPosition`/`velocity`/pose and movement flags, riding IDs, `isLocal`, and fixed 50 kg mass.' },
-  { signature: 'ctx.driver', type: 'object|null', description: 'Current local driver for this entity as `{playerId,componentId,seatIndex}`, or `null` when it is not mounted.' },
-  { signature: 'ctx.contacts', type: 'array', description: 'Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain|entity|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Player contacts are one-way observations with zero impulse and never modify entity dynamics. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity.' },
-  { signature: 'ctx.messages.received / send(targetId,type,payload,encoding?)', type: 'object', description: 'The root component reads a frozen inbound batch from `received`; child batches are empty. Records are `{messageId,sourceId,targetId,type,encoding,payload}`. UTF-8 payloads are strings and Protobuf payloads are frozen byte-number arrays. `send` defaults to UTF-8 and returns `{ok,queued,reason,commandId}`; use `ctx.commands.get(commandId)` later for `deliveryStatus` (`routed` or `dropped`). Payloads are limited to 4 KiB, types to 16 ASCII bytes, Protobuf types require a version suffix such as `radar.v1`, and the backend enforces 20 sends per second per source entity.' },
+  { signature: 'ctx.players', type: 'Value', description: 'Frozen player observations. `position` remains the eye-position compatibility alias; records also expose `eyePosition`, nullable `feetPosition`/`velocity`/pose and movement flags, riding IDs, `isLocal`, and fixed 50 kg mass.' },
+  { signature: 'ctx.driver', type: 'Value', description: 'Current local driver for this entity as `{playerId,componentId,seatIndex}`, or `null` when it is not mounted.' },
+  { signature: 'ctx.contacts', type: 'Value', description: 'Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain|entity|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Player contacts are one-way observations with zero impulse and never modify entity dynamics. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity.' },
+  { signature: 'ctx.messages.received / ctx.messages.send(targetId,type,payload) / ctx.messages.sendBytes(targetId,type,bytes)', type: 'object', description: 'The root component reads a frozen inbound batch from `received`; child batches are empty. Records are `{messageId,sourceId,targetId,type,encoding,payload}`. UTF-8 payloads are strings and Protobuf payloads are frozen byte-number arrays. `send` defaults to UTF-8 and returns `{ok,queued,reason,commandId}`; use `ctx.commands.result(commandId)` later for `deliveryStatus` (`routed` or `dropped`). Payloads are limited to 4 KiB, types to 16 ASCII bytes, Protobuf types require a version suffix such as `radar.v1`, and the backend enforces 20 sends per second per source entity.' },
   { signature: 'ctx.world', type: 'object', description: 'World query and mutation API described below.' },
   { signature: 'ctx.selection', type: 'object', description: 'Shared engine selection command API described below.' },
-  { signature: 'ctx.commands', type: 'object', description: 'Final main-thread command results from the previous submitted frame: `get(commandId)` and `all()`.' },
+  { signature: 'ctx.commands', type: 'object', description: 'Final main-thread command results from the previous submitted frame: `result(commandId)` and `all()`.' },
   { signature: 'ctx.log(msg)', type: 'function', description: 'Append one line to the component console.' }
 ];
 
 const selfUniversalEntries: ApiEntry[] = [
-  { signature: 'self.apiVersion', description: 'Current component API version: `2`.' },
-  { signature: 'self.id / self.parentId', description: 'Component ID and direct parent ID; the root has an ordinary ID and `parentId:null`.' },
+  { signature: 'self.apiVersion', description: 'Current component API version: `3`.' },
+  { signature: 'self.id / self.parentId', description: 'Component ID and direct parent ID; the root has an ordinary ID and `parentId` equal to the empty string in the typed SDK.' },
   { signature: 'self.state', description: 'Mutable persistent state scoped to this component and retained across completed ticks and streaming.' },
   { signature: 'self.child(id)', description: 'Look up a direct child by its ordinary ID; returns `null` when missing.' },
-  { signature: 'self.children()', description: 'Return a frozen array of direct children. Recurse from `ctx.root` to traverse the tree.' },
+  { signature: 'self.children()', description: 'Return a typed array of direct child handles. Recurse from `ctx.root` to traverse the tree.' },
   { signature: 'self.applyThrust([x,y,z])', description: 'Apply root-local force at this component. A child mounting offset produces torque; dynamic root only and subject to `ctx.limits`.' },
   { signature: 'self.applyLocalThrust([x,y,z])', description: 'Apply component-local force at this component. Installed anchor orientation controls its direction and an offset produces torque.' },
   { signature: 'self.applyForce([x,y,z])', description: 'Apply world-space force to the root center of mass; no effect on a kinematic root.' },
@@ -81,7 +83,7 @@ const selfUniversalEntries: ApiEntry[] = [
   { signature: 'self.localToWorldDirection(dir)', description: 'Convert a component-local direction to world space.' },
   { signature: 'self.getPivot()', description: 'Return the rotation pivot in entity-local coordinates.' },
   { signature: 'self.getBounds()', description: 'Return entity-local block bounds `{min,max,size,center}`, or `null` when empty.' },
-  { signature: 'self.setSeats(seats)', description: "Replace this component's pivot-relative driver seats. Each entry is `[x,y,z]` or `{position,rotation?,fixedOrientation?}`; `rotation` is a `[x,y,z,w]` rider orientation in the pivot frame (default identity, facing the component's -Z forward) and `fixedOrientation:true` makes the mounted rider's body follow the seat's solved world orientation while the camera retains unrestricted horizontal mouse look and independent pitch. Changes take effect while mounted without resetting the camera. Invalid positions or degenerate quaternions drop that seat. An entity is mountable when any component has a seat." },
+  { signature: 'self.setSeats(seats)', description: "Replace this component's pivot-relative driver seats. Each entry is `[x,y,z]` or `{position,rotation?,fixedOrientation?}`. `position` is the character/physics anchor, not the cushion top: on an upright seat, the standard 1.8 m sitting pose contacts the cushion 0.567 m above it, placing the head 1.233 m and the world-Y camera eye 1.053 m above the cushion, and needs about 0.33 m behind plus 0.59 m forward clearance. `rotation` is a `[x,y,z,w]` rider orientation in the pivot frame (default identity, facing the component's -Z forward); `fixedOrientation:true` makes the mounted rider's body and sitting clearances follow the seat's solved world orientation while the camera retains unrestricted horizontal mouse look and independent pitch. Changes take effect while mounted without resetting the camera. Invalid positions or degenerate quaternions drop that seat. An entity is mountable when any component has a seat." },
   { signature: 'self.getSeats()', description: "Return this component's pivot-relative driver seats as `{position,rotation,fixedOrientation}` records." },
   { signature: 'self.voxels.set(position, options?)', description: 'Queue one pivot-relative standard voxel placement. `options.materialId` is `0` (default) or `1` (emissive); returns `{ok,placed,reason}`.' },
   { signature: 'self.voxels.clear(position)', description: 'Queue removal of one standard voxel; returns `{ok,removed,reason}`.' },
@@ -114,13 +116,13 @@ const bodyEntries: ApiEntry[] = [
   { signature: 'self.body.applyLocalForce(force)', description: 'Apply body-local force to this dynamic component body; returns boolean.' },
   { signature: 'self.body.applyTorque(torque)', description: 'Apply world torque to this dynamic component body; returns boolean.' },
   { signature: 'self.constraints.all()', description: 'Return a frozen snapshot of constraints connected to this component.' },
-  { signature: 'self.constraints.create({id?,type,bodyA?,anchorA?,anchorB?,axisA?,axisB?,limits?,stiffness?,collideConnected?})', description: "Queue a `point`, `hinge`, or `weld`; `bodyA:null` denotes the external world and an omitted `bodyA` uses the structural parent (or external world for the root). Immediate Worker success is provisional `{ok:true,id:null,reason:'queued'}`. Supply an explicit ID for later lookup. Stiffness defaults to 0.9, `collideConnected` to false, omitted anchors use pivots, and hinge limits are radians." },
+  { signature: 'self.constraints.create(options: Value)', description: "Queue a `point`, `hinge`, or `weld`; `bodyA:null` denotes the external world and an omitted `bodyA` uses the structural parent (or external world for the root). Immediate Worker success is provisional `{ok:true,id:null,reason:'queued'}`. Supply an explicit ID for later lookup. Stiffness defaults to 0.9, `collideConnected` to false, omitted anchors use pivots, and hinge limits are radians." },
   { signature: 'self.constraints.remove(id)', description: 'Queue removal of one constraint; returns boolean.' },
   { signature: 'self.stop()', description: 'Root-only global Stop: disable entity physics and scripts, clear state/time/tick/motion, reset child poses, and restore persisted BodyConfig defaults. Collision and selection shapes remain active. Child code must call `ctx.root.stop()`.' }
 ];
 
 const worldEntries: ApiEntry[] = [
-  { signature: 'ctx.world.apiVersion', description: 'Current world API version: `2`.' },
+  { signature: 'ctx.world.apiVersion', description: 'Current world API version: `3`.' },
   { signature: 'ctx.world.voxels.get(position)', description: "Read a real standard world voxel as `{block,color,materialId}` plus the current tick's admitted-write overlay; maximum 256 combined standard/micro host reads per entity tick." },
   { signature: 'ctx.world.voxels.set(position, options?)', description: "Queue a standard placement; `options.materialId` is `0` (default) or `1` (emissive), and the admitted result is provisional `{ok:true,placed:1,reason:'queued'}`." },
   { signature: 'ctx.world.voxels.clear(position)', description: 'Queue removal of one standard voxel without deleting micro voxels in its cell.' },
@@ -132,14 +134,14 @@ const worldEntries: ApiEntry[] = [
   { signature: 'ctx.world.microVoxels.clear(cell, offset)', description: 'Queue removal of one exact 0.125 m world voxel.' },
   { signature: 'ctx.world.microVoxels.paint(cell, offset, options?)', description: 'Queue color and optional `materialId` changes on one existing micro world voxel.' },
   { signature: 'ctx.world.entities(origin, radius=16)', description: "Filter the prefetched 64 m nearby-entity snapshot using shortest wrapped X/Z distance. Descriptors include pose, velocities, mass, bounds, collision/ground state, physics enabled state, script status, and component count." },
-  { signature: 'ctx.world.entities.get(id, chunkId?)', description: 'Look up an entity in the frozen nearby snapshot.' },
-  { signature: 'ctx.world.entities.list(chunkId) / inChunk(chunkId)', description: 'Filter nearby entities by wrapped chunk ID `"cx,cz"`.' },
+  { signature: 'ctx.world.entity(id: string)', description: 'Look up an entity in the frozen nearby snapshot.' },
+  { signature: 'ctx.world.entitiesInChunk(chunkId: string)', description: 'Filter nearby entities by wrapped chunk ID `"cx,cz"`.' },
   { signature: 'ctx.world.raycast(origin, direction, maxDistance=24)', description: 'Compatibility form: bounded synchronous standard-world-voxel raycast.' },
-  { signature: "ctx.world.raycast(origin, direction, {maxDistance=24,include='world',voxelKinds=['standard'],space='world'})", description: 'Full existing engine raycast over standard/micro world voxels and/or entities. Returns normalized kind, voxelKind, IDs, block/color, normal, position, and distance; maximum 64 calls per entity tick.' }
+  { signature: "ctx.world.raycastWithOptions(origin: f64[], direction: f64[], options: Value)", description: 'Full existing engine raycast over standard/micro world voxels and/or entities. Returns normalized kind, voxelKind, IDs, block/color, normal, position, and distance; maximum 64 calls per entity tick.' }
 ];
 
 const selectionEntries: ApiEntry[] = [
-  { signature: 'ctx.selection.get()', description: 'Read the current frozen shared selection snapshot.' },
+  { signature: 'ctx.selection.snapshot()', description: 'Read the current frozen shared selection snapshot.' },
   { signature: 'ctx.selection.clear()', description: 'Queue clearing the shared selection; returns `{ok,cleared,reason}`.' },
   { signature: 'ctx.selection.cornerA(point) / cornerB(point)', description: 'Set progressive world-box corners; accepts `{micro:true}` and returns `{ok,selected,reason}`.' },
   { signature: 'ctx.selection.box(a, b)', description: 'Set an atomic world box; accepts `{micro:true}`.' },
@@ -151,18 +153,19 @@ const selectionEntries: ApiEntry[] = [
   { signature: 'ctx.selection.createChild(id?)', description: 'Create a child from selected entity blocks; requires stopped and returns `{ok,childId,reason}`.' }
 ];
 
-export const SPACE_SCRIPT_API_V2: ScriptApiContract = {
-  version: 2,
-  title: 'entityAPI V2',
+export const SPACE_SCRIPT_API_V3: ScriptApiContract = {
+  version: 3,
+  title: 'entityAPI V3',
   summary: 'Canonical contract for component scripts running with `(self, ctx)` in the Space voxel-physics world.',
   sections: [
+    AS_LANGUAGE_SECTION,
     {
       id: 'defaults',
       title: 'Defaults and coordinate conventions',
       facts: [
         'Coordinates are right-handed and Y-up: +X right, +Y up, -Z forward. Euler angles use YXZ order; quaternions are `[x,y,z,w]`.',
-        "A component pivot starts at its own block AABB centroid and never moves automatically after block edits. Use `getBounds()` then `setPivot(bounds.center)` to recenter a kinematic body without moving its blocks.",
-        "Component IDs are unique across the entire entity; no string is reserved. The root is identified structurally by `parentId:null`, and a child's local position is its pivot offset in the parent pivot frame.",
+        "A component pivot starts at its own block AABB centroid and never moves automatically after block edits. Use `getBounds()` then `setPivot(bounds.get('center').asVector())` to recenter a kinematic body without moving its blocks.",
+        "Component IDs are unique across the entire entity; no string is reserved. The root is identified structurally by `parentId` equal to the empty string in the typed SDK, and a child's local position is its pivot offset in the parent pivot frame.",
         'Entities have only running and stopped states. Start enables entity physics and all component scripts. Stop disables physics and scripts, clears state/time/tick/motion, resets child transforms, and restores persisted BodyConfig defaults. Individual component code switches do not create a third entity state.',
         'BodyConfig defaults are type, mass, restitution, friction, gravity, and collision. Script setters are runtime-only; serialization always writes defaults.',
         'Collision defaults to enabled. A disabled component remains rendered/editable but has no terrain, player, entity, or raycast shapes.'
@@ -178,11 +181,13 @@ export const SPACE_SCRIPT_API_V2: ScriptApiContract = {
       ],
       examples: [{
         title: 'Shortest wrapped delta',
-        code: `function wrappedDelta(from, to, size) {
+        code: `function wrappedDelta(from: f64, to: f64, size: f64): f64 {
   return ((to - from) % size + size + size / 2) % size - size / 2;
 }
+const target: f64[] = [10, 20, 30];
 const dx = wrappedDelta(ctx.position[0], target[0], 16384);
-const dz = wrappedDelta(ctx.position[2], target[2], 2048);`
+const dz = wrappedDelta(ctx.position[2], target[2], 2048);
+self.applyForce([dx, 0, dz]);`
       }]
     },
     {
@@ -190,34 +195,25 @@ const dz = wrappedDelta(ctx.position[2], target[2], 2048);`
       title: 'Execution model',
       facts: [
         'Every component script receives `(self, ctx)` once per fixed 20 Hz entity tick. `self` is the target component; root body fields in `ctx` always describe the root entity.',
-        'The root script runs before child scripts. All components share one frozen frame-start `ctx` snapshot; admitted commands commit after the synchronous QuickJS tick.',
+        'The root script runs before child scripts. All components share one frozen frame-start `ctx` snapshot; admitted commands commit after the synchronous AssemblyScript/WASM tick.',
         'Entity messages arrive only while this entity is active and connected. The root script reads `ctx.messages.received`; each submitted frame consumes at most 8 messages and 16 KiB, leaving the rest in the bounded runtime inbox. Messages are ephemeral and are not queued by the service while the target is inactive or disconnected.',
-        'Send with `ctx.messages.send(targetId, type, payload, encoding?)`; UTF-8 is the default, `chat` requires UTF-8, and Protobuf types must include a positive version suffix such as `radar.v1`. The runtime authenticates and de-duplicates the send outside QuickJS. Check `ctx.commands.get(commandId)` on a later frame for `deliveryStatus` and any rejection reason.',
+        'Send with `ctx.messages.send(targetId, type, payload)` for UTF-8 or `sendBytes(targetId, type, Uint8Array)` for Protobuf; UTF-8 is the default, `chat` requires UTF-8, and Protobuf types must include a positive version suffix such as `radar.v1`. The runtime authenticates and de-duplicates the send outside AssemblyScript/WASM. Check `ctx.commands.result(commandId)` on a later frame for `deliveryStatus` and any rejection reason.',
         'Each component owns `self.state`. Completed state survives chunk streaming and disabling component code; Stop clears it.',
         "Queued mutation success means command-buffer admission (`reason:'queued'`), not final commit. Successful admission includes `commandId`; the main thread revalidates bounds, occupancy, and permissions and publishes the final result through `ctx.commands` on the next submitted frame.",
-        'Limits: 4 MiB runtime memory, 512 KiB stack, 64 components per entity, 256 commands, 256 world voxel reads, and 64 raycasts per tick, 5 ms per component invocation, 25 ms aggregate entity time, and 64 VM interrupt checkpoints.',
-        'A component exception disables that component. Aggregate time/checkpoint failure disables every component script and discards commands from the interrupted tick.',
+        'Limits: 4 MiB aggregate WASM linear-memory quota, 16 KiB stack per invocation, 1 MiB serialized state, 1 MiB host-bridge allocations per tick, 64 components per entity, 256 commands, 256 world voxel reads, and 64 raycasts per tick, 5 ms per component invocation, 25 ms aggregate entity time, and 100,000 metered WASM function/loop entries per entity tick.',
+        'A component exception disables that component. Aggregate time/fuel or WASM memory-trap failure disables every component script and discards commands from the interrupted tick.',
         'Entities only exist and run while their wrapped root chunk is active; streaming serializes identity, hierarchy, physics, scripts, defaults, and completed state.'
       ],
       examples: [{
-        title: 'Send once and inspect delivery',
-        code: `if (!self.state.chatSent) {
-  const queued = ctx.messages.send(targetId, 'chat', 'hello');
-  if (queued.ok) {
-    self.state.chatSent = true;
-    self.state.chatCommandId = queued.commandId;
-  }
-}
-const result = self.state.chatCommandId
-  ? ctx.commands.get(self.state.chatCommandId)
-  : null;
-if (result && (result.deliveryStatus || result.status === 'rejected')) {
-  ctx.log('Message ' + (result.deliveryStatus || result.reason || 'rejected'));
-  self.state.chatCommandId = null;
+        title: 'Read a message batch',
+        code: `for (let i = 0; i < ctx.messages.received.length; i++) {
+  const message = ctx.messages.received.at(i);
+  if (message.getString("encoding") == "utf8") ctx.log(message.getString("payload"));
 }`
       }]
     },
     { id: 'ctx', title: 'ctx — read-only frame snapshot', entries: ctxEntries },
+    AS_SDK_SECTION,
     {
       id: 'self',
       title: 'Component API (self)',
@@ -229,7 +225,7 @@ if (result && (result.deliveryStatus || result.status === 'rejected')) {
           entries: selfUniversalEntries,
           notes: [
             'Component voxel cells are measured from the current pivot, not the entity corner. Fractional cell coordinates floor after applying the pivot.',
-            'All voxel changes are queued and action-specific. Check `result.ok` and `result.reason`; entity bounds are capped at 256×256×256.',
+            'All voxel changes are queued and action-specific. Check `result.getBoolean("ok")` and `result.getString("reason")`; entity bounds are capped at 256×256×256.',
             "Removing an entity's final voxel deletes the entity, scripts, and state."
           ]
         },
@@ -363,7 +359,7 @@ function markdownApiNavigation(links: ApiDocumentationLinks): string {
   return `[spaceAPI](<${links.spaceApiUrl}>) · [entityAPI](<${links.entityApiUrl}>)`;
 }
 
-export function renderApiReferenceHtml(contract: ScriptApiContract = SPACE_SCRIPT_API_V2, links: ApiDocumentationLinks = PUBLIC_API_DOCS): string {
+export function renderApiReferenceHtml(contract: ScriptApiContract = SPACE_SCRIPT_API_V3, links: ApiDocumentationLinks = PUBLIC_API_DOCS): string {
   const navigation = `<nav class="api-docs-links" aria-label="API documentation"><a href="${escapeHtml(links.spaceApiUrl)}" target="_blank" rel="noopener noreferrer">spaceAPI · Agent HTTP requests</a><a href="${escapeHtml(links.entityApiUrl)}" target="_blank" rel="noopener noreferrer">entityAPI · Entity code</a></nav><p class="api-sub">${inlineHtml(API_BOUNDARY)}</p>`;
   return navigation + contract.sections.map(section => renderHtmlSection(section)).join('\n');
 }
@@ -384,7 +380,7 @@ function markdownSection(section: ApiSection, depth = 2, agentOnly = false): str
       lines.push(`| --- |${entries.some(entry => entry.type) ? ' --- |' : ''} --- |`);
       for (const entry of entries) {
         const description = entry.description.replaceAll('|', '\\|');
-        lines.push(`| \`${entry.signature}\` |${entries.some(item => item.type) ? ` ${entry.type || ''} |` : ''} ${description} |`);
+        lines.push(`| \`${entry.signature.replaceAll('|', '\\|')}\` |${entries.some(item => item.type) ? ` ${entry.type || ''} |` : ''} ${description} |`);
       }
       lines.push('');
     }
@@ -393,14 +389,14 @@ function markdownSection(section: ApiSection, depth = 2, agentOnly = false): str
   if (!agentOnly) {
     for (const example of section.examples || []) {
       if (example.title) lines.push(`**${example.title}**`, '');
-      lines.push('```js', example.code, '```', '');
+      lines.push('```ts', example.code, '```', '');
     }
   }
   for (const child of section.subsections || []) lines.push(markdownSection(child, depth + 1, agentOnly));
   return lines.join('\n').trimEnd();
 }
 
-export function renderApiReferenceMarkdown(contract: ScriptApiContract = SPACE_SCRIPT_API_V2, links: ApiDocumentationLinks = PUBLIC_API_DOCS): string {
+export function renderApiReferenceMarkdown(contract: ScriptApiContract = SPACE_SCRIPT_API_V3, links: ApiDocumentationLinks = PUBLIC_API_DOCS): string {
   const header = [
     `# ${contract.title}`,
     '',
@@ -416,7 +412,7 @@ export function renderApiReferenceMarkdown(contract: ScriptApiContract = SPACE_S
   return `${header.join('\n')}${contract.sections.map(section => markdownSection(section)).join('\n\n')}\n`;
 }
 
-export function renderAgentApiReference(contract: ScriptApiContract = SPACE_SCRIPT_API_V2, links: ApiDocumentationLinks = PUBLIC_API_DOCS): string {
+export function renderAgentApiReference(contract: ScriptApiContract = SPACE_SCRIPT_API_V3, links: ApiDocumentationLinks = PUBLIC_API_DOCS): string {
   const header = [
     `## Canonical ${contract.title} contract`,
     '',
@@ -430,7 +426,7 @@ export function renderAgentApiReference(contract: ScriptApiContract = SPACE_SCRI
   return `${header.join('\n')}${contract.sections.map(section => markdownSection(section, 3, true)).filter(Boolean).join('\n\n')}`;
 }
 
-export function validateScriptApiContract(contract: ScriptApiContract = SPACE_SCRIPT_API_V2): string[] {
+export function validateScriptApiContract(contract: ScriptApiContract = SPACE_SCRIPT_API_V3): string[] {
   const errors: string[] = [];
   const sectionIds = new Set<string>();
   const documentedSignatures: string[] = [];
@@ -454,9 +450,9 @@ export function validateScriptApiContract(contract: ScriptApiContract = SPACE_SC
       }
     }
   }
-  if (contract.version !== 2) errors.push(`unexpected API version: ${contract.version}`);
+  if (contract.version !== 3) errors.push(`unexpected API version: ${contract.version}`);
   return errors;
 }
 
-const contractErrors = validateScriptApiContract(SPACE_SCRIPT_API_V2);
+const contractErrors = validateScriptApiContract(SPACE_SCRIPT_API_V3);
 if (contractErrors.length) throw new Error(`Invalid entityAPI contract:\n${contractErrors.join('\n')}`);

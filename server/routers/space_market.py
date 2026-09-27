@@ -252,6 +252,7 @@ class EntityComponent(StrictResourceModel):
     body: ComponentBody
     blocks: list[MarketVoxel] = Field(default_factory=list, max_length=SPACE_MARKET_MAX_BLOCKS)
     script: StrictStr | None = None
+    scriptLanguage: StrictStr = Field(default="", max_length=32)
     scriptDisabled: StrictBool = False
     seats: list[ComponentSeat] = Field(default_factory=list, max_length=SPACE_MARKET_MAX_SEATS)
     children: list["EntityComponent"] = Field(default_factory=list, max_length=SPACE_MARKET_MAX_COMPONENTS - 1)

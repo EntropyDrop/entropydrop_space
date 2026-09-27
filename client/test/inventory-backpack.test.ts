@@ -327,7 +327,7 @@ test('serialize/parse round-trips recursive entities with component-local data',
       seats: [{ position: [0, 1, 0] }, { position: [1, 1, 0] }],
       runtimeOnly: 'must not be exported'
     }],
-    scripts: [{ id: 'arm', code: 'self.applyForce([0,1,0]);' }],
+    scripts: [{ language: "assemblyscript", id: 'arm', code: 'self.applyForce([0,1,0]);' }],
     enabled: [{ id: 'arm', enabled: false }],
     constraints: [{
       id: 'arm_hinge',
@@ -401,7 +401,7 @@ test('serialize/parse round-trips recursive entities with component-local data',
   const rootMicro = parsed.item.blocks.find(block => block.entityId === 'root' && block.size === 0.125);
   assert.deepEqual([armMicro.localX, armMicro.localY, armMicro.localZ], [1.125, 0.25, 2.5]);
   assert.deepEqual([rootMicro.localX, rootMicro.localY, rootMicro.localZ], [-0.125, -1.625, -2]);
-  assert.deepEqual(parsed.item.scripts, [{ id: 'arm', code: 'self.applyForce([0,1,0]);' }]);
+  assert.deepEqual(parsed.item.scripts, [{ language: "assemblyscript", id: 'arm', code: 'self.applyForce([0,1,0]);' }]);
   assert.deepEqual(parsed.item.enabled, [{ id: 'arm', enabled: false }]);
   assert.equal(parsed.item.childEntities[0].collisionEnabled, false);
   assert.equal(parsed.item.childEntities[0].useGravity, false);
@@ -665,7 +665,7 @@ test('inventory imports enforce byte, voxel, bounds, hierarchy, and script budge
   }), 'entity').ok, false, 'component ids are restricted to portable characters');
   assert.equal(controller.parseInventoryImport(encodeInventoryResource('entity', {
     ...baseEntity,
-    root: { ...baseEntity.root, script: 'x'.repeat(MAX_INVENTORY_SCRIPT_BYTES + 1) }
+    root: { scriptLanguage: "assemblyscript", ...baseEntity.root, script: 'x'.repeat(MAX_INVENTORY_SCRIPT_BYTES + 1) }
   }), 'entity').ok, false, 'oversized scripts must be rejected');
   assert.equal(controller.parseInventoryImport(encodeInventoryResource('entity', {
     ...baseEntity,

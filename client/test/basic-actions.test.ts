@@ -1,3 +1,4 @@
+import { setScript, setNodeScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -159,14 +160,14 @@ test('player queries pick published terrain while scripts read the live terrain 
   ]);
 });
 
-test('entity start and stop use the canonical entity action dispatcher', () => {
+test('entity start and stop use the canonical entity action dispatcher', async () => {
   const contraption = new Contraption(
     99,
     [block(0)],
     new THREE.Vector3(),
     new THREE.Scene()
   ) as any;
-  contraption.setScript('self.state.runs = (self.state.runs || 0) + 1;');
+  await setScript(contraption, 'self.state.setNumber("runs", (self.state.getNumber("runs") || 0) + 1);');
   assert.equal(contraption.scriptStatus, 'running');
   contraption.velocity.set(3, 4, 5);
   contraption.angularVelocity.set(1, 2, 3);
@@ -333,7 +334,7 @@ test('ctx.selection createChild has a stable null failure shape', () => {
   });
 });
 
-test('ctx.selection.delete removes child subtrees and whole root entities', () => {
+test('ctx.selection.delete removes child subtrees and whole root entities', async () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   const manager = new ContraptionManager(scene, world, null, null) as any;
@@ -345,8 +346,8 @@ test('ctx.selection.delete removes child subtrees and whole root entities', () =
   )) as any;
   entity.createChildEntity('root', new Set(['1,0,0', '2,0,0']), 'arm');
   entity.createChildEntity('arm', new Set(['2,0,0']), 'hand');
-  entity.setNodeScript('arm', 'self.state.live = true;');
-  entity.setNodeScript('hand', 'self.state.live = true;');
+  await setNodeScript(entity, 'arm', 'self.state.setBoolean("live", true);');
+  await setNodeScript(entity, 'hand', 'self.state.setBoolean("live", true);');
   entity.stopAllNodeScripts();
 
   const api = manager.scriptSelectionApi;
@@ -388,7 +389,7 @@ test('ctx.selection.delete removes child subtrees and whole root entities', () =
   assert.equal(manager.scriptWorldApi.entities.get(publicId), null, 'public entity query should update immediately');
 });
 
-test('manager runtime provides the same selection API through ctx', () => {
+test('manager runtime provides the same selection API through ctx', async () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   const manager = new ContraptionManager(scene, world, null, null) as any;
@@ -398,11 +399,11 @@ test('manager runtime provides the same selection API through ctx', () => {
     new THREE.Vector3(0, 10, 0),
     scene
   )) as any;
-  entity.setScript(`
-if (!self.state.once) {
-  self.state.once = true;
-  ctx.selection.entity(3, 'root');
-  self.state.selectionKind = ctx.selection.get().kind;
+  await setScript(entity, `
+if (!self.state.getBoolean("once")) {
+  self.state.setBoolean("once", true);
+  ctx.selection.entity('3', 'root');
+  self.state.setString("selectionKind", ctx.selection.snapshot().getString("kind"));
 }
 `);
 

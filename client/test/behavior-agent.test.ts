@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { compileEntityScript } from '@entropydrop/space-engine/scripting/AssemblyScriptCompiler.ts';
+import { createAssemblyScriptRuntimeService } from '@entropydrop/space-engine/scripting/AssemblyScriptRuntimeService.ts';
 import { compileBehaviorPrompt } from '../src/engine/contraption/BehaviorAgent.ts';
 
 const CASES = [
@@ -12,12 +14,12 @@ const CASES = [
   ['stop control', 'stop']
 ];
 
-test('local Agent recognizes supported intents and emits valid controllers', () => {
+test('local Agent recognizes supported intents and emits valid controllers', async () => {
   for (const [prompt, intent] of CASES) {
     const result = compileBehaviorPrompt(prompt);
     assert.equal(result.ok, true, result.error);
     assert.equal(result.intent, intent);
-    assert.doesNotThrow(() => new Function('self', 'ctx', result.code));
+    await assert.doesNotReject(compileEntityScript(result.code));
     assert.equal(result.code.includes('entity.'), false, 'generated code uses the self/ctx contract');
   }
 });
@@ -34,18 +36,19 @@ test('local Agent stop intent calls the root Stop API', () => {
   assert.equal(result.code, 'ctx.root.stop();');
 });
 
-function executeController(code, ctx, state = {}) {
-  let force = null;
-  const self = {
-    state,
-    applyForce(value) { force = value; },
-    applyTorque() {}
-  };
-  new Function('self', 'ctx', code)(self, ctx);
-  return force;
+async function executeController(code, ctx, state = {}) {
+  const service = createAssemblyScriptRuntimeService();
+  const compiled = await service.handle({ type: 'set-script', entityRuntimeId: 'test', nodeId: 'root', code });
+  assert.equal(compiled.ok, true, compiled.error);
+  const result = service.handle({ type: 'tick', entityRuntimeId: 'test', snapshot: {
+    ...ctx, components: [{ id: 'root', parentId: null }], states: { root: state }, scriptOrder: ['root']
+  } });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
+  return result.commands.find(c => c.path === 'applyForce')?.args[0];
 }
 
-test('local follow controller uses shortest torus deltas and eye-relative height', () => {
+test('local follow controller uses shortest torus deltas and eye-relative height', async () => {
   const result = compileBehaviorPrompt('follow me at a distance of 3 meters');
   assert.equal(result.ok, true);
   assert.match(result.code, /wrappedDelta\(ctx\.position\[0\], target\[0\], 16384\)/);
@@ -53,7 +56,7 @@ test('local follow controller uses shortest torus deltas and eye-relative height
   assert.doesNotMatch(result.code, /target\.map\(\(value, axis\) => value - ctx\.position\[axis\]\)/);
   assert.doesNotMatch(result.summary, /to the right/i);
 
-  const force = executeController(result.code, {
+  const force = await executeController(result.code, {
     players: [{ position: [1, 10, 1] }],
     position: [16383, 11.8, 2047],
     velocity: [0, 0, 0],
@@ -76,13 +79,13 @@ test('every local player-tracking controller includes wrapped X/Z deltas', () =>
   }
 });
 
-test('local orbit controller uses shortest torus deltas', () => {
+test('local orbit controller uses shortest torus deltas', async () => {
   const result = compileBehaviorPrompt('orbit every 10 seconds');
   assert.equal(result.ok, true);
   assert.match(result.code, /wrappedDelta\(ctx\.position\[0\], target\[0\], 16384\)/);
   assert.match(result.code, /wrappedDelta\(ctx\.position\[2\], target\[2\], 2048\)/);
 
-  const force = executeController(result.code, {
+  const force = await executeController(result.code, {
     position: [1, 3, 2047],
     velocity: [0, 0, 0],
     angularVelocity: [0, 0, 0],

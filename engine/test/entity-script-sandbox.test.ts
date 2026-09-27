@@ -1,501 +1,184 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import * as THREE from 'three';
-import { Contraption } from '../src/contraption/Contraption.ts';
-import { BlockTypes } from '../src/voxel/BlockTypes.ts';
+import { createAssemblyScriptRuntimeService } from '../src/scripting/AssemblyScriptRuntimeService.ts';
+import { compileEntityScript } from '../src/scripting/AssemblyScriptCompiler.ts';
+import { remapEntityScriptChildIds } from '../src/scripting/EntityScriptRuntime.ts';
+import { SPACE_SCRIPT_API_V3 } from '../src/contraption/ScriptApiContract.ts';
 
-function entity(id: number, children: any[] = []) {
-  return new Contraption(
-    id,
-    [
-      { localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK },
-      { localX: 1, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }
-    ],
-    new THREE.Vector3(),
-    new THREE.Scene(),
-    { rootComponentId: 'root', childEntities: children }
-  ) as any;
+function fixture() {
+  const service = createAssemblyScriptRuntimeService();
+  const send = (message: any) => service.handle({ entityRuntimeId: 'entity', ...message });
+  const set = (code: string, nodeId = 'root') => send({ type: 'set-script', nodeId, code });
+  const tick = (extra: any = {}, hostApi: any = {}) => send({ type: 'tick', hostApi, snapshot: {
+    rootComponentId: 'root', scriptOrder: ['root', 'arm'], time: 1, deltaTime: 0.05, tick: 20,
+    entityId: '10000000-0000-4000-8000-000000000000', states: {},
+    position: [1, 2, 3], velocity: [0, 0, 0], rotation: [0, 0, 0], gravity: [0, -18, 0],
+    input: { down: ['KeyW'], pressed: ['Space'], released: [] },
+    components: [{ id: 'root', parentId: null, children: ['arm'], body: { type: 'dynamic', mass: 10 } },
+      { id: 'arm', parentId: 'root', children: [], body: { type: 'kinematic' } }], ...extra
+  } });
+  return { service, send, set, tick };
 }
 
-test('entity scripts execute in QuickJS without browser or host globals', () => {
-  const contraption = entity(1);
-  contraption.setScript(`
-self.state.thisValue = this;
-self.state.windowType = typeof window;
-self.state.documentType = typeof document;
-self.state.fetchType = typeof fetch;
-self.state.storageType = typeof indexedDB;
-self.state.workerType = typeof postMessage;
-self.state.escapedWindowType = Function('return typeof window')();
-`);
-
-  contraption.update(1 / 60, null, {});
-  const state = contraption.getComponentState('root');
-  assert.equal(state.thisValue, undefined, 'strict QuickJS invocation must not bind the host Contraption');
-  assert.equal(state.windowType, 'undefined');
-  assert.equal(state.documentType, 'undefined');
-  assert.equal(state.fetchType, 'undefined');
-  assert.equal(state.storageType, 'undefined');
-  assert.equal(state.workerType, 'undefined');
-  assert.equal(state.escapedWindowType, 'undefined', 'Function constructor must remain inside the QuickJS realm');
+test('AssemblyScript executes native WASM with typed state, input and command buffers', async () => {
+  const f = fixture();
+  assert.equal((await f.set(`
+    self.state.setNumber("count", self.state.getNumber("count") + 1);
+    self.state.setBoolean("held", ctx.input.down("KeyW"));
+    self.state.setString("id", ctx.entityId);
+    self.state.setVector("position", ctx.position);
+    self.applyForce([0, 100, 0]);
+    const arm = self.child("arm");
+    if (arm) arm.setLocalSpin([0, 1, 0], 60);
+  `)).ok, true);
+  const first = f.tick();
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.states.root.count, 1);
+  assert.equal(first.states.root.held, true);
+  assert.deepEqual(first.states.root.position, [1, 2, 3]);
+  assert.deepEqual(first.commands.map(c => c.path), ['applyForce', 'setLocalSpin']);
+  assert.equal(f.tick({ states: first.states }).states.root.count, 2);
 });
 
-test('an infinite loop is interrupted and immediately stops the whole entity', () => {
-  const contraption = entity(2, [
-    { id: 'arm', parentId: 'root', pivot: [1.5, 0.5, 0.5], blockKeys: [['1', '0', '0']] }
-  ]);
-  contraption.setNodeScript('root', 'while (true) {}');
-  contraption.setNodeScript('arm', 'self.state.runs = (self.state.runs || 0) + 1;');
-
-  const started = performance.now();
-  contraption.update(1 / 60, null, {});
-  const elapsed = performance.now() - started;
-
-  assert.ok(elapsed < 1000, `interrupt should return promptly, took ${elapsed.toFixed(1)} ms`);
-  assert.equal(contraption.scriptStatus, 'error');
-  assert.equal(contraption.isNodeScriptEnabled('root'), false);
-  assert.equal(contraption.isNodeScriptEnabled('arm'), false);
-  assert.match(contraption.scriptError, /64 VM checkpoints/, 'the deterministic frame counter should trip before the wall-clock fallback');
-  assert.equal(contraption.getComponentState('arm').runs, undefined);
-});
-
-test('each entity has an independent memory-limited runtime', () => {
-  const abusive = entity(3);
-  const healthy = entity(4);
-  abusive.setScript(`self.state.data = new Array(2_000_000).fill('xxxxxxxxxxxxxxxx');`);
-  healthy.setScript('self.state.runs = (self.state.runs || 0) + 1;');
-
-  abusive.update(1 / 60, null, {});
-  healthy.update(1 / 60, null, {});
-
-  assert.equal(abusive.scriptStatus, 'error');
-  assert.equal(healthy.getComponentState('root').runs, 1, 'another Entity Runtime must remain usable after OOM');
-  assert.equal(healthy.isNodeScriptEnabled('root'), true);
-});
-
-test('the main-thread runtime caps components, VM checkpoints, and aggregate script time', () => {
-  const source = readFileSync(new URL('../src/scripting/QuickJSScriptWorkerCore.ts', import.meta.url), 'utf8');
-  const clientSource = readFileSync(new URL('../src/scripting/EntityScriptRuntime.ts', import.meta.url), 'utf8');
-  assert.match(source, /MAX_SCRIPT_COMPONENTS = 64/);
-  assert.match(source, /ENTITY_TICK_DEADLINE_MS = 25/);
-  assert.match(source, /ENTITY_FRAME_INTERRUPT_LIMIT = 64/);
-  assert.match(source, /slice\(0, MAX_SCRIPT_COMPONENTS\)/);
-  assert.match(source, /exceeded the aggregate/);
-  assert.doesNotMatch(source, /const QuickJS = await/, 'Space startup must not wait for QuickJS WASM');
-  assert.doesNotMatch(clientSource, /new Worker\(/, 'entity QuickJS must execute on the page thread');
-});
-
-test('main-thread QuickJS exposes a bounded synchronous world raycast', () => {
-  const contraption = entity(9);
-  contraption.setScript(`
-const hit = ctx.world.raycast([1, 2, 3], [0, -1, 0], 4);
-self.state.hit = hit;
-self.state.frozen = Object.isFrozen(hit) && Object.isFrozen(hit.normal) && Object.isFrozen(hit.position);
-`);
-  const calls: any[] = [];
-  contraption.update(1 / 60, null, {
-    world: {
-      entities: () => [],
-      raycast: (...args) => {
-        calls.push(args);
-        return {
-          block: 1,
-          color: 0x123456,
-          normal: [0, 1, 0],
-          position: [1, 0, 3],
-          distance: 2
-        };
-      }
-    }
-  });
-
-  assert.deepEqual(calls, [[[1, 2, 3], [0, -1, 0], 4]]);
-  assert.deepEqual(contraption.getComponentState('root').hit, {
-    block: 1,
-    color: 0x123456,
-    normal: [0, 1, 0],
-    position: [1, 0, 3],
-    distance: 2
-  });
-  assert.equal(contraption.getComponentState('root').frozen, true);
-});
-
-test('QuickJS exposes real standard/micro world reads and full raycast options', () => {
-  const contraption = entity(91);
-  contraption.setScript(`
-self.state.standard = ctx.world.voxels.get([4, 5, 6]);
-self.state.micro = ctx.world.microVoxels.get([7, 8, 9], [1, 2, 3]);
-self.state.hit = ctx.world.raycast([1, 2, 3], [0, 0, -1], {
-  maxDistance: 12,
-  include: 'all',
-  voxelKinds: ['standard', 'micro'],
-  space: 'world'
-});
-self.state.frozen = Object.isFrozen(self.state.standard)
-  && Object.isFrozen(self.state.micro)
-  && Object.isFrozen(self.state.hit);
-`);
-  const calls: any[] = [];
-  contraption.update(0.05, null, {
-    world: {
-      entities: () => [],
-      voxels: { get: position => ({ block: 1, color: position[0] }) },
-      microVoxels: { get: (cell, offset) => ({ block: 1, color: cell[0] * 10 + offset[0] }) },
-      raycast: (...args) => {
-        calls.push(args);
-        return { kind: 'entity', entityId: 'ent-target', nodeId: 'arm', position: [1, 2, 0], normal: [0, 0, 1], distance: 3 };
-      }
-    }
-  });
-
-  const state = contraption.getComponentState('root');
-  assert.deepEqual(state.standard, { block: 1, color: 4 });
-  assert.deepEqual(state.micro, { block: 1, color: 71 });
-  assert.equal(state.hit.entityId, 'ent-target');
-  assert.deepEqual(calls, [[
-    [1, 2, 3],
-    [0, 0, -1],
-    { maxDistance: 12, include: 'all', voxelKinds: ['standard', 'micro'], space: 'world' }
-  ]]);
-  assert.equal(state.frozen, true);
-});
-
-test('queued mutations publish final command receipts on the next script frame', () => {
-  const contraption = entity(92);
-  contraption.setScript(`
-if (!self.state.commandId) {
-  const queued = ctx.world.voxels.set([20, 20, 20], { color: 0x123456 });
-  self.state.commandId = queued.commandId;
-} else {
-  self.state.receipt = ctx.commands.get(self.state.commandId);
-  self.state.receiptsFrozen = Object.isFrozen(ctx.commands.all())
-    && Object.isFrozen(self.state.receipt);
-}
-`);
-  const runtimeContext = {
-    world: {
-      entities: () => [],
-      voxels: {
-        get: () => ({ block: 0, color: 0 }),
-        set: () => ({ ok: true, placed: 1, reason: 'placed' })
-      },
-      microVoxels: { get: () => ({ block: 0, color: 0 }) }
-    }
-  };
-
-  contraption.update(0.05, null, runtimeContext);
-  const commandId = contraption.getComponentState('root').commandId;
-  assert.match(commandId, /^cmd-\d+$/);
-  contraption.update(0.05, null, runtimeContext);
-
-  const state = contraption.getComponentState('root');
-  assert.deepEqual(state.receipt, {
-    commandId,
-    status: 'committed',
-    scope: 'world',
-    path: 'voxels.set',
-    nodeId: null,
-    ok: true,
-    placed: 1,
-    reason: 'placed'
-  });
-  assert.equal(state.receiptsFrozen, true);
-});
-
-test('ctx.messages exposes frozen received batches without charging burst preparation to script time', () => {
-  const contraption = entity(93);
-  const publicId = '10000000-0000-4000-8000-000000000001';
-  contraption.publicId = publicId;
-  contraption.setScript(`
-self.state.received = (self.state.received || 0) + ctx.messages.received.length;
-self.state.frozen = Object.isFrozen(ctx.messages)
-  && Object.isFrozen(ctx.messages.received)
-  && ctx.messages.received.every(message => Object.isFrozen(message)
-    && Object.isFrozen(message.payload));
-`);
-  assert.equal(contraption.enqueueEntityMessage({
-    messageId: 'invalid-version',
-    sourceId: '10000000-0000-4000-8000-000000000002',
-    targetId: publicId,
-    type: 'data',
-    encoding: 'protobuf',
-    payload: [1],
-  }), false);
-  for (let index = 0; index < 8; index++) {
-    assert.equal(contraption.enqueueEntityMessage({
-      messageId: `message-${index}`,
-      sourceId: '10000000-0000-4000-8000-000000000002',
-      targetId: publicId,
-      type: 'data.v1',
-      encoding: 'protobuf',
-      payload: Array(4096).fill(index),
-    }), true);
+test('host/browser globals, dynamic JS, npm imports and unregistered imports fail compilation', async () => {
+  for (const source of ['window.alert("x");', 'eval("x");', 'self.state.foo = 1;',
+    'const x = {foo: 1}; ctx.log(x.foo);', 'import x from "fs";',
+    '} @external("evil", "run") declare function attack(): void; export function x(): void { attack();']) {
+    await assert.rejects(compileEntityScript(source), undefined, source);
   }
-
-  contraption.update(0.05, null, {});
-  assert.equal(contraption.scriptStatus, 'running');
-  assert.equal(contraption.getComponentState('root').received, 4, 'one frame is capped at 16 KiB');
-  contraption.update(0.05, null, {});
-  assert.equal(contraption.scriptStatus, 'running');
-  assert.equal(contraption.getComponentState('root').received, 8);
-  assert.equal(contraption.getComponentState('root').frozen, true);
 });
 
-test('message sends validate schema versions and publish unique command receipts', () => {
-  const contraption = entity(94);
-  contraption.setScript(`
-if (!self.state.sent) {
-  self.state.invalid = ctx.messages.send('10000000-0000-4000-8000-000000000002', 'radar', [1], 'protobuf');
-  self.state.valid = ctx.messages.send('10000000-0000-4000-8000-000000000002', 'radar.v1', [1], 'protobuf');
-  self.state.sent = true;
-} else {
-  self.state.receipt = ctx.commands.get(self.state.valid.commandId);
-}
-`);
-  const sent: any[] = [];
-  const runtimeContext = { messages: { send: (...args) => {
-    sent.push(args);
-    return { ok: true, deliveryStatus: 'routed' };
-  } } };
-  contraption.update(0.05, null, runtimeContext);
-  const state = contraption.getComponentState('root');
-  assert.equal(state.invalid.reason, 'protobuf_type_requires_version');
-  assert.equal(state.valid.ok, true);
-  assert.match(state.valid.commandId, /^cmd-\d+$/);
-  assert.equal(sent.length, 1);
-  contraption.update(0.05, null, runtimeContext);
-  assert.equal(contraption.getComponentState('root').receipt.deliveryStatus, 'routed');
-
-  const firstCommandId = state.valid.commandId;
-  contraption.resetAllComponentState();
-  contraption.update(0.05, null, runtimeContext);
-  const resetCommandId = contraption.getComponentState('root').valid.commandId;
-  assert.notEqual(resetCommandId, firstCommandId, 'runtime state resets must not reuse operation ids');
-});
-
-test('ctx exposes grounded, driver and bounded contact observations', () => {
-  const contraption = entity(93);
-  contraption.recordScriptContact({
-    kind: 'player',
-    selfNodeId: 'root',
-    playerId: 'local',
-    position: [1, 2, 3],
-    normal: [0, 1, 0],
-    relativeVelocity: [0, -2, 0],
-    impulse: 100
-  });
-  contraption.isOnGround = true;
-  contraption.setScript(`
-self.state.isOnGround = ctx.isOnGround;
-self.state.driver = ctx.driver;
-self.state.contacts = ctx.contacts;
-self.state.frozen = Object.isFrozen(ctx.contacts) && Object.isFrozen(ctx.contacts[0]);
-`);
-  contraption.update(0.05, null, {
-    driver: {
-      entityId: contraption.publicId,
-      playerId: 'local',
-      componentId: 'root',
-      seatIndex: 0
-    },
-    world: { entities: () => [] }
-  });
-
-  const state = contraption.getComponentState('root');
-  assert.equal(state.isOnGround, true);
-  assert.deepEqual(state.driver, { playerId: 'local', componentId: 'root', seatIndex: 0 });
-  assert.equal(state.contacts[0].kind, 'player');
-  assert.equal(state.contacts[0].key, undefined, 'internal contact dedupe keys must not leak');
-  assert.equal(state.frozen, true);
-});
-
-test('entity code receives the engine-owned fixed simulation step', () => {
-  const contraption = entity(10, [
-    { id: 'arm', parentId: 'root', pivot: [1.5, 0.5, 0.5], blockKeys: [['1', '0', '0']] }
-  ]);
-  contraption.setScript(`
-self.state.runs = (self.state.runs || 0) + 1;
-self.state.tickRateType = typeof ctx.setTickRate;
-self.state.deltaTime = ctx.deltaTime;
-if (ctx.input.pressed('KeyW')) self.state.presses = (self.state.presses || 0) + 1;
-if (ctx.input.released('KeyW')) self.state.releases = (self.state.releases || 0) + 1;
-self.applyForce([0, 10, 0]);
-self.child('arm').setLocalSpin([0, 1, 0], 60);
-`);
-
-  const step = input => contraption.update(0.05, input, {});
-  step({ down: new Set(['KeyW']), pressed: new Set(['KeyW']), released: new Set() });
-  const arm = contraption.getEntityNode('arm');
-  const rotation = arm.localQuaternion.clone();
-
-  contraption.appliedForces.set(0, 0, 0);
-  step({ down: new Set(), pressed: new Set(), released: new Set(['KeyW']) });
-
-  const state = contraption.getComponentState('root');
-  assert.equal(contraption.tickCount, 2);
-  assert.equal(state.runs, 2);
-  assert.equal(state.tickRateType, 'undefined');
-  assert.equal(state.deltaTime, 0.05);
-  assert.equal(state.presses, 1);
-  assert.equal(state.releases, 1);
-  assert.ok(!arm.localQuaternion.equals(rotation));
-  assert.equal(contraption.appliedForces.y, 10);
-});
-
-test('untrusted force vectors cannot introduce non-finite physics state', () => {
-  const contraption = entity(5);
-  contraption.setScript(`
-self.state.bodyAccepted = self.body.applyForce([1e308, 0, 0]);
-self.applyForce([1e308, 0, 0]);
-self.applyTorque([0, 1e308, 0]);
-`);
-
-  contraption.update(1 / 60, null, {});
-
-  assert.equal(contraption.getComponentState('root').bodyAccepted, false);
-  for (const vector of [
-    contraption.appliedForces,
-    contraption.appliedTorques,
-    contraption.getRigidBody('root').appliedForces,
-    contraption.getRigidBody('root').appliedTorques
-  ]) {
-    assert.ok(vector.toArray().every(Number.isFinite));
-    assert.equal(vector.lengthSq(), 0);
+test('optimized empty loops and recursion are bounded and discard the entire frame', async () => {
+  for (const code of ['self.state.setNumber("x", 1); self.applyForce([1,0,0]); while (true) {}',
+    'recurse(); } function recurse(): void { recurse(); } function unused(): void {']) {
+    const f = fixture();
+    assert.equal((await f.set(code)).ok, true);
+    const result = f.tick();
+    assert.equal(result.fatal, true);
+    assert.equal(result.commands, undefined);
+    assert.equal(result.states, undefined);
+    assert.match(result.error, /fuel|stack|5 ms|bounds|unreachable/i);
   }
-  assert.equal(contraption.scriptApi.body.applyForce([Infinity, 0, 0]), false);
-  assert.equal(contraption.scriptApi.body.applyTorque([0, 0, 1e13]), false);
 });
 
-test('QuickJS can change every BodyConfig behavior at runtime and Stop restores PB defaults', () => {
-  const contraption = entity(12);
-  assert.ok(contraption.getCollisionWorldAABBs().length > 0);
-  contraption.setScript(`
-self.state.type = self.body.setType('kinematic');
-self.state.mass = self.body.setMass(65);
-self.state.material = self.body.setMaterial({ restitution: 0.8, friction: 0.2 });
-self.state.gravity = self.body.setGravityEnabled(false);
-self.state.collision = self.body.setCollisionEnabled(false);
-`);
-
-  contraption.update(1 / 60, null, {});
-
-  assert.equal(contraption.getNodeBodyType('root'), 'kinematic');
-  assert.equal(contraption.getNodeBodyMass('root'), 65);
-  assert.deepEqual(contraption.getNodeBodyMaterial('root'), { restitution: 0.8, friction: 0.2 });
-  assert.equal(contraption.getNodeGravityEnabled('root'), false);
-  assert.equal(contraption.getNodeCollisionEnabled('root'), false);
-  assert.equal(contraption.getCollisionWorldAABBs().length, 0,
-    'disabling root collision must remove its cached collision shapes');
-  const gravityResult = contraption.getComponentState('root').gravity;
-  const collisionResult = contraption.getComponentState('root').collision;
-  assert.deepEqual(
-    { ...gravityResult, commandId: undefined },
-    { ok: true, enabled: false, reason: 'queued', commandId: undefined }
-  );
-  assert.deepEqual(
-    { ...collisionResult, commandId: undefined },
-    { ok: true, enabled: false, reason: 'queued', commandId: undefined }
-  );
-  assert.match(gravityResult.commandId, /^cmd-\d+$/);
-  assert.match(collisionResult.commandId, /^cmd-\d+$/);
-  assert.notEqual(gravityResult.commandId, collisionResult.commandId);
-
-  const serializedWhileRunning = contraption.serializeSubtree('root');
-  assert.equal(serializedWhileRunning.bodyType, 'dynamic');
-  assert.equal('mass' in serializedWhileRunning, false);
-  assert.equal(serializedWhileRunning.restitution, 0.1);
-  assert.equal(serializedWhileRunning.friction, 0.7);
-  assert.equal(serializedWhileRunning.useGravity, true);
-  assert.equal(serializedWhileRunning.collisionEnabled, true);
-
-  contraption.disableAllNodeScripts();
-  assert.equal(contraption.getNodeBodyMass('root'), 65, 'Disabled component code preserves runtime BodyConfig values');
-  assert.equal(contraption.getNodeCollisionEnabled('root'), false);
-
-  contraption.stopAllNodeScripts();
-  assert.equal(contraption.getNodeBodyType('root'), 'dynamic');
-  assert.equal(contraption.getNodeBodyMass('root'), 20);
-  assert.deepEqual(contraption.getNodeBodyMaterial('root'), { restitution: 0.1, friction: 0.7 });
-  assert.equal(contraption.getNodeGravityEnabled('root'), true);
-  assert.equal(contraption.getNodeCollisionEnabled('root'), true);
-  assert.ok(contraption.getCollisionWorldAABBs().length > 0,
-    'Stop must invalidate caches and restore the default collision shapes');
+test('memory exhaustion traps without affecting another entity', async () => {
+  const f = fixture();
+  assert.equal((await f.set('const bytes = new Uint8Array(8 * 1024 * 1024); self.state.setNumber("n", bytes.length);')).ok, true);
+  const result = f.tick();
+  assert.equal(result.ok, false);
+  const healthy = fixture();
+  await healthy.set('self.state.setNumber("ok", 42);');
+  assert.equal(healthy.tick().states.root.ok, 42);
 });
 
-test('world snapshots share admitted overlays and keep entity descriptors immutable', () => {
-  const contraption = entity(6, [
-    { id: 'arm', parentId: 'root', pivot: [1.5, 0.5, 0.5], blockKeys: [['1', '0', '0']] }
-  ]);
-  contraption.setNodeScript('root', `
-const descriptor = ctx.world.entities.get('ent_other');
-self.state.frozen = Object.isFrozen(descriptor) && Object.isFrozen(descriptor.position);
-try { descriptor.position[0] = 999; } catch (_) {}
-self.state.massResult = self.body.setMass(0);
-self.state.writeResult = ctx.world.voxels.set([20, 20, 20], { color: 0x123456, materialId: 1 });
-`);
-  contraption.setNodeScript('arm', `
-self.state.voxel = ctx.world.voxels.get([20, 20, 20]);
-self.state.near = ctx.world.entities([10, 0, 0], 1).length;
-self.state.entityX = ctx.world.entities.get('ent_other').position[0];
-`);
-  const writes: any[] = [];
-  const runtimeContext = {
-    world: {
-      entities: () => [{
-        id: 'ent_other',
-        runtimeId: 99,
-        chunkId: '0,0',
-        position: [10, 0, 0],
-        bodyType: 'dynamic',
-        scriptStatus: 'running',
-        distance: 10
-      }],
-      voxels: { set: (...args) => writes.push(args) }
-    }
+test('snapshot mutation and prototype traversal are rejected', async () => {
+  for (const code of ['ctx.limits.setNumber("maxForce", 999);', 'self.state.get("constructor");']) {
+    const f = fixture(); await f.set(code);
+    const result = f.tick();
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0].error, /read-only|Reserved/);
+  }
+});
+
+test('state data is copied and cannot contain cycles or unbounded nesting', async () => {
+  const f = fixture();
+  await f.set(`const v = Value.object().setNumber("x", 1); self.state.set("saved", v); v.setNumber("x", 2);`);
+  assert.equal(f.tick().states.root.saved.x, 1);
+  await f.set('let v = Value.object(); for(let i = 0; i < 40; i++) v = Value.object().set("child", v); self.state.set("v", v);');
+  const result = f.tick(); assert.equal(result.fatal, true); assert.equal(result.states, undefined);
+});
+
+test('world reads and raycasts use synchronous host queries and bounded admission', async () => {
+  const f = fixture();
+  const code = `self.state.setNumber("block", ctx.world.voxels.get([1,2,3]).getNumber("block"));
+    self.state.setNumber("micro", ctx.world.microVoxels.get([1,2,3], [0,1,2]).getNumber("color"));
+    const hit = ctx.world.raycastWithOptions([0,0,0], [0,-1,0], Value.object().setNumber("maxDistance", 8));
+    self.state.setNumber("distance", hit.getNumber("distance"));`;
+  assert.equal((await f.set(code)).ok, true);
+  const result = f.tick({}, { worldVoxelGet: () => ({ block: 1 }), worldMicroVoxelGet: () => ({ color: 123 }), worldRaycast: () => ({ distance: 4 }) });
+  assert.deepEqual(result.states.root, { block: 1, micro: 123, distance: 4 });
+});
+
+test('component body settings, constraints, voxels, selection and message SDK compile together', async () => {
+  const f = fixture();
+  const compile = await f.set(`
+    self.body.setMass(12); self.body.setType("dynamic");
+    self.body.setMaterial(Value.object().setNumber("friction", 0.5));
+    self.body.setGravityEnabled(false); self.body.setCollisionEnabled(false);
+    self.body.applyLocalForce([1,2,3]); self.body.applyTorque([0,1,0]);
+    self.constraints.create(Value.object().setString("type", "point").setString("id", "joint"));
+    self.voxels.set([0,0,0], Value.object().setNumber("color", 0xff0000));
+    self.microVoxels.paint([0,0,0], [1,2,3], Value.object().setNumber("color", 1));
+    ctx.selection.box([0,0,0], [1,1,1]);
+    ctx.selection.entityBox(ctx.entityId, "root", [0,0,0], [1,1,1]);
+    const r = ctx.messages.send("20000000-0000-4000-8000-000000000000", "chat", "hello");
+    self.state.setBoolean("sent", r.getBoolean("ok"));
+  `);
+  assert.equal(compile.ok, true, compile.error);
+  // Warm the same compiled module before asserting the command semantics.
+  const result = f.tick();
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
+  assert.equal(result.states.root.sent, true);
+  assert.ok(result.commands.some(c => c.path === 'constraints.create'));
+});
+
+test('root stop short-circuits child scripts and preserves its control command', async () => {
+  const f = fixture(); await f.set('self.stop(); self.state.setBoolean("after", true);');
+  await f.set('self.state.setBoolean("ran", true);', 'arm');
+  const result = f.tick();
+  assert.equal(result.stopped, true);
+  assert.equal(result.states.root.after, undefined);
+  assert.equal(result.states.arm?.ran, undefined);
+  assert.equal(result.commands[0].path, 'stop');
+});
+
+test('last edit wins across compilation, clear and disposal races', async () => {
+  const f = fixture();
+  const old = f.set('self.state.setNumber("old", 1);');
+  f.set(''); await old;
+  assert.equal(f.tick().states.root?.old, undefined);
+  const newer = f.set('self.state.setNumber("newer", 1);');
+  f.send({ type: 'dispose' }); assert.equal((await newer).stale, true);
+});
+
+test('typed child-id rewriting leaves comments, state and unrelated strings intact', () => {
+  const source = `// self.child("arm")\nconst arm: Component | null = self.child("arm"); self.state.setString("name", "arm");`;
+  assert.equal(remapEntityScriptChildIds(source, { arm: 'arm_2' }), source.replace('= self.child("arm")', '= self.child("arm_2")'));
+});
+
+test('every public AssemblyScript documentation example compiles', async () => {
+  const walk = async (section: any) => {
+    for (const example of section.examples || []) await compileEntityScript(example.code);
+    for (const child of section.subsections || []) await walk(child);
   };
-
-  contraption.update(1 / 60, null, runtimeContext);
-
-  const rootState = contraption.getComponentState('root');
-  const armState = contraption.getComponentState('arm');
-  assert.equal(rootState.frozen, true);
-  assert.deepEqual(rootState.massResult, { ok: false, mass: 10, reason: 'invalid_mass' });
-  assert.deepEqual(
-    { ...rootState.writeResult, commandId: undefined },
-    { ok: true, placed: 1, reason: 'queued', commandId: undefined }
-  );
-  assert.match(rootState.writeResult.commandId, /^cmd-\d+$/);
-  assert.deepEqual(armState.voxel, { block: 1, color: 0x123456, materialId: 1 });
-  assert.equal(armState.near, 1, 'query radius must be measured from the supplied origin');
-  assert.equal(armState.entityX, 10, 'one component must not mutate another component\'s snapshot');
-  assert.equal(writes.length, 1);
+  for (const section of SPACE_SCRIPT_API_V3.sections) await walk(section);
 });
 
-test('full command buffers report admission failure and cannot swallow self.stop', () => {
-  const limited = entity(7);
-  limited.setScript(`
-for (let i = 0; i < 256; i++) ctx.log(i);
-self.state.result = ctx.world.voxels.set([1, 2, 3], { color: 0xffffff });
-`);
-  let writes = 0;
-  limited.update(1 / 60, null, {
-    world: {
-      entities: () => [],
-      voxels: { set: () => { writes++; } }
-    }
-  });
-  assert.deepEqual(limited.getComponentState('root').result, {
-    ok: false,
-    placed: 0,
-    reason: 'command_limit',
-    commandId: null
-  });
-  assert.equal(writes, 0);
+test('host array builders reject sparse expansion before it can amplify JSON output', async () => {
+  const f = fixture();
+  assert.equal((await f.set('const a = Value.array(); a.set("16383", Value.number(1)); self.state.set("a", a);')).ok, true);
+  const result = f.tick();
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0].error, /Invalid array index/);
+  assert.equal(result.states.root.a, undefined);
+});
 
-  const stopped = entity(8);
-  stopped.setScript('for (let i = 0; i < 256; i++) ctx.log(i); self.stop();');
-  stopped.update(1 / 60, null, {});
-  assert.equal(stopped.scriptStatus, 'stopped');
-  assert.equal(stopped.isNodeScriptEnabled('root'), false);
+test('host handles share a bounded byte allowance for copied strings', async () => {
+  const f = fixture();
+  const result = await f.set('const s = "x".repeat(60000); for(let i = 0; i < 20; i++) Value.string(s);');
+  assert.equal(result.ok, true, result.error);
+  const frame = f.tick();
+  assert.equal(frame.fatal, true);
+  assert.match(frame.error, /allocation|fuel|5 ms/i);
+  assert.equal(frame.states, undefined);
+});
+
+test('standard-library randomness is reproducible for a frame and varies across ticks', async () => {
+  const f = fixture();
+  assert.equal((await f.set('self.state.setNumber("sample", Math.random());')).ok, true);
+  const sample = f.tick({ tick: 1 }).states.root.sample;
+  assert.equal(f.tick({ tick: 1 }).states.root.sample, sample);
+  assert.notEqual(f.tick({ tick: 2 }).states.root.sample, sample);
+  assert.ok(sample >= 0 && sample < 1);
 });

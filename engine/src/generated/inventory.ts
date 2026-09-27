@@ -216,7 +216,11 @@ export interface Component {
    * Display-only, non-unique name. Empty means unnamed; UI falls back to id.
    * Names travel with subtrees and do not participate in content deduplication.
    */
-  name?: string | undefined;
+  name?:
+    | string
+    | undefined;
+  /** Only "assemblyscript" is executable. Missing/other languages load as empty code. */
+  scriptLanguage?: string | undefined;
 }
 
 export interface ConstraintLimits {
@@ -1211,6 +1215,7 @@ function createBaseComponent(): Component {
     localRotation: undefined,
     anchorRotation: undefined,
     name: "",
+    scriptLanguage: "",
   };
 }
 
@@ -1257,6 +1262,9 @@ export const Component: MessageFns<Component> = {
     }
     if (message.name !== undefined && message.name !== "") {
       writer.uint32(98).string(message.name);
+    }
+    if (message.scriptLanguage !== undefined && message.scriptLanguage !== "") {
+      writer.uint32(106).string(message.scriptLanguage);
     }
     return writer;
   },
@@ -1379,6 +1387,14 @@ export const Component: MessageFns<Component> = {
             message.name = reader.string();
             continue;
           }
+          case 13: {
+            if (tag !== 106) {
+              break;
+            }
+
+            message.scriptLanguage = reader.string();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -1418,6 +1434,7 @@ export const Component: MessageFns<Component> = {
       ? Quaternion.fromPartial(object.anchorRotation)
       : undefined;
     message.name = object.name ?? "";
+    message.scriptLanguage = object.scriptLanguage ?? "";
     return message;
   },
 };

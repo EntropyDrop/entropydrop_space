@@ -812,3 +812,22 @@ test('inventory v8 round-trips every offset in an 8x8x8 cell, including 7,7,7', 
     ),
   );
 });
+
+test('unmarked historic scripts clear recursively; marked AssemblyScript survives portable/runtime round trips', () => {
+  const legacy = InventoryResource.fromPartial({ schemaVersion: 8, content: { $case: 'entity', value: {
+    root: { id: 'root', body: {}, script: 'self.state.old = true;', children: [{ id: 'arm', body: {}, script: 'throw new Error("old");' }] }, constraints: []
+  } } });
+  const loaded = decodeInventoryResource(InventoryResource.encode(legacy).finish()).portable;
+  assert.equal(loaded.root.script, '');
+  assert.equal(loaded.root.children[0].script, '');
+  assert.equal(loaded.root.scriptLanguage, 'assemblyscript');
+  loaded.root.script = 'self.state.setNumber("n", 1);';
+  const encoded = encodeInventoryResource('entity', loaded);
+  const restored = decodeInventoryResource(encoded).portable;
+  assert.equal(restored.root.script, loaded.root.script);
+  const runtime = portableEntityToRuntime(restored);
+  assert.equal(runtime.scripts[0].language, 'assemblyscript');
+  assert.equal(runtimeEntityToPortable(runtime).root.script, loaded.root.script);
+  delete runtime.scripts[0].language;
+  assert.equal(runtimeEntityToPortable(runtime).root.script, '');
+});

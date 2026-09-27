@@ -39,35 +39,36 @@ self.applyTorque([
 ]);
 
 if (ctx.tick % 90 === 0) {
-  ctx.log(\`Agent · hover \${ctx.groundDistance.toFixed(1)} / ${targetHeight.toFixed(1)} m\`);
+  ctx.log(\`Agent · hover \${ctx.groundDistance.toString()} / ${targetHeight.toFixed(1)} m\`);
 }`;
 }
 
 function followController(prompt, distance) {
   return `${scriptHeader(prompt, 'follow player')}
 
-function wrappedDelta(from, to, size) {
+function wrappedDelta(from: f64, to: f64, size: f64): f64 {
   return ((to - from) % size + size + size / 2) % size - size / 2;
 }
 
-if (!ctx.players || ctx.players.length === 0) {
+if (ctx.players.length === 0) {
   if (ctx.tick % 120 === 0) ctx.log('Agent · waiting for player position API');
 } else {
   const followDistance = ${distance.toFixed(2)};
-  const playerPos = ctx.players[0].position;
+  const playerPos = ctx.players.at(0).get("position").asVector();
 
   // Player positions are eye positions; keep a further 1.8 m above the eye.
-  const target = [
+  const target: f64[] = [
     playerPos[0],
     playerPos[1] + 1.8,
     playerPos[2] + followDistance
   ];
-  const error = [
+  const error: f64[] = [
     wrappedDelta(ctx.position[0], target[0], ${TORUS_SIZE_X}),
     target[1] - ctx.position[1],
     wrappedDelta(ctx.position[2], target[2], ${TORUS_SIZE_Z})
   ];
-  const force = error.map((value, axis) => value * 18.0 - ctx.velocity[axis] * 8.0);
+  const force = new Array<f64>(3);
+for (let axis = 0; axis < 3; axis++) force[axis] = error[axis] * 18.0 - ctx.velocity[axis] * 8.0;
   force[1] += ctx.mass * Math.abs(ctx.gravity[1]);
 
   self.applyForce(force);
@@ -82,28 +83,30 @@ if (!ctx.players || ctx.players.length === 0) {
 function orbitController(prompt, period) {
   return `${scriptHeader(prompt, 'orbit')}
 
-function wrappedDelta(from, to, size) {
+function wrappedDelta(from: f64, to: f64, size: f64): f64 {
   return ((to - from) % size + size + size / 2) % size - size / 2;
 }
 
-if (!self.state.orbitCenter) {
-  self.state.orbitCenter = [...ctx.position];
+if (self.state.get("orbitCenter").isNull) {
+  self.state.setVector("orbitCenter", ctx.position);
 }
+const orbitCenter = self.state.get("orbitCenter").asVector();
 
 const period = ${period.toFixed(2)};
 const radius = 7.0;
 const angle = ctx.time * Math.PI * 2 / period;
-const target = [
-  self.state.orbitCenter[0] + Math.cos(angle) * radius,
-  self.state.orbitCenter[1] + 3.0,
-  self.state.orbitCenter[2] + Math.sin(angle) * radius
+const target: f64[] = [
+  orbitCenter[0] + Math.cos(angle) * radius,
+  orbitCenter[1] + 3.0,
+  orbitCenter[2] + Math.sin(angle) * radius
 ];
-const error = [
+const error: f64[] = [
   wrappedDelta(ctx.position[0], target[0], ${TORUS_SIZE_X}),
   target[1] - ctx.position[1],
   wrappedDelta(ctx.position[2], target[2], ${TORUS_SIZE_Z})
 ];
-const force = error.map((value, axis) => value * 16.0 - ctx.velocity[axis] * 7.0);
+const force = new Array<f64>(3);
+for (let axis = 0; axis < 3; axis++) force[axis] = error[axis] * 16.0 - ctx.velocity[axis] * 7.0;
 force[1] += ctx.mass * Math.abs(ctx.gravity[1]);
 
 self.applyForce(force);
@@ -113,8 +116,8 @@ self.applyTorque([0, 7.0 - ctx.angularVelocity[1] * 2.0, 0]);`;
 function rocketController(prompt, duration) {
   return `${scriptHeader(prompt, 'timed launch')}
 
-if (self.state.ignitionTime === undefined) self.state.ignitionTime = ctx.time;
-const flightTime = ctx.time - self.state.ignitionTime;
+if (self.state.get("ignitionTime").isNull) self.state.setNumber("ignitionTime", ctx.time);
+const flightTime = ctx.time - self.state.getNumber("ignitionTime");
 
 if (flightTime < ${duration.toFixed(2)}) {
   self.applyLocalForce([0, ctx.mass * 44.0, 0]);

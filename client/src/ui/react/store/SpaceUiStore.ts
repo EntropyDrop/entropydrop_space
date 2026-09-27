@@ -798,8 +798,12 @@ export class SpaceUiStore {
         || state.editingContraption !== contraption
         || state.selectedComponentNodeId !== nodeId) return;
 
-      const success = contraption.setNodeScript(nodeId, state.scriptDraft);
-      if (!success) {
+      const source = state.scriptDraft;
+      const success = contraption.setNodeScript(nodeId, source);
+      this.refresh();
+      await contraption.scriptRuntimeClient?.ready?.();
+      if (session !== this.codeEditorSession || contraption.getNodeScript?.(nodeId) !== source) return;
+      if (!success || contraption.nodeScriptErrors?.has?.(nodeId)) {
         const error = contraption.nodeScriptErrors?.get?.(nodeId) || contraption.scriptError;
         this.showToast(`Compile error: ${error}`);
       }
@@ -1202,42 +1206,62 @@ export class SpaceUiStore {
     this.setPaletteEntry(index, { stops }, notify);
   }
 
-  setPaletteStop(index: number, stopIndex: number, patch: Partial<{ color: string; position: number }>): void {
+  setPaletteStop(index: number, stopIndex: number, patch: Partial<{ color: string; position: number }>): number | null {
     const entry = this.snapshot.paletteColors[index];
-    if (!entry || stopIndex < 0 || stopIndex >= entry.stops.length) return;
-    const stops = entry.stops.map((stop, itemIndex) => itemIndex === stopIndex ? {
-      color: patch.color === undefined ? stop.color : colorToHex(normalizeColor(patch.color)).toLowerCase(),
-      position: patch.position === undefined ? stop.position : Math.max(0, Math.min(1, Number(patch.position))),
-    } : stop);
+    if (!entry || stopIndex < 0 || stopIndex >= entry.stops.length) return null;
+    const editedStop = {
+      color: patch.color === undefined
+        ? entry.stops[stopIndex].color
+        : colorToHex(normalizeColor(patch.color)).toLowerCase(),
+      position: patch.position === undefined
+        ? entry.stops[stopIndex].position
+        : Math.max(0, Math.min(1, Number(patch.position))),
+    };
+    const stops = normalizeGradientStops(entry.stops.map((stop, itemIndex) => (
+      itemIndex === stopIndex ? editedStop : stop
+    )));
     this.setPaletteEntry(index, { stops });
+    const editedIndex = stops.findIndex(stop => (
+      stop.color === editedStop.color
+      && stop.position === Math.round(editedStop.position * 1000) / 1000
+    ));
+    return editedIndex >= 0 ? editedIndex : null;
   }
 
-  addPaletteStop(index: number): number | null {
+  addPaletteStop(index: number, requestedPosition?: number): number | null {
     const entry = this.snapshot.paletteColors[index];
     if (!entry || entry.stops.length >= MAX_GRADIENT_STOPS) return null;
     const sorted = normalizeGradientStops(entry.stops);
-    let left = sorted[0];
-    let right = sorted[sorted.length - 1];
-    let gap = -1;
-    const boundaries = [{ color: sorted[0].color, position: 0 }, ...sorted, { color: sorted[sorted.length - 1].color, position: 1 }];
-    for (let cursor = 1; cursor < boundaries.length; cursor += 1) {
-      const candidateGap = boundaries[cursor].position - boundaries[cursor - 1].position;
-      if (candidateGap > gap) {
-        gap = candidateGap;
-        left = boundaries[cursor - 1];
-        right = boundaries[cursor];
+    let position: number;
+    if (Number.isFinite(requestedPosition)) {
+      position = Math.round(Math.max(0, Math.min(1, Number(requestedPosition))) * 1000) / 1000;
+    } else {
+      let left = sorted[0];
+      let right = sorted[sorted.length - 1];
+      let gap = -1;
+      const boundaries = [{ color: sorted[0].color, position: 0 }, ...sorted, { color: sorted[sorted.length - 1].color, position: 1 }];
+      for (let cursor = 1; cursor < boundaries.length; cursor += 1) {
+        const candidateGap = boundaries[cursor].position - boundaries[cursor - 1].position;
+        if (candidateGap > gap) {
+          gap = candidateGap;
+          left = boundaries[cursor - 1];
+          right = boundaries[cursor];
+        }
       }
+      position = Math.round(((left.position + right.position) / 2) * 1000) / 1000;
     }
-    const position = Math.round(((left.position + right.position) / 2) * 1000) / 1000;
     const color = colorToHex(sampleGradientColor(sorted, position));
     const stops = normalizeGradientStops([...sorted, { color, position }]);
     this.setPaletteEntry(index, { stops });
-    return stops.findIndex(stop => stop.position === position && stop.color === color.toLowerCase());
+    for (let stopIndex = stops.length - 1; stopIndex >= 0; stopIndex -= 1) {
+      if (stops[stopIndex].position === position && stops[stopIndex].color === color.toLowerCase()) return stopIndex;
+    }
+    return null;
   }
 
   removePaletteStop(index: number, stopIndex: number): void {
     const entry = this.snapshot.paletteColors[index];
-    if (!entry || entry.stops.length <= 1) return;
+    if (!entry || stopIndex <= 0 || stopIndex >= entry.stops.length) return;
     this.setPaletteEntry(index, { stops: entry.stops.filter((_stop, itemIndex) => itemIndex !== stopIndex) });
   }
 
@@ -1833,7 +1857,7 @@ export class SpaceUiStore {
     }
   }
 
-  applyAgentCode(code: string, targetNodeId?: string, silent = false): void {
+  async applyAgentCode(code: string, targetNodeId?: string, silent = false): Promise<void> {
     const contraption = this.snapshot.editingContraption;
     if (!contraption) return;
     this.saveCurrentDraft();
@@ -1843,7 +1867,10 @@ export class SpaceUiStore {
     contraption.setHighlightedNode?.(targetId);
     this.patch({ selectedComponentNodeId: targetId, scriptDraft: code });
     this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
-    if (success) {
+    await contraption.scriptRuntimeClient?.ready?.();
+    if (contraption.getNodeScript?.(targetId) !== code) return;
+    this.refresh();
+    if (success && !contraption.nodeScriptErrors?.has?.(targetId)) {
       if (!silent) this.showToast(`AI code applied to [${targetId}]`);
     } else {
       const error = contraption.nodeScriptErrors?.get?.(targetId) || contraption.scriptError;
@@ -2205,7 +2232,7 @@ export class SpaceUiStore {
         speed: `${editingContraption.velocity.length().toFixed(2)} m/s`,
         mass: `${editingContraption.mass.toFixed(1)} kg`,
         powerPercent,
-        status: editingContraption.scriptStatus || 'stopped',
+        status: editingContraption.scriptRuntimeClient?.compiling?.size ? 'compiling' : editingContraption.scriptStatus || 'stopped',
         executionTime: `${(editingContraption.lastExecutionTimeMs || 0).toFixed(2)} ms`,
         logs: editingContraption.scriptLogs?.length ? [...editingContraption.scriptLogs].map(String) : ['No log output yet...']
       };

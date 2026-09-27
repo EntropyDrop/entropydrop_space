@@ -37,6 +37,25 @@ test('React components own every stable game UI contract', () => {
   assert.doesNotMatch(componentSource, /getElementById|querySelector|\.innerHTML\s*=|createElement\(/);
 });
 
+test('palette gradient stops use direct manipulation on the color strip', () => {
+  const hudSource = readFileSync(
+    new URL('../src/ui/react/components/Hud.tsx', import.meta.url),
+    'utf8',
+  );
+  const storeSource = readFileSync(
+    new URL('../src/ui/react/store/SpaceUiStore.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(hudSource, /className="gradient-stop-rail"[\s\S]{0,500}addPaletteStop\(/);
+  assert.match(hudSource, /onPointerMove=\{event => updateDraggedStop\(event, index\)\}/);
+  assert.match(hudSource, /index > 0[\s\S]{0,160}className="gradient-stop-delete"/);
+  assert.doesNotMatch(hudSource, /<span>Position<\/span>|\+ Add stop/);
+  assert.match(hudSource, /EyeDropperConstructor[\s\S]{0,500}\.sRGBHex/);
+  assert.match(hudSource, /className="palette-fallback-color-picker"[\s\S]{0,100}type="color"/);
+  assert.match(storeSource, /stopIndex <= 0/);
+});
+
 test('legacy UIManager is removed and the engine uses the DOM-free store', () => {
   const managerUrl = new URL('../src/ui/UIManager.ts', import.meta.url);
   const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');

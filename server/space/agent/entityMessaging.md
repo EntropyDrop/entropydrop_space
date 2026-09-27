@@ -29,31 +29,28 @@ breaking application schema change uses a new suffix.
 ## Send
 
 Entity scripts send through `ctx.messages.send`; the runtime makes the
-authenticated request outside QuickJS, so account credentials are not exposed
+authenticated request outside AssemblyScript/WASM, so account credentials are not exposed
 to script code:
 
-```js
-if (!self.state.chatSent) {
-  const queued = ctx.messages.send(targetId, 'chat', 'hello');
-  if (queued.ok) {
-    self.state.chatSent = true;
-    self.state.chatCommandId = queued.commandId;
+```ts
+const targetId = "20000000-0000-4000-8000-000000000000";
+if (!self.state.getBoolean("chatSent")) {
+  const queued = ctx.messages.send(targetId, "chat", "hello");
+  if (queued.getBoolean("ok")) {
+    self.state.setBoolean("chatSent", true);
+    self.state.setString("chatCommandId", queued.getString("commandId"));
   }
 }
-
-const result = self.state.chatCommandId
-  ? ctx.commands.get(self.state.chatCommandId)
-  : null;
-if (result && (result.deliveryStatus || result.status === 'rejected')) {
-  ctx.log(`Message ${result.deliveryStatus || result.reason || 'rejected'}`);
-  self.state.chatCommandId = null;
+const result = ctx.commands.result(self.state.getString("chatCommandId"));
+if (!result.isNull) {
+  ctx.log(result.getString("deliveryStatus", result.getString("reason")));
 }
 ```
 
-`send(targetId, type, payload, encoding='utf8')` returns a queued command
-result. Read `ctx.commands.get(commandId)` in a later frame for the routed or
+`send(targetId, type, payload: string)` returns a queued command
+result. Read `ctx.commands.result(commandId)` in a later frame for the routed or
 dropped status and rejection reason. The `chat` type is reserved and requires
-UTF-8. Protobuf sends pass an array of bytes and `'protobuf'` as the encoding.
+UTF-8. Protobuf sends use `ctx.messages.sendBytes(targetId, type, bytes: Uint8Array)`.
 Invalid arguments are rejected before queuing; backend rate limits and inactive
 targets appear in the command result.
 
@@ -127,15 +124,16 @@ execution and hosted execution connect the active entity runtime automatically.
 The script's root component reads each delivered batch from
 `ctx.messages.received`:
 
-```js
-for (const message of ctx.messages.received) {
-  if (message.type === 'chat' && message.encoding === 'utf8') {
-    ctx.log(`${message.sourceId}: ${message.payload}`);
+```ts
+for (let i = 0; i < ctx.messages.received.length; i++) {
+  const message = ctx.messages.received.at(i);
+  if (message.getString("type") == "chat" && message.getString("encoding") == "utf8") {
+    ctx.log(message.getString("sourceId") + ": " + message.getString("payload"));
   }
 }
 ```
 
-`ctx.messages` is a frozen object containing `received` and `send`. Each
+`ctx.messages` is a typed Messages handle exposing `received`, `send` and `sendBytes`. Records are read through Value typed accessors. Each
 received entry is a frozen record with `messageId`, `sourceId`, `targetId`, `type`,
 `encoding`, and `payload`. UTF-8 payloads are strings. Protobuf payloads are
 frozen arrays of byte numbers (`0`–`255`). The batch belongs to one submitted

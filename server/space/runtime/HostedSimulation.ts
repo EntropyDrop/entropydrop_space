@@ -2,7 +2,7 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/Mic
 import {
   THREE, World, ContraptionManager, ContraptionPhysics,
   portableEntityToRuntime, runtimeEntityToPortable, decodeInventoryResource, encodeInventoryResource,
-  preloadQuickJSScriptRuntime,
+  preloadAssemblyScriptRuntime,
   wrapX, wrapZ, wrapChunkX, wrapChunkZ, unwrapPeriodicNear, TORUS_SIZE_X, TORUS_SIZE_Z,
 } from '@entropydrop/space-engine';
 
@@ -85,7 +85,7 @@ export class HostedSimulation {
   }
 
   async step(input: any) {
-    await preloadQuickJSScriptRuntime();
+    await preloadAssemblyScriptRuntime();
     if (!Number.isInteger(input.steps) || input.steps < 1 || input.steps > 20
       || input.entities.length > 36 || input.chunks.length > 196) throw new Error('hosting_request_limit');
     this.world.editPersistence = null;
@@ -166,6 +166,7 @@ export class HostedSimulation {
         const origin = new THREE.Vector3().fromArray(item.snapshot?.constructorOrigin || item.position);
         const c = manager.buildFromSlot(slot, origin, item.snapshot ? { ...item.snapshot, serverManaged: false } : null, false);
         if (!c) throw new Error('hosting_invalid_entity');
+        await c.scriptRuntimeClient.ready();
         c.publicId = item.id;
         if (Array.isArray(item.messages)) {
           for (const message of item.messages.slice(0, 64)) c.enqueueEntityMessage?.(message);

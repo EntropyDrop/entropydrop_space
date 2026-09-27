@@ -291,7 +291,7 @@ export class ContraptionManager {
     Object.freeze(worldEntities);
 
     this.scriptWorldApi = Object.freeze({
-      apiVersion: 2,
+      apiVersion: 3,
       voxels: worldVoxels,
       microVoxels: worldMicroVoxels,
       entities: worldEntities,
@@ -2234,7 +2234,7 @@ export class ContraptionManager {
     );
 
     for (const entry of slot.scripts || []) {
-      contraption.setNodeScript(entry.id, entry.code);
+      contraption.setNodeScript(entry.id, entry.language === 'assemblyscript' ? entry.code : '');
     }
     for (const entry of slot.enabled || []) {
       contraption.setNodeScriptEnabled(entry.id, entry.enabled);

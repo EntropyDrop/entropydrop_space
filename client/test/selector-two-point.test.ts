@@ -1,3 +1,4 @@
+import { setNodeScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -728,14 +729,14 @@ test('switching entity selection clears the previous entity block highlights', (
   assert.equal(controller.selectedSubtree.contraption, b, 'selection should switch to b');
 });
 
-test('inventory copy prunes empty ghost children and scripts from a block selection', () => {
+test('inventory copy prunes empty ghost children and scripts from a block selection', async () => {
   const { contraption } = makeEntityWithChildren();
   const controller = makeSelectorController();
   const armBlocks = contraption.blocks.filter(b => (b.entityId || 'root') === 'arm');
   assert.equal(armBlocks.length, 1);
   // Attach scripts to arm and hand to verify pruning during copy.
-  contraption.setNodeScript('arm', '// arm code');
-  contraption.setNodeScript('hand', '// hand code');
+  await setNodeScript(contraption, 'arm', '// arm code');
+  await setNodeScript(contraption, 'hand', '// hand code');
   contraption.stopAllNodeScripts();
   controller.selectedBlockSelection = { contraption, nodeId: 'arm', blocks: armBlocks,
     confirmedRange: { pointA: { x: 0, y: 1, z: 0 }, pointB: { x: 0, y: 1, z: 0 } } };

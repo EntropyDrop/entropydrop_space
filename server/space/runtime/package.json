@@ -14,8 +14,8 @@
     "start": "node dist/hosting-runtime.mjs"
   },
   "dependencies": {
-    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
-    "quickjs-emscripten-core": "0.32.0"
+    "assemblyscript": "0.28.20",
+    "binaryen": "131.0.0-nightly.20260721"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

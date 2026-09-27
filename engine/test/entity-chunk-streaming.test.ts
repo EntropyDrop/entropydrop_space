@@ -1,3 +1,4 @@
+import { setScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -14,7 +15,7 @@ function streamingWorld(active = ['0,0']) {
   } as any;
 }
 
-test('entities only exist and run while their chunk is loaded', () => {
+test('entities only exist and run while their chunk is loaded', async () => {
   const scene = new THREE.Scene();
   const world = streamingWorld();
   const manager = new ContraptionManager(scene, world, null, null) as any;
@@ -28,7 +29,7 @@ test('entities only exist and run while their chunk is loaded', () => {
   original.velocity.set(1, 2, 3);
   original.angularVelocity.set(0.1, 0.2, 0.3);
   original.quaternion.setFromEuler(new THREE.Euler(0.2, 0.4, -0.1));
-  original.setScript('self.state.runs = (self.state.runs || 0) + 1;');
+  await setScript(original, 'self.state.setNumber("runs", (self.state.getNumber("runs") || 0) + 1);');
   manager.registerContraption(original);
 
   manager.update(1 / 60, null);
@@ -44,7 +45,7 @@ test('entities only exist and run while their chunk is loaded', () => {
   manager.update(1 / 60, null);
   assert.equal(manager.contraptions.length, 0, 'the off-window entity must leave every active system');
   assert.equal(manager.getDormantContraptionCount(), 1);
-  assert.equal(oldRuntime.disposed, true, 'unloading must dispose the old QuickJS Runtime client');
+  assert.equal(oldRuntime.disposed, true, 'unloading must dispose the old AssemblyScript Runtime client');
   assert.equal(scene.children.includes(original.rootGroup), false, 'unloading must dispose the old scene object');
 
   manager.update(1 / 60, null);

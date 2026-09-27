@@ -1373,6 +1373,8 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
                 target["body"].update(value)
             else:
                 target[key] = value
+        if patch.script is not None or patch.script_patch is not None:
+            target["scriptLanguage"] = "assemblyscript"
         if patch.script_patch is not None:
             current_script = target.get("script") or ""
             current_sha256 = hashlib.sha256(current_script.encode("utf-8")).hexdigest()

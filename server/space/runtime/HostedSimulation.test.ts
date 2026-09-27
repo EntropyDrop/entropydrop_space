@@ -9,6 +9,18 @@ import { HostedSimulation } from './HostedSimulation.ts';
 const SOURCE_ID = '10000000-0000-4000-8000-000000000001';
 const TARGET_ID = '10000000-0000-4000-8000-000000000002';
 
+test('hosted AssemblyScript restores typed state across transaction batches', async () => {
+  const input = inputFor('self.state.setNumber("count", self.state.getNumber("count") + 1);');
+  const first: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(first.faults, []);
+  assert.equal(first.entities[0].snapshot.states.root.count, 1);
+  input.entities[0].snapshot = first.entities[0].snapshot;
+  input.entities[0].definition_base64 = first.entities[0].definition_base64;
+  const second: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(second.faults, []);
+  assert.equal(second.entities[0].snapshot.states.root.count, 2);
+});
+
 function inputFor(script: string, steps = 1) {
   const definition = encodeInventoryResource('entity', {
     type: 'space-entity',
@@ -19,6 +31,7 @@ function inputFor(script: string, steps = 1) {
       body: { type: 'dynamic', useGravity: false },
       blocks: [{ dx: 0, dy: 0, dz: 0, block: 1, color: 123 }],
       script,
+      scriptLanguage: "assemblyscript",
       children: [],
       seats: [],
     },
@@ -45,9 +58,9 @@ function inputFor(script: string, steps = 1) {
 
 test('hosted message command ids remain unique across transaction batches', async () => {
   const input = inputFor(`
-if (self.state.last) self.state.receipt = ctx.commands.get(self.state.last);
+if (self.state.getString("last").length) self.state.set("receipt", ctx.commands.result(self.state.getString("last")));
 const queued = ctx.messages.send('${TARGET_ID}', 'chat', 'hello');
-self.state.last = queued.commandId;
+self.state.setString("last", queued.getString("commandId"));
 `);
   const simulation = new HostedSimulation(1337);
   const first: any = await simulation.step(input);
@@ -76,7 +89,7 @@ test('hosted runtime returns a rejection produced on the final simulated frame',
   const input = inputFor(`
 if (ctx.tick === 20) {
   for (let index = 0; index < 21; index++) {
-    self.state.last = ctx.messages.send('${TARGET_ID}', 'chat', 'hello');
+    self.state.set("last", ctx.messages.send('${TARGET_ID}', 'chat', 'hello'));
   }
 }
 `, 20);

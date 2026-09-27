@@ -1,3 +1,4 @@
+import { setNodeScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -35,9 +36,9 @@ function consumeForces(contraption) {
   contraption.appliedTorques.set(0, 0, 0);
 }
 
-test('disabling the root script stops execution and force application', () => {
+test('disabling the root script stops execution and force application', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('root', 'self.applyForce([0, 100, 0]);');
+  await setNodeScript(contraption, 'root', 'self.applyForce([0, 100, 0]);');
   assert.equal(contraption.isNodeScriptEnabled('root'), true, 'scripts should be enabled by default');
 
   contraption.update(1 / 60, null, {});
@@ -58,9 +59,9 @@ test('disabling the root script stops execution and force application', () => {
   assert.ok(contraption.appliedForces.y > 0, 're-enabling should resume execution');
 });
 
-test('disabling a child script stops that script and its spin', () => {
+test('disabling a child script stops that script and its spin', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('arm', 'self.setLocalSpin([0, 1, 0], 60);');
+  await setNodeScript(contraption, 'arm', 'self.setLocalSpin([0, 1, 0], 60);');
   contraption.update(1 / 60, null, {});
   const node = contraption.getEntityNode('arm');
   assert.ok(node.localAngularVelocity.length() > 0, 'an enabled component should receive spin velocity');
@@ -83,10 +84,10 @@ test('disabling a child script stops that script and its spin', () => {
   assert.ok(node.localAngularVelocity.length() > 0, 're-enabling should resume spin');
 });
 
-test('disabling a component thrust script removes spin and thrust', () => {
+test('disabling a component thrust script removes spin and thrust', async () => {
   const { contraption } = makeContraption();
   // Blade script combines spin and component thrust in an independently controlled direction.
-  contraption.setNodeScript('blade', 'self.setLocalSpin([0, 1, 0], 240); self.applyThrust([0, 300, 0]);');
+  await setNodeScript(contraption, 'blade', 'self.setLocalSpin([0, 1, 0], 240); self.applyThrust([0, 300, 0]);');
   contraption.update(1 / 60, null, {});
   const bladeNode = contraption.getEntityNode('blade');
   assert.ok(bladeNode.localAngularVelocity.length() > 0, 'enabled component should spin');
@@ -109,10 +110,10 @@ test('disabling a component thrust script removes spin and thrust', () => {
   assert.ok(contraption.appliedForces.y > 0, 're-enabled component should resume thrust');
 });
 
-test('root and child script toggles are independent', () => {
+test('root and child script toggles are independent', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('root', 'self.applyForce([0, 100, 0]);');
-  contraption.setNodeScript('arm', 'self.setLocalSpin([0, 1, 0], 60);');
+  await setNodeScript(contraption, 'root', 'self.applyForce([0, 100, 0]);');
+  await setNodeScript(contraption, 'arm', 'self.setLocalSpin([0, 1, 0], 60);');
   const node = contraption.getEntityNode('arm');
 
   // Disable root while the child keeps running.
@@ -130,12 +131,12 @@ test('root and child script toggles are independent', () => {
   assert.equal(node.localAngularVelocity.length(), 0, 'disabled arm script must not run');
 });
 
-test('component angular velocity clears whenever driving code stops', () => {
+test('component angular velocity clears whenever driving code stops', async () => {
   const { contraption } = makeContraption();
   const node = contraption.getEntityNode('arm');
 
   // A: a root-driven child must stop when the root toggle turns off.
-  contraption.setNodeScript('root', 'const b = self.child("arm"); if (b) b.setLocalSpin([0, 1, 0], 60);');
+  await setNodeScript(contraption, 'root', 'const b = self.child("arm"); if (b) b.setLocalSpin([0, 1, 0], 60);');
   contraption.update(1 / 60, null, {});
   assert.ok(node.localAngularVelocity.length() > 0, 'child should spin while root code runs');
   contraption.setNodeScriptEnabled('root', false);
@@ -148,49 +149,49 @@ test('component angular velocity clears whenever driving code stops', () => {
   contraption.setNodeScriptEnabled('root', true);
   contraption.update(1 / 60, null, {});
   assert.ok(node.localAngularVelocity.length() > 0, 'restored code should resume rotation');
-  contraption.setNodeScript('root', '');
+  await setNodeScript(contraption, 'root', '');
   contraption.update(1 / 60, null, {});
   assert.equal(node.localAngularVelocity.length(), 0, 'clearing root code must stop child rotation');
 
   // C: clearing the component's own code must stop motion.
-  contraption.setNodeScript('arm', 'self.setLocalSpin([0, 1, 0], 60);');
+  await setNodeScript(contraption, 'arm', 'self.setLocalSpin([0, 1, 0], 60);');
   contraption.update(1 / 60, null, {});
   assert.ok(node.localAngularVelocity.length() > 0, 'component should spin while its own code runs');
-  contraption.setNodeScript('arm', '');
+  await setNodeScript(contraption, 'arm', '');
   contraption.update(1 / 60, null, {});
   assert.equal(node.localAngularVelocity.length(), 0, 'clearing component code must stop rotation');
 
   // C2: compile failure must stop motion instead of retaining the old program.
-  contraption.setNodeScript('arm', 'self.setLocalSpin([0, 1, 0], 60);');
+  await setNodeScript(contraption, 'arm', 'self.setLocalSpin([0, 1, 0], 60);');
   contraption.update(1 / 60, null, {});
   assert.ok(node.localAngularVelocity.length() > 0, 'old code should be running before the failure');
-  contraption.setNodeScript('arm', 'this is !!! invalid js');
+  await setNodeScript(contraption, 'arm', 'this is !!! invalid js');
   contraption.update(1 / 60, null, {});
   assert.equal(node.localAngularVelocity.length(), 0, 'compile failure must stop rotation');
   contraption.update(1 / 60, null, {});
   assert.equal(node.localAngularVelocity.length(), 0, 'component must remain still');
-  const compiled = contraption.setNodeScript('arm', 'self.setLocalSpin([0, 1, 0], 60);');
+  const compiled = await setNodeScript(contraption, 'arm', 'self.setLocalSpin([0, 1, 0], 60);');
   assert.equal(compiled, true, 'updated code should compile successfully');
   contraption.update(1 / 60, null, {});
   assert.ok(node.localAngularVelocity.length() > 0, 'updated code should restore rotation');
 
   // D: per-frame code sustains rotation.
-  contraption.setNodeScript('arm', 'self.setLocalSpin([0, 1, 0], 60);');
+  await setNodeScript(contraption, 'arm', 'self.setLocalSpin([0, 1, 0], 60);');
   for (let i = 0; i < 5; i++) {
     contraption.update(1 / 60, null, {});
     assert.ok(node.localAngularVelocity.length() > 0, 'component should keep rotating while code runs every frame');
   }
 });
 
-test('reset all clears motion and forces while preserving code and toggles', () => {
+test('reset all clears motion and forces while preserving code and toggles', async () => {
   const { contraption } = makeContraption();
   const arm = contraption.getEntityNode('arm');
   const initialPos = arm.localPosition.clone();
   const initialQuat = arm.localQuaternion.clone();
 
   // Run code that drives force, component thrust, spin, and position.
-  contraption.setNodeScript('root', `
-    self.state.runs = (self.state.runs || 0) + 1;
+  await setNodeScript(contraption, 'root', `
+    self.state.setNumber("runs", (self.state.getNumber("runs") || 0) + 1);
     self.applyForce([0, 100, 0]);
     const b = self.child('arm');
     if (b) { b.setLocalSpin([0, 1, 0], 60); b.setLocalPosition([0, 2, 0]); }
@@ -227,10 +228,10 @@ test('reset all clears motion and forces while preserving code and toggles', () 
   assert.equal(arm.localAngularVelocity.length(), 0, 'disabled code plus reset must remain still');
 });
 
-test('enable-all and disable-all semantics are correct', () => {
+test('enable-all and disable-all semantics are correct', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('root', 'self.applyForce([0, 100, 0]);');
-  contraption.setNodeScript('arm', 'self.setLocalSpin([0, 1, 0], 60);');
+  await setNodeScript(contraption, 'root', 'self.applyForce([0, 100, 0]);');
+  await setNodeScript(contraption, 'arm', 'self.setLocalSpin([0, 1, 0], 60);');
 
   contraption.disableAllNodeScripts();
   assert.equal(contraption.isNodeScriptEnabled('root'), false);
@@ -248,13 +249,13 @@ test('enable-all and disable-all semantics are correct', () => {
   assert.ok(contraption.getEntityNode('arm').localAngularVelocity.length() > 0);
 });
 
-test('root self.stop is the global Stop action and ends the current invocation', () => {
+test('root self.stop is the global Stop action and ends the current invocation', async () => {
   const { contraption } = makeContraption();
   contraption.setBodyType(BodyType.KINEMATIC);
   const arm = contraption.getEntityNode('arm');
   const initialPosition = arm.initialLocalPosition.clone();
-  contraption.setNodeScript('arm', 'self.setLocalPosition([0, 3, 0]); self.state.ran = true;');
-  contraption.setNodeScript('root', 'self.state.before = true; self.setLocalSpin([0, 1, 0], 60); self.stop(); self.state.after = true;');
+  await setNodeScript(contraption, 'arm', 'self.setLocalPosition([0, 3, 0]); self.state.setBoolean("ran", true);');
+  await setNodeScript(contraption, 'root', 'self.state.setBoolean("before", true); self.setLocalSpin([0, 1, 0], 60); self.stop(); self.state.setBoolean("after", true);');
 
   contraption.update(0.25, null, {});
 
@@ -270,21 +271,21 @@ test('root self.stop is the global Stop action and ends the current invocation',
   assert.equal(contraption.scriptError, null, 'Stop is control flow, not a runtime error');
 });
 
-test('self.stop is root-only; child code can stop through ctx.root', () => {
+test('self.stop is root-only; child code can stop through ctx.root', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('arm', 'self.stop(); self.state.afterNoop = true;');
+  await setNodeScript(contraption, 'arm', 'self.stop(); self.state.setBoolean("afterNoop", true);');
   contraption.update(1 / 60, null, {});
   assert.equal(contraption.getComponentState('arm').afterNoop, true, 'direct child stop is a no-op');
 
-  contraption.setNodeScript('arm', 'ctx.root.stop(); self.state.afterStop = true;');
+  await setNodeScript(contraption, 'arm', 'ctx.root.stop(); self.state.setBoolean("afterStop", true);');
   contraption.update(1 / 60, null, {});
   assert.equal(contraption.scriptStatus, 'stopped');
   assert.deepEqual(contraption.getComponentState('arm'), {}, 'root Stop clears state and ends child invocation');
 });
 
-test('script time counts enabled execution, does not advance with all component code disabled, and resets on Stop', () => {
+test('script time counts enabled execution, does not advance with all component code disabled, and resets on Stop', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('root', 'self.state.time = ctx.time; self.state.tick = ctx.tick;');
+  await setNodeScript(contraption, 'root', 'self.state.setNumber("time", ctx.time); self.state.setNumber("tick", ctx.tick);');
   contraption.update(0.25, null, {});
   assert.equal(contraption.scriptRuntime, 0.25);
   assert.equal(contraption.tickCount, 1);
@@ -304,10 +305,10 @@ test('script time counts enabled execution, does not advance with all component 
   assert.equal(contraption.tickCount, 0);
 });
 
-test('a runtime error disables only the failing component', () => {
+test('a runtime error disables only the failing component', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('root', 'throw new Error("root failed");');
-  contraption.setNodeScript('arm', 'self.state.runs = (self.state.runs || 0) + 1;');
+  await setNodeScript(contraption, 'root', 'throw new Error("root failed");');
+  await setNodeScript(contraption, 'arm', 'self.state.setNumber("runs", (self.state.getNumber("runs") || 0) + 1);');
 
   contraption.update(1 / 60, null, {});
   assert.equal(contraption.scriptStatus, 'error');
@@ -319,10 +320,10 @@ test('a runtime error disables only the failing component', () => {
   assert.equal(contraption.getComponentState('arm').runs, 2, 'healthy siblings continue after another component fails');
 });
 
-test('three consecutive returned slow frames disable only that component', () => {
+test('three consecutive returned slow frames disable only that component', async () => {
   const { contraption } = makeContraption();
-  contraption.setNodeScript('root', 'self.state.runs = true;');
-  contraption.setNodeScript('arm', 'self.state.runs = true;');
+  await setNodeScript(contraption, 'root', 'self.state.setBoolean("runs", true);');
+  await setNodeScript(contraption, 'arm', 'self.state.setBoolean("runs", true);');
 
   assert.equal(contraption.recordScriptExecutionTime('arm', 5.1), false);
   assert.equal(contraption.recordScriptExecutionTime('arm', 7), false);

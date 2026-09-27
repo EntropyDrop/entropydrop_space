@@ -1,3 +1,4 @@
+import { setScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -5,7 +6,7 @@ import { BodyType, Contraption, ContraptionMode } from '@entropydrop/space-engin
 import { ContraptionPhysics } from '@entropydrop/space-engine/physics/ContraptionPhysics.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { compileBehaviorPrompt } from '../src/engine/contraption/BehaviorAgent.ts';
-import { SPACE_SCRIPT_API_V2 } from '@entropydrop/space-engine/contraption/ScriptApiContract.ts';
+import { SPACE_SCRIPT_API_V3 } from '@entropydrop/space-engine/contraption/ScriptApiContract.ts';
 
 function makeContraption() {
   return new Contraption(
@@ -24,11 +25,11 @@ test('unified self API: every component exposes the same surface (root/child)', 
   const contraption = makeContraption();
   // Unified self surface exposes common, kinematic, and rigid-body methods on one object.
   const keys = Object.keys(contraption.scriptApi).sort();
-  assert.deepEqual(keys, [...SPACE_SCRIPT_API_V2.runtimeSurfaces.self].sort());
+  assert.deepEqual(keys, [...SPACE_SCRIPT_API_V3.runtimeSurfaces.self].sort());
   for (const namespace of ['body', 'constraints', 'voxels', 'microVoxels']) {
     assert.deepEqual(
       Object.keys(contraption.scriptApi[namespace]).sort(),
-      [...SPACE_SCRIPT_API_V2.runtimeSurfaces[`self.${namespace}`]].sort(),
+      [...SPACE_SCRIPT_API_V3.runtimeSurfaces[`self.${namespace}`]].sort(),
       `${namespace} runtime surface must match the canonical API contract`
     );
   }
@@ -62,7 +63,7 @@ test('unified self API: every component exposes the same surface (root/child)', 
   assert.equal(contraption.getChildScriptApi('root'), contraption.scriptApi);
 });
 
-test('script API exposes only the self/ctx contract', () => {
+test('script API exposes only the self/ctx contract', async () => {
   const contraption = makeContraption();
   contraption.createChildEntity('root', new Set(['1,0,0']), 'arm');
 
@@ -70,7 +71,7 @@ test('script API exposes only the self/ctx contract', () => {
   assert.equal(contraption.scriptApi.clearBlock, undefined);
   assert.equal(contraption.scriptApi.extend, undefined);
 
-  contraption.setScript('self.applyForce([0, 100, 0]);');
+  await setScript(contraption, 'self.applyForce([0, 100, 0]);');
   assert.equal(contraption.compiledScript.length, 2, 'compiled controllers receive only self and ctx');
   contraption.update(1 / 60, null, {});
   assert.ok(contraption.appliedForces.y > 0);
@@ -105,10 +106,10 @@ test('ctx.limits clamps only the legacy root force surface', () => {
   );
 });
 
-test('controller force is integrated across every physics sub-step', () => {
+test('controller force is integrated across every physics sub-step', async () => {
   const contraption = makeContraption();
   const hover = compileBehaviorPrompt('hover 5 meters above the ground');
-  assert.equal(contraption.setScript(hover.code), true);
+  assert.equal(await setScript(contraption, hover.code), true);
   contraption.groundDistance = 5;
 
   contraption.update(1 / 60, {}, { gravity: [0, -18, 0], world: null });

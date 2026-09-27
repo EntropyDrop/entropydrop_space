@@ -6,7 +6,7 @@ entityAPI is the runtime interface for entity code (`self` / `ctx`); spaceAPI is
 
 `@entropydrop/space-engine` contains the TypeScript engine shared by the Space browser
 application and the backend hosting worker. It owns voxel/chunk data, terrain generation,
-meshing, torus math, entities, physics, simulation timing, the QuickJS script sandbox,
+meshing, torus math, entities, physics, simulation timing, the AssemblyScript/WASM script sandbox,
 entityAPI contracts, inventory Protobuf codecs, and their tests.
 
 The engine does not import either application repository. `SpaceStorage` and
@@ -76,6 +76,38 @@ integration tests.
 Rebuild both consumers after shared physics/script/codec changes. The optional hosting
 Docker image builds from the backend and this repository only. Hosting remains disabled
 in both applications until explicitly enabled; extracting this package does not enable it.
+
+## AssemblyScript entity controllers
+
+Entity scripts are AssemblyScript controller bodies compiled to native WebAssembly,
+with typed `self` and `ctx` SDK objects. Browser compilation runs in a dedicated
+worker; browser and hosted execution share the compiler, SDK, metering and host API.
+See the [language, API and available libraries](docs/generated/api-v2.md#assemblyscript-language-and-available-libraries).
+The existing api-v2.md URL is retained, but its entityAPI contract is V3.
+
+Guest packages from the former JavaScript environment are removed. AssemblyScript's
+standard library is available; application dependencies such as terrain simplex-noise
+are not callable guest libraries. Persistent state uses typed get/set methods.
+Legacy code without the AssemblyScript language marker loads as empty code, including
+portable files, inventory, streaming and hosting. New saves persist the marker.
+
+The editable SDK is `assembly/entity-sdk.ts`. After editing it, run:
+
+```sh
+npm run generate:script-sdk
+npm run check:script-sdk
+npm run docs:generate
+python3 tools/sync_server_contracts.py
+```
+
+Compilation permits only the embedded SDK and standard library. Final optimized WASM
+is instrumented at every function/loop entry and validated against the import allowlist.
+Every tick starts fresh WASM instances; only JSON state persists. Limits include 4 MiB
+aggregate linear memory, 16 KiB stack per invocation, 100,000 fuel units, 5 ms/component,
+25 ms/entity, 64 components, 256 commands/world reads and 64 raycasts. Failed budget or
+memory checks discard the whole tick's commands and state. Compiler source is capped
+at 64 KiB/component and compiled-module cache retention at 128 entries. The browser
+compiler worker has a 30-second timeout and a 64-request queue limit.
 
 ## Entity collision performance
 

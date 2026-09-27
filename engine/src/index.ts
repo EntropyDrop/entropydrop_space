@@ -7,7 +7,7 @@ export { ContraptionPhysics } from './physics/ContraptionPhysics.ts';
 export {
   portableEntityToRuntime, runtimeEntityToPortable, decodeInventoryResource, encodeInventoryResource,
 } from './storage/InventoryProtobuf.ts';
-export { preloadQuickJSScriptRuntime } from './scripting/QuickJSScriptWorkerCore.ts';
+export { preloadAssemblyScriptRuntime } from './scripting/AssemblyScriptRuntimeService.ts';
 export {
   wrapX, wrapZ, wrapChunkX, wrapChunkZ, unwrapPeriodicNear, TORUS_SIZE_X, TORUS_SIZE_Z,
 } from './torus/TorusWorld.ts';

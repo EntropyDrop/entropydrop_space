@@ -66,7 +66,7 @@ limit) requires regenerating the shared wire fixture: run
 ## Security-sensitive boundaries
 
 - Treat entity scripts and imported files as untrusted input.
-- Keep QuickJS memory, time, state, and command-buffer limits intact.
+- Keep AssemblyScript/WASM memory, time, state, and command-buffer limits intact.
 - Never send an Agent API key to a non-HTTPS remote endpoint.
 - Validate compressed and uncompressed sizes before allocating or decoding.
 - Keep request envelopes (`space_api.proto`) free of secrets; the opaque runtime

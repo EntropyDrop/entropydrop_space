@@ -84,7 +84,7 @@ def test_public_markdown_links_work_without_auth_and_do_not_expose_files(client)
     legacy = client.get('/space/agent/references/script-api-v2.md', follow_redirects=False)
     assert legacy.status_code == 308
     assert legacy.headers['location'] == '/space/agent/entityAPI.md'
-    assert client.get(legacy.headers['location']).text.startswith('# entityAPI V2')
+    assert client.get(legacy.headers['location']).text.startswith('# entityAPI V3')
     for name in ['.env', 'references/../../.env', '%2e%2e%2f.env', 'references/private.py', 'missing.md']:
         assert client.get('/space/agent/' + name).status_code == 404
 

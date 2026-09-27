@@ -16,7 +16,8 @@ import {
   LiaExchangeAltSolid,
   LiaShapesSolid,
   LiaBoxesSolid,
-  LiaRobotSolid
+  LiaRobotSolid,
+  LiaEyeDropperSolid
 } from 'react-icons/lia';
 import { ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
@@ -163,12 +164,22 @@ function hsvToHex(h: number, s: number, v: number) {
 function PaletteEditor() {
   const { paletteColors, selectedColorIndex, paletteEditorOpen } = useSpaceUi(state => state);
   const [activeStop, setActiveStop] = useState(0);
+  const [draggedStop, setDraggedStop] = useState<{ index: number; position: number } | null>(null);
+  const draggedStopRef = useRef<{ index: number; position: number } | null>(null);
+  const fallbackColorPickerRef = useRef<HTMLInputElement>(null);
   const entry = normalizePaletteEntry(paletteColors[selectedColorIndex]);
   const stopIndex = Math.min(activeStop, entry.stops.length - 1);
   const stop = entry.stops[stopIndex];
   const hsv = hexToHsv(stop.color);
+  const displayedStops = draggedStop
+    ? entry.stops.map((item, index) => index === draggedStop.index ? { ...item, position: draggedStop.position } : item)
+    : entry.stops;
 
-  useEffect(() => setActiveStop(0), [selectedColorIndex]);
+  useEffect(() => {
+    setActiveStop(0);
+    draggedStopRef.current = null;
+    setDraggedStop(null);
+  }, [selectedColorIndex]);
   useEffect(() => {
     if (activeStop >= entry.stops.length) setActiveStop(Math.max(0, entry.stops.length - 1));
   }, [activeStop, entry.stops.length]);
@@ -182,6 +193,48 @@ function PaletteEditor() {
     spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { color: hsvToHex(hsv.h, s, v) });
   };
 
+  const stopPositionAt = (clientX: number, rail: HTMLElement) => {
+    const rect = rail.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  };
+
+  const updateDraggedStop = (event: React.PointerEvent<HTMLButtonElement>, index: number) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    const rail = event.currentTarget.parentElement?.parentElement;
+    if (!rail) return;
+    const next = { index, position: stopPositionAt(event.clientX, rail) };
+    draggedStopRef.current = next;
+    setDraggedStop(next);
+  };
+
+  const finishDraggingStop = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const dragged = draggedStopRef.current;
+    if (!dragged) return;
+    event.stopPropagation();
+    const rail = event.currentTarget.parentElement?.parentElement;
+    const position = rail ? stopPositionAt(event.clientX, rail) : dragged.position;
+    const nextIndex = spaceUiStore.setPaletteStop(selectedColorIndex, dragged.index, { position });
+    if (nextIndex !== null && nextIndex >= 0) setActiveStop(nextIndex);
+    draggedStopRef.current = null;
+    setDraggedStop(null);
+  };
+
+  const pickScreenColor = async () => {
+    const EyeDropperConstructor = (globalThis as any).EyeDropper;
+    if (globalThis.isSecureContext && typeof EyeDropperConstructor === 'function') {
+      try {
+        const result = await new EyeDropperConstructor().open();
+        if (/^#[0-9a-f]{6}$/i.test(result?.sRGBHex)) {
+          spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { color: result.sRGBHex });
+        }
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') spaceUiStore.showToast('Could not sample a screen color');
+      }
+      return;
+    }
+    fallbackColorPickerRef.current?.click();
+  };
+
   return (
     <div className="palette-editor" role="dialog" aria-label="Palette editor">
       <div className="palette-editor-header">
@@ -191,30 +244,79 @@ function PaletteEditor() {
         </div>
         <button type="button" className="palette-editor-close" onClick={() => spaceUiStore.closeColorPicker()} aria-label="Close palette editor">×</button>
       </div>
-      <div className="palette-editor-preview" style={{ background: gradientCss(entry.stops) }} />
-      <div className="gradient-stop-rail" style={{ background: gradientCss(entry.stops) }}>
+      <div
+        className="gradient-stop-rail"
+        style={{ background: gradientCss(displayedStops) }}
+        title={entry.stops.length >= MAX_GRADIENT_STOPS ? 'Maximum of 5 stops' : 'Click to add a stop'}
+        onPointerDown={event => {
+          if (event.target !== event.currentTarget || entry.stops.length >= MAX_GRADIENT_STOPS) return;
+          const index = spaceUiStore.addPaletteStop(
+            selectedColorIndex,
+            stopPositionAt(event.clientX, event.currentTarget),
+          );
+          if (index !== null) setActiveStop(index);
+        }}
+      >
         {entry.stops.map((gradientStop, index) => (
-          <button
-            type="button"
-            key={`${gradientStop.color}:${gradientStop.position}:${index}`}
-            className={`gradient-stop-node ${index === stopIndex ? 'active' : ''}`}
-            style={{ left: `${gradientStop.position * 100}%`, background: gradientStop.color }}
-            title={`Stop ${index + 1}`}
-            onClick={() => setActiveStop(index)}
-          />
+          <div
+            key={index}
+            className={`gradient-stop-control ${index === stopIndex ? 'active' : ''}`}
+            style={{ left: `${(draggedStop?.index === index ? draggedStop.position : gradientStop.position) * 100}%` }}
+          >
+            <button
+              type="button"
+              className={`gradient-stop-node ${index === stopIndex ? 'active' : ''}`}
+              style={{ background: gradientStop.color }}
+              title={`Drag stop ${index + 1}`}
+              aria-label={`Gradient stop ${index + 1}`}
+              onPointerDown={event => {
+                event.stopPropagation();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                const rail = event.currentTarget.parentElement?.parentElement;
+                const next = {
+                  index,
+                  position: rail ? stopPositionAt(event.clientX, rail) : gradientStop.position,
+                };
+                draggedStopRef.current = next;
+                setDraggedStop(next);
+                setActiveStop(index);
+              }}
+              onPointerMove={event => updateDraggedStop(event, index)}
+              onPointerUp={finishDraggingStop}
+              onPointerCancel={() => {
+                draggedStopRef.current = null;
+                setDraggedStop(null);
+              }}
+              onKeyDown={event => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                const direction = event.key === 'ArrowLeft' ? -1 : 1;
+                const nextIndex = spaceUiStore.setPaletteStop(selectedColorIndex, index, {
+                  position: gradientStop.position + direction * 0.01,
+                });
+                if (nextIndex !== null && nextIndex >= 0) setActiveStop(nextIndex);
+              }}
+            />
+            {index > 0 ? (
+              <button
+                type="button"
+                className="gradient-stop-delete"
+                aria-label={`Delete gradient stop ${index + 1}`}
+                title={`Delete stop ${index + 1}`}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => {
+                  event.stopPropagation();
+                  spaceUiStore.removePaletteStop(selectedColorIndex, index);
+                  setActiveStop(current => current > index ? current - 1 : Math.min(current, index - 1));
+                }}
+              >×</button>
+            ) : null}
+          </div>
         ))}
       </div>
       <div className="gradient-stop-actions">
-        <button
-          type="button"
-          disabled={entry.stops.length >= MAX_GRADIENT_STOPS}
-          onClick={() => {
-            const index = spaceUiStore.addPaletteStop(selectedColorIndex);
-            if (index !== null) setActiveStop(index);
-          }}
-        >+ Add stop</button>
-        <button type="button" disabled={entry.stops.length <= 1} onClick={() => spaceUiStore.removePaletteStop(selectedColorIndex, stopIndex)}>Remove</button>
-        <span>{entry.stops.length}/{MAX_GRADIENT_STOPS}</span>
+        <span>Click the strip to add · Drag stops to position</span>
+        <span className="gradient-stop-count">{entry.stops.length}/{MAX_GRADIENT_STOPS}</span>
       </div>
       <div
         className="palette-sv-field"
@@ -242,12 +344,23 @@ function PaletteEditor() {
             }
           }} />
         </label>
-        <label className="palette-editor-field">
-          <span>Position</span>
-          <input type="range" min="0" max="100" value={Math.round(stop.position * 100)} onChange={event => {
-            spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { position: Number(event.target.value) / 100 });
-          }} />
-        </label>
+        <button
+          type="button"
+          className="palette-eyedropper"
+          onClick={pickScreenColor}
+          title="Pick a color from the screen"
+        >
+          <LiaEyeDropperSolid size={14} aria-hidden="true" />
+          Pick color
+        </button>
+        <input
+          ref={fallbackColorPickerRef}
+          className="palette-fallback-color-picker"
+          type="color"
+          value={stop.color}
+          aria-label="Choose stop color"
+          onChange={event => spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { color: event.target.value })}
+        />
       </div>
       <div className="palette-material-options" role="group" aria-label="Material">
         <span>Material</span>

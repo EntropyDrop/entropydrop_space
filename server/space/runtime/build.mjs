@@ -10,8 +10,8 @@ await build({
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  // Keep QuickJS's loader next to its WASM file in the production npm packages.
-  external: ['quickjs-emscripten-core', '@jitl/quickjs-wasmfile-release-sync'],
+  // Ship the pinned AssemblyScript compiler and Binaryen as production dependencies.
+  external: ['assemblyscript/asc', 'binaryen'],
   logLevel: 'info',
 });
 

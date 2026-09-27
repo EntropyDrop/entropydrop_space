@@ -1,3 +1,4 @@
+import { setScript, setNodeScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -87,7 +88,7 @@ test('root and world are ordinary component IDs', () => {
   }
 });
 
-test('dynamic root IDs keep world/root components distinct across scripts, constraints, physics, and slots', () => {
+test('dynamic root IDs keep world/root components distinct across scripts, constraints, physics, and slots', async () => {
   const scene = new THREE.Scene();
   const entity = new Contraption(
     1002,
@@ -120,14 +121,14 @@ test('dynamic root IDs keep world/root components distinct across scripts, const
   assert.equal(entity.constraintDefinitions.get('internal').bodyA, 'world');
   assert.equal(entity.constraintDefinitions.get('external').bodyA, null);
 
-  entity.setScript(`
-self.state.id = self.id;
-self.state.child = self.child('root').id;
+  await setScript(entity, `
+self.state.setString("id", self.id);
+self.state.setString("child", self.child('root')!.id);
 `);
-  entity.setNodeScript('root', `
-self.state.id = self.id;
-self.state.ctxRoot = ctx.root.id;
-self.state.sameNamedChild = self.child('root') !== null;
+  await setNodeScript(entity, 'root', `
+self.state.setString("id", self.id);
+self.state.setString("ctxRoot", ctx.root.id);
+self.state.setBoolean("sameNamedChild", self.child('root') !== null);
 `);
   entity.update(0.05, null, { gravity: [0, -18, 0] });
   assert.deepEqual(entity.getComponentState('world'), { id: 'world', child: 'root' });
@@ -193,9 +194,9 @@ test('child entities can recursively own blocks and move relative to their paren
   assert.equal(contraption.getCollisionWorldAABBs().length, 3);
 });
 
-test('kinematic root ignores forces while child code keeps running', () => {
+test('kinematic root ignores forces while child code keeps running', async () => {
   const scriptCode = `
-self.child('blades').setLocalSpin([0, 0, 1], 60);
+self.child('blades')!.setLocalSpin([0, 0, 1], 60);
 self.applyForce([100000, 0, 0]);
 `;
   const contraption = new Contraption(
@@ -217,6 +218,7 @@ self.applyForce([100000, 0, 0]);
   });
   const startPosition = contraption.position.clone();
   const startRotation = contraption.getEntityNode('blades').localQuaternion.clone();
+  await contraption.scriptRuntimeClient.ready();
 
   contraption.update(0.25, null, { gravity: [0, -18, 0], world: null });
   physics.update(contraption, 0.25);
@@ -373,7 +375,7 @@ test('getHierarchyTree builds complete component hierarchy and setHighlightedNod
   assert.equal(contraption.selectedNodeId, null);
 });
 
-test('per-node scripting, renaming and property inspection work as expected', () => {
+test('per-node scripting, renaming and property inspection work as expected', async () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     6,
@@ -403,8 +405,8 @@ test('per-node scripting, renaming and property inspection work as expected', ()
   assert.deepEqual(armProps.runtimeBody.quaternion, [0, 0, 0, 1]);
 
   // Test setNodeScript & execution
-  contraption.setNodeScript('root', `self.applyForce([10, 0, 0]);`);
-  contraption.setNodeScript('arm_1', `self.setLocalSpin([0, 1, 0], 60);`);
+  await setNodeScript(contraption, 'root', `self.applyForce([10, 0, 0]);`);
+  await setNodeScript(contraption, 'arm_1', `self.setLocalSpin([0, 1, 0], 60);`);
 
   assert.equal(contraption.getNodeScript('root'), `self.applyForce([10, 0, 0]);`);
   assert.equal(contraption.getNodeScript('arm_1'), `self.setLocalSpin([0, 1, 0], 60);`);
@@ -427,7 +429,7 @@ test('per-node scripting, renaming and property inspection work as expected', ()
   assert.ok(contraption.getEntityNode('robot_arm'), 'a rejected id must not mutate the hierarchy');
 
   // Verify child script updates NEVER overwrite root script
-  contraption.setNodeScript('robot_arm', `self.setLocalPosition([0, 1, 0]);`);
+  await setNodeScript(contraption, 'robot_arm', `self.setLocalPosition([0, 1, 0]);`);
   assert.equal(contraption.getNodeScript('root'), `self.applyForce([10, 0, 0]);`);
   assert.equal(contraption.getNodeScript('robot_arm'), `self.setLocalPosition([0, 1, 0]);`);
 });
@@ -600,7 +602,7 @@ test('shovel and spoon can directly modify running entities and append blocks to
   assert.ok(Math.abs(contraption.nodeHighlightGeometries.box.parameters.depth - 2.0) < 1e-6);
 });
 
-test('per-component script switches allow independent control, global all-on/off, and state persistence', () => {
+test('per-component script switches allow independent control, global all-on/off, and state persistence', async () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     11,
@@ -614,9 +616,9 @@ test('per-component script switches allow independent control, global all-on/off
   contraption.createChildEntity('root', new Set(['2,0,0']), 'rotor');
 
   // Set scripts for root, arm, and rotor
-  contraption.setNodeScript('root', `self.applyForce([0, 100, 0]);`);
-  contraption.setNodeScript('arm', `self.setLocalSpin([0, 1, 0], 60);`);
-  contraption.setNodeScript('rotor', `self.setLocalSpin([1, 0, 0], 120);`);
+  await setNodeScript(contraption, 'root', `self.applyForce([0, 100, 0]);`);
+  await setNodeScript(contraption, 'arm', `self.setLocalSpin([0, 1, 0], 60);`);
+  await setNodeScript(contraption, 'rotor', `self.setLocalSpin([1, 0, 0], 120);`);
 
   // Initial state: all enabled by default
   assert.equal(contraption.isNodeScriptEnabled('root'), true);
@@ -653,7 +655,7 @@ test('per-component script switches allow independent control, global all-on/off
   assert.equal(contraption.isNodeScriptEnabled('rotor'), false);
 
   // 4. Modifying/saving script for rotor preserves rotor's disabled state!
-  contraption.setNodeScript('rotor', `self.setLocalSpin([1, 0, 0], 360);`);
+  await setNodeScript(contraption, 'rotor', `self.setLocalSpin([1, 0, 0], 360);`);
   assert.equal(contraption.isNodeScriptEnabled('rotor'), false);
 
   // 5. Global enable all
@@ -663,7 +665,7 @@ test('per-component script switches allow independent control, global all-on/off
   assert.equal(contraption.isNodeScriptEnabled('rotor'), true);
 });
 
-test('adding blocks on a stopped contraption does not trigger tick script or component motion', () => {
+test('adding blocks on a stopped contraption does not trigger tick script or component motion', async () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     12,
@@ -676,8 +678,8 @@ test('adding blocks on a stopped contraption does not trigger tick script or com
   contraption.createChildEntity('root', new Set(['1,0,0']), 'fan');
   const fanNode = contraption.getEntityNode('fan');
 
-  contraption.setNodeScript('root', `self.applyForce([0, 500, 0]);`);
-  contraption.setNodeScript('fan', `self.setLocalSpin([0, 1, 0], 300);`);
+  await setNodeScript(contraption, 'root', `self.applyForce([0, 500, 0]);`);
+  await setNodeScript(contraption, 'fan', `self.setLocalSpin([0, 1, 0], 300);`);
 
   // Stop the contraption scripts
   contraption.stopAllNodeScripts();
@@ -738,7 +740,7 @@ test('a live block rebuild preserves runtime motion but Stop restores the borrow
   assert.deepEqual(centers, [0.5, 1.5, 2.5], 'borrowed blocks return to distinct construction cells');
 });
 
-test('V2 ctx.root plus children traverses the real hierarchy without flat ctx.children', () => {
+test('V2 ctx.root plus children traverses the real hierarchy without flat ctx.children', async () => {
   const contraption = new Contraption(
     88,
     [standardBlock(0), standardBlock(1)],
@@ -753,15 +755,19 @@ test('V2 ctx.root plus children traverses the real hierarchy without flat ctx.ch
     }
   ) as any;
 
-  contraption.setScript(`
-function walk(node, result = []) {
-  result.push({ id: node.id, parentId: node.parentId });
-  for (const child of node.children()) walk(child, result);
-  return result;
+  await setScript(contraption, `
+const nodes = Value.array();
+const pending = new Array<Component>();
+pending.push(ctx.root);
+while (pending.length) {
+  const node = pending.pop();
+  nodes.push(Value.object().setString("id", node.id).setString("parentId", node.parentId));
+  const children = node.children();
+  for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
 }
-self.state.nodes = walk(ctx.root);
-self.state.rootIsSelf = ctx.root === self;
-self.state.legacyChildren = ctx.children;
+self.state.set("nodes", nodes);
+self.state.setBoolean("rootIsSelf", ctx.root.id == self.id);
+
 `);
   contraption.update(0.25, null, { gravity: [0, -18, 0], world: null });
 
@@ -774,7 +780,7 @@ self.state.legacyChildren = ctx.children;
     'component traversal should use stable id order rather than authored sibling order'
   );
   assert.deepEqual(Object.fromEntries(state.nodes.map(node => [node.id, node.parentId])), {
-    root: null,
+    root: '',
     blade: 'root',
     tip: 'blade',
     arm: 'root'
@@ -786,7 +792,7 @@ self.state.legacyChildren = ctx.children;
   assert.equal(blade.children()[0].id, 'tip', 'children() should return direct children only');
 });
 
-test('component.applyThrust supports a custom direction independent of spin', () => {
+test('component.applyThrust supports a custom direction independent of spin', async () => {
   const contraption = new Contraption(
     89,
     [standardBlock(0), standardBlock(1), standardBlock(2)],
@@ -801,7 +807,7 @@ test('component.applyThrust supports a custom direction independent of spin', ()
   ) as any;
 
   // The wheel rolls around X and thrusts along root-local +Z without lateral X force.
-  contraption.setScript(`
+  await setScript(contraption, `
 const w = self.child('wheel');
 if (w) {
   w.setLocalSpin([1, 0, 0], 120);   // Wheel roll.
@@ -820,7 +826,7 @@ if (w) {
   );
 
   // Spin and thrust are independent, so thrust can remain while the wheel is stopped.
-  contraption.setScript(`
+  await setScript(contraption, `
 const w = self.child('wheel');
 if (w) w.applyThrust([0, 0, 30]);
 `);
@@ -829,7 +835,7 @@ if (w) w.applyThrust([0, 0, 30]);
   assert.equal(contraption.getEntityNode('wheel').localAngularVelocity.lengthSq(), 0, 'the wheel should not be rotating');
 });
 
-test('component.applyThrust has no effect on a kinematic root', () => {
+test('component.applyThrust has no effect on a kinematic root', async () => {
   const contraption = new Contraption(
     90,
     [standardBlock(0), standardBlock(1)],
@@ -842,14 +848,14 @@ test('component.applyThrust has no effect on a kinematic root', () => {
       ]
     }
   ) as any;
-  contraption.setScript(`
-self.child('thruster').applyThrust([0, 100, 0]);
+  await setScript(contraption, `
+self.child('thruster')!.applyThrust([0, 100, 0]);
 `);
   contraption.update(0.25, null, { gravity: [0, -18, 0], world: null });
   assert.equal(contraption.appliedForces.lengthSq(), 0, 'a kinematic root should receive no thrust');
 });
 
-test('applyThrust rotates from body space into world space with root orientation', () => {
+test('applyThrust rotates from body space into world space with root orientation', async () => {
   const contraption = new Contraption(
     91,
     [standardBlock(0), standardBlock(1)],
@@ -866,7 +872,7 @@ test('applyThrust rotates from body space into world space with root orientation
   contraption.quaternion.setFromEuler(new THREE.Euler(0, Math.PI / 2, 0));
   contraption.updateTransform();
 
-  contraption.setScript(`
+  await setScript(contraption, `
 const t = self.child('thruster');
 if (t) t.applyThrust([0, 0, 40]);
 `);
@@ -945,7 +951,7 @@ test('getBounds and setPivot update rotation center while blocks stay in place',
   assert.ok(Math.abs(rotatedCenter.distanceTo(pivotWorld) - 1.0) < 0.01, 'block should rotate one unit from the new pivot');
 });
 
-test('ctx.blocks reports block changes like ctx.input even when bounds do not change', () => {
+test('ctx.blocks reports block changes like ctx.input even when bounds do not change', async () => {
   const contraption = new Contraption(
     93,
     [standardBlock(0), standardBlock(1)],
@@ -962,11 +968,11 @@ test('ctx.blocks reports block changes like ctx.input even when bounds do not ch
     source: 'player',
     playerId: 'local'
   });
-  contraption.setScript(`
-self.state.p = ctx.blocks.pressed();
-self.state.pColor = ctx.blocks.pressed('color');
-self.state.pPlace = ctx.blocks.pressed('place');
-self.state.ev = ctx.blocks.event();
+  await setScript(contraption, `
+self.state.setBoolean("p", ctx.blocks.pressed());
+self.state.setBoolean("pColor", ctx.blocks.pressed('color'));
+self.state.setBoolean("pPlace", ctx.blocks.pressed('place'));
+self.state.set("ev", ctx.blocks.event());
 `);
   contraption.update(1 / 60, null, { gravity: [0, -18, 0], world: null });
   const state = contraption.getComponentState('root');
@@ -1208,16 +1214,16 @@ test('self.setSeats accepts both the position shorthand and oriented seat record
   assert.equal(Object.isFrozen(snapshot[0]), true);
   assert.equal(Object.isFrozen(snapshot[0].position), true);
 });
-test('ctx.players provides multiplayer-ready frozen id and position snapshots', () => {
+test('ctx.players provides multiplayer-ready frozen id and position snapshots', async () => {
   const contraption = new Contraption(
     99,
     [standardBlock(0), standardBlock(1)],
     new THREE.Vector3(),
     new THREE.Scene()
   ) as any;
-  contraption.setScript(`
-self.state.players = ctx.players;
-self.state.playersLen = ctx.players.length;
+  await setScript(contraption, `
+self.state.set("players", ctx.players);
+self.state.setNumber("playersLen", ctx.players.length);
 `);
 
   // No players produces an empty array.
@@ -1268,9 +1274,9 @@ self.state.playersLen = ctx.players.length;
   assert.equal(players[1].id, 'p2');
   assert.deepEqual(players[1].position, [10, 20, 30]);
   assert.equal(players[1].mass, 75, 'an explicit valid runtime mass should be preserved');
-  assert.equal(Object.isFrozen(players[0]), true, 'player records should be frozen');
-  assert.equal(Object.isFrozen(players[0].position), true, 'snapshot positions should be frozen');
-  assert.equal(Object.isFrozen(players[0].velocity), true, 'optional snapshot vectors should be frozen');
+  assert.equal(Object.isFrozen(players[0]), false, 'saving observations into state copies their data');
+  assert.equal(Object.isFrozen(players[0].position), false, 'stored positions are independent mutable copies');
+  assert.equal(Object.isFrozen(players[0].velocity), false, 'stored vectors are independent mutable copies');
 
   // Tolerate missing id or position.
   contraption.update(1 / 60, null, { gravity: [0, -18, 0], world: null, players: [{ position: [5, 6, 7], mass: -1 }] });
@@ -1279,14 +1285,14 @@ self.state.playersLen = ctx.players.length;
   assert.equal(fallback[0].mass, 50, 'invalid mass should use the fixed player default');
 });
 
-test('ctx.entityId exposes the same stable random id shown by entity queries', () => {
+test('ctx.entityId exposes the same stable random id shown by entity queries', async () => {
   const contraption = new Contraption(
     404,
     [standardBlock(0)],
     new THREE.Vector3(),
     new THREE.Scene()
   ) as any;
-  contraption.setScript('self.state.seenEntityId = ctx.entityId;');
+  await setScript(contraption, 'self.state.setString("seenEntityId", ctx.entityId);');
   contraption.update(1 / 60, null, null);
 
   assert.equal(contraption.getComponentState('root').seenEntityId, contraption.publicId);

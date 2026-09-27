@@ -1192,7 +1192,7 @@ export class Contraption {
     const noop = () => { };
 
     const api: any = {
-      apiVersion: 2,
+      apiVersion: 3,
       id,
       parentId: node.parentId,
 
@@ -1652,7 +1652,7 @@ export class Contraption {
       if (this.scriptStatus === 'running') this.setPhysicsSimulationEnabled(true);
       this.latchedScriptCommands = [];
       this.scriptError = null;
-      this.log(`[OK] [${id}] Script compiled and loaded successfully!`);
+      if (!compileResult?.pending) this.log(`[OK] [${id}] Script compiled and loaded successfully!`);
       return true;
     }
 
@@ -1670,9 +1670,13 @@ export class Contraption {
   }
 
   handleWorkerCompileResult(result) {
-    if (!result || result.ok !== false) return true;
+    if (!result || result.stale) return true;
+    if (result.ok !== false) {
+      this.log(`[OK] [${String(result.nodeId || this.rootComponentId)}] AssemblyScript compiled and loaded successfully!`);
+      return true;
+    }
     const id = String(result.nodeId || this.rootComponentId);
-    const message = result.error || 'QuickJS compile failed';
+    const message = result.error || 'AssemblyScript compile failed';
     this.compiledNodeScripts.delete(id);
     this.nodeScriptErrors.set(id, message);
     if (id === this.rootComponentId) {
@@ -2017,7 +2021,7 @@ export class Contraption {
     const scripts = [...this.nodeScripts.entries()]
       .filter(([id]) => nodeIds.has(id))
       .sort(([left], [right]) => compareComponentIds(left, right))
-      .map(([id, code]) => ({ id, code }));
+      .map(([id, code]) => ({ id, code, language: 'assemblyscript' }));
 
     const enabled = [...this.entityNodes.keys()]
       .filter(id => nodeIds.has(id))
@@ -2110,7 +2114,7 @@ export class Contraption {
     const scripts = [...this.nodeScripts.entries()]
       .filter(([id]) => nodeIds.has(id))
       .sort(([left], [right]) => compareComponentIds(left, right))
-      .map(([id, code]) => ({ id, code }));
+      .map(([id, code]) => ({ id, code, language: 'assemblyscript' }));
 
     const enabled = [...this.entityNodes.keys()]
       .filter(id => nodeIds.has(id))
@@ -2371,7 +2375,7 @@ export class Contraption {
       const sourceId = String(entry?.id || '');
       const installedId = idMap.get(sourceId);
       if (!installedId || scriptIds.has(sourceId) || typeof entry?.code !== 'string') return fail('invalid_scripts');
-      const code = remapEntityScriptChildIds(entry.code, changedChildIds);
+      const code = remapEntityScriptChildIds(entry.language === 'assemblyscript' ? entry.code : '', changedChildIds);
       if (validateEntityScriptSyntax(code)) return fail('invalid_scripts');
       scriptIds.add(sourceId);
       addedScriptBytes += new TextEncoder().encode(code).byteLength;
@@ -5438,7 +5442,7 @@ export class Contraption {
     if (!result) return;
     this.lastExecutionTimeMs = Number(result.elapsedMs) || 0;
     if (result.fatal) {
-      const message = result.error || 'QuickJS runtime failed';
+      const message = result.error || 'AssemblyScript/WASM runtime failed';
       this.scriptStatus = 'error';
       this.scriptError = message;
       this.disableAllNodeScripts();
@@ -5454,7 +5458,7 @@ export class Contraption {
 
     for (const entry of result.errors || []) {
       const nodeId = String(entry?.nodeId || this.rootComponentId);
-      const message = String(entry?.error || 'QuickJS runtime error');
+      const message = String(entry?.error || 'AssemblyScript/WASM runtime error');
       this.nodeScriptErrors.set(nodeId, message);
       this.nodeScriptEnabled.set(nodeId, false);
       if (nodeId === this.rootComponentId) this.scriptError = message;
@@ -5580,7 +5584,7 @@ export class Contraption {
     };
     const snapshot = this.buildScriptRuntimeSnapshot(dt, scheduledInput, runtimeContext, nextTime, nextTick);
     const submission = this.scriptRuntimeClient.tick(snapshot, {
-      // QuickJS runs on the page thread, but receives only this bounded host
+      // AssemblyScript/WASM runs on the page thread, but receives only this bounded host
       // callback rather than the mutable World/manager objects themselves.
       worldRaycast: runtimeContext?.world?.raycast,
       worldVoxelGet: runtimeContext?.world?.voxels?.get,

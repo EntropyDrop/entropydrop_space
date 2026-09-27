@@ -176,7 +176,7 @@ test('standalone entity build keeps the rotated Hammer ghost pose exactly', () =
       { localX: 2, localY: 0, localZ: 0, size: 1, color: 0xf2a93b, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }
     ],
     childEntities: [],
-    scripts: [{ id: 'root', code: 'self.state.started = true;' }],
+    scripts: [{ language: "assemblyscript", id: 'root', code: 'self.state.setBoolean("started", true);' }],
     enabled: [{ id: 'root', enabled: false }],
     constraints: []
   };

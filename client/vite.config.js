@@ -61,9 +61,7 @@ export default defineConfig(({ mode }) => {
     }
   },
   optimizeDeps: {
-    // The QuickJS variant resolves its WASM relative to its own module. Vite's
-    // dependency pre-bundler can strand that URL inside .vite/deps in workers.
-    exclude: ['quickjs-emscripten-core', '@jitl/quickjs-wasmfile-release-sync']
+    exclude: ['assemblyscript/asc', 'binaryen']
   },
   worker: {
     format: 'es'

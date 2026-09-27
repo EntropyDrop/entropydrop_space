@@ -3272,6 +3272,7 @@ export class SceneRenderer {
         maxSpeed: playerMotion?.maxSpeed,
         grounded: playerMotion?.grounded,
         flying: playerMotion?.flying,
+        seated: playerMotion?.seated,
         lookPitch: playerMotion?.lookPitch,
         toolUseSequence: playerMotion?.toolUseSequence
       });

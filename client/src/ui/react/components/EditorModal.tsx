@@ -265,7 +265,7 @@ export function CodeEditorModal() {
     .map((node: any) => node.id)
     .sort(compareComponentIds);
   const runtimeTitle = `Runtime: #${contraption.id} (${contraption.blocks.length} blocks) · ${String(contraption.bodyType).toUpperCase()}${childIds.length ? ` · children: ${childIds.join(', ')}` : ' · no children'}`;
-  const status = playback === 'play' ? 'running' : 'stopped';
+  const status = contraption.scriptRuntimeClient?.compiling?.size ? 'compiling' : playback === 'play' ? 'running' : 'stopped';
   const backendManaged = contraption.serverManaged === true;
   const persistenceLabel = backendManaged ? 'backend' : 'session';
   const sourceLabel = backendManaged ? 'world entity' : 'local';
@@ -309,9 +309,9 @@ export function CodeEditorModal() {
             <div className="code-tab-bar" id="code-tab-bar">{nodes.map((node: any) => {
               const code = contraption.getNodeScript(node.id);
               const enabled = contraption.isNodeScriptEnabled(node.id);
-              return <button type="button" tabIndex={-1} key={node.id} className={`code-tab ${state.selectedComponentNodeId === node.id ? 'active' : ''} ${code?.trim?.() ? 'has-script' : ''} ${enabled ? 'enabled' : 'disabled'}`} onClick={() => spaceUiStore.selectComponentTreeNode(node.id)}><span>{node.id}.js</span></button>;
+              return <button type="button" tabIndex={-1} key={node.id} className={`code-tab ${state.selectedComponentNodeId === node.id ? 'active' : ''} ${code?.trim?.() ? 'has-script' : ''} ${enabled ? 'enabled' : 'disabled'}`} onClick={() => spaceUiStore.selectComponentTreeNode(node.id)}><span>{node.id}.ts</span></button>;
             })}</div>
-            <div className="code-editor-main"><div className="code-gutter" id="code-gutter" /><textarea id="script-textarea" className="code-textarea" spellCheck={false} placeholder="// Write your controller code here..." value={state.scriptDraft} onChange={event => spaceUiStore.setScriptDraft(event.target.value)} /></div>
+            <div className="code-editor-main"><div className="code-gutter" id="code-gutter" /><textarea id="script-textarea" className="code-textarea" spellCheck={false} placeholder="// AssemblyScript controller body (self: Component, ctx: Context)" value={state.scriptDraft} onChange={event => spaceUiStore.setScriptDraft(event.target.value)} /></div>
             <div className="code-footer-hint" id="code-footer-hint"><span id="code-target-hint">Editing: {state.selectedComponentNodeId}{contraption.getEntityNode?.(state.selectedComponentNodeId)?.parentId === null ? ' (body)' : ''}</span><span id="code-api-hint" className="code-api-hint">entityAPI: self · ctx</span></div>
           </div>
           <div className="telemetry-panel">
@@ -350,8 +350,8 @@ export function ApiDocsModal() {
   return (
     <div id="api-docs-modal" className="custom-modal open" onMouseDown={event => { if (event.target === event.currentTarget) spaceUiStore.toggleApiDocs(false); }}>
       <div className="modal-content api-docs-container">
-        <div className="modal-header"><h2>📖 entityAPI V2 REFERENCE</h2><button id="close-api-docs-btn" tabIndex={-1} className="icon-btn" style={{ width: 28, height: 28, fontSize: 13 }} title="Close docs (ESC)" onClick={() => spaceUiStore.toggleApiDocs(false)}>✕</button></div>
-        <div className="modal-sub">Entity code → entityAPI (self / ctx) · Agent HTTP requests → spaceAPI · one script per component</div>
+        <div className="modal-header"><h2>📖 entityAPI V3 · ASSEMBLYSCRIPT</h2><button id="close-api-docs-btn" tabIndex={-1} className="icon-btn" style={{ width: 28, height: 28, fontSize: 13 }} title="Close docs (ESC)" onClick={() => spaceUiStore.toggleApiDocs(false)}>✕</button></div>
+        <div className="modal-sub">AssemblyScript → entityAPI (self / ctx) · Agent HTTP requests → spaceAPI · one script per component</div>
         <div className="api-docs-body" id="api-docs-body" dangerouslySetInnerHTML={{ __html: apiDocsBodyMarkup(apiOrigin) }} />
       </div>
     </div>

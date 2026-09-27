@@ -15,7 +15,7 @@ npm run build:server-runtime
 ```
 
 The runtime links `engine/` through the root workspace and bundles it into
-`server/space/runtime/dist/hosting-runtime.mjs`. QuickJS/WASM stays external;
+`server/space/runtime/dist/hosting-runtime.mjs`. The AssemblyScript compiler and Binaryen stay external;
 `deploy/Dockerfile` installs its exact production dependencies alongside the bundle.
 Use the Docker image for deployment; there is no runtime-specific lockfile.
 

@@ -16,7 +16,8 @@ async def main():
         definition = encode_inventory_resource("entity", {
             "type": "space-entity", "version": 8, "root": {"name": "Hosting smoke", "id": "root", "body": {"type": "dynamic", "useGravity": False},
                 "blocks": [{"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 123}],
-                "script": "self.state.ticks = (self.state.ticks || 0) + 1;",
+                "script": 'self.state.setNumber("ticks", self.state.getNumber("ticks") + 1);',
+                "scriptLanguage": "assemblyscript",
                 "children": [], "seats": []}, "constraints": []})
         payload = {"world_id": "smoke", "seed": 1337, "terrain_generator_version": 1, "steps": 20,
             "entities": [{"id": "smoke-entity", "running": True, "position": [80, 220, 80],

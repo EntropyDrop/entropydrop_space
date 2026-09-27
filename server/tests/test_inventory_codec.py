@@ -266,6 +266,7 @@ def test_recursive_entity_round_trip_keeps_component_local_body_script_and_seats
                 "body": {"type": "kinematic", "collisionEnabled": False},
                 "blocks": [{"dx": 1, "dy": 0, "dz": 0, "block": 1, "color": 2}],
                 "script": "self.setLocalSpin([1,0,0], 60);",
+                "scriptLanguage": "assemblyscript",
                 "scriptDisabled": True,
                 "seats": [],
                 "children": [],
@@ -589,3 +590,23 @@ def test_legacy_v7_colorsets_upgrade_to_v8_gradient_entries():
     }
     assert decode_inventory_resource(canonical) == (kind, portable)
     assert digest == inventory_content_digest(kind, portable)
+
+
+def test_legacy_scripts_clear_recursively_and_assemblyscript_round_trips():
+    resource = inventory_pb2.InventoryResource(schema_version=8)
+    resource.entity.root.id = "root"
+    resource.entity.root.script = "self.state.old = true;"
+    resource.entity.root.body.SetInParent()
+    child = resource.entity.root.children.add(id="arm")
+    child.script = "throw new Error('old');"
+    child.body.SetInParent()
+    _, portable = decode_inventory_resource(resource.SerializeToString())
+    assert portable["root"]["script"] == ""
+    assert portable["root"]["children"][0]["script"] == ""
+    assert portable["root"]["scriptLanguage"] == "assemblyscript"
+    portable["root"]["script"] = 'self.state.setNumber("n", 1);'
+    _, restored = decode_inventory_resource(encode_inventory_resource("entity", portable))
+    assert restored["root"]["script"] == portable["root"]["script"]
+    del portable["root"]["scriptLanguage"]
+    _, cleared = decode_inventory_resource(encode_inventory_resource("entity", portable))
+    assert cleared["root"]["script"] == ""

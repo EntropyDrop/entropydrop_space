@@ -57,6 +57,7 @@ export interface SpaceBuildComponentInput {
   useGravity?: boolean;
   collisionEnabled?: boolean;
   seats?: Array<[number, number, number] | {
+    /** Player/character anchor; on an upright seat, the 1.8 m avatar contacts the cushion 0.567 m above it. */
     position: [number, number, number];
     /** Rider orientation `[x,y,z,w]` in the component pivot frame; default identity. */
     rotation?: [number, number, number, number];
@@ -438,7 +439,7 @@ function runtimeSlot(plan: NormalizedSpaceBuildPlan): any {
   const children = plan.components.filter(component => component.parentId !== null);
   const scripts = plan.components
     .filter(component => typeof component.script === 'string' && component.script.length > 0)
-    .map(component => ({ id: component.id, code: component.script }));
+    .map(component => ({ id: component.id, code: component.script, language: 'assemblyscript' }));
   return Object.freeze({
     kind: 'entity',
     name: root.name ?? '',

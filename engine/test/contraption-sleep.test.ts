@@ -1,3 +1,4 @@
+import { setScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -136,14 +137,14 @@ test('airborne gravity bodies and hosts without terrain invalidation never sleep
   assert.equal(physics.isSleeping(unversioned), false);
 });
 
-test('sleeping scripts retain tick cadence and resting contacts, then wake on script force', () => {
+test('sleeping scripts retain tick cadence and resting contacts, then wake on script force', async () => {
   const { physics, add, tick } = setup(true);
   const entity = add();
-  assert.equal(entity.setScript(`
-self.state.ticks = (self.state.ticks || 0) + 1;
-self.state.contacts = ctx.contacts;
-self.state.grounded = ctx.isOnGround;
-if (self.state.kick) self.applyForce([1000, 0, 0]);
+  assert.equal(await setScript(entity, `
+self.state.setNumber("ticks", (self.state.getNumber("ticks") || 0) + 1);
+self.state.set("contacts", ctx.contacts);
+self.state.setBoolean("grounded", ctx.isOnGround);
+if (self.state.getBoolean("kick")) self.applyForce([1000, 0, 0]);
 `), true);
   tick(80);
   assert.equal(physics.isSleeping(entity), true);

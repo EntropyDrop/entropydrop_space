@@ -60,13 +60,14 @@ interface SpaceBuildComponentInput {
   useGravity?: boolean;
   collisionEnabled?: boolean;
   seats?: Array<[number, number, number] | {
+    /** Player/character anchor; on an upright seat, the 1.8 m avatar contacts the cushion 0.567 m above it. */
     position: [number, number, number];
     /** Rider orientation `[x,y,z,w]` in the component pivot frame; identity faces -Z. */
     rotation?: [number, number, number, number];
     /** Fixes the rider's body to the seat's world orientation; camera look stays free. */
     fixedOrientation?: boolean;
   }>;
-  script?: string;
+  script?: string; // AssemblyScript body; implicit typed self/ctx, no imports or wrapper
   scriptEnabled?: boolean;
 }
 
@@ -104,6 +105,8 @@ interface SpaceBuildPlanInput {
 ```
 
 `structure` plans write ordinary world voxels. `entity` plans are converted into the existing serialized Entity slot format and registered through `ContraptionManager.buildFromSlot()`.
+
+Seat positions are component-pivot-relative character/physics anchors, not cushion-top coordinates. The settled 1.8 m sitting pose keeps its torso centered over that anchor: the cushion contact plane is `+0.567 m` on local Y, so the head is `1.233 m` above the cushion. The avatar's local vertical envelope runs from about `+0.280 m` to `+1.800 m` relative to the anchor, with about `0.590 m` of clearance along local `-Z` forward and `0.333 m` behind it. For an upright seat, the camera eye remains on world Y at `+1.62 m` from the anchor, or `1.053 m` above the cushion; free look does not tilt with the seat. For a cushion whose top is at local Y `1.25`, for example, use seat Y `0.683`. Use `rotation` plus `fixedOrientation:true` when the avatar envelope must follow the vehicle rather than the rider's free camera heading.
 
 Limits are exported by `SpaceBuilder.ts`: 65,536 voxels, 256 constraints, 64 components,
 hierarchy depth 16, 64 metres per axis, 64 KiB per script, and 512 KiB of scripts per entity

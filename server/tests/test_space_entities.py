@@ -30,6 +30,7 @@ def _entity(name="External Walker"):
             "body": {"type": "dynamic", "useGravity": True},
             "blocks": [{"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 0xF2A93B}],
             "script": "self.setLocalSpin([0,1,0], 2);",
+            "scriptLanguage": "assemblyscript",
             "seats": [],
             "children": [],
         },

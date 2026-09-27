@@ -1,3 +1,4 @@
+import { setScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -199,12 +200,12 @@ test('shared selection API rejects entity internals until stopped but keeps whol
   assert.ok(stoppedBox.selected > 0);
 });
 
-test('starting an entity invalidates an internal selection and stale destructive calls are gated', () => {
+test('starting an entity invalidates an internal selection and stale destructive calls are gated', async () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, {}, null, null) as any;
   const { contraption } = makeEntityWithChildren();
   manager.registerContraption(contraption);
-  contraption.setScript('self.state.ticks = (self.state.ticks || 0) + 1;');
+  await setScript(contraption, 'self.state.setNumber("ticks", (self.state.getNumber("ticks") || 0) + 1);');
   contraption.stopAllNodeScripts();
 
   const selected = manager.scriptSelectionApi.entityBox(

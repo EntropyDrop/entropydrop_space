@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import {
+  SPACE_SCRIPT_API_V3,
   renderAgentApiReference,
   renderApiReferenceMarkdown
 } from '../engine/src/contraption/ScriptApiContract.ts';
@@ -15,7 +16,7 @@ const outputs = new Map([
   ],
   [
     `${generatedDir}agent-api-v2.md`,
-    `# entityAPI V2 — Code generation reference\n\n<!-- GENERATED from src/contraption/ScriptApiContract.ts. Do not edit by hand. -->\n\n${renderAgentApiReference(undefined, repositoryLinks)}\n`
+    `# ${SPACE_SCRIPT_API_V3.title} — Code generation reference\n\n<!-- GENERATED from src/contraption/ScriptApiContract.ts. Do not edit by hand. -->\n\n${renderAgentApiReference(undefined, repositoryLinks)}\n`
   ]
 ]);
 

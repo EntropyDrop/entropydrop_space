@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SPACE_SCRIPT_API_V2,
+  SPACE_SCRIPT_API_V3,
   renderAgentApiReference,
   renderApiReferenceHtml,
   renderApiReferenceMarkdown,
   validateScriptApiContract
 } from '../src/contraption/ScriptApiContract.ts';
 
-test('entityAPI V2 contract is valid and renders every supported view', () => {
+test('entityAPI V3 contract is valid and renders every supported view', () => {
   assert.deepEqual(validateScriptApiContract(), []);
 
   const html = renderApiReferenceHtml();
@@ -21,7 +21,11 @@ test('entityAPI V2 contract is valid and renders every supported view', () => {
     'ctx.world.voxels.set',
     'ctx.selection.createChild',
     'ctx.groundDistance',
-    'ctx.messages.received'
+    'ctx.messages.received',
+    'self.state.getNumber',
+    'AssemblyScript',
+    'Value.object()',
+    'typed SDK'
   ]) {
     assert.ok(html.includes(required), `in-game reference must contain ${required}`);
     assert.ok(markdown.includes(required), `Markdown reference must contain ${required}`);
@@ -32,8 +36,8 @@ test('entityAPI V2 contract is valid and renders every supported view', () => {
 });
 
 test('canonical runtime surfaces have unique stable keys', () => {
-  assert.equal(SPACE_SCRIPT_API_V2.version, 2);
-  for (const [surface, keys] of Object.entries(SPACE_SCRIPT_API_V2.runtimeSurfaces)) {
+  assert.equal(SPACE_SCRIPT_API_V3.version, 3);
+  for (const [surface, keys] of Object.entries(SPACE_SCRIPT_API_V3.runtimeSurfaces)) {
     assert.equal(new Set(keys).size, keys.length, `${surface} contains duplicate keys`);
     assert.ok(keys.length > 0, `${surface} cannot be empty`);
   }

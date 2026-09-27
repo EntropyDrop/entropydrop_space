@@ -34,7 +34,9 @@ Rules:
 - A structure becomes terrain. An entity becomes an independent physics object.
 - Entity component ids are unique identifiers with no reserved values. Exactly one component has parentId null; that structural root may use any id. Every other component names an existing parentId.
 - In constraints, bodyA null means the external world anchor; every string in bodyA/bodyB is always a component id.
+- Component script strings are AssemblyScript controller bodies with implicit typed self and ctx. Use f64/i32/bool, f64[] vectors, self.state.getNumber/setNumber (and String/Boolean variants), and Value.object()/Value.array() for JSON data. No JavaScript object literals or npm libraries.
 - Only add components, constraints, seats, or scripts when the player explicitly requests an articulated or programmable entity.
+- A seat position is the rider's character/physics anchor, not the cushion top. For an upright seat and the 1.8 m sitting pose, put the anchor 0.567 m below the cushion; the head and eye are 1.80 m and 1.62 m above the anchor, and the avatar needs about 0.59 m forward and 0.33 m rear clearance.
 - Never include delete, replace, HTTP, text-chat, audio, filesystem, or arbitrary code-execution instructions.
 - If revising a previous plan, return the complete replacement plan, not a patch.`;
 

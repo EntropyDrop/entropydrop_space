@@ -98,7 +98,8 @@ def _decode_component_v6(message) -> dict[str, Any]:
     if message.HasField("pivot"):
         result["pivot"] = _vector(message.pivot)
     if message.HasField("script"):
-        result["script"] = message.script
+        result["script"] = ""
+        result["scriptLanguage"] = "assemblyscript"
     if message.script_disabled:
         result["scriptDisabled"] = True
     if message.HasField("local_position"):

@@ -17,8 +17,8 @@ import {
 } from '../src/engine/contraption/AgentChat.ts';
 import { renderAgentApiReference } from '@entropydrop/space-engine/contraption/ScriptApiContract.ts';
 
-test('extractCodeBlock extracts a fenced JavaScript block', () => {
-  const content = 'Here is the controller:\n```js\nself.applyForce([0, 100, 0]);\n```\nDone.';
+test('extractCodeBlock extracts a fenced AssemblyScript block', () => {
+  const content = 'Here is the controller:\n```ts\nself.applyForce([0, 100, 0]);\n```\nDone.';
   assert.equal(extractCodeBlock(content), 'self.applyForce([0, 100, 0]);');
 });
 
@@ -31,7 +31,7 @@ test('extractCodeBlock returns null for a plain-text response', () => {
   assert.equal(extractCodeBlock('This entity is well suited for hovering.'), null);
 });
 
-test('extractCodeBlock accepts unfenced V2 self code', () => {
+test('extractCodeBlock accepts unfenced V3 self code', () => {
   assert.equal(extractCodeBlock('self.applyForce([0, 42, 0]);'), 'self.applyForce([0, 42, 0]);');
 });
 
@@ -55,7 +55,7 @@ test('runAgentTurn calls the remote model and extracts code when configured', as
     return {
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: '```js\nself.applyForce([0, 42, 0]);\n```' } }]
+        choices: [{ message: { content: '```ts\nself.applyForce([0, 42, 0]);\n```' } }]
       })
     };
   };
@@ -121,7 +121,7 @@ test('remote Agent responses with finish_reason length are accepted and parsed',
   const fakeFetch = async () => ({
     ok: true,
     json: async () => ({
-      choices: [{ finish_reason: 'length', message: { content: '```js\nself.applyForce(0, 10, 0);\n```' } }]
+      choices: [{ finish_reason: 'length', message: { content: '```ts\nself.applyForce(0, 10, 0);\n```' } }]
     })
   });
   const result = await runAgentTurn(
@@ -310,7 +310,7 @@ test('loadAgentConfig migrates legacy unconfirmed localStorage keys into this ta
 
 test('AGENT_SYSTEM_PROMPT contains the core API and generation rules', () => {
   assert.ok(AGENT_SYSTEM_PROMPT.includes(renderAgentApiReference()), 'prompt must embed the generated canonical API reference');
-  assert.ok(AGENT_SYSTEM_PROMPT.includes('Canonical entityAPI V2 contract'));
+  assert.ok(AGENT_SYSTEM_PROMPT.includes('Canonical entityAPI V3 contract'));
   assert.ok(AGENT_SYSTEM_PROMPT.includes('applyForce'));
   assert.ok(AGENT_SYSTEM_PROMPT.includes('setLocalSpin'));
   assert.ok(AGENT_SYSTEM_PROMPT.includes('groundDistance'));
@@ -323,14 +323,14 @@ test('AGENT_SYSTEM_PROMPT contains the core API and generation rules', () => {
 
 test('parseThoughtAndContent extracts explicit reasoning and handles inline <think> tags', () => {
   // Explicit reasoning from API
-  const res1 = parseThoughtAndContent('```js\nself.applyForce([0, 1, 0]);\n```', 'First compute upward force');
+  const res1 = parseThoughtAndContent('```ts\nself.applyForce([0, 1, 0]);\n```', 'First compute upward force');
   assert.equal(res1.reasoning, 'First compute upward force');
-  assert.equal(res1.content, '```js\nself.applyForce([0, 1, 0]);\n```');
+  assert.equal(res1.content, '```ts\nself.applyForce([0, 1, 0]);\n```');
 
   // Inline <think> tags
-  const res2 = parseThoughtAndContent('<think>\nI need to hover at 5m\n</think>\n```js\nself.applyForce([0, 50, 0]);\n```');
+  const res2 = parseThoughtAndContent('<think>\nI need to hover at 5m\n</think>\n```ts\nself.applyForce([0, 50, 0]);\n```');
   assert.equal(res2.reasoning, 'I need to hover at 5m');
-  assert.equal(res2.content, '```js\nself.applyForce([0, 50, 0]);\n```');
+  assert.equal(res2.content, '```ts\nself.applyForce([0, 50, 0]);\n```');
 
   // Incomplete / streaming <think> tags
   const res3 = parseThoughtAndContent('<think>\nStill reasoning about gravity');
@@ -342,7 +342,7 @@ test('callChatAgent and runAgentTurn stream SSE response chunks with reasoning',
   const ssePayload = [
     'data: {"choices":[{"delta":{"reasoning_content":"Analyze requirement"}}]}\n\n',
     'data: {"choices":[{"delta":{"reasoning_content":" and generate hover code"}}]}\n\n',
-    'data: {"choices":[{"delta":{"content":"```js\\n"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"```ts\\n"}}]}\n\n',
     'data: {"choices":[{"delta":{"content":"self.applyForce([0, 99, 0]);\\n"}}]}\n\n',
     'data: {"choices":[{"delta":{"content":"```"}}]}\n\n',
     'data: [DONE]\n\n'

@@ -1,3 +1,4 @@
+import { setScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -296,23 +297,26 @@ test('the local avatar uses seat body rotation while first-person projection use
   const view = camera.quaternion.clone();
   const body = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.2, 1.4, -0.3, 'YXZ'));
   let projectedCamera: any;
+  let characterMotion: any;
   const renderer: any = Object.assign(Object.create(SceneRenderer.prototype), {
     camera, playerAvatar: new THREE.Group(),
     playerAvatarCharacter: {
-      setHeldTool() { return false; }, update() {},
+      setHeldTool() { return false; }, update(_dt, motion) { characterMotion = motion; },
       updateFirstPersonProjection(value) { projectedCamera = value; }
     }
   });
-  renderer.updatePlayerAvatar(new THREE.Vector3(1, 2, 3), 1.4, 1 / 60, { bodyQuaternion: body });
+  renderer.updatePlayerAvatar(new THREE.Vector3(1, 2, 3), 1.4, 1 / 60, { bodyQuaternion: body, seated: true });
   assert.ok(renderer.playerAvatar.quaternion.angleTo(body) < 1e-7);
   assert.deepEqual(renderer.playerAvatar.position.toArray(), [1, 2, 3]);
   assert.ok(camera.quaternion.angleTo(view) < 1e-7);
   assert.equal(projectedCamera, camera);
+  assert.equal(characterMotion.seated, true);
   renderer.updatePlayerAvatar(new THREE.Vector3(), 0.3);
   assert.ok(renderer.playerAvatar.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.3)) < 1e-7);
 
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
   assert.match(main, /sceneRenderer\.update\(dt, playerPos, this\.controller\.bodyYaw,\s*\{\s*bodyQuaternion: this\.controller\.bodyQuaternion/);
+  assert.match(main, /seated: this\.controller\.isDriving/);
 });
 
 test('V mounts the seat nearest the aimed entity block', () => {
@@ -350,7 +354,7 @@ test('V mounts the seat nearest the aimed entity block', () => {
   assert.equal(controller.contraptions.activeDrivable, target);
 });
 
-test('entity program queries down, pressed and released by KeyboardEvent.code', () => {
+test('entity program queries down, pressed and released by KeyboardEvent.code', async () => {
   const contraption = new Contraption(
     1,
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }],
@@ -359,16 +363,17 @@ test('entity program queries down, pressed and released by KeyboardEvent.code', 
     {
       mode: ContraptionMode.PROGRAMMABLE,
       scriptCode: `
-self.state.wDown = ctx.input.down('KeyW');
-self.state.wAlias = ctx.input.down('w');
-self.state.spacePressed = ctx.input.pressed('Space');
-self.state.shiftDown = ctx.input.down('Shift');
-self.state.wReleased = ctx.input.released('KeyW');
+self.state.setBoolean("wDown", ctx.input.down('KeyW'));
+self.state.setBoolean("wAlias", ctx.input.down('w'));
+self.state.setBoolean("spacePressed", ctx.input.pressed('Space'));
+self.state.setBoolean("shiftDown", ctx.input.down('Shift'));
+self.state.setBoolean("wReleased", ctx.input.released('KeyW'));
 if (ctx.input.down('KeyW')) self.applyLocalForce([0, 0, -25]);
 `
     }
   ) as any;
 
+  await contraption.scriptRuntimeClient.ready();
   contraption.update(1 / 60, {
     down: ['KeyW', 'ShiftRight'],
     pressed: ['Space'],
@@ -391,7 +396,7 @@ if (ctx.input.down('KeyW')) self.applyLocalForce([0, 0, -25]);
   assert.equal((state as any).wDown, 'unchanged');
   assert.equal(contraption.appliedForces.lengthSq(), 0);
 
-  contraption.setScript('');
+  await setScript(contraption, '');
   assert.equal(contraption.scriptStatus, 'stopped');
 });
 

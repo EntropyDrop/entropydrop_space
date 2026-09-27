@@ -128,7 +128,7 @@ test('contraption manager saves assembled entity and restores it after simulated
       { localX: 1, localY: 0, localZ: 0, size: 0.125, color: 0x00ff00, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }
     ],
     childEntities: [],
-    scripts: [{ id: 'root', code: 'self.color = 0x123456;' }],
+    scripts: [{ language: "assemblyscript", id: 'root', code: 'self.state.setNumber("color", 0x123456);' }],
     enabled: [{ id: 'root', enabled: true }],
     constraints: []
   };
@@ -185,7 +185,7 @@ test('contraption manager saves assembled entity and restores it after simulated
   assert.equal(restored.position.x, created.position.x);
   assert.equal(restored.position.y, created.position.y);
   assert.equal(restored.position.z, created.position.z);
-  assert.equal(restored.getNodeScript('root'), 'self.color = 0x123456;');
+  assert.equal(restored.getNodeScript('root'), 'self.state.setNumber("color", 0x123456);');
   assert.ok(Math.abs(restored.quaternion.dot(created.quaternion)) > 1 - 1e-12);
   assert.deepEqual(restored.velocity.toArray(), created.velocity.toArray());
   assert.deepEqual(restored.angularVelocity.toArray(), created.angularVelocity.toArray());

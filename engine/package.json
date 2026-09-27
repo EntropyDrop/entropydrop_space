@@ -21,14 +21,16 @@
     "docs:check": "node ../tools/generate-api-docs.ts --check",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./test/setup.ts --test --test-concurrency=1 \"test/*.test.ts\"",
-    "check": "node ../tools/build-terrain-wasm.mjs --check && npm run check:protobuf && npm run check:buf && npm run docs:check && npm run typecheck && npm test"
+    "check": "npm run check:script-sdk && node ../tools/build-terrain-wasm.mjs --check && npm run check:protobuf && npm run check:buf && npm run docs:check && npm run typecheck && npm test",
+    "generate:script-sdk": "node ../tools/build-entity-script-sdk.mjs",
+    "check:script-sdk": "node ../tools/build-entity-script-sdk.mjs --check"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.14.1",
-    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "acorn": "^8.18.0",
-    "quickjs-emscripten-core": "0.32.0",
-    "simplex-noise": "^4.0.3"
+    "simplex-noise": "^4.0.3",
+    "assemblyscript": "0.28.20",
+    "binaryen": "131.0.0-nightly.20260721"
   },
   "peerDependencies": {
     "three": "^0.183.2"

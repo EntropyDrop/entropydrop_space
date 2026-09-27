@@ -664,7 +664,7 @@ async def send_hosted_entity_message(
     payload,
     idempotency_key: str | None = None,
 ) -> dict:
-    """Route a send command emitted by the trusted hosted QuickJS runtime."""
+    """Route a send command emitted by the trusted hosted AssemblyScript/WASM runtime."""
     if not await asyncio.to_thread(_hosted_source_is_active, world_id, source_id, execution_epoch):
         return {"status": "dropped", "reason": "source_inactive"}
     body = _normalize_entity_message_payload(payload, encoding)

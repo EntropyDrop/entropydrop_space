@@ -1,129 +1,54 @@
-import { parse } from 'acorn';
-import {
-  createQuickJSScriptRuntimeService,
-  isQuickJSScriptRuntimeReady,
-  preloadQuickJSScriptRuntime
-} from './QuickJSScriptWorkerCore.ts';
+import { tokenizer } from 'acorn';
+import { createAssemblyScriptRuntimeService } from './AssemblyScriptRuntimeService.ts';
 
-type WorkerResponse = {
-  requestId: number;
-  ok: boolean;
-  [key: string]: any;
-};
+type WorkerResponse = { requestId: number; ok: boolean; [key: string]: any };
 
-/** Parse only; user source is never evaluated in the page realm. */
+/** Full type checking happens in the AssemblyScript compiler when the code is saved. */
 export function validateEntityScriptSyntax(code: string): string | null {
-  try {
-    parse(`function __spaceEntityScript(self, ctx) {\n${code || ''}\n}`, {
-      ecmaVersion: 'latest',
-      sourceType: 'script',
-      allowHashBang: false
-    });
-    return null;
-  } catch (error: any) {
-    return error?.message || String(error);
-  }
+  if (new TextEncoder().encode(code).length > 64 * 1024) return 'AssemblyScript source exceeds 64 KiB';
+  try { Array.from(tokenizer(code, { ecmaVersion: 'latest' })); return null; }
+  catch (error: any) { return error.message || String(error); }
 }
 
-/**
- * Rewrite literal component lookups after a reusable component tree is merged
- * into an entity whose global component ids may already be occupied.
- *
- * Only `.child("literal-id")` calls are changed. Parsing first means comments,
- * log messages, state values, and dynamically computed ids are never touched.
- */
-export function remapEntityScriptChildIds(
-  code: string,
-  ids: ReadonlyMap<string, string> | Record<string, string>
-): string {
+/** Token-aware literal child-id rewriting also accepts AssemblyScript type annotations. */
+export function remapEntityScriptChildIds(code: string, ids: ReadonlyMap<string, string> | Record<string, string>): string {
   const source = String(code || '');
-  if (!source.trim()) return source;
   const lookup = ids instanceof Map ? ids : new Map(Object.entries(ids || {}));
-  if (lookup.size === 0) return source;
-
-  const prefix = 'function __spaceEntityScript(self, ctx) {\n';
-  const wrapped = `${prefix}${source}\n}`;
-  let ast: any;
-  try {
-    ast = parse(wrapped, {
-      ecmaVersion: 'latest',
-      sourceType: 'script',
-      allowHashBang: false
-    }) as any;
-  } catch (_) {
-    return source;
-  }
-
-  const replacements: Array<{ start: number; end: number; value: string }> = [];
-  const visit = (node: any) => {
-    if (!node || typeof node !== 'object') return;
-    if (node.type === 'CallExpression' && node.callee?.type === 'MemberExpression') {
-      const property = node.callee.property;
-      const isChildCall = node.callee.computed
-        ? property?.type === 'Literal' && property.value === 'child'
-        : property?.type === 'Identifier' && property.name === 'child';
-      const argument = node.arguments?.[0];
-      if (isChildCall && argument?.type === 'Literal' && typeof argument.value === 'string') {
-        const mapped = lookup.get(argument.value);
-        const start = Number(argument.start) - prefix.length;
-        const end = Number(argument.end) - prefix.length;
-        if (mapped && mapped !== argument.value && start >= 0 && end <= source.length) {
-          replacements.push({ start, end, value: JSON.stringify(mapped) });
-        }
-      }
+  let tokens: any[];
+  try { tokens = Array.from(tokenizer(source, { ecmaVersion: 'latest' })); } catch { return source; }
+  const replacements: { start: number; end: number; value: string }[] = [];
+  for (let i = 0; i < tokens.length - 4; i++) {
+    const [dot, name, open, arg, close] = tokens.slice(i, i + 5);
+    if (dot.type.label === '.' && name.value === 'child' && open.type.label === '(' && arg.type.label === 'string' && close.type.label === ')') {
+      const value = lookup.get(arg.value);
+      if (value && value !== arg.value) replacements.push({ start: arg.start, end: arg.end, value: JSON.stringify(value) });
     }
-    for (const [key, value] of Object.entries(node)) {
-      if (key === 'start' || key === 'end') continue;
-      if (Array.isArray(value)) value.forEach(visit);
-      else if (value && typeof value === 'object') visit(value);
-    }
-  };
-  visit(ast);
-
-  replacements.sort((a, b) => b.start - a.start);
-  let remapped = source;
-  for (const replacement of replacements) {
-    remapped = `${remapped.slice(0, replacement.start)}${replacement.value}${remapped.slice(replacement.end)}`;
   }
-  return remapped;
+  let output = source;
+  for (const r of replacements.reverse()) output = output.slice(0, r.start) + r.value + output.slice(r.end);
+  return output;
 }
 
 class EntityScriptMainThreadBroker {
-  service: ReturnType<typeof createQuickJSScriptRuntimeService> | null = null;
-  ready: Promise<ReturnType<typeof createQuickJSScriptRuntimeService>> | null = null;
+  service = createAssemblyScriptRuntimeService();
   nextRequestId = 1;
-
   request(message: Record<string, any>): WorkerResponse | Promise<WorkerResponse> {
-    const requestId = this.nextRequestId++;
-    const request = { ...message, requestId };
-    if (!this.service && isQuickJSScriptRuntimeReady()) {
-      this.service = createQuickJSScriptRuntimeService();
-    }
-    if (this.service) return this.service.handle(request);
-    if (!this.ready) {
-      this.ready = preloadQuickJSScriptRuntime().then(() => {
-        this.service ||= createQuickJSScriptRuntimeService();
-        return this.service;
-      });
-    }
-    return this.ready.then(service => service.handle(request));
+    return this.service.handle({ ...message, requestId: this.nextRequestId++ });
   }
 }
 
 const broker = new EntityScriptMainThreadBroker();
 let nextEntityRuntimeId = 1;
 
-/**
- * Page-side handle for one sandboxed QuickJS Runtime. Guest code executes
- * synchronously inside QuickJS/WASM on the page thread; it never evaluates in
- * the page's JavaScript realm and only sees explicitly registered host APIs.
- */
+/** Host handle for one entity. Source compiles asynchronously; ticks run bounded native WASM. */
 export class EntityScriptRuntimeClient {
   readonly runtimeId: string;
   inFlight = false;
   pendingResult: any = null;
   disposed = false;
   initialized = false;
+  compiling = new Map<string, number>();
+  private nextCompilation = 0;
   onCompileResult: ((result: any) => void) | null = null;
 
   constructor() {
@@ -134,6 +59,8 @@ export class EntityScriptRuntimeClient {
     if (this.disposed) return { ok: false, error: 'Runtime disposed' };
     if (!this.initialized && !code.trim()) return { ok: true, nodeId };
     this.initialized = true;
+    const revision = ++this.nextCompilation;
+    this.compiling.delete(nodeId);
     const response = broker.request({
       type: 'set-script',
       entityRuntimeId: this.runtimeId,
@@ -141,8 +68,15 @@ export class EntityScriptRuntimeClient {
       code
     });
     if (response instanceof Promise) {
-      response.then(result => this.onCompileResult?.(result)).catch(error => {
-        this.onCompileResult?.({ ok: false, nodeId, error: error.message || String(error) });
+      this.compiling.set(nodeId, revision);
+      response.then(result => {
+        if (this.compiling.get(nodeId) !== revision) return;
+        this.compiling.delete(nodeId);
+        if (!this.disposed && !result.stale) this.onCompileResult?.(result);
+      }).catch(error => {
+        if (this.compiling.get(nodeId) !== revision) return;
+        this.compiling.delete(nodeId);
+        if (!this.disposed) this.onCompileResult?.({ ok: false, nodeId, error: error.message || String(error) });
       });
       return { ok: true, pending: true };
     }
@@ -169,7 +103,11 @@ export class EntityScriptRuntimeClient {
       });
       return { submitted: true, result: null };
     }
-    return { submitted: true, result: response };
+    return response.pending ? { submitted: false, result: null } : { submitted: true, result: response };
+  }
+
+  async ready() {
+    await broker.request({ type: 'ready', entityRuntimeId: this.runtimeId });
   }
 
   takePendingResult() {
@@ -191,6 +129,7 @@ export class EntityScriptRuntimeClient {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.compiling.clear();
     if (!this.initialized) return;
     const response = broker.request({ type: 'dispose', entityRuntimeId: this.runtimeId });
     if (response instanceof Promise) response.catch(() => {});

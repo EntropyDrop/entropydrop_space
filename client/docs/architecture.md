@@ -12,7 +12,7 @@ entropydrop_website/
 ## Responsibility split
 
 - **`entropydrop_space/engine`** owns voxel/chunk data, terrain generation, meshing, torus
-  math, entities, physics, simulation timing, the QuickJS script sandbox, the entityAPI
+  math, entities, physics, simulation timing, the AssemblyScript/WASM script sandbox, the entityAPI
   contract (`src/contraption/ScriptApiContract.ts`), the inventory/backpack Protobuf codecs
   (`src/storage/InventoryProtobuf.ts`). Shared schemas live in workspace `proto/`. It does not import either
   application.

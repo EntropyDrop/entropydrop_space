@@ -8073,7 +8073,7 @@ export class PlayerController {
           };
         }),
         childEntities,
-        scripts: (item.scripts || []).map(script => ({ id: String(script.id || ''), code: String(script.code || '') })),
+        scripts: (item.scripts || []).map(script => ({ id: String(script.id || ''), code: script.language === 'assemblyscript' ? String(script.code || '') : '', language: 'assemblyscript' })),
         enabled: (item.enabled || []).map(entry => ({ id: String(entry.id || ''), enabled: entry.enabled === true })),
         constraints,
         ...(rootPivotOverride ? { rootPivotOverride } : {}),

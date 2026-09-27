@@ -26,10 +26,10 @@ export { isLocalDevelopmentHost } from '../../bootstrap/NetworkSafety.ts';
  * role/output policy and transport; the in-game reference and entityAPI code-generation
  * docs consume the same contract.
  */
-const AGENT_ROLE = `You are the component programming assistant for the "Space" voxel-physics world. Generate an entityAPI V2 controller from the player's natural-language request. entityAPI runs inside entity code with self and ctx; spaceAPI is the separate HTTP interface for Agent requests.`;
+const AGENT_ROLE = `You are the component programming assistant for the "Space" voxel-physics world. Generate an entityAPI V3 AssemblyScript controller from the player's natural-language request. entityAPI runs inside entity code with self and ctx; spaceAPI is the separate HTTP interface for Agent requests.`;
 
 const AGENT_GENERATION_RULES = `## Generation rules
-1. Output exactly one JavaScript code block wrapped in \`\`\`js and no prose outside it.
+1. Use AssemblyScript types (f64, i32, bool). self and ctx are implicit typed SDK values. State uses getNumber/setNumber/getString/setString/getBoolean/setBoolean; JSON records use Value.object()/Value.array() and typed getters/setters. No JavaScript dynamic properties, object literals, npm imports, or ctx.libs. Output exactly one AssemblyScript controller body code block wrapped in \`\`\`ts and no prose outside it.
 2. Use only the canonical APIs above. Use self.state for cross-tick values. Use ctx.deltaTime only when explicitly integrating a rate; forces and torques are already per-update commands and must not be multiplied by deltaTime.
 3. Never use unbounded loops. Avoid expensive full-tree traversal and cache known component ids when appropriate.
 4. Hover: lift = mass*abs(gravityY) + heightError*Kp - verticalVelocity*Kd, plus attitude torque.
@@ -159,12 +159,12 @@ export async function fetchAgentModels(config, fetchImpl = null) {
 }
 
 /**
- * Extract the first ```js code block from a model reply; returns null when no
+ * Extract the first ```ts / ```assemblyscript code block from a model reply; returns null when no
  * code block is present.
  */
 export function extractCodeBlock(content, options: any = {}) {
   if (!content) return null;
-  const match = content.match(/```(?:js|javascript)?\s*\n([\s\S]*?)\n```/i);
+  const match = content.match(/```(?:ts|assemblyscript|typescript)?\s*\n([\s\S]*?)\n```/i);
   if (match) return match[1].trim();
   if (options.allowUnfenced === false) return null;
   // Fallback: when there are no fences, return the whole content if it looks

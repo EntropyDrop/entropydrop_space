@@ -30,7 +30,9 @@
     "docs:generate": "node tools/generate-api-docs.ts",
     "docs:check": "node tools/generate-api-docs.ts --check",
     "check:buf": "npm run check:buf --workspace @entropydrop/space-engine",
-    "build:server-runtime": "npm run build --workspace @entropydrop/space-hosting-runtime"
+    "build:server-runtime": "npm run build --workspace @entropydrop/space-hosting-runtime",
+    "generate:script-sdk": "node tools/build-entity-script-sdk.mjs",
+    "check:script-sdk": "node tools/build-entity-script-sdk.mjs --check"
   },
   "devDependencies": {
     "assemblyscript": "0.28.20",

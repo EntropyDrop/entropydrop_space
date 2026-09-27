@@ -136,6 +136,44 @@ test('SpaceUiStore: setPaletteColor updates palette color, active build color, a
   });
 });
 
+test('SpaceUiStore gradient stops add at the clicked position, all move, and the first cannot be deleted', () => {
+  const targetIndex = 8;
+  const original = structuredClone(spaceUiStore.getSnapshot().paletteColors[targetIndex]);
+
+  try {
+    spaceUiStore.setPaletteEntry(targetIndex, {
+      stops: [
+        { color: '#000000', position: 0 },
+        { color: '#ffffff', position: 1 },
+      ],
+    });
+
+    const addedIndex = spaceUiStore.addPaletteStop(targetIndex, 0.25);
+    assert.equal(addedIndex, 1);
+    assert.equal(spaceUiStore.getSnapshot().paletteColors[targetIndex].stops[1].position, 0.25);
+
+    const movedIndex = spaceUiStore.setPaletteStop(targetIndex, 0, { position: 0.75 });
+    assert.equal(movedIndex, 1, 'the first stop can move and is re-sorted by position');
+    assert.deepEqual(
+      spaceUiStore.getSnapshot().paletteColors[targetIndex].stops.map(stop => stop.position),
+      [0.25, 0.75, 1],
+    );
+
+    const beforeProtectedDelete = structuredClone(spaceUiStore.getSnapshot().paletteColors[targetIndex].stops);
+    spaceUiStore.removePaletteStop(targetIndex, 0);
+    assert.deepEqual(
+      spaceUiStore.getSnapshot().paletteColors[targetIndex].stops,
+      beforeProtectedDelete,
+      'the leftmost stop is protected',
+    );
+
+    spaceUiStore.removePaletteStop(targetIndex, 1);
+    assert.equal(spaceUiStore.getSnapshot().paletteColors[targetIndex].stops.length, 2);
+  } finally {
+    spaceUiStore.setPaletteEntry(targetIndex, original);
+  }
+});
+
 test('isMacPlatform and getAltKeyLabel return Opt on Mac and Alt on others', () => {
   assert.equal(isMacPlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'MacIntel'), true);
   assert.equal(isMacPlatform('Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)', 'iPhone'), true);

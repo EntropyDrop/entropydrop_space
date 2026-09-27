@@ -1,3 +1,4 @@
+import { setScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -20,9 +21,9 @@ function setup() {
   return { c, player, world, pose };
 }
 
-test('replica pose preserves authored dynamic bodies, never simulates code/forces, and retains swept history', () => {
+test('replica pose preserves authored dynamic bodies, never simulates code/forces, and retains swept history', async () => {
   const { c, pose, world } = setup();
-  c.setScript('self.setState({ran:true}); self.applyForce([0,1000,0]);');
+  await setScript(c, 'self.setState({ran:true}); self.applyForce([0,1000,0]);');
   c.scriptStatus = 'running';
   const before = c.position.clone();
   c.applyReplicaBodyPoses(pose(before.x + 0.2), 0.05);

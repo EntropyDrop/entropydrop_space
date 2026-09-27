@@ -141,6 +141,8 @@ message Component {
   // Display-only, non-unique name. Empty means unnamed; UI falls back to id.
   // Names travel with subtrees and do not participate in content deduplication.
   string name = 12;
+  // Only "assemblyscript" is executable. Missing/other languages load as empty code.
+  string script_language = 13;
 }
 
 enum ConstraintType {

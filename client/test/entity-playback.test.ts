@@ -1,3 +1,4 @@
+import { setNodeScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -53,13 +54,13 @@ test('removed pause action leaves physics and scripts unchanged', () => {
   assert.equal(entity.scriptStatus, 'running');
 });
 
-test('spaceAPI reset snapshot restores child construction poses and defaults at the saved root pose', () => {
+test('spaceAPI reset snapshot restores child construction poses and defaults at the saved root pose', async () => {
   const entity: any = new Contraption(987,
     [{ localX: 0, localY: 0, localZ: 0, block: 1 }, { localX: 0, localY: 2, localZ: 0, block: 1 }],
     new THREE.Vector3(5, 30, 8), new THREE.Scene(), {
       childEntities: [{ id: 'wheel', parentId: 'root', kind: 'child', pivot: [0, 2, 0], blockKeys: [['0', '2', '0']] }],
     });
-  entity.setNodeScript('root', 'self.state.old = true;');
+  await setNodeScript(entity, 'root', 'self.state.setBoolean("old", true);');
   const mass = entity.getNodeBodyMass('root');
   entity.setNodeBodyMass('root', 999, { runtimeOnly: true });
   const position = [10, 40, 20];

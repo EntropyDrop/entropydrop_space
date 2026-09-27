@@ -1,3 +1,4 @@
+import { setNodeScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -1038,7 +1039,7 @@ test('a moving kinematic component keeps its scripted contact velocity when resp
   );
 });
 
-test('the manager blocks a script-driven kinematic component against another entity', () => {
+test('the manager blocks a script-driven kinematic component against another entity', async () => {
   const scene = new THREE.Scene();
   const world = {
     activeChunkKeys: new Set(['0,0']),
@@ -1052,7 +1053,7 @@ test('the manager blocks a script-driven kinematic component against another ent
   manager.setPhysics(new ContraptionPhysics(world));
   const reacher = makeReacher(710, 0, 4, 'arm', scene);
   const armNode = reacher.getEntityNode('arm');
-  reacher.setNodeScript(
+  await setNodeScript(reacher,
     'arm',
     `self.setLocalPosition([${armNode.localPosition.x + 0.6}, ${armNode.localPosition.y}, ${armNode.localPosition.z}]);`
   );
@@ -1088,7 +1089,7 @@ test('the manager blocks a script-driven kinematic component against another ent
   );
 });
 
-test('a fast script-driven kinematic root cannot sweep through another kinematic entity', () => {
+test('a fast script-driven kinematic root cannot sweep through another kinematic entity', async () => {
   const scene = new THREE.Scene();
   const world = {
     activeChunkKeys: new Set(['0,0']),
@@ -1108,7 +1109,7 @@ test('a fast script-driven kinematic root cannot sweep through another kinematic
     mode: ContraptionMode.PROGRAMMABLE,
     bodyType: BodyType.KINEMATIC
   });
-  mover.setNodeScript('root', 'self.setLocalPosition([10.5, 10.5, 0.5]);');
+  await setNodeScript(mover, 'root', 'self.setLocalPosition([10.5, 10.5, 0.5]);');
   manager.registerContraption(mover);
   manager.registerContraption(obstacle);
 

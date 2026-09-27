@@ -7,9 +7,6 @@ class TestWebWorker {
 
   constructor(url: URL | string, options: any = {}) {
     const workerUrl = new URL(String(url));
-    if (workerUrl.pathname.endsWith('/EntityScriptWorker.ts')) {
-      workerUrl.pathname = workerUrl.pathname.replace(/EntityScriptWorker\.ts$/, 'EntityScriptWorker.node.ts');
-    }
     const workerEnv = { ...process.env };
     delete workerEnv.NODE_TEST_CONTEXT;
     this.worker = new NodeWorker(workerUrl, {
@@ -36,18 +33,10 @@ Object.defineProperty(globalThis, 'Worker', {
   writable: true,
   value: TestWebWorker
 });
-Object.defineProperty(globalThis, '__SPACE_SCRIPT_SYNC__', {
-  configurable: true,
-  writable: false,
-  value: true
-});
-
 if (typeof (globalThis as any).ProgressEvent === 'undefined') {
   (globalThis as any).ProgressEvent = class ProgressEvent extends Event {};
 }
 
-// Production initializes QuickJS on the first programmable entity so Space's
-// entry path never waits for WASM. Tests preload once to keep synchronous unit
-// assertions deterministic after importing Contraption.
-const { preloadQuickJSScriptRuntime } = await import('../src/scripting/QuickJSScriptWorkerCore.ts');
-await preloadQuickJSScriptRuntime();
+// Preload the compiler for tests. Saves still require awaiting RuntimeClient.ready().
+const { preloadAssemblyScriptRuntime } = await import('../src/scripting/AssemblyScriptRuntimeService.ts');
+await preloadAssemblyScriptRuntime();

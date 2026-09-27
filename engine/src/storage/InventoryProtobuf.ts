@@ -428,7 +428,8 @@ function componentMessage(component: any, includeNames = true): Component {
       collisionEnabled: body.collisionEnabled === undefined ? undefined : body.collisionEnabled === true,
     },
     blocks: canonicalVoxelMessages(component?.blocks || []),
-    script: component?.script === undefined ? undefined : String(component.script),
+    script: component?.script === undefined ? undefined : (component.scriptLanguage === "assemblyscript" ? String(component.script) : ""),
+    scriptLanguage: component?.script === undefined ? "" : "assemblyscript",
     scriptDisabled: component?.scriptDisabled === true,
     seats: (component?.seats || []).map((seat: any) => ({
       position: vector3(seat.position),
@@ -480,7 +481,7 @@ function portableComponent(component: Component): any {
       ...(component.body.collisionEnabled === undefined ? {} : { collisionEnabled: component.body.collisionEnabled }),
     },
     blocks: (component.blocks || []).map(block => portableVoxel(block)),
-    ...(component.script === undefined ? {} : { script: String(component.script) }),
+    ...(component.script === undefined ? {} : { script: component.scriptLanguage === 'assemblyscript' ? String(component.script) : '', scriptLanguage: 'assemblyscript' }),
     ...(component.scriptDisabled === true ? { scriptDisabled: true } : {}),
     seats,
     children: [...(component.children || [])]
@@ -678,7 +679,7 @@ function bodyFromRuntime(source: any, fallbackType: 'dynamic' | 'kinematic'): an
 /** Convert the engine's indexed runtime representation into the recursive wire shape. */
 export function runtimeEntityToPortable(runtime: any): any {
   const definitions = Array.isArray(runtime?.childEntities) ? runtime.childEntities : [];
-  const scripts = new Map((runtime?.scripts || []).map((entry: any) => [String(entry.id), String(entry.code || '')]));
+  const scripts = new Map((runtime?.scripts || []).map((entry: any) => [String(entry.id), entry.language === 'assemblyscript' ? String(entry.code || '') : '']));
   const enabled = new Map((runtime?.enabled || []).map((entry: any) => [String(entry.id), entry.enabled === true]));
   const nodes = new Map<string, any>();
   const makeNode = (source: any, id: string, fallbackType: 'dynamic' | 'kinematic') => ({
@@ -690,7 +691,7 @@ export function runtimeEntityToPortable(runtime: any): any {
     ...(source?.anchorRotation === undefined ? {} : { anchorRotation: source.anchorRotation.map(canonicalDouble) }),
     body: bodyFromRuntime(source, fallbackType),
     blocks: [],
-    ...(scripts.has(id) ? { script: scripts.get(id) } : {}),
+    ...(scripts.has(id) ? { script: scripts.get(id), scriptLanguage: 'assemblyscript' } : {}),
     ...(scripts.has(id) && enabled.get(id) === false ? { scriptDisabled: true } : {}),
     seats: (source?.seats || []).map((seat: any) => {
       const rotation = Array.isArray(seat) ? undefined : seat.rotation;
@@ -769,7 +770,7 @@ export function portableEntityToRuntime(portable: any): any {
       blocks.push(runtimeBlock);
     }
     if (component.script !== undefined) {
-      scripts.push({ id, code: String(component.script) });
+      scripts.push({ id, code: component.scriptLanguage === 'assemblyscript' ? String(component.script) : '', language: 'assemblyscript' });
       enabled.push({ id, enabled: component.scriptDisabled !== true });
     }
     if (parentId !== null) {

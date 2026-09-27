@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createHeldVoxelTool, normalizeHeldTool, type HeldTool, type HeldVoxelToolMesh } from './HeldVoxelTool.ts';
 
-export type CuteCharacterAction = 'idle' | 'walk';
+export type CuteCharacterAction = 'idle' | 'walk' | 'sit';
 export type SkinModel = 'strong' | 'slim';
 
 type FaceName = 'right' | 'front' | 'left' | 'top' | 'bottom' | 'back';
@@ -26,6 +26,8 @@ export type CuteCharacterMotion = {
   maxSpeed?: number;
   grounded?: boolean;
   flying?: boolean;
+  /** Use the stable vehicle-riding pose; the character root remains the seat anchor. */
+  seated?: boolean;
   lookPitch?: number;
   toolUseSequence?: number;
 };
@@ -46,6 +48,12 @@ const CUTE_TARGET_SIDE_HEIGHT = CUTE_SOURCE_SIDE_ROWS * 0.55;
 const CUTE_SIDE_ROWS = Math.round(CUTE_TARGET_SIDE_HEIGHT / CUTE_X_SCALE);
 const CUTE_Y_CELL_SCALE = CUTE_X_SCALE;
 const CUTE_HALF_SIDE_HEIGHT = CUTE_SIDE_ROWS * CUTE_Y_CELL_SCALE / 2;
+// The local player is rendered at 1.8 m. At that scale the unchanged hip/torso
+// base is 0.567 m above the character root, which is also the seat anchor.
+// Keeping the torso fixed makes authored seats deterministic while the legs
+// rotate forward into a relaxed, slightly downward vehicle pose.
+const SEATED_LEG_ROTATION_X = -1.35;
+const SEATED_ARM_ROTATION_X = -0.38;
 const FIRST_PERSON_REFERENCE_FOV = 70;
 const FIRST_PERSON_REFERENCE_ASPECT = 16 / 9;
 const FIRST_PERSON_REFERENCE_TAN = Math.tan(THREE.MathUtils.degToRad(FIRST_PERSON_REFERENCE_FOV * 0.5));
@@ -505,6 +513,7 @@ export class CuteCharacter {
   private locomotionBlend = 0;
   private airborneBlend = 0;
   private flightBlend = 0;
+  private seatedBlend = 0;
   private smoothedSpeed = 0;
   private smoothedForward = 0;
   private smoothedSide = 0;
@@ -787,10 +796,11 @@ export class CuteCharacter {
     const strike = Math.sin(Math.PI * Math.max(0, (useProgress - 0.2) / 0.8));
     const useSwing = strike - windup * 0.28;
 
+    const seated = motion.seated === true;
     const speed = Math.max(0, Number(motion.speed) || 0);
     const maxSpeed = Math.max(1, Number(motion.maxSpeed) || 5);
-    const grounded = motion.grounded !== false;
-    const flying = motion.flying === true;
+    const grounded = seated || motion.grounded !== false;
+    const flying = !seated && motion.flying === true;
     if (!grounded && this.wasGrounded && !flying) {
       const gait = Math.sin(this.gaitPhase);
       this.jumpPoseDirection = Math.abs(gait) > 0.15
@@ -799,7 +809,7 @@ export class CuteCharacter {
     }
     this.wasGrounded = grounded;
     const movingAmount = THREE.MathUtils.clamp((speed - 0.08) / 0.9, 0, 1);
-    const movingTarget = grounded && !flying
+    const movingTarget = grounded && !flying && !seated
       ? movingAmount * movingAmount * (3 - 2 * movingAmount)
       : 0;
 
@@ -812,6 +822,7 @@ export class CuteCharacter {
     );
     this.airborneBlend = damp(this.airborneBlend, grounded ? 0 : 1, grounded ? 14 : 9, dt);
     this.flightBlend = damp(this.flightBlend, flying ? 1 : 0, flying ? 7 : 10, dt);
+    this.seatedBlend = damp(this.seatedBlend, seated ? 1 : 0, seated ? 16 : 10, dt);
 
     const directionDenominator = Math.max(0.05, speed);
     const targetForward = speed > 0.05
@@ -828,7 +839,7 @@ export class CuteCharacter {
       this.gaitPhase = (this.gaitPhase + dt * (4.5 + this.smoothedSpeed * 1.65)) % (Math.PI * 2);
     }
 
-    this.action = movingTarget > 0.05 ? 'walk' : 'idle';
+    this.action = seated ? 'sit' : movingTarget > 0.05 ? 'walk' : 'idle';
     const slim = this.model === 'slim';
     const armZ = 0.2;
     const blend = this.locomotionBlend;
@@ -841,7 +852,8 @@ export class CuteCharacter {
     const gait = Math.sin(this.gaitPhase);
     const stride = THREE.MathUtils.lerp(0.3, 0.62, speedRatio) * blend;
     const armSwing = stride * 0.78;
-    const idleWeight = (1 - blend) * (1 - air);
+    const seat = this.seatedBlend;
+    const idleWeight = (1 - blend) * (1 - air) * (1 - seat);
     const idleBreath = Math.sin(this.animationTime * 2.25);
     const walkBob = (0.5 - 0.5 * Math.cos(this.gaitPhase * 2)) * 0.16 * blend;
     const lookPitch = -THREE.MathUtils.clamp(Number(motion.lookPitch) || 0, -0.75, 0.75) * 0.65;
@@ -902,6 +914,20 @@ export class CuteCharacter {
       bodyYaw = THREE.MathUtils.lerp(bodyYaw, this.smoothedSide * 0.06 * flightSpeed, air * flight);
       bodyRoll = THREE.MathUtils.lerp(bodyRoll, this.smoothedSide * 0.18 * flightSpeed, air * flight);
       bodyY = THREE.MathUtils.lerp(bodyY, 8.58, air);
+    }
+
+    if (seat > 0.001) {
+      // The rig root does not move: `seats[].position` remains the documented
+      // player/character anchor. The hip stays 0.567 m above it at 1.8 m model
+      // scale, while the solid legs swing about 0.59 m toward local -Z.
+      leftArmX = THREE.MathUtils.lerp(leftArmX, SEATED_ARM_ROTATION_X, seat);
+      rightArmX = THREE.MathUtils.lerp(rightArmX, SEATED_ARM_ROTATION_X, seat);
+      leftLegX = THREE.MathUtils.lerp(leftLegX, SEATED_LEG_ROTATION_X, seat);
+      rightLegX = THREE.MathUtils.lerp(rightLegX, SEATED_LEG_ROTATION_X, seat);
+      bodyPitch = THREE.MathUtils.lerp(bodyPitch, 0, seat);
+      bodyYaw = THREE.MathUtils.lerp(bodyYaw, 0, seat);
+      bodyRoll = THREE.MathUtils.lerp(bodyRoll, 0, seat);
+      bodyY = THREE.MathUtils.lerp(bodyY, 8.5, seat);
     }
 
     setRotation(this.parts.leftArm, leftArmX, 0, armZ);

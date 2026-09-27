@@ -1,4 +1,4 @@
-# entityAPI V2
+# entityAPI V3
 
 <!-- GENERATED from src/contraption/ScriptApiContract.ts. Do not edit by hand. -->
 
@@ -7,11 +7,57 @@
 entityAPI is called by entity component code through `self` and `ctx` inside the runtime. spaceAPI is the authenticated HTTP API used by agents and clients to query or change Space. Agents may generate entityAPI code; the entity runtime executes it.
 
 Canonical contract for component scripts running with `(self, ctx)` in the Space voxel-physics world.
+## AssemblyScript language and available libraries
+
+- Write an AssemblyScript controller BODY. The compiler supplies `self: Component` and `ctx: Context`; do not add imports, exports, or a tick wrapper. Source is compiled to native WebAssembly when saved. Compilation is asynchronous; the browser uses a separate compiler worker.
+- Use explicit numeric types (`f64`, `i32`, `u32`), `bool`, `string`, and `f64[]` vectors. AssemblyScript resembles TypeScript but does not implement JavaScript dynamic objects, undefined, eval, or npm module loading.
+- Available standard library: Math/Mathf, typed arrays, Array<T>, StaticArray<T>, Map<K,V>, Set<T>, and strings. The pinned AssemblyScript compiler is 0.28.20. No third-party guest packages are currently exposed. The former gl-matrix, simplex-noise, seedrandom, tween.js, robot3, culori and ngraph namespaces, and ctx.math/spatial/random/noise/ease/control/timer helpers, have been removed.
+- Math.random() uses a deterministic seed derived from entity ID, component ID and tick. The sequence restarts from that seed each invocation; store custom PRNG state explicitly when you need another sequence.
+- Persistent state uses `self.state.getNumber/setNumber`, `getString/setString`, `getBoolean/setBoolean`, `get/set` and `setVector`. Getter defaults are 0, empty string and false; an optional fallback may be supplied. Do not write `self.state.foo`. Only state survives ticks; WASM instances and local variables are recreated each tick.
+- Records, options, snapshots, command results, contacts and messages use `Value`. Construct with `Value.object()` / `Value.array()`, set typed fields, and read with typed getters. Use `.at(i)` for array items, `.length`, `.isNull`, and `.asVector()`. A missing record is a Value with isNull=true, not a JavaScript null. child(id) is the exception: it returns Component | null.
+- Returned snapshots are read-only. Assigning one into state copies its JSON-compatible data. Prototype access, host globals, browser APIs, Node, filesystem and network are unavailable. Prefer local typed arrays for computation; each SDK access crosses the WASM/host boundary.
+- New portable components store `scriptLanguage: "assemblyscript"`; flat runtime script entries store `language: "assemblyscript"`. Loading/importing/saving unmarked or differently marked legacy scripts replaces their code with an empty string. No historical source translation is performed.
+
+**Hover controller**
+
+```ts
+const lift: f64 = ctx.mass * Math.abs(ctx.gravity[1])
+  + (5.0 - ctx.groundDistance) * 34.0 - ctx.velocity[1] * 13.0;
+self.applyForce([0, Math.max(0, lift), 0]);
+self.state.setNumber("ticks", self.state.getNumber("ticks") + 1);
+```
+
+**World edit and later result**
+
+```ts
+if (!self.state.getBoolean("placed")) {
+  const options = Value.object().setNumber("color", 0x44aaff);
+  const queued = ctx.world.voxels.set([10, 20, 30], options);
+  if (queued.getBoolean("ok")) {
+    self.state.setBoolean("placed", true);
+    self.state.setString("command", queued.getString("commandId"));
+  }
+}
+const result = ctx.commands.result(self.state.getString("command"));
+if (!result.isNull) ctx.log(result.getString("reason"));
+```
+
+**Read observations**
+
+```ts
+if (ctx.players.length > 0) {
+  const eye = ctx.players.at(0).get("position").asVector();
+  self.state.setVector("lastEye", eye);
+}
+const arm = self.child("arm");
+if (arm) arm.setLocalSpin([0, 1, 0], 60);
+```
+
 ## Defaults and coordinate conventions
 
 - Coordinates are right-handed and Y-up: +X right, +Y up, -Z forward. Euler angles use YXZ order; quaternions are `[x,y,z,w]`.
-- A component pivot starts at its own block AABB centroid and never moves automatically after block edits. Use `getBounds()` then `setPivot(bounds.center)` to recenter a kinematic body without moving its blocks.
-- Component IDs are unique across the entire entity; no string is reserved. The root is identified structurally by `parentId:null`, and a child's local position is its pivot offset in the parent pivot frame.
+- A component pivot starts at its own block AABB centroid and never moves automatically after block edits. Use `getBounds()` then `setPivot(bounds.get('center').asVector())` to recenter a kinematic body without moving its blocks.
+- Component IDs are unique across the entire entity; no string is reserved. The root is identified structurally by `parentId` equal to the empty string in the typed SDK, and a child's local position is its pivot offset in the parent pivot frame.
 - Entities have only running and stopped states. Start enables entity physics and all component scripts. Stop disables physics and scripts, clears state/time/tick/motion, resets child transforms, and restores persisted BodyConfig defaults. Individual component code switches do not create a third entity state.
 - BodyConfig defaults are type, mass, restitution, friction, gravity, and collision. Script setters are runtime-only; serialization always writes defaults.
 - Collision defaults to enabled. A disabled component remains rendered/editable but has no terrain, player, entity, or raycast shapes.
@@ -24,42 +70,34 @@ Canonical contract for component scripts running with `(self, ctx)` in the Space
 
 **Shortest wrapped delta**
 
-```js
-function wrappedDelta(from, to, size) {
+```ts
+function wrappedDelta(from: f64, to: f64, size: f64): f64 {
   return ((to - from) % size + size + size / 2) % size - size / 2;
 }
+const target: f64[] = [10, 20, 30];
 const dx = wrappedDelta(ctx.position[0], target[0], 16384);
 const dz = wrappedDelta(ctx.position[2], target[2], 2048);
+self.applyForce([dx, 0, dz]);
 ```
 
 ## Execution model
 
 - Every component script receives `(self, ctx)` once per fixed 20 Hz entity tick. `self` is the target component; root body fields in `ctx` always describe the root entity.
-- The root script runs before child scripts. All components share one frozen frame-start `ctx` snapshot; admitted commands commit after the synchronous QuickJS tick.
+- The root script runs before child scripts. All components share one frozen frame-start `ctx` snapshot; admitted commands commit after the synchronous AssemblyScript/WASM tick.
 - Entity messages arrive only while this entity is active and connected. The root script reads `ctx.messages.received`; each submitted frame consumes at most 8 messages and 16 KiB, leaving the rest in the bounded runtime inbox. Messages are ephemeral and are not queued by the service while the target is inactive or disconnected.
-- Send with `ctx.messages.send(targetId, type, payload, encoding?)`; UTF-8 is the default, `chat` requires UTF-8, and Protobuf types must include a positive version suffix such as `radar.v1`. The runtime authenticates and de-duplicates the send outside QuickJS. Check `ctx.commands.get(commandId)` on a later frame for `deliveryStatus` and any rejection reason.
+- Send with `ctx.messages.send(targetId, type, payload)` for UTF-8 or `sendBytes(targetId, type, Uint8Array)` for Protobuf; UTF-8 is the default, `chat` requires UTF-8, and Protobuf types must include a positive version suffix such as `radar.v1`. The runtime authenticates and de-duplicates the send outside AssemblyScript/WASM. Check `ctx.commands.result(commandId)` on a later frame for `deliveryStatus` and any rejection reason.
 - Each component owns `self.state`. Completed state survives chunk streaming and disabling component code; Stop clears it.
 - Queued mutation success means command-buffer admission (`reason:'queued'`), not final commit. Successful admission includes `commandId`; the main thread revalidates bounds, occupancy, and permissions and publishes the final result through `ctx.commands` on the next submitted frame.
-- Limits: 4 MiB runtime memory, 512 KiB stack, 64 components per entity, 256 commands, 256 world voxel reads, and 64 raycasts per tick, 5 ms per component invocation, 25 ms aggregate entity time, and 64 VM interrupt checkpoints.
-- A component exception disables that component. Aggregate time/checkpoint failure disables every component script and discards commands from the interrupted tick.
+- Limits: 4 MiB aggregate WASM linear-memory quota, 16 KiB stack per invocation, 1 MiB serialized state, 1 MiB host-bridge allocations per tick, 64 components per entity, 256 commands, 256 world voxel reads, and 64 raycasts per tick, 5 ms per component invocation, 25 ms aggregate entity time, and 100,000 metered WASM function/loop entries per entity tick.
+- A component exception disables that component. Aggregate time/fuel or WASM memory-trap failure disables every component script and discards commands from the interrupted tick.
 - Entities only exist and run while their wrapped root chunk is active; streaming serializes identity, hierarchy, physics, scripts, defaults, and completed state.
 
-**Send once and inspect delivery**
+**Read a message batch**
 
-```js
-if (!self.state.chatSent) {
-  const queued = ctx.messages.send(targetId, 'chat', 'hello');
-  if (queued.ok) {
-    self.state.chatSent = true;
-    self.state.chatCommandId = queued.commandId;
-  }
-}
-const result = self.state.chatCommandId
-  ? ctx.commands.get(self.state.chatCommandId)
-  : null;
-if (result && (result.deliveryStatus || result.status === 'rejected')) {
-  ctx.log('Message ' + (result.deliveryStatus || result.reason || 'rejected'));
-  self.state.chatCommandId = null;
+```ts
+for (let i = 0; i < ctx.messages.received.length; i++) {
+  const message = ctx.messages.received.at(i);
+  if (message.getString("encoding") == "utf8") ctx.log(message.getString("payload"));
 }
 ```
 
@@ -67,32 +105,259 @@ if (result && (result.deliveryStatus || result.status === 'rejected')) {
 
 | API | Type | Description |
 | --- | --- | --- |
-| `ctx.apiVersion` | number | Current entityAPI version: `2`. |
+| `ctx.apiVersion` | i32 | Current entityAPI version: `3`. |
 | `ctx.entityId` | string | Stable random ID of the current entity. |
 | `ctx.root` | ComponentAPI | Root component and entry point for recursive tree traversal. |
-| `ctx.time` | number | Seconds with at least one component script enabled; disabled code does not advance it and Stop resets it. |
-| `ctx.deltaTime` | number | Fixed entity simulation step: always `0.05` seconds (20 Hz); scripts cannot change it. |
-| `ctx.tick` | number | Executed script-frame count; disabled code does not advance it and Stop resets it. |
+| `ctx.time` | f64 | Seconds with at least one component script enabled; disabled code does not advance it and Stop resets it. |
+| `ctx.deltaTime` | f64 | Fixed entity simulation step: always `0.05` seconds (20 Hz); scripts cannot change it. |
+| `ctx.tick` | f64 | Executed script-frame count; disabled code does not advance it and Stop resets it. |
 | `ctx.position` | [x,y,z] | Root entity world position. It is continuous and does not wrap at the torus seam. |
 | `ctx.velocity` | [x,y,z] | Root world-space velocity in m/s. |
 | `ctx.rotation` | [x,y,z] | Root Euler angles in radians using YXZ order. |
 | `ctx.angularVelocity` | [x,y,z] | Root angular velocity in rad/s. |
-| `ctx.groundDistance` | number | Distance in metres to the ground below. |
-| `ctx.isOnGround` | boolean | Whether the root dynamic body was supported during the latest completed physics frame. |
-| `ctx.mass` | number | Root entity mass in kg. |
+| `ctx.groundDistance` | f64 | Distance in metres to the ground below. |
+| `ctx.isOnGround` | bool | Whether the root dynamic body was supported during the latest completed physics frame. |
+| `ctx.mass` | f64 | Root entity mass in kg. |
 | `ctx.bodyType` | string | Root body type: `'kinematic'` or `'dynamic'`. |
 | `ctx.gravity` | [x,y,z] | Current gravity vector; default `[0,-18,0]`. |
 | `ctx.limits` | object | `{maxForce,maxTorque}` for the legacy root-body force surface only. |
 | `ctx.input` | object | Keyboard edge/held-state API described below. |
 | `ctx.blocks` | object | Block-edit snapshot: `pressed(type?)` and `event()`; types are `'place'\|'remove'\|'color'\|'subdivide'`. |
-| `ctx.players` | array | Frozen player observations. `position` remains the eye-position compatibility alias; records also expose `eyePosition`, nullable `feetPosition`/`velocity`/pose and movement flags, riding IDs, `isLocal`, and fixed 50 kg mass. |
-| `ctx.driver` | object|null | Current local driver for this entity as `{playerId,componentId,seatIndex}`, or `null` when it is not mounted. |
-| `ctx.contacts` | array | Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain\|entity\|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Player contacts are one-way observations with zero impulse and never modify entity dynamics. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity. |
-| `ctx.messages.received / send(targetId,type,payload,encoding?)` | object | The root component reads a frozen inbound batch from `received`; child batches are empty. Records are `{messageId,sourceId,targetId,type,encoding,payload}`. UTF-8 payloads are strings and Protobuf payloads are frozen byte-number arrays. `send` defaults to UTF-8 and returns `{ok,queued,reason,commandId}`; use `ctx.commands.get(commandId)` later for `deliveryStatus` (`routed` or `dropped`). Payloads are limited to 4 KiB, types to 16 ASCII bytes, Protobuf types require a version suffix such as `radar.v1`, and the backend enforces 20 sends per second per source entity. |
+| `ctx.players` | Value | Frozen player observations. `position` remains the eye-position compatibility alias; records also expose `eyePosition`, nullable `feetPosition`/`velocity`/pose and movement flags, riding IDs, `isLocal`, and fixed 50 kg mass. |
+| `ctx.driver` | Value | Current local driver for this entity as `{playerId,componentId,seatIndex}`, or `null` when it is not mounted. |
+| `ctx.contacts` | Value | Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain\|entity\|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Player contacts are one-way observations with zero impulse and never modify entity dynamics. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity. |
+| `ctx.messages.received / ctx.messages.send(targetId,type,payload) / ctx.messages.sendBytes(targetId,type,bytes)` | object | The root component reads a frozen inbound batch from `received`; child batches are empty. Records are `{messageId,sourceId,targetId,type,encoding,payload}`. UTF-8 payloads are strings and Protobuf payloads are frozen byte-number arrays. `send` defaults to UTF-8 and returns `{ok,queued,reason,commandId}`; use `ctx.commands.result(commandId)` later for `deliveryStatus` (`routed` or `dropped`). Payloads are limited to 4 KiB, types to 16 ASCII bytes, Protobuf types require a version suffix such as `radar.v1`, and the backend enforces 20 sends per second per source entity. |
 | `ctx.world` | object | World query and mutation API described below. |
 | `ctx.selection` | object | Shared engine selection command API described below. |
-| `ctx.commands` | object | Final main-thread command results from the previous submitted frame: `get(commandId)` and `all()`. |
+| `ctx.commands` | object | Final main-thread command results from the previous submitted frame: `result(commandId)` and `all()`. |
 | `ctx.log(msg)` | function | Append one line to the component console. |
+
+## Complete typed SDK signatures
+
+Signatures below are generated from the compiler SDK. Component, Context, Value and the other named classes are available without imports. Generic Value.call(name,args) invokes only registered own host API methods; use Value.array() for its argument list.
+
+### Value
+
+| API | Description |
+| --- | --- |
+| `get apiVersion(): i32` | Callable SDK signature. |
+| `static object(): Value` | Callable SDK signature. |
+| `static array(): Value` | Callable SDK signature. |
+| `static number(n: f64): Value` | Callable SDK signature. |
+| `static string(s: string): Value` | Callable SDK signature. |
+| `static boolean(b: bool): Value` | Callable SDK signature. |
+| `static vector(v: f64[]): Value` | Callable SDK signature. |
+| `get isNull(): bool` | Callable SDK signature. |
+| `get length(): i32` | Callable SDK signature. |
+| `get(key: string): Value` | Callable SDK signature. |
+| `at(index: i32): Value` | Callable SDK signature. |
+| `asNumber(): f64` | Callable SDK signature. |
+| `asBoolean(): bool` | Callable SDK signature. |
+| `asString(): string` | Callable SDK signature. |
+| `asVector(): f64[]` | Callable SDK signature. |
+| `getNumber(key: string, fallback: f64 = 0): f64` | Callable SDK signature. |
+| `getString(key: string, fallback: string = ""): string` | Callable SDK signature. |
+| `getBoolean(key: string, fallback: bool = false): bool` | Callable SDK signature. |
+| `set(key: string, value: Value): Value` | Callable SDK signature. |
+| `setNumber(key: string, n: f64): Value` | Callable SDK signature. |
+| `setString(key: string, s: string): Value` | Callable SDK signature. |
+| `setBoolean(key: string, b: bool): Value` | Callable SDK signature. |
+| `setVector(key: string, v: f64[]): Value` | Callable SDK signature. |
+| `push(value: Value): Value` | Callable SDK signature. |
+| `call(name: string, args: Value = Value.array()): Value` | Callable SDK signature. |
+### State
+
+Extends Value; inherited typed data accessors are available.
+### Input
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `down(key: string): bool` | Callable SDK signature. |
+| `pressed(key: string): bool` | Callable SDK signature. |
+| `released(key: string): bool` | Callable SDK signature. |
+### Body
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `getType(): string` | Callable SDK signature. |
+| `setType(type: string): Value` | Callable SDK signature. |
+| `getMass(): f64` | Callable SDK signature. |
+| `setMass(mass: f64): Value` | Callable SDK signature. |
+| `getMaterial(): Value` | Callable SDK signature. |
+| `setMaterial(material: Value): Value` | Callable SDK signature. |
+| `getGravityEnabled(): bool` | Callable SDK signature. |
+| `setGravityEnabled(enabled: bool): Value` | Callable SDK signature. |
+| `getCollisionEnabled(): bool` | Callable SDK signature. |
+| `setCollisionEnabled(enabled: bool): Value` | Callable SDK signature. |
+| `getVelocity(): f64[]` | Callable SDK signature. |
+| `getAngularVelocity(): f64[]` | Callable SDK signature. |
+| `applyForce(v: f64[]): bool` | Callable SDK signature. |
+| `applyLocalForce(v: f64[]): bool` | Callable SDK signature. |
+| `applyTorque(v: f64[]): bool` | Callable SDK signature. |
+### Api
+
+| API | Description |
+| --- | --- |
+| `get apiVersion(): i32` | Callable SDK signature. |
+| `call(name: string, args: Value = Value.array()): Value` | Callable SDK signature. |
+### Voxels
+
+Extends Api; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `get(p: f64[]): Value` | Callable SDK signature. |
+| `set(p: f64[], options: Value = Value.object()): Value` | Callable SDK signature. |
+| `clear(p: f64[]): Value` | Callable SDK signature. |
+| `paint(p: f64[], options: Value = Value.object()): Value` | Callable SDK signature. |
+| `clearCell(p: f64[]): Value` | Callable SDK signature. |
+| `subdivide(p: f64[], offset: f64[] \| null = null): Value` | Callable SDK signature. |
+### MicroVoxels
+
+Extends Api; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `get(p: f64[], offset: f64[]): Value` | Callable SDK signature. |
+| `set(p: f64[], offset: f64[], options: Value = Value.object()): Value` | Callable SDK signature. |
+| `clear(p: f64[], offset: f64[]): Value` | Callable SDK signature. |
+| `paint(p: f64[], offset: f64[], options: Value = Value.object()): Value` | Callable SDK signature. |
+### Constraints
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `all(): Value` | Callable SDK signature. |
+| `create(options: Value): Value` | Callable SDK signature. |
+| `remove(id: string): bool` | Callable SDK signature. |
+### Component
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `get id(): string` | Callable SDK signature. |
+| `get parentId(): string` | Callable SDK signature. |
+| `get state(): State` | Callable SDK signature. |
+| `get body(): Body` | Callable SDK signature. |
+| `get constraints(): Constraints` | Callable SDK signature. |
+| `get voxels(): Voxels` | Callable SDK signature. |
+| `get microVoxels(): MicroVoxels` | Callable SDK signature. |
+| `child(id: string): Component \| null` | Callable SDK signature. |
+| `children(): Component[]` | Callable SDK signature. |
+| `stop(): void` | Callable SDK signature. |
+| `getBounds(): Value` | Callable SDK signature. |
+| `setSeats(seats: Value): void` | Callable SDK signature. |
+| `getSeats(): Value` | Callable SDK signature. |
+| `setLocalSpin(axis: f64[], rpm: f64): void` | Callable SDK signature. |
+| `applyForceAt(force: f64[], point: f64[]): void` | Callable SDK signature. |
+| `localToWorldDirection(v: f64[]): f64[]` | Callable SDK signature. |
+| `getWorldPosition(): f64[]` | Callable SDK signature. |
+| `getWorldRotation(): f64[]` | Callable SDK signature. |
+| `getPivot(): f64[]` | Callable SDK signature. |
+| `getLocalPosition(): f64[]` | Callable SDK signature. |
+| `getLocalRotation(): f64[]` | Callable SDK signature. |
+| `applyThrust(v: f64[]): void` | Callable SDK signature. |
+| `applyLocalThrust(v: f64[]): void` | Callable SDK signature. |
+| `applyForce(v: f64[]): void` | Callable SDK signature. |
+| `applyLocalForce(v: f64[]): void` | Callable SDK signature. |
+| `applyTorque(v: f64[]): void` | Callable SDK signature. |
+| `setLocalPosition(v: f64[]): void` | Callable SDK signature. |
+| `setLocalRotation(v: f64[]): void` | Callable SDK signature. |
+| `setLocalEuler(v: f64[]): void` | Callable SDK signature. |
+| `setPivot(v: f64[]): void` | Callable SDK signature. |
+### World
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `get voxels(): Voxels` | Callable SDK signature. |
+| `get microVoxels(): MicroVoxels` | Callable SDK signature. |
+| `entities(origin: f64[], radius: f64 = 16): Value` | Callable SDK signature. |
+| `entity(id: string): Value` | Callable SDK signature. |
+| `entitiesInChunk(id: string): Value` | Callable SDK signature. |
+| `raycast(origin: f64[], direction: f64[], maxDistance: f64 = 24): Value` | Callable SDK signature. |
+| `raycastWithOptions(origin: f64[], direction: f64[], options: Value): Value` | Callable SDK signature. |
+### Messages
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `get received(): Value` | Callable SDK signature. |
+| `send(target: string, type: string, payload: string): Value` | Callable SDK signature. |
+| `sendBytes(target: string, type: string, payload: Uint8Array): Value` | Callable SDK signature. |
+### CommandResults
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `result(id: string): Value` | Callable SDK signature. |
+| `all(): Value` | Callable SDK signature. |
+### Blocks
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `pressed(type: string = ""): bool` | Callable SDK signature. |
+| `event(): Value` | Callable SDK signature. |
+### Selection
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `snapshot(): Value` | Callable SDK signature. |
+| `clear(): Value` | Callable SDK signature. |
+| `cornerA(p: f64[], options: Value = Value.object()): Value` | Callable SDK signature. |
+| `cornerB(p: f64[], options: Value = Value.object()): Value` | Callable SDK signature. |
+| `box(a: f64[], b: f64[], options: Value = Value.object()): Value` | Callable SDK signature. |
+| `cells(cells: Value): Value` | Callable SDK signature. |
+| `toggle(p: f64[]): Value` | Callable SDK signature. |
+| `entity(id: string, node: string = ""): Value` | Callable SDK signature. |
+| `entityBox(id: string, node: string, a: f64[], b: f64[], space: string = "local"): Value` | Callable SDK signature. |
+| `delete(): Value` | Callable SDK signature. |
+| `assemble(mode: string = "programmable", options: Value = Value.object()): Value` | Callable SDK signature. |
+| `createChild(id: string = ""): Value` | Callable SDK signature. |
+### Context
+
+Extends Value; inherited typed data accessors are available.
+
+| API | Description |
+| --- | --- |
+| `get root(): Component` | Callable SDK signature. |
+| `get input(): Input` | Callable SDK signature. |
+| `get world(): World` | Callable SDK signature. |
+| `get messages(): Messages` | Callable SDK signature. |
+| `get commands(): CommandResults` | Callable SDK signature. |
+| `get blocks(): Blocks` | Callable SDK signature. |
+| `get selection(): Selection` | Callable SDK signature. |
+| `log(message: string): void` | Callable SDK signature. |
+| `get time(): f64` | Callable SDK signature. |
+| `get deltaTime(): f64` | Callable SDK signature. |
+| `get tick(): f64` | Callable SDK signature. |
+| `get groundDistance(): f64` | Callable SDK signature. |
+| `get mass(): f64` | Callable SDK signature. |
+| `get entityId(): string` | Callable SDK signature. |
+| `get bodyType(): string` | Callable SDK signature. |
+| `get isOnGround(): bool` | Callable SDK signature. |
+| `get position(): f64[]` | Callable SDK signature. |
+| `get velocity(): f64[]` | Callable SDK signature. |
+| `get rotation(): f64[]` | Callable SDK signature. |
+| `get angularVelocity(): f64[]` | Callable SDK signature. |
+| `get gravity(): f64[]` | Callable SDK signature. |
+| `get players(): Value` | Callable SDK signature. |
+| `get driver(): Value` | Callable SDK signature. |
+| `get contacts(): Value` | Callable SDK signature. |
+| `get limits(): Value` | Callable SDK signature. |
 
 ## Component API (self)
 
@@ -102,11 +367,11 @@ Every root and child receives the same top-level API. Namespaces target the curr
 
 | API | Description |
 | --- | --- |
-| `self.apiVersion` | Current component API version: `2`. |
-| `self.id / self.parentId` | Component ID and direct parent ID; the root has an ordinary ID and `parentId:null`. |
+| `self.apiVersion` | Current component API version: `3`. |
+| `self.id / self.parentId` | Component ID and direct parent ID; the root has an ordinary ID and `parentId` equal to the empty string in the typed SDK. |
 | `self.state` | Mutable persistent state scoped to this component and retained across completed ticks and streaming. |
 | `self.child(id)` | Look up a direct child by its ordinary ID; returns `null` when missing. |
-| `self.children()` | Return a frozen array of direct children. Recurse from `ctx.root` to traverse the tree. |
+| `self.children()` | Return a typed array of direct child handles. Recurse from `ctx.root` to traverse the tree. |
 | `self.applyThrust([x,y,z])` | Apply root-local force at this component. A child mounting offset produces torque; dynamic root only and subject to `ctx.limits`. |
 | `self.applyLocalThrust([x,y,z])` | Apply component-local force at this component. Installed anchor orientation controls its direction and an offset produces torque. |
 | `self.applyForce([x,y,z])` | Apply world-space force to the root center of mass; no effect on a kinematic root. |
@@ -118,7 +383,7 @@ Every root and child receives the same top-level API. Namespaces target the curr
 | `self.localToWorldDirection(dir)` | Convert a component-local direction to world space. |
 | `self.getPivot()` | Return the rotation pivot in entity-local coordinates. |
 | `self.getBounds()` | Return entity-local block bounds `{min,max,size,center}`, or `null` when empty. |
-| `self.setSeats(seats)` | Replace this component's pivot-relative driver seats. Each entry is `[x,y,z]` or `{position,rotation?,fixedOrientation?}`; `rotation` is a `[x,y,z,w]` rider orientation in the pivot frame (default identity, facing the component's -Z forward) and `fixedOrientation:true` makes the mounted rider's body follow the seat's solved world orientation while the camera retains unrestricted horizontal mouse look and independent pitch. Changes take effect while mounted without resetting the camera. Invalid positions or degenerate quaternions drop that seat. An entity is mountable when any component has a seat. |
+| `self.setSeats(seats)` | Replace this component's pivot-relative driver seats. Each entry is `[x,y,z]` or `{position,rotation?,fixedOrientation?}`. `position` is the character/physics anchor, not the cushion top: on an upright seat, the standard 1.8 m sitting pose contacts the cushion 0.567 m above it, placing the head 1.233 m and the world-Y camera eye 1.053 m above the cushion, and needs about 0.33 m behind plus 0.59 m forward clearance. `rotation` is a `[x,y,z,w]` rider orientation in the pivot frame (default identity, facing the component's -Z forward); `fixedOrientation:true` makes the mounted rider's body and sitting clearances follow the seat's solved world orientation while the camera retains unrestricted horizontal mouse look and independent pitch. Changes take effect while mounted without resetting the camera. Invalid positions or degenerate quaternions drop that seat. An entity is mountable when any component has a seat. |
 | `self.getSeats()` | Return this component's pivot-relative driver seats as `{position,rotation,fixedOrientation}` records. |
 | `self.voxels.set(position, options?)` | Queue one pivot-relative standard voxel placement. `options.materialId` is `0` (default) or `1` (emissive); returns `{ok,placed,reason}`. |
 | `self.voxels.clear(position)` | Queue removal of one standard voxel; returns `{ok,removed,reason}`. |
@@ -131,7 +396,7 @@ Every root and child receives the same top-level API. Namespaces target the curr
 
 > Component voxel cells are measured from the current pivot, not the entity corner. Fractional cell coordinates floor after applying the pivot.
 
-> All voxel changes are queued and action-specific. Check `result.ok` and `result.reason`; entity bounds are capped at 256×256×256.
+> All voxel changes are queued and action-specific. Check `result.getBoolean("ok")` and `result.getString("reason")`; entity bounds are capped at 256×256×256.
 
 > Removing an entity's final voxel deletes the entity, scripts, and state.
 ### Kinematics
@@ -161,7 +426,7 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 | `self.body.applyLocalForce(force)` | Apply body-local force to this dynamic component body; returns boolean. |
 | `self.body.applyTorque(torque)` | Apply world torque to this dynamic component body; returns boolean. |
 | `self.constraints.all()` | Return a frozen snapshot of constraints connected to this component. |
-| `self.constraints.create({id?,type,bodyA?,anchorA?,anchorB?,axisA?,axisB?,limits?,stiffness?,collideConnected?})` | Queue a `point`, `hinge`, or `weld`; `bodyA:null` denotes the external world and an omitted `bodyA` uses the structural parent (or external world for the root). Immediate Worker success is provisional `{ok:true,id:null,reason:'queued'}`. Supply an explicit ID for later lookup. Stiffness defaults to 0.9, `collideConnected` to false, omitted anchors use pivots, and hinge limits are radians. |
+| `self.constraints.create(options: Value)` | Queue a `point`, `hinge`, or `weld`; `bodyA:null` denotes the external world and an omitted `bodyA` uses the structural parent (or external world for the root). Immediate Worker success is provisional `{ok:true,id:null,reason:'queued'}`. Supply an explicit ID for later lookup. Stiffness defaults to 0.9, `collideConnected` to false, omitted anchors use pivots, and hinge limits are radians. |
 | `self.constraints.remove(id)` | Queue removal of one constraint; returns boolean. |
 | `self.stop()` | Root-only global Stop: disable entity physics and scripts, clear state/time/tick/motion, reset child poses, and restore persisted BodyConfig defaults. Collision and selection shapes remain active. Child code must call `ctx.root.stop()`. |
 
@@ -175,7 +440,7 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 
 | API | Description |
 | --- | --- |
-| `ctx.world.apiVersion` | Current world API version: `2`. |
+| `ctx.world.apiVersion` | Current world API version: `3`. |
 | `ctx.world.voxels.get(position)` | Read a real standard world voxel as `{block,color,materialId}` plus the current tick's admitted-write overlay; maximum 256 combined standard/micro host reads per entity tick. |
 | `ctx.world.voxels.set(position, options?)` | Queue a standard placement; `options.materialId` is `0` (default) or `1` (emissive), and the admitted result is provisional `{ok:true,placed:1,reason:'queued'}`. |
 | `ctx.world.voxels.clear(position)` | Queue removal of one standard voxel without deleting micro voxels in its cell. |
@@ -187,10 +452,10 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 | `ctx.world.microVoxels.clear(cell, offset)` | Queue removal of one exact 0.125 m world voxel. |
 | `ctx.world.microVoxels.paint(cell, offset, options?)` | Queue color and optional `materialId` changes on one existing micro world voxel. |
 | `ctx.world.entities(origin, radius=16)` | Filter the prefetched 64 m nearby-entity snapshot using shortest wrapped X/Z distance. Descriptors include pose, velocities, mass, bounds, collision/ground state, physics enabled state, script status, and component count. |
-| `ctx.world.entities.get(id, chunkId?)` | Look up an entity in the frozen nearby snapshot. |
-| `ctx.world.entities.list(chunkId) / inChunk(chunkId)` | Filter nearby entities by wrapped chunk ID `"cx,cz"`. |
+| `ctx.world.entity(id: string)` | Look up an entity in the frozen nearby snapshot. |
+| `ctx.world.entitiesInChunk(chunkId: string)` | Filter nearby entities by wrapped chunk ID `"cx,cz"`. |
 | `ctx.world.raycast(origin, direction, maxDistance=24)` | Compatibility form: bounded synchronous standard-world-voxel raycast. |
-| `ctx.world.raycast(origin, direction, {maxDistance=24,include='world',voxelKinds=['standard'],space='world'})` | Full existing engine raycast over standard/micro world voxels and/or entities. Returns normalized kind, voxelKind, IDs, block/color, normal, position, and distance; maximum 64 calls per entity tick. |
+| `ctx.world.raycastWithOptions(origin: f64[], direction: f64[], options: Value)` | Full existing engine raycast over standard/micro world voxels and/or entities. Returns normalized kind, voxelKind, IDs, block/color, normal, position, and distance; maximum 64 calls per entity tick. |
 
 > World writes never overwrite occupied cells or implicitly convert between standard and micro voxels. X/Z wrap automatically.
 
@@ -198,7 +463,7 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 
 | API | Description |
 | --- | --- |
-| `ctx.selection.get()` | Read the current frozen shared selection snapshot. |
+| `ctx.selection.snapshot()` | Read the current frozen shared selection snapshot. |
 | `ctx.selection.clear()` | Queue clearing the shared selection; returns `{ok,cleared,reason}`. |
 | `ctx.selection.cornerA(point) / cornerB(point)` | Set progressive world-box corners; accepts `{micro:true}` and returns `{ok,selected,reason}`. |
 | `ctx.selection.box(a, b)` | Set an atomic world box; accepts `{micro:true}`. |

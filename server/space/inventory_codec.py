@@ -243,7 +243,8 @@ def _encode_component(message, component: dict[str, Any], include_name: bool) ->
     for block in sorted(component.get("blocks", []), key=_voxel_sort_key):
         _encode_voxel(message.blocks.add(), block)
     if component.get("script") is not None:
-        message.script = str(component["script"])
+        message.script = str(component["script"]) if component.get("scriptLanguage") == "assemblyscript" else ""
+        message.script_language = "assemblyscript"
     message.script_disabled = bool(component.get("scriptDisabled", False))
     for seat in component.get("seats", []):
         encoded_seat = message.seats.add()
@@ -293,7 +294,8 @@ def _decode_component(message) -> dict[str, Any]:
     if message.HasField("pivot"):
         result["pivot"] = _vector(message.pivot)
     if message.HasField("script"):
-        result["script"] = message.script
+        result["script"] = message.script if message.script_language == "assemblyscript" else ""
+        result["scriptLanguage"] = "assemblyscript"
     if message.script_disabled:
         result["scriptDisabled"] = True
     if message.HasField("local_position"):

@@ -34,7 +34,7 @@ function moduleSlot() {
       bodyType: BodyType.DYNAMIC,
       seats: [{ position: [0, 1, 0] }]
     }],
-    scripts: [{
+    scripts: [{ language: "assemblyscript",
       id: 'root',
       code: "const motor = self.child('arm'); if (motor) motor.body.applyTorque([0, 1, 0]);"
     }],

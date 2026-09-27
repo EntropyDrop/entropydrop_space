@@ -550,7 +550,7 @@ newer client wall-clock time never wins automatically.
 | `world_events` | Tick batch | Ordered durable structural events and idempotency |
 | `world_event_chunks` | Tick batch | Event-to-chunk index for AOI catch-up |
 | `world_event_entities` | Tick batch | Event-to-entity index for entity recovery |
-| `script_bundles` | Script save | entityAPI V2 source bundle and content hash |
+| `script_bundles` | Script save | entityAPI V3 source bundle and content hash |
 | `build_assets` | Entity placement/checkpoint | Deduplicated immutable definitions for entities already in the world |
 | `entity_snapshots` | Sleep/checkpoint/unload | Definition, spatial manifest, run intent, health, and necessary recovery state |
 | `entity_chunk_coverage` | Entity checkpoint | AOI lookup for sleeping entities, including multi-chunk bounds |
@@ -935,23 +935,24 @@ I/O thread.
 
 ### 10.5 Script Sandbox
 
-The server runs entityAPI V2 scripts under these requirements:
+The implemented shared runtime compiles AssemblyScript controller bodies to native
+WebAssembly using the pinned AssemblyScript compiler. The browser compiles in a worker;
+the hosted Node process uses the same compiler, SDK and final-WASM instrumentation.
 
-- One isolated VM or secure WASM runtime per entity, with no network, filesystem, DOM,
-  system time, or dynamic module loading.
-- `ctx` is a tick snapshot. Script methods append to a command buffer validated and applied
-  at the tick boundary.
-- Provide deterministic seeded RNG and no native `Math.random()`.
-- Bound CPU, memory, logs, block edits, and tree traversal. Repeated violations disable scripts.
-- Compile in background threads and switch atomically at a tick boundary only after success.
-- Store source hash and API version on the server. A client copy is not proof of execution.
-
-Initial budget guidance is 0.2 ms average and 1 ms hard maximum per invocation, 1 MiB
-state, and 64 structural edits per tick. A zone also has a 4 ms soft / 6 ms hard aggregate
-script budget and at most 32 invocations in one 60 Hz tick. Ordinary awake scripts may be
-time-sliced at 20 Hz; explicitly budgeted vehicle-control scripts run at 60 Hz. Repeated
-overruns set `SCRIPTS_DISABLED` without disabling entity physics. Load tests tune these
-numbers, but no entity count may silently erase the aggregate cap.
+- Fresh WASM instances per component invocation expose only the typed `self`/`ctx` SDK.
+  No network, filesystem, DOM, system time, npm imports or WASI is exposed.
+- `ctx` contains frame snapshots; host APIs append bounded commands, revalidated at commit.
+  State uses typed getters/setters and persists only as bounded JSON data.
+- `Math.random()` is seeded deterministically from entity/component/tick.
+- Limits: 4 MiB aggregate WASM linear memory, 16 KiB stack per invocation, 1 MiB state,
+  1 MiB bridge allocations per tick, 100,000 metered function/loop entries, 5 ms per
+  component and 25 ms per entity. Execution remains 20 Hz.
+- Each tick permits at most 64 script components, 256 commands, 256 world reads and
+  64 raycasts. Fuel/time/memory failure discards the interrupted frame's state and commands.
+- Newly saved source carries `scriptLanguage: "assemblyscript"`; unmarked historical
+  code loads as empty and is cleared on the next save, without source translation.
+- JavaScript guest libraries have been removed. The complete callable SDK and current
+  limits are maintained in the [entityAPI reference](../space/agent/entityAPI.md).
 
 ## 11. API Boundaries
 
@@ -1175,7 +1176,7 @@ results stored by commit. Average FPS alone is insufficient.
 ### Phase 3: Entities and Scripts
 
 1. Add server physics, component trees, and driving input.
-2. Add the complete wake/sleep state machine, sandboxed entityAPI V2, aggregate budgets,
+2. Add the complete wake/sleep state machine, sandboxed entityAPI V3, aggregate budgets,
    compile switching, and state recovery.
 3. Add cross-zone entity handoff and ghost collision.
 

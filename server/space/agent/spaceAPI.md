@@ -74,7 +74,7 @@ browser execution instance UUID and epoch in `Entity-Execution-Instance` and
 `Entity-Execution-Epoch`. A spaceAPI key by itself does not possess an entity's
 execution-instance capability, so Agents should program `ctx.messages.send`
 instead of impersonating a running entity. The browser or hosted runtime adds
-the credential, execution identity and idempotency key outside QuickJS.
+the credential, execution identity and idempotency key outside AssemblyScript/WASM.
 
 Messages are best-effort and at-most-once per idempotency key. They are limited
 to 4096 bytes and 20 sends per second per source entity. Inactive targets are
@@ -122,7 +122,7 @@ If Stop returns revision 2, send this JSON to `PATCH /configuration`, with `Cont
   "components": [
     {
       "id": "root",
-      "script": "self.state.frames = (self.state.frames || 0) + 1;",
+      "script": "self.state.setNumber('frames', self.state.getNumber('frames') + 1);",
       "body": {"type": "dynamic", "mass": 80, "friction": 0.8, "useGravity": true}
     }
   ]
@@ -147,7 +147,7 @@ Use semantic voxel operations rather than a text or JSON diff. `upsert` creates 
       "script_patch": {
         "format": "unified",
         "base_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "patch": "@@ -1 +1 @@\n-self.state.speed = 2;\n+self.state.speed = 3;\n"
+        "patch": "@@ -1 +1 @@\n-self.state.setNumber('speed', 2);\n+self.state.setNumber('speed', 3);\n"
       },
       "voxel_ops": [
         {
@@ -197,9 +197,20 @@ HTTP success means the backend saved the definition or desired state. It does no
 - Components form one tree. IDs are unique; display names belong to each component's `name`, including `root.name`.
 - Authored Stop poses must align to the 0.125-metre grid and **must not overlap between components**, even when collisions are disabled. Reserve wheel and joint clearances in the chassis.
 - Dynamic bodies use force/torque. Direct pose setters work only on kinematic bodies. Persist default body settings in the definition; script setters are runtime changes.
-- Scripts run at 20 Hz in bounded QuickJS. Only the mounted entity receives keyboard input. Add a seat for drivable vehicles; V mounts/unmounts. W/A/S/D and Space are available to scripts.
+- Scripts run at 20 Hz in bounded AssemblyScript/WASM. Only the mounted entity receives keyboard input. Add a seat for drivable vehicles; V mounts/unmounts. W/A/S/D and Space are available to scripts. A seat position is the component-pivot-relative character/physics anchor, not the cushion top. On an upright seat, place the anchor 0.567 m below the cushion for the standard 1.8 m sitting pose: the head and world-Y camera eye are then 1.233 m and 1.053 m above the cushion, and the avatar needs about 0.33 m behind plus 0.59 m along local -Z. Use a seat rotation with `fixedOrientation:true` so the avatar clearances follow the vehicle; free camera look stays world-oriented.
 - For suspension, the current constraints are point/hinge/weld. There is no built-in spring or prismatic constraint; use a tested force-based controller (for example, raycast spring/damper suspension) or supported articulated mechanisms.
 
 ## Failure handling
 
 `422 ENTITY_DEFINITION_INVALID` means the Protobuf, grid, hierarchy, names, scripts or body data failed validation. Correct the definition before retrying; do not silently create an unrelated fallback. `409 ENTITY_OPERATION_ID_REUSED` means a prior successful operation used a different request body. `429` means a quota/rate limit: inspect the response and usage rather than duplicating submissions. Preserve entity IDs and do not delete unrelated objects to free quota.
+
+### AssemblyScript component code
+
+All newly authored component `script` strings are AssemblyScript controller bodies,
+with implicit typed `self` and `ctx`. Portable component JSON must include
+`scriptLanguage: "assemblyscript"`; component script/script_patch endpoints stamp this
+marker automatically. Unmarked historical code is cleared on load/save, without source
+migration. Use `self.state.getNumber("ticks")` / `setNumber("ticks", value)` and the
+`Value` SDK for records instead of JavaScript dynamic properties and object literals.
+See [entityAPI](entityAPI.md) for complete typed signatures and compilable examples.
+JavaScript third-party guest libraries are no longer exposed.

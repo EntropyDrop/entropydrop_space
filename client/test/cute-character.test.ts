@@ -131,6 +131,45 @@ test('locomotion blends in and out instead of snapping between poses', () => {
   character.dispose();
 });
 
+test('vehicle riding blends into a stable seat-anchored sitting pose', () => {
+  const character = createTestCharacter();
+  const rig = character as any;
+
+  for (let frame = 0; frame < 120; frame++) {
+    character.update(1 / 60, {
+      seated: true,
+      speed: 8,
+      forwardSpeed: 8,
+      grounded: false,
+      flying: true
+    });
+  }
+
+  assert.equal(character.action, 'sit');
+  assert.ok(rig.seatedBlend > 0.999);
+  assert.ok(Math.abs(rig.parts.leftLeg.rotation.x + 1.35) < 0.001);
+  assert.ok(Math.abs(rig.parts.rightLeg.rotation.x + 1.35) < 0.001);
+  assert.ok(Math.abs(rig.parts.leftArm.rotation.x + 0.38) < 0.001);
+  assert.ok(Math.abs(rig.parts.rightArm.rotation.x + 0.38) < 0.001);
+  assert.equal(rig.parts.body.position.y, 8.5, 'the seat anchor must not drift with the pose');
+
+  character.object3d.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(character.object3d);
+  assert.ok(Math.abs(bounds.min.y - 0.280) < 0.002, `lowest sitting point=${bounds.min.y}`);
+  assert.ok(Math.abs(bounds.max.y - 1.800) < 0.002, `sitting top=${bounds.max.y}`);
+  assert.ok(Math.abs(bounds.min.z + 0.590) < 0.002, `forward reach=${bounds.min.z}`);
+  assert.ok(Math.abs(bounds.max.z - 0.333) < 0.002, `rear reach=${bounds.max.z}`);
+
+  for (let frame = 0; frame < 120; frame++) {
+    character.update(1 / 60, { seated: false, speed: 0, grounded: true });
+  }
+  assert.equal(character.action, 'idle');
+  assert.ok(rig.seatedBlend < 0.001);
+  assert.ok(Math.abs(rig.parts.leftLeg.rotation.x) < 0.001);
+  assert.ok(Math.abs(rig.parts.rightLeg.rotation.x) < 0.001);
+  character.dispose();
+});
+
 test('walking swings one-piece Y-downsampled limbs and airborne/look states receive distinct poses', () => {
   const character = createTestCharacter();
   const rig = character as any;

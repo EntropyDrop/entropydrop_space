@@ -27,7 +27,13 @@ transforms, caching authored extents rather than transforming every voxel per fr
 Driver seats with `fixedOrientation:true` keep the rider's body aligned to the
 seat's solved world rotation, including articulated components. Camera mouse
 look stays free in all three perspectives. Mounting, dismounting and runtime
-`self.setSeats` changes preserve the camera's yaw and pitch.
+`self.setSeats` changes preserve the camera's yaw and pitch. A mounted avatar
+uses a stable sitting pose. `seats[].position` is the character/physics anchor,
+not the cushion top: for an upright seat and the standard 1.8 m avatar, put it
+0.567 m below the cushion. The head and eye are respectively 1.233 m and
+1.053 m above the cushion, and the pose needs about 0.33 m behind and 0.59 m
+forward (local `-Z`) from the anchor. Use a seat `rotation` with
+`fixedOrientation:true` when that clearance must follow the vehicle.
 Perspective changes ease over 280 ms: first/third-person switches zoom relative
 to the current eye position, and rear/front third-person switches orbit around
 the rider instead of cutting through the body. Interrupted switches continue
@@ -225,7 +231,16 @@ orbit, launch, spin, attitude-stabilization, and stop intents.
 Its result contract is intentionally small so it can later be replaced by a
 remote LLM without changing the controller runtime.
 
-Detailed component script and controller API documentation is available directly in-game via the Code Editor terminal (press `C` → entityAPI Docs) and in the generated [entityAPI V2 reference](../engine/docs/generated/api-v2.md). The [entityAPI code-generation reference](../engine/docs/generated/agent-api-v2.md), in-game reference, and runtime Agent prompt are all rendered from `entropydrop_space/engine/src/contraption/ScriptApiContract.ts`; edit that contract instead of these generated views.
+Detailed component script and controller API documentation is available directly in-game via the Code Editor terminal (press `C` → entityAPI Docs) and in the generated [entityAPI V3 AssemblyScript reference](../engine/docs/generated/api-v2.md). The [entityAPI code-generation reference](../engine/docs/generated/agent-api-v2.md), in-game reference, and runtime Agent prompt are all rendered from `entropydrop_space/engine/src/contraption/ScriptApiContract.ts`; edit that contract instead of these generated views.
+
+Component code is an AssemblyScript controller body with implicit `self` and `ctx`.
+Saving compiles it in a browser worker; the editor shows compilation progress and type
+errors. State uses typed getters/setters such as `self.state.getNumber("ticks")` and
+`self.state.setNumber("ticks", value)`. Read record fields through the `Value` SDK.
+Only the AssemblyScript standard library is exposed; the former JavaScript guest
+packages and helper namespaces are removed. Historical scripts without the
+`assemblyscript` language marker load as empty code and are not translated.
+
 
 The Entity Editor inspector separates authored values from live simulation data. **Defaults**
 shows the pivot (`XYZ`), saved mounting-frame quaternion (`XYZW`), and, for child
