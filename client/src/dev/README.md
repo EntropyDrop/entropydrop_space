@@ -55,6 +55,27 @@ running builds during sampling. Hiding the tab cancels the test. Completion,
 cancellation and closing the panel restore the original graphics preferences
 without writing localStorage. Close removes instrumentation and GPU queries.
 
+Ultra evaluates contact occlusion and sun shafts at half width/height, then
+composites them over the original scene using depth-aware AO upsampling. Bloom,
+emission masking, fog, grading and FXAA keep their existing resolutions. Auto's
+reduced-effects mode skips the secondary pass entirely.
+
+**Compare effect resolution** measures half/full/half secondary resolution with
+fixed scene resolution and full effects. It takes about 17 seconds and restores
+the original state. The full-resolution case is the new split pipeline's
+reference, not a replay of the old combined shader or an online-world benchmark.
+
+Run this workspace's Vite server and open
+`/space/app/tools/cinematic-effects-preview.html` for a deterministic visual
+comparison of edges, thin geometry, emission and foreground viewmodels. It also
+checks reduced effects and reports pixel differences and shader compile errors.
+The parent website's Vite server only mounts the app entry, so use the standalone
+Space server for this tool page. Neither tool is included in the production app.
+
+`npm run bench:render-maintenance` isolates bookkeeping for 1024 settled batches.
+An optional old `SurfaceBatch.ts` path after `--` enables a reference comparison.
+This excludes scene traversal, WebGL submission, GPU work and presentation.
+
 ## Distant terrain regression
 
 Add `&dev_lod=1`, or use **Test distant terrain**. A local worker generates eight
@@ -81,8 +102,13 @@ are still ephemeral. Denied storage falls back to local generation normally.
 Resident surface data defaults to 256 MiB (up to 1024 MiB). This is the raw source
 budget, not total browser RAM: decoded mips, geometry, transitions and GPU copies
 use additional memory. Disk cache is capped at 2 GiB and 20% of browser quota,
-with a 512 MiB fallback when quota reporting is unavailable. The global geometry
-budget for v7 is 4,194,304 directed faces, at 15 packed attribute bytes per face.
+with a 512 MiB fallback when quota reporting is unavailable. The default geometry
+budget for v7 is 10,485,760 directed faces, at 15 packed attribute bytes per face.
+Graphics > Voxel Geometry Budget exposes 16–512 MiB, defaulting to 160 MiB
+with 16 bytes budgeted per face. CPU/GPU copies and transition buffers consume
+additional memory. Saved geometry budgets remain unchanged; older preferences
+without a geometry budget gain the 160 MiB default. The legacy heightfield capacity is
+independent of this voxel-only control.
 Under pressure the pixel-area threshold is fitted to the budget, with read-only
 estimation and a fresh fit on source replacement; power-of-two overshoot and
 stale budget pressure must not keep the entire world at an unnecessarily coarse LOD.
@@ -91,7 +117,24 @@ tile never removes its CPU data or GPU buffers, including during a 180-degree tu
 
 ## Voxy-inspired pixel-area selection
 
-Defaults: 16 CSS px^2 subdivision area, 2048 chunks far render distance
+Graphics > Subdivision Size directly controls the projected cell area from
+1 to 256 CSS px^2. Larger values reduce far geometry and source-detail demand
+while keeping near terrain unchanged. The default is 64 px^2; saved values
+are preserved. The slider takes effect immediately and persists through the
+existing distant-terrain preference.
+
+The settings panel reports target and actual subdivision thresholds. A 1 px^2
+target still permits subpixel LOD; it does not disable simplification. When the
+actual value is higher, the panel identifies the geometry budget constraint.
+Increasing Voxel Geometry Budget refits selection at a stationary camera too.
+Source-detail shortages are reported separately: refinement may still be
+loading or constrained by Terrain Detail Cache. Even an actual 1 px^2 geometry
+threshold cannot recover details absent from the downloaded source.
+`npm run bench:voxel-lod -- --high-detail` additionally checks recovery from
+the default geometry cap to a 1 px^2 target with 512 MiB; it deliberately
+allocates hundreds of MiB and is opt-in.
+
+Defaults: 64 CSS px^2 subdivision area, 2048 chunks far render distance
 (32768 m, covering the finite torus without repetition), and a 16-chunk maximum
 near/network AOI radius. Near Z stays capped at six chunks; network Z is 12 to
 include movement padding. Detailed online meshes are clipped to the last fully

@@ -198,11 +198,59 @@ test('distant terrain pixel budgets apply immediately through settings state', (
   store.setDistantSurfaceSetting('subdivisionSizePx2', 1, false);
   store.setDistantSurfaceSetting('renderDistanceChunks', 2048, false);
   store.setDistantSurfaceSetting('dataBudgetMiB', 32, false);
+  store.setDistantSurfaceSetting('geometryBudgetMiB', 512, false);
 
-  assert.equal(applied.length, 3);
+  assert.equal(applied.length, 4);
   assert.equal(store.getSnapshot().distantSurfaceSettings.subdivisionSizePx2, 1);
   assert.equal(store.getSnapshot().distantSurfaceSettings.renderDistanceChunks, 2048);
   assert.equal(store.getSnapshot().distantSurfaceSettings.dataBudgetMiB, 32);
+  assert.equal(store.getSnapshot().distantSurfaceSettings.geometryBudgetMiB, 512);
+});
+
+test('subdivision size and geometry budget persist independently of near detail and scene resolution', t => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  } });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete (globalThis as any).localStorage;
+  });
+  let applied = { ...DEFAULT_DISTANT_SURFACE_SETTINGS };
+  const world = { renderDistance: 8, getDistantSurfaceSettings: () => applied,
+    setDistantSurfaceSettings(value: any) { return applied = normalizeDistantSurfaceSettings(value); } };
+  const store = new SpaceUiStore();
+  store.setWorld(world);
+  store.setResolutionScale('0.8', false);
+  store.setDistantSurfaceSetting('geometryBudgetMiB', 512);
+  assert.equal(applied.subdivisionSizePx2, 64);
+  for (const area of [256, 64, 16, 4, 1, 63]) {
+    store.setDistantSurfaceSetting('subdivisionSizePx2', area);
+    assert.equal(applied.subdivisionSizePx2, area);
+    assert.equal(store.getSnapshot().renderDistance, 8);
+    assert.equal(store.getSnapshot().resolutionScaleMode, '0.8');
+    const restored = new SpaceUiStore(); restored.setWorld(world);
+    assert.equal(restored.getSnapshot().distantSurfaceSettings.subdivisionSizePx2, area);
+    assert.equal(restored.getSnapshot().distantSurfaceSettings.geometryBudgetMiB, 512);
+  }
+  // Old high-detail preferences and custom values must not be silently lowered.
+  for (const savedArea of [16, 63]) {
+    values.set('space_setting_distant_surface', JSON.stringify({ subdivisionSizePx2: savedArea,
+      renderDistanceChunks: 128, dataBudgetMiB: 32 }));
+    const restored = new SpaceUiStore(); restored.setWorld(world);
+    assert.deepEqual(restored.getSnapshot().distantSurfaceSettings,
+      { subdivisionSizePx2: savedArea, renderDistanceChunks: 128, dataBudgetMiB: 32, geometryBudgetMiB: 160 });
+    restored.resetDistantSurfaceSettings();
+    assert.equal(applied.subdivisionSizePx2, 64);
+    assert.equal(applied.geometryBudgetMiB, 160);
+    assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).subdivisionSizePx2, 64);
+    assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).geometryBudgetMiB, 160);
+  }
+  values.set('space_setting_distant_surface', JSON.stringify({ subdivisionSizePx2: 1, geometryBudgetMiB: 64 }));
+  const previousBudget = new SpaceUiStore(); previousBudget.setWorld(world);
+  assert.equal(previousBudget.getSnapshot().distantSurfaceSettings.geometryBudgetMiB, 64);
 });
 
 test('persisted near render distances cannot bypass the 16-chunk AOI cap', t => {

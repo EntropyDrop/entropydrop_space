@@ -13,6 +13,8 @@ test('cinematic buffers follow render resolution and cap HDR allocation while re
   assert.equal(effects.bloom.materialHighPassFilter.uniforms.tVoxelScene.value, effects.sceneTarget.texture);
   assert.ok(effects.sceneTarget.depthTexture);
   assert.equal(effects.atmosphereTarget.depthBuffer, false);
+  assert.equal(effects.secondaryTarget.width, 1280);
+  assert.equal(effects.secondaryTarget.height, 720);
   effects.setSize(960, 540);
   for (const target of [effects.sceneTarget, effects.atmosphereTarget, effects.displayTarget]) {
     assert.equal(target.width, 960);
@@ -20,13 +22,21 @@ test('cinematic buffers follow render resolution and cap HDR allocation while re
   }
   assert.equal(effects.antialias.material.uniforms.resolution.value.x, 1 / 960);
   assert.equal(effects.antialias.material.uniforms.resolution.value.y, 1 / 540);
+  assert.equal(effects.secondaryTarget.width * effects.secondaryTarget.height, 960 * 540 / 4);
+  effects.setSecondaryResolutionScale(1);
+  assert.equal(effects.secondaryTarget.width, 960);
+  assert.equal(effects.secondaryTarget.height, 540);
+  effects.setSecondaryResolutionScale(0.5);
+  effects.setSize(961, 541);
+  assert.equal(effects.secondaryTarget.width, 481);
+  assert.equal(effects.secondaryTarget.height, 271);
   effects.dispose();
 });
 
 test('leaving cinematic quality disposes all render targets, shaders and bloom buffers once', () => {
   const effects = new CinematicEffects();
-  const resources = [effects.sceneTarget, effects.atmosphereTarget, effects.displayTarget,
-    effects.sceneTarget.depthTexture!, effects.atmosphere, effects.output.material, effects.antialias.material,
+  const resources = [effects.sceneTarget, effects.atmosphereTarget, effects.secondaryTarget, effects.displayTarget,
+    effects.sceneTarget.depthTexture!, effects.atmosphere, effects.secondary, effects.output.material, effects.antialias.material,
     effects.bloom.renderTargetBright, ...effects.bloom.renderTargetsHorizontal, ...effects.bloom.renderTargetsVertical];
   const counts = resources.map(() => 0);
   resources.forEach((resource, i) => resource.addEventListener('dispose', () => counts[i]++));
@@ -51,13 +61,14 @@ test('HDR stages render in order, restore renderer state and retain atmosphere d
     getRenderTarget: () => currentTarget,
     setRenderTarget: (target: THREE.WebGLRenderTarget) => { currentTarget = target; },
     resetState: () => { stages.push('reset'); currentTarget = null; },
-    render: (object: THREE.Object3D) => { stages.push(object === scene ? 'scene' : 'atmosphere'); },
+    render: (object: THREE.Object3D) => { stages.push(object === scene ? 'scene'
+      : currentTarget === effects.secondaryTarget ? 'secondary' : 'atmosphere'); },
   };
   effects.bloom.render = () => { stages.push('bloom'); };
   effects.output.render = () => { stages.push('tone-map'); };
   effects.antialias.render = () => { stages.push('fxaa'); };
   effects.render(renderer, scene, camera, sun, up, true);
-  assert.deepEqual(stages, ['reset', 'scene', 'atmosphere', 'bloom', 'tone-map', 'fxaa']);
+  assert.deepEqual(stages, ['reset', 'scene', 'secondary', 'atmosphere', 'bloom', 'tone-map', 'fxaa']);
   assert.equal(currentTarget, previousTarget);
   assert.equal(renderer.autoClear, false);
   assert.equal(effects.atmosphere.uniforms.sunVisibility.value, 1);
@@ -72,7 +83,7 @@ test('HDR stages render in order, restore renderer state and retain atmosphere d
 
   stages.length = 0;
   effects.render(renderer, scene, camera, sun, up, true);
-  assert.deepEqual(stages, ['reset', 'scene', 'atmosphere', 'bloom', 'tone-map', 'fxaa'],
+  assert.deepEqual(stages, ['reset', 'scene', 'secondary', 'atmosphere', 'bloom', 'tone-map', 'fxaa'],
     'recovering Auto quality retains the same emission pipeline');
 
   renderer.render = () => { throw new Error('lost render'); };

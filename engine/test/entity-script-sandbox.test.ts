@@ -57,7 +57,7 @@ test('optimized empty loops and recursion are bounded and discard the entire fra
     assert.equal(result.fatal, true);
     assert.equal(result.commands, undefined);
     assert.equal(result.states, undefined);
-    assert.match(result.error, /fuel|stack|5 ms|bounds|unreachable/i);
+    assert.match(result.error, /fuel|stack|50 ms|bounds|unreachable/i);
   }
 });
 
@@ -170,7 +170,7 @@ test('host handles share a bounded byte allowance for copied strings', async () 
   assert.equal(result.ok, true, result.error);
   const frame = f.tick();
   assert.equal(frame.fatal, true);
-  assert.match(frame.error, /allocation|fuel|5 ms/i);
+  assert.match(frame.error, /allocation|fuel|50 ms/i);
   assert.equal(frame.states, undefined);
 });
 

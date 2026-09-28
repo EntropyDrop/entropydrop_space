@@ -189,7 +189,7 @@ function scriptEditResult(field: 'placed' | 'removed', count: number, reason: st
   });
 }
 
-const SLOW_SCRIPT_THRESHOLD_MS = 5;
+const SLOW_SCRIPT_THRESHOLD_MS = 50;
 const SLOW_SCRIPT_CONSECUTIVE_LIMIT = 3;
 const DEFAULT_BLOCK_MASS_KG = 10;
 const MIN_BODY_MASS_KG = 0.1;
@@ -5438,33 +5438,39 @@ export class Contraption {
     this.lastExecutionTimeMs = Number(result.elapsedMs) || 0;
     if (result.fatal) {
       const message = result.error || 'AssemblyScript/WASM runtime failed';
-      this.scriptStatus = 'error';
       this.scriptError = message;
-      this.disableAllNodeScripts();
       this.log(`[ERR] [runtime] ${message}`);
+      // A fatal runtime result has already discarded this tick's state and
+      // commands. Apply the same global Stop used by the UI so physics cannot
+      // continue spending execution/hosting budget after the code has failed.
+      this.stopAllNodeScripts();
+      return;
+    }
+
+    if (result.errors?.length) {
+      // Component exceptions are recoverable inside the WASM service so it can
+      // report every diagnostic from the tick. At the entity boundary they are
+      // still a global Stop: do not install returned state or execute commands
+      // produced before/after the failing component.
+      for (const entry of result.errors) {
+        const nodeId = String(entry?.nodeId || this.rootComponentId);
+        const message = String(entry?.error || 'AssemblyScript/WASM runtime error');
+        this.nodeScriptErrors.set(nodeId, message);
+        if (nodeId === this.rootComponentId) this.scriptError = message;
+        this.log(`[ERR] [${nodeId}] Runtime error: ${message}`);
+      }
+      this.stopAllNodeScripts();
       return;
     }
 
     this.syncComponentStatesFromWorker(result.states, result.frozenStatePaths);
     for (const [nodeId, elapsed] of Object.entries(result.executionTimes || {})) {
       this.lastExecutionTimeMs = Math.max(this.lastExecutionTimeMs, Number(elapsed) || 0);
-      this.recordScriptExecutionTime(nodeId, Number(elapsed) || 0);
-    }
-
-    for (const entry of result.errors || []) {
-      const nodeId = String(entry?.nodeId || this.rootComponentId);
-      const message = String(entry?.error || 'AssemblyScript/WASM runtime error');
-      this.nodeScriptErrors.set(nodeId, message);
-      this.nodeScriptEnabled.set(nodeId, false);
-      if (nodeId === this.rootComponentId) this.scriptError = message;
-      const node = this.entityNodes.get(nodeId);
-      if (node && node.parentId !== null) node.localAngularVelocity.set(0, 0, 0);
-      this.scriptStatus = 'error';
-      this.log(`[ERR] [${nodeId}] Runtime error: ${message}`);
+      if (this.recordScriptExecutionTime(nodeId, Number(elapsed) || 0)) return;
     }
 
     const commands = (result.commands || []).slice(0, 256);
-    this.latchedScriptCommands = (result.errors?.length || result.stopped)
+    this.latchedScriptCommands = result.stopped
       ? []
       : commands
         .filter(command => command?.scope === 'component'
@@ -5610,15 +5616,12 @@ export class Contraption {
     }
     if (consecutive < SLOW_SCRIPT_CONSECUTIVE_LIMIT) return false;
 
-    const message = `Script exceeded ${SLOW_SCRIPT_THRESHOLD_MS} ms for ${SLOW_SCRIPT_CONSECUTIVE_LIMIT} consecutive frames and was disabled`;
-    this.nodeScriptEnabled.set(id, false);
+    const message = `Script exceeded ${SLOW_SCRIPT_THRESHOLD_MS} ms for ${SLOW_SCRIPT_CONSECUTIVE_LIMIT} consecutive frames and the entity was stopped`;
     this.nodeScriptErrors.set(id, message);
     this.slowScriptFrames.delete(id);
     if (id === this.rootComponentId) this.scriptError = message;
-    const node = this.entityNodes.get(id);
-    if (node && node.parentId !== null) node.localAngularVelocity.set(0, 0, 0);
-    this.scriptStatus = 'error';
     this.log(`[ERR] [${id}] ${message}`);
+    this.stopAllNodeScripts();
     return true;
   }
 

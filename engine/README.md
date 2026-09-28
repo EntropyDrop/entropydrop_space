@@ -108,9 +108,10 @@ python3 tools/sync_server_contracts.py
 Compilation permits only the embedded SDK and standard library. Final optimized WASM
 is instrumented at every function/loop entry and validated against the import allowlist.
 Every tick starts fresh WASM instances; only JSON state persists. Limits include 4 MiB
-aggregate linear memory, 16 KiB stack per invocation, 100,000 fuel units, 5 ms/component,
-25 ms/entity, 64 components, 256 commands/world reads and 64 raycasts. Failed budget or
-memory checks discard the whole tick's commands and state. Compiler source is capped
+aggregate linear memory, 16 KiB stack per invocation, 100,000 fuel units, 50 ms/component,
+250 ms/entity, 64 components, 256 commands/world reads and 64 raycasts. Failed budget or
+memory checks, as well as component runtime exceptions, automatically apply global Stop
+and discard the whole tick's commands and state. Compiler source is capped
 at 64 KiB/component and compiled-module cache retention at 128 entries. The browser
 compiler worker has a 30-second timeout and a 64-request queue limit.
 

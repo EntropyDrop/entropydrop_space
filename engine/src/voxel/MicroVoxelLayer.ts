@@ -6,6 +6,7 @@ import { MicroRenderBatches } from '../render/MicroRenderBatches.ts';
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
 import { VoxelMaterialIds, normalizeVoxelMaterialId } from './VoxelMaterials.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
+import type { MicroMeshResult, MicroMeshSnapshot } from './MicroMeshSnapshot.ts';
 import {
   computeChunkBentSphere,
   getWorldProjectionRevision,
@@ -30,8 +31,9 @@ const MICRO_WORLD_SIZE_Z = TORUS_SIZE_Z * MICRO_DIVISIONS;
 const POSITIVE_QUAD = [[0, 0], [1, 0], [1, 1], [0, 1]] as const;
 const NEGATIVE_QUAD = [[0, 0], [0, 1], [1, 1], [1, 0]] as const;
 const MESH_TIME_CHECK_INTERVAL = 256;
+const MAX_PENDING_MICRO_BUILDS = 16;
 
-type MeshBuildPhase = 'scan' | 'mask' | 'greedy' | 'write' | 'wasm-pack' | 'wasm-mesh';
+type MeshBuildPhase = 'scan' | 'mask' | 'greedy' | 'write' | 'wasm-pack' | 'wasm-mesh' | 'worker-pack';
 
 type MicroMeshBuildJob = {
   chunkKey: string;
@@ -65,6 +67,10 @@ type MicroMeshBuildJob = {
   materialIndexCounts: [number, number];
   halo: Int32Array | null;
   haloIndex: number;
+  interactive: boolean;
+  snapshotIterator: Iterator<number> | null;
+  snapshotCells: number[];
+  colorManagementEnabled: boolean;
 };
 
 type DeferredMeshPublication = {
@@ -149,6 +155,14 @@ export class MicroVoxelLayer {
   private horizontalColumnPartitions = new Map<string, Set<string>>();
   renderMaterials: [THREE.MeshStandardMaterial, THREE.MeshBasicMaterial];
   private renderBatches: MicroRenderBatches;
+  private meshWorker: Worker | null = null;
+  private meshWorkerAttempted = false;
+  private nextMeshRequestId = 1;
+  private workerBuilds = new Map<number, MicroMeshBuildJob>();
+  private workerResults = new Map<number, MicroMeshResult>();
+  private interactiveMeshChunks = new Set<string>();
+  private meshFocus: { x: number; z: number } | null = null;
+  private meshQueueNeedsSort = false;
 
   /** Published draw objects, distinct from the small edit/collision meshes. */
   get renderMeshes() { return this.renderBatches.meshes; }
@@ -229,6 +243,7 @@ export class MicroVoxelLayer {
       deferred.mesh?.geometry.dispose();
       this.deferredMeshPublications.delete(chunkKey);
     }
+    if (!this.dirtyMeshChunks.has(chunkKey)) this.meshQueueNeedsSort = true;
     this.dirtyMeshChunks.add(chunkKey);
     this.meshChunkRevisions.set(chunkKey, (this.meshChunkRevisions.get(chunkKey) ?? 0) + 1);
     this.dirty = true;
@@ -269,6 +284,7 @@ export class MicroVoxelLayer {
     }
     const prioritized = candidates.filter(chunkKey => this.dirtyMeshChunks.has(chunkKey));
     if (prioritized.length === 0) return;
+    for (const chunkKey of prioritized) this.interactiveMeshChunks.add(chunkKey);
 
     // A resumable background build is no longer the highest-priority work once
     // direct input dirties another partition. Put it back in the queue before
@@ -286,6 +302,29 @@ export class MicroVoxelLayer {
     const reordered = new Set(prioritized);
     for (const chunkKey of this.dirtyMeshChunks) reordered.add(chunkKey);
     this.dirtyMeshChunks = reordered;
+  }
+
+  /** Reorder pending background detail when the player crosses a chunk. */
+  setMeshFocus(x: number, z: number) {
+    if (this.meshFocus?.x === x && this.meshFocus?.z === z) return;
+    this.meshFocus = { x, z };
+    this.meshQueueNeedsSort = true;
+  }
+
+  private sortMeshQueue() {
+    if (!this.meshQueueNeedsSort || !this.meshFocus) return;
+    const { x, z } = this.meshFocus;
+    const ranked = [...this.dirtyMeshChunks].map(key => {
+      const [cx, cz] = key.split(',').map(Number);
+      const px = (cx + 0.5) * MICRO_MESH_CHUNK_SIZE * MICRO_SIZE;
+      const pz = (cz + 0.5) * MICRO_MESH_CHUNK_SIZE * MICRO_SIZE;
+      const dx = unwrapPeriodicNear(px, x, TORUS_SIZE_X) - x;
+      const dz = unwrapPeriodicNear(pz, z, TORUS_SIZE_Z) - z;
+      return { key, distance: this.interactiveMeshChunks.has(key) ? -1 : dx * dx + dz * dz };
+    });
+    ranked.sort((a, b) => a.distance - b.distance);
+    this.dirtyMeshChunks = new Set(ranked.map(({ key }) => key));
+    this.meshQueueNeedsSort = false;
   }
 
   /** A standard cell can touch two micro partitions on either horizontal axis. */
@@ -907,6 +946,61 @@ export class MicroVoxelLayer {
     return { hit: false };
   }
 
+  private initializeMeshWorker() {
+    if (this.meshWorkerAttempted || typeof window === 'undefined' || typeof Worker === 'undefined') return;
+    this.meshWorkerAttempted = true;
+    if (!getTerrainKernels()) return;
+    try {
+      this.attachMeshWorker(new Worker(new URL('./MicroMeshWorker.ts', import.meta.url), {
+        type: 'module', name: 'space-micro-mesh',
+      }));
+    } catch (error) {
+      this.disableMeshWorker(String(error));
+    }
+  }
+
+  private attachMeshWorker(worker: Worker) {
+    this.meshWorkerAttempted = true;
+    this.meshWorker = worker;
+    worker.onmessage = (event: MessageEvent<MicroMeshResult>) => {
+      if (this.meshWorker !== worker || !this.workerBuilds.has(event.data.requestId)) return;
+      if (!event.data.mesh || event.data.error) {
+        this.disableMeshWorker(event.data.error ?? 'Missing micro mesh result');
+        return;
+      }
+      // Only the render/update slice may change geometry and collision state.
+      this.workerResults.set(event.data.requestId, event.data);
+    };
+    worker.onerror = event => this.disableMeshWorker(event.message || 'Micro mesh worker stopped');
+  }
+
+  private disableMeshWorker(message: string) {
+    this.meshWorker?.terminate();
+    this.meshWorker = null;
+    for (const job of this.workerBuilds.values()) {
+      if ((this.meshChunkRevisions.get(job.chunkKey) ?? 0) === job.revision) {
+        this.dirtyMeshChunks.add(job.chunkKey);
+      }
+    }
+    this.workerBuilds.clear();
+    this.workerResults.clear();
+    this.meshQueueNeedsSort = true;
+    this.dirty = true;
+    console.warn(`Micro mesh worker disabled; using budgeted local meshing: ${message}`);
+  }
+
+  private *meshSnapshotCells(job: MicroMeshBuildJob): Generator<number> {
+    const cy = Number(job.chunkKey.split(',')[2]);
+    // Face meshing only reads the partition and its six immediate neighbors;
+    // diagonal halo cells cannot affect an axis-aligned exposed face.
+    for (const [dx, dy, dz] of [[0, 0, 0], [-1, 0, 0], [1, 0, 0],
+      [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]]) {
+      const chunkKey = meshChunkKey(job.originMx + dx * MICRO_MESH_CHUNK_SIZE,
+        (cy + dy) * MICRO_MESH_CHUNK_SIZE, job.originMz + dz * MICRO_MESH_CHUNK_SIZE);
+      yield* this.chunkCells.get(chunkKey) ?? [];
+    }
+  }
+
   updateMesh(
     maxChunks = Number.POSITIVE_INFINITY,
     activeChunkKeys: Set<string> | null = null,
@@ -915,16 +1009,41 @@ export class MicroVoxelLayer {
     deferredPublicationChunkKeys: Set<string> | null = null,
   ) {
     this.deferredPublicationChunkKeys = deferredPublicationChunkKeys;
-    if (!this.dirty && !this.activeMeshBuild) return false;
+    if (!this.dirty && !this.activeMeshBuild && this.workerBuilds.size === 0) return false;
     this.recentlyRebuiltMeshes.length = 0;
     const limit = Number.isFinite(maxChunks) ? Math.max(1, Math.floor(maxChunks)) : Infinity;
     const startedAt = performance.now();
     const deadline = Number.isFinite(timeBudgetMs)
       ? startedAt + Math.max(0, timeBudgetMs)
       : Infinity;
+    this.initializeMeshWorker();
+    this.sortMeshQueue();
     let completed = 0;
+    let submitted = 0;
 
-    while (completed < limit) {
+    for (const [requestId, result] of this.workerResults) {
+      const job = this.workerBuilds.get(requestId)!;
+      this.workerResults.delete(requestId);
+      this.workerBuilds.delete(requestId);
+      if ((this.meshChunkRevisions.get(job.chunkKey) ?? 0) === job.revision) {
+        if ((activeChunkKeys && !activeChunkKeys.has(job.standardChunkKey))
+          || blockedChunkKeys?.has(job.standardChunkKey)
+          || this.isOutsidePublicationCompanion(job.chunkKey)
+          || job.colorManagementEnabled !== THREE.ColorManagement.enabled
+          || THREE.ColorManagement.workingColorSpace !== THREE.LinearSRGBColorSpace) {
+          this.dirtyMeshChunks.add(job.chunkKey);
+          this.meshQueueNeedsSort = true;
+        } else {
+          Object.assign(job, result.mesh);
+          if (job.indices!.length) this.finishMeshBuild(job);
+          else this.replaceMeshChunk(job, null);
+          completed++;
+        }
+      }
+      if (completed >= limit || performance.now() >= deadline) break;
+    }
+
+    while (completed + submitted < limit && (completed === 0 || performance.now() < deadline)) {
       const activeJob = this.activeMeshBuild;
       if (activeJob && (
         (activeChunkKeys && !activeChunkKeys.has(activeJob.standardChunkKey))
@@ -947,10 +1066,11 @@ export class MicroVoxelLayer {
       if (result === 'pending') break;
       this.activeMeshBuild = null;
       if (result === 'complete') completed++;
+      if (result === 'submitted') submitted++;
       if (performance.now() >= deadline) break;
     }
 
-    this.dirty = this.dirtyMeshChunks.size > 0 || this.activeMeshBuild !== null;
+    this.dirty = this.dirtyMeshChunks.size > 0 || this.activeMeshBuild !== null || this.workerBuilds.size > 0;
     this.mesh = this.meshChunks.values().next().value || null;
     for (const mesh of this.renderBatches.flush()) {
       if (mesh.userData.microRenderBatch) this.recentlyRebuiltMeshes.push(mesh);
@@ -964,9 +1084,18 @@ export class MicroVoxelLayer {
   ): string | null {
     for (const chunkKey of this.dirtyMeshChunks) {
       const standardChunkKey = standardChunkKeyForMeshChunk(chunkKey);
-      if (activeChunkKeys && !activeChunkKeys.has(standardChunkKey)) continue;
+      // Eviction clears cells only after the outgoing terrain fade. Retire
+      // those empty meshes even outside the new AOI, or the dirty queue and
+      // hidden render batches would grow after every move and be rescanned
+      // on every frame forever. Nonempty authored partitions remain deferred.
+      const empty = !this.chunkCells.has(chunkKey);
+      if (activeChunkKeys && !activeChunkKeys.has(standardChunkKey) && !empty) continue;
       if (blockedChunkKeys?.has(standardChunkKey)) continue;
       if (this.isOutsidePublicationCompanion(chunkKey)) continue;
+      if (this.meshWorker && !empty && !this.interactiveMeshChunks.has(chunkKey)) {
+        if (this.workerBuilds.size >= MAX_PENDING_MICRO_BUILDS) continue;
+        if ([...this.workerBuilds.values()].some(job => job.chunkKey === chunkKey)) continue;
+      }
       return chunkKey;
     }
     return null;
@@ -1007,13 +1136,17 @@ export class MicroVoxelLayer {
       materialIndexCounts: [0, 0],
       halo: null,
       haloIndex: 0,
+      interactive: this.interactiveMeshChunks.delete(chunkKey),
+      snapshotIterator: null,
+      snapshotCells: [],
+      colorManagementEnabled: THREE.ColorManagement.enabled,
     };
   }
 
   private advanceMeshBuild(
     job: MicroMeshBuildJob,
     deadline: number,
-  ): 'pending' | 'complete' | 'stale' {
+  ): 'pending' | 'complete' | 'stale' | 'submitted' {
     if ((this.meshChunkRevisions.get(job.chunkKey) ?? 0) !== job.revision) return 'stale';
 
     if (job.phase === 'scan') {
@@ -1042,9 +1175,52 @@ export class MicroVoxelLayer {
         MICRO_MESH_CHUNK_SIZE,
       ];
       if (getTerrainKernels() && THREE.ColorManagement.workingColorSpace === THREE.LinearSRGBColorSpace) {
-        job.halo = new Int32Array(18 * 18 * (job.dimensions[1] + 2));
-        job.phase = 'wasm-pack';
+        if (this.meshWorker && !job.interactive) {
+          job.snapshotIterator = this.meshSnapshotCells(job);
+          job.phase = 'worker-pack';
+        } else {
+          job.halo = new Int32Array(18 * 18 * (job.dimensions[1] + 2));
+          job.phase = 'wasm-pack';
+        }
       } else this.prepareMeshMask(job);
+    }
+
+    if (job.phase === 'worker-pack') {
+      if (!this.meshWorker) {
+        job.snapshotIterator = null;
+        job.snapshotCells = [];
+        job.halo = new Int32Array(18 * 18 * (job.dimensions![1] + 2));
+        job.phase = 'wasm-pack';
+      } else {
+        let visited = 0;
+        while (true) {
+          const next = job.snapshotIterator!.next();
+          if (next.done) break;
+          const [mx, my, mz] = unpackMicroKey(next.value);
+          const x = unwrapPeriodicNear(mx, job.originMx, MICRO_WORLD_SIZE_X) - job.originMx;
+          const z = unwrapPeriodicNear(mz, job.originMz, MICRO_WORLD_SIZE_Z) - job.originMz;
+          const y = my - job.minMicroY;
+          const color = this.packedColors.get(next.value);
+          if (x >= -1 && x <= 16 && z >= -1 && z <= 16
+            && y >= -1 && y <= job.dimensions![1] && color !== undefined) {
+            job.snapshotCells.push((y + 1) * 324 + (z + 1) * 18 + x + 1,
+              color + (this.packedMaterials.get(next.value) ?? 0) * 0x1000000 + 1);
+          }
+          if (++visited % MESH_TIME_CHECK_INTERVAL === 0 && performance.now() >= deadline) return 'pending';
+        }
+        const requestId = this.nextMeshRequestId++;
+        const request: MicroMeshSnapshot = { requestId, height: job.dimensions![1], minY: job.minMicroY,
+          cells: new Uint32Array(job.snapshotCells), linear: linearSrgbLookup()! };
+        job.snapshotCells = [];
+        job.snapshotIterator = null;
+        this.workerBuilds.set(requestId, job);
+        try {
+          this.meshWorker.postMessage(request, [request.cells.buffer]);
+        } catch (error) {
+          this.disableMeshWorker(String(error));
+        }
+        return 'submitted';
+      }
     }
 
     if (job.phase === 'wasm-pack') {
@@ -1416,6 +1592,10 @@ export class MicroVoxelLayer {
       this.activeMeshBuild
       && this.activeMeshBuild.standardChunkKey === standardChunkKey
     ) return false;
+    for (const job of this.workerBuilds.values()) {
+      if (job.standardChunkKey === standardChunkKey
+        && (this.meshChunkRevisions.get(job.chunkKey) ?? 0) === job.revision) return false;
+    }
     for (const chunkKey of this.dirtyMeshChunks) {
       if (standardChunkKeyForMeshChunk(chunkKey) !== standardChunkKey) continue;
       if (activeChunkKeys && !activeChunkKeys.has(standardChunkKey)) continue;
@@ -1434,6 +1614,9 @@ export class MicroVoxelLayer {
    * not reached its final published state yet. Dirty meshes outside the AOI do
    * not hold initial entry open. */
   hasPendingMeshWork(activeChunkKeys: Set<string>) {
+    for (const job of this.workerBuilds.values()) {
+      if (activeChunkKeys.has(job.standardChunkKey)) return true;
+    }
     if (
       this.activeMeshBuild
       && activeChunkKeys.has(this.activeMeshBuild.standardChunkKey)
@@ -1452,6 +1635,7 @@ export class MicroVoxelLayer {
     const pending = new Set<string>();
     const add = (key: string) => { if (activeChunkKeys.has(key)) pending.add(key); };
     if (this.activeMeshBuild) add(this.activeMeshBuild.standardChunkKey);
+    for (const job of this.workerBuilds.values()) add(job.standardChunkKey);
     for (const key of this.dirtyMeshChunks) add(standardChunkKeyForMeshChunk(key));
     for (const publication of this.deferredMeshPublications.values()) add(publication.barrierKey);
     return pending;
@@ -1487,7 +1671,7 @@ export class MicroVoxelLayer {
       this.deferredMeshPublications.delete(chunkKey);
       this.dirtyMeshChunks.add(chunkKey);
     }
-    this.dirty = this.dirtyMeshChunks.size > 0 || this.activeMeshBuild !== null;
+    this.dirty = this.dirtyMeshChunks.size > 0 || this.activeMeshBuild !== null || this.workerBuilds.size > 0;
   }
 
   takeRecentlyRebuiltMeshes() {

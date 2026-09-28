@@ -321,7 +321,7 @@ def remote_deploy(environment, branch="main", quiesce=False):
                              "--memory", "1g", "--cpus", "2", "--pids-limit", "128", "--cap-drop", "ALL",
                              "--security-opt", "no-new-privileges:true", "-e", "ENV_FILE=/nonexistent",
                              "-e", "DATABASE_URL=sqlite:///:memory:", image, "python", "-m", "space.hosting_smoke"]
-            # Cold WebAssembly instantiation shares the same 5 ms runtime budget as a
+            # Cold WebAssembly instantiation shares the same 50 ms runtime budget as a
             # normal tick and can cross it briefly on a busy deployment host. Require
             # one clean end-to-end run, but tolerate two isolated scheduling spikes.
             for attempt in range(1, 4):

@@ -76,8 +76,8 @@ export function createAssemblyScriptRuntimeService() {
         for (const node of snapshot.components || []) allowWrite(host.getSelf(node.id)?.state);
         const memory = () => (instance!.exports.memory as WebAssembly.Memory).buffer;
         const check = () => {
-          if (performance.now() - componentStarted > 5) throw new BudgetError('Script exceeded 5 ms and the entity was stopped');
-          if (performance.now() - scriptsStarted > 25) throw new BudgetError('Entity exceeded the aggregate 25 ms tick limit');
+          if (performance.now() - componentStarted > 50) throw new BudgetError('Script exceeded 50 ms and the entity was stopped');
+          if (performance.now() - scriptsStarted > 250) throw new BudgetError('Entity exceeded the aggregate 250 ms tick limit');
           if (instance && (instance.exports.__fuel as Function)() < 0) throw new BudgetError('Entity exceeded its WASM execution fuel budget');
           if (instance && memoryUsed + memory().byteLength > MEMORY_LIMIT) throw new BudgetError('Entity exceeded 4 MiB WASM memory');
         };

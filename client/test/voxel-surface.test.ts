@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { parseSurfaceZoneSnapshot, MAX_SURFACE_ZONE_BYTES } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
 import { encodeVoxelLevels } from '@entropydrop/space-engine/worldgen/VoxelSurfaceGenerator.ts';
 import { DistantSurfaceLayer } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
+import { DistantVoxelLayer } from '@entropydrop/space-engine/render/DistantVoxelLayer.ts';
+import { TerrainHandoff } from '@entropydrop/space-engine/render/TerrainHandoff.ts';
 import { bendPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
 function fixture() {
@@ -28,6 +30,63 @@ function fixture() {
   bytes.set(trailer, 36+records*8);
   return bytes;
 }
+
+test('raising the geometry budget restores a 1 px^2 target without moving or turning the camera', t => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const layer = new DistantVoxelLayer(new TerrainHandoff().texture);
+  const snapshot = parseSurfaceZoneSnapshot(fixture());
+  snapshot.sampleSize = 1;
+  snapshot.voxelMips = [1,2,4,8,16,32,64].map(cellSize => {
+    const count = cellSize === 1 ? 8 : 1;
+    const faces = new Uint8Array(count * 16), view = new DataView(faces.buffer);
+    for (let i = 0; i < count; i++) {
+      view.setUint16(i * 16, i * 8, true);
+      view.setUint16(i * 16 + 2, 64 * 8, true);
+      view.setUint16(i * 16 + 6, cellSize * 8, true);
+      view.setUint16(i * 16 + 8, cellSize * 8, true);
+      faces[i * 16 + 10] = 3;
+    }
+    return { cellSize, faces };
+  });
+  layer.install(snapshot);
+  const camera = bendPoint(8200, 200, 1032), frustum = new THREE.Frustum();
+  // Small budgets exercise real selection/publication without allocating
+  // hundreds of MiB just to reproduce whole-world memory pressure.
+  layer.updateView(frustum, camera, 100, 1, 32768, 2);
+  assert.ok(layer.group.userData.voxelLodStats.effectiveAreaPx2 > 1);
+  assert.equal(layer.group.userData.voxelLodStats.faces, 1);
+  layer.updateView(frustum, camera, 100, 1, 32768, 16);
+  assert.equal(layer.group.userData.voxelLodStats.effectiveAreaPx2, 1);
+  assert.equal(layer.group.userData.voxelLodStats.faces, 8);
+  now = 1000;
+  layer.updateView(frustum, camera, 100, 1, 32768, 16);
+  assert.ok(layer.group.children.some(object =>
+    (object as THREE.Mesh<THREE.InstancedBufferGeometry>).geometry.instanceCount === 8),
+  'the finer faces must reach a render batch, not just the diagnostics');
+  layer.updateView(frustum, camera, 100, 1, 32768, 2);
+  assert.equal(layer.group.userData.voxelLodStats.faces, 1);
+  assert.ok(layer.group.userData.voxelLodStats.effectiveAreaPx2 > 1);
+  layer.removeZone(16, 2);
+});
+
+test('detail status distinguishes source resolution from geometry budget pressure', () => {
+  const layer = new DistantSurfaceLayer();
+  layer.setSettings({ subdivisionSizePx2: 1, geometryBudgetMiB: 512 });
+  layer.installZone(parseSurfaceZoneSnapshot(fixture()));
+  const camera = new THREE.PerspectiveCamera(75,1.6,.1,10000);
+  camera.position.copy(bendPoint(8192,100,1024));
+  camera.lookAt(bendPoint(8192,64,1040)); camera.updateMatrixWorld();
+  layer.updateView(camera,720);
+  assert.equal(layer.getZoneDemand(16,2).sampleSize, 1);
+  assert.equal(layer.getDetailStatus().sourceLimitedZones, 1);
+  assert.equal(layer.getDetailStatus().geometryLimited, false);
+  assert.equal(layer.getDetailStatus().effectiveAreaPx2, 1);
+  assert.equal(layer.voxels.group.userData.voxelLodStats.budget, 32 * 1024 * 1024);
+  layer.removeZone(16,2);
+  assert.equal(layer.getDetailStatus().sourceLimitedZones, 0);
+  layer.setEnabled(false);
+});
 
 test('v7 decodes a complete 3D mip ladder and rejects malformed faces', () => {
   const bytes = fixture(), snapshot = parseSurfaceZoneSnapshot(bytes);

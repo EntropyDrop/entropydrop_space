@@ -945,8 +945,8 @@ the hosted Node process uses the same compiler, SDK and final-WASM instrumentati
   State uses typed getters/setters and persists only as bounded JSON data.
 - `Math.random()` is seeded deterministically from entity/component/tick.
 - Limits: 4 MiB aggregate WASM linear memory, 16 KiB stack per invocation, 1 MiB state,
-  1 MiB bridge allocations per tick, 100,000 metered function/loop entries, 5 ms per
-  component and 25 ms per entity. Execution remains 20 Hz.
+  1 MiB bridge allocations per tick, 100,000 metered function/loop entries, 50 ms per
+  component and 250 ms per entity. Execution remains 20 Hz.
 - Each tick permits at most 64 script components, 256 commands, 256 world reads and
   64 raycasts. Fuel/time/memory failure discards the interrupted frame's state and commands.
 - Newly saved source carries `scriptLanguage: "assemblyscript"`; unmarked historical

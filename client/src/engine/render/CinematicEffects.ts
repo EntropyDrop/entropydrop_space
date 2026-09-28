@@ -13,7 +13,7 @@ const vertexShader = /* glsl */ `
   }
 `;
 
-const atmosphereShader = /* glsl */ `
+const effectUniforms = /* glsl */ `
   varying vec2 vUv;
   uniform sampler2D tColor;
   uniform sampler2D tDepth;
@@ -30,7 +30,9 @@ const atmosphereShader = /* glsl */ `
     vec4 position = inverseProjection * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     return position.xyz / position.w;
   }
+`;
 
+const secondaryShader = /* glsl */ `${effectUniforms}
   float contactOcclusion(vec3 center) {
     // Viewmodel geometry is close to the camera. It must neither acquire fog
     // nor cast screen-space occlusion onto terrain metres behind the hand.
@@ -63,8 +65,8 @@ const atmosphereShader = /* glsl */ `
     return clamp(1.0 - occlusion * 2.0 / 16.0, 0.6, 1.0);
   }
 
-  vec3 sunlightShafts() {
-    if (sunVisibility <= 0.0) return vec3(0.0);
+  float sunlightShafts() {
+    if (sunVisibility <= 0.0) return 0.0;
     vec2 stepUv = (sunUv - vUv) * (0.94 / 24.0);
     vec2 sampleUv = vUv;
     float illumination = 0.0;
@@ -81,7 +83,41 @@ const atmosphereShader = /* glsl */ `
       }
       decay *= 0.965;
     }
-    return vec3(1.0, 0.72, 0.38) * illumination * (0.014 * sunVisibility);
+    return illumination * (0.014 * sunVisibility);
+  }
+
+  void main() {
+    float depth = texture2D(tDepth, vUv).r;
+    vec3 position = viewPosition(vUv, depth);
+    float occlusion = depth < 0.999999 ? contactOcclusion(position) : 1.0;
+    // Log depth survives half-float storage even at the far end of the ring.
+    // Emission and viewmodel masking happen at full resolution on composition.
+    gl_FragColor = vec4(occlusion, sunlightShafts(), log2(1.0 + max(-position.z, 0.0)), 1.0);
+  }
+`;
+
+const atmosphereShader = /* glsl */ `${effectUniforms}
+  uniform sampler2D tSecondary;
+  uniform vec2 secondaryResolution;
+
+  vec2 secondaryAt(vec3 position) {
+    // Gather the four low-resolution texels explicitly. Bilateral AO weights
+    // prevent a foreground edge from darkening the background or the hand.
+    vec2 grid = vUv * secondaryResolution - 0.5;
+    vec2 base = floor(grid), fraction = fract(grid);
+    float centerDepth = log2(1.0 + max(-position.z, 0.0));
+    float ao = 0.0, weight = 0.0, shafts = 0.0;
+    for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
+      vec2 offset = vec2(float(x), float(y));
+      vec3 sampleEffect = texture2D(tSecondary, (base + offset + 0.5) / secondaryResolution).rgb;
+      vec2 blend = mix(1.0 - fraction, fraction, offset);
+      float spatial = blend.x * blend.y;
+      float bilateral = spatial * exp2(-abs(sampleEffect.b - centerDepth) * 128.0);
+      ao += sampleEffect.r * bilateral;
+      weight += bilateral;
+      shafts += sampleEffect.g * spatial;
+    }
+    return vec2(weight > 0.0001 ? ao / weight : 1.0, shafts);
   }
 
   void main() {
@@ -91,8 +127,9 @@ const atmosphereShader = /* glsl */ `
     float depth = texture2D(tDepth, vUv).r;
     vec3 position = viewPosition(vUv, depth);
     vec3 ray = normalize(mat3(cameraWorld) * position);
+    vec2 effects = secondaryEffects > 0.5 ? secondaryAt(position) : vec2(1.0, 0.0);
     if (depth < 0.999999 && -position.z > 0.8) {
-      if (secondaryEffects > 0.5) color *= mix(contactOcclusion(position), 1.0, emissionCoverage);
+      color *= mix(effects.x, 1.0, emissionCoverage);
       float distanceToCamera = length(position);
       float elevation = dot(ray, surfaceUp);
       float lowMist = exp(-max(elevation * distanceToCamera + 12.0, 0.0) * 0.012);
@@ -107,7 +144,7 @@ const atmosphereShader = /* glsl */ `
     float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
     color = mix(vec3(luminance), color, 1.12);
     color *= mix(vec3(0.91, 0.97, 1.06), vec3(1.035, 1.015, 0.96), smoothstep(0.05, 0.9, luminance));
-    if (secondaryEffects > 0.5 && -position.z > 0.8) color += sunlightShafts() * (1.0 - emissionCoverage);
+    if (-position.z > 0.8) color += vec3(1.0, 0.72, 0.38) * effects.y * (1.0 - emissionCoverage);
     gl_FragColor = vec4(max(color, vec3(0.0)), 1.0);
   }
 `;
@@ -120,12 +157,16 @@ const atmosphereShader = /* glsl */ `
 export class CinematicEffects {
   readonly sceneTarget: THREE.WebGLRenderTarget;
   readonly atmosphereTarget: THREE.WebGLRenderTarget;
+  readonly secondaryTarget: THREE.WebGLRenderTarget;
   readonly displayTarget: THREE.WebGLRenderTarget;
   readonly atmosphere: THREE.ShaderMaterial;
+  readonly secondary: THREE.ShaderMaterial;
   readonly bloom: UnrealBloomPass;
   readonly output = new OutputPass();
   readonly antialias = new FXAAPass();
   private readonly quad: FullScreenQuad;
+  private readonly secondaryQuad: FullScreenQuad;
+  private secondaryScale = 0.5;
   private readonly size = new THREE.Vector2();
   private readonly projectedSun = new THREE.Vector3();
   private disposed = false;
@@ -139,6 +180,11 @@ export class CinematicEffects {
     this.sceneTarget.texture.userData.voxelEmissionMask = true;
     this.atmosphereTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
     this.atmosphereTarget.texture.name = 'Space.Ultra.AtmosphereHDR';
+    this.secondaryTarget = new THREE.WebGLRenderTarget(1, 1, {
+      type: THREE.HalfFloatType, depthBuffer: false,
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    });
+    this.secondaryTarget.texture.name = 'Space.Ultra.Secondary';
     this.displayTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
     this.displayTarget.texture.name = 'Space.Ultra.Display';
     this.atmosphere = new THREE.ShaderMaterial({
@@ -155,9 +201,17 @@ export class CinematicEffects {
         sunUv: { value: new THREE.Vector2() },
         sunVisibility: { value: 0 },
         secondaryEffects: { value: 1 },
+        tSecondary: { value: this.secondaryTarget.texture },
+        secondaryResolution: { value: new THREE.Vector2(1, 1) },
       },
     });
+    this.secondary = new THREE.ShaderMaterial({
+      name: 'Space.Ultra.Secondary', vertexShader, fragmentShader: secondaryShader,
+      depthTest: false, depthWrite: false, toneMapped: false,
+      uniforms: this.atmosphere.uniforms,
+    });
     this.quad = new FullScreenQuad(this.atmosphere);
+    this.secondaryQuad = new FullScreenQuad(this.secondary);
     // Bloom belongs to emissive voxels, the sun and bright cloud rims; lit terrain
     // must retain its albedo instead of bleeding a white glow across the ring.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(64, 64), 0.06, 0.15, 1.5);
@@ -197,12 +251,22 @@ export class CinematicEffects {
     const scale = Math.min(1, 2560 / Math.max(width, height));
     width = Math.max(64, Math.round(width * scale));
     height = Math.max(64, Math.round(height * scale));
+    this.secondaryTarget.setSize(Math.ceil(width * this.secondaryScale), Math.ceil(height * this.secondaryScale));
+    this.atmosphere.uniforms.secondaryResolution.value.set(this.secondaryTarget.width, this.secondaryTarget.height);
     if (this.sceneTarget.width === width && this.sceneTarget.height === height) return;
     for (const target of [this.sceneTarget, this.atmosphereTarget, this.displayTarget]) target.setSize(width, height);
     this.atmosphere.uniforms.resolution.value.set(width, height);
     this.bloom.setSize(width, height);
     this.antialias.setSize(width, height);
   }
+
+  /** Full-resolution reference for the development profiler; never persisted. */
+  setSecondaryResolutionScale(scale: 0.5 | 1) {
+    this.secondaryScale = scale;
+    this.setSize(this.sceneTarget.width, this.sceneTarget.height);
+  }
+
+  getSecondaryResolutionScale() { return this.secondaryScale; }
 
   render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
     sunDirection: THREE.Vector3, surfaceUp: THREE.Vector3, fullEffects: boolean) {
@@ -234,6 +298,10 @@ export class CinematicEffects {
       renderer.autoClear = true;
       renderer.setRenderTarget(this.sceneTarget);
       renderer.render(scene, camera);
+      if (fullEffects) {
+        renderer.setRenderTarget(this.secondaryTarget);
+        this.secondaryQuad.render(renderer);
+      }
       renderer.setRenderTarget(this.atmosphereTarget);
       this.quad.render(renderer);
       // Bloom adds back into the HDR atmosphere target; tone mapping follows
@@ -253,9 +321,11 @@ export class CinematicEffects {
     if (this.disposed) return;
     this.disposed = true;
     this.sceneTarget.depthTexture?.dispose();
-    for (const target of [this.sceneTarget, this.atmosphereTarget, this.displayTarget]) target.dispose();
+    for (const target of [this.sceneTarget, this.atmosphereTarget, this.secondaryTarget, this.displayTarget]) target.dispose();
     this.atmosphere.dispose();
+    this.secondary.dispose();
     this.quad.dispose();
+    this.secondaryQuad.dispose();
     this.bloom.dispose();
     this.output.dispose();
     this.antialias.dispose();

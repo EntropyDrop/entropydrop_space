@@ -7,6 +7,7 @@ import { LIGHTING_PRESETS, LIGHTING_QUALITY_LEVELS } from '../../../engine/rende
 import type { SpaceApiKeyRecord, SpaceApiUsage } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
+  type DistantSurfaceLayer,
   type DistantSurfaceSettingKey,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
@@ -16,13 +17,34 @@ import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 const DISTANT_LOD_CONTROLS: ReadonlyArray<{
   key: DistantSurfaceSettingKey; label: string; description: string; unit: string;
 }> = [
-  { key: 'subdivisionSizePx2', label: 'Pixels^2 of Subdivision Size', unit: 'px^2',
-    description: 'Projected area before splitting a terrain cell. Slide right for finer detail; default 16 px^2.' },
+  { key: 'subdivisionSizePx2', label: 'Subdivision Size', unit: 'px^2',
+    description: 'Target projected cell area, not a full-detail switch. Geometry and source budgets can limit the result.' },
   { key: 'renderDistanceChunks', label: 'Render Distance', unit: 'Chunks',
     description: 'Far LOD distance, separate from the near AOI. 2048 chunks = 32768 m; the finite torus is not repeated.' },
   { key: 'dataBudgetMiB', label: 'Terrain Detail Cache', unit: 'MiB',
     description: 'Resident source data, up to 1 GiB. Geometry uses additional memory. Turning never evicts terrain.' },
+  { key: 'geometryBudgetMiB', label: 'Voxel Geometry Budget', unit: 'MiB',
+    description: 'Raise this if actual detail exceeds the target. More detail costs GPU time and memory; CPU copies and transitions use additional memory.' },
 ];
+
+function DistantTerrainDetailStatus({ layer }: { layer?: DistantSurfaceLayer }) {
+  const [status, setStatus] = React.useState(() => layer?.getDetailStatus());
+  React.useEffect(() => {
+    const refresh = () => setStatus(layer?.getDetailStatus());
+    refresh();
+    const timer = window.setInterval(refresh, 500);
+    return () => window.clearInterval(timer);
+  }, [layer]);
+  if (!status) return null;
+  return <div className="settings-desc" id="setting-distant-detail-status" role="status">
+    Target {status.requestedAreaPx2} px^2 · Actual {status.effectiveAreaPx2 === null
+      ? 'loading' : `${Number(status.effectiveAreaPx2.toFixed(2))} px^2`}
+    {status.geometryLimited ? status.volumetric
+      ? ' · Limited by Voxel Geometry Budget' : ' · Limited by legacy terrain geometry capacity' : ''}
+    {status.sourceLimitedZones > 0
+      ? ` · ${status.sourceLimitedZones} districts need finer source data; loading or limited by Terrain Detail Cache` : ''}
+  </div>;
+}
 
 function ModalBackdrop({ id, className = '', children, onClose }: { id: string; className?: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -481,6 +503,7 @@ export function GlobalSettingsModal() {
                   </div>
                 </div>;
               })}
+              <DistantTerrainDetailStatus layer={state.world?.distantSurface} />
               <div className="settings-row">
                 <div className="settings-label-group">
                   <span className="settings-desc">Automatic surface detail · solid terrain connections · persistent distant structures</span>

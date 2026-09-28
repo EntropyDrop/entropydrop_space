@@ -1,4 +1,4 @@
-import { DistantVoxelLayer } from './DistantVoxelLayer.ts';
+import { DistantVoxelLayer, voxelFaceBudget } from './DistantVoxelLayer.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
 import { TerrainHandoff, TERRAIN_DITHER_GLSL } from './TerrainHandoff.ts';
 import { DistantChunkLayer } from './DistantChunkLayer.ts';
@@ -41,15 +41,17 @@ export interface DistantSurfaceSettings {
   subdivisionSizePx2: number;
   renderDistanceChunks: number;
   dataBudgetMiB: number;
+  geometryBudgetMiB: number;
 }
 export type DistantSurfaceSettingKey = keyof DistantSurfaceSettings;
 export const DEFAULT_DISTANT_SURFACE_SETTINGS: Readonly<DistantSurfaceSettings> = Object.freeze({
-  subdivisionSizePx2: 16, renderDistanceChunks: 2048, dataBudgetMiB: 256,
+  subdivisionSizePx2: 64, renderDistanceChunks: 2048, dataBudgetMiB: 256, geometryBudgetMiB: 160,
 });
 export const DISTANT_SURFACE_SETTING_LIMITS = Object.freeze({
   subdivisionSizePx2: Object.freeze({ min: 1, max: 256, step: 1 }),
   renderDistanceChunks: Object.freeze({ min: 32, max: 2048, step: 1 }),
   dataBudgetMiB: Object.freeze({ min: 4, max: 1024, step: 4 }),
+  geometryBudgetMiB: Object.freeze({ min: 16, max: 512, step: 16 }),
 });
 /** Old pixel-error/metre distance settings have different semantics. Migrate
  * them to the new defaults while retaining the user's independent cache budget. */
@@ -444,6 +446,7 @@ export class DistantSurfaceLayer {
   private readonly batches = new Map<string, SurfaceBatch>();
   private readonly frustum = new THREE.Frustum();
   private readonly projection = new THREE.Matrix4();
+  private readonly previousProjection = new THREE.Matrix4();
   private readonly cameraPosition = new THREE.Vector3();
   private readonly lodPosition = new THREE.Vector3();
 
@@ -543,19 +546,23 @@ export class DistantSurfaceLayer {
       }
       for (const [key, batch] of this.batches) batch.bounds.copy(this.drawBounds(key));
     }
-    this.hasView = true;
     this.cameraPosition.copy(camera.position);
     this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    this.frustum.setFromProjectionMatrix(this.projection);
+    const cullChanged = !this.hasView || !this.projection.equals(this.previousProjection);
+    this.hasView = true;
+    if (cullChanged) {
+      this.previousProjection.copy(this.projection);
+      this.frustum.setFromProjectionMatrix(this.projection);
+    }
     this.authoredChunks.updateView(this.frustum, this.cameraPosition, (this.settings.renderDistanceChunks * CHUNK_SIZE));
     const now = performance.now();
     for (const batch of this.batches.values()) {
-      const visible = this.frustum.intersectsSphere(batch.bounds);
       batch.advance(now);
-      batch.setVisible(visible);
+      if (cullChanged) batch.setVisible(this.frustum.intersectsSphere(batch.bounds));
     }
     const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
-    this.voxels.updateView(this.frustum, this.cameraPosition, scale, this.settings.subdivisionSizePx2, this.settings.renderDistanceChunks * CHUNK_SIZE);
+    this.voxels.updateView(this.frustum, this.cameraPosition, scale, this.settings.subdivisionSizePx2,
+      this.settings.renderDistanceChunks * CHUNK_SIZE, voxelFaceBudget(this.settings.geometryBudgetMiB));
     // Hysteresis avoids rebuilding for sub-pixel motion or tiny resolution changes.
     if (this.lodViewKey && this.lodPosition.distanceTo(camera.position) < 8
       && scale < this.pixelScale * 1.05 && scale > this.pixelScale / 1.05) return;
@@ -654,6 +661,7 @@ export class DistantSurfaceLayer {
           const mesh = new THREE.Mesh(side ? createSideGeometry() : createTopGeometry(),
             createMaterial(this.handoff.texture, side, coverage));
           mesh.frustumCulled = false;
+          mesh.matrixAutoUpdate = false;
           hookSceneMaterials(mesh);
           return mesh;
         });
@@ -1544,6 +1552,24 @@ export class DistantSurfaceLayer {
 
   getSettings(): DistantSurfaceSettings {
     return { ...this.settings };
+  }
+
+  getDetailStatus() {
+    const voxel = this.voxels.group.userData.voxelLodStats;
+    const hasVoxels = [...this.zones.values()].some(zone => zone.volumetric);
+    const effectiveAreaPx2 = hasVoxels ? voxel?.effectiveAreaPx2
+      : this.mesh.userData.lodEffectiveSubdivisionPx2;
+    let sourceLimitedZones = 0;
+    for (const [key, zone] of this.zones) {
+      if (zone.sampleSize > (this.zoneDemandSizes.get(key) ?? 64)) sourceLimitedZones++;
+    }
+    return {
+      requestedAreaPx2: this.settings.subdivisionSizePx2,
+      effectiveAreaPx2: effectiveAreaPx2 ?? null,
+      geometryLimited: effectiveAreaPx2 > this.settings.subdivisionSizePx2 * 1.001,
+      sourceLimitedZones,
+      volumetric: hasVoxels,
+    };
   }
 
   setSettings(value: Partial<DistantSurfaceSettings>): DistantSurfaceSettings {

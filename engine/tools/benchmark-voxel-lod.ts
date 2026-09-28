@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { TerrainGenerator } from '../src/worldgen/TerrainGenerator.ts';
 import { generateVoxelSurfaceZone } from '../src/worldgen/VoxelSurfaceGenerator.ts';
-import { DistantVoxelLayer, MAX_VOXEL_LOD_FACES } from '../src/render/DistantVoxelLayer.ts';
-import { DEFAULT_DISTANT_SURFACE_SETTINGS } from '../src/render/DistantSurfaceLayer.ts';
+import { DistantVoxelLayer, MAX_VOXEL_LOD_FACES, voxelFaceBudget } from '../src/render/DistantVoxelLayer.ts';
 import { TerrainHandoff } from '../src/render/TerrainHandoff.ts';
 import { bendPoint } from '../src/torus/TorusWorld.ts';
 
@@ -25,7 +24,8 @@ for (let x = 0; x < 32; x++) for (let z = 0; z < 4; z++) {
     heightsMicro: new Uint16Array(0), colors: new Uint8Array(0), voxelMips: volume.levels });
 }
 const focal = 720 * camera.projectionMatrix.elements[5] / 2;
-const area = DEFAULT_DISTANT_SURFACE_SETTINGS.subdivisionSizePx2;
+// Keep the original 16 px^2 quality regression as a stable reference.
+const area = 16;
 const selectionStarted = performance.now();
 layer.updateView(frustum, camera.position, focal, area, 32768);
 const stats = { ...layer.group.userData.voxelLodStats };
@@ -51,7 +51,28 @@ assert.ok(layer.group.userData.voxelLodStats.faces <= MAX_VOXEL_LOD_FACES, 'Zoom
 layer.updateView(frustum, camera.position, focal, area, 32768);
 assert.ok(layer.group.userData.voxelLodStats.effectiveAreaPx2 <= 24 / .65,
   'Quality recovers within the coarsening hysteresis band after pressure ends');
+const detailThresholds = [{ areaPx2: area, ...stats }];
+for (const areaPx2 of [64, 256]) {
+  layer.updateView(frustum, camera.position, focal, areaPx2, 32768);
+  const selected = { ...layer.group.userData.voxelLodStats };
+  assert.ok(selected.faces < detailThresholds.at(-1)!.faces, `${areaPx2} px^2 must reduce resident geometry`);
+  detailThresholds.push({ areaPx2, ...selected });
+}
+let highDetailBudget;
+if (process.argv.includes('--high-detail')) {
+  // Opt-in: this publishes hundreds of MiB of geometry. Confirm that changing
+  // only the budget restores the requested quality at the same camera pose.
+  layer.updateView(frustum, camera.position, focal, 1, 32768);
+  const constrained = { ...layer.group.userData.voxelLodStats };
+  assert.ok(constrained.effectiveAreaPx2 > 1);
+  layer.updateView(frustum, camera.position, focal, 1, 32768, voxelFaceBudget(512));
+  const expanded = { ...layer.group.userData.voxelLodStats };
+  assert.equal(expanded.effectiveAreaPx2, 1);
+  assert.ok(expanded.faces > constrained.faces);
+  assert.ok(expanded.faces <= voxelFaceBudget(512));
+  highDetailBudget = { constrained, expanded, packedMiB: expanded.faces * 15 / 1048576 };
+}
 for (let x = 0; x < 32; x++) for (let z = 0; z < 4; z++) layer.removeZone(x, z);
 assert.equal(layer.group.children.length, 0);
-console.log(JSON.stringify({ ...stats, packedMiB: bytes / 1048576, selectionMs,
-  totalSeconds: (performance.now() - started) / 1000 }, null, 2));
+console.log(JSON.stringify({ ...stats, packedMiB: bytes / 1048576, selectionMs, detailThresholds,
+  highDetailBudget, totalSeconds: (performance.now() - started) / 1000 }, null, 2));

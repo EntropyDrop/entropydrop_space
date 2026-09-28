@@ -51,6 +51,8 @@ export class SurfaceBatch {
   private pending: Slot | null = null;
   private startedAt = 0;
   private visible = true;
+  private visibilityDirty = true;
+  private nextCleanupAt = Infinity;
   private readonly root: THREE.Object3D;
   private readonly key: string;
   private readonly make: (side: boolean, coverage: THREE.Vector2) => Mesh;
@@ -77,7 +79,10 @@ export class SurfaceBatch {
     const same = (slot: Slot) => matches(slot.top, top, topStart, topCount)
       && matches(slot.side, side, sideStart, sideCount);
     if (same(this.pending ?? this.current)) return false;
-    if (same(this.current)) { this.pending = null; return false; }
+    if (same(this.current)) {
+      if (this.pending) this.nextCleanupAt = Math.min(this.nextCleanupAt, this.pending.lastUsed + 5000);
+      this.pending = null; return false;
+    }
     let target = this.pending ?? this.slots.find(slot => slot !== this.current && slot !== this.previous);
     if (!target) target = this.allocate();
     target.lastUsed = now;
@@ -93,7 +98,10 @@ export class SurfaceBatch {
     old.lastUsed = next.lastUsed = now;
     this.current = next;
     this.pending = null;
-    this.root.add(next.top, next.side);
+    // Volumetric batches have no side mesh; omit empty objects from Three's
+    // per-frame scene traversal instead of only marking them invisible.
+    if (next.top.geometry.instanceCount) this.root.add(next.top);
+    if (next.side.geometry.instanceCount) this.root.add(next.side);
     next.top.name = `DistantSurface:${this.key}:tops`;
     next.side.name = `DistantSurface:${this.key}:sides`;
     if (animate && (old.top.geometry.instanceCount || old.side.geometry.instanceCount)) {
@@ -105,13 +113,35 @@ export class SurfaceBatch {
     } else {
       this.root.remove(old.top, old.side);
       next.coverage.set(0, 1);
+      this.nextCleanupAt = Math.min(this.nextCleanupAt, old.lastUsed + 5000);
     }
+    this.visibilityDirty = true;
     this.setVisible(this.visible);
   }
 
   advance(now = performance.now()) {
+    if (!this.previous && now < this.nextCleanupAt) return;
+    if (now >= this.nextCleanupAt) this.cleanup(now);
+    if (!this.previous) return;
+    const linear = Math.max(0, Math.min(1, (now - this.startedAt) / TERRAIN_FADE_MS));
+    const t = linear * linear * (3 - 2 * linear);
+    this.current.coverage.set(0, t);
+    this.previous.coverage.set(t, 1);
+    if (linear < 1) return;
+    this.root.remove(this.previous.top, this.previous.side);
+    this.nextCleanupAt = Math.min(this.nextCleanupAt, this.previous.lastUsed + 5000);
+    this.previous = null;
+    if (this.pending) this.activate(this.pending, this.visible, now);
+  }
+
+  private cleanup(now: number) {
+    this.nextCleanupAt = Infinity;
     for (const slot of this.slots) {
-      if (slot === this.current || slot === this.previous || slot === this.pending || now - slot.lastUsed < 5000) continue;
+      if (slot === this.current || slot === this.previous || slot === this.pending) continue;
+      if (now - slot.lastUsed < 5000) {
+        this.nextCleanupAt = Math.min(this.nextCleanupAt, slot.lastUsed + 5000);
+        continue;
+      }
       for (const mesh of [slot.top, slot.side]) {
         if (!mesh.geometry.instanceCount) continue;
         mesh.geometry.dispose();
@@ -121,19 +151,12 @@ export class SurfaceBatch {
         mesh.geometry.instanceCount = 0;
       }
     }
-    if (!this.previous) return;
-    const linear = Math.max(0, Math.min(1, (now - this.startedAt) / TERRAIN_FADE_MS));
-    const t = linear * linear * (3 - 2 * linear);
-    this.current.coverage.set(0, t);
-    this.previous.coverage.set(t, 1);
-    if (linear < 1) return;
-    this.root.remove(this.previous.top, this.previous.side);
-    this.previous = null;
-    if (this.pending) this.activate(this.pending, this.visible, now);
   }
 
   setVisible(visible: boolean) {
+    if (this.visible === visible && !this.visibilityDirty) return;
     this.visible = visible;
+    this.visibilityDirty = false;
     for (const slot of [this.current, this.previous]) if (slot) {
       slot.top.visible = visible && slot.top.geometry.instanceCount > 0;
       slot.side.visible = visible && slot.side.geometry.instanceCount > 0;

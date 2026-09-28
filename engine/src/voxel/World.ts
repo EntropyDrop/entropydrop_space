@@ -40,6 +40,9 @@ const BACKGROUND_MAIN_THREAD_BUDGET_MS = 1;
 // Detailed terrain must progress even when a fully drawn torus leaves no idle
 // time. Generation stays in the worker; timeout slices only service its queue.
 const STREAM_MAX_WAIT_MS = 50;
+// Keep generation busy while the page publishes earlier results. Bound the
+// lookahead so paused rendering cannot accumulate a whole AOI of mesh buffers.
+const MAX_COMPLETED_TERRAIN_JOBS = 4;
 const MAX_STREAM_CHUNKS_PER_FRAME = 1;
 const MAX_CHUNK_MESHES_PER_FRAME = 1;
 const MAX_REMOTE_CHUNKS_PER_FRAME = 2;
@@ -356,6 +359,7 @@ export class World {
           return;
         }
         this.completedTerrainWorkerJobs.push({ job, result });
+        this.dispatchTerrainWorkerJob();
       };
       worker.onerror = event => {
         this.disableTerrainWorker(event.message || 'Terrain worker stopped unexpectedly.');
@@ -1470,6 +1474,10 @@ export class World {
     // kept every visited mesh resident forever.
     const streamCenterKey = `${centerCx},${centerCz}`;
     if (streamCenterKey !== this.lastStreamCenterKey) {
+      this.microVoxels.setMeshFocus(
+        centerCx * CHUNK_SIZE_X + CHUNK_SIZE_X / 2,
+        centerCz * CHUNK_SIZE_Z + CHUNK_SIZE_Z / 2,
+      );
       const hadPreviousStreamCenter = Boolean(this.lastStreamCenterKey);
       const nextActive = new Set<string>();
       const pending: { cx: number; cz: number; distanceSq: number }[] = [];
@@ -1733,6 +1741,22 @@ export class World {
   }
 
   private publishCompletedTerrainWorkerJob() {
+    const started = performance.now();
+    const attempts = this.completedTerrainWorkerJobs.length;
+    for (let i = 0; i < attempts; i++) {
+      const next = this.completedTerrainWorkerJobs[0];
+      if (this.publishNextTerrainWorkerJob()) return true;
+      // A micro publication barrier belongs to one chunk. Independent ready
+      // results may pass it, without releasing its geometry/collision barrier.
+      if (this.completedTerrainWorkerJobs[0] === next) {
+        this.completedTerrainWorkerJobs.push(this.completedTerrainWorkerJobs.shift()!);
+      }
+      if (performance.now() - started >= BACKGROUND_MAIN_THREAD_BUDGET_MS) break;
+    }
+    return false;
+  }
+
+  private publishNextTerrainWorkerJob() {
     const nextCompleted = this.completedTerrainWorkerJobs[0];
     if (!nextCompleted) return false;
     const { job: nextJob, result: nextResult } = nextCompleted;
@@ -1944,13 +1968,15 @@ export class World {
   private dispatchTerrainWorkerJob() {
     const worker = this.terrainWorker;
     if (!worker || this.terrainWorkerJob) return false;
-    if (this.completedTerrainWorkerJobs.length > 0) return false;
+    if (this.completedTerrainWorkerJobs.length >= MAX_COMPLETED_TERRAIN_JOBS) return false;
+    const awaitingPublication = new Set(this.completedTerrainWorkerJobs.map(({ job }) => job.key));
 
     // A distant snapshot backlog must not postpone a direct edit. A same-chunk
     // authoritative replacement still takes precedence over its local remesh.
     let remeshChunk: Chunk | null = null;
     for (const chunk of this.interactiveDirtyChunks) {
       const key = World.getChunkKey(chunk.cx, chunk.cz);
+      if (awaitingPublication.has(key)) continue;
       if (!this.activeChunkKeys.has(key) || !this.dirtyChunks.has(chunk)) {
         this.interactiveDirtyChunks.delete(chunk);
         continue;
@@ -1968,6 +1994,7 @@ export class World {
     // generated data and mesh are ready. Until then, the previous collision
     // arrays and detailed mesh remain live.
     for (const [key, snapshot] of this.pendingTerrainSnapshots) {
+      if (awaitingPublication.has(key)) continue;
       if (!this.activeChunkKeys.has(key)) continue;
       if (this.pendingRemoteChunkApply?.key === key) continue;
       const queuedRevision = Number(this.pendingRemoteChunkUpdates.get(key)?.revision ?? -1);
@@ -2017,6 +2044,7 @@ export class World {
 
     for (const chunk of this.dirtyChunks) {
       const key = World.getChunkKey(chunk.cx, chunk.cz);
+      if (awaitingPublication.has(key)) continue;
       if (!this.activeChunkKeys.has(key)
         || this.pendingTerrainSnapshots.has(key)
         || this.pendingRemoteChunkUpdates.has(key)
@@ -2024,10 +2052,12 @@ export class World {
       return this.dispatchChunkRemesh(worker, chunk);
     }
 
-    while (this.pendingStreamChunks.length > 0) {
+    let candidates = this.pendingStreamChunks.length;
+    while (candidates-- > 0 && this.pendingStreamChunks.length > 0) {
       const next = this.pendingStreamChunks.shift();
       if (!next) break;
       const key = World.getChunkKey(next.cx, next.cz);
+      if (awaitingPublication.has(key)) continue;
       if (!this.activeChunkKeys.has(key) || this.chunks.has(key)) continue;
       if (
         this.pendingRemoteChunkUpdates.has(key)
@@ -2035,7 +2065,7 @@ export class World {
         || this.pendingTerrainSnapshots.has(key)
       ) {
         this.pendingStreamChunks.push(next);
-        return false;
+        continue;
       }
 
       const standardEdits = [...(this.editPersistence?.getStandardEditsForChunk(next.cx, next.cz)
@@ -2139,7 +2169,9 @@ export class World {
       hookSceneMaterials(mesh);
     }
 
-    if (!this.terrainWorker || this.interactiveDirtyChunks.size === 0) return microUpdated;
+    // Drain completed generation on render frames too. Waiting for an idle
+    // timeout here previously added up to 50 ms to every single chunk.
+    if (!this.terrainWorker) return microUpdated;
     const published = this.publishCompletedTerrainWorkerJob();
     const dispatched = this.dispatchTerrainWorkerJob();
     return microUpdated || published || dispatched;

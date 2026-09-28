@@ -14,9 +14,12 @@ type Zone = { snapshot: SurfaceZoneSnapshot; mips: Map<number, { faces: Uint8Arr
   signature: string; projection: number };
 const LINEAR = Uint8Array.from({ length: 256 }, (_, n) => Math.round(255 * (n / 255 <= .04045
   ? n / 255 / 12.92 : ((n / 255 + .055) / 1.055) ** 2.4)));
-// Packed attributes use 15 bytes per face (60 MiB at the limit), before
+// Packed attributes use 15 bytes per face (60 MiB at the fallback limit), before
 // reusable transition slots and GPU copies. Keep all directions resident.
 export const MAX_VOXEL_LOD_FACES = 4 * 1024 * 1024;
+// Budget 16 bytes per packed face (15 bytes of attributes plus headroom).
+// Transition buffers and the CPU/GPU copies consume additional memory.
+export const voxelFaceBudget = (mib: number) => Math.floor(mib * 1024 * 1024 / 16);
 
 function geometry() {
   const result = new THREE.InstancedBufferGeometry();
@@ -87,12 +90,16 @@ export class DistantVoxelLayer {
   readonly group = new THREE.Group();
   private readonly zones = new Map<string, Zone>();
   private readonly camera = new THREE.Vector3();
+  private readonly cullCamera = new THREE.Vector3();
+  private readonly cullFrustum = new THREE.Frustum();
+  private cullDirty = true;
   private focal = 720;
   private area = 16;
   private areaScale = 1;
   private distance = 32768;
   private hasView = false;
   private budgetDirty = false;
+  private faceBudget = MAX_VOXEL_LOD_FACES;
   private readonly mask: THREE.DataTexture;
   constructor(mask: THREE.DataTexture) { this.mask = mask; this.group.name = 'DistantVoxelTerrain'; }
   hasZone(x: number, z: number) { return this.zones.has(`${x},${z}`); }
@@ -117,12 +124,14 @@ export class DistantVoxelLayer {
     const zone: Zone = { snapshot, mips, bricks, batches: previous?.batches ?? new Map(), tileSignatures: new Map(),
       signature: '', projection: getWorldProjectionRevision() };
     this.zones.set(key, zone);
+    this.cullDirty = true;
     this.fitBudget();
     for (const current of this.zones.values()) this.select(current, current === zone);
   }
   private make = (coverage: THREE.Vector2, origin: THREE.Vector3): FaceMesh => {
     const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage, origin));
     mesh.frustumCulled = false;
+    mesh.matrixAutoUpdate = false;
     hookSceneMaterials(mesh);
     return mesh;
   };
@@ -137,7 +146,7 @@ export class DistantVoxelLayer {
     };
     this.areaScale = 1;
     let faces = measure(), lower = 1;
-    while (faces > MAX_VOXEL_LOD_FACES && this.areaScale < 65536) {
+    while (faces > this.faceBudget && this.areaScale < 65536) {
       lower = this.areaScale;
       this.areaScale *= 2;
       faces = measure();
@@ -146,13 +155,13 @@ export class DistantVoxelLayer {
       let upper = this.areaScale;
       for (let attempt = 0; attempt < 8; attempt++) {
         this.areaScale = (lower + upper) / 2;
-        if (measure() > MAX_VOXEL_LOD_FACES) lower = this.areaScale;
+        if (measure() > this.faceBudget) lower = this.areaScale;
         else upper = this.areaScale;
       }
       this.areaScale = upper;
       faces = measure();
     }
-    this.group.userData.voxelLodStats = { faces, budget: MAX_VOXEL_LOD_FACES,
+    this.group.userData.voxelLodStats = { faces, budget: this.faceBudget,
       requestedAreaPx2: this.area, effectiveAreaPx2: this.area * this.areaScale };
   }
   private select(zone: Zone, force = false, estimateOnly = false) {
@@ -238,17 +247,24 @@ export class DistantVoxelLayer {
       source.geometry.dispose(); source.material.dispose();
     }
   }
-  updateView(frustum: THREE.Frustum, camera: THREE.Vector3, focal: number, area: number, distance: number) {
+  updateView(frustum: THREE.Frustum, camera: THREE.Vector3, focal: number, area: number, distance: number,
+    faceBudget = MAX_VOXEL_LOD_FACES) {
+    const cullChanged = this.cullDirty || !this.cullCamera.equals(camera) || distance !== this.distance
+      || frustum.planes.some((plane, i) => !plane.equals(this.cullFrustum.planes[i]));
+    if (cullChanged) { this.cullCamera.copy(camera); this.cullFrustum.copy(frustum); this.cullDirty = false; }
     const changed = !this.hasView || this.camera.distanceTo(camera) >= 8 || Math.abs(focal / this.focal - 1) > .05
-      || area !== this.area || distance !== this.distance || this.budgetDirty;
+      || area !== this.area || distance !== this.distance || faceBudget !== this.faceBudget || this.budgetDirty;
     this.hasView = true; this.distance = distance;
-    if (changed) { this.camera.copy(camera); this.focal = focal; this.area = area; }
+    if (changed) { this.camera.copy(camera); this.focal = focal; this.area = area; this.faceBudget = faceBudget; }
     if (changed) { this.areaScale = 1; this.fitBudget(); }
+    const now = performance.now();
     for (const zone of this.zones.values()) {
-      if (changed || zone.projection !== getWorldProjectionRevision()) this.select(zone);
+      const selected = changed || zone.projection !== getWorldProjectionRevision();
+      if (selected) this.select(zone);
       for (const batch of zone.batches.values()) {
-        batch.advance();
-        batch.setVisible(frustum.intersectsSphere(batch.bounds) && camera.distanceTo(batch.bounds.center) - batch.bounds.radius <= this.distance);
+        batch.advance(now);
+        if (cullChanged || selected) batch.setVisible(frustum.intersectsSphere(batch.bounds)
+          && camera.distanceTo(batch.bounds.center) - batch.bounds.radius <= this.distance);
       }
     }
   }

@@ -21,6 +21,17 @@ test('hosted AssemblyScript restores typed state across transaction batches', as
   assert.equal(second.entities[0].snapshot.states.root.count, 2);
 });
 
+test('hosted entity code errors automatically stop execution', async () => {
+  const input = inputFor('self.state.setBoolean("partial", true); throw new Error("hosted failure");');
+  const result: any = await new HostedSimulation(1337).step(input);
+
+  assert.deepEqual(result.faults, []);
+  assert.equal(result.entities[0].stopped, true);
+  assert.equal(result.entities[0].snapshot.physicsSimulationEnabled, false);
+  assert.deepEqual(result.entities[0].snapshot.states.root, {});
+  assert.match(result.entities[0].snapshot.scriptError, /hosted failure/);
+});
+
 function inputFor(script: string, steps = 1) {
   const definition = encodeInventoryResource('entity', {
     type: 'space-entity',

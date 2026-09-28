@@ -305,30 +305,57 @@ test('script time counts enabled execution, does not advance with all component 
   assert.equal(contraption.tickCount, 0);
 });
 
-test('a runtime error disables only the failing component', async () => {
+test('a component runtime error automatically stops the whole entity', async () => {
   const { contraption } = makeContraption();
   await setNodeScript(contraption, 'root', 'throw new Error("root failed");');
-  await setNodeScript(contraption, 'arm', 'self.state.setNumber("runs", (self.state.getNumber("runs") || 0) + 1);');
+  await setNodeScript(contraption, 'arm', 'self.state.setNumber("runs", (self.state.getNumber("runs") || 0) + 1); self.applyThrust([0, 100, 0]);');
 
   contraption.update(1 / 60, null, {});
-  assert.equal(contraption.scriptStatus, 'error');
+  assert.equal(contraption.scriptStatus, 'stopped');
+  assert.equal(contraption.isPhysicsSimulationEnabled(), false);
   assert.equal(contraption.isNodeScriptEnabled('root'), false);
-  assert.equal(contraption.isNodeScriptEnabled('arm'), true);
-  assert.equal(contraption.getComponentState('arm').runs, 1);
+  assert.equal(contraption.isNodeScriptEnabled('arm'), false);
+  assert.deepEqual(contraption.getComponentState('arm'), {}, 'the interrupted tick state is discarded');
+  assert.equal(contraption.appliedForces.length(), 0, 'commands from the interrupted tick are discarded');
+  assert.match(contraption.nodeScriptErrors.get('root'), /root failed/);
 
   contraption.update(1 / 60, null, {});
-  assert.equal(contraption.getComponentState('arm').runs, 2, 'healthy siblings continue after another component fails');
+  assert.deepEqual(contraption.getComponentState('arm'), {}, 'the entity remains stopped');
 });
 
-test('three consecutive returned slow frames disable only that component', async () => {
+test('a fatal time or fuel budget result automatically stops the whole entity', async () => {
+  const { contraption } = makeContraption();
+  await setNodeScript(contraption, 'root', 'self.state.setBoolean("runs", true);');
+  await setNodeScript(contraption, 'arm', 'self.state.setBoolean("runs", true);');
+  contraption.getComponentState('root').old = true;
+
+  contraption.applyScriptRuntimeResult({
+    fatal: true,
+    error: 'Entity exceeded its WASM execution fuel budget',
+    states: { root: { partial: true } },
+    commands: [{ scope: 'component', nodeId: 'root', path: 'applyForce', args: [[0, 100, 0]] }]
+  }, {});
+
+  assert.equal(contraption.scriptStatus, 'stopped');
+  assert.equal(contraption.isPhysicsSimulationEnabled(), false);
+  assert.equal(contraption.isNodeScriptEnabled('root'), false);
+  assert.equal(contraption.isNodeScriptEnabled('arm'), false);
+  assert.deepEqual(contraption.getComponentState('root'), {});
+  assert.equal(contraption.appliedForces.length(), 0);
+  assert.match(contraption.scriptError, /fuel budget/);
+});
+
+test('three consecutive returned slow frames automatically stop the whole entity', async () => {
   const { contraption } = makeContraption();
   await setNodeScript(contraption, 'root', 'self.state.setBoolean("runs", true);');
   await setNodeScript(contraption, 'arm', 'self.state.setBoolean("runs", true);');
 
-  assert.equal(contraption.recordScriptExecutionTime('arm', 5.1), false);
-  assert.equal(contraption.recordScriptExecutionTime('arm', 7), false);
-  assert.equal(contraption.recordScriptExecutionTime('arm', 6), true);
+  assert.equal(contraption.recordScriptExecutionTime('arm', 50.1), false);
+  assert.equal(contraption.recordScriptExecutionTime('arm', 70), false);
+  assert.equal(contraption.recordScriptExecutionTime('arm', 60), true);
+  assert.equal(contraption.scriptStatus, 'stopped');
+  assert.equal(contraption.isPhysicsSimulationEnabled(), false);
   assert.equal(contraption.isNodeScriptEnabled('arm'), false);
-  assert.equal(contraption.isNodeScriptEnabled('root'), true);
-  assert.match(contraption.nodeScriptErrors.get('arm'), /exceeded 5 ms/);
+  assert.equal(contraption.isNodeScriptEnabled('root'), false);
+  assert.match(contraption.nodeScriptErrors.get('arm'), /exceeded 50 ms/);
 });

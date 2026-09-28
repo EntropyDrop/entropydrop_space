@@ -99,10 +99,12 @@ export function installFrameDiagnostics(game: any) {
     gpuEnabled = !gpuEnabled; clear();
     gpuButton.textContent = `GPU timing: ${gpuEnabled ? 'ON (1/6 frames)' : 'OFF'}`;
   });
-  const capture = () => ({ flags: { ...flags }, quality: scene.getLightingQuality(), resolution: scene.getResolutionScaleState() });
+  const capture = () => ({ flags: { ...flags }, quality: scene.getLightingQuality(), resolution: scene.getResolutionScaleState(),
+    secondaryScale: scene.cinematicEffects?.getSecondaryResolutionScale() ?? 0.5 });
   const restore = (saved: ReturnType<typeof capture>) => {
     Object.assign(flags, saved.flags); scene.setLightingQuality(saved.quality);
     scene.setResolutionScale(saved.resolution.mode === 'auto' ? 'auto' : saved.resolution.fixedScale);
+    scene.cinematicEffects?.setSecondaryResolutionScale(saved.secondaryScale);
     refreshButtons(); clear();
   };
   let comparison: { saved: ReturnType<typeof capture>; cases: { label: string; apply(): void }[];
@@ -133,6 +135,21 @@ export function installFrameDiagnostics(game: any) {
     comparison = { saved, cases, index: 0, warmUntil: 0, endAt: 0, warmed: false,
       rows: [`${saved.quality} | fixed ${Math.round(saved.resolution.scale * 100)}% | full effects | shadows ${scene.getShadowsEnabled() ? 'ON' : 'OFF'}`] };
     showResults(['Sampling; keep this tab foreground. Settings restore automatically.']);
+    beginCase(performance.now());
+  });
+  button('Compare effect resolution (about 17s)', () => {
+    if (comparison) return;
+    if (game.uiStore?.getSnapshot()?.hasStarted === false || !scene.cinematicEffects) {
+      showResults(['Click Play and select Ultra first. Keep the camera fixed during the comparison.']);
+      return;
+    }
+    const saved = capture();
+    comparison = { saved, index: 0, warmUntil: 0, endAt: 0, warmed: false,
+      cases: ([0.5, 1, 0.5] as const).map((scale, i) => ({
+        label: `${scale * 100}% effect resolution${i === 2 ? ' repeat' : ''}`,
+        apply() { scene.cinematicEffects.setSecondaryResolutionScale(scale); },
+      })),
+      rows: [`Ultra | fixed ${Math.round(saved.resolution.scale * 100)}% scene | full effects | effect resolution only`] };
     beginCase(performance.now());
   });
   button('Reset isolation', () => {

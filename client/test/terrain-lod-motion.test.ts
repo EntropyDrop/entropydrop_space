@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { TerrainHandoff, TERRAIN_FADE_MS } from '@entropydrop/space-engine/render/TerrainHandoff.ts';
 import { SurfaceBatch } from '@entropydrop/space-engine/render/SurfaceBatch.ts';
 import { DistantSurfaceLayer } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
+import { DistantVoxelLayer } from '@entropydrop/space-engine/render/DistantVoxelLayer.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { bendPoint, cullChunks } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
@@ -69,6 +70,57 @@ test('successive source arrivals keep complementary generations immutable and co
   assert.equal(batch.top.geometry.getAttribute('surfaceHeight'), attribute, 'idle cleanup must leave the live draw intact');
   batch.dispose();
   assert.equal(root.children.length, 0);
+});
+
+test('settled batches skip visibility writes and apply hidden state to replacement generations', () => {
+  const root = new THREE.Group();
+  const batch = new SurfaceBatch(root, 'idle', new THREE.Sphere(), () => {
+    const mesh = source(0); mesh.geometry.instanceCount = 0; return mesh;
+  });
+  batch.submit(source(100), 0, 1, source(100), 0, 1, false, 0);
+  batch.advance(6000);
+  let writes = 0;
+  for (const mesh of [batch.top, batch.side]) {
+    let visible = mesh.visible;
+    Object.defineProperty(mesh, 'visible', { get: () => visible, set(value) { writes++; visible = value; } });
+  }
+  for (let i = 0; i < 100; i++) { batch.advance(6001 + i); batch.setVisible(true); }
+  assert.equal(writes, 0, 'an unchanged view must not rewrite mesh visibility');
+  batch.setVisible(false);
+  batch.submit(source(200), 0, 1, source(200), 0, 1, false, 6200);
+  assert.ok(root.children.every(mesh => !mesh.visible), 'new generations inherit the cached hidden state');
+  batch.setVisible(true);
+  assert.ok(root.children.every(mesh => mesh.visible));
+  batch.dispose();
+});
+
+test('voxel culling reuses stationary results but responds to turns, motion and source arrivals', () => {
+  const handoff = new TerrainHandoff(), layer = new DistantVoxelLayer(handoff.texture);
+  const faces = new Uint8Array(16), data = new DataView(faces.buffer);
+  data.setUint16(2, 512, true); data.setUint16(6, 512, true); data.setUint16(8, 512, true);
+  faces[10] = 3;
+  const zone = { ...flatZone(0, 0), voxelMips: [{ cellSize: 64, faces }] };
+  const frustum = new THREE.Frustum(), camera = new THREE.Vector3();
+  let checks = 0;
+  const intersects = frustum.intersectsSphere.bind(frustum);
+  frustum.intersectsSphere = sphere => { checks++; return intersects(sphere); };
+  layer.install(zone);
+  layer.updateView(frustum, camera, 720, 16, 32768);
+  checks = 0;
+  for (let i = 0; i < 60; i++) layer.updateView(frustum, camera, 720, 16, 32768);
+  assert.equal(checks, 0);
+  camera.x += 0.01;
+  layer.updateView(frustum, camera, 720, 16, 32768);
+  assert.ok(checks > 0, 'even motion below the LOD rebuild threshold changes culling');
+  checks = 0;
+  frustum.planes[0].constant -= 1;
+  layer.updateView(frustum, camera, 720, 16, 32768);
+  assert.ok(checks > 0, 'turning immediately invalidates cached culling');
+  checks = 0;
+  layer.install({ ...zone, zoneX: 1 });
+  layer.updateView(frustum, camera, 720, 16, 32768);
+  assert.ok(checks >= 2, 'new geometry is culled even if the camera stays still');
+  layer.removeZone(0, 0); layer.removeZone(1, 0); handoff.texture.dispose();
 });
 
 function cameraAt(x: number, y: number, z: number) {
