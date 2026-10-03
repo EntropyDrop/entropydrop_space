@@ -15,7 +15,7 @@ function lightingRenderer(maxTextureSize = 8192) {
   renderer.scene = new THREE.Scene();
   renderer.renderer = {
     shadowMap: { enabled: true, needsUpdate: false },
-    capabilities: { maxTextureSize },
+    maxTextureSize,
   } as any;
   renderer.shadowsEnabled = true;
   renderer.adaptiveEffectsQuality = 'full';
@@ -42,7 +42,7 @@ test('lighting defaults are safe for missing, invalid and prototype-key preferen
   assert.equal(normalizeLightingQuality('ultra'), 'ultra');
 });
 
-test('quality switches change actual lighting and release obsolete shadow textures', () => {
+test('quality switches resize shadow storage without invalidating WebGPU depth samplers', () => {
   const renderer = lightingRenderer();
   const shadow = renderer.sunLight.shadow;
   assert.equal(shadow.mapSize.x, 1024);
@@ -60,9 +60,10 @@ test('quality switches change actual lighting and release obsolete shadow textur
 
   renderer.setLightingQuality('high');
   assert.equal(shadow.mapSize.x, 2048);
-  assert.equal(shadow.map, null, 'next render must allocate the new size');
+  assert.equal(shadow.map, map);
+  assert.equal(shadow.map.width, 2048);
   assert.equal(disposedMaps, 1);
-  assert.equal(disposedDepthTextures, 1);
+  assert.equal(disposedDepthTextures, 0);
   assert.ok(renderer.sunLight.intensity > originalSunIntensity);
   assert.equal(renderer.fillLight.visible, true);
   assert.ok(renderer.skyDomeUniforms.uSunGlow.value > 0);
@@ -76,18 +77,21 @@ test('quality switches change actual lighting and release obsolete shadow textur
   assert.ok(Math.abs(shadow.bias * (shadow.camera.far - shadow.camera.near)) >= Math.abs(receiverOffset));
   assert.ok(Math.abs(shadow.radius * shadow.camera.right * 2 / shadow.mapSize.x - softness) < 1e-9);
 
-  shadow.map = new THREE.WebGLRenderTarget(4096, 4096);
-  shadow.map.addEventListener('dispose', () => disposedMaps++);
   renderer.setLightingQuality('low');
-  assert.equal(shadow.map, null);
-  assert.equal(disposedMaps, 2);
+  assert.equal(shadow.map, map);
+  assert.equal(shadow.map.width, 1);
+  assert.equal(disposedDepthTextures, 0);
   assert.equal(renderer.renderer.shadowMap.enabled, false);
-  assert.equal(renderer.sunLight.castShadow, false, 'invalidate shadow samplers when disabling the pass');
+  assert.equal(renderer.sunLight.castShadow, true, 'preserve cached ShadowNodes across quality changes');
+  assert.equal(shadow.autoUpdate, false);
+  assert.equal(shadow.needsUpdate, false);
   assert.equal(renderer.fillLight.visible, false);
   assert.equal(renderer.shadowsEnabled, true, 'Low must retain the shadow preference');
   renderer.setLightingQuality('medium');
   assert.equal(renderer.renderer.shadowMap.enabled, true);
   assert.equal(renderer.sunLight.castShadow, true);
+  assert.equal(shadow.autoUpdate, true);
+  assert.equal(shadow.needsUpdate, true);
   assert.equal(shadow.mapSize.x, 1024);
   assert.equal(renderer.sunLight.intensity, originalSunIntensity);
 });
@@ -102,7 +106,8 @@ test('shadow textures respect GPU limits and same-size changes keep their alloca
   assert.equal(shadow.mapSize.y, 1024);
   assert.equal(shadow.map, map);
   renderer.setShadowsEnabled(false);
-  assert.equal(shadow.map, null);
+  assert.equal(shadow.map, map);
+  assert.equal(shadow.map.width, 1);
 });
 
 test('adaptive fallback restores the selected quality without overriding disabled shadows', () => {
@@ -216,8 +221,6 @@ test('Ultra applies distance haze once and restores material fog for other rende
   const renderer = lightingRenderer();
   const fog = new THREE.FogExp2('#74b9ff', 0.00012);
   renderer.scene.fog = fog;
-  let hdrSupported = true;
-  renderer.renderer.extensions = { has: () => hdrSupported } as any;
   let hdrFrames = 0;
   renderer.cinematicEffects = {
     render: (_gpu, scene, _camera, _sun, _up, fullEffects) => {
@@ -241,13 +244,10 @@ test('Ultra applies distance haze once and restores material fog for other rende
     assert.equal(fog.density, 0.00012, 'non-HDR rendering keeps its original fog');
     directFrames++;
   };
-  hdrSupported = false;
-  (renderer as any).renderWorld();
-  hdrSupported = true;
   renderer.cinematicEffects!.render = () => { throw new Error('lost render'); };
   assert.throws(() => (renderer as any).renderWorld(), /lost render/);
   assert.equal(fog.density, 0.00012, 'failed HDR frames must also restore fog');
   renderer.setLightingQuality('high');
   (renderer as any).renderWorld();
-  assert.equal(directFrames, 2);
+  assert.equal(directFrames, 1);
 });

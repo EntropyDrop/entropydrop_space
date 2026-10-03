@@ -448,6 +448,7 @@ function InventoryBar() {
   const category = activeInventoryCategory === 'entity' ? 'entity' : 'blockset';
   const items = controller?.inventories?.[category]?.items || [];
   const renderer = InventoryThumbnailRenderer.getInstance();
+  React.useSyncExternalStore(renderer.subscribe, renderer.getRevision, renderer.getRevision);
   return (
     <div className="inventory-bar-wrapper" id="inventory-bar-wrapper">
       <div className="palette-info-row">

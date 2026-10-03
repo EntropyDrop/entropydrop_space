@@ -1,0 +1,2454 @@
+[
+  {
+    "label": "Far-command pixel check",
+    "quality": "medium",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.4028765907344083,
+      -0.19387213077897644,
+      -0.0877432601156863,
+      0.8901714272260769
+    ],
+    "caseLabels": [
+      "Retained cache",
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  },
+  {
+    "time": "2026-10-03T08:10:05.699Z",
+    "label": "Far commands OFF",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.29155482079491407,
+      0.6442016659953974,
+      0.291554820794914,
+      0.6442016659953974
+    ],
+    "timings": {
+      "CPU": {
+        "count": 419,
+        "mean": 5.583532219570405,
+        "p50": 5.599999904632568,
+        "p95": 6.5
+      },
+      "Terrain window": {
+        "count": 419,
+        "mean": 0.005489262874484916,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Simulation": {
+        "count": 419,
+        "mean": 0.007875900564444094,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "Terrain publish": {
+        "count": 419,
+        "mean": 0.008114558700160935,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 419,
+        "mean": 0.49785202613593854,
+        "p50": 0.5,
+        "p95": 0.6000001430511475
+      },
+      "Scene update": {
+        "count": 419,
+        "mean": 0.019570410393871952,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 419,
+        "mean": 0.008114556993106668,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 419,
+        "mean": 0.0004773265137592762,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 419,
+        "mean": 0.07207636958374898,
+        "p50": 0.09999990463256836,
+        "p95": 0.20000004768371582
+      },
+      "WebGPU submit": {
+        "count": 419,
+        "mean": 5.368735084670256,
+        "p50": 5.299999952316284,
+        "p95": 6.599999904632568
+      },
+      "Render total": {
+        "count": 419,
+        "mean": 4.992362761554399,
+        "p50": 5,
+        "p95": 5.900000095367432
+      },
+      "Frame": {
+        "count": 418,
+        "mean": 9.548803827751183,
+        "p50": 8.30000000000291,
+        "p95": 16.700000000004366
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 418,
+      "elapsedMs": 3991.399999999994,
+      "averageFps": 104.72515909204806,
+      "onePercentLowFps": 45.20795660035929,
+      "p50Ms": 8.30000000000291,
+      "p95Ms": 16.700000000004366,
+      "p99Ms": 17.60000000000582,
+      "maxMs": 25.30000000000291,
+      "over16_67ms": 33,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 7.894736842105263
+    },
+    "calls": 459,
+    "triangles": 2702893,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1364,
+      "replays": 3255
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:10:11.205Z",
+    "label": "Far commands ON",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.29155482079491407,
+      0.6442016659953974,
+      0.291554820794914,
+      0.6442016659953974
+    ],
+    "timings": {
+      "CPU": {
+        "count": 409,
+        "mean": 5.071393643731302,
+        "p50": 5.099999904632568,
+        "p95": 6.299999952316284
+      },
+      "Terrain window": {
+        "count": 409,
+        "mean": 0.005134475843247691,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Simulation": {
+        "count": 409,
+        "mean": 0.008557456629783425,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 409,
+        "mean": 0.010268949354773337,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 409,
+        "mean": 0.5026894874852561,
+        "p50": 0.5,
+        "p95": 0.6000001430511475
+      },
+      "Scene update": {
+        "count": 409,
+        "mean": 0.02396087949608241,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 409,
+        "mean": 0.007090466529641,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 409,
+        "mean": 0.0004889976715983272,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 409,
+        "mean": 0.08141809221001883,
+        "p50": 0.09999990463256836,
+        "p95": 0.20000004768371582
+      },
+      "WebGPU submit": {
+        "count": 409,
+        "mean": 5.019315398992711,
+        "p50": 5,
+        "p95": 6.700000047683716
+      },
+      "Render total": {
+        "count": 409,
+        "mean": 4.4704156487378635,
+        "p50": 4.5,
+        "p95": 5.599999904632568
+      },
+      "Frame": {
+        "count": 408,
+        "mean": 9.762745098039227,
+        "p50": 8.39999999999418,
+        "p95": 16.69999999999709
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 408,
+      "elapsedMs": 3983.2000000000044,
+      "averageFps": 102.43020686884906,
+      "onePercentLowFps": 57.537399309555056,
+      "p50Ms": 8.39999999999418,
+      "p95Ms": 16.69999999999709,
+      "p99Ms": 17.19999999999709,
+      "maxMs": 17.599999999998545,
+      "over16_67ms": 33,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 8.088235294117647
+    },
+    "calls": 459,
+    "triangles": 2702893,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1365,
+      "replays": 3822
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:10:16.705Z",
+    "label": "Far commands OFF repeat",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.29155482079491407,
+      0.6442016659953974,
+      0.291554820794914,
+      0.6442016659953974
+    ],
+    "timings": {
+      "CPU": {
+        "count": 414,
+        "mean": 6.368599033586069,
+        "p50": 6.300000190734863,
+        "p95": 7.8999998569488525
+      },
+      "Terrain window": {
+        "count": 414,
+        "mean": 0.004830917874396135,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 414,
+        "mean": 0.006763283757195956,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 414,
+        "mean": 0.011352657120008975,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 414,
+        "mean": 0.5159420270274803,
+        "p50": 0.5,
+        "p95": 0.6000001430511475
+      },
+      "Scene update": {
+        "count": 414,
+        "mean": 0.02222222233740028,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 414,
+        "mean": 0.00966183574879227,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 414,
+        "mean": 0.0007246381418716505,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 414,
+        "mean": 0.08285025006906997,
+        "p50": 0.09999990463256836,
+        "p95": 0.20000004768371582
+      },
+      "WebGPU submit": {
+        "count": 414,
+        "mean": 6.344202901430176,
+        "p50": 6.299999952316284,
+        "p95": 8.299999952316284
+      },
+      "Render total": {
+        "count": 414,
+        "mean": 5.740821255577935,
+        "p50": 5.700000047683716,
+        "p95": 7.200000047683716
+      },
+      "Frame": {
+        "count": 413,
+        "mean": 9.647215496368046,
+        "p50": 8.30000000000291,
+        "p95": 16.700000000004366
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 413,
+      "elapsedMs": 3984.300000000003,
+      "averageFps": 103.6568531486082,
+      "onePercentLowFps": 52.576235541523964,
+      "p50Ms": 8.30000000000291,
+      "p95Ms": 16.700000000004366,
+      "p99Ms": 17.5,
+      "maxMs": 24.90000000000873,
+      "over16_67ms": 39,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 9.443099273607748
+    },
+    "calls": 459,
+    "triangles": 2702893,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1365,
+      "replays": 3822
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:10:53.696Z",
+    "label": "Far commands OFF",
+    "quality": "ultra",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.29155482079491407,
+      0.6442016659953974,
+      0.291554820794914,
+      0.6442016659953974
+    ],
+    "timings": {
+      "CPU": {
+        "count": 319,
+        "mean": 6.444200630098301,
+        "p50": 6.5,
+        "p95": 7.200000047683716
+      },
+      "Terrain window": {
+        "count": 319,
+        "mean": 0.005956110162047383,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Simulation": {
+        "count": 319,
+        "mean": 0.00752350977595697,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 319,
+        "mean": 0.01191223004021241,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "Picking": {
+        "count": 319,
+        "mean": 0.5053291507649198,
+        "p50": 0.5,
+        "p95": 0.6000001430511475
+      },
+      "Scene update": {
+        "count": 319,
+        "mean": 0.029153604118801583,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 319,
+        "mean": 0.008463947750557926,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 319,
+        "mean": 0.0012539180468616067,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 319,
+        "mean": 0.07617554470289463,
+        "p50": 0.09999990463256836,
+        "p95": 0.20000004768371582
+      },
+      "WebGPU submit": {
+        "count": 319,
+        "mean": 6.655172424256615,
+        "p50": 6.700000047683716,
+        "p95": 7.799999713897705
+      },
+      "Render total": {
+        "count": 319,
+        "mean": 5.829467091814478,
+        "p50": 5.900000095367432,
+        "p95": 6.5
+      },
+      "Frame": {
+        "count": 318,
+        "mean": 12.526100628930827,
+        "p50": 15.700000000011642,
+        "p95": 17.10000000000582
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 318,
+      "elapsedMs": 3983.300000000003,
+      "averageFps": 79.83330404438524,
+      "onePercentLowFps": 56.89900426743474,
+      "p50Ms": 15.700000000011642,
+      "p95Ms": 17.10000000000582,
+      "p99Ms": 17.5,
+      "maxMs": 17.60000000000582,
+      "over16_67ms": 78,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 24.528301886792452
+    },
+    "calls": 474,
+    "triangles": 2702908,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1368,
+      "replays": 7064
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:10:59.208Z",
+    "label": "Far commands ON",
+    "quality": "ultra",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.29155482079491407,
+      0.6442016659953974,
+      0.291554820794914,
+      0.6442016659953974
+    ],
+    "timings": {
+      "CPU": {
+        "count": 350,
+        "mean": 5.302857140132359,
+        "p50": 5.3999998569488525,
+        "p95": 6.599999904632568
+      },
+      "Terrain window": {
+        "count": 350,
+        "mean": 0.005428568976266044,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Simulation": {
+        "count": 350,
+        "mean": 0.00799999782017299,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 350,
+        "mean": 0.004285714966910226,
+        "p50": 0,
+        "p95": 0
+      },
+      "Picking": {
+        "count": 350,
+        "mean": 0.4931428609575544,
+        "p50": 0.5,
+        "p95": 0.6000001430511475
+      },
+      "Scene update": {
+        "count": 350,
+        "mean": 0.015714284351893832,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 350,
+        "mean": 0.007714283806937081,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 350,
+        "mean": 0.0005714293888636997,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 350,
+        "mean": 0.07200001444135394,
+        "p50": 0.09999990463256836,
+        "p95": 0.20000004768371582
+      },
+      "WebGPU submit": {
+        "count": 350,
+        "mean": 5.542571426800319,
+        "p50": 5.5,
+        "p95": 7.300000190734863
+      },
+      "Render total": {
+        "count": 350,
+        "mean": 4.723142856870378,
+        "p50": 4.799999952316284,
+        "p95": 6
+      },
+      "Frame": {
+        "count": 349,
+        "mean": 11.461604584527237,
+        "p50": 8.5,
+        "p95": 16.89999999999418
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 349,
+      "elapsedMs": 4000.100000000006,
+      "averageFps": 87.24781880452976,
+      "onePercentLowFps": 56.81818181818652,
+      "p50Ms": 8.5,
+      "p95Ms": 16.89999999999418,
+      "p99Ms": 17.59999999999127,
+      "maxMs": 17.60000000000582,
+      "over16_67ms": 75,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 21.48997134670487
+    },
+    "calls": 474,
+    "triangles": 2702908,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1369,
+      "replays": 7532
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:11:04.721Z",
+    "label": "Far commands OFF repeat",
+    "quality": "ultra",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.29155482079491407,
+      0.6442016659953974,
+      0.291554820794914,
+      0.6442016659953974
+    ],
+    "timings": {
+      "CPU": {
+        "count": 360,
+        "mean": 5.743333335055246,
+        "p50": 5.799999952316284,
+        "p95": 7
+      },
+      "Terrain window": {
+        "count": 360,
+        "mean": 0.0036111123032040067,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 360,
+        "mean": 0.008055554495917426,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 360,
+        "mean": 0.005555556880103217,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 360,
+        "mean": 0.4872222231494056,
+        "p50": 0.5,
+        "p95": 0.5999999046325684
+      },
+      "Scene update": {
+        "count": 360,
+        "mean": 0.015555557277467515,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 360,
+        "mean": 0.007777775658501519,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 360,
+        "mean": 0.0002777775128682454,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 360,
+        "mean": 0.07250001033147176,
+        "p50": 0.09999990463256836,
+        "p95": 0.19999980926513672
+      },
+      "WebGPU submit": {
+        "count": 360,
+        "mean": 5.850833308034473,
+        "p50": 5.699999809265137,
+        "p95": 7.400000095367432
+      },
+      "Render total": {
+        "count": 360,
+        "mean": 5.179166669315762,
+        "p50": 5.199999809265137,
+        "p95": 6.3999998569488525
+      },
+      "Frame": {
+        "count": 359,
+        "mean": 11.142061281337048,
+        "p50": 8.39999999999418,
+        "p95": 16.80000000000291
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 359,
+      "elapsedMs": 4000,
+      "averageFps": 89.75,
+      "onePercentLowFps": 57.4712643678233,
+      "p50Ms": 8.39999999999418,
+      "p95Ms": 16.80000000000291,
+      "p99Ms": 17.29999999998836,
+      "maxMs": 17.5,
+      "over16_67ms": 80,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 22.284122562674096
+    },
+    "calls": 474,
+    "triangles": 2702908,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1369,
+      "replays": 7532
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "label": "Far-command pixel check",
+    "quality": "ultra",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.29155482079491407,
+      0.6442016659953974,
+      0.291554820794914,
+      0.6442016659953974
+    ],
+    "caseLabels": [
+      "Retained cache",
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  },
+  {
+    "time": "2026-10-03T08:11:33.617Z",
+    "label": "Far commands OFF",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 319,
+        "mean": 10.035109721007393,
+        "p50": 10.299999952316284,
+        "p95": 11.599999904632568
+      },
+      "Terrain window": {
+        "count": 319,
+        "mean": 0.0047021913677921115,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 319,
+        "mean": 0.007523509028563305,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 319,
+        "mean": 0.007836989100823956,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 319,
+        "mean": 0.4476489123879555,
+        "p50": 0.40000009536743164,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 319,
+        "mean": 0.01379310075765867,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "HUD": {
+        "count": 319,
+        "mean": 0.009090906400291898,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 319,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 319,
+        "mean": 0.06645768189504976,
+        "p50": 0.09999990463256836,
+        "p95": 0.10000014305114746
+      },
+      "WebGPU submit": {
+        "count": 319,
+        "mean": 10.609717876559888,
+        "p50": 11,
+        "p95": 12.300000190734863
+      },
+      "Render total": {
+        "count": 319,
+        "mean": 9.510971791318218,
+        "p50": 9.799999952316284,
+        "p95": 11
+      },
+      "Frame": {
+        "count": 318,
+        "mean": 12.526415094339605,
+        "p50": 8.400000000023283,
+        "p95": 24.89999999999418
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 318,
+      "elapsedMs": 3983.399999999994,
+      "averageFps": 79.83129989456255,
+      "onePercentLowFps": 39.80099502488715,
+      "p50Ms": 8.400000000023283,
+      "p95Ms": 24.89999999999418,
+      "p99Ms": 25.099999999976717,
+      "maxMs": 25.199999999982538,
+      "over16_67ms": 88,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 27.67295597484277
+    },
+    "calls": 915,
+    "triangles": 1630099,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1375,
+      "replays": 9478
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:11:39.121Z",
+    "label": "Far commands ON",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 362,
+        "mean": 5.5220994488310415,
+        "p50": 5.400000095367432,
+        "p95": 6.900000095367432
+      },
+      "Terrain window": {
+        "count": 362,
+        "mean": 0.002762431597841379,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 362,
+        "mean": 0.00911602328495426,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 362,
+        "mean": 0.007182322813002444,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 362,
+        "mean": 0.44530386621780815,
+        "p50": 0.40000009536743164,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 362,
+        "mean": 0.017127072613542252,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 362,
+        "mean": 0.008563535648156265,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 362,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 362,
+        "mean": 0.060497241784195875,
+        "p50": 0.09999990463256836,
+        "p95": 0.10000014305114746
+      },
+      "WebGPU submit": {
+        "count": 362,
+        "mean": 5.674309394636206,
+        "p50": 5.5,
+        "p95": 7.400000095367432
+      },
+      "Render total": {
+        "count": 362,
+        "mean": 4.991712701254786,
+        "p50": 4.900000095367432,
+        "p95": 6.300000190734863
+      },
+      "Frame": {
+        "count": 361,
+        "mean": 11.011634349030503,
+        "p50": 8.39999999999418,
+        "p95": 16.70000000001164
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 361,
+      "elapsedMs": 3975.2000000000116,
+      "averageFps": 90.81304085329013,
+      "onePercentLowFps": 58.394160583941606,
+      "p50Ms": 8.39999999999418,
+      "p95Ms": 16.70000000001164,
+      "p99Ms": 17,
+      "maxMs": 17.29999999998836,
+      "over16_67ms": 64,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 17.72853185595568
+    },
+    "calls": 915,
+    "triangles": 1630099,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1376,
+      "replays": 9975
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:11:44.624Z",
+    "label": "Far commands OFF repeat",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 319,
+        "mean": 10.17021943185023,
+        "p50": 10.299999952316284,
+        "p95": 11.799999952316284
+      },
+      "Terrain window": {
+        "count": 319,
+        "mean": 0.004702192862579441,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 319,
+        "mean": 0.007210031198483649,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 319,
+        "mean": 0.006269596960851017,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 319,
+        "mean": 0.4514106523280607,
+        "p50": 0.5,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 319,
+        "mean": 0.013479621432791683,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "HUD": {
+        "count": 319,
+        "mean": 0.007836990595611285,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 319,
+        "mean": 0.0012539180468616067,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 319,
+        "mean": 0.06771159246797472,
+        "p50": 0.09999990463256836,
+        "p95": 0.19999980926513672
+      },
+      "WebGPU submit": {
+        "count": 319,
+        "mean": 10.754231979107034,
+        "p50": 11,
+        "p95": 12.499999761581421
+      },
+      "Render total": {
+        "count": 319,
+        "mean": 9.643260194963796,
+        "p50": 9.799999952316284,
+        "p95": 11.200000047683716
+      },
+      "Frame": {
+        "count": 318,
+        "mean": 12.526415094339605,
+        "p50": 9,
+        "p95": 17.29999999998836
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 318,
+      "elapsedMs": 3983.399999999994,
+      "averageFps": 79.83129989456255,
+      "onePercentLowFps": 39.525691699600195,
+      "p50Ms": 9,
+      "p95Ms": 17.29999999998836,
+      "p99Ms": 25,
+      "maxMs": 25.800000000017462,
+      "over16_67ms": 84,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 26.41509433962264
+    },
+    "calls": 915,
+    "triangles": 1630099,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1376,
+      "replays": 9975
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "label": "Far-command transparency check",
+    "quality": "medium",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "caseLabels": [
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 1701669,
+        "maxChannelDelta": 181
+      }
+    ],
+    "invalidProbe": "Reference repeat changed because the diagnostic planes were bent by the periodic material scan. Replaced with camera-local, torusPreBent probes; corrected Medium and Ultra checks are included later."
+  },
+  {
+    "time": "2026-10-03T08:12:11.262Z",
+    "label": "Far commands OFF",
+    "quality": "ultra",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 289,
+        "mean": 11.287543258864988,
+        "p50": 11.599999904632568,
+        "p95": 13.100000143051147
+      },
+      "Terrain window": {
+        "count": 289,
+        "mean": 0.004498269731198215,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 289,
+        "mean": 0.007958481468543874,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 289,
+        "mean": 0.004152247649988089,
+        "p50": 0,
+        "p95": 0
+      },
+      "Picking": {
+        "count": 289,
+        "mean": 0.4508650418383852,
+        "p50": 0.40000009536743164,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 289,
+        "mean": 0.016262977593497836,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 289,
+        "mean": 0.007266437306123621,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 289,
+        "mean": 0.000692041687486906,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 289,
+        "mean": 0.06332180656776296,
+        "p50": 0.09999990463256836,
+        "p95": 0.19999980926513672
+      },
+      "WebGPU submit": {
+        "count": 289,
+        "mean": 12.216262979903435,
+        "p50": 12.600000143051147,
+        "p95": 14.300000190734863
+      },
+      "Render total": {
+        "count": 289,
+        "mean": 10.760207615096677,
+        "p50": 11.099999904632568,
+        "p95": 12.600000143051147
+      },
+      "Frame": {
+        "count": 288,
+        "mean": 13.859722222222242,
+        "p50": 16.599999999976717,
+        "p95": 24.89999999999418
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 288,
+      "elapsedMs": 3991.600000000006,
+      "averageFps": 72.1515181881951,
+      "onePercentLowFps": 39.57783641160038,
+      "p50Ms": 16.599999999976717,
+      "p95Ms": 24.89999999999418,
+      "p99Ms": 25.10000000000582,
+      "maxMs": 25.60000000000582,
+      "over16_67ms": 110,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 38.19444444444444
+    },
+    "calls": 930,
+    "triangles": 1630114,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1381,
+      "replays": 11881
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:12:16.769Z",
+    "label": "Far commands ON",
+    "quality": "ultra",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 328,
+        "mean": 6.182621950056495,
+        "p50": 5.900000095367432,
+        "p95": 7.5
+      },
+      "Terrain window": {
+        "count": 328,
+        "mean": 0.004268292246795282,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 328,
+        "mean": 0.010060975464378915,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 328,
+        "mean": 0.004573172185479141,
+        "p50": 0,
+        "p95": 0
+      },
+      "Picking": {
+        "count": 328,
+        "mean": 0.4451219519463981,
+        "p50": 0.40000009536743164,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 328,
+        "mean": 0.012195118316789953,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "HUD": {
+        "count": 328,
+        "mean": 0.006402437279864055,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 328,
+        "mean": 0.000609756242938158,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 328,
+        "mean": 0.07012195921525723,
+        "p50": 0.09999990463256836,
+        "p95": 0.19999980926513672
+      },
+      "WebGPU submit": {
+        "count": 328,
+        "mean": 6.686585377629211,
+        "p50": 6.199999570846558,
+        "p95": 8.400000095367432
+      },
+      "Render total": {
+        "count": 328,
+        "mean": 5.664329269310323,
+        "p50": 5.5,
+        "p95": 7
+      },
+      "Frame": {
+        "count": 327,
+        "mean": 12.181651376146771,
+        "p50": 8.60000000000582,
+        "p95": 16.70000000001164
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 327,
+      "elapsedMs": 3983.399999999994,
+      "averageFps": 82.0906763066728,
+      "onePercentLowFps": 57.30659025786532,
+      "p50Ms": 8.60000000000582,
+      "p95Ms": 16.70000000001164,
+      "p99Ms": 17.300000000017462,
+      "maxMs": 17.5,
+      "over16_67ms": 79,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 24.159021406727827
+    },
+    "calls": 930,
+    "triangles": 1630114,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1382,
+      "replays": 12333
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:12:22.275Z",
+    "label": "Far commands OFF repeat",
+    "quality": "ultra",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": false,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 289,
+        "mean": 11.203806231178627,
+        "p50": 11.5,
+        "p95": 12.700000047683716
+      },
+      "Terrain window": {
+        "count": 289,
+        "mean": 0.005536332674917465,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Simulation": {
+        "count": 289,
+        "mean": 0.00830449612495396,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 289,
+        "mean": 0.006228376012359936,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 289,
+        "mean": 0.4512110705194176,
+        "p50": 0.5,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 289,
+        "mean": 0.020069202337298014,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 289,
+        "mean": 0.01211072829355418,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "Minimap": {
+        "count": 289,
+        "mean": 0.0006920408625091236,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 289,
+        "mean": 0.07439445541804225,
+        "p50": 0.09999990463256836,
+        "p95": 0.20000004768371582
+      },
+      "WebGPU submit": {
+        "count": 289,
+        "mean": 12.09204151391158,
+        "p50": 12.5,
+        "p95": 13.800000190734863
+      },
+      "Render total": {
+        "count": 289,
+        "mean": 10.66608996292299,
+        "p50": 11,
+        "p95": 12.100000143051147
+      },
+      "Frame": {
+        "count": 288,
+        "mean": 13.83124999999998,
+        "p50": 16.599999999976717,
+        "p95": 25
+      },
+      "GPU": {
+        "count": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      }
+    },
+    "frame": {
+      "count": 288,
+      "elapsedMs": 3983.399999999994,
+      "averageFps": 72.30004518752835,
+      "onePercentLowFps": 39.52569169959262,
+      "p50Ms": 16.599999999976717,
+      "p95Ms": 25,
+      "p99Ms": 25.10000000000582,
+      "maxMs": 25.70000000001164,
+      "over16_67ms": 102,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 35.416666666666664
+    },
+    "calls": 930,
+    "triangles": 1630114,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 1382,
+      "replays": 12333
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "label": "Far-command transparency check",
+    "quality": "medium",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "caseLabels": [
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  },
+  {
+    "label": "Far-command pixel check",
+    "quality": "medium",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "caseLabels": [
+      "Retained cache",
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  },
+  {
+    "time": "2026-10-03T08:13:35.826Z",
+    "label": "Far commands OFF",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 323,
+        "mean": 9.814241483115559,
+        "p50": 10,
+        "p95": 11.399999856948853
+      },
+      "Terrain window": {
+        "count": 323,
+        "mean": 0.00433436488219459,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 323,
+        "mean": 0.012074303700827961,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "Terrain publish": {
+        "count": 323,
+        "mean": 0.007120742886428125,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 323,
+        "mean": 0.4520123831627908,
+        "p50": 0.5,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 323,
+        "mean": 0.015789472650817305,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 323,
+        "mean": 0.008359133274562587,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 323,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 323,
+        "mean": 0.06687306472022467,
+        "p50": 0.09999990463256836,
+        "p95": 0.19999980926513672
+      },
+      "WebGPU submit": {
+        "count": 323,
+        "mean": 10.345510824545988,
+        "p50": 10.699999809265137,
+        "p95": 12.100000143051147
+      },
+      "Render total": {
+        "count": 323,
+        "mean": 9.277089775162215,
+        "p50": 9.5,
+        "p95": 10.799999952316284
+      },
+      "Frame": {
+        "count": 322,
+        "mean": 12.39627329192546,
+        "p50": 8.400000000001455,
+        "p95": 25
+      },
+      "GPU": {
+        "count": 53,
+        "mean": 6.800905660377358,
+        "p50": 6.291456,
+        "p95": 9.961472
+      }
+    },
+    "frame": {
+      "count": 322,
+      "elapsedMs": 3991.5999999999985,
+      "averageFps": 80.6694057520794,
+      "onePercentLowFps": 39.177277179236604,
+      "p50Ms": 8.400000000001455,
+      "p95Ms": 25,
+      "p99Ms": 25.30000000000291,
+      "maxMs": 25.900000000001455,
+      "over16_67ms": 94,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 29.19254658385093
+    },
+    "calls": 915,
+    "triangles": 1630099,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 426,
+      "replays": 1757
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:13:41.326Z",
+    "label": "Far commands ON",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 364,
+        "mean": 5.481593405152415,
+        "p50": 5.3999998569488525,
+        "p95": 6.700000047683716
+      },
+      "Terrain window": {
+        "count": 364,
+        "mean": 0.0027472540572449403,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 364,
+        "mean": 0.009340656327677298,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Terrain publish": {
+        "count": 364,
+        "mean": 0.007417581238589444,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Picking": {
+        "count": 364,
+        "mean": 0.44780219583720954,
+        "p50": 0.40000009536743164,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 364,
+        "mean": 0.01620879081579355,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 364,
+        "mean": 0.009340658947661683,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 364,
+        "mean": 0.0008241756931766049,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 364,
+        "mean": 0.06043955650958386,
+        "p50": 0.09999990463256836,
+        "p95": 0.10000014305114746
+      },
+      "WebGPU submit": {
+        "count": 364,
+        "mean": 5.617307687198723,
+        "p50": 5.200000047683716,
+        "p95": 7.299999952316284
+      },
+      "Render total": {
+        "count": 364,
+        "mean": 4.943406594323588,
+        "p50": 4.800000190734863,
+        "p95": 6.200000047683716
+      },
+      "Frame": {
+        "count": 363,
+        "mean": 10.973278236914588,
+        "p50": 8.400000000001455,
+        "p95": 16.700000000004366
+      },
+      "GPU": {
+        "count": 60,
+        "mean": 6.840866133333334,
+        "p50": 7.012352,
+        "p95": 8.388608
+      }
+    },
+    "frame": {
+      "count": 363,
+      "elapsedMs": 3983.2999999999956,
+      "averageFps": 91.1304697110437,
+      "onePercentLowFps": 51.94805194805195,
+      "p50Ms": 8.400000000001455,
+      "p95Ms": 16.700000000004366,
+      "p99Ms": 17,
+      "maxMs": 25,
+      "over16_67ms": 66,
+      "over33_33ms": 0,
+      "over50ms": 0,
+      "over16_67Percent": 18.181818181818183
+    },
+    "calls": 915,
+    "triangles": 1630099,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 427,
+      "replays": 2255
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "time": "2026-10-03T08:13:46.833Z",
+    "label": "Far commands OFF repeat",
+    "quality": "medium",
+    "shadows": true,
+    "flags": {
+      "draw": true,
+      "far": true,
+      "near": true,
+      "micro": true,
+      "sky": true,
+      "post": true
+    },
+    "gpuTimingEnabled": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "timings": {
+      "CPU": {
+        "count": 320,
+        "mean": 9.873125008493663,
+        "p50": 10,
+        "p95": 11.400000095367432
+      },
+      "Terrain window": {
+        "count": 320,
+        "mean": 0.0024999991059303285,
+        "p50": 0,
+        "p95": 0
+      },
+      "Simulation": {
+        "count": 320,
+        "mean": 0.012187502533197402,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "Terrain publish": {
+        "count": 320,
+        "mean": 0.0034374997019767763,
+        "p50": 0,
+        "p95": 0
+      },
+      "Picking": {
+        "count": 320,
+        "mean": 0.4509375013411045,
+        "p50": 0.5,
+        "p95": 0.5
+      },
+      "Scene update": {
+        "count": 320,
+        "mean": 0.0171875,
+        "p50": 0,
+        "p95": 0.10000014305114746
+      },
+      "HUD": {
+        "count": 320,
+        "mean": 0.006875001639127731,
+        "p50": 0,
+        "p95": 0.09999990463256836
+      },
+      "Minimap": {
+        "count": 320,
+        "mean": 0.0009375005960464477,
+        "p50": 0,
+        "p95": 0
+      },
+      "LOD view": {
+        "count": 320,
+        "mean": 0.06187499985098839,
+        "p50": 0.09999990463256836,
+        "p95": 0.19999980926513672
+      },
+      "WebGPU submit": {
+        "count": 320,
+        "mean": 10.416250003129244,
+        "p50": 10.699999809265137,
+        "p95": 12.099999904632568
+      },
+      "Render total": {
+        "count": 320,
+        "mean": 9.335312499850989,
+        "p50": 9.5,
+        "p95": 10.800000190734863
+      },
+      "Frame": {
+        "count": 319,
+        "mean": 12.512852664576798,
+        "p50": 8.599999999998545,
+        "p95": 24.900000000001455
+      },
+      "GPU": {
+        "count": 52,
+        "mean": 6.988406153846155,
+        "p50": 6.815744,
+        "p95": 9.240576
+      }
+    },
+    "frame": {
+      "count": 319,
+      "elapsedMs": 3991.5999999999985,
+      "averageFps": 79.91782743761902,
+      "onePercentLowFps": 36.76470588235441,
+      "p50Ms": 8.599999999998545,
+      "p95Ms": 24.900000000001455,
+      "p99Ms": 25.099999999998545,
+      "maxMs": 33.5,
+      "over16_67ms": 86,
+      "over33_33ms": 1,
+      "over50ms": 0,
+      "over16_67Percent": 26.95924764890282
+    },
+    "calls": 915,
+    "triangles": 1630099,
+    "geometry": {
+      "faces": 2089207,
+      "budget": 5242880,
+      "requestedAreaPx2": 64,
+      "effectiveAreaPx2": 64
+    },
+    "commandCache": {
+      "recordings": 427,
+      "replays": 2255
+    },
+    "stagesNested": true,
+    "gpuExcludesPresentation": true
+  },
+  {
+    "label": "Completed work: Far commands OFF",
+    "quality": "medium",
+    "width": 2560,
+    "height": 1440,
+    "completedFrameMs": {
+      "count": 12,
+      "mean": 11.86041667064031,
+      "p50": 11.775000035762787,
+      "p95": 12.950000047683716
+    },
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "shadows": true,
+    "framesPerBatch": 4,
+    "batches": 12,
+    "excludesPresentation": true,
+    "excludesSimulation": true
+  },
+  {
+    "label": "Completed work: Far commands ON",
+    "quality": "medium",
+    "width": 2560,
+    "height": 1440,
+    "completedFrameMs": {
+      "count": 12,
+      "mean": 7.525000000993411,
+      "p50": 7.549999952316284,
+      "p95": 8.149999976158142
+    },
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "shadows": true,
+    "framesPerBatch": 4,
+    "batches": 12,
+    "excludesPresentation": true,
+    "excludesSimulation": true
+  },
+  {
+    "label": "Completed work: Far commands OFF repeat",
+    "quality": "medium",
+    "width": 2560,
+    "height": 1440,
+    "completedFrameMs": {
+      "count": 12,
+      "mean": 11.075000002980232,
+      "p50": 11.050000011920929,
+      "p95": 11.625
+    },
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "shadows": true,
+    "framesPerBatch": 4,
+    "batches": 12,
+    "excludesPresentation": true,
+    "excludesSimulation": true
+  },
+  {
+    "label": "Far-command transparency check",
+    "quality": "ultra",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.4418691302034344,
+      0.5520431792652277,
+      -0.4418691302034343,
+      0.5520431792652277
+    ],
+    "caseLabels": [
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  },
+  {
+    "label": "Far-command pixel check",
+    "quality": "ultra",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8192.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      -0.4418691302034343,
+      0.5520431792652277,
+      -0.4418691302034344,
+      -0.5520431792652277
+    ],
+    "caseLabels": [
+      "Retained cache",
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  },
+  {
+    "label": "Far-command pixel check",
+    "quality": "medium",
+    "shadows": true,
+    "width": 2048,
+    "height": 1440,
+    "camera": [
+      8448.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.03534060950936697,
+      0.7062230818371107,
+      -0.03534060950936696,
+      0.7062230818371108
+    ],
+    "caseLabels": [
+      "Retained cache",
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  },
+  {
+    "label": "Far-command pixel check",
+    "quality": "ultra",
+    "shadows": true,
+    "width": 2560,
+    "height": 1440,
+    "camera": [
+      8448.5,
+      181.62,
+      1024.5
+    ],
+    "rotation": [
+      0.03534060950936697,
+      0.7062230818371107,
+      -0.03534060950936696,
+      0.7062230818371108
+    ],
+    "caseLabels": [
+      "Retained cache",
+      "Far commands OFF",
+      "Far commands ON",
+      "Far commands OFF repeat"
+    ],
+    "differences": [
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      },
+      {
+        "changedPixels": 0,
+        "maxChannelDelta": 0
+      }
+    ]
+  }
+]

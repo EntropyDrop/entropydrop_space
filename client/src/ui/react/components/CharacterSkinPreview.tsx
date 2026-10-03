@@ -1,3 +1,4 @@
+import { SpaceRenderer } from '../../../engine/render/SpaceRenderer.ts';
 import React from 'react';
 import * as THREE from 'three';
 import { CuteCharacter, loadCuteCharacter, type SkinModel } from '../../../engine/render/CuteCharacter.ts';
@@ -10,10 +11,11 @@ export function CharacterSkinPreview({ url, model }: { url: string; model: SkinM
     if (!canvas) return;
     let disposed = false;
     let character: CuteCharacter | null = null;
-    let renderer: THREE.WebGLRenderer;
+    let renderer: SpaceRenderer;
     setFailed(false);
+    delete canvas.dataset.renderReady;
     try {
-      renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+      renderer = new SpaceRenderer({ canvas, alpha: true, antialias: true });
     } catch {
       setFailed(true);
       return;
@@ -28,12 +30,20 @@ export function CharacterSkinPreview({ url, model }: { url: string; model: SkinM
     const light = new THREE.DirectionalLight(0xffffff, 2);
     light.position.set(2, 4, 3);
     scene.add(light);
-    void loadCuteCharacter(url, { model, height: 1.8, createBillboard: false, createFirstPersonHand: false, castShadow: false }).then(loaded => {
+    camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+    camera.updateProjectionMatrix();
+    void renderer.initialize().then(() => {
+      if (disposed) { renderer.dispose(); return null; }
+      return loadCuteCharacter(url, { model, height: 1.8, createBillboard: false, createFirstPersonHand: false, castShadow: false });
+    }).then(loaded => {
+      if (!loaded) return;
       if (disposed) { loaded.dispose(); return; }
       character = loaded;
       loaded.object3d.rotation.y = -0.3;
       scene.add(loaded.object3d);
       renderer.render(scene, camera);
+      canvas.dataset.renderBackend = 'webgpu';
+      canvas.dataset.renderReady = 'true';
     }).catch(() => { if (!disposed) setFailed(true); });
     let dragX: number | null = null;
     const down = (event: PointerEvent) => { dragX = event.clientX; canvas.setPointerCapture(event.pointerId); };
@@ -58,7 +68,7 @@ export function CharacterSkinPreview({ url, model }: { url: string; model: SkinM
       canvas.removeEventListener('lostpointercapture', up);
       character?.dispose();
       renderer.dispose();
-      renderer.forceContextLoss();
+
     };
   }, [url, model]);
   return <div className="settings-skin-preview">

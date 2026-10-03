@@ -1,5 +1,5 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import {
@@ -509,20 +509,20 @@ export class Contraption {
   nextChildId: number;
   glueSelectionGroup: THREE.Group | null;
   glueHighlightEntries: Array<{ container: THREE.Group; role: string; cell: { x: number; y: number; z: number }; entityId: string }>;
-  glueHighlightMaterials: { selectedLine: THREE.LineBasicMaterial; selectedFill: THREE.MeshBasicMaterial } | null;
+  glueHighlightMaterials: { selectedLine: THREE.LineBasicNodeMaterial; selectedFill: THREE.MeshBasicNodeMaterial } | null;
   glueHighlightGeometries: { boxGeometry: THREE.BoxGeometry; edgeGeometry: THREE.EdgesGeometry } | null;
   focusHighlightEntries: Array<{ container: THREE.Group; ownerNode: EntityNode; isChild: boolean }>;
   focusHighlightGeometries: THREE.BufferGeometry[];
   focusHighlightMaterials: {
-    focusedLine: THREE.LineBasicMaterial;
-    focusedFill: THREE.MeshBasicMaterial;
-    childLine: THREE.LineBasicMaterial;
-    childFill: THREE.MeshBasicMaterial;
+    focusedLine: THREE.LineBasicNodeMaterial;
+    focusedFill: THREE.MeshBasicNodeMaterial;
+    childLine: THREE.LineBasicNodeMaterial;
+    childFill: THREE.MeshBasicNodeMaterial;
   } | null;
   focusedHighlightNodeId: string | null;
   nodeHighlightBox: THREE.Group | null;
   nodeHighlightGeometries: { box: THREE.BoxGeometry; edges: THREE.EdgesGeometry } | null;
-  nodeHighlightMaterials: { lineMat: THREE.LineBasicMaterial; fillMat: THREE.MeshBasicMaterial; pivotMat?: any } | null;
+  nodeHighlightMaterials: { lineMat: THREE.LineBasicNodeMaterial; fillMat: THREE.MeshBasicNodeMaterial; pivotMat?: any } | null;
   subtreeHighlightBoxes: any[];
   selectedNodeId: string | null;
   highlightBox: any;
@@ -4309,18 +4309,18 @@ export class Contraption {
     const materials = {
       // Outlines stay depth-independent so the selected component is visible
       // through the parent model.
-      focusedLine: new THREE.LineBasicMaterial({ color: 0x00d2d3, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }),
+      focusedLine: new THREE.LineBasicNodeMaterial({ color: 0x00d2d3, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }),
       // Fills are depth-TESTED so the model occludes them instead of the fill
       // blending through it (which read as the highlight "clipping into" the
       // component). The box matches the block AABB exactly (no inflation), so a
       // polygon offset keeps the coincident faces from z-fighting the voxels.
-      focusedFill: new THREE.MeshBasicMaterial({
+      focusedFill: new THREE.MeshBasicNodeMaterial({
         color: 0x00d2d3, transparent: true, opacity: 0.08,
         depthTest: true, depthWrite: false, side: THREE.DoubleSide,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
       }),
-      childLine: new THREE.LineBasicMaterial({ color: 0x2ed573, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }),
-      childFill: new THREE.MeshBasicMaterial({
+      childLine: new THREE.LineBasicNodeMaterial({ color: 0x2ed573, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }),
+      childFill: new THREE.MeshBasicNodeMaterial({
         color: 0x2ed573, transparent: true, opacity: 0.12,
         depthTest: true, depthWrite: false, side: THREE.DoubleSide,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
@@ -4409,8 +4409,8 @@ export class Contraption {
     const boxGeometry = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
     const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
     const materials = {
-      selectedLine: new THREE.LineBasicMaterial({ color: 0xff9f43, transparent: true, opacity: 0.95 }),
-      selectedFill: new THREE.MeshBasicMaterial({
+      selectedLine: new THREE.LineBasicNodeMaterial({ color: 0xff9f43, transparent: true, opacity: 0.95 }),
+      selectedFill: new THREE.MeshBasicNodeMaterial({
         color: 0xff9f43,
         transparent: true,
         opacity: 0.22,
@@ -4553,7 +4553,7 @@ export class Contraption {
         return existingMesh;
       }
       const mat = [
-        new THREE.MeshStandardMaterial({
+        new THREE.MeshStandardNodeMaterial({
           vertexColors: true,
           flatShading: true,
           roughness: 0.65,
@@ -4671,7 +4671,7 @@ export class Contraption {
       Math.max(0.1, this.size.z)
     );
     const edges = new THREE.EdgesGeometry(geo);
-    const mat = new THREE.LineBasicMaterial({
+    const mat = new THREE.LineBasicNodeMaterial({
       color: 0xf1c40f,
       linewidth: 2,
       transparent: true,
@@ -4818,7 +4818,7 @@ export class Contraption {
 
       const boxGeo = new THREE.BoxGeometry(sx, sy, sz);
       const edgeGeo = new THREE.EdgesGeometry(boxGeo);
-      const lineMat = new THREE.LineBasicMaterial({
+      const lineMat = new THREE.LineBasicNodeMaterial({
         color: 0xff9f43,
         transparent: true,
         opacity: 0.95,
@@ -4847,8 +4847,7 @@ export class Contraption {
 
     // Red pivot indicator dot at node origin (0, 0, 0)
     // Fixed 3px screen-space square point without wireframe or mesh distortion
-    const pivotGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0)]);
-    const pivotMat = new THREE.PointsMaterial({
+    const pivotMat = new THREE.PointsNodeMaterial({
       color: 0xff2222,
       size: 3,
       sizeAttenuation: false,
@@ -4858,14 +4857,13 @@ export class Contraption {
       opacity: 1.0
     });
 
-    const pivotPoint = new THREE.Points(pivotGeo, pivotMat);
+    const pivotPoint = new THREE.Sprite(pivotMat);
     pivotPoint.name = `NodePivotPoint_${nodeId}`;
     pivotPoint.renderOrder = 99;
     pivotPoint.position.set(0, 0, 0);
 
     group.add(pivotPoint);
 
-    geometries.pivotGeo = pivotGeo;
     materials.pivotMat = pivotMat;
 
     const nodeBlocks = this.blocks.filter(b => (b.entityId || this.rootComponentId) === nodeId);
@@ -4899,7 +4897,7 @@ export class Contraption {
       // through" the model, especially on a running entity whose render pose is
       // interpolated). Match the other selector highlights and draw it as a
       // depth-independent X-ray overlay.
-      const lineMat = new THREE.LineBasicMaterial({
+      const lineMat = new THREE.LineBasicNodeMaterial({
         color: 0x00d2d3,
         linewidth: 2,
         transparent: true,
@@ -4907,7 +4905,7 @@ export class Contraption {
         depthTest: false,
         depthWrite: false
       });
-      const fillMat = new THREE.MeshBasicMaterial({
+      const fillMat = new THREE.MeshBasicNodeMaterial({
         color: 0x48dbfb,
         transparent: true,
         opacity: 0.16,

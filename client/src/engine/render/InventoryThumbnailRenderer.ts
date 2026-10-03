@@ -1,4 +1,5 @@
-import * as THREE from 'three';
+import { SpaceRenderer } from './SpaceRenderer.ts';
+import * as THREE from 'three/webgpu';
 import { normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import { getInventoryPreviewBlocks } from './SceneRenderer.ts';
@@ -6,11 +7,11 @@ import { getInventoryPreviewBlocks } from './SceneRenderer.ts';
 export class InventoryThumbnailRenderer {
   private static instance: InventoryThumbnailRenderer | null = null;
   private canvas: HTMLCanvasElement | null = null;
-  private renderer: THREE.WebGLRenderer | null = null;
+  private renderer: SpaceRenderer | null = null;
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
   private thumbnailCache = new Map<string, string>();
-  private webglAvailable: boolean = true;
+  private webgpuAvailable: boolean = true;
 
   static getInstance(): InventoryThumbnailRenderer {
     if (!InventoryThumbnailRenderer.instance) {
@@ -19,13 +20,22 @@ export class InventoryThumbnailRenderer {
     return InventoryThumbnailRenderer.instance;
   }
 
-  constructor() {
-    this.initSandbox();
-  }
+  private readonly ready: Promise<void>;
+  private queue: Promise<unknown> = Promise.resolve();
+  private pending = new Set<string>();
+  private failed = new Set<string>();
+  private listeners = new Set<() => void>();
+  private revision = 0;
+  private generation = 0;
+  readonly subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  readonly getRevision = () => this.revision;
+  constructor() { this.ready = this.initSandbox(); }
+  private notify() { this.revision++; for (const listener of this.listeners) listener(); }
 
-  private initSandbox() {
+
+  private async initSandbox() {
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
-      this.webglAvailable = false;
+      this.webgpuAvailable = false;
       return;
     }
 
@@ -34,11 +44,10 @@ export class InventoryThumbnailRenderer {
       this.canvas.width = 128;
       this.canvas.height = 128;
 
-      this.renderer = new THREE.WebGLRenderer({
+      this.renderer = new SpaceRenderer({
         canvas: this.canvas,
         antialias: true,
         alpha: true,
-        preserveDrawingBuffer: true,
         powerPreference: 'low-power'
       });
       this.renderer.setPixelRatio(1);
@@ -63,8 +72,10 @@ export class InventoryThumbnailRenderer {
       const topLight = new THREE.DirectionalLight(0xffffff, 0.5);
       topLight.position.set(0, 5, 0);
       this.scene.add(topLight);
+      this.camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+      await this.renderer.initialize();
     } catch (e) {
-      this.webglAvailable = false;
+      this.webgpuAvailable = false;
       this.renderer = null;
       this.scene = null;
       this.camera = null;
@@ -93,7 +104,26 @@ export class InventoryThumbnailRenderer {
   /**
    * Generate or retrieve a cached thumbnail Data URL for an inventory item (blockset or resting entity).
    */
-  getThumbnail(item: any, size: number = 128): string | null {
+  getThumbnail(item: any, size = 128): string | null {
+    if (!item?.blocks?.length) return null;
+    const key = this.getItemCacheKey(item,size);
+    if (this.thumbnailCache.has(key)) return this.thumbnailCache.get(key)!;
+    if (!this.pending.has(key) && !this.failed.has(key)) {
+      this.pending.add(key);
+      const generation = this.generation;
+      this.queue = this.queue.then(async () => {
+        await this.ready;
+        if (generation !== this.generation) return;
+        const url = await this.generateThumbnail(item,size);
+        if (generation !== this.generation) return;
+        if (url) this.thumbnailCache.set(key,url); else this.failed.add(key);
+      }).catch(error => { this.failed.add(key); console.warn('Thumbnail rendering failed:',error); })
+        .finally(() => { this.pending.delete(key); this.notify(); });
+    }
+    return null;
+  }
+
+  private async generateThumbnail(item: any, size: number): Promise<string | null> {
     if (!item || !item.blocks || item.blocks.length === 0) return null;
 
     const cacheKey = this.getItemCacheKey(item, size);
@@ -101,10 +131,12 @@ export class InventoryThumbnailRenderer {
       return this.thumbnailCache.get(cacheKey)!;
     }
 
-    if (!this.webglAvailable || !this.renderer || !this.scene || !this.camera || !this.canvas) {
+    if (!this.webgpuAvailable || !this.renderer || !this.scene || !this.camera || !this.canvas) {
       return null;
     }
 
+    const tempGroup = new THREE.Group();
+    const createdMeshes: THREE.InstancedMesh[] = [];
     try {
       // 1. Convert inventory item into resting / stopped state voxel instances
       const previewBlocks = getInventoryPreviewBlocks(item);
@@ -144,11 +176,9 @@ export class InventoryThumbnailRenderer {
         blocksByGroup.get(key)!.push(block);
       }
 
-      const tempGroup = new THREE.Group();
       const dummy = new THREE.Object3D();
       const colorHelper = new THREE.Color();
 
-      const createdMeshes: THREE.InstancedMesh[] = [];
 
       for (const [key, blocks] of blocksByGroup.entries()) {
         const [sizeText, materialText] = key.split(':');
@@ -156,8 +186,8 @@ export class InventoryThumbnailRenderer {
         const materialId = Number(materialText);
         const geom = new THREE.BoxGeometry(s, s, s);
         const mat = materialId === VoxelMaterialIds.EMISSIVE
-          ? new THREE.MeshBasicMaterial({ toneMapped: false })
-          : new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.05 });
+          ? new THREE.MeshBasicNodeMaterial({ toneMapped: false })
+          : new THREE.MeshStandardNodeMaterial({ roughness: 0.45, metalness: 0.05 });
 
         const instancedMesh = new THREE.InstancedMesh(geom, mat, blocks.length);
         for (let i = 0; i < blocks.length; i++) {
@@ -211,26 +241,31 @@ export class InventoryThumbnailRenderer {
         this.renderer.setSize(size, size, false);
       }
 
-      this.renderer.render(this.scene, this.camera);
-      const dataUrl = this.canvas.toDataURL('image/png');
-
-      // 6. Cleanup
-      this.scene.remove(tempGroup);
-      for (const mesh of createdMeshes) {
-        mesh.geometry.dispose();
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach(m => m.dispose());
-        } else {
-          mesh.material.dispose();
-        }
-      }
+      const target = new THREE.RenderTarget(size,size,{ samples:4 });
+      target.texture.colorSpace = THREE.SRGBColorSpace;
+      let dataUrl: string;
+      try {
+        this.renderer.setRenderTarget(target);
+        this.renderer.render(this.scene,this.camera);
+        const pixels = await this.renderer.readRenderTargetPixelsAsync(target,0,0,size,size);
+        // Canvas2D only encodes already-rendered GPU pixels as a PNG.
+        const encoder = document.createElement('canvas'); encoder.width=size; encoder.height=size;
+        encoder.getContext('2d')!.putImageData(new ImageData(Uint8ClampedArray.from(pixels as Uint8Array),size,size),0,0);
+        dataUrl = encoder.toDataURL('image/png');
+      } finally { this.renderer.setRenderTarget(null); target.dispose(); }
 
       if (dataUrl && dataUrl.length > 50) {
-        this.thumbnailCache.set(cacheKey, dataUrl);
         return dataUrl;
       }
     } catch (e) {
       console.warn('Failed to generate inventory thumbnail:', e);
+    } finally {
+      this.scene.remove(tempGroup);
+      for (const mesh of createdMeshes) {
+        mesh.geometry.dispose();
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const material of materials) material.dispose();
+      }
     }
 
     return null;
@@ -240,6 +275,6 @@ export class InventoryThumbnailRenderer {
    * Clear the thumbnail cache when inventory changes or items are edited.
    */
   clearCache() {
-    this.thumbnailCache.clear();
+    this.generation++; this.thumbnailCache.clear(); this.failed.clear(); this.notify();
   }
 }

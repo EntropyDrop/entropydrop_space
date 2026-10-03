@@ -1,7 +1,8 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { TERRAIN_FADE_MS } from './TerrainHandoff.ts';
+import { alignedInstanceAttribute } from './NodeMaterials.ts';
 
-type Mesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
+type Mesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 type Slot = { top: Mesh; side: Mesh; coverage: THREE.Vector2; lastUsed: number };
 
 function matches(target: Mesh, source: Mesh, start: number, count: number) {
@@ -10,30 +11,45 @@ function matches(target: Mesh, source: Mesh, start: number, count: number) {
     if (!(attribute instanceof THREE.InstancedBufferAttribute)) continue;
     const existing = target.geometry.getAttribute(name);
     if (!existing) return false;
-    const offset = start * attribute.itemSize, length = count * attribute.itemSize;
-    for (let i = 0; i < length; i++) if (existing.array[i] !== attribute.array[offset + i]) return false;
+    for (let i = 0; i < count; i++) for (let c = 0; c < attribute.itemSize; c++) {
+      if (existing.array[i * existing.itemSize + c] !== convertedComponent(attribute,
+        existing as THREE.BufferAttribute, attribute.array[(start + i) * attribute.itemSize + c])) return false;
+    }
   }
   return true;
+}
+
+function convertedComponent(source: THREE.BufferAttribute, target: THREE.BufferAttribute, value: number) {
+  if (!source.normalized || target.normalized) return value;
+  const signed = source.array instanceof Int8Array || source.array instanceof Int16Array;
+  return Math.fround(Math.max(-1, value / (2 ** (source.array.BYTES_PER_ELEMENT * 8 - (signed ? 1 : 0)) - 1)));
 }
 
 function copy(target: Mesh, source: Mesh, start: number, count: number) {
   for (const [name, attribute] of Object.entries(source.geometry.attributes)) {
     if (!(attribute instanceof THREE.InstancedBufferAttribute)) continue;
     let existing = target.geometry.getAttribute(name) as THREE.InstancedBufferAttribute | undefined;
-    const length = count * attribute.itemSize;
+    const itemSize = attribute.normalized && attribute.array instanceof Uint8Array && attribute.itemSize === 3 ? 4 : attribute.itemSize;
+    const length = count * itemSize;
     if (!existing || existing.array.length < length
-      || existing.array.length > Math.max(64, count * 4) * attribute.itemSize) {
-      // WebGL buffers cannot grow in place. Geometric capacity growth keeps
+      || existing.array.length > Math.max(64, count * 4) * itemSize) {
+      // GPU buffers cannot grow in place. Geometric capacity growth keeps
       // ordinary motion within the two reusable sets of GPU allocations.
       const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(1, count))));
       const ArrayType = attribute.array.constructor as { new(length: number): typeof attribute.array };
-      existing = new THREE.InstancedBufferAttribute(new ArrayType(capacity * attribute.itemSize),
+      existing = alignedInstanceAttribute(new ArrayType(capacity * attribute.itemSize),
         attribute.itemSize, attribute.normalized).setUsage(THREE.DynamicDrawUsage);
       // Dispose the old GPU attributes before replacing one of their handles.
       target.geometry.dispose();
       target.geometry.setAttribute(name, existing);
     }
-    existing.array.set(attribute.array.subarray(start * attribute.itemSize, start * attribute.itemSize + length));
+    if (existing.itemSize === attribute.itemSize && existing.normalized === attribute.normalized) {
+      existing.array.set(attribute.array.subarray(start * attribute.itemSize, (start + count) * attribute.itemSize));
+    } else for (let i = 0; i < count; i++) {
+      for (let c = 0; c < attribute.itemSize; c++) existing.array[i * existing.itemSize + c] =
+        convertedComponent(attribute, existing as THREE.BufferAttribute, attribute.array[(start + i) * attribute.itemSize + c]);
+      if (existing.itemSize === 4 && attribute.itemSize === 3) existing.array[i * 4 + 3] = 255;
+    }
     existing.clearUpdateRanges();
     if (length) existing.addUpdateRange(0, length);
     existing.needsUpdate = true;
@@ -67,9 +83,36 @@ export class SurfaceBatch {
   get side() { return this.current.side; }
   get transitioning() { return this.previous !== null; }
 
+  /** Includes the outgoing generation while its coverage is fading. */
+  forEachActiveMesh(visit: (mesh: Mesh) => void) {
+    visit(this.current.top); visit(this.current.side);
+    if (this.previous) { visit(this.previous.top); visit(this.previous.side); }
+  }
+
+  /** Worker output is already packed, immutable and revision-checked by its
+   * owner. Adopt its attributes without another O(faces) comparison/copy. Do not
+   * queue a third generation: its later activation would bypass upload budgets. */
+  submitPrepared(attributes: Record<string, THREE.InstancedBufferAttribute>, count: number,
+    animate: boolean, now = performance.now()) {
+    if (this.previous || this.pending) return false;
+    let target = this.slots.find(slot => slot !== this.current);
+    if (!target) target = this.allocate();
+    target.top.geometry.dispose();
+    for (const [name, attribute] of Object.entries(target.top.geometry.attributes)) {
+      if (attribute instanceof THREE.InstancedBufferAttribute) target.top.geometry.deleteAttribute(name);
+    }
+    for (const [name, attribute] of Object.entries(attributes)) target.top.geometry.setAttribute(name, attribute);
+    target.top.geometry.instanceCount = count;
+    target.side.geometry.instanceCount = 0;
+    target.lastUsed = now;
+    this.activate(target, animate, now);
+    return true;
+  }
+
   private allocate() {
     const coverage = new THREE.Vector2(0, 1);
     const slot = { top: this.make(false, coverage), side: this.make(true, coverage), coverage, lastUsed: 0 };
+    slot.top.userData.terrainCoverage = slot.side.userData.terrainCoverage = coverage;
     this.slots.push(slot);
     return slot;
   }
@@ -167,7 +210,7 @@ export class SurfaceBatch {
     for (const slot of this.slots) for (const mesh of [slot.top, slot.side]) {
       this.root.remove(mesh);
       mesh.geometry.dispose();
-      mesh.material.dispose();
+      if (!mesh.material.userData.sharedTerrainMaterial) mesh.material.dispose();
     }
   }
 }

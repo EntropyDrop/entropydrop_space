@@ -1,25 +1,22 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { VoxelFaceArena, type ArenaInputs } from './VoxelFaceArena.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
-import { TERRAIN_DITHER_GLSL } from './TerrainHandoff.ts';
-import { createVoxelEmissionMaskUniform, VOXEL_EMISSION_GLSL } from './VoxelEmission.ts';
-import { computeBentBoundsSphere, hookSceneMaterials, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
-import { surfaceSubdivisionWorldArea, SURFACE_AREA_HYSTERESIS } from './SurfaceSubdivision.ts';
-import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
+import { alignedInstanceAttribute, terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
+import { Fn, attribute, uniform, reference, vec2, vec3, vec4, positionGeometry, varying, float, screenCoordinate, output } from 'three/tsl';
+import { createVoxelEmissionMaskUniform, voxelEmissionColor } from './VoxelEmission.ts';
+import { computeBentBoundsSphere, hookSceneMaterials, projectBentSphereForView } from '../torus/TorusWorld.ts';
+import { voxelHandoffMode } from './VoxelDrawCulling.ts';
+import { VoxelLodPlanner, type VoxelLodTile, type VoxelLodView } from './VoxelLodPlanner.ts';
+import { createCooperativeVoxelLodPort, type VoxelLodPort, type VoxelLodResponse } from './VoxelLodService.ts';
+import type { SurfaceZoneSnapshot, VoxelSurfaceMip } from '../voxel/SurfaceZoneSnapshot.ts';
 
-type FaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
-type Range = { start: number; end: number };
-type Brick = { x: number; y: number; z: number; bounds: THREE.Sphere; size: number };
-type Zone = { snapshot: SurfaceZoneSnapshot; mips: Map<number, { faces: Uint8Array; ranges: Map<number, Range> }>;
-  bricks: Map<number, Brick>; batches: Map<number, SurfaceBatch>; tileSignatures: Map<number, string>;
-  signature: string; projection: number };
-const LINEAR = Uint8Array.from({ length: 256 }, (_, n) => Math.round(255 * (n / 255 <= .04045
-  ? n / 255 / 12.92 : ((n / 255 + .055) / 1.055) ** 2.4)));
-// Packed attributes use 15 bytes per face (60 MiB at the fallback limit), before
-// reusable transition slots and GPU copies. Keep all directions resident.
+type FaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
+// Worker transport uses 15 bytes per face. Aligned WebGPU attributes use
+// 32 bytes per face, plus CPU staging and reusable transition slots.
 export const MAX_VOXEL_LOD_FACES = 4 * 1024 * 1024;
-// Budget 16 bytes per packed face (15 bytes of attributes plus headroom).
-// Transition buffers and the CPU/GPU copies consume additional memory.
-export const voxelFaceBudget = (mib: number) => Math.floor(mib * 1024 * 1024 / 16);
+export const VOXEL_GPU_BYTES_PER_FACE = 32;
+// This budget describes resident GPU attributes; transition/CPU copies are extra.
+export const voxelFaceBudget = (mib: number) => Math.floor(mib * 1024 * 1024 / VOXEL_GPU_BYTES_PER_FACE);
 
 function geometry() {
   const result = new THREE.InstancedBufferGeometry();
@@ -28,251 +25,442 @@ function geometry() {
   result.setIndex([0,1,2,0,2,3]); result.instanceCount = 0;
   return result;
 }
-function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THREE.Vector3) {
-  const result = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .65, metalness: .15 });
+const opaqueMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMaterial>();
+const voxelMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMaterial>();
+function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THREE.Vector3,
+  optimized: { value: boolean }, solid = false, arena?: ArenaInputs) {
+  const cache = solid ? opaqueMaterials : voxelMaterials;
+  const cached = cache.get(mask);
+  if (cached && !arena) return cached;
+  const result = new THREE.MeshStandardNodeMaterial({ vertexColors: !arena, roughness: .65, metalness: .15 });
   const emissionMask = createVoxelEmissionMaskUniform(result);
-  result.onBeforeCompile = shader => {
-    shader.uniforms.uVoxelEmissionMask = emissionMask;
-    shader.uniforms.uVoxelHandoff = { value: mask };
-    shader.uniforms.uVoxelTransition = { value: coverage };
-    shader.uniforms.uVoxelOrigin = { value: origin };
-    shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>
-      #define TORUS_VOXEL_POSITION
-      attribute vec3 voxelOffset;
-      attribute vec2 voxelSpan;
-      attribute float voxelDirection;
-      attribute float voxelEmission;
-      uniform vec3 uVoxelOrigin;
-      varying vec2 vVoxelFlat;
-      varying float vVoxelEmission;
-      vec3 voxelNormal() {
-        float sign = mod(voxelDirection, 2.0) * 2.0 - 1.0;
-        return voxelDirection < 2.0 ? vec3(sign,0,0) : voxelDirection < 4.0 ? vec3(0,sign,0) : vec3(0,0,sign);
-      }
-      vec3 voxelPosition(vec2 uv) {
-        if (mod(voxelDirection, 2.0) < .5) uv.x = 1.0 - uv.x;
-        vec2 p = uv * voxelSpan * .125;
-        return uVoxelOrigin + voxelOffset * .125 + (voxelDirection < 2.0 ? vec3(0,p.x,p.y)
-          : voxelDirection < 4.0 ? vec3(p.y,0,p.x) : vec3(p.x,p.y,0));
-      }`).replace('#include <begin_vertex>', `vec3 transformed = voxelPosition(position.xy);
-        vVoxelFlat = transformed.xz - voxelNormal().xz * .01;
-        vVoxelEmission = voxelEmission;`);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
-      uniform sampler2D uVoxelHandoff;
-      uniform vec2 uVoxelTransition;
-      varying vec2 vVoxelFlat;
-      varying float vVoxelEmission;
-      ${TERRAIN_DITHER_GLSL}
-      ${VOXEL_EMISSION_GLSL}`)
-      .replace('#include <color_fragment>', `
-        vec2 chunk = floor(mod(mod(vVoxelFlat, vec2(16384.,2048.)) + vec2(16384.,2048.), vec2(16384.,2048.)) / 16.);
-        vec2 handoff = texture2D(uVoxelHandoff, (chunk + .5) / vec2(1024.,128.)).rg;
-        if (handoff.g > .5 || terrainDither(gl_FragCoord.xy) < handoff.r) discard;
-        float transition = terrainDither(gl_FragCoord.xy + vec2(37.,19.));
-        if (transition < uVoxelTransition.x || transition >= uVoxelTransition.y) discard;
-        #include <color_fragment>`)
-      .replace('#include <opaque_fragment>', `
-        if (vVoxelEmission > 0.5) outgoingLight = voxelEmissionColor(vColor.rgb);
-        #include <opaque_fragment>
-        if (vVoxelEmission > 0.5) gl_FragColor.a += uVoxelEmissionMask;`)
-      .replace('#include <fog_fragment>', `
-        if (vVoxelEmission < 0.5) {
-          #include <fog_fragment>
-        }`);
-  };
-  result.customProgramCacheKey = () => 'volumetric-terrain-packed-v5';
+  const dir = arena?.direction ?? attribute<'float'>('voxelDirection', 'float');
+  const normal = dir.lessThan(2).select(vec3(1,0,0), dir.lessThan(4).select(vec3(0,1,0), vec3(0,0,1))).mul(dir.mod(2).mul(2).sub(1));
+  const flat = Fn(() => {
+    const uv = positionGeometry.xy.toVar();
+    uv.x.assign(dir.mod(2).lessThan(.5).select(uv.x.oneMinus(), uv.x));
+    const p = uv.mul(arena?.span ?? attribute<'vec2'>('voxelSpan', 'vec2')).mul(.125);
+    return (arena?.origin ?? uniform(new THREE.Vector3()).onObjectUpdate(({object}) => object.userData.voxelOrigin ?? origin)).add((arena?.offset ?? attribute<'vec3'>('voxelOffset', 'vec3')).mul(.125)).add(
+      dir.lessThan(2).select(vec3(0,p.x,p.y), dir.lessThan(4).select(vec3(p.y,0,p.x), vec3(p.x,p.y,0))));
+  })();
+  result.positionNode = arena ? arena.valid.select(flat, vec3(0)) : flat;
+  if (arena) result.colorNode = arena.color;
+  result.userData.flatNormalNode = normal;
+  // A separate pipeline without discard avoids handoff sampling/dithering and
+  // lets the GPU reject hidden fragments early. Only proven unowned, settled
+  // generations use it; mixed ownership and both sides of a fade stay masked.
+  if (!solid) {
+    const handoff = terrainCoverage(mask, flat.xz.sub(normal.xz.mul(.01)));
+    const unoptimized = reference('value', 'bool', optimized).not();
+    const mode = uniform(1).onObjectUpdate(({object}) => object.userData.voxelHandoffMode?.value ?? 1);
+    discardWhen(result, unoptimized.or(mode.greaterThan(.5))
+      .and(handoff.g.greaterThan(.5).or(terrainDither().lessThan(handoff.r))));
+    const transition = terrainDither(screenCoordinate.xy.add(vec2(37,19)));
+    const range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object.userData.terrainCoverage ?? coverage);
+    discardWhen(result, transition.lessThan(range.x).or(transition.greaterThanEqual(range.y)));
+  }
+  const emission = varying(float(arena?.emission ?? attribute<'float'>('voxelEmission', 'float'))).greaterThan(.5);
+  result.outputNode = emission.select(vec4(voxelEmissionColor(arena?.color ?? attribute<'vec3'>('color', 'vec3')),
+    reference('value', 'float', emissionMask).add(1)), output);
+  result.userData.sharedTerrainMaterial = true;
+  result.userData.voxelArenaPosition = true;
+  if (!arena) {
+    mask.addEventListener('dispose', () => result.dispose());
+    cache.set(mask, result);
+  }
   return result;
 }
 
-/** Independent 64^3 bricks, seven 3D mip levels, hidden-face removal and greedy
- * quads. Camera rotation only changes frustum culling, never topology/residency. */
+export const VOXEL_PUBLICATION_BUDGET_MS = 1.25;
+export const VOXEL_PUBLICATION_BUDGET_BYTES = 1024 * 1024;
+const SOURCE_PART_BYTES = 256 * 1024;
+type RenderZone = { snapshot: SurfaceZoneSnapshot; token: number; readyMask: number; batches: Map<number, SurfaceBatch> };
+type SourceUpload = { zone: RenderZone; level: number; offset: number; started: boolean };
+type DrawState = { tight: THREE.Sphere; flatBounds: readonly number[]; looseFlatBounds: readonly number[];
+  maskVersion: number; transitioning: boolean; inView: boolean; handoffMode: { value: number } };
+export type VoxelLodOptions = { synchronous?: boolean; workerFactory?: () => VoxelLodPort };
+
+/** Resident geometry is independent of camera rotation. Browser selection,
+ * indexing and packing run in a worker; only bounded publication touches Three. */
 export class DistantVoxelLayer {
-  readonly group = new THREE.Group();
-  private readonly zones = new Map<string, Zone>();
-  private readonly camera = new THREE.Vector3();
+  readonly group = new THREE.BundleGroup();
+  private readonly submittedState = new WeakMap<FaceMesh, { visible: boolean; material: THREE.Material; version: number; count: number }>();
+  private readonly zones = new Map<string, RenderZone>();
   private readonly cullCamera = new THREE.Vector3();
   private readonly cullFrustum = new THREE.Frustum();
+  private readonly projectedBounds = new THREE.Sphere();
+  private readonly drawStates = new WeakMap<SurfaceBatch, DrawState>();
+  private readonly drawOptimizations = { value: true };
+  private drawCullingEnabled = true;
+  private opaqueFastPath = true;
+  private arena: VoxelFaceArena | null = null;
+  private arenaDirty = true;
+  private maskVersion = -1;
   private cullDirty = true;
-  private focal = 720;
-  private area = 16;
-  private areaScale = 1;
-  private distance = 32768;
-  private hasView = false;
-  private budgetDirty = false;
-  private faceBudget = MAX_VOXEL_LOD_FACES;
+  private readonly view: VoxelLodView = { camera: [0, 0, 0], focal: 720, area: 16,
+    distance: 32768, faceBudget: MAX_VOXEL_LOD_FACES, hasView: false };
+  private readonly uploads = new Map<string, SourceUpload>();
+  private readonly sharedSources = new Map<VoxelSurfaceMip[], { key: string; token: number }>();
+  private packet: { id: number; tiles: (VoxelLodTile | null)[] } | null = null;
+  private readonly synchronous: boolean;
+  private readonly planner: VoxelLodPlanner | null;
+  private port: VoxelLodPort | null = null;
+  private fallback = false;
+  private halted = false;
+  private active = true;
+  private dirty = false;
+  private busy = false;
+  private nextToken = 0;
+  private requestId = 0;
+  private hasWorkerSources = false;
+  private readonly options: VoxelLodOptions;
   private readonly mask: THREE.DataTexture;
-  constructor(mask: THREE.DataTexture) { this.mask = mask; this.group.name = 'DistantVoxelTerrain'; }
-  hasZone(x: number, z: number) { return this.zones.has(`${x},${z}`); }
-  install(snapshot: SurfaceZoneSnapshot) {
-    const key = `${snapshot.zoneX},${snapshot.zoneZ}`, previous = this.zones.get(key);
-    const mips: Zone['mips'] = new Map(), bricks: Zone['bricks'] = new Map();
-    for (const mip of snapshot.voxelMips!) {
-      const view = new DataView(mip.faces.buffer, mip.faces.byteOffset, mip.faces.byteLength), ranges = new Map<number, Range>();
-      for (let at = 0; at < mip.faces.length; at += 16) {
-        const p = [view.getUint16(at, true), view.getUint16(at + 2, true), view.getUint16(at + 4, true)];
-        const dir = mip.faces[at + 10]; p[dir >> 1] += dir & 1 ? -.5 : .5;
-        const [x,y,z] = p.map(n => Math.floor(n / 512));
-        const id = x * 32 + y * 8 + z;
-        const range = ranges.get(id);
-        if (range) range.end = at + 16; else ranges.set(id, { start: at, end: at + 16 });
-        if (!bricks.has(id)) bricks.set(id, { x, y, z, size: previous?.bricks.get(id)?.size ?? 64,
-          bounds: computeBentBoundsSphere({ minX: snapshot.zoneX * 512 + x * 64, maxX: snapshot.zoneX * 512 + (x + 1) * 64,
-            minY: y * 64, maxY: (y + 1) * 64, minZ: snapshot.zoneZ * 512 + z * 64, maxZ: snapshot.zoneZ * 512 + (z + 1) * 64 }) });
-      }
-      mips.set(mip.cellSize, { faces: mip.faces, ranges });
-    }
-    const zone: Zone = { snapshot, mips, bricks, batches: previous?.batches ?? new Map(), tileSignatures: new Map(),
-      signature: '', projection: getWorldProjectionRevision() };
-    this.zones.set(key, zone);
-    this.cullDirty = true;
-    this.fitBudget();
-    for (const current of this.zones.values()) this.select(current, current === zone);
+
+  constructor(mask: THREE.DataTexture, options: VoxelLodOptions = {}) {
+    this.mask = mask; this.options = options;
+    this.synchronous = options.synchronous ?? (typeof window === 'undefined' && !options.workerFactory);
+    this.planner = this.synchronous ? new VoxelLodPlanner() : null;
+    this.group.name = 'DistantVoxelTerrain';
+    this.group.userData.spaceOpaqueTerrain = true;
+    this.setCommandCachingEnabled(false);
+    this.group.addEventListener('childadded', () => { this.group.needsUpdate = true; this.arenaDirty = true; });
+    this.group.addEventListener('childremoved', () => { this.group.needsUpdate = true; this.arenaDirty = true; });
+    this.group.userData.voxelLodWorkStats = { backend: this.synchronous ? 'synchronous' : 'starting',
+      publications: 0, pendingTiles: 0, queuedSources: 0, workMs: 0, publicationBytes: 0,
+      sourceBytes: 0, oversizedTiles: 0, error: '' };
   }
-  private make = (coverage: THREE.Vector2, origin: THREE.Vector3): FaceMesh => {
-    const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage, origin));
-    mesh.frustumCulled = false;
-    mesh.matrixAutoUpdate = false;
-    hookSceneMaterials(mesh);
+
+  // Pending sources must not claim far coverage before their meshes exist.
+  hasZone(x: number, z: number) { return this.zones.get(`${x},${z}`)?.readyMask === 0xffff; }
+  get hasPendingWork() { return this.active && !this.halted && this.zones.size > 0
+    && (this.dirty || this.busy || !!this.packet || this.uploads.size > 0 || !!this.arena?.hasPendingWork); }
+
+  /** Reference switch for development A/B measurements; residency is unchanged. */
+  setDrawOptimizationsEnabled(enabled: boolean, culling = enabled) {
+    if (this.drawOptimizations.value === enabled && this.drawCullingEnabled === culling) return;
+    this.drawOptimizations.value = enabled; this.drawCullingEnabled = culling; this.cullDirty = true;
+    this.refreshMaterials();
+  }
+  getDrawOptimizationsEnabled() { return this.drawOptimizations.value; }
+
+  /** Development reference switch; keeps geometry, resolution and LOD unchanged. */
+  setOpaqueFastPathEnabled(enabled: boolean) { this.opaqueFastPath = enabled; this.refreshMaterials(); }
+  getOpaqueFastPathEnabled() { return this.opaqueFastPath; }
+  /** Only enable with a renderer that supports opaque terrain bundle ordering. */
+  setCommandCachingEnabled(enabled: boolean) {
+    if (this.group.isBundleGroup === enabled) return;
+    (this.group as unknown as { isBundleGroup: boolean }).isBundleGroup = enabled;
+    this.group.needsUpdate = true;
+  }
+  getCommandCachingEnabled() { return this.group.isBundleGroup; }
+  private selectMaterial = (mesh: FaceMesh) => {
+    const range = mesh.userData.terrainCoverage;
+    mesh.material = this.opaqueFastPath && this.drawOptimizations.value
+      && mesh.userData.voxelHandoffMode.value === 0 && range.x === 0 && range.y === 1
+      ? mesh.userData.opaqueMaterial : mesh.userData.maskedMaterial;
+    const previous = this.submittedState.get(mesh), count = mesh.geometry.instanceCount;
+    if (!previous || previous.visible !== mesh.visible || previous.material !== mesh.material || previous.version !== mesh.material.version || previous.count !== count) {
+      this.submittedState.set(mesh, { visible: mesh.visible, material: mesh.material, version: mesh.material.version, count });
+      this.group.needsUpdate = true;
+    }
+  };
+  private refreshMaterials() {
+    this.arena?.restoreSources();
+    for (const mesh of this.group.children) if (!mesh.userData.voxelArena) this.selectMaterial(mesh as FaceMesh);
+    this.arena?.sync(); this.arenaDirty = false;
+  }
+
+  /** Primary shared storage, with incremental publication and ordinary draws
+   * during ownership/geometry transitions. Also supports development A/B. */
+  setMergedBuffersEnabled(enabled: boolean) {
+    if (enabled === !!this.arena) return;
+    if (!enabled) {
+      this.arena?.dispose(); this.arena = null;
+      this.group.userData.voxelArenaStats = null;
+    } else {
+      this.arena = new VoxelFaceArena(this.group, inputs => {
+        const mesh = new THREE.Mesh(geometry(), material(this.mask, new THREE.Vector2(0, 1),
+          new THREE.Vector3(), this.drawOptimizations, true, inputs));
+        mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
+        return mesh;
+      });
+      this.group.userData.voxelArenaStats = this.arena.stats; this.arena.sync();
+    }
+    this.group.needsUpdate = true;
+  }
+  getMergedBuffersEnabled() { return !!this.arena; }
+
+  private make = (coverage: THREE.Vector2, origin: THREE.Vector3, mode: { value: number }): FaceMesh => {
+    const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage, origin, this.drawOptimizations));
+    // A pooled slot can replace GPU attribute buffers without changing its face count.
+    mesh.geometry.addEventListener('dispose', () => { this.group.needsUpdate = true; });
+    Object.assign(mesh.userData, { voxelOrigin: origin, voxelHandoffMode: mode, voxelArenaCompatible: true });
+    mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
+    mesh.userData.maskedMaterial = mesh.material;
+    mesh.material = material(this.mask, coverage, origin, this.drawOptimizations, true); hookSceneMaterials(mesh);
+    mesh.userData.opaqueMaterial = mesh.material; mesh.material = mesh.userData.maskedMaterial;
     return mesh;
   };
-  private fitBudget() {
-    this.budgetDirty = false;
-    // Search from the requested quality on every source change. Estimation
-    // must not mutate hysteresis history, or repeated probes coarsen twice.
-    const measure = () => {
-      let faces = 0;
-      for (const zone of this.zones.values()) faces += this.select(zone, false, true) ?? 0;
-      return faces;
-    };
-    this.areaScale = 1;
-    let faces = measure(), lower = 1;
-    while (faces > this.faceBudget && this.areaScale < 65536) {
-      lower = this.areaScale;
-      this.areaScale *= 2;
-      faces = measure();
+
+  install(snapshot: SurfaceZoneSnapshot) {
+    const key = `${snapshot.zoneX},${snapshot.zoneZ}`, previous = this.zones.get(key);
+    if (previous && snapshot.sourceTerrainRevision < previous.snapshot.sourceTerrainRevision) return;
+    const old = previous?.snapshot;
+    if (old && old.sourceTerrainRevision === snapshot.sourceTerrainRevision && old.seed === snapshot.seed
+      && old.terrainGeneratorVersion === snapshot.terrainGeneratorVersion
+      && old.voxelMips?.length === snapshot.voxelMips?.length
+      && old.voxelMips!.every((mip, i) => mip.cellSize === snapshot.voxelMips![i].cellSize
+        && mip.faces === snapshot.voxelMips![i].faces)) return;
+    const zone: RenderZone = { snapshot, token: ++this.nextToken,
+      readyMask: previous?.readyMask ?? 0, batches: previous?.batches ?? new Map() };
+    if (old && this.sharedSources.get(old.voxelMips!)?.key === key) this.sharedSources.delete(old.voxelMips!);
+    this.zones.set(key, zone); this.dirty = this.cullDirty = true;
+    if (this.planner) {
+      for (const _ of this.planner.install({ key, x: snapshot.zoneX, z: snapshot.zoneZ,
+        token: zone.token, mips: snapshot.voxelMips! })) { /* Explicit headless reference path. */ }
+      this.buildSynchronously();
+    } else {
+      this.uploads.set(key, { zone, level: 0, offset: 0, started: false });
+      this.ensurePort();
     }
-    if (this.areaScale > 1) {
-      let upper = this.areaScale;
-      for (let attempt = 0; attempt < 8; attempt++) {
-        this.areaScale = (lower + upper) / 2;
-        if (measure() > this.faceBudget) lower = this.areaScale;
-        else upper = this.areaScale;
-      }
-      this.areaScale = upper;
-      faces = measure();
-    }
-    this.group.userData.voxelLodStats = { faces, budget: this.faceBudget,
-      requestedAreaPx2: this.area, effectiveAreaPx2: this.area * this.areaScale };
   }
-  private select(zone: Zone, force = false, estimateOnly = false) {
-    const sizes = [...zone.mips.keys()].sort((a,b) => b-a), selected = new Map<number, number>();
-    const projection = getWorldProjectionRevision();
-    for (const [id, brick] of zone.bricks) {
-      if (zone.projection !== projection) computeBentBoundsSphere({
-        minX: zone.snapshot.zoneX * 512 + brick.x * 64, maxX: zone.snapshot.zoneX * 512 + (brick.x + 1) * 64,
-        minY: brick.y * 64, maxY: (brick.y + 1) * 64,
-        minZ: zone.snapshot.zoneZ * 512 + brick.z * 64, maxZ: zone.snapshot.zoneZ * 512 + (brick.z + 1) * 64 }, brick.bounds);
-      const distance = Math.max(1, this.camera.distanceTo(brick.bounds.center) - brick.bounds.radius);
-      let size = 64;
-      if (this.hasView && distance <= this.distance) for (const candidate of sizes) {
-        size = candidate;
-        const area = surfaceSubdivisionWorldArea(size, brick.y * 64 + size, brick.y * 64);
-        if (area * (this.focal / distance) ** 2 <= this.area * this.areaScale * (size > brick.size ? SURFACE_AREA_HYSTERESIS : 1)) break;
-      }
-      selected.set(id, size);
+
+  private buildSynchronously() {
+    const build = this.planner!.build(this.view);
+    while (true) {
+      const result = build.next();
+      if (result.done === true) { this.group.userData.voxelLodStats = result.value; break; }
+      if (result.value) this.publish(result.value, true);
     }
-    zone.projection = projection;
-    if (estimateOnly) {
-      let count = 0;
-      for (const [id, size] of selected) {
-        const range = zone.mips.get(size)!.ranges.get(id);
-        if (range) count += (range.end - range.start) / 16;
-      }
-      return count;
+    this.dirty = false;
+  }
+
+  private ensurePort() {
+    if (this.port || !this.active || this.halted || this.synchronous) return;
+    try {
+      this.port = this.fallback ? createCooperativeVoxelLodPort()
+        : this.options.workerFactory ? this.options.workerFactory()
+        : new Worker(new URL('./VoxelLodWorker.ts', import.meta.url), { type: 'module', name: 'voxel-lod' });
+    } catch (error) { this.fallback = true; this.port = createCooperativeVoxelLodPort(); }
+    const port = this.port;
+    this.group.userData.voxelLodWorkStats.backend = this.fallback ? 'cooperative' : 'worker';
+    port.onmessage = event => { if (this.port === port) this.receive(event.data); };
+    port.onerror = event => { if (this.port === port) this.fail(event.message); };
+  }
+
+  private fail(message: string) {
+    this.group.userData.voxelLodWorkStats.error = message;
+    this.stopPort();
+    if (this.fallback) {
+      this.halted = true;
+      console.error('Distant voxel preparation failed; keeping the last published terrain.', message);
+      return;
     }
-    for (const [id, size] of selected) zone.bricks.get(id)!.size = size;
-    const signature = `${projection}/` + [...selected].map(([id,size]) => `${id}:${size}`).join('/');
-    if (!force && signature === zone.signature) return;
-    zone.signature = signature;
-    for (let tx = 0; tx < 4; tx++) for (let tz = 0; tz < 4; tz++) {
-      const ranges: { faces: Uint8Array; start: number; end: number }[] = [];
-      let count = 0;
-      let tileSignature = `${projection}`;
-      for (const [id, brick] of zone.bricks) {
-        if ((brick.x >> 1) !== tx || (brick.z >> 1) !== tz) continue;
-        tileSignature += `/${id}:${selected.get(id)}`;
-        const mip = zone.mips.get(selected.get(id)!)!, range = mip.ranges.get(id);
-        if (range) { ranges.push({ faces: mip.faces, ...range }); count += (range.end - range.start) / 16; }
-      }
-      const tile = tx * 4 + tz;
-      if (!force && zone.tileSignatures.get(tile) === tileSignature) continue;
-      zone.tileSignatures.set(tile, tileSignature);
-      if (!count && !zone.batches.has(tile)) continue;
-      const offset = new Uint16Array(count * 3), span = new Uint16Array(count * 2);
-      const colors = new Uint8Array(count * 3), directions = new Uint8Array(count), emission = new Uint8Array(count);
-      let index = 0;
-      for (const range of ranges) {
-        const view = new DataView(range.faces.buffer, range.faces.byteOffset, range.faces.byteLength);
-        for (let at = range.start; at < range.end; at += 16) {
-          offset[index * 3] = view.getUint16(at,true);
-          offset[index * 3 + 1] = view.getUint16(at + 2,true);
-          offset[index * 3 + 2] = view.getUint16(at + 4,true);
-          span[index * 2] = view.getUint16(at + 6,true);
-          span[index * 2 + 1] = view.getUint16(at + 8,true);
-          directions[index] = range.faces[at + 10]; emission[index] = range.faces[at + 11];
-          for (let channel = 0; channel < 3; channel++) {
-            const value = range.faces[at + 12 + channel];
-            colors[index * 3 + channel] = emission[index] ? value : LINEAR[value];
-          }
-          index++;
-        }
-      }
-      const source = new THREE.Mesh(geometry(), new THREE.MeshStandardMaterial());
-      for (const [name, array, size, normalized] of [
-        ['voxelOffset',offset,3,false], ['voxelSpan',span,2,false], ['voxelDirection',directions,1,false],
-        ['voxelEmission',emission,1,false], ['color',colors,3,true],
-      ] as const) source.geometry.setAttribute(name, new THREE.InstancedBufferAttribute(array, size, normalized));
-      source.geometry.instanceCount = count;
-      let batch = zone.batches.get(tile);
-      const bounds = computeBentBoundsSphere({ minX: zone.snapshot.zoneX * 512 + tx * 128, maxX: zone.snapshot.zoneX * 512 + (tx + 1) * 128,
-        minY: 0, maxY: 256, minZ: zone.snapshot.zoneZ * 512 + tz * 128, maxZ: zone.snapshot.zoneZ * 512 + (tz + 1) * 128 });
+    console.warn('Distant voxel worker unavailable; using cooperative preparation.', message);
+    this.fallback = true; this.requeueSources(); this.ensurePort();
+  }
+
+  private receive(response: VoxelLodResponse) {
+    if (response.type === 'error') { this.fail(response.message); return; }
+    if (response.id !== this.requestId) return;
+    if (response.type === 'tiles') this.packet = { id: response.id, tiles: response.tiles };
+    else {
+      this.busy = false;
+      this.group.userData.voxelLodStats = response.stats;
+    }
+  }
+
+  private publish(tile: VoxelLodTile, synchronous = false) {
+    const zone = this.zones.get(tile.key);
+    if (!zone || zone.token !== tile.token) return true; // Obsolete source, removal or remove/reinstall.
+    let batch = zone.batches.get(tile.tile);
+    if (!synchronous && batch?.transitioning) return false;
+    if (tile.count || batch) {
+      const bounds = new THREE.Sphere(new THREE.Vector3(...tile.bounds.slice(0, 3)), tile.bounds[3]);
       if (!batch) {
-        const origin = new THREE.Vector3(zone.snapshot.zoneX * 512, 0, zone.snapshot.zoneZ * 512);
-        batch = new SurfaceBatch(this.group, `voxel:${zone.snapshot.zoneX},${zone.snapshot.zoneZ}:${tile}`, bounds,
-          (_side, coverage) => this.make(coverage, origin));
-        zone.batches.set(tile, batch);
+        const origin = new THREE.Vector3(zone.snapshot.zoneX * 512, 0, zone.snapshot.zoneZ * 512), mode = { value: 1 };
+        const x = origin.x + (tile.tile >> 2) * 128, z = origin.z + (tile.tile & 3) * 128;
+        // The full tile covers BOTH generations during a geometry transition.
+        const loose = computeBentBoundsSphere({ minX: x, maxX: x + 128, minY: 0, maxY: 256, minZ: z, maxZ: z + 128 });
+        batch = new SurfaceBatch(this.group, `voxel:${tile.key}:${tile.tile}`, loose,
+          (_side, coverage) => this.make(coverage, origin, mode));
+        this.drawStates.set(batch, { tight: bounds, flatBounds: tile.flatBounds,
+          looseFlatBounds: [x, x + 128, z, z + 128], maskVersion: -1,
+          transitioning: false, inView: true, handoffMode: mode });
+        zone.batches.set(tile.tile, batch);
       }
-      batch.bounds.copy(bounds);
-      batch.submit(source, 0, count, source, 0, 0, this.hasView);
-      source.geometry.dispose(); source.material.dispose();
+      const attributes: Record<string, THREE.InstancedBufferAttribute> = {};
+      for (const [name, array, size, normalized] of [
+        ['voxelOffset', tile.offset, 3, false], ['voxelSpan', tile.span, 2, false],
+        ['voxelDirection', tile.direction, 1, false], ['voxelEmission', tile.emission, 1, false],
+        ['color', tile.color, 3, true],
+      ] as const) attributes[name] = alignedInstanceAttribute(array, size, normalized);
+      if (synchronous) {
+        const source = new THREE.Mesh(geometry(), new THREE.MeshStandardNodeMaterial());
+        for (const [name, attribute] of Object.entries(attributes)) source.geometry.setAttribute(name, attribute);
+        source.geometry.instanceCount = tile.count;
+        batch.submit(source, 0, tile.count, source, 0, 0, this.view.hasView);
+        source.geometry.dispose(); source.material.dispose();
+      } else if (!batch.submitPrepared(attributes, tile.count, this.view.hasView)) return false;
+      const state = this.drawStates.get(batch)!;
+      state.tight.copy(bounds); state.flatBounds = tile.flatBounds; state.maskVersion = -1;
+      // Publication happens after the normal culling pass; cull new meshes now.
+      this.cullBatch(batch, true);
     }
+    zone.readyMask |= 1 << tile.tile;
+    this.group.userData.voxelLodWorkStats.publications++;
+    return true;
   }
+
+  private cullBatch(batch: SurfaceBatch, changed: boolean, frustum = this.cullFrustum) {
+    const state = this.drawStates.get(batch)!;
+    const transitionChanged = state.transitioning !== batch.transitioning;
+    state.transitioning = batch.transitioning;
+    if (changed || transitionChanged) {
+      const bounds = this.drawCullingEnabled && !batch.transitioning ? state.tight : batch.bounds;
+      // Tightening must still cover the camera-local flattening deformation.
+      projectBentSphereForView(bounds, this.projectedBounds);
+      state.inView = frustum.intersectsSphere(this.projectedBounds)
+        && this.cullCamera.distanceTo(bounds.center) - bounds.radius <= this.view.distance;
+    }
+    if (state.inView && (state.maskVersion !== this.mask.version || transitionChanged)) {
+      state.handoffMode.value = voxelHandoffMode(this.mask.image.data,
+        batch.transitioning ? state.looseFlatBounds : state.flatBounds);
+      state.maskVersion = this.mask.version;
+    }
+    batch.setVisible(state.inView && (!this.drawCullingEnabled || state.handoffMode.value !== 2));
+    batch.forEachActiveMesh(this.selectMaterial);
+  }
+
+  /** Soft CPU and byte budgets. One oversized tile is indivisible so it gets a
+   * frame alone rather than starving. Counters expose that exception explicitly. */
+  private processPending() {
+    if (this.synchronous || !this.active || this.halted || !this.zones.size) return;
+    this.ensurePort();
+    const port = this.port!;
+    const start = performance.now(), deadline = start + VOXEL_PUBLICATION_BUDGET_MS;
+    let publicationBytes = 0, sourceBytes = 0;
+    if (this.packet) {
+      for (let i = 0; i < this.packet.tiles.length && performance.now() < deadline; i++) {
+        const tile = this.packet.tiles[i];
+        if (!tile) continue;
+        const current = this.zones.get(tile.key);
+        if (!current || current.token !== tile.token) { this.packet.tiles[i] = null; continue; }
+        const bytes = tile.count * VOXEL_GPU_BYTES_PER_FACE;
+        if (publicationBytes && publicationBytes + bytes > VOXEL_PUBLICATION_BUDGET_BYTES) break;
+        if (!this.publish(tile)) continue;
+        this.packet.tiles[i] = null; publicationBytes += bytes;
+        if (bytes > VOXEL_PUBLICATION_BUDGET_BYTES) this.group.userData.voxelLodWorkStats.oversizedTiles++;
+        if (publicationBytes >= VOXEL_PUBLICATION_BUDGET_BYTES) break;
+      }
+      if (this.packet.tiles.every(tile => !tile)) {
+        const id = this.packet.id; this.packet = null; port.postMessage({ type: 'ack', id });
+      }
+    }
+    // Clone retained source bytes in small transferable pieces, never clone an
+    // entire dense snapshot in postMessage or detach another consumer's data.
+    while (this.uploads.size && performance.now() < deadline
+      && sourceBytes < 512 * 1024 && sourceBytes + publicationBytes < VOXEL_PUBLICATION_BUDGET_BYTES) {
+      const [key, upload] = this.uploads.entries().next().value!;
+      const { snapshot, token } = upload.zone, mips = snapshot.voxelMips!;
+      if (!upload.started) {
+        const shared = this.sharedSources.get(mips);
+        if (shared) {
+          port.postMessage({ type: 'link', key, x: snapshot.zoneX, z: snapshot.zoneZ, token,
+            sourceKey: shared.key, sourceToken: shared.token });
+          this.sharedSources.set(mips, { key, token }); this.uploads.delete(key);
+          this.hasWorkerSources = true; this.dirty = true; continue;
+        }
+        port.postMessage({ type: 'begin', key, x: snapshot.zoneX, z: snapshot.zoneZ, token,
+          levels: mips.map(mip => ({ cellSize: mip.cellSize, length: mip.faces.length })) });
+        upload.started = true;
+      }
+      if (upload.level >= mips.length) {
+        port.postMessage({ type: 'end', key, token }); this.uploads.delete(key);
+        this.sharedSources.set(mips, { key, token });
+        this.hasWorkerSources = true; this.dirty = true; continue;
+      }
+      const mip = mips[upload.level];
+      const count = Math.min(SOURCE_PART_BYTES, mip.faces.length - upload.offset,
+        VOXEL_PUBLICATION_BUDGET_BYTES - sourceBytes - publicationBytes);
+      const bytes = mip.faces.slice(upload.offset, upload.offset + count);
+      port.postMessage({ type: 'part', key, token, level: upload.level, offset: upload.offset, bytes }, [bytes.buffer]);
+      // A real worker detaches bytes during postMessage; retain the pre-transfer count.
+      sourceBytes += count; upload.offset += count;
+      if (upload.offset === mip.faces.length) { upload.level++; upload.offset = 0; }
+    }
+    if (!this.busy && this.hasWorkerSources && this.dirty) {
+      this.busy = true; this.dirty = false;
+      port.postMessage({ type: 'build', id: ++this.requestId, view: { ...this.view, camera: [...this.view.camera] } });
+    }
+    Object.assign(this.group.userData.voxelLodWorkStats, { workMs: performance.now() - start,
+      publicationBytes, sourceBytes, queuedSources: this.uploads.size,
+      pendingTiles: this.packet?.tiles.filter(Boolean).length ?? 0 });
+  }
+
   updateView(frustum: THREE.Frustum, camera: THREE.Vector3, focal: number, area: number, distance: number,
     faceBudget = MAX_VOXEL_LOD_FACES) {
-    const cullChanged = this.cullDirty || !this.cullCamera.equals(camera) || distance !== this.distance
+    const cullChanged = this.cullDirty || !this.cullCamera.equals(camera) || distance !== this.view.distance
       || frustum.planes.some((plane, i) => !plane.equals(this.cullFrustum.planes[i]));
     if (cullChanged) { this.cullCamera.copy(camera); this.cullFrustum.copy(frustum); this.cullDirty = false; }
-    const changed = !this.hasView || this.camera.distanceTo(camera) >= 8 || Math.abs(focal / this.focal - 1) > .05
-      || area !== this.area || distance !== this.distance || faceBudget !== this.faceBudget || this.budgetDirty;
-    this.hasView = true; this.distance = distance;
-    if (changed) { this.camera.copy(camera); this.focal = focal; this.area = area; this.faceBudget = faceBudget; }
-    if (changed) { this.areaScale = 1; this.fitBudget(); }
-    const now = performance.now();
-    for (const zone of this.zones.values()) {
-      const selected = changed || zone.projection !== getWorldProjectionRevision();
-      if (selected) this.select(zone);
-      for (const batch of zone.batches.values()) {
-        batch.advance(now);
-        if (cullChanged || selected) batch.setVisible(frustum.intersectsSphere(batch.bounds)
-          && camera.distanceTo(batch.bounds.center) - batch.bounds.radius <= this.distance);
-      }
+    const changed = !this.view.hasView || Math.hypot(camera.x - this.view.camera[0], camera.y - this.view.camera[1],
+      camera.z - this.view.camera[2]) >= 8 || Math.abs(focal / this.view.focal - 1) > .05
+      || area !== this.view.area || distance !== this.view.distance || faceBudget !== this.view.faceBudget;
+    if (changed) {
+      Object.assign(this.view, { camera: camera.toArray(), focal, area, distance, faceBudget, hasView: true });
+      this.dirty = true;
     }
+    if (this.planner && this.dirty) this.buildSynchronously();
+    const now = performance.now();
+    const maskChanged = this.maskVersion !== this.mask.version;
+    this.maskVersion = this.mask.version;
+    const arenaWork = cullChanged || maskChanged || this.arenaDirty || this.arena?.hasPendingWork || !!this.packet
+      || [...this.zones.values()].some(zone => [...zone.batches.values()].some(batch => batch.transitioning));
+    if (arenaWork) this.arena?.restoreSources();
+    for (const zone of this.zones.values()) for (const batch of zone.batches.values()) {
+      const transitioning = batch.transitioning;
+      batch.advance(now);
+      if (cullChanged || maskChanged || transitioning) this.cullBatch(batch, cullChanged, frustum);
+    }
+    try { this.processPending(); }
+    catch (error) { this.fail(String(error)); }
+    if (arenaWork || this.arenaDirty) { this.arena?.sync(); this.arenaDirty = false; }
+    else this.arena?.idle();
   }
+
   removeZone(x: number, z: number) {
     const key = `${x},${z}`, zone = this.zones.get(key);
     if (!zone) return;
     for (const batch of zone.batches.values()) batch.dispose();
-    this.zones.delete(key);
-    this.budgetDirty = true;
+    if (this.sharedSources.get(zone.snapshot.voxelMips!)?.key === key) this.sharedSources.delete(zone.snapshot.voxelMips!);
+    this.zones.delete(key); this.uploads.delete(key); this.planner?.remove(key);
+    this.port?.postMessage({ type: 'remove', key }); this.dirty = true;
+    if (!this.zones.size && !this.synchronous) { this.stopPort(); this.dirty = false; }
+  }
+
+  private stopPort() {
+    const port = this.port; this.port = null; port?.terminate(); this.packet = null; this.busy = false;
+    this.hasWorkerSources = false;
+    this.sharedSources.clear();
+  }
+  private requeueSources() {
+    this.uploads.clear();
+    for (const [key, zone] of this.zones) this.uploads.set(key, { zone, level: 0, offset: 0, started: false });
+    this.dirty = this.zones.size > 0;
+  }
+  setActive(active: boolean) {
+    if (active === this.active) return;
+    this.active = active;
+    if (!this.synchronous) {
+      this.stopPort(); this.uploads.clear();
+      if (active) { this.halted = false; this.requeueSources(); }
+    }
+  }
+  dispose() {
+    // The source meshes are being destroyed too; do not reconstruct their data.
+    this.arena?.dispose(false); this.arena = null; this.group.userData.voxelArenaStats = null;
+    this.stopPort(); this.active = false; this.uploads.clear();
+    for (const zone of this.zones.values()) for (const batch of zone.batches.values()) batch.dispose();
+    this.zones.clear();
   }
 }

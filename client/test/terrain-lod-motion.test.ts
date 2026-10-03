@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { TerrainHandoff, TERRAIN_FADE_MS } from '@entropydrop/space-engine/render/TerrainHandoff.ts';
 import { SurfaceBatch } from '@entropydrop/space-engine/render/SurfaceBatch.ts';
 import { DistantSurfaceLayer } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
@@ -9,7 +9,7 @@ import { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { bendPoint, cullChunks } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
 function source(height: number) {
-  const mesh = new THREE.Mesh(new THREE.InstancedBufferGeometry(), new THREE.MeshStandardMaterial());
+  const mesh = new THREE.Mesh(new THREE.InstancedBufferGeometry(), new THREE.MeshStandardNodeMaterial());
   mesh.geometry.setAttribute('surfaceHeight', new THREE.InstancedBufferAttribute(new Float32Array([height]), 1));
   mesh.geometry.instanceCount = 1;
   return mesh;

@@ -22,6 +22,7 @@
     "check:terrain-wasm": "node tools/build-terrain-wasm.mjs --check",
     "bench:terrain": "node engine/tools/benchmark-terrain.ts",
     "bench:voxel-lod": "node --import ./engine/test/setup.ts engine/tools/benchmark-voxel-lod.ts",
+    "bench:voxel-view": "node --import ./engine/test/setup.ts engine/tools/benchmark-voxel-view.ts",
     "bench:voxel-surface": "node engine/tools/benchmark-voxel-surface.ts",
     "bench:render-kernels": "node engine/tools/benchmark-render-kernels.ts",
     "bench:render-maintenance": "node --import ./engine/test/setup.ts engine/tools/benchmark-render-maintenance.ts",

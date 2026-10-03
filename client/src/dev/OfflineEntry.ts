@@ -75,6 +75,8 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   const baseline = parameters.get('dev_baseline') === '1';
   const busyStreaming = parameters.get('dev_stream_busy') === '1';
   const game = create(offlineSession(parameters.get('world') ?? undefined), ephemeralStorage());
+  const fixedDpr = Number(parameters.get('dev_dpr'));
+  if (fixedDpr >= .5 && fixedDpr <= 2) game.sceneRenderer.cappedDevicePixelRatio = () => fixedDpr;
   (window as any).game = game;
   game.world.setRenderDistance(8, baseline ? 8 : undefined);
   game.world.microVoxels.setRenderBatchingEnabled(!baseline);
@@ -88,6 +90,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   const gate = document.getElementById('space-entry-gate');
   const status = document.getElementById('space-entry-status');
   try {
+    await game.sceneRenderer.ready;
     await game.preloadInitialTerrain((_value, message) => {
       if (status) status.textContent = `Offline development: ${message}`;
     });
@@ -104,6 +107,10 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
       ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world, parameters.get('dev_lod') === 'world') : null;
     installDiagnostics(game, baseline, surface, busyStreaming);
     if (parameters.get('dev_perf') === '1') installFrameDiagnostics(game);
+    if (parameters.get('dev_webgpu') === '1') {
+      const { installWebGPUMigrationSmoke } = await import('./WebGPUMigrationSmoke.tsx');
+      installWebGPUMigrationSmoke(game);
+    }
   } catch (error) {
     if (status) status.textContent = `Offline development failed: ${String(error)}`;
     console.error(error);
@@ -198,7 +205,9 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
     const skyline = document.createElement('button');
     skyline.textContent = 'Distant skyline';
     skyline.onclick = () => { game.controller.pitch = .1; game.controller.yaw = Math.PI / 2; };
-    panel.append(across, whip, skyline);
+    const near = document.createElement('button'); near.textContent = 'Near terrain view';
+    near.onclick = () => { game.controller.pitch = -.85; game.controller.yaw = Math.PI / 2; };
+    panel.append(across, whip, skyline, near);
   }
   document.body.append(panel);
   let last = performance.now(), updated = last;
@@ -220,7 +229,7 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
         const ordered = [...frames].sort((a, b) => a - b);
         const cpu = [...cpuFrames].sort((a, b) => a - b);
         const info = game.sceneRenderer.renderer.info;
-        stats.textContent = `FPS ${game.currentFps.toFixed(1)} | frame p50 ${(ordered[Math.floor(ordered.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(ordered[Math.floor(ordered.length * .95)] ?? 0).toFixed(1)} ms\nMain CPU p50 ${(cpu[Math.floor(cpu.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(cpu[Math.floor(cpu.length * .95)] ?? 0).toFixed(1)} ms\nDraw calls ${info.render.calls} | triangles ${info.render.triangles}\nActive chunks ${game.world.activeChunkKeys.size} (X ±${game.world.renderDistance}, Z ±${game.world.renderDistanceZ})\nMicro partitions ${game.world.microVoxels.meshChunks.size} → draw meshes ${game.world.microVoxels.renderMeshes.size}\nFixed medium lighting / 100% resolution / shadows ${game.sceneRenderer.shadowsEnabled ? 'on' : 'off'}\nLocal near terrain only; not a live-server FPS measurement.`;
+        stats.textContent = `FPS ${game.currentFps.toFixed(1)} | frame p50 ${(ordered[Math.floor(ordered.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(ordered[Math.floor(ordered.length * .95)] ?? 0).toFixed(1)} ms\nMain CPU p50 ${(cpu[Math.floor(cpu.length * .5)] ?? 0).toFixed(1)} ms | p95 ${(cpu[Math.floor(cpu.length * .95)] ?? 0).toFixed(1)} ms\nDraw calls ${info.render.drawCalls} | triangles ${info.render.triangles}\nActive chunks ${game.world.activeChunkKeys.size} (X ±${game.world.renderDistance}, Z ±${game.world.renderDistanceZ})\nMicro partitions ${game.world.microVoxels.meshChunks.size} → draw meshes ${game.world.microVoxels.renderMeshes.size}\n${game.sceneRenderer.getLightingQuality()} lighting / ${Math.round(game.sceneRenderer.getResolutionScaleState().scale * 100)}% resolution / shadows ${game.sceneRenderer.shadowsEnabled ? 'on' : 'off'}\nLocal near terrain only; not a live-server FPS measurement.`;
         stats.textContent = stats.textContent.replace('Local near terrain only; not a live-server FPS measurement.',
           surface ? 'Local near + distant fixture; not a live-server FPS measurement.'
             : 'Local near terrain only; not a live-server FPS measurement.');
@@ -231,7 +240,9 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
         if (surface) {
           const layer = game.world.distantSurface, build = layer.mesh.userData.lodBuildStats;
           const voxel = layer.voxels.group.userData.voxelLodStats;
+          const work = layer.voxels.group.userData.voxelLodWorkStats;
           stats.textContent += `\nLOD fixture: ${surface.generated}/${surface.total} districts${surface.total === 128 ? ' (repeated district stress test)' : ''} | 1m sources ${surface.fineZones} | passes ${surface.passes} | source reads ${surface.downloads}\nLOD publications ${build?.publications ?? 0} | faces ${voxel?.faces ?? layer.mesh.geometry.instanceCount} | subdivision ${(voxel?.effectiveAreaPx2 ?? layer.mesh.userData.lodEffectiveSubdivisionPx2 ?? 16).toFixed(2)}px^2\n${surface.error || surface.progress || 'Local far terrain enabled; not a live-server measurement.'}`;
+          if (work) stats.textContent += `\nVoxel ${work.backend}: ${layer.voxels.hasPendingWork ? 'preparing' : 'settled'} | sources ${work.queuedSources} | tiles ${work.pendingTiles} | publications ${work.publications}\nPublish ${work.workMs.toFixed(2)}ms / ${(work.publicationBytes / 1024).toFixed(0)} KiB | source ${(work.sourceBytes / 1024).toFixed(0)} KiB${work.error ? ` | ${work.error}` : ''}`;
         }
         updated = now;
       }

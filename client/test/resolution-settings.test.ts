@@ -145,19 +145,20 @@ test('minimap preference is restored, applied immediately, and persisted', () =>
 test('renderer combines the shadow preference with adaptive effects quality', () => {
   const renderer = Object.create(SceneRenderer.prototype) as SceneRenderer;
   const internal = renderer as any;
-  internal.renderer = { shadowMap: { enabled: true, needsUpdate: false } };
+  internal.renderer = { shadowMap: { enabled: true } };
+  internal.sunLight = { castShadow: true, shadow: { needsUpdate: false } };
   internal.shadowsEnabled = true;
   internal.adaptiveEffectsQuality = 'full';
 
   renderer.setShadowsEnabled(false);
   assert.equal(internal.renderer.shadowMap.enabled, false);
-  assert.equal(internal.renderer.shadowMap.needsUpdate, true);
+  assert.equal(internal.sunLight.shadow.needsUpdate, false);
 
-  internal.renderer.shadowMap.needsUpdate = false;
+  internal.sunLight.shadow.needsUpdate = false;
   internal.adaptiveEffectsQuality = 'reduced';
   renderer.setShadowsEnabled(true);
   assert.equal(internal.renderer.shadowMap.enabled, false);
-  assert.equal(internal.renderer.shadowMap.needsUpdate, false);
+  assert.equal(internal.sunLight.shadow.needsUpdate, false);
 
   internal.adaptiveEffectsQuality = 'full';
   renderer.setShadowsEnabled(true);

@@ -1,14 +1,8 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { reference, modelWorldMatrix, floor, vec4, int } from 'three/tsl';
+import { asNodeMaterial, terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
 
 export const TERRAIN_FADE_MS = 400;
-// A fixed screen-space pattern: no frame/time seed, alpha blending or depth
-// write changes. The two owners accept complementary sets of pixels.
-export const TERRAIN_DITHER_GLSL = `
-float terrainDither(vec2 pixel) {
-  return fract(52.9829189 * fract(dot(floor(pixel), vec2(0.06711056, 0.00583715))));
-}
-`;
-
 /** Coverage lives independently of meshes, so reversing an AOI crossing does
  * not restart its fade or let standard and micro terrain disagree. */
 export class TerrainHandoff {
@@ -69,31 +63,18 @@ export class TerrainHandoff {
     this.roots.add(root);
     root.traverse(object => {
       const material = (object as THREE.Mesh).material;
-      for (const mat of Array.isArray(material) ? material : material ? [material] : []) {
-        if (this.materials.has(mat)) continue;
-        this.materials.add(mat);
-        const previous = mat.onBeforeCompile, previousKey = mat.customProgramCacheKey();
-        mat.onBeforeCompile = (shader, renderer) => {
-          previous.call(mat, shader, renderer);
-          shader.uniforms.uTerrainHandoff = { value: this.texture };
-          shader.uniforms.uTerrainHandoffEnabled = this.enabled;
-          shader.vertexShader = shader.vertexShader.replace('#include <common>',
-            '#include <common>\nvarying vec2 vNearTerrainChunk;')
-            .replace('#include <begin_vertex>', `#include <begin_vertex>
-              vNearTerrainChunk = floor((modelMatrix[3].xz + 0.01) / 16.0);`);
-          shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
-            uniform sampler2D uTerrainHandoff;
-            uniform bool uTerrainHandoffEnabled;
-            varying vec2 vNearTerrainChunk;
-            ${TERRAIN_DITHER_GLSL}`)
-            .replace('#include <color_fragment>', `
-              if (uTerrainHandoffEnabled && terrainDither(gl_FragCoord.xy) >=
-                texture2D(uTerrainHandoff, (vNearTerrainChunk + 0.5) / vec2(1024.0, 128.0)).r) discard;
-              #include <color_fragment>`);
-        };
-        mat.customProgramCacheKey = () => `${previousKey}|terrain-handoff-v1`;
-        mat.needsUpdate = true;
-      }
+      const hooked = (Array.isArray(material) ? material : material ? [material] : []).map(source => {
+        const mat = asNodeMaterial(source);
+        if (!this.materials.has(mat)) {
+          this.materials.add(mat);
+          const flat = vec4(modelWorldMatrix.element(int(3))).xz.add(.01);
+          const coverage = terrainCoverage(this.texture, flat).r;
+          discardWhen(mat, reference('value', 'bool', this.enabled).and(terrainDither().greaterThanEqual(coverage)));
+          mat.needsUpdate = true;
+        }
+        return mat;
+      });
+      if (material) (object as THREE.Mesh).material = Array.isArray(material) ? hooked : hooked[0];
     });
   }
 }

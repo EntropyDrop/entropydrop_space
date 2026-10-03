@@ -1,5 +1,6 @@
+import { alignedVertexAttribute } from '../render/NodeMaterials.ts';
 import { CollisionBoxIndex, mergeCollisionCells, type CollisionBounds } from '../physics/CollisionGeometry.ts';
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
 import { MicroRenderBatches } from '../render/MicroRenderBatches.ts';
@@ -153,7 +154,7 @@ export class MicroVoxelLayer {
   private standardChunkPartitions = new Map<string, Set<string>>();
   private chunkRevisions = new Map<string, number>();
   private horizontalColumnPartitions = new Map<string, Set<string>>();
-  renderMaterials: [THREE.MeshStandardMaterial, THREE.MeshBasicMaterial];
+  renderMaterials: [THREE.MeshStandardNodeMaterial, THREE.MeshBasicNodeMaterial];
   private renderBatches: MicroRenderBatches;
   private meshWorker: Worker | null = null;
   private meshWorkerAttempted = false;
@@ -193,7 +194,7 @@ export class MicroVoxelLayer {
     this.recentlyRebuiltMeshes = [];
     this.meshTempColor = new THREE.Color();
     this.renderMaterials = [
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardNodeMaterial({
         vertexColors: true,
         flatShading: true,
         roughness: 0.65,
@@ -1481,9 +1482,9 @@ export class MicroVoxelLayer {
       return;
     }
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(job.positions, 3));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(job.normals, 3, true));
-    geometry.setAttribute('color', new THREE.BufferAttribute(job.colors, 3, true));
+    geometry.setAttribute('position', alignedVertexAttribute(job.positions, 3));
+    geometry.setAttribute('normal', alignedVertexAttribute(job.normals, 3, true));
+    geometry.setAttribute('color', alignedVertexAttribute(job.colors, 3, true));
     geometry.setIndex(new THREE.BufferAttribute(job.indices, 1));
     const [defaultCount, emissiveCount] = job.materialIndexCounts;
     if (defaultCount > 0) geometry.addGroup(0, defaultCount, 0);

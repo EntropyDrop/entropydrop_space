@@ -355,7 +355,7 @@ test('torus rendering starts with no synthetic far terrain and preserves near-fi
       if (!child.isMesh) return;
       assert.equal(child.frustumCulled, false, 'child meshes must not be culled again by flat bounding spheres');
       if (child.castShadow) {
-        assert.ok(child.customDepthMaterial, 'new chunks need torus depth material before attachment to prevent edit flicker');
+        assert.ok((Array.isArray(child.material) ? child.material : [child.material]).every(mat => mat.positionNode?.isNode), 'shadow passes reuse the terrain position node immediately');
       }
     });
   }
@@ -364,7 +364,7 @@ test('torus rendering starts with no synthetic far terrain and preserves near-fi
   world.updateChunksAround(TORUS_SPAWN_X, TORUS_SPAWN_Z);
   assert.ok(world.microVoxels.mesh, 'microvoxel mesh should rebuild in the edit frame');
   assert.equal(world.microVoxels.mesh.frustumCulled, false, 'new microvoxel mesh should use torus culling immediately');
-  assert.ok(world.microVoxels.mesh.customDepthMaterial, 'new microvoxel mesh should get torus depth material immediately');
+  assert.ok(world.microVoxels.mesh.material.every(mat => mat.positionNode?.isNode), 'micro shadow passes reuse the bent position node');
 });
 
 test('simulation refreshes the active window without spending another mesh budget', () => {
@@ -866,20 +866,16 @@ test('torus rendering avoids flat-space culling for runtime selections and entit
   assert.equal(distant.frustumCulled, true, 'prebent LOD can use native bent-space culling');
 });
 
-test('shadow depth materials use the canonical torus projection', () => {
+test('shadow passes reuse the canonical node deformation without a separate depth material', () => {
   const scene = new THREE.Scene();
-  const caster = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
-  caster.castShadow = true;
-  scene.add(caster);
+  const caster = new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshStandardMaterial());
+  caster.castShadow = true; scene.add(caster); hookSceneMaterials(scene);
+  const material = caster.material as unknown as import('three/webgpu').MeshStandardNodeMaterial;
+  assert.ok(material.positionNode?.isNode);
+  assert.ok(material.normalNode?.isNode);
+  assert.equal(material.userData.torusNode,true);
+  assert.equal(caster.customDepthMaterial,undefined);
+  const node = material.positionNode;
   hookSceneMaterials(scene);
-
-  const shader: any = {
-    uniforms: {},
-    vertexShader: 'void main() { vec3 transformed = position; #include <project_vertex> }',
-  };
-  caster.customDepthMaterial.onBeforeCompile(shader, null);
-  assert.match(shader.vertexShader, /torusBend/);
-  assert.doesNotMatch(shader.vertexShader, /earthBend|earthFrame/);
-  assert.equal(shader.uniforms.uWorldProjectionAnchor, undefined);
-  assert.equal(shader.uniforms.uWorldShapeMode, undefined);
+  assert.equal(material.positionNode,node,'repeated scans never wrap deformation twice');
 });

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 
 export type HeldTool = 'shovel' | 'spoon' | 'selector' | 'hammer' | 'wrench' | 'brush';
 
@@ -22,7 +22,7 @@ const TOOL_COLORS = [
   0x714727, 0x9e6638, 0xc38b50, // wooden brush handle
   0xd9bd8b, 0xa98653, 0xefdbb4 // natural bristles
 ];
-export type HeldVoxelToolMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial[]>;
+export type HeldVoxelToolMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial[]>;
 type Voxel = { x: number; y: number; z: number; tone: number };
 
 function createMetalEnvironment() {
@@ -228,7 +228,7 @@ export function createHeldVoxelTool(tool: HeldTool): HeldVoxelToolMesh {
   geometry.translate(0, 0.65, 0);
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
-  const material = new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff,
     vertexColors: true,
     metalness: 0.62,
@@ -242,11 +242,11 @@ export function createHeldVoxelTool(tool: HeldTool): HeldVoxelToolMesh {
   const materials = [material];
   material.name = 'ToolSilver';
   if (tool === 'brush') {
-    const wood = new THREE.MeshStandardMaterial({
+    const wood = new THREE.MeshStandardNodeMaterial({
       name: 'BrushWood', vertexColors: true, metalness: 0, roughness: 0.85,
       emissive: 0x2a1a0f, emissiveIntensity: 0.12, flatShading: true
     });
-    const bristles = new THREE.MeshStandardMaterial({
+    const bristles = new THREE.MeshStandardNodeMaterial({
       name: 'BrushBristles', vertexColors: true, metalness: 0, roughness: 1,
       emissive: 0x4a3820, emissiveIntensity: 0.08, flatShading: true
     });

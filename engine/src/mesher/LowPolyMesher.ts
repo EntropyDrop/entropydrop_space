@@ -1,4 +1,5 @@
-import * as THREE from 'three';
+import { alignedVertexAttribute } from '../render/NodeMaterials.ts';
+import * as THREE from 'three/webgpu';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
 import { VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
@@ -39,16 +40,16 @@ export type ChunkMeshData = {
 
 export class LowPolyMesher {
   private mode: string;
-  private solidMaterial: THREE.MeshStandardMaterial;
-  private emissiveMaterial: THREE.MeshBasicMaterial;
-  private waterMaterial: THREE.MeshStandardMaterial;
-  private glassMaterial: THREE.MeshStandardMaterial;
+  private solidMaterial: THREE.MeshStandardNodeMaterial;
+  private emissiveMaterial: THREE.MeshBasicNodeMaterial;
+  private waterMaterial: THREE.MeshStandardNodeMaterial;
+  private glassMaterial: THREE.MeshStandardNodeMaterial;
   private _tempColor: THREE.Color;
 
   constructor() {
     this.mode = 'beveled_lowpoly'; // 'beveled_lowpoly' | 'classic_cubes'
 
-    this.solidMaterial = new THREE.MeshStandardMaterial({
+    this.solidMaterial = new THREE.MeshStandardNodeMaterial({
       vertexColors: true,
       flatShading: true,
       roughness: 0.65,
@@ -57,7 +58,7 @@ export class LowPolyMesher {
     });
     this.emissiveMaterial = createVoxelEmissiveMaterial();
 
-    this.waterMaterial = new THREE.MeshStandardMaterial({
+    this.waterMaterial = new THREE.MeshStandardNodeMaterial({
       color: 0x2980b9,
       vertexColors: true,
       flatShading: true,
@@ -69,7 +70,7 @@ export class LowPolyMesher {
       depthWrite: false
     });
 
-    this.glassMaterial = new THREE.MeshStandardMaterial({
+    this.glassMaterial = new THREE.MeshStandardNodeMaterial({
       color: 0xdff9fb,
       transparent: true,
       opacity: 0.5,
@@ -352,9 +353,9 @@ export class LowPolyMesher {
     const addMesh = (meshData: ChunkMeshData, name: string) => {
       if (!meshData.positions || !meshData.normals || !meshData.colors || !meshData.indices) return;
       const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
-      geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3, true));
-      geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3, true));
+      geometry.setAttribute('position', alignedVertexAttribute(meshData.positions, 3));
+      geometry.setAttribute('normal', alignedVertexAttribute(meshData.normals, 3, true));
+      geometry.setAttribute('color', alignedVertexAttribute(meshData.colors, 3, true));
       geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
       const [defaultCount, emissiveCount] = meshData.materialIndexCounts
         ?? [meshData.indices.length, 0];

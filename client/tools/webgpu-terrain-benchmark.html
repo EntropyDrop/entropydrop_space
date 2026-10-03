@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Space terrain: WebGL / WebGPU</title>
+<style>
+body{margin:0;background:#101820;color:#e9eff6;font:14px system-ui}main{max-width:1280px;margin:auto;padding:18px}h1{font-size:22px;margin:0 0 8px}p{color:#b8c8d8;line-height:1.5}button,select{font:inherit;padding:7px 12px;margin-right:8px}#view canvas{display:block;width:100%;height:auto}#view{min-height:240px;background:#253345}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px ui-monospace,monospace}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{text-align:right;padding:8px;border-bottom:1px solid #314356}th:first-child,td:first-child{text-align:left}.captures{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.captures img{width:100%}summary{cursor:pointer}#status{padding:12px 0;color:#a8e0ca}
+</style>
+<main>
+<h1>Space terrain: WebGL / WebGPU</h1>
+<p>Real voxel LOD across 128 repeated districts, identical geometry and simplified lighting. Extended tests measure CPU callback work, GPU passes, frame cadence, GPU-completed batches and paced geometry updates at 720p/1440p/4K. These are terrain-pipeline tests; the full game, PBR, shadows and post-processing remain outside scope.</p>
+<button id="run" disabled>Run comparison</button><button id="extended" disabled>Run extended comparison</button><button id="completion" disabled>Validate GPU completion</button><button id="pixels" disabled>Check pixels</button><button id="download" disabled>Download results</button>
+<label>Preview <select id="preview" disabled><option value="legacy">WebGLRenderer</option><option value="webgpu">WebGPURenderer / WebGPU</option><option value="fallback">WebGPURenderer / WebGL2</option></select></label>
+<div id="status" role="status">Preparing...</div>
+<div id="view"></div>
+<p id="fixture"></p>
+<table><thead><tr><th>Case / backend</th><th>CPU p50 / p95 ms</th><th>GPU p50 ms</th><th>Frame p50 / p95 ms</th><th>Draws</th><th>Triangles</th></tr></thead><tbody id="rows"></tbody></table>
+<h2>Extended results</h2>
+<p>FPS below is animation-loop cadence, not verified display presentation. CPU and GPU overlap; their times must not be added.</p>
+<table><thead><tr><th>Resolution / case / backend</th><th>Loop FPS / 1% low</th><th>Frame p95 / p99 ms</th><th>Over 16.67 ms</th><th>Total CPU p50 / p95 ms</th><th>GPU p50 / p95 ms</th></tr></thead><tbody id="extended-rows"></tbody></table>
+<h2>GPU-completed workload</h2><p>Repeated workload with GPU completion after each batch. The validation uses 32 renders per batch and two reversed-order rounds to reduce notification bias. Includes CPU/GPU overlap and asynchronous notification overhead; this is not gameplay FPS.</p>
+<pre id="completion-results"></pre>
+<div id="captures" class="captures"></div>
+<details><summary>Full results and measurement scope</summary><pre id="results"></pre></details>
+</main>
+<script type="module" src="../src/dev/VoxelBackendBenchmark.ts"></script>
+</html>

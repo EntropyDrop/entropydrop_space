@@ -1,5 +1,6 @@
-import { TERRAIN_DITHER_GLSL } from './TerrainHandoff.ts';
-import * as THREE from 'three';
+import { terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
+import { uniform } from 'three/tsl';
+import * as THREE from 'three/webgpu';
 import { Chunk } from '../voxel/Chunk.ts';
 import type { MicroVoxelLayer } from '../voxel/MicroVoxelLayer.ts';
 import type { DistantChunkSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
@@ -75,7 +76,7 @@ export function captureDistantChunk(chunk: Chunk, micro: MicroVoxelLayer, revisi
 export class DistantChunkLayer {
   readonly group = new THREE.Group();
   private readonly geometry = new THREE.BoxGeometry(1, 1, 1, 2, 1, 2);
-  private readonly material: THREE.MeshStandardMaterial;
+  private readonly material: THREE.MeshStandardNodeMaterial;
   private readonly entries = new Map<string, {
     mesh: THREE.InstancedMesh; bounds: THREE.Sphere; revision: number; local: boolean;
     chunkX: number; chunkZ: number; top: number; projectionRevision: number;
@@ -84,21 +85,10 @@ export class DistantChunkLayer {
   constructor(mask: THREE.DataTexture, onCoverage: (cx: number, cz: number, ready: boolean) => void) {
     this.onCoverage = onCoverage;
     this.group.name = 'DistantAuthoredChunks';
-    this.material = new THREE.MeshStandardMaterial({ vertexColors: false, roughness: 0.65,
+    this.material = new THREE.MeshStandardNodeMaterial({ vertexColors: false, roughness: 0.65,
       metalness: 0.15, flatShading: true });
-    this.material.onBeforeCompile = shader => {
-      shader.uniforms.uDistantChunkMask = { value: mask };
-      shader.vertexShader = shader.vertexShader.replace('#include <common>',
-        '#include <common>\nvarying vec2 vDistantChunk;')
-        .replace('#include <begin_vertex>', `#include <begin_vertex>
-          vDistantChunk = floor(instanceMatrix[3].xz / 16.0);`);
-      shader.fragmentShader = shader.fragmentShader.replace('#include <common>',
-        `#include <common>\nuniform sampler2D uDistantChunkMask;\nvarying vec2 vDistantChunk;\n${TERRAIN_DITHER_GLSL}`)
-        .replace('#include <color_fragment>', `
-          if (terrainDither(gl_FragCoord.xy) < texture2D(uDistantChunkMask, (vDistantChunk + 0.5) / vec2(1024.0, 128.0)).r) discard;
-          #include <color_fragment>`);
-    };
-    this.material.customProgramCacheKey = () => 'distant-authored-solids-v7';
+    const chunk = uniform(new THREE.Vector2()).onObjectUpdate(({ object }) => object.userData.distantChunkOrigin);
+    discardWhen(this.material, terrainDither().lessThan(terrainCoverage(mask, chunk).r));
   }
   install(chunk: DistantChunkSnapshot, local = false) {
     const key = `${chunk.chunkX},${chunk.chunkZ}`;
@@ -108,6 +98,7 @@ export class DistantChunkLayer {
     // Local data stays authoritative until its accepted server revision arrives.
     const count = chunk.boxes.length / 6;
     const mesh = new THREE.InstancedMesh(this.geometry, this.material, count);
+    mesh.userData.distantChunkOrigin = new THREE.Vector2(chunk.chunkX * 16 + .01, chunk.chunkZ * 16 + .01);
     mesh.name = `DistantAuthored:${key}`;
     mesh.frustumCulled = false;
     const matrix = new THREE.Matrix4(), color = new THREE.Color();

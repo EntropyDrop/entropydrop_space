@@ -1,9 +1,11 @@
+import { attribute, positionGeometry, vec2, vec3, uniform, mix, varying, screenCoordinate } from 'three/tsl';
+import { terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
 import { DistantVoxelLayer, voxelFaceBudget } from './DistantVoxelLayer.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
-import { TerrainHandoff, TERRAIN_DITHER_GLSL } from './TerrainHandoff.ts';
+import { TerrainHandoff } from './TerrainHandoff.ts';
 import { DistantChunkLayer } from './DistantChunkLayer.ts';
 import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import type { SurfaceZoneSnapshot } from '../voxel/SurfaceZoneSnapshot.ts';
 import { getTerrainKernels, type SurfaceMip, type SurfaceConnectionKernel } from '../wasm/TerrainKernels.ts';
 import { prepareSurfaceSelection, surfaceNodeIndex } from '../wasm/SurfaceSelection.ts';
@@ -87,81 +89,6 @@ const SRGB_TO_LINEAR_BYTE = Uint8Array.from({ length: 256 }, (_, value) => {
   return Math.round(linear * 255);
 });
 
-const SURFACE_VERTEX_DECLARATIONS = `
-#define TORUS_SURFACE_POSITION
-attribute vec2 surfaceOffset;
-attribute float surfaceHeight;
-attribute float surfaceSize;
-varying vec2 vSurfaceFlatPosition;
-varying float vSurfaceHeight;
-`;
-
-const SURFACE_BEGIN_VERTEX = `
-vec3 transformed = vec3(
-  position.x * surfaceSize + surfaceOffset.x,
-  position.y * surfaceHeight * ${MICRO_SIZE},
-  position.z * surfaceSize + surfaceOffset.y
-);
-vSurfaceFlatPosition = transformed.xz;
-vSurfaceHeight = surfaceHeight;
-`;
-
-const SURFACE_SIDE_VERTEX_DECLARATIONS = `
-#define TORUS_SURFACE_POSITION
-#define TORUS_SURFACE_AXIS
-#define TORUS_SURFACE_NORMAL
-attribute vec2 surfaceOffset;
-attribute float surfaceHeight;
-attribute float surfaceBottomHeight;
-attribute float surfaceSize;
-attribute float surfaceAxis;
-attribute vec2 surfaceNormal;
-varying vec2 vSurfaceFlatPosition;
-varying float vSurfaceHeight;
-`;
-
-const SURFACE_SIDE_BEGIN_VERTEX = `
-vec2 surfaceAlong = mix(vec2(1.0, 0.0), vec2(0.0, 1.0), surfaceAxis);
-// The unit quad faces +Z when it runs on X and -X when it runs on Z. Reverse
-// its along-edge coordinate for the opposite two directions so FrontSide can
-// cull backfaces without making half of the terrain discontinuities vanish.
-float surfaceWinding = mix(surfaceNormal.y, -surfaceNormal.x, surfaceAxis);
-float surfaceAlongPosition = surfaceWinding >= 0.0 ? position.x : 1.0 - position.x;
-vec2 surfaceFlatPosition = surfaceOffset + surfaceAlong * surfaceAlongPosition * surfaceSize;
-vec3 transformed = vec3(
-  surfaceFlatPosition.x,
-  mix(surfaceBottomHeight, surfaceHeight, position.y) * ${MICRO_SIZE},
-  surfaceFlatPosition.y
-);
-vSurfaceFlatPosition = transformed.xz - surfaceNormal * 0.01;
-vSurfaceHeight = surfaceHeight;
-`;
-
-const SURFACE_FRAGMENT_DECLARATIONS = `
-uniform vec2 uSurfaceWorldSize;
-uniform vec2 uSurfaceWorldChunks;
-uniform sampler2D uTerrainHandoff;
-uniform vec2 uSurfaceTransition;
-${TERRAIN_DITHER_GLSL}
-varying vec2 vSurfaceFlatPosition;
-varying float vSurfaceHeight;
-`;
-
-const SURFACE_COLOR_FRAGMENT = `
-if (vSurfaceHeight < 0.5) discard;
-vec2 surfaceWrapped = mod(
-  mod(vSurfaceFlatPosition, uSurfaceWorldSize) + uSurfaceWorldSize,
-  uSurfaceWorldSize
-);
-vec2 surfaceChunk = floor(surfaceWrapped / ${CHUNK_SIZE.toFixed(1)});
-vec2 surfaceMaskUv = (surfaceChunk + 0.5) / uSurfaceWorldChunks;
-vec2 handoff = texture2D(uTerrainHandoff, surfaceMaskUv).rg;
-if (handoff.g > 0.5 || terrainDither(gl_FragCoord.xy) < handoff.r) discard;
-float transitionPixel = terrainDither(gl_FragCoord.xy + vec2(37.0, 19.0));
-if (transitionPixel < uSurfaceTransition.x || transitionPixel >= uSurfaceTransition.y) discard;
-#include <color_fragment>
-`;
-
 interface StoredSurfaceZone {
   volumetric?: boolean;
   zoneX: number;
@@ -199,7 +126,7 @@ interface SurfaceRange {
   sideStart: number; sideCount: number;
 }
 
-type SurfaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
+type SurfaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 
 /** Bound the chord error even for elevated terrain on the tube. */
 function curvatureError(size: number, heightMicro: number) {
@@ -241,12 +168,17 @@ function createSideGeometry() {
   return geometry;
 }
 
-function createMaterial(handoff: THREE.DataTexture, side = false, coverage = new THREE.Vector2(0, 1)) {
+const surfaceMaterials = new WeakMap<THREE.DataTexture, Map<boolean, THREE.MeshStandardNodeMaterial>>();
+function createMaterial(handoffTexture: THREE.DataTexture, side = false, coverage = new THREE.Vector2(0, 1)) {
+  let cache = surfaceMaterials.get(handoffTexture);
+  if (!cache) surfaceMaterials.set(handoffTexture, cache = new Map());
+  const cached = cache.get(side);
+  if (cached) return cached;
   // Match LowPolyMesher's solid terrain response exactly at the AOI handoff.
   // Keeping shadows disabled on the distant meshes avoids expanding the local
   // 90 m shadow workload, while the shared Standard parameters remove the
   // otherwise visible Lambert/PBR color step at the seam.
-  const material = new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshStandardNodeMaterial({
     vertexColors: true,
     flatShading: side,
     roughness: 0.65,
@@ -254,26 +186,30 @@ function createMaterial(handoff: THREE.DataTexture, side = false, coverage = new
     shadowSide: THREE.DoubleSide,
     side: THREE.FrontSide,
   });
-  material.onBeforeCompile = shader => {
-    shader.uniforms.uSurfaceWorldSize = { value: new THREE.Vector2(TORUS_SIZE_X, TORUS_SIZE_Z) };
-    shader.uniforms.uSurfaceWorldChunks = { value: new THREE.Vector2(WORLD_CHUNKS_X, WORLD_CHUNKS_Z) };
-    shader.uniforms.uTerrainHandoff = { value: handoff };
-    shader.uniforms.uSurfaceTransition = { value: coverage };
-    material.userData.shader = shader;
-    const vertexDeclarations = side
-      ? SURFACE_SIDE_VERTEX_DECLARATIONS
-      : SURFACE_VERTEX_DECLARATIONS;
-    const beginVertex = side ? SURFACE_SIDE_BEGIN_VERTEX : SURFACE_BEGIN_VERTEX;
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${vertexDeclarations}`)
-      .replace('#include <begin_vertex>', beginVertex);
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${SURFACE_FRAGMENT_DECLARATIONS}`)
-      .replace('#include <color_fragment>', SURFACE_COLOR_FRAGMENT);
-  };
-  material.customProgramCacheKey = () => (
-    side ? 'distant-surface-zone-v7-connections' : 'distant-surface-zone-v7-tops'
-  );
+  const offset = attribute<'vec2'>('surfaceOffset', 'vec2'), height = attribute<'float'>('surfaceHeight', 'float');
+  const size = attribute<'float'>('surfaceSize', 'float'), normal = attribute<'vec2'>('surfaceNormal', 'vec2');
+  let flat: any, maskPosition: any;
+  if (side) {
+    const axis = attribute<'float'>('surfaceAxis', 'float');
+    const along = mix(vec2(1,0), vec2(0,1), axis);
+    const winding = mix(normal.y, normal.x.negate(), axis);
+    const xz = offset.add(along.mul(winding.greaterThanEqual(0).select(positionGeometry.x, positionGeometry.x.oneMinus())).mul(size));
+    flat = vec3(xz.x, mix(attribute<'float'>('surfaceBottomHeight', 'float'), height, positionGeometry.y).mul(MICRO_SIZE), xz.y);
+    maskPosition = xz.sub(normal.mul(.01));
+    material.userData.flatNormalNode = vec3(normal.x, 0, normal.y);
+  } else {
+    const xz = offset.add(positionGeometry.xz.mul(size));
+    flat = vec3(xz.x, positionGeometry.y.mul(height).mul(MICRO_SIZE), xz.y);
+    maskPosition = xz;
+  }
+  material.positionNode = flat;
+  const handoff = terrainCoverage(handoffTexture, maskPosition);
+  discardWhen(material, varying(height).lessThan(.5).or(handoff.g.greaterThan(.5)).or(terrainDither().lessThan(handoff.r)));
+  const pixel = terrainDither(screenCoordinate.xy.add(vec2(37,19))), range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object.userData.terrainCoverage ?? coverage);
+  discardWhen(material, pixel.lessThan(range.x).or(pixel.greaterThanEqual(range.y)));
+  material.userData.sharedTerrainMaterial = true;
+  handoffTexture.addEventListener('dispose', () => material.dispose());
+  cache.set(side, material);
   return material;
 }
 
@@ -402,8 +338,8 @@ function yieldToRender() {
 
 /** One adaptive instanced far-field layer derived from backend surface snapshots. */
 export class DistantSurfaceLayer {
-  readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
-  readonly sideMesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardMaterial>;
+  readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
+  readonly sideMesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
   readonly detailMaskTexture: THREE.DataTexture;
   readonly authoredChunks: DistantChunkLayer;
   readonly handoff = new TerrainHandoff();
@@ -552,7 +488,7 @@ export class DistantSurfaceLayer {
     this.hasView = true;
     if (cullChanged) {
       this.previousProjection.copy(this.projection);
-      this.frustum.setFromProjectionMatrix(this.projection);
+      this.frustum.setFromProjectionMatrix(this.projection, camera.coordinateSystem);
     }
     this.authoredChunks.updateView(this.frustum, this.cameraPosition, (this.settings.renderDistanceChunks * CHUNK_SIZE));
     const now = performance.now();
@@ -563,6 +499,7 @@ export class DistantSurfaceLayer {
     const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
     this.voxels.updateView(this.frustum, this.cameraPosition, scale, this.settings.subdivisionSizePx2,
       this.settings.renderDistanceChunks * CHUNK_SIZE, voxelFaceBudget(this.settings.geometryBudgetMiB));
+    this.syncVisibility();
     // Hysteresis avoids rebuilding for sub-pixel motion or tiny resolution changes.
     if (this.lodViewKey && this.lodPosition.distanceTo(camera.position) < 8
       && scale < this.pixelScale * 1.05 && scale > this.pixelScale / 1.05) return;
@@ -690,6 +627,7 @@ export class DistantSurfaceLayer {
     const next = Boolean(enabled);
     if (next === this.enabled) return this.enabled;
     this.enabled = next;
+    this.voxels.setActive(next);
     this.updateHandoffs();
     if (!next) {
       this.connectionBuildGeneration++;
@@ -1311,7 +1249,7 @@ export class DistantSurfaceLayer {
     this.connectionBuildPending = true;
 
     const pending = (async () => {
-      // Let the final progressive top-surface upload reach WebGL before using
+      // Let the final progressive top-surface upload reach the GPU before using
       // the separate side buffers for a frame-sliced connection build.
       await yieldToRender();
       if (generation !== this.connectionBuildGeneration) return;
@@ -1357,7 +1295,7 @@ export class DistantSurfaceLayer {
 
     this.pendingBuild = (async () => {
       // Retain the currently uploaded topology until the replacement is
-      // complete. Typed arrays are only sent to WebGL after every staged batch.
+      // complete. Typed arrays are only sent to the GPU after every staged batch.
       await yieldToRender();
       if (generation !== this.connectionBuildGeneration) return;
 

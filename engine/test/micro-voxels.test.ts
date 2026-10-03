@@ -58,7 +58,7 @@ test('micro voxel edits rebuild only their dirty three-dimensional mesh partitio
   assert.equal(layer.meshChunks.get(farEntry[0]).geometry, farGeometry);
 });
 
-test('micro voxel meshes use compact indexed attributes and metre-correct transforms', () => {
+test('micro voxel meshes use aligned indexed attributes and metre-correct transforms', () => {
   const layer = new MicroVoxelLayer();
   layer.set(129, 10, 1, 0x48dbfb);
   layer.updateMesh();
@@ -67,11 +67,13 @@ test('micro voxel meshes use compact indexed attributes and metre-correct transf
   const geometry = mesh.geometry;
   assert.equal(geometry.getAttribute('position').count, 24);
   assert.equal(geometry.index?.count, 36);
-  assert.ok(geometry.getAttribute('position').array instanceof Uint16Array);
+  assert.ok(geometry.getAttribute('position').array instanceof Float32Array);
   assert.ok(geometry.getAttribute('normal').array instanceof Int8Array);
   assert.ok(geometry.getAttribute('color').array instanceof Uint8Array);
   assert.equal(geometry.getAttribute('normal').normalized, true);
   assert.equal(geometry.getAttribute('color').normalized, true);
+  assert.equal(geometry.getAttribute('normal').itemSize, 4);
+  assert.equal(geometry.getAttribute('color').itemSize, 4);
   assert.deepEqual(mesh.position.toArray(), [16, 0, 0]);
   assert.deepEqual(mesh.scale.toArray(), [MICRO_SIZE, MICRO_SIZE, MICRO_SIZE]);
 });

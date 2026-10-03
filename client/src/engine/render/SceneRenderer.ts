@@ -1,5 +1,6 @@
+import { SpaceRenderer } from './SpaceRenderer.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import {
   applyCameraBend, hookSceneMaterials, cullChunks,
   bendPoint, bendPointForView, bendDirection, unbendPoint, unbendDirection,
@@ -20,7 +21,7 @@ import {
 import { AdaptiveResolutionController } from './AdaptiveResolution.ts';
 import type { AdaptiveEffectsQuality } from './AdaptiveResolution.ts';
 import { CinematicEffects } from './CinematicEffects.ts';
-import { CINEMATIC_SKY_GLSL } from './CinematicSky.ts';
+import { createSkyMaterial } from './CinematicSky.ts';
 import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, normalizeLightingQuality,
   type LightingQuality,
@@ -68,7 +69,7 @@ function createPlayerNameTag(username: string): THREE.Sprite {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
-  const material = new THREE.SpriteMaterial({
+  const material = new THREE.SpriteNodeMaterial({
     map: texture,
     transparent: true,
     depthTest: false,
@@ -84,7 +85,7 @@ function createPlayerNameTag(username: string): THREE.Sprite {
 function createRemotePlayerFallback() {
   const group = new THREE.Group();
   group.name = 'RemotePlayerFallback';
-  const material = new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshStandardNodeMaterial({
     color: 0x00d2d3,
     roughness: 0.72,
     metalness: 0.05,
@@ -635,7 +636,9 @@ export class SceneRenderer {
   declare scene: THREE.Scene;
   declare skyColorDay: THREE.Color;
   declare camera: THREE.PerspectiveCamera;
-  declare renderer: THREE.WebGLRenderer;
+  declare renderer: SpaceRenderer;
+  readonly ready: Promise<void>;
+  private previewReady = false;
   declare adaptiveResolution: AdaptiveResolutionController;
   declare adaptiveEffectsQuality: AdaptiveEffectsQuality;
   declare shadowsEnabled: boolean;
@@ -677,7 +680,7 @@ export class SceneRenderer {
   declare wrenchPivotOrigin: THREE.Mesh;
   declare selectionAxisGizmo: THREE.Group;
   declare selectionGizmoHandles: Map<string, THREE.Group>;
-  declare selectionGizmoMaterials: Map<string, THREE.MeshBasicMaterial>;
+  declare selectionGizmoMaterials: Map<string, THREE.MeshBasicNodeMaterial>;
   declare selectionGizmoLineX: THREE.Line;
   declare selectionGizmoLineY: THREE.Line;
   declare selectionGizmoLineZ: THREE.Line;
@@ -697,14 +700,14 @@ export class SceneRenderer {
   declare selectionCellsGroup: THREE.Group;
   declare selectionCellBoxGeometry: THREE.BoxGeometry;
   declare selectionCellEdgeGeometry: THREE.EdgesGeometry;
-  declare selectionCellLineMaterial: THREE.LineBasicMaterial;
-  declare selectionCellFillMaterial: THREE.MeshBasicMaterial;
+  declare selectionCellLineMaterial: THREE.LineBasicNodeMaterial;
+  declare selectionCellFillMaterial: THREE.MeshBasicNodeMaterial;
   declare selectionCellsSignature: string;
   declare selectionMicroCellsGroup: THREE.Group;
   declare selectionMicroCellBoxGeometry: THREE.BoxGeometry;
   declare selectionMicroCellEdgeGeometry: THREE.EdgesGeometry;
-  declare selectionMicroCellLineMaterial: THREE.LineBasicMaterial;
-  declare selectionMicroCellFillMaterial: THREE.MeshBasicMaterial;
+  declare selectionMicroCellLineMaterial: THREE.LineBasicNodeMaterial;
+  declare selectionMicroCellFillMaterial: THREE.MeshBasicNodeMaterial;
   declare selectionMicroCellsSignature: string;
   declare timeOfDay: number;
   declare world: any;
@@ -753,14 +756,16 @@ export class SceneRenderer {
     const aspect = window.innerWidth / window.innerHeight;
     this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 10000);
     this.camera.rotation.order = 'YXZ';
+    this.camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+    this.camera.updateProjectionMatrix();
     // Camera-local viewmodels (such as the first-person hand) need to be part
     // of the scene graph so they inherit the final bent render camera pose.
     this.scene.add(this.camera);
 
     // 3. Renderer
-    this.renderer = new THREE.WebGLRenderer({
+    this.renderer = new SpaceRenderer({
       antialias: true,
-      powerPreference: 'high-performance'
+      powerPreference: 'high-performance', trackTimestamp: import.meta.env.DEV
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(this.cappedDevicePixelRatio() * this.resolutionScale);
@@ -769,6 +774,23 @@ export class SceneRenderer {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.container.appendChild(this.renderer.domElement);
+    this.ready = this.renderer.initialize().then(() => {
+      (this.renderer.backend as any).trackTimestamp = false;
+      this.applyLightingQuality();
+      this.renderer.domElement.dataset.renderBackend = 'webgpu';
+      this.world?.distantSurface?.voxels.setMergedBuffersEnabled(this.renderer.terrainMergedBuffers);
+    });
+    // The bootstrap awaits ready and displays initialization failure. Attach a
+    // handler immediately because terrain preparation may run concurrently.
+    void this.ready.catch(() => {});
+    this.renderer.onDeviceLost = info => {
+      this.renderer.domElement.dataset.renderBackend = 'lost';
+      const notice = document.createElement('div');
+      notice.setAttribute('role', 'alert');
+      notice.style.cssText = 'position:absolute;inset:0;display:grid;place-content:center;background:#101820ef;color:white;z-index:9999;padding:24px';
+      notice.textContent = `Graphics device lost. Reload Space to resume. ${info.message || ''}`;
+      this.container.appendChild(notice);
+    };
 
     // Programming-terminal entity preview (created lazily when UI connects).
     this.previewRenderer = null;
@@ -862,55 +884,7 @@ export class SceneRenderer {
       uTime: { value: 0 },
     };
 
-    const material = new THREE.ShaderMaterial({
-      uniforms: this.skyDomeUniforms,
-      side: THREE.BackSide,
-      depthWrite: false,
-      fog: false,
-      vertexShader: `
-        varying vec3 vDir;
-        void main() {
-          vDir = normalize(position);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 uSkyColor;
-        uniform vec3 uHoleColor;
-        uniform vec3 uLimbColor;
-        uniform vec3 uHoleDir;
-        uniform vec3 uSunDir;
-        uniform float uGradientStrength;
-        uniform float uSunGlow;
-        uniform float uCinematic;
-        uniform vec3 uSurfaceUp;
-        uniform vec3 uEast;
-        uniform vec3 uNorth;
-        uniform float uTime;
-        varying vec3 vDir;
-        ${CINEMATIC_SKY_GLSL}
-        void main() {
-          vec3 dir = normalize(vDir);
-          // Toward the central hole: deeper space blue.
-          float holeAmt = smoothstep( 0.15, 0.95, dot( dir, uHoleDir ) );
-          // Opposite the hole / toward the sun-side limb: bright lift.
-          float limbAmt = smoothstep( 0.25, 0.9, dot( dir, uSunDir ) );
-          vec3 col = uSkyColor;
-          col = mix( col, uHoleColor, holeAmt * uGradientStrength );
-          col = mix( col, uLimbColor, limbAmt * uGradientStrength * 0.5 );
-          // Sky-only sun haze is naturally occluded by world geometry.
-          float sunAlignment = max( 0.0, dot( dir, uSunDir ) );
-          float sunHalo = pow( sunAlignment, 32.0 ) + pow( sunAlignment, 256.0 );
-          col += vec3( 1.0, 0.78, 0.48 ) * sunHalo * uSunGlow;
-          if (uCinematic > 0.5) col = cinematicSky(dir, uSurfaceUp, uEast, uNorth, uSunDir, uTime);
-          gl_FragColor = vec4( col, 1.0 );
-          // Run the same ACES + sRGB pipeline as the lit terrain so the dome's
-          // base color matches fully-fogged terrain exactly (no horizon seam).
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }
-      `
-    });
+    const material = createSkyMaterial(this.skyDomeUniforms);
 
     this.skyDome = new THREE.Mesh(geometry, material);
     this.skyDome.name = 'SkyDome';
@@ -950,7 +924,7 @@ export class SceneRenderer {
   setupCursorHighlight() {
     const geo = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
     const edges = new THREE.EdgesGeometry(geo);
-    const mat = new THREE.LineBasicMaterial({
+    const mat = new THREE.LineBasicNodeMaterial({
       color: 0x222222,
       linewidth: 2,
       transparent: true,
@@ -996,7 +970,7 @@ export class SceneRenderer {
     }
     const gridGeo = new THREE.BufferGeometry();
     gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const gridMat = new THREE.LineBasicMaterial({
+    const gridMat = new THREE.LineBasicNodeMaterial({
       color: 0x48dbfb,
       transparent: true,
       opacity: 0.72,
@@ -1011,7 +985,7 @@ export class SceneRenderer {
     // Highlight box for the focused micro cell (0.125³) with segments for curvature bending
     const cellGeo = new THREE.BoxGeometry(MICRO_SIZE, MICRO_SIZE, MICRO_SIZE, 2, 2, 2);
     const cellEdges = new THREE.EdgesGeometry(cellGeo);
-    const cellMat = new THREE.LineBasicMaterial({
+    const cellMat = new THREE.LineBasicNodeMaterial({
       color: 0xff9f43,
       transparent: true,
       opacity: 0.95,
@@ -1099,7 +1073,7 @@ export class SceneRenderer {
 
     // The unified ghost mesh renders only external visible faces and boundary edges,
     // avoiding internal multi-box overlapping transparency artifacts and improving performance.
-    const fillMaterial = new THREE.MeshBasicMaterial({
+    const fillMaterial = new THREE.MeshBasicNodeMaterial({
       vertexColors: true,
       transparent: true,
       opacity: 0.38,
@@ -1109,7 +1083,7 @@ export class SceneRenderer {
     });
     const fill = new THREE.Mesh(meshData.fillGeometry, fillMaterial);
 
-    const wireMaterial = new THREE.LineBasicMaterial({
+    const wireMaterial = new THREE.LineBasicNodeMaterial({
       color: 0x74d9ff,
       transparent: true,
       opacity: 0.9,
@@ -1161,7 +1135,7 @@ export class SceneRenderer {
     // Outer Wireframe
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-    const lineMat = new THREE.LineBasicMaterial({
+    const lineMat = new THREE.LineBasicNodeMaterial({
       color: 0x00d2d3,
       linewidth: 2,
       transparent: true,
@@ -1174,7 +1148,7 @@ export class SceneRenderer {
     this.selectionGroup.add(this.selectionWireframe);
 
     // Inner Translucent Shimmer Plane Box
-    const fillMat = new THREE.MeshBasicMaterial({
+    const fillMat = new THREE.MeshBasicNodeMaterial({
       color: 0x48dbfb,
       transparent: true,
       opacity: 0.15,
@@ -1195,14 +1169,14 @@ export class SceneRenderer {
     this.selectionCellsGroup.name = 'SingleCellSelectionHologram';
     this.selectionCellBoxGeometry = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
     this.selectionCellEdgeGeometry = new THREE.EdgesGeometry(this.selectionCellBoxGeometry);
-    this.selectionCellLineMaterial = new THREE.LineBasicMaterial({
+    this.selectionCellLineMaterial = new THREE.LineBasicNodeMaterial({
       color: 0xff9f43,
       transparent: true,
       opacity: 0.9,
       depthTest: false,
       depthWrite: false
     });
-    this.selectionCellFillMaterial = new THREE.MeshBasicMaterial({
+    this.selectionCellFillMaterial = new THREE.MeshBasicNodeMaterial({
       color: 0xff9f43,
       transparent: true,
       opacity: 0.14,
@@ -1220,14 +1194,14 @@ export class SceneRenderer {
     this.selectionMicroCellsGroup.name = 'MicroCellSelectionHologram';
     this.selectionMicroCellBoxGeometry = new THREE.BoxGeometry(MICRO_SIZE, MICRO_SIZE, MICRO_SIZE, 2, 2, 2);
     this.selectionMicroCellEdgeGeometry = new THREE.EdgesGeometry(this.selectionMicroCellBoxGeometry);
-    this.selectionMicroCellLineMaterial = new THREE.LineBasicMaterial({
+    this.selectionMicroCellLineMaterial = new THREE.LineBasicNodeMaterial({
       color: 0x48dbfb,
       transparent: true,
       opacity: 0.9,
       depthTest: false,
       depthWrite: false
     });
-    this.selectionMicroCellFillMaterial = new THREE.MeshBasicMaterial({
+    this.selectionMicroCellFillMaterial = new THREE.MeshBasicNodeMaterial({
       color: 0x48dbfb,
       transparent: true,
       opacity: 0.14,
@@ -1272,11 +1246,21 @@ export class SceneRenderer {
     this.previewCanvas = canvas;
     this.previewCamera = createEntityPreviewCamera();
 
-    this.previewRenderer = new THREE.WebGLRenderer({
+    this.previewRenderer = new SpaceRenderer({
       canvas,
       antialias: true,
       alpha: false,
       powerPreference: 'high-performance'
+    });
+    this.previewReady = false;
+    const preview = this.previewRenderer;
+    this.previewCamera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+    this.previewCamera.updateProjectionMatrix();
+    void preview.initialize().then(() => {
+      if (this.previewRenderer === preview) { this.previewReady = true; this.previewLastRenderedAt = 0; }
+      else preview.dispose();
+    }).catch(error => {
+      if (this.previewRenderer === preview) { canvas.setAttribute('aria-label', String(error)); console.error(error); }
     });
     this.previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
     this.previewRenderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1565,6 +1549,7 @@ export class SceneRenderer {
 
   /** Use the preview's viewpoint without leaking sky/culling state into the main view. */
   renderEntityPreviewScene() {
+    if (this.previewReady === false) return;
     const skyPosition = this.skyDome?.position.clone();
     const holeDirection = this.skyDomeUniforms?.uHoleDir.value.clone();
     const sunDirection = this.skyDomeUniforms?.uSunDir.value.clone();
@@ -1597,7 +1582,7 @@ export class SceneRenderer {
 
   /** Render the editor preview smoothly without tying it to the 10 Hz React HUD. */
   renderEntityPreviewIfDue(now = performance.now()) {
-    if (!this.previewTarget || !this.previewRenderer || !this.previewCamera || !this.previewCanvas) return false;
+    if (this.previewReady === false || !this.previewTarget || !this.previewRenderer || !this.previewCamera || !this.previewCanvas) return false;
     if (this.previewLastRenderedAt > 0
       && now - this.previewLastRenderedAt < ENTITY_PREVIEW_FRAME_INTERVAL_MS) return false;
     this.renderEntityPreview(this.previewTarget);
@@ -1613,7 +1598,7 @@ export class SceneRenderer {
   setupFocusBlockGuide() {
     const box = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
     const edges = new THREE.EdgesGeometry(box);
-    const mat = new THREE.LineBasicMaterial({
+    const mat = new THREE.LineBasicNodeMaterial({
       color: 0x48dbfb,
       transparent: true,
       opacity: 0.85,
@@ -1642,7 +1627,7 @@ export class SceneRenderer {
     // the guide hug a 1 m standard cell or a 0.125 m micro block.
     this.focusBlockGuide.scale.setScalar(cellSize);
     // Orange while point 1 is set; cyan while waiting for point 1.
-    (this.focusBlockGuide.material as THREE.LineBasicMaterial).color
+    (this.focusBlockGuide.material as THREE.LineBasicNodeMaterial).color
       .setHex(active ? 0xff9f43 : 0x48dbfb);
     this.focusBlockGuide.visible = true;
   }
@@ -1706,7 +1691,7 @@ export class SceneRenderer {
       for (const point of pickLocalPoints) {
         const pick = new THREE.Mesh(
           new THREE.SphereGeometry(movePickRadius, 8, 6),
-          new THREE.MeshBasicMaterial({ visible: false })
+          new THREE.MeshBasicNodeMaterial({ visible: false })
         );
         pick.position.copy(point);
         pick.userData = handle.userData;
@@ -1758,7 +1743,7 @@ export class SceneRenderer {
         // pointer sits directly on this axis's rendered arc.
         pickLocalSegments: rotatePickSegments
       };
-      const arcMaterial = new THREE.LineBasicMaterial({
+      const arcMaterial = new THREE.LineBasicNodeMaterial({
         color,
         depthTest: false,
         depthWrite: false,
@@ -1774,7 +1759,7 @@ export class SceneRenderer {
 
       const cone = new THREE.Mesh(
         new THREE.ConeGeometry(0.055, 0.14, 12),
-        new THREE.MeshBasicMaterial({
+        new THREE.MeshBasicNodeMaterial({
           color,
           depthTest: false,
           depthWrite: false,
@@ -1793,7 +1778,7 @@ export class SceneRenderer {
       for (const point of rotatePickPoints) {
         const pick = new THREE.Mesh(
           new THREE.SphereGeometry(WRENCH_GIZMO_ROTATION_PICK_RADIUS, 8, 6),
-          new THREE.MeshBasicMaterial({ visible: false })
+          new THREE.MeshBasicNodeMaterial({ visible: false })
         );
         pick.position.copy(point);
         pick.userData = rotate.userData;
@@ -1805,7 +1790,7 @@ export class SceneRenderer {
 
     const center = new THREE.Mesh(
       new THREE.SphereGeometry(0.09, 12, 10),
-      new THREE.MeshBasicMaterial({
+      new THREE.MeshBasicNodeMaterial({
         color: 0xffffff,
         depthTest: false,
         depthWrite: false,
@@ -1848,7 +1833,7 @@ export class SceneRenderer {
     }
     this.highlightWrenchPivotHandle(hoveredHandle, activeHandle);
     if (this.wrenchPivotOrigin) {
-      const material = this.wrenchPivotOrigin.material as THREE.MeshBasicMaterial;
+      const material = this.wrenchPivotOrigin.material as THREE.MeshBasicNodeMaterial;
       material.color.setHex(0xffffff);
       this.wrenchPivotOrigin.scale.setScalar(1);
     }
@@ -2000,7 +1985,7 @@ export class SceneRenderer {
       const coneGeo = new THREE.ConeGeometry(0.08, 0.20, 16);
       coneGeo.rotateX(Math.PI / 2);
 
-      const mat = new THREE.MeshBasicMaterial({
+      const mat = new THREE.MeshBasicNodeMaterial({
         color: def.color,
         depthTest: false,
         depthWrite: false,
@@ -2017,7 +2002,7 @@ export class SceneRenderer {
       // Invisible pick sphere for accurate raycast hitting. It is larger than
       // the visible arrow so the small handles stay easy to grab.
       const pickGeo = new THREE.SphereGeometry(SELECTION_GIZMO_PICK_RADIUS, 10, 8);
-      const pickMat = new THREE.MeshBasicMaterial({
+      const pickMat = new THREE.MeshBasicNodeMaterial({
         visible: false,
         depthTest: false,
         depthWrite: false
@@ -2033,9 +2018,9 @@ export class SceneRenderer {
     }
 
     // Axis lines (X in red, Y in green, Z in blue)
-    const lineMatX = new THREE.LineBasicMaterial({ color: 0xff3b30, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 });
-    const lineMatY = new THREE.LineBasicMaterial({ color: 0x34c759, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 });
-    const lineMatZ = new THREE.LineBasicMaterial({ color: 0x248aff, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 });
+    const lineMatX = new THREE.LineBasicNodeMaterial({ color: 0xff3b30, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 });
+    const lineMatY = new THREE.LineBasicNodeMaterial({ color: 0x34c759, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 });
+    const lineMatZ = new THREE.LineBasicNodeMaterial({ color: 0x248aff, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 });
 
     const lineGeoX = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
     const lineGeoY = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -2055,7 +2040,7 @@ export class SceneRenderer {
 
     // Origin sphere (compact center point)
     const originGeo = new THREE.SphereGeometry(0.05, 12, 10);
-    const originMat = new THREE.MeshBasicMaterial({
+    const originMat = new THREE.MeshBasicNodeMaterial({
       color: 0xffffff,
       depthTest: false,
       depthWrite: false,
@@ -2300,7 +2285,7 @@ export class SceneRenderer {
         new THREE.Vector3(),
         new THREE.Vector3()
       ]);
-      const mat = new THREE.LineBasicMaterial({
+      const mat = new THREE.LineBasicNodeMaterial({
         color: 0x00f0ff,
         transparent: true,
         opacity: 0.85,
@@ -2336,7 +2321,7 @@ export class SceneRenderer {
     this.boxSelectionGroup.name = 'BoxSelectionPreview';
 
     const unit = new THREE.BoxGeometry(1, 1, 1);
-    const fillMat = new THREE.MeshBasicMaterial({
+    const fillMat = new THREE.MeshBasicNodeMaterial({
       color: 0x48dbfb,
       transparent: true,
       opacity: 0.16,
@@ -2348,7 +2333,7 @@ export class SceneRenderer {
     this.boxSelectionFill.renderOrder = 41;
     this.boxSelectionGroup.add(this.boxSelectionFill);
 
-    const edgeMat = new THREE.LineBasicMaterial({
+    const edgeMat = new THREE.LineBasicNodeMaterial({
       color: 0x48dbfb,
       transparent: true,
       opacity: 0.9,
@@ -2863,10 +2848,10 @@ export class SceneRenderer {
 
     const shadow = this.sunLight.shadow;
     // Low keeps a valid size without allocating a map; the shadow pass is off.
-    const mapSize = Math.min(preset.shadowMapSize || 1024, this.renderer.capabilities.maxTextureSize);
+    const mapSize = Math.min(preset.shadowMapSize || 1024, this.renderer.maxTextureSize);
     if (shadow.mapSize.x !== mapSize || shadow.mapSize.y !== mapSize) {
-      this.releaseSunShadowMap();
       shadow.mapSize.set(mapSize, mapSize);
+      shadow.map?.setSize(mapSize, mapSize);
     }
     const extent = preset.shadowExtent;
     shadow.camera.left = shadow.camera.bottom = -extent;
@@ -2885,13 +2870,9 @@ export class SceneRenderer {
   private releaseSunShadowMap() {
     const shadow = this.sunLight?.shadow;
     if (!shadow) return;
-    if (shadow.map?.depthTexture) {
-      shadow.map.depthTexture.dispose();
-      shadow.map.depthTexture = null;
-    }
-    shadow.dispose();
-    shadow.map = null;
-    shadow.mapPass = null;
+    // ShadowNode owns the texture and cached comparison-sampler references.
+    // Resizing frees its large allocation without invalidating those references.
+    shadow.map?.setSize(1, 1);
   }
 
   private updateAdaptiveResolution() {
@@ -2914,14 +2895,17 @@ export class SceneRenderer {
     const enabled = this.shadowsEnabled
       && this.lightingQuality !== 'low'
       && this.adaptiveEffectsQuality === 'full';
-    // Changing only shadowMap.enabled does not invalidate Three's cached light
-    // programs. Change the light's shadow count as well, so no material samples
-    // a disposed shadow texture after a user toggle or adaptive fallback.
-    if (this.sunLight) this.sunLight.castShadow = enabled;
+    // shadowMap.enabled participates in Three's program cache key. Keep the
+    // light's castShadow flag stable: clearing it disposes a ShadowNode that
+    // cached HDR render objects can still reference when Ultra is re-enabled.
+    if (this.sunLight) {
+      this.sunLight.castShadow = true;
+      this.sunLight.shadow.autoUpdate = enabled;
+      this.sunLight.shadow.needsUpdate = enabled;
+    }
     if (!enabled) this.releaseSunShadowMap();
     if (this.renderer.shadowMap.enabled === enabled) return;
     this.renderer.shadowMap.enabled = enabled;
-    this.renderer.shadowMap.needsUpdate = true;
   }
 
   setupPlayerAvatar() {
@@ -3334,11 +3318,13 @@ export class SceneRenderer {
 
   setWorld(world) {
     this.world = world;
+    // Enable only with the adapter that preserves opaque ordering and replay statistics.
+    world?.distantSurface?.voxels.setCommandCachingEnabled(this.renderer.terrainCommandCaching);
+    world?.distantSurface?.voxels.setMergedBuffersEnabled(this.renderer.terrainMergedBuffers);
   }
 
   private renderWorld() {
-    const cinematic = this.lightingQuality === 'ultra'
-      && this.renderer.extensions.has('EXT_color_buffer_float');
+    const cinematic = this.lightingQuality === 'ultra';
     if (cinematic) {
       this.cinematicEffects ??= new CinematicEffects();
       // The HDR atmosphere pass owns distance haze, including adaptive fallback.
@@ -3393,8 +3379,8 @@ export class SceneRenderer {
     const canvas = this.renderer.domElement;
     if (!canvas.width || !canvas.height) throw new Error('The scene is not ready.');
     this.render(true);
-    // Read synchronously after rendering: WebGL may discard its drawing buffer
-    // before an asynchronous toBlob callback when preserveDrawingBuffer is off.
+    // Capture in the same task as rendering, before the browser presents and
+    // replaces the current WebGPU canvas texture.
     const png = canvas.toDataURL('image/png');
     if (!png.startsWith('data:image/png;base64,')) throw new Error('Could not capture the scene.');
     return png;

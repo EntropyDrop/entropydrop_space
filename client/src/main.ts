@@ -658,6 +658,7 @@ window.addEventListener('DOMContentLoaded', () => {
     async (session, reportProgress) => {
       const persistentStorage = await createSpacePersistentStorage();
       const game = new Game(session, persistentStorage);
+      await game.sceneRenderer.ready;
       await game.preloadInitialTerrain(reportProgress);
       game.start();
       if (session.entry_warning) {

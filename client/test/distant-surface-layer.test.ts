@@ -212,38 +212,20 @@ test('backend zones populate one instanced far layer and retain a near-field cut
   assert.ok(Math.abs(colorAttribute.getZ(0) - detailedTerrainColor.b) <= 1 / 255);
 
   const material = layer.mesh.material;
-  assert.equal(material.isMeshStandardMaterial, true);
+  assert.equal(material.isMeshStandardNodeMaterial, true);
   assert.equal(material.flatShading, false, 'curved tops interpolate normals across LOD boundaries');
   assert.equal(material.roughness, 0.65);
   assert.equal(material.metalness, 0.15);
   assert.equal(material.side, THREE.FrontSide);
   assert.equal(layer.mesh.receiveShadow, false);
   assert.equal(layer.sideMesh.receiveShadow, false);
-  const shader: any = {
-    uniforms: {},
-    vertexShader: '#include <common>\n#include <defaultnormal_vertex>\n#include <begin_vertex>\n#include <project_vertex>',
-    fragmentShader: '#include <common>\n#include <color_fragment>',
-  };
-  material.onBeforeCompile(shader, null as any);
-  assert.match(shader.vertexShader, /surfaceOffset/);
-  assert.match(shader.vertexShader, /TORUS_SURFACE_POSITION/);
-  assert.match(shader.vertexShader, /torusBend/);
-  assert.match(shader.vertexShader, /position\.y \* surfaceHeight/);
-  assert.match(shader.fragmentShader, /uTerrainHandoff/);
-  assert.match(shader.fragmentShader, /texture2D/);
-  assert.match(shader.fragmentShader, /discard/);
-
-  const sideShader: any = {
-    uniforms: {},
-    vertexShader: '#include <common>\n#include <defaultnormal_vertex>\n#include <begin_vertex>\n#include <project_vertex>',
-    fragmentShader: '#include <common>\n#include <color_fragment>',
-  };
-  layer.sideMesh.material.onBeforeCompile(sideShader, null as any);
+  assert.ok(material.positionNode?.isNode);
+  assert.ok(material.normalNode?.isNode);
+  assert.ok(material.maskNode?.isNode);
+  assert.equal(material.userData.torusNode, true);
   assert.equal(layer.sideMesh.material.side, THREE.FrontSide, 'correctly wound distant walls need no back-face shading');
-  assert.match(sideShader.vertexShader, /surfaceBottomHeight/);
-  assert.match(sideShader.vertexShader, /surfaceNormal/);
-  assert.match(sideShader.vertexShader, /TORUS_SURFACE_AXIS/);
-  assert.match(sideShader.vertexShader, /surfaceWinding/);
+  assert.ok(layer.sideMesh.material.positionNode?.isNode);
+  assert.ok(layer.sideMesh.material.maskNode?.isNode);
   assert.ok(layer.sideMesh.geometry.instanceCount > 0);
   assert.equal(layer.sideMesh.geometry.getAttribute('surfaceHeight').getX(0), 136);
   assert.equal(layer.sideMesh.geometry.getAttribute('surfaceBottomHeight').getX(0), 0);

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 
 export class ParticleSystem {
   private scene: THREE.Scene;
@@ -6,7 +6,7 @@ export class ParticleSystem {
   private maxParticles = 600;
   private enabled = true;
   private geometry: THREE.BoxGeometry;
-  private material: THREE.MeshBasicMaterial;
+  private material: THREE.MeshBasicNodeMaterial;
   private instancedMesh: THREE.InstancedMesh;
   private dummy: THREE.Object3D;
 
@@ -17,7 +17,7 @@ export class ParticleSystem {
 
     // Geometry & Material
     this.geometry = new THREE.BoxGeometry(0.12, 0.12, 0.12);
-    this.material = new THREE.MeshBasicMaterial({
+    this.material = new THREE.MeshBasicNodeMaterial({
       vertexColors: true,
       transparent: true,
       opacity: 0.9

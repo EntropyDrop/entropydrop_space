@@ -14,10 +14,12 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 //   P = ((R + ρ·cosφ)·cosθ, ρ·sinφ, (R + ρ·cosφ)·sinθ)
 //   R = 16384/2π ≈ 2607.59, r = 2048/2π ≈ 325.95
 //
-// Performance: material.onBeforeCompile bends every vertex on the GPU. Per frame,
+// Performance: material.positionNode bends every vertex on the GPU. Per frame,
 // the CPU bends one camera, frustum-culls chunk spheres, and unbends ray samples.
 // =============================================================================
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { Fn, uniform, reference, vec3, vec4, mat3, sin, cos, float, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty } from 'three/tsl';
+import { asNodeMaterial } from '../render/NodeMaterials.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
 
 export const TORUS_CHUNKS_X = 1024;
@@ -424,191 +426,54 @@ export function computeChunkBentSphere(
 // -----------------------------------------------------------------------------
 // GPU bending: inject the torus transform into every material vertex shader.
 // -----------------------------------------------------------------------------
-const TORUS_GLSL_PREFIX = `
-uniform float uTorusKTheta;
-uniform float uTorusKPhi;
-uniform float uTorusR;
-uniform float uTorusRho;
-uniform float uTorusGRef;
-uniform float uTorusMaxRho;
-uniform float uTorusTubeAngleFactor;
-uniform float uTorusViewEnabled;
-uniform vec3 uTorusViewOrigin;
-uniform mat3 uTorusViewMatrix;
+const hookedMaterials = new WeakSet<THREE.NodeMaterial>();
+const viewEnabledNode = reference('value', 'float', _viewEnabled);
+const viewOriginNode = uniform(_viewOrigin), viewMatrixNode = uniform(_viewMatrix);
 
-vec2 torusTubeTrig( float z ) {
-	float halfAngle = z * uTorusKPhi * 0.5;
-	float factor = uTorusTubeAngleFactor;
-	float sine = sin(halfAngle);
-	float cosine = cos(halfAngle);
-	float sineSquared = sine * sine;
-	float cosineSquared = cosine * cosine;
-	float denominator = cosineSquared + factor * factor * sineSquared;
-	return vec2(
-		(cosineSquared - factor * factor * sineSquared) / denominator,
-		2.0 * factor * sine * cosine / denominator
-	);
-}
+/** Same rational tube mapping as bendPoint(), including camera-local correction. */
+export const torusBendNode = (p: any) => {
+  const half = p.z.mul(TORUS_K_PHI * .5), a = sin(half), b = cos(half);
+  const denominator = b.mul(b).add(a.mul(a).mul(TORUS_TUBE_ANGLE_FACTOR ** 2));
+  const cp = b.mul(b).sub(a.mul(a).mul(TORUS_TUBE_ANGLE_FACTOR ** 2)).div(denominator);
+  const sp = a.mul(b).mul(2 * TORUS_TUBE_ANGLE_FACTOR).div(denominator);
+  const theta = p.x.mul(TORUS_K_THETA), ct = cos(theta), st = sin(theta);
+  const rho = min(float(TORUS_RHO).add(p.y.sub(TORUS_GREF).mul(float(TORUS_R).add(cp.mul(TORUS_RHO))).div(TORUS_R)), TORUS_MAX_RHO);
+  const radius = float(TORUS_R).add(rho.mul(cp));
+  return { position: vec3(radius.mul(ct), rho.mul(sp), radius.mul(st)),
+    frame: mat3(vec3(st.negate(), 0, ct), vec3(cp.mul(ct), sp, cp.mul(st)), vec3(sp.mul(ct).negate(), cp, sp.mul(st).negate())) };
+};
 
-vec3 torusBend( vec3 p ) {
-	float theta = p.x * uTorusKTheta;
-	vec2 tubeTrig = torusTubeTrig( p.z );
-	float cp = tubeTrig.x;
-	float localScale = (uTorusR + uTorusRho * cp) / uTorusR;
-	float rho = uTorusRho + ( p.y - uTorusGRef ) * localScale;
-	rho = min( rho, uTorusMaxRho );
-	float ct = cos( theta );
-	float st = sin( theta );
-	float sp = tubeTrig.y;
-	float rad = uTorusR + rho * cp;
-	return vec3( rad * ct, rho * sp, rad * st );
-}
-
-vec3 torusBendForView( vec3 p ) {
-	vec3 bent = torusBend( p );
-	if (uTorusViewEnabled < 0.5) return bent;
-	vec3 delta = bent - uTorusViewOrigin;
-	float t = smoothstep(${VIEW_FLAT_RADIUS.toFixed(1)}, ${VIEW_TORUS_RADIUS.toFixed(1)}, length(delta));
-	return bent + (1.0 - t) * (uTorusViewMatrix * delta - delta);
-}
-
-mat3 torusFrame( vec3 p ) {
-	float theta = p.x * uTorusKTheta;
-	vec2 tubeTrig = torusTubeTrig( p.z );
-	float ct = cos( theta );
-	float st = sin( theta );
-	float cp = tubeTrig.x;
-	float sp = tubeTrig.y;
-	return mat3(
-		vec3( -st, 0.0, ct ),
-		vec3( cp * ct, sp, cp * st ),
-		vec3( -sp * ct, cp, -sp * st )
-	);
-}
-`;
-
-const TORUS_PROJECT_VERTEX = `
-vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
-#ifdef USE_INSTANCING
-	worldPosition = modelMatrix * ( instanceMatrix * vec4( transformed, 1.0 ) );
-#endif
-worldPosition.xyz = torusBendForView( worldPosition.xyz );
-vec4 mvPosition = viewMatrix * worldPosition;
-gl_Position = projectionMatrix * mvPosition;
-`;
-
-const TORUS_NORMAL_VERTEX = `
-vec4 torusWp = modelMatrix * vec4( position, 1.0 );
-vec3 torusObjectNormal = objectNormal;
-#ifdef TORUS_VOXEL_POSITION
-    torusWp = modelMatrix * vec4(voxelPosition(position.xy), 1.0);
-    torusObjectNormal = voxelNormal();
-#endif
-#ifdef TORUS_SURFACE_POSITION
-    // Interpolate the curved surface normal per vertex. A constant normal at
-    // each LOD cell centre produces visible rings even below the pixel budget.
-    #ifdef TORUS_SURFACE_AXIS
-        vec2 torusAlong = mix(vec2(1.0, 0.0), vec2(0.0, 1.0), surfaceAxis);
-        float torusWinding = mix(surfaceNormal.y, -surfaceNormal.x, surfaceAxis);
-        float torusAlongPosition = torusWinding >= 0.0 ? position.x : 1.0 - position.x;
-        vec2 torusSurfaceXZ = surfaceOffset + torusAlong * torusAlongPosition * surfaceSize;
-        float torusSurfaceY = mix(surfaceBottomHeight, surfaceHeight, position.y) * ${MICRO_SIZE};
-    #else
-        vec2 torusSurfaceXZ = surfaceOffset + position.xz * surfaceSize;
-        float torusSurfaceY = surfaceHeight * ${MICRO_SIZE};
-    #endif
-    torusWp = modelMatrix * vec4(torusSurfaceXZ.x, torusSurfaceY, torusSurfaceXZ.y, 1.0);
-#endif
-#ifdef TORUS_SURFACE_NORMAL
-	torusObjectNormal = vec3(surfaceNormal.x, 0.0, surfaceNormal.y);
-#endif
-#ifdef USE_INSTANCING
-	torusWp = modelMatrix * ( instanceMatrix * vec4( position, 1.0 ) );
-	torusObjectNormal = mat3( instanceMatrix ) * torusObjectNormal;
-#endif
-// defaultnormal_vertex normally returns a view-space normal. Preserve object
-// rotation first, then apply the local torus frame, then enter view space.
-vec3 transformedNormal = mat3( viewMatrix )
-	* torusFrame( torusWp.xyz )
-	* normalize( mat3( modelMatrix ) * torusObjectNormal );
-transformedNormal = normalize( transformedNormal );
-`;
-
-const hookedMaterials = new WeakSet();
-const torusDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-
-function hookMaterialForTorus(material) {
-  if (!material || hookedMaterials.has(material)) return;
+function hookMaterialForTorus(source: THREE.Material) {
+  const material = asNodeMaterial(source);
+  if (hookedMaterials.has(material)) return material;
   hookedMaterials.add(material);
-  const previousOnBeforeCompile = material.onBeforeCompile;
-  const previousCacheKey = material.customProgramCacheKey;
-  material.onBeforeCompile = (shader, renderer) => {
-    if (typeof previousOnBeforeCompile === 'function') {
-      previousOnBeforeCompile.call(material, shader, renderer);
-    }
-    const u = shader.uniforms;
-    u.uTorusKTheta = { value: TORUS_K_THETA };
-    u.uTorusKPhi = { value: TORUS_K_PHI };
-    u.uTorusR = { value: TORUS_R };
-    u.uTorusRho = { value: TORUS_RHO };
-    u.uTorusGRef = { value: TORUS_GREF };
-    u.uTorusMaxRho = { value: TORUS_MAX_RHO };
-    u.uTorusTubeAngleFactor = { value: TORUS_TUBE_ANGLE_FACTOR };
-    u.uTorusViewEnabled = _viewEnabled;
-    u.uTorusViewOrigin = { value: _viewOrigin };
-    u.uTorusViewMatrix = { value: _viewMatrix };
-    let vs = shader.vertexShader;
-    if (!vs.includes('torusBend')) {
-      vs = TORUS_GLSL_PREFIX + vs;
-      if (vs.includes('#include <project_vertex>')) {
-        vs = vs.replace('#include <project_vertex>', TORUS_PROJECT_VERTEX);
-      }
-      if (vs.includes('#include <worldpos_vertex>')) {
-        // worldPosition was already bent by the project_vertex override.
-        vs = vs.replace('#include <worldpos_vertex>', '// worldPosition bent by torus project_vertex override');
-      }
-      if (vs.includes('#include <defaultnormal_vertex>')) {
-        vs = vs.replace('#include <defaultnormal_vertex>', TORUS_NORMAL_VERTEX);
-      }
-    }
-    shader.vertexShader = vs;
-  };
-  material.customProgramCacheKey = () => {
-    const prior = typeof previousCacheKey === 'function'
-      ? previousCacheKey.call(material)
-      : '';
-    return `${prior}|torus-bend-v6`;
-  };
+  const flatPosition = material.positionNode ?? ((material as any).isSpriteNodeMaterial ? vec3(0) : positionLocal);
+  const flatNormal = material.userData.flatNormalNode ?? normalLocal;
+  const bentNormal = varyingProperty('vec3', 'spaceTorusNormal');
+  const usesNormal = material.lights && !(material as any).flatShading;
+  material.positionNode = Fn(() => {
+    // positionLocal already includes instance and skin transforms at this point.
+    const world = modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz.toVar();
+    const torus = torusBendNode(world);
+    if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(torus.frame.mul(modelWorldMatrix.mul(vec4(flatNormal, 0)).xyz.normalize()), 0)).xyz.normalize());
+    const delta = torus.position.sub(viewOriginNode);
+    const blend = smoothstep(VIEW_FLAT_RADIUS, VIEW_TORUS_RADIUS, delta.length()).oneMinus().mul(viewEnabledNode);
+    const corrected = torus.position.add(viewMatrixNode.mul(delta).sub(delta).mul(blend));
+    return modelWorldMatrixInverse.mul(vec4(corrected, 1)).xyz;
+  })();
+  if (usesNormal) material.normalNode = bentNormal.normalize();
+  material.userData.torusNode = true;
   material.needsUpdate = true;
+  return material;
 }
 
-hookMaterialForTorus(torusDepthMaterial);
-
-/** Scan the scene at low frequency and inject bending into new materials; WeakSet deduplicates them. */
+/** Node position deformation is reused automatically by WebGPU shadow passes. */
 export function hookSceneMaterials(root) {
-  root.traverse((obj) => {
-    // Some helpers may already provide geometry in bent coordinates.
-    if (obj.userData?.torusPreBent) return;
-    const mat = obj.material;
-    if (mat) {
-      // The shader moves vertices from flat logical coordinates into bent
-      // space, but Three.js frustum tests happen before the vertex shader and
-      // would use the stale flat-space bounding sphere. Runtime helpers
-      // (selection boxes/cursors) and assembled contraptions were therefore
-      // incorrectly culled even though their bent geometry was on screen.
-      // Terrain chunk parents still use cullChunks() below, so disabling the
-      // built-in per-renderable test does not disable our coarse terrain cull.
-      obj.frustumCulled = false;
-      if (Array.isArray(mat)) {
-        for (const m of mat) hookMaterialForTorus(m);
-      } else {
-        hookMaterialForTorus(mat);
-      }
-    }
-    if (obj.isMesh && obj.castShadow) {
-      if (obj.customDepthMaterial) hookMaterialForTorus(obj.customDepthMaterial);
-      else obj.customDepthMaterial = torusDepthMaterial;
-    }
+  root.traverse(obj => {
+    if (obj.userData?.torusPreBent || !obj.material) return;
+    obj.frustumCulled = false;
+    obj.material = Array.isArray(obj.material)
+      ? obj.material.map(hookMaterialForTorus) : hookMaterialForTorus(obj.material);
   });
 }
 
@@ -664,7 +529,7 @@ export function cullChunks(camera, world) {
   if (!world || !world.chunks) return;
   world.distantSurface?.updateHandoffs();
   _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-  _frustum.setFromProjectionMatrix(_projScreen);
+  _frustum.setFromProjectionMatrix(_projScreen, camera.coordinateSystem);
   for (const [chunkKey, chunk] of world.chunks) {
     const mesh = chunk.mesh;
     if (!mesh) continue;

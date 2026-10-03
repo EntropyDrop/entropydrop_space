@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { createHeldVoxelTool, normalizeHeldTool, type HeldTool, type HeldVoxelToolMesh } from './HeldVoxelTool.ts';
 
 export type CuteCharacterAction = 'idle' | 'walk' | 'sit';
@@ -133,9 +133,9 @@ function createFaceMaterials(
     const uv = uvMap[face];
     if (!uv) {
       if (missingColor[face] !== undefined) {
-        return new THREE.MeshBasicMaterial({ color: missingColor[face] });
+        return new THREE.MeshBasicNodeMaterial({ color: missingColor[face] });
       }
-      return new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+      return new THREE.MeshBasicNodeMaterial({ transparent: true, opacity: 0 });
     }
 
     const [u, v, w, h, flipX, flipY] = uv;
@@ -154,7 +154,7 @@ function createFaceMaterials(
       faceTexture.offset.x = (u + w - epsilon) / 64;
     }
 
-    return new THREE.MeshBasicMaterial({
+    return new THREE.MeshBasicNodeMaterial({
       map: faceTexture,
       side: THREE.DoubleSide,
       alphaTest: 0.5
@@ -170,7 +170,7 @@ function createFaceMaterials(
 function createCuteFaceMaterials(imageData: PixelData, uvMap: UvMap): THREE.Material[] {
   return FACE_ORDER.map(face => {
     const uv = uvMap[face];
-    if (!uv) return new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+    if (!uv) return new THREE.MeshBasicNodeMaterial({ transparent: true, opacity: 0 });
 
     const [u, v, width, sourceHeight, flipX, flipY] = uv;
     const isVerticalSide = face === 'left' || face === 'right' || face === 'front' || face === 'back';
@@ -218,7 +218,7 @@ function createCuteFaceMaterials(imageData: PixelData, uvMap: UvMap): THREE.Mate
     }
     faceTexture.needsUpdate = true;
 
-    return new THREE.MeshBasicMaterial({
+    return new THREE.MeshBasicNodeMaterial({
       map: faceTexture,
       side: THREE.DoubleSide,
       alphaTest: 0.5
@@ -377,7 +377,7 @@ function createVoxelGroup(imageData: ImageData, uvMap: UvMap, extra: number, siz
 
   for (const cell of readOverlayVoxels(imageData, uvMap, size[1])) {
     const fallback = cell.left ?? cell.right ?? cell.top ?? cell.bottom ?? cell.front ?? cell.back ?? 0xffffff;
-    const materials = FACE_ORDER.map(face => new THREE.MeshBasicMaterial({ color: cell[face] ?? fallback }));
+    const materials = FACE_ORDER.map(face => new THREE.MeshBasicNodeMaterial({ color: cell[face] ?? fallback }));
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(scaleX, scaleY, scaleZ), materials);
     mesh.position.set((cell.x - 0.5) * scaleX, (cell.y - 0.5) * scaleY, (cell.z - 0.5) * scaleZ);
     group.add(mesh);
@@ -444,7 +444,7 @@ function createFrontBillboard(imageData: PixelData, model: SkinModel) {
   texture.flipY = true;
   texture.needsUpdate = true;
 
-  const material = new THREE.MeshBasicMaterial({
+  const material = new THREE.MeshBasicNodeMaterial({
     map: texture,
     alphaTest: 0.1,
     side: THREE.DoubleSide,
@@ -502,7 +502,7 @@ export class CuteCharacter {
     world: HeldVoxelToolMesh;
     view: HeldVoxelToolMesh | null;
   }>();
-  readonly billboard: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null;
+  readonly billboard: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicNodeMaterial> | null;
   readonly model: SkinModel;
   action: CuteCharacterAction = 'idle';
   private readonly rig = new THREE.Group();
@@ -725,7 +725,12 @@ export class CuteCharacter {
       if (tool === 'hammer') world.rotateY(Math.PI / 2);
       let view: typeof world | null = null;
       if (this.firstPersonGrip.parent) {
-        view = new THREE.Mesh(world.geometry, world.material.map(material => material.clone()));
+        view = new THREE.Mesh(world.geometry, world.material.map(material => {
+          const copy = material.clone();
+          // NodeMaterial.copy in r183 copies node slots, but not PBR values.
+          THREE.MeshStandardMaterial.prototype.copy.call(copy, material);
+          return copy;
+        }));
         view.name = world.name;
         for (const material of view.material) material.fog = false;
         view.frustumCulled = false;
@@ -980,9 +985,9 @@ export class CuteCharacter {
         const meshMaterials = Array.isArray(object.material) ? object.material : [object.material];
         for (const material of meshMaterials) {
           materials.add(material);
-          const map = (material as THREE.MeshBasicMaterial).map;
+          const map = (material as THREE.MeshBasicNodeMaterial).map;
           if (map) textures.add(map);
-          const envMap = (material as THREE.MeshStandardMaterial).envMap;
+          const envMap = (material as THREE.MeshStandardNodeMaterial).envMap;
           if (envMap) textures.add(envMap);
         }
       });

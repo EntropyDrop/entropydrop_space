@@ -1,3 +1,4 @@
+import { alignedVertexAttribute } from './NodeMaterials.ts';
 import * as THREE from 'three';
 import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import { computeChunkBentSphere, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
@@ -90,8 +91,11 @@ export class MicroRenderBatches {
         positions[vertexOffset * 3 + i + 1] = source[i + 1];
         positions[vertexOffset * 3 + i + 2] = source[i + 2] + dz;
       }
-      normals.set(geometry.getAttribute('normal').array, vertexOffset * 3);
-      colors.set(geometry.getAttribute('color').array, vertexOffset * 3);
+      const normal = geometry.getAttribute('normal'), color = geometry.getAttribute('color');
+      for (let i=0;i<normal.count;i++) for(let c=0;c<3;c++) {
+        normals[(vertexOffset+i)*3+c]=normal.array[i*normal.itemSize+c];
+        colors[(vertexOffset+i)*3+c]=color.array[i*color.itemSize+c];
+      }
       vertexOffset += source.length / 3;
     }
     const geometry = new THREE.BufferGeometry();
@@ -112,9 +116,9 @@ export class MicroRenderBatches {
       }
       if (written > start) geometry.addGroup(start, written - start, material);
     }
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3, true));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3, true));
+    geometry.setAttribute('position', alignedVertexAttribute(positions, 3));
+    geometry.setAttribute('normal', alignedVertexAttribute(normals, 3, true));
+    geometry.setAttribute('color', alignedVertexAttribute(colors, 3, true));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     const mesh = new THREE.Mesh(geometry, this.materials);
     mesh.name = `MicroVoxelBatch:${chunk}`;

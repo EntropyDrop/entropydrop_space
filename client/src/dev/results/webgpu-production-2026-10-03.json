@@ -1,0 +1,67 @@
+{
+  "backend": "webgpu",
+  "cases": [
+    {
+      "quality": "low",
+      "shadow": 0,
+      "colors": 906,
+      "opaque": 4096
+    },
+    {
+      "quality": "medium",
+      "shadow": 1024,
+      "colors": 919,
+      "opaque": 4096
+    },
+    {
+      "quality": "high",
+      "shadow": 2048,
+      "colors": 939,
+      "opaque": 4096
+    },
+    {
+      "quality": "ultra",
+      "shadow": 4096,
+      "colors": 1099,
+      "opaque": 4096
+    },
+    {
+      "quality": "low",
+      "shadow": 1,
+      "colors": 906,
+      "opaque": 4096
+    },
+    {
+      "quality": "ultra",
+      "shadow": 4096,
+      "colors": 1099,
+      "opaque": 4096
+    },
+    {
+      "effects": "reduced",
+      "scale": 0.5,
+      "colors": 1132,
+      "opaque": 4096
+    },
+    {
+      "effects": "full",
+      "scale": 1,
+      "colors": 1099,
+      "opaque": 4096
+    },
+    {
+      "thumbnail": 128
+    },
+    {
+      "entityPreview": {
+        "colors": 455,
+        "opaque": 4096
+      }
+    },
+    {
+      "skinPreview": "webgpu"
+    }
+  ],
+  "errors": [],
+  "complete": true
+}

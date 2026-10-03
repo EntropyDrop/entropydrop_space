@@ -516,7 +516,9 @@ function InventoryItemCard({
   const fallback = category === 'blockset' ? `Block set ${index + 1}` : `Entity ${index + 1}`;
   const name = controller?.inventoryItemName?.(category, item, index) || item?.name || item?.rootComponentId || fallback;
   const count = item ? (item.blockCount || item.blocks?.length || 0) : 0;
-  const thumbnail = item ? InventoryThumbnailRenderer.getInstance().getThumbnail(item, isHotbar ? 144 : 96) : null;
+  const thumbnailRenderer = InventoryThumbnailRenderer.getInstance();
+  React.useSyncExternalStore(thumbnailRenderer.subscribe, thumbnailRenderer.getRevision, thumbnailRenderer.getRevision);
+  const thumbnail = item ? thumbnailRenderer.getThumbnail(item, isHotbar ? 144 : 96) : null;
   const isDragging = draggedIndex === index;
   const isDragOver = dragOverIndex === index;
 
@@ -946,6 +948,8 @@ function MarketResourceCard({
     return () => abortController.abort();
   }, [marketClient, resource.content_url, resource.digest, resource.kind, resource.name]);
 
+  const thumbnailRenderer = InventoryThumbnailRenderer.getInstance();
+  React.useSyncExternalStore(thumbnailRenderer.subscribe, thumbnailRenderer.getRevision, thumbnailRenderer.getRevision);
   const thumbnail = resource.kind === 'colorset'
     ? null
     : InventoryThumbnailRenderer.getInstance().getThumbnail(previewItem, 96);

@@ -11,15 +11,16 @@ function triangles(meshes: Iterable<THREE.Mesh>) {
   for (const mesh of meshes) {
     const geometry = mesh.geometry, indices = geometry.index!.array;
     const p = geometry.getAttribute('position').array;
-    const n = geometry.getAttribute('normal').array, c = geometry.getAttribute('color').array;
+    const normal = geometry.getAttribute('normal'), color = geometry.getAttribute('color');
+    const n = normal.array, c = color.array;
     for (const group of geometry.groups) {
       for (let i = group.start; i < group.start + group.count; i += 3) {
         const values = [group.materialIndex];
         for (let corner = 0; corner < 3; corner++) {
-          const j = indices[i + corner] * 3;
+          const v = indices[i + corner], j = v * 3, ni = v * normal.itemSize, ci = v * color.itemSize;
           values.push(p[j] * mesh.scale.x + mesh.position.x,
             p[j + 1] * mesh.scale.y + mesh.position.y, p[j + 2] * mesh.scale.z + mesh.position.z,
-            n[j], n[j + 1], n[j + 2], c[j], c[j + 1], c[j + 2]);
+            n[ni], n[ni + 1], n[ni + 2], c[ci], c[ci + 1], c[ci + 2]);
         }
         result.push(JSON.stringify(values));
       }

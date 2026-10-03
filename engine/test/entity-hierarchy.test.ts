@@ -1,7 +1,7 @@
 import { setScript, setNodeScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { BodyType, Contraption, ContraptionMode } from '../src/contraption/Contraption.ts';
 import { ContraptionManager } from '../src/contraption/ContraptionManager.ts';
 import { ContraptionPhysics } from '../src/physics/ContraptionPhysics.ts';
@@ -37,11 +37,11 @@ test('entity voxel meshes keep default and emissive materials independently edit
   const meshes = [...node.voxelChunks.values()] as THREE.Mesh[];
   assert.equal(meshes.length, 1);
   assert.ok(Array.isArray(meshes[0].material));
-  assert.ok(meshes[0].material[0] instanceof THREE.MeshStandardMaterial);
-  assert.ok(meshes[0].material[1] instanceof THREE.MeshBasicMaterial);
+  assert.ok(meshes[0].material[0] instanceof THREE.MeshStandardNodeMaterial);
+  assert.ok(meshes[0].material[1] instanceof THREE.MeshBasicNodeMaterial);
   assert.deepEqual(meshes[0].geometry.groups.map(group => group.materialIndex), [0, 1]);
-  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).toneMapped, true);
-  assert.equal((meshes[0].material[1] as THREE.MeshBasicMaterial).color.r, 1);
+  assert.equal((meshes[0].material[1] as THREE.MeshBasicNodeMaterial).toneMapped, true);
+  assert.equal((meshes[0].material[1] as THREE.MeshBasicNodeMaterial).color.r, 1);
 
   const slot = contraption.serializeSubtree('root');
   assert.deepEqual(slot.blocks.map(block => block.materialId), [0, 1]);

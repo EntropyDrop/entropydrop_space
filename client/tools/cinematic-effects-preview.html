@@ -18,23 +18,28 @@ pre { white-space: pre-wrap; }
 <section><figure><figcaption>Half-resolution effects</figcaption><img id="half" alt="Half-resolution effect result"></figure>
 <figure><figcaption>Full-resolution reference</figcaption><img id="full" alt="Full-resolution effect reference"></figure></section>
 <script type="module">
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { SpaceRenderer } from '../src/engine/render/SpaceRenderer.ts';
 import { CinematicEffects } from '../src/engine/render/CinematicEffects.ts';
 import { createVoxelEmissiveMaterial } from '@entropydrop/space-engine/render/VoxelEmission.ts';
 
 if (!import.meta.env.DEV) throw new Error('Development fixture only');
-const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+document.getElementById('status').textContent = 'Initializing WebGPU…';
+const renderer = new SpaceRenderer({ antialias: false });
+await renderer.initialize();
+document.getElementById('status').textContent = 'Rendering comparison…';
 renderer.setPixelRatio(1); renderer.setSize(1280, 720);
 renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = 1.08;
 const errors = [];
-renderer.debug.onShaderError = (gl, program) => errors.push(gl.getProgramInfoLog(program));
+renderer.backend.device.addEventListener('uncapturederror', event => errors.push(event.error.message));
 const effects = new CinematicEffects(), scene = new THREE.Scene();
 scene.background = new THREE.Color('#91bfe1');
 const camera = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 32768);
+camera.coordinateSystem = THREE.WebGPUCoordinateSystem; camera.updateProjectionMatrix();
 camera.position.set(0, 3, 8); camera.lookAt(0, 1.7, 0); camera.updateMatrixWorld();
 scene.add(new THREE.HemisphereLight(0xc6e1ff, 0x71694d, 1.3));
 const light = new THREE.DirectionalLight(0xffefd4, 3.2); light.position.set(3, 8, 5); scene.add(light);
-const green = new THREE.MeshStandardMaterial({ color: '#6d8c51', roughness: 0.65, metalness: 0.15 });
+const green = new THREE.MeshStandardNodeMaterial({ color: '#6d8c51', roughness: 0.65, metalness: 0.15 });
 function box(x, y, z, w, h, d, material = green) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   mesh.position.set(x, y, z); scene.add(mesh); return mesh;
@@ -48,16 +53,18 @@ for (const [x, tint] of [[-1.5, [1, 0.03, 0.01]], [1.5, [0.01, 0.15, 1]]]) {
   for (let i = 0; i < colors.length; i += 3) colors.set(tint, i);
   mesh.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
-const hand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.22), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+const hand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.22), new THREE.MeshBasicNodeMaterial({ color: 0xffffff }));
 hand.position.set(0.28, -0.17, -0.45); camera.add(hand); scene.add(camera);
 const sun = new THREE.Vector3(0.4, 0.32, -1).normalize(), up = new THREE.Vector3(0, 1, 0);
-const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.65), new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 4, 2.5) }));
+const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.65), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(5, 4, 2.5) }));
 sunMesh.position.copy(camera.position).addScaledVector(sun, 20); scene.add(sunMesh);
 
-function capture(fullEffects = true) {
+async function capture(fullEffects = true) {
   const pixels = [];
   for (const [scale, id] of [[0.5, 'half'], [1, 'full']]) {
     effects.setSecondaryResolutionScale(scale);
+    effects.render(renderer, scene, camera, sun, up, fullEffects);
+    await renderer.backend.device.queue.onSubmittedWorkDone();
     effects.render(renderer, scene, camera, sun, up, fullEffects);
     document.getElementById(id).src = renderer.domElement.toDataURL();
     const canvas = document.createElement('canvas'); canvas.width = 1280; canvas.height = 720;
@@ -70,7 +77,7 @@ function capture(fullEffects = true) {
     for (let c = 0; c < 3; c++) { const delta = Math.abs(pixels[0][i+c] - pixels[1][i+c]); sum += delta; peak = Math.max(peak, delta); }
     max = Math.max(max, peak); if (peak > 8) changed++;
   }
-  document.getElementById('status').textContent = `Effects: ${fullEffects ? 'full' : 'reduced'} | shader errors: ${errors.length}\n`
+  document.getElementById('status').textContent = `Backend: WebGPU | Effects: ${fullEffects ? 'full' : 'reduced'} | GPU errors: ${errors.length}\n`
     + `Mean RGB difference: ${(sum / (1280 * 720 * 3)).toFixed(3)}/255 | max: ${max}/255 | pixels differing >8: ${(100 * changed / (1280 * 720)).toFixed(2)}%`
     + (errors.length ? `\n${errors.join('\n')}` : '');
 }

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { SurfaceBatch } from '../src/render/SurfaceBatch.ts';
@@ -20,7 +20,7 @@ function measure(Batch: typeof SurfaceBatch) {
     const geometry = new THREE.InstancedBufferGeometry();
     geometry.setAttribute('height', new THREE.InstancedBufferAttribute(new Float32Array([10]), 1));
     geometry.instanceCount = 1;
-    return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+    return new THREE.Mesh(geometry, new THREE.MeshStandardNodeMaterial());
   };
   const source = make();
   const batches = Array.from({ length: 1024 }, (_, i) => {

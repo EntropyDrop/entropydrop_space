@@ -20,6 +20,9 @@ npm run build
 
 The development client is served at `/space/app/`; production is served at
 `https://space.entropydrop.com/`. Build output is `client/dist/`.
+The 3D client requires WebGPU and GPU acceleration in a secure context
+(HTTPS or localhost). It reports initialization failures instead of falling
+back to WebGL. See the [rendering validation guide](client/src/dev/README.md).
 Copy `.env.example` to `.env.local` and set the account API origin and optional
 Space API origin. These public Vite settings are read from this workspace root.
 

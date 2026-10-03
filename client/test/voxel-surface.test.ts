@@ -82,7 +82,7 @@ test('detail status distinguishes source resolution from geometry budget pressur
   assert.equal(layer.getDetailStatus().sourceLimitedZones, 1);
   assert.equal(layer.getDetailStatus().geometryLimited, false);
   assert.equal(layer.getDetailStatus().effectiveAreaPx2, 1);
-  assert.equal(layer.voxels.group.userData.voxelLodStats.budget, 32 * 1024 * 1024);
+  assert.equal(layer.voxels.group.userData.voxelLodStats.budget, 16 * 1024 * 1024);
   layer.removeZone(16,2);
   assert.equal(layer.getDetailStatus().sourceLimitedZones, 0);
   layer.setEnabled(false);
@@ -134,26 +134,18 @@ test('volumetric zones never emit legacy pillars, preserve underside and hand of
   assert.ok(directions.includes(2) && directions.includes(3));
   const face = layer.voxels.group.children.find(object =>
     (object as THREE.Mesh<THREE.InstancedBufferGeometry>).geometry.instanceCount > 0) as THREE.Mesh;
-  assert.ok(face.geometry.getAttribute('voxelOffset').array instanceof Uint16Array);
-  assert.ok(face.geometry.getAttribute('voxelSpan').array instanceof Uint16Array);
+  assert.ok(face.geometry.getAttribute('voxelOffset').array instanceof Float32Array);
+  assert.ok(face.geometry.getAttribute('voxelSpan').array instanceof Float32Array);
   assert.deepEqual(Array.from(face.geometry.getAttribute('color').array.slice(0, 3)), [128,192,255],
     'emissive distant faces retain the same sRGB tint as near geometry');
   assert.equal(face.geometry.getAttribute('voxelOffset').getY(0), 64 * 8,
     'packed coordinates retain exact eighth-metre units');
-  const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
-    fragmentShader: THREE.ShaderLib.standard.fragmentShader };
-  (face.material as THREE.Material).onBeforeCompile(shader as THREE.WebGLProgramParametersWithUniforms,
-    {} as THREE.WebGLRenderer);
-  assert.deepEqual((shader.uniforms as any).uVoxelOrigin.value.toArray(), [8192,0,1024],
-    'the per-zone shader origin restores world coordinates before torus bending');
-  assert.match(shader.vertexShader, /uVoxelOrigin \+ voxelOffset \* \.125/);
-  assert.match(shader.fragmentShader, /outgoingLight = voxelEmissionColor\(vColor.rgb\)/,
-    'distant emission replaces lighting instead of adding a lit surface');
-  assert.doesNotMatch(shader.fragmentShader, /if \(vVoxelEmission < 0.5\) \{\s*#include <tonemapping_fragment>/,
-    'distant and near emission both use the scene tone mapping');
-  assert.match(shader.fragmentShader, /if \(vVoxelEmission > 0.5\) gl_FragColor.a \+= uVoxelEmissionMask/);
-  assert.match(shader.fragmentShader, /if \(vVoxelEmission < 0.5\) \{\s*#include <fog_fragment>/,
-    'fog must not tint emitted distant surfaces when near surfaces preserve their color');
+  const material = face.material as import('three/webgpu').MeshStandardNodeMaterial;
+  assert.equal(material.isMeshStandardNodeMaterial,true);
+  assert.ok(material.positionNode?.isNode, 'packed positions feed the world deformation node');
+  assert.ok(material.outputNode?.isNode, 'emission overrides fogged lighting in the HDR output');
+  assert.ok(material.maskNode?.isNode, 'coverage and transitions remain active');
+  assert.equal(face.geometry.getAttribute('color').itemSize,4,'RGBA padding satisfies WebGPU alignment');
   layer.setDetailChunkReady(512,64,true,true);
   assert.equal(layer.handoff.data[(64*1024+512)*2],255);
   layer.setDetailChunkReady(512,64,false,true);

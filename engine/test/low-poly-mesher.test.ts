@@ -23,11 +23,13 @@ test('chunk meshing uses indexed quads and preserves internal-face culling', () 
   assert.equal(geometry.getAttribute('position').count, 10 * 4, 'each quad reuses four indexed vertices');
   assert.equal(geometry.getAttribute('normal').count, 10 * 4);
   assert.equal(geometry.getAttribute('color').count, 10 * 4);
-  assert.ok(geometry.getAttribute('position').array instanceof Uint16Array);
+  assert.ok(geometry.getAttribute('position').array instanceof Float32Array);
   assert.ok(geometry.getAttribute('normal').array instanceof Int8Array);
   assert.equal(geometry.getAttribute('normal').normalized, true);
   assert.ok(geometry.getAttribute('color').array instanceof Uint8Array);
   assert.equal(geometry.getAttribute('color').normalized, true);
+  assert.equal(geometry.getAttribute('normal').itemSize, 4);
+  assert.equal(geometry.getAttribute('color').itemSize, 4);
   assert.ok(geometry.index.array instanceof Uint16Array);
 });
 
@@ -43,7 +45,7 @@ test('detailed chunk meshes keep default and emissive terrain in separate materi
     { count: 36, materialIndex: 0 },
     { count: 36, materialIndex: 1 },
   ]);
-  assert.equal((mesh.material as THREE.Material[])[1].type, 'MeshBasicMaterial');
+  assert.equal((mesh.material as THREE.Material[])[1].type, 'MeshBasicNodeMaterial');
 });
 
 test('generated neighboring chunks cull their shared boundary faces', () => {
@@ -121,11 +123,11 @@ test('temporary chunk-edge faces merge vertically without leaving a gap', () => 
   }
 
   const geometry = meshGeometry(chunk);
-  const positions = geometry.getAttribute('position').array as Uint16Array;
+  const positions = geometry.getAttribute('position').array as Float32Array;
   const normals = geometry.getAttribute('normal').array as Int8Array;
   const eastFaceY: number[] = [];
-  for (let vertex = 0; vertex < normals.length / 3; vertex++) {
-    if (normals[vertex * 3] !== 127) continue;
+  for (let vertex = 0; vertex < normals.length / 4; vertex++) {
+    if (normals[vertex * 4] !== 127) continue;
     eastFaceY.push(positions[vertex * 3 + 1]);
   }
 
@@ -162,7 +164,7 @@ test('large exposed meshes promote their index buffer to 32 bits', () => {
 
   const geometry = meshGeometry(chunk);
   assert.ok(geometry.getAttribute('position').count > 0xffff);
-  const positions = geometry.getAttribute('position').array as Uint16Array;
+  const positions = geometry.getAttribute('position').array as Float32Array;
   let maximumPosition = 0;
   for (const value of positions) maximumPosition = Math.max(maximumPosition, value);
   assert.equal(

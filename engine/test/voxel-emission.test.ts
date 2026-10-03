@@ -6,7 +6,7 @@ import { LowPolyMesher } from '../src/mesher/LowPolyMesher.ts';
 import { MicroVoxelLayer } from '../src/voxel/MicroVoxelLayer.ts';
 import { Contraption } from '../src/contraption/Contraption.ts';
 import { setTerrainKernelMode } from '../src/wasm/TerrainKernels.ts';
-import { createVoxelEmissiveMaterial } from '../src/render/VoxelEmission.ts';
+import { createVoxelEmissiveMaterial, createVoxelEmissionMaskUniform } from '../src/render/VoxelEmission.ts';
 
 function tint(mesh: THREE.Mesh, materialId: number) {
   const group = mesh.geometry.groups.find(group => group.materialIndex === materialId)!;
@@ -61,29 +61,31 @@ test('entity and terrain meshes feed the same emissive tint and shader', () => {
     assert.deepEqual(tint(mesh, 1), tint(terrain, 1));
     const entityMaterial = (mesh.material as THREE.Material[])[1];
     const terrainMaterial = (terrain.material as THREE.Material[])[1];
-    assert.equal(entityMaterial.customProgramCacheKey(), terrainMaterial.customProgramCacheKey());
+    for (const material of [entityMaterial, terrainMaterial] as any[]) {
+      assert.equal(material.type, "MeshBasicNodeMaterial");
+      assert.ok(material.colorNode?.isNode);
+      assert.ok(material.outputNode?.isNode);
+    }
     terrain.geometry.dispose();
   } finally { entity.dispose(); }
 });
 
 test('emission uses scene tone mapping and only marks opted-in HDR buffers', () => {
   const material = createVoxelEmissiveMaterial();
+  const mask = createVoxelEmissionMaskUniform(material);
   const geometry = new THREE.BoxGeometry();
   const mesh = new THREE.Mesh(geometry, material);
   const camera = new THREE.PerspectiveCamera();
   const scene = new THREE.Scene();
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
-  const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.basic.vertexShader,
-    fragmentShader: THREE.ShaderLib.basic.fragmentShader };
   let renderTarget: THREE.WebGLRenderTarget | null = null;
   const renderer = { getRenderTarget: () => renderTarget } as THREE.WebGLRenderer;
   try {
-    material.onBeforeCompile(shader as THREE.WebGLProgramParametersWithUniforms, renderer);
-    const mask = (shader.uniforms as any).uVoxelEmissionMask;
     const draw = () => material.onBeforeRender(renderer, scene, camera, geometry, mesh, null);
     assert.equal(material.toneMapped, true);
     assert.equal(material.fog, false);
-    assert.match(shader.fragmentShader, /diffuseColor.rgb = voxelEmissionColor\(diffuseColor.rgb\)/);
+    assert.ok(material.colorNode?.isNode);
+    assert.ok(material.outputNode?.isNode);
     draw();
     assert.equal(mask.value, 0, 'direct rendering remains opaque');
     renderTarget = target;
