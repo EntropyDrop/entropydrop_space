@@ -2584,7 +2584,7 @@ export class SceneRenderer {
       this.selectionGroup.visible = false;
       this.selectionCellsGroup.visible = false;
 
-      if (microBlocks.length === 0) {
+      if (microBlocks.length === 0 && !bounds) {
         this.selectionMicroCellsGroup.visible = false;
         return;
       }
@@ -2643,20 +2643,24 @@ export class SceneRenderer {
       this.selectionCellsGroup.visible = false;
       this.selectionMicroCellsGroup.visible = false;
 
-      if (microBlocks.length === 0) {
+      if (microBlocks.length === 0 && !bounds) {
         this.selectionGroup.visible = false;
         return;
       }
 
-      let minX = Infinity, minY = Infinity, minZ = Infinity;
-      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      for (const b of microBlocks) {
-        if (b.x < minX) minX = b.x;
-        if (b.y < minY) minY = b.y;
-        if (b.z < minZ) minZ = b.z;
-        if (b.x > maxX) maxX = b.x;
-        if (b.y > maxY) maxY = b.y;
-        if (b.z > maxZ) maxZ = b.z;
+      // The cyan region remains the confirmed box even when orange occupied
+      // cells cover only part of it, or the region contains only entities.
+      let minX = bounds?.minX ?? Infinity, minY = bounds?.minY ?? Infinity, minZ = bounds?.minZ ?? Infinity;
+      let maxX = bounds?.maxX ?? -Infinity, maxY = bounds?.maxY ?? -Infinity, maxZ = bounds?.maxZ ?? -Infinity;
+      if (!bounds) {
+        for (const b of microBlocks) {
+          if (b.x < minX) minX = b.x;
+          if (b.y < minY) minY = b.y;
+          if (b.z < minZ) minZ = b.z;
+          if (b.x > maxX) maxX = b.x;
+          if (b.y > maxY) maxY = b.y;
+          if (b.z > maxZ) maxZ = b.z;
+        }
       }
 
       const sx = Math.max(0.001, (maxX - minX + 1) * MICRO_SIZE);

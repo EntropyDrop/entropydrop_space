@@ -2814,7 +2814,7 @@ export class PlayerController {
   /**
    * Smart copy (R key or Copy button):
    * - Confirmed entity blocks copy as an entity.
-   * - Confirmed world blocks / micro cells copy as a raw block set.
+   * - World selections combine the selected voxels and fully enclosed entities in one Item.
    * - A-only, subtree and Shift preselection are rejected.
    * - If nothing is selected, shows a helpful toast.
    */
@@ -2827,12 +2827,115 @@ export class PlayerController {
       return this.copySelectionToInventory();
     }
     if (this.contraptions && this.contraptions.hasValidSelection()) {
-      return this.copySelectionAsBlockSet();
+      return this.copyWorldSelectionToInventory();
     }
     if (this.ui) {
       this.ui.showToast('Nothing selected - select an entity/component or box-select blocks, then press R');
     }
     return null;
+  }
+
+  /** The cyan outer box defines which complete entities accompany orange world cells. */
+  private captureWorldSelectionEntities() {
+    const manager = this.contraptions;
+    const micro = Array.isArray(manager?.microSelection);
+    const bounds = micro ? manager.getMicroSelectionBounds?.() : manager?.getSelectionBounds?.();
+    if (!bounds) return null;
+    const step = micro ? MICRO_SIZE : 1;
+    const origin = new THREE.Vector3(bounds.minX, bounds.minY, bounds.minZ).multiplyScalar(step);
+    const region = new THREE.Box3(origin.clone(), new THREE.Vector3(
+      bounds.maxX + 1, bounds.maxY + 1, bounds.maxZ + 1,
+    ).multiplyScalar(step)).expandByScalar(STOPPED_GRID_EPSILON);
+    const center = region.getCenter(new THREE.Vector3());
+    const blockBounds = new THREE.Box3();
+    const entityList = [];
+    let voxelCount = 0;
+    for (const entity of manager.contraptions || []) {
+      if (!entity.blocks?.length) continue;
+      let periodicOffset: THREE.Vector3 | null = null;
+      let enclosed = true;
+      for (const block of entity.blocks) {
+        entity.getBlockWorldBounds(block, blockBounds);
+        if (blockBounds.isEmpty()) { enclosed = false; break; }
+        if (!periodicOffset) {
+          const blockCenter = blockBounds.getCenter(new THREE.Vector3());
+          periodicOffset = new THREE.Vector3(
+            unwrapPeriodicNear(blockCenter.x, center.x, TORUS_SIZE_X) - blockCenter.x, 0,
+            unwrapPeriodicNear(blockCenter.z, center.z, TORUS_SIZE_Z) - blockCenter.z,
+          );
+        }
+        // Most loaded entities are outside the region; reject at the first outside voxel.
+        if (!region.containsBox(blockBounds.translate(periodicOffset))) { enclosed = false; break; }
+      }
+      if (!enclosed || !periodicOffset) continue;
+      voxelCount += entity.blocks.length;
+      if (voxelCount > MAX_INVENTORY_BLOCKS) throw new Error('Selected entities exceed the Item voxel limit');
+      const source = entity.serializeSubtree(contraptionRootId(entity));
+      const portable = this.serializeInventoryItem('entity', source);
+      const position = new THREE.Vector3().fromArray(source.sourcePosition).add(periodicOffset).sub(origin);
+      portable.root.localPosition = position.toArray().map(value => {
+        const aligned = Math.round(value * MICRO_DIVISIONS) / MICRO_DIVISIONS;
+        return Math.abs(value - aligned) < STOPPED_GRID_EPSILON ? aligned : value;
+      });
+      portable.root.localRotation = [...source.sourceRotation];
+      // World endpoints belong to the Item frame; body-local endpoints keep their own frames.
+      for (const constraint of portable.constraints || []) {
+        if (constraint.bodyA != null || !constraint.anchorA) continue;
+        constraint.anchorA = new THREE.Vector3().fromArray(constraint.anchorA)
+          .add(periodicOffset).sub(origin).toArray();
+      }
+      entityList.push(portable);
+    }
+    return { origin, entityList };
+  }
+
+  /** R copies one portable Item without editing or stopping any enclosed source entity. */
+  copyWorldSelectionToInventory() {
+    if (this.bulkEditJob) {
+      this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
+      return null;
+    }
+    if (!this.requireConfirmedSelection('copying')) return null;
+    try {
+      const capture = this.captureWorldSelectionEntities();
+      if (!capture) return null;
+      if (this.contraptions.getSelectionBlockCount?.() > BULK_EDIT_THRESHOLD) {
+        return this.startLargeWorldBlockSetCopy(this.contraptions, capture);
+      }
+      return this.finishWorldSelectionCopy(this.sampleWorldSelectionAsBlockSet(capture.origin), capture);
+    } catch (error) {
+      this.ui?.showToast?.(`Copy failed: ${error instanceof Error ? error.message : 'Invalid selection'}`, { tone: 'warning' });
+      return null;
+    }
+  }
+
+  private finishWorldSelectionCopy(blocks, capture) {
+    if (!blocks.length && !capture.entityList.length) {
+      this.ui?.showToast?.('Selection contains no world voxels or fully enclosed entities');
+      return null;
+    }
+    const name = `world selection (${blocks.length} voxels, ${capture.entityList.length} entities)`;
+    const portable = {
+      type: 'space-item', version: INVENTORY_PROTOBUF_SCHEMA_VERSION, id: newItemTemplateId(), name,
+      ...(blocks.length ? { blockSet: this.serializeInventoryItem('blockset', { name, blocks }) } : {}),
+      entityList: capture.entityList,
+    };
+    const parsed = this.parseInventoryImport(encodeInventoryResource('item', portable), 'item');
+    if (!parsed.ok) {
+      this.ui?.showToast?.(`Copy failed: ${parsed.error}`, { tone: 'warning' });
+      return null;
+    }
+    const index = this.addInventoryItem('item', parsed.item);
+    if (index === null) {
+      this.ui?.showToast?.(`Item inventory is full (${MAX_BACKPACK_ITEM_SLOTS}) - delete one first`);
+      return null;
+    }
+    this.setActiveInventoryCategory('item');
+    this.ui?.renderInventoryBar?.();
+    this.clearSelection();
+    this.activateTool(SpecialTool.HAMMER);
+    this.ui?.showToast?.(`Copied ${blocks.length} selected voxels and ${capture.entityList.length} entities to item slot ${index + 1} · switched to Hammer`);
+    return parsed.item;
   }
 
   /**
@@ -2910,7 +3013,7 @@ export class PlayerController {
       return this.copySelectedSubtreeToInventory();
     }
     if (this.contraptions && this.contraptions.hasValidSelection()) {
-      return this.copySelectionAsBlockSet();
+      return this.copyWorldSelectionToInventory();
     }
     if (this.ui) this.ui.showToast('Nothing selected - click an entity/component with the selector, or box-select its blocks');
     return null;
@@ -3007,7 +3110,7 @@ export class PlayerController {
   }
 
   /** Scan and normalize a large world selection through the shared executor. */
-  private startLargeWorldBlockSetCopy(manager) {
+  private startLargeWorldBlockSetCopy(manager, itemCapture = null) {
     const microCells = Array.isArray(manager.microSelection)
       ? manager.microSelection.map(cell => ({ x: cell.x, y: cell.y, z: cell.z }))
       : null;
@@ -3089,10 +3192,11 @@ export class PlayerController {
         }
 
         const item = collected[index - scanTotal];
+        const origin = itemCapture?.origin || { x: minX, y: minY, z: minZ };
         rawBlocks.push({
-          dx: microCells ? Math.round((item.x - minX) * MICRO_DIVISIONS) / MICRO_DIVISIONS : item.x - minX,
-          dy: microCells ? Math.round((item.y - minY) * MICRO_DIVISIONS) / MICRO_DIVISIONS : item.y - minY,
-          dz: microCells ? Math.round((item.z - minZ) * MICRO_DIVISIONS) / MICRO_DIVISIONS : item.z - minZ,
+          dx: microCells ? Math.round((item.x - origin.x) * MICRO_DIVISIONS) / MICRO_DIVISIONS : item.x - origin.x,
+          dy: microCells ? Math.round((item.y - origin.y) * MICRO_DIVISIONS) / MICRO_DIVISIONS : item.y - origin.y,
+          dz: microCells ? Math.round((item.z - origin.z) * MICRO_DIVISIONS) / MICRO_DIVISIONS : item.z - origin.z,
           size: item.size,
           block: item.block,
           color: item.color,
@@ -3101,9 +3205,11 @@ export class PlayerController {
         });
         return 1;
       },
-      finish: () => this.finishBlockSetCopy(rawBlocks, `world selection (${rawBlocks.length} voxels)`)
+      finish: () => itemCapture
+        ? this.finishWorldSelectionCopy(rawBlocks, itemCapture)
+        : this.finishBlockSetCopy(rawBlocks, `world selection (${rawBlocks.length} voxels)`)
     });
-    if (started) manager.clearSelection?.();
+    if (started && !itemCapture) manager.clearSelection?.();
     return started;
   }
 
@@ -3207,7 +3313,7 @@ export class PlayerController {
    * connectedSelection single cells) into relative block-set entries.
    * Unlike G-assembly this never extracts or removes anything.
    */
-  sampleWorldSelectionAsBlockSet() {
+  sampleWorldSelectionAsBlockSet(origin: THREE.Vector3 | null = null) {
     const manager = this.contraptions;
     if (!this.world || !manager) return [];
 
@@ -3246,6 +3352,7 @@ export class PlayerController {
         if (z < minZ) minZ = z;
       }
       if (collected.length === 0) return [];
+      if (origin) { minX = origin.x; minY = origin.y; minZ = origin.z; }
       return collected.map(b => ({
         dx: Math.round((b.x - minX) * MICRO_DIVISIONS) / MICRO_DIVISIONS,
         dy: Math.round((b.y - minY) * MICRO_DIVISIONS) / MICRO_DIVISIONS,
@@ -3324,6 +3431,7 @@ export class PlayerController {
     }
 
     if (collected.length === 0) return [];
+    if (origin) { minX = origin.x; minY = origin.y; minZ = origin.z; }
     return collected.map(b => ({
       dx: b.x - minX,
       dy: b.y - minY,

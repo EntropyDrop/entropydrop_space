@@ -213,6 +213,13 @@ active and all runnable component scripts enabled). Placing on a stopped entity
 installs the item as a rigid child component under the crosshair; `Shift` + left-click
 requests this installation mode explicitly, and the combined entity stays stopped.
 
+For world selections, **Copy (R)** saves the orange selected terrain voxels and all
+complete entities fully contained by the cyan outer box as one Item. Their relative
+positions and orientations are preserved, including world constraint anchors. Entities
+crossing the box boundary are excluded. A region containing only entities can also be
+copied. Component-local Copy keeps its existing component behavior; `T` still copies
+only selected voxel geometry. Copy leaves the source terrain and entities unchanged.
+
 Selector delete, copy, fill, recolor, assembly, and rotation require confirmed A/B;
 an A-only, component preselection, or Shift-picked selection is not sufficient.
 Right-click opens the complete Selector menu. **Select All** confirms the A/B bounds

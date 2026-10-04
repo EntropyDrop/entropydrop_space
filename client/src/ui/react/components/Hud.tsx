@@ -558,7 +558,7 @@ function SelectorPanel() {
             <span className="btn-color-dot" style={{ background: activeBackground }} />
             Paint (P)
           </button>
-          <button id="copy-btn" tabIndex={-1} className="banner-btn secondary" title="Copy selection to backpack (R)" disabled={!selector.canCopy} onClick={() => controller?.copySelectionSmart?.()}>Copy (R)</button>
+          <button id="copy-btn" tabIndex={-1} className="banner-btn secondary" title="Copy selected blocks and complete entities inside the world selection (R)" disabled={!selector.canCopy} onClick={() => controller?.copySelectionSmart?.()}>Copy (R)</button>
           <button id="delete-btn" tabIndex={-1} className="banner-btn danger" title="Delete selection (Del)" disabled={!selector.canDelete} onClick={() => controller?.deleteSelectionBlocks?.()}>Delete (Del)</button>
         </div>
       </div>
