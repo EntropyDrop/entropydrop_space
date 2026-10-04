@@ -982,7 +982,7 @@ test('assembleSelection creates the contraption without automatically writing to
   const contraption = controller.assembleSelection();
   assert.ok(contraption, 'contraption should be assembled');
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 0, 'assembly does not write to backpack');
-  assert.ok(controller.__toasts.some(m => m.includes('assembled as root body')));
+  assert.ok(controller.__toasts.some(m => m.includes('assembled into a contraption')));
 });
 
 test('copySelectionToInventory rejects writing when shared Item slots are full', () => {

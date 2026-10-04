@@ -587,7 +587,7 @@ export function PauseScreen() {
           <span><kbd className="key-badge">6</kbd> Brush: paint / right-click 2-point dye · Tab micro/standard</span>
           <span><kbd className="key-badge">Shift+Click</kbd> Multi-select component blocks</span>
           <span><kbd className="key-badge">C</kbd> Entity editor</span>
-          <span><kbd className="key-badge">G</kbd> Assemble physics entity</span>
+          <span><kbd className="key-badge">G</kbd> Assemble contraption / sub-contraption</span>
           <span><kbd className="key-badge">V</kbd> Mount / leave entity seat</span>
           <span><kbd className="key-badge">F</kbd> Fly mode</span>
           <span><kbd className="key-badge">F3</kbd> Cycle 1st / 3rd Back / 3rd Front</span>

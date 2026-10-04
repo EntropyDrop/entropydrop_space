@@ -203,7 +203,8 @@ striking face forward.
 1. Choose any color, then use the shovel for standard construction or the spoon
    for micro-voxel sculpting.
 2. Use the Selector to confirm both selection corners A and B.
-3. Press `G` to entityize the selected blocks.
+3. Press `G` to **Assemble** the selected terrain blocks into a contraption
+   (a programmable entity).
 4. Aim at the entity and press `C`.
 5. Describe the behavior, inspect the generated controller, and run it.
 
@@ -222,8 +223,12 @@ crossing the box boundary are excluded. A region containing only entities can al
 copied. Component-local Copy keeps its existing component behavior; `T` still copies
 only selected voxel geometry. Copy leaves the source terrain and entities unchanged.
 
-Selector delete, copy, fill, recolor, assembly, and rotation require confirmed A/B;
-an A-only, component preselection, or Shift-picked selection is not sufficient.
+Selector delete, copy, fill, recolor, assembly, and rotation
+require confirmed A/B; an A-only, component preselection, or Shift-picked selection
+is not sufficient.
+The `G` action is **Assemble** for terrain selections and **Assemble Sub-Contraption**
+for entity component selections. A sub-contraption is a child component built from
+the selected blocks.
 Right-click opens the complete Selector menu. **Select All** confirms the A/B bounds
 of the current component's own blocks, excluding child-component blocks.
 Changing the selection shape immediately updates selected cells, highlights,

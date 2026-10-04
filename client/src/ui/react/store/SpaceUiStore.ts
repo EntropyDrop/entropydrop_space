@@ -2093,7 +2093,7 @@ export class SpaceUiStore {
         details: `Entity #${child.contraption.id} [${child.parentId}] · ${child.count} cells · confirm A/B before using selection actions${child.existingChildCount > 0 ? ` · ${child.existingChildCount} children attached` : ''}`,
         hasSelection: true,
         canAssemble: canDelete && !!child.ready,
-        assembleLabel: 'Create Child (G)',
+        assembleLabel: 'Assemble Sub-Contraption (G)',
         canCopy: canDelete,
         canModify: canDelete,
         canDelete
@@ -2111,7 +2111,7 @@ export class SpaceUiStore {
           : `Entity #${contraption.id} [${rootId}] · stop the entity, then confirm A/B before using selection actions`,
         hasSelection: true,
         canAssemble: false,
-        assembleLabel: 'Assemble (G)',
+        assembleLabel: 'Assemble Sub-Contraption (G)',
         canCopy: canDelete,
         canModify: canDelete,
         canDelete
@@ -2129,7 +2129,7 @@ export class SpaceUiStore {
           : 'confirm A/B before using selection actions'}`,
         hasSelection: true,
         canAssemble: canDelete,
-        assembleLabel: 'Create Child (G)',
+        assembleLabel: 'Assemble Sub-Contraption (G)',
         canCopy: canDelete,
         canModify: canDelete,
         canDelete

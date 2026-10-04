@@ -660,7 +660,7 @@ test('2-point selection validation: child component blocks and full parent compo
   assert.ok(controller.selectedBlockSelection);
   const childResult = controller.createChildFromSelectedBlocks();
   assert.equal(childResult, null);
-  assert.ok(toasts.some(t => t.includes('entire parent component cannot be selected')));
+  assert.ok(toasts.some(t => t.includes('Select only part of the parent component to assemble a sub-contraption')));
 });
 
 test('F key expands entity component by filling selection with blocks', () => {

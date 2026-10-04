@@ -1336,7 +1336,7 @@ export class PlayerController {
 
   openCodeEditorForTarget(target = this.hoveredContraption) {
     if (!target || !this.contraptions.contraptions.includes(target)) {
-      if (this.ui) this.ui.showToast(`Point directly at an assembled entity to program it.`);
+      if (this.ui) this.ui.showToast(`Point directly at a contraption to program it.`);
       return false;
     }
     if (target.serverManaged === true && target.serverCanEdit !== true) {
@@ -2657,20 +2657,20 @@ export class PlayerController {
     const child = result.child;
     if (!child) {
       this.ui?.showToast?.(result.reason === 'entity_not_stopped'
-        ? 'Stop the entity before creating a child component from its blocks'
-        : 'Could not create child component from this selection');
+        ? 'Stop the entity before assembling a sub-contraption'
+        : 'Could not assemble a sub-contraption from this selection');
       return null;
     }
     contraption.clearSubtreeHighlight?.();
     this.sound?.playAssemblyClack?.();
     if (legacy) {
-      this.ui?.showToast?.(`Child component ${child.id} created · control it via self.child('${child.id}')`);
+      this.ui?.showToast?.(`Sub-contraption ${child.id} assembled · control it via self.child('${child.id}')`);
       this.ui?.renderComponentTree?.(contraption);
       this.ui?.renderCodeTabs?.(contraption);
       this.ui?.updateInspectorProperties?.(child.id);
     } else {
       this.selectorLevel = { contraption, nodeId };
-      this.ui?.showToast?.(`Created child component [${child.id}] from ${blocks.length} blocks under [${nodeId}] · press C to program`);
+      this.ui?.showToast?.(`Assembled sub-contraption [${child.id}] from ${blocks.length} blocks under [${nodeId}] · press C to program`);
     }
     return child;
   }
@@ -2683,7 +2683,7 @@ export class PlayerController {
       maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity
     };
     return this.startBulkEditJob({
-      label: 'Creating child component',
+      label: 'Assembling sub-contraption',
       total: source.length,
       mutatesWorld: false,
       detail: 'Preparing component blocks',
@@ -2707,7 +2707,7 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return null;
     }
-    if (!this.requireConfirmedSelection('creating a child component')) return null;
+    if (!this.requireConfirmedSelection('assembling a sub-contraption')) return null;
     const sel = this.selectedBlockSelection;
     if (!sel || !sel.contraption || sel.blocks.length === 0) {
       if (this.ui) this.ui.showToast('No block selection - box-select blocks of a level first');
@@ -2719,7 +2719,7 @@ export class PlayerController {
     const { contraption, blocks } = sel;
     if (!this.canEditEntityInternals(contraption)) {
       this.clearSelection();
-      this.ui?.showToast?.('Stop the entity before creating a child component from its blocks');
+      this.ui?.showToast?.('Stop the entity before assembling a sub-contraption');
       return null;
     }
 
@@ -2753,7 +2753,7 @@ export class PlayerController {
     const totalParentBlocks = contraption.blocks.filter((b: any) => contraptionBlockOwnerId(contraption, b) === nodeId).length;
     if (blocks.length >= totalParentBlocks) {
       if (this.ui) {
-        this.ui.showToast('The entire parent component cannot be selected to create a child component.', { tone: 'warning' });
+        this.ui.showToast('Select only part of the parent component to assemble a sub-contraption.', { tone: 'warning' });
       }
       return null;
     }
@@ -2779,7 +2779,7 @@ export class PlayerController {
       this.selectorLevel = { contraption, nodeId }; // Keep level active so another region can be box-selected immediately.
       this.sound?.playAssemblyClack?.();
       if (this.ui) {
-        this.ui.showToast(`Created child component [${child.id}] from ${blocks.length} blocks under [${nodeId}] · press C to program`);
+        this.ui.showToast(`Assembled sub-contraption [${child.id}] from ${blocks.length} blocks under [${nodeId}] · press C to program`);
       }
       return child;
     } else if (this.ui) {
@@ -2791,8 +2791,8 @@ export class PlayerController {
         );
       } else {
         this.ui.showToast(result.reason === 'entity_not_stopped'
-          ? 'Stop the entity before creating a child component from its blocks'
-          : 'Could not create child component from this selection');
+          ? 'Stop the entity before assembling a sub-contraption'
+          : 'Could not assemble a sub-contraption from this selection');
       }
     }
   }
@@ -9061,7 +9061,7 @@ export class PlayerController {
     });
     const contraption = actionResult.entity;
     if (contraption) {
-      this.ui?.showToast?.(`${contraption.blocks.length} blocks assembled as root body · press C to open the editor`);
+      this.ui?.showToast?.(`${contraption.blocks.length} blocks assembled into a contraption · press C to open the editor`);
       this.openCodeEditorForTarget();
     }
     return contraption || null;
@@ -9099,7 +9099,7 @@ export class PlayerController {
     };
 
     const started = this.startBulkEditJob({
-      label: 'Assembling selection',
+      label: 'Assembling contraption',
       total,
       detail: job => microCells && job.processed < scanTotal
         ? 'Measuring micro selection'
@@ -9215,8 +9215,9 @@ export class PlayerController {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return null;
     }
-    if (!this.requireConfirmedSelection('assembling')) return null;
-    if (this.contraptions.hasChildSelection()) {
+    const hasChildSelection = this.contraptions?.hasChildSelection?.() === true;
+    if (!this.requireConfirmedSelection(hasChildSelection ? 'assembling a sub-contraption' : 'assembling')) return null;
+    if (hasChildSelection) {
       if (!this.contraptions.hasReadyChildSelection()) {
         if (this.ui) this.ui.showToast('No blocks selected - click to select component blocks');
         return null;
@@ -9242,7 +9243,7 @@ export class PlayerController {
         ? { child: actionResult.child, contraption: actionResult.contraption }
         : null;
       if (result && this.ui) {
-        this.ui.showToast(`Child component ${result.child.id} created · control it via self.child('${result.child.id}')`);
+        this.ui.showToast(`Sub-contraption ${result.child.id} assembled · control it via self.child('${result.child.id}')`);
         this.ui.renderComponentTree(result.contraption);
         this.ui.renderCodeTabs(result.contraption);
         this.ui.updateInspectorProperties(result.child.id);
@@ -9260,7 +9261,7 @@ export class PlayerController {
     });
     const contraption = actionResult.entity;
     if (contraption && this.ui) {
-      this.ui.showToast(`${contraption.blocks.length} blocks assembled as root body · press C to open the editor`);
+      this.ui.showToast(`${contraption.blocks.length} blocks assembled into a contraption · press C to open the editor`);
       this.openCodeEditorForTarget();
     }
     return contraption || null;
