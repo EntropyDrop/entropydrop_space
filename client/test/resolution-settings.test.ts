@@ -157,12 +157,16 @@ test('renderer combines the shadow preference with adaptive effects quality', ()
   internal.sunLight.shadow.needsUpdate = false;
   internal.adaptiveEffectsQuality = 'reduced';
   renderer.setShadowsEnabled(true);
-  assert.equal(internal.renderer.shadowMap.enabled, false);
+  assert.equal(internal.renderer.shadowMap.enabled, true, 'automatic fallback keeps the shadow shader variant');
+  assert.equal(internal.sunLight.shadow.intensity, 0);
+  assert.equal(internal.sunLight.shadow.autoUpdate, false);
   assert.equal(internal.sunLight.shadow.needsUpdate, false);
 
   internal.adaptiveEffectsQuality = 'full';
   renderer.setShadowsEnabled(true);
   assert.equal(internal.renderer.shadowMap.enabled, true);
+  assert.equal(internal.sunLight.shadow.intensity, 1);
+  assert.equal(internal.sunLight.shadow.autoUpdate, true);
 });
 
 test('the canonical torus distant layer stays enabled through renderer setup', () => {

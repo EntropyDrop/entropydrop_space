@@ -1,0 +1,1610 @@
+{
+  "date": "2026-10-05",
+  "browser": "Firefox 153.0.1",
+  "platform": "macOS",
+  "scene": "Default online terrain at http://localhost:5173/space/app/",
+  "measurement": "Two 8-second stationary yaw sweeps of eight full turns each, combined with sinusoidal pitch sweeps of +/-0.95 radians. Automatic resolution mode retained. Cases start at full effects and allow automatic fallback. requestAnimationFrame callback cadence, not compositor presentation.",
+  "before": {
+    "baseCommit": "2ab9082",
+    "description": "Initial terrain pipeline warmup present; adaptive fallback removes fill light and changes the shadow variant. Rapid-turn diagnostics added.",
+    "samples": [
+      {
+        "time": "2026-10-04T17:23:37.030Z",
+        "label": "First rapid turns",
+        "motion": {
+          "yawStart": -2.2492679724483944,
+          "yawSweep": 50.26548245743669,
+          "durationMs": 8000,
+          "pitch": 0,
+          "pitchAmplitude": 0.95
+        },
+        "slowFrames": [
+          {
+            "elapsedMs": 1452,
+            "gapMs": 682.439999999995,
+            "cpuMs": 44,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 2,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 4,
+              "WebGPU submit": 38,
+              "Render total": 42
+            },
+            "yaw": 6.597456940060462,
+            "pitch": 0.32741077701579047,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 16.666666666666668,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 119758,
+              "paddedFaces": 121088,
+              "draws": 14,
+              "sourceDraws": 37,
+              "mapUploadBytes": 59616,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 6056,
+            "gapMs": 4512.68,
+            "cpuMs": 136,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 2,
+              "Terrain publish": 0,
+              "Picking": 3,
+              "Scene update": 0,
+              "HUD": 1,
+              "Minimap": 0,
+              "LOD view": 6,
+              "WebGPU submit": 122,
+              "Render total": 130
+            },
+            "yaw": 34.94718904605476,
+            "pitch": 0.3497183250504431,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 16.666666666666668,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 293731,
+              "paddedFaces": 309312,
+              "draws": 40,
+              "sourceDraws": 376,
+              "mapUploadBytes": 154656,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 6254,
+            "gapMs": 250.72000000000116,
+            "cpuMs": 84,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 1,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 5,
+              "WebGPU submit": 75,
+              "Render total": 81
+            },
+            "yaw": 36.51798537284965,
+            "pitch": -0.6822199828750274,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 247,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 374473,
+              "paddedFaces": 379520,
+              "draws": 36,
+              "sourceDraws": 168,
+              "mapUploadBytes": 189760,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 6945,
+            "gapMs": 575,
+            "cpuMs": 200,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 7,
+              "WebGPU submit": 192,
+              "Render total": 198
+            },
+            "yaw": 40.13081692447792,
+            "pitch": 0.34277028516325947,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 247,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 430778,
+              "paddedFaces": 455424,
+              "draws": 57,
+              "sourceDraws": 581,
+              "mapUploadBytes": 227712,
+              "copyFaces": 0,
+              "copyMs": 1,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 7327,
+            "gapMs": 425.08000000000175,
+            "cpuMs": 158,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 6,
+              "WebGPU submit": 151,
+              "Render total": 157
+            },
+            "yaw": 42.794887494722055,
+            "pitch": 0.6643246902217773,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 247.24,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 437532,
+              "paddedFaces": 468160,
+              "draws": 69,
+              "sourceDraws": 704,
+              "mapUploadBytes": 234080,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 8764,
+            "gapMs": 1583.239999999998,
+            "cpuMs": 12,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 4,
+              "WebGPU submit": 8,
+              "Render total": 11
+            },
+            "yaw": 48.016214484988296,
+            "pitch": -1.3960973510279824e-15,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 247.24,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 481850,
+              "paddedFaces": 496576,
+              "draws": 60,
+              "sourceDraws": 425,
+              "mapUploadBytes": 217984,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          }
+        ],
+        "resolution": {
+          "targetFps": 60,
+          "mode": "auto",
+          "scale": 0.5,
+          "fixedScale": 1,
+          "averageFrameMs": 247.24,
+          "effectsQuality": "reduced",
+          "nativePixelRatio": 2,
+          "effectivePixelRatio": 1
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          -3.0121270154640455e-16,
+          -0.9021097171210406,
+          -6.297164932046436e-16,
+          0.4315067302786785
+        ],
+        "timings": {
+          "CPU": {
+            "count": 50,
+            "mean": 36.16,
+            "p50": 12,
+            "p95": 158
+          },
+          "Simulation": {
+            "count": 50,
+            "mean": 0.16,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 50,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "Terrain publish": {
+            "count": 50,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 50,
+            "mean": 0.78,
+            "p50": 1,
+            "p95": 2
+          },
+          "Scene update": {
+            "count": 50,
+            "mean": 0.04,
+            "p50": 0,
+            "p95": 0
+          },
+          "HUD": {
+            "count": 50,
+            "mean": 0.02,
+            "p50": 0,
+            "p95": 0
+          },
+          "Minimap": {
+            "count": 50,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 50,
+            "mean": 4.3,
+            "p50": 4,
+            "p95": 7
+          },
+          "WebGPU submit": {
+            "count": 50,
+            "mean": 30.46,
+            "p50": 7,
+            "p95": 151
+          },
+          "Render total": {
+            "count": 50,
+            "mean": 35,
+            "p50": 11,
+            "p95": 157
+          },
+          "Frame": {
+            "count": 49,
+            "mean": 178.65632653061218,
+            "p50": 16.68000000000029,
+            "p95": 682.439999999995
+          },
+          "GPU": {
+            "count": 7,
+            "mean": 17.627214714285714,
+            "p50": 18.070999,
+            "p95": 20.896126999999996
+          }
+        },
+        "frame": {
+          "count": 49,
+          "elapsedMs": 8754.159999999996,
+          "averageFps": 5.597338865179529,
+          "onePercentLowFps": 0.22159780884086616,
+          "p50Ms": 16.68000000000029,
+          "p95Ms": 682.439999999995,
+          "p99Ms": 4512.68,
+          "maxMs": 4512.68,
+          "over16_67ms": 28,
+          "over33_33ms": 6,
+          "over50ms": 6,
+          "over16_67Percent": 57.142857142857146
+        },
+        "calls": 306,
+        "triangles": 1649829,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 16777216,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 481850,
+          "paddedFaces": 496576,
+          "draws": 60,
+          "sourceDraws": 425,
+          "mapUploadBytes": 217984,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 2,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 309,
+          "replays": 836
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      },
+      {
+        "time": "2026-10-04T17:23:49.378Z",
+        "label": "Repeated rapid turns",
+        "motion": {
+          "yawStart": -2.2492679724483944,
+          "yawSweep": 50.26548245743669,
+          "durationMs": 8000,
+          "pitch": 0,
+          "pitchAmplitude": 0.95
+        },
+        "slowFrames": [
+          {
+            "elapsedMs": 2347,
+            "gapMs": 2308.300000000003,
+            "cpuMs": 37,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 3,
+              "WebGPU submit": 32,
+              "Render total": 36
+            },
+            "yaw": 12.26489008713645,
+            "pitch": -0.9442629076824206,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 16.666666666666668,
+              "effectsQuality": "full",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 249140,
+              "paddedFaces": 251968,
+              "draws": 22,
+              "sourceDraws": 92,
+              "mapUploadBytes": 125984,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 2989,
+            "gapMs": 375.0399999999936,
+            "cpuMs": 63,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 1,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 5,
+              "WebGPU submit": 57,
+              "Render total": 61
+            },
+            "yaw": 16.135332236359076,
+            "pitch": 0.8928213535320036,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 43.83302490784814,
+              "effectsQuality": "full",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 398399,
+              "paddedFaces": 445504,
+              "draws": 78,
+              "sourceDraws": 1103,
+              "mapUploadBytes": 222752,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 5078,
+            "gapMs": 2133.280000000006,
+            "cpuMs": 11,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 3,
+              "WebGPU submit": 6,
+              "Render total": 10
+            },
+            "yaw": 29.587631979030572,
+            "pitch": -0.9030414433955609,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 43.83302490784814,
+              "effectsQuality": "full",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 325305,
+              "paddedFaces": 329024,
+              "draws": 32,
+              "sourceDraws": 122,
+              "mapUploadBytes": 164512,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 5169,
+            "gapMs": 91.65999999999622,
+            "cpuMs": 15,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 1,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 4,
+              "WebGPU submit": 8,
+              "Render total": 13
+            },
+            "yaw": 30.13426910075519,
+            "pitch": -0.7106283089582156,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 47.36638291522029,
+              "effectsQuality": "full",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 366278,
+              "paddedFaces": 371072,
+              "draws": 36,
+              "sourceDraws": 159,
+              "mapUploadBytes": 146816,
+              "copyFaces": 0,
+              "copyMs": 1,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 6218,
+            "gapMs": 207.7199999999939,
+            "cpuMs": 690,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 1,
+              "Terrain publish": 0,
+              "Picking": 0,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 4,
+              "WebGPU submit": 684,
+              "Render total": 689
+            },
+            "yaw": 32.48418040564036,
+            "pitch": 0.7542908787154429,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 206,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 397520,
+              "paddedFaces": 428480,
+              "draws": 68,
+              "sourceDraws": 694,
+              "mapUploadBytes": 214240,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 6272,
+            "gapMs": 699.7000000000044,
+            "cpuMs": 47,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 5,
+              "WebGPU submit": 40,
+              "Render total": 45
+            },
+            "yaw": 36.86356056474453,
+            "pitch": -0.8288712067191569,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 206,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 320327,
+              "paddedFaces": 324032,
+              "draws": 36,
+              "sourceDraws": 129,
+              "mapUploadBytes": 162016,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 10446,
+            "gapMs": 3966.9400000000023,
+            "cpuMs": 251,
+            "stages": {
+              "Terrain window": 1,
+              "Simulation": 2,
+              "Terrain publish": 1,
+              "Picking": 3,
+              "Scene update": 0,
+              "HUD": 1,
+              "Minimap": 0,
+              "LOD view": 8,
+              "WebGPU submit": 237,
+              "Render total": 244
+            },
+            "yaw": 48.016214484988296,
+            "pitch": -1.3960973510279824e-15,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 206,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 481850,
+              "paddedFaces": 496576,
+              "draws": 60,
+              "sourceDraws": 425,
+              "mapUploadBytes": 220160,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 2,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          }
+        ],
+        "resolution": {
+          "targetFps": 60,
+          "mode": "auto",
+          "scale": 0.5,
+          "fixedScale": 1,
+          "averageFrameMs": 206,
+          "effectsQuality": "reduced",
+          "nativePixelRatio": 2,
+          "effectivePixelRatio": 1
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          -3.0121270154640455e-16,
+          -0.9021097171210406,
+          -6.297164932046436e-16,
+          0.4315067302786785
+        ],
+        "timings": {
+          "CPU": {
+            "count": 31,
+            "mean": 63.03225806451613,
+            "p50": 13,
+            "p95": 365
+          },
+          "Simulation": {
+            "count": 31,
+            "mean": 0.25806451612903225,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 31,
+            "mean": 0.06451612903225806,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain publish": {
+            "count": 31,
+            "mean": 0.03225806451612903,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 31,
+            "mean": 0.8064516129032258,
+            "p50": 1,
+            "p95": 2
+          },
+          "Scene update": {
+            "count": 31,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "HUD": {
+            "count": 31,
+            "mean": 0.03225806451612903,
+            "p50": 0,
+            "p95": 0
+          },
+          "Minimap": {
+            "count": 31,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 31,
+            "mean": 3.806451612903226,
+            "p50": 4,
+            "p95": 6
+          },
+          "WebGPU submit": {
+            "count": 31,
+            "mean": 57.483870967741936,
+            "p50": 7,
+            "p95": 359
+          },
+          "Render total": {
+            "count": 31,
+            "mean": 61.806451612903224,
+            "p50": 11,
+            "p95": 363
+          },
+          "Frame": {
+            "count": 30,
+            "mean": 339.6986666666669,
+            "p50": 24.9800000000032,
+            "p95": 2308.300000000003
+          },
+          "GPU": {
+            "count": 5,
+            "mean": 14.174916399999997,
+            "p50": 12.296918999999999,
+            "p95": 26.862290999999995
+          }
+        },
+        "frame": {
+          "count": 30,
+          "elapsedMs": 10190.960000000006,
+          "averageFps": 2.9437854726149433,
+          "onePercentLowFps": 0.252083469878546,
+          "p50Ms": 24.9800000000032,
+          "p95Ms": 2308.300000000003,
+          "p99Ms": 3966.9400000000023,
+          "maxMs": 3966.9400000000023,
+          "over16_67ms": 20,
+          "over33_33ms": 7,
+          "over50ms": 7,
+          "over16_67Percent": 66.66666666666667
+        },
+        "calls": 306,
+        "triangles": 1649829,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 16777216,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 481850,
+          "paddedFaces": 496576,
+          "draws": 60,
+          "sourceDraws": 425,
+          "mapUploadBytes": 220160,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 2,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 341,
+          "replays": 836
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      }
+    ]
+  },
+  "after": {
+    "description": "Stable fill light and shadow shader variants during adaptive fallback; zero intensity and suspended shadow updates preserve reduced-effect behavior. Fresh page.",
+    "samples": [
+      {
+        "time": "2026-10-04T17:30:27.956Z",
+        "label": "First rapid turns",
+        "motion": {
+          "yawStart": -2.2492679724483944,
+          "yawSweep": 50.26548245743669,
+          "durationMs": 8000,
+          "pitch": 0,
+          "pitchAmplitude": 0.95
+        },
+        "slowFrames": [
+          {
+            "elapsedMs": 2990,
+            "gapMs": 50.89999999999418,
+            "cpuMs": 15,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 5,
+              "WebGPU submit": 10,
+              "Render total": 14
+            },
+            "yaw": 16.443208316410875,
+            "pitch": 0.9434150341071799,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 30.696397168531917,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 405063,
+              "paddedFaces": 447936,
+              "draws": 87,
+              "sourceDraws": 1030,
+              "mapUploadBytes": 171680,
+              "copyFaces": 0,
+              "copyMs": 1,
+              "maxCopyMs": 5,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 5690,
+            "gapMs": 64.54000000000815,
+            "cpuMs": 18,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 8,
+              "WebGPU submit": 10,
+              "Render total": 17
+            },
+            "yaw": 33.38895908987422,
+            "pitch": 0.949699979819135,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 28.26040095076507,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 343540,
+              "paddedFaces": 381632,
+              "draws": 65,
+              "sourceDraws": 881,
+              "mapUploadBytes": 117120,
+              "copyFaces": 0,
+              "copyMs": 1,
+              "maxCopyMs": 5,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 5833,
+            "gapMs": 64.44000000000233,
+            "cpuMs": 16,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 1,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 6,
+              "WebGPU submit": 8,
+              "Render total": 14
+            },
+            "yaw": 34.300020959415264,
+            "pitch": 0.7214156334328372,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 30.890964127905402,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 322301,
+              "paddedFaces": 361408,
+              "draws": 62,
+              "sourceDraws": 891,
+              "mapUploadBytes": 159840,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 5,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 6966,
+            "gapMs": 59.220000000001164,
+            "cpuMs": 16,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 2,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 4,
+              "WebGPU submit": 7,
+              "Render total": 14
+            },
+            "yaw": 41.41886991244973,
+            "pitch": 0.9237514243777918,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 29.095863622097337,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 393285,
+              "paddedFaces": 438016,
+              "draws": 86,
+              "sourceDraws": 1064,
+              "mapUploadBytes": 213600,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 5,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          }
+        ],
+        "pipelineEvents": [
+          {
+            "elapsedMs": 837,
+            "cpuMs": 1,
+            "async": false,
+            "object": "CursorHighlight",
+            "objectId": 26,
+            "materialId": 18,
+            "effects": "reduced"
+          }
+        ],
+        "resolution": {
+          "targetFps": 60,
+          "mode": "auto",
+          "scale": 0.5,
+          "fixedScale": 1,
+          "averageFrameMs": 25.30013743103264,
+          "effectsQuality": "reduced",
+          "nativePixelRatio": 2,
+          "effectivePixelRatio": 1
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          -0.00901565699929111,
+          -0.9149894345952437,
+          -0.020476822195508834,
+          0.4028569873549678
+        ],
+        "timings": {
+          "CPU": {
+            "count": 297,
+            "mean": 14.737373737373737,
+            "p50": 14,
+            "p95": 20
+          },
+          "Simulation": {
+            "count": 297,
+            "mean": 0.13131313131313133,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 297,
+            "mean": 0.003367003367003367,
+            "p50": 0,
+            "p95": 0
+          },
+          "Terrain publish": {
+            "count": 297,
+            "mean": 0.013468013468013467,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 297,
+            "mean": 0.7542087542087542,
+            "p50": 1,
+            "p95": 2
+          },
+          "Scene update": {
+            "count": 297,
+            "mean": 0.04713804713804714,
+            "p50": 0,
+            "p95": 0
+          },
+          "HUD": {
+            "count": 297,
+            "mean": 0.05387205387205387,
+            "p50": 0,
+            "p95": 1
+          },
+          "Minimap": {
+            "count": 297,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 297,
+            "mean": 5.754208754208754,
+            "p50": 6,
+            "p95": 8
+          },
+          "WebGPU submit": {
+            "count": 297,
+            "mean": 7.505050505050505,
+            "p50": 7,
+            "p95": 11
+          },
+          "Render total": {
+            "count": 297,
+            "mean": 13.56902356902357,
+            "p50": 13,
+            "p95": 19
+          },
+          "Frame": {
+            "count": 296,
+            "mean": 26.925675675675677,
+            "p50": 25,
+            "p95": 42.48000000001048
+          },
+          "GPU": {
+            "count": 49,
+            "mean": 20.29163006122449,
+            "p50": 18.942166,
+            "p95": 33.20683400000001
+          },
+          "Pipeline creation": {
+            "count": 1,
+            "mean": 1,
+            "p50": 1,
+            "p95": 1
+          }
+        },
+        "frame": {
+          "count": 296,
+          "elapsedMs": 7970,
+          "averageFps": 37.13927227101631,
+          "onePercentLowFps": 15.940488841656824,
+          "p50Ms": 25,
+          "p95Ms": 42.48000000001048,
+          "p99Ms": 59.220000000001164,
+          "maxMs": 64.54000000000815,
+          "over16_67ms": 243,
+          "over33_33ms": 65,
+          "over50ms": 4,
+          "over16_67Percent": 82.0945945945946
+        },
+        "calls": 297,
+        "triangles": 1605499,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 16777216,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 476368,
+          "paddedFaces": 489408,
+          "draws": 62,
+          "sourceDraws": 390,
+          "mapUploadBytes": 205984,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 5,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 555,
+          "replays": 1530
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      },
+      {
+        "time": "2026-10-04T17:30:37.477Z",
+        "label": "Repeated rapid turns",
+        "motion": {
+          "yawStart": -2.2492679724483944,
+          "yawSweep": 50.26548245743669,
+          "durationMs": 8000,
+          "pitch": 0,
+          "pitchAmplitude": 0.95
+        },
+        "slowFrames": [
+          {
+            "elapsedMs": 665,
+            "gapMs": 54.12000000002445,
+            "cpuMs": 17,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 2,
+              "Terrain publish": 0,
+              "Picking": 0,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 6,
+              "WebGPU submit": 9,
+              "Render total": 15
+            },
+            "yaw": 1.8222361066039774,
+            "pitch": 0.08345863672320598,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 28.34316086877485,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 513218,
+              "paddedFaces": 532736,
+              "draws": 72,
+              "sourceDraws": 504,
+              "mapUploadBytes": 121248,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 5,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 5814,
+            "gapMs": 64.84000000002561,
+            "cpuMs": 16,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 0,
+              "Terrain publish": 0,
+              "Picking": 2,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 5,
+              "WebGPU submit": 9,
+              "Render total": 14
+            },
+            "yaw": 34.18064043857885,
+            "pitch": 0.7737946907169841,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 29.59104418195105,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 379504,
+              "paddedFaces": 420928,
+              "draws": 74,
+              "sourceDraws": 963,
+              "mapUploadBytes": 178528,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 5,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          },
+          {
+            "elapsedMs": 7604,
+            "gapMs": 63.860000000015134,
+            "cpuMs": 20,
+            "stages": {
+              "Terrain window": 0,
+              "Simulation": 3,
+              "Terrain publish": 0,
+              "Picking": 1,
+              "Scene update": 0,
+              "HUD": 0,
+              "Minimap": 0,
+              "LOD view": 7,
+              "WebGPU submit": 9,
+              "Render total": 16
+            },
+            "yaw": 45.40240939720159,
+            "pitch": -0.878823346492735,
+            "resolution": {
+              "targetFps": 60,
+              "mode": "auto",
+              "scale": 0.5,
+              "fixedScale": 1,
+              "averageFrameMs": 29.122071160814613,
+              "effectsQuality": "reduced",
+              "nativePixelRatio": 2,
+              "effectivePixelRatio": 1
+            },
+            "mergedBuffers": {
+              "residentFaces": 1405252,
+              "bytes": 24870912,
+              "visibleFaces": 347356,
+              "paddedFaces": 351616,
+              "draws": 26,
+              "sourceDraws": 131,
+              "mapUploadBytes": 74368,
+              "copyFaces": 0,
+              "copyMs": 0,
+              "maxCopyMs": 5,
+              "pendingSources": 0,
+              "releasedSourceBytes": 44968064,
+              "pages": 23
+            }
+          }
+        ],
+        "pipelineEvents": [],
+        "resolution": {
+          "targetFps": 60,
+          "mode": "auto",
+          "scale": 0.5,
+          "fixedScale": 1,
+          "averageFrameMs": 25.328553885867624,
+          "effectsQuality": "reduced",
+          "nativePixelRatio": 2,
+          "effectivePixelRatio": 1
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          -3.0121270154640455e-16,
+          -0.9021097171210406,
+          -6.297164932046436e-16,
+          0.4315067302786785
+        ],
+        "timings": {
+          "CPU": {
+            "count": 306,
+            "mean": 13.594771241830065,
+            "p50": 13,
+            "p95": 16
+          },
+          "Simulation": {
+            "count": 306,
+            "mean": 0.16013071895424835,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 306,
+            "mean": 0.006535947712418301,
+            "p50": 0,
+            "p95": 0
+          },
+          "Terrain publish": {
+            "count": 306,
+            "mean": 0.00980392156862745,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 306,
+            "mean": 0.7026143790849673,
+            "p50": 1,
+            "p95": 1
+          },
+          "Scene update": {
+            "count": 306,
+            "mean": 0.058823529411764705,
+            "p50": 0,
+            "p95": 1
+          },
+          "HUD": {
+            "count": 306,
+            "mean": 0.0457516339869281,
+            "p50": 0,
+            "p95": 0
+          },
+          "Minimap": {
+            "count": 306,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 306,
+            "mean": 5.281045751633987,
+            "p50": 5,
+            "p95": 7
+          },
+          "WebGPU submit": {
+            "count": 306,
+            "mean": 6.944444444444445,
+            "p50": 7,
+            "p95": 9
+          },
+          "Render total": {
+            "count": 306,
+            "mean": 12.441176470588236,
+            "p50": 12,
+            "p95": 15
+          },
+          "Frame": {
+            "count": 305,
+            "mean": 26.162622950819692,
+            "p50": 25,
+            "p95": 41.679999999993015
+          },
+          "GPU": {
+            "count": 50,
+            "mean": 23.05737294,
+            "p50": 19.591624,
+            "p95": 42.80816899999999
+          },
+          "Pipeline creation": {
+            "count": 0,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        "frame": {
+          "count": 305,
+          "elapsedMs": 7979.600000000006,
+          "averageFps": 38.22246729159354,
+          "onePercentLowFps": 17.1806545829348,
+          "p50Ms": 25,
+          "p95Ms": 41.679999999993015,
+          "p99Ms": 50,
+          "maxMs": 64.84000000002561,
+          "over16_67ms": 259,
+          "over33_33ms": 51,
+          "over50ms": 3,
+          "over16_67Percent": 84.91803278688525
+        },
+        "calls": 310,
+        "triangles": 1649829,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 16777216,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 481850,
+          "paddedFaces": 496576,
+          "draws": 64,
+          "sourceDraws": 425,
+          "mapUploadBytes": 141728,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 5,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 862,
+          "replays": 1588
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      }
+    ]
+  }
+}

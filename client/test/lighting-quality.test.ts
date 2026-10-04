@@ -117,19 +117,28 @@ test('adaptive fallback restores the selected quality without overriding disable
   (renderer as any).notifyResolutionScaleChange = () => {};
   (renderer as any).applyAdaptiveEffects('reduced');
   assert.equal(renderer.getLightingQuality(), 'ultra');
-  assert.equal(renderer.renderer.shadowMap.enabled, false);
-  assert.equal(renderer.fillLight.visible, false);
+  assert.equal(renderer.renderer.shadowMap.enabled, true, 'retain the compiled shadow variant');
+  assert.equal(renderer.sunLight.shadow.intensity, 0);
+  assert.equal(renderer.sunLight.shadow.autoUpdate, false);
+  assert.equal(renderer.sunLight.shadow.needsUpdate, false);
+  assert.equal(renderer.fillLight.visible, true, 'preserve the compiled light list during fallback');
+  assert.equal(renderer.fillLight.intensity, 0);
   assert.equal(renderer.skyDomeUniforms.uSunGlow.value, 0);
   assert.equal(renderer.skyDomeUniforms.uCinematic.value, 1, 'fallback must preserve the cinematic sky');
 
   renderer.setLightingQuality('high');
-  assert.equal(renderer.renderer.shadowMap.enabled, false);
-  assert.equal(renderer.fillLight.visible, false);
+  assert.equal(renderer.renderer.shadowMap.enabled, true);
+  assert.equal(renderer.sunLight.shadow.intensity, 0);
+  assert.equal(renderer.fillLight.visible, true);
+  assert.equal(renderer.fillLight.intensity, 0);
   (renderer as any).applyAdaptiveEffects('full');
   assert.equal(renderer.getLightingQuality(), 'high');
   assert.equal(renderer.sunLight.shadow.mapSize.x, 2048);
   assert.equal(renderer.renderer.shadowMap.enabled, true);
+  assert.equal(renderer.sunLight.shadow.intensity, 1);
+  assert.equal(renderer.sunLight.shadow.autoUpdate, true);
   assert.equal(renderer.fillLight.visible, true);
+  assert.ok(renderer.fillLight.intensity > 0);
 
   renderer.setShadowsEnabled(false);
   renderer.setLightingQuality('low');
@@ -139,6 +148,42 @@ test('adaptive fallback restores the selected quality without overriding disable
   assert.equal(renderer.shadowsEnabled, false);
   assert.equal(renderer.renderer.shadowMap.enabled, false);
   assert.equal(renderer.fillLight.visible, true);
+});
+
+test('automatic lighting transitions preserve the warmed light and shadow pipeline keys', () => {
+  for (const quality of ['medium', 'high', 'ultra'] as const) {
+    for (const shadows of [false, true]) {
+      const renderer = lightingRenderer();
+      (renderer as any).notifyResolutionScaleChange = () => {};
+      renderer.setLightingQuality(quality);
+      renderer.setShadowsEnabled(shadows);
+      const shadow = renderer.sunLight.shadow;
+      const map = new THREE.WebGLRenderTarget(shadow.mapSize.x, shadow.mapSize.y);
+      map.depthTexture = new THREE.DepthTexture(shadow.mapSize.x, shadow.mapSize.y);
+      shadow.map = map;
+      const depth = map.depthTexture;
+      const key = () => [renderer.renderer.shadowMap.enabled, ...renderer.scene.children
+        .filter((object: any) => object.isLight && object.visible)
+        .map((object: any) => `${object.id}:${object.castShadow}`)];
+      const originalKey = key(), intensity = renderer.fillLight.intensity;
+      for (let i = 0; i < 3; i++) {
+        (renderer as any).applyAdaptiveEffects('reduced');
+        assert.deepEqual(key(), originalKey);
+        assert.equal(shadow.intensity, 0);
+        assert.equal(shadow.autoUpdate || shadow.needsUpdate, false);
+        assert.equal(map.width, 1, 'release the expensive shadow allocation');
+        assert.equal(map.depthTexture, depth, 'keep cached comparison sampler references valid');
+        assert.equal(renderer.fillLight.intensity, 0);
+        (renderer as any).applyAdaptiveEffects('full');
+        assert.deepEqual(key(), originalKey);
+        assert.equal(shadow.intensity, shadows ? 1 : 0);
+        assert.equal(shadow.autoUpdate, shadows);
+        assert.equal(shadow.needsUpdate, shadows, 'the next active shadow pass must refresh the map');
+        assert.equal(renderer.fillLight.intensity, intensity);
+      }
+      depth.dispose(); map.dispose();
+    }
+  }
 });
 
 test('frame updates preserve the preset and align lighting with the torus projection', () => {

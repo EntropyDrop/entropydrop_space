@@ -2849,8 +2849,10 @@ export class SceneRenderer {
     this.hemiLight.color.setHex(preset.hemisphereSkyColor);
     this.hemiLight.groundColor.setHex(preset.hemisphereGroundColor);
     this.hemiLight.intensity = preset.hemisphereIntensity;
-    this.fillLight.intensity = preset.fillIntensity;
-    this.fillLight.visible = fullEffects && preset.fillIntensity > 0;
+    // Keep the light list stable during automatic fallback. Removing a light
+    // invalidates every terrain pipeline, including offscreen warmed objects.
+    this.fillLight.intensity = fullEffects ? preset.fillIntensity : 0;
+    this.fillLight.visible = preset.fillIntensity > 0;
     this.renderer.toneMappingExposure = preset.exposure;
     this.renderer.toneMapping = cinematic ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
     if (this.previewRenderer) this.previewRenderer.toneMappingExposure = preset.exposure;
@@ -2910,18 +2912,20 @@ export class SceneRenderer {
   }
 
   private applyShadowState() {
-    const enabled = this.shadowsEnabled
-      && this.lightingQuality !== 'low'
-      && this.adaptiveEffectsQuality === 'full';
+    const enabled = this.shadowsEnabled && this.lightingQuality !== 'low';
+    const active = enabled && this.adaptiveEffectsQuality === 'full';
     // shadowMap.enabled participates in Three's program cache key. Keep the
     // light's castShadow flag stable: clearing it disposes a ShadowNode that
     // cached HDR render objects can still reference when Ultra is re-enabled.
     if (this.sunLight) {
       this.sunLight.castShadow = true;
-      this.sunLight.shadow.autoUpdate = enabled;
-      this.sunLight.shadow.needsUpdate = enabled;
+      // Adaptive fallback changes uniforms and stops shadow rendering without
+      // invalidating the warmed terrain's shadow shader variant.
+      this.sunLight.shadow.intensity = active ? 1 : 0;
+      this.sunLight.shadow.autoUpdate = active;
+      this.sunLight.shadow.needsUpdate = active;
     }
-    if (!enabled) this.releaseSunShadowMap();
+    if (!active) this.releaseSunShadowMap();
     if (this.renderer.shadowMap.enabled === enabled) return;
     this.renderer.shadowMap.enabled = enabled;
   }

@@ -150,14 +150,21 @@ export function installFrameDiagnostics(game: any) {
     refreshButtons(); clear();
   };
   let comparison: { saved: ReturnType<typeof capture>; cases: { label: string; apply(): void }[];
-    motion?: boolean; fullTurn?: boolean; index: number; warmUntil: number; endAt: number; warmed: boolean; rows: string[] } | null = null;
+    motion?: boolean; fullTurn?: boolean; rapidTurns?: boolean; slowFrames?: any[]; pipelineEvents?: any[];
+    index: number; warmUntil: number; endAt: number; warmed: boolean; rows: string[] } | null = null;
+  function restoreComparison(run: NonNullable<typeof comparison>) {
+    if (run.rapidTurns) { Object.assign(game.controller, run.saved.view); clear(); }
+    else restore(run.saved);
+  }
   function beginCase(now: number) {
     const run = comparison!;
     restore(run.saved);
-    // Fixed mode also selects full effects. Use this deliberately for every
-    // case and label it; an Auto baseline might previously have reduced effects.
-    scene.setResolutionScale(run.saved.resolution.scale);
+    // Fixed mode also selects full effects for the isolated A/B comparisons.
+    // Rapid turns retain Auto to exercise its full/reduced effect transitions.
+    if (!run.rapidTurns) scene.setResolutionScale(run.saved.resolution.scale);
     run.cases[run.index].apply(); clear(); refreshButtons();
+    run.slowFrames = [];
+    run.pipelineEvents = [];
     run.warmUntil = now + 1500; run.endAt = run.warmUntil + (run.fullTurn ? 8000 : 4000); run.warmed = false;
   }
   const faceCases = () => [false,true,false].map((enabled,i)=>({
@@ -218,6 +225,15 @@ export function installFrameDiagnostics(game: any) {
       cases: ['First full turn', 'Repeated full turn'].map(label => ({ label, apply() {} })),
       index: 0, warmUntil: 0, endAt: 0, warmed: false,
       rows: [`${saved.quality} | 360-degree turn over 8 seconds | current terrain and graphics settings`] };
+    beginCase(performance.now());
+  });
+  button('Measure rapid turns (about 19s)', () => {
+    if (!readyForTerrainProbe()) return;
+    const saved = capture();
+    comparison = { saved, motion: true, fullTurn: true, rapidTurns: true,
+      cases: ['First rapid turns', 'Repeated rapid turns'].map(label => ({ label, apply() {} })),
+      index: 0, warmUntil: 0, endAt: 0, warmed: false,
+      rows: [`${saved.quality} | 8 full turns over 8 seconds with vertical sweeps | current graphics and resolution mode`] };
     beginCase(performance.now());
   });
   button('Merged buffers: toggle', () => {
@@ -441,7 +457,7 @@ export function installFrameDiagnostics(game: any) {
     finally { restore(saved); scene.render(true); }
   });
   button('Reset isolation', () => {
-    if (comparison) { const saved = comparison.saved; comparison = null; restore(saved); }
+    if (comparison) { const run = comparison; comparison = null; restoreComparison(run); }
     for (const key of Object.keys(flags)) flags[key] = true;
     refreshButtons(); clear();
   });
@@ -453,6 +469,19 @@ export function installFrameDiagnostics(game: any) {
       finally { stage.set(name, (stage.get(name) ?? 0) + performance.now() - start); }
     }));
   };
+  undo.push(interceptMethod(backend, 'createRenderPipeline', (original, args) => {
+    const started = performance.now();
+    try { return original(...args); }
+    finally {
+      const elapsed = performance.now() - started;
+      stage.set('Pipeline creation', (stage.get('Pipeline creation') ?? 0) + elapsed);
+      if (comparison && comparison.pipelineEvents!.length < 1000) comparison.pipelineEvents!.push({
+        elapsedMs: started - comparison.warmUntil, cpuMs: elapsed, async: !!args[1],
+        object: args[0].object.name, objectId: args[0].object.id, materialId: args[0].material.id,
+        effects: scene.getResolutionScaleState().effectsQuality,
+      });
+    }
+  }));
   for (const [target, method, label] of [
     [game.entitySimulationClock, 'advance', 'Simulation'], [game.controller, 'updateAimRaycast', 'Picking'],
     [game.world, 'updateChunksAround', 'Terrain window'], [game.world, 'processInteractiveTerrainWork', 'Terrain publish'],
@@ -515,18 +544,28 @@ export function installFrameDiagnostics(game: any) {
       const progress=comparison.warmed ? Math.max(0,Math.min(1,(start-comparison.warmUntil)/duration)) : 0;
       game.controller.yaw=comparison.saved.view.yaw+(comparison.fullTurn ? progress*Math.PI*2 : -.6+progress*1.2);
       game.controller.pitch=comparison.saved.view.pitch;
+      if (comparison.rapidTurns) {
+        game.controller.yaw = comparison.saved.view.yaw + progress * Math.PI * 16;
+        game.controller.pitch = Math.max(-1.5, Math.min(1.5, comparison.saved.view.pitch + Math.sin(progress * Math.PI * 12) * .95));
+      }
     }
     try { return original(...args); }
     finally {
       const now = performance.now();
       if (document.visibilityState === 'visible') {
         metric('CPU').add(now - start);
-        if (previous) metric('Frame').add(frameTime - previous);
+        const gap = previous ? frameTime - previous : 0;
+        if (previous) metric('Frame').add(gap);
         for (const [name, duration] of stage) metric(name).add(duration);
         calls = renderer.info.render.drawCalls; triangles = renderer.info.render.triangles;
         previous = frameTime;
         if (comparison) {
           const run = comparison;
+          if (run.warmed && gap > 50 && run.slowFrames!.length < 100) run.slowFrames!.push({
+            elapsedMs: now - run.warmUntil, gapMs: gap, cpuMs: now - start, stages: Object.fromEntries(stage),
+            yaw: game.controller.yaw, pitch: game.controller.pitch, resolution: scene.getResolutionScaleState(),
+            mergedBuffers: { ...game.world.distantSurface?.voxels.group.userData.voxelArenaStats },
+          });
           if (!run.warmed && game.world.distantSurface?.voxels.hasPendingWork) {
             run.warmUntil = now + 1500; run.endAt = run.warmUntil + (run.fullTurn ? 8000 : 4000);
           }
@@ -538,8 +577,9 @@ export function installFrameDiagnostics(game: any) {
             const frame = metric('Frame').summary(), cpu = metric('CPU').summary(), gpu = metric('GPU').summary();
             const timings = Object.fromEntries([...samples].map(([name, values]) => [name, values.summary()]));
             reports.push({time:new Date().toISOString(),label:run.cases[run.index].label,
-              motion:run.motion ? {yawStart:run.saved.view.yaw-(run.fullTurn ? 0 : .6),yawSweep:run.fullTurn ? Math.PI*2 : 1.2,
-                durationMs:run.fullTurn ? 8000 : 4000,pitch:run.saved.view.pitch} : null,
+              motion:run.motion ? {yawStart:run.saved.view.yaw-(run.fullTurn ? 0 : .6),yawSweep:run.fullTurn ? Math.PI*(run.rapidTurns ? 16 : 2) : 1.2,
+                durationMs:run.fullTurn ? 8000 : 4000,pitch:run.saved.view.pitch,pitchAmplitude:run.rapidTurns ? .95 : 0} : null,
+              slowFrames: run.slowFrames, pipelineEvents: run.pipelineEvents, resolution: scene.getResolutionScaleState(),
               quality:scene.getLightingQuality(),shadows:scene.getShadowsEnabled(),flags:{...flags},gpuTimingEnabled:gpuEnabled,
               width:renderer.domElement.width,height:renderer.domElement.height,camera:scene.camera.position.toArray(),
               rotation:scene.camera.quaternion.toArray(),timings,frame:frameMetrics(metric('Frame').snapshot()),calls,triangles,
@@ -552,12 +592,12 @@ export function installFrameDiagnostics(game: any) {
             run.rows.push(`${run.cases[run.index].label}: ${(1000 / (frame.mean || 1)).toFixed(1)} FPS | frame ${frame.p50.toFixed(2)}/${frame.p95.toFixed(2)} ms | max ${frameMetrics(metric('Frame').snapshot()).maxMs.toFixed(2)} ms | CPU ${cpu.p50.toFixed(2)}/${cpu.p95.toFixed(2)} ms | GPU ${gpu.count ? gpu.p50.toFixed(2) : 'N/A'} ms | ${calls} calls / ${triangles} tris`);
             showResults(run.rows);
             if (++run.index < run.cases.length) beginCase(now);
-            else { comparison = null; restore(run.saved); showResults([...run.rows, 'Done. Original settings restored.']); }
+            else { comparison = null; restoreComparison(run); showResults([...run.rows, 'Done. Original settings restored.']); }
           }
         }
       } else {
         previous = 0;
-        if (comparison) { const run = comparison; comparison = null; restore(run.saved); showResults([...run.rows, 'Cancelled: tab hidden; original settings restored.']); }
+        if (comparison) { const run = comparison; comparison = null; restoreComparison(run); showResults([...run.rows, 'Cancelled: tab hidden; original settings restored.']); }
       }
       if (now - published >= 1000) publish(now);
     }
@@ -566,7 +606,7 @@ export function installFrameDiagnostics(game: any) {
     if (disposed) return;
     disposed = true;
     if (exportUrl) URL.revokeObjectURL(exportUrl);
-    if (comparison) { restore(comparison.saved); comparison = null; }
+    if (comparison) { restoreComparison(comparison); comparison = null; }
     for (const restoreMethod of undo.reverse()) restoreMethod();
     backend.trackTimestamp = previousTracking;
     renderer.info.autoReset = autoReset;

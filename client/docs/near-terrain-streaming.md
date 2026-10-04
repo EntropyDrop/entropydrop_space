@@ -1,5 +1,40 @@
 # Near terrain streaming
 
+## Firefox rapid-turn follow-up (2026-10-05)
+
+The slow full-turn probe below fixed the resolution scale, which also held
+adaptive effects at full quality. It missed the automatic fallback triggered
+by rapid yaw and pitch changes. Fallback removed the fill light and toggled
+the renderer's shadow shader variant, invalidating precompiled terrain.
+Newly visible terrain then compiled synchronously during play.
+
+Adaptive fallback now keeps the visible light list and shadow variant stable.
+It sets fill/shadow intensity to zero, stops shadow-map updates and shrinks
+the inactive shadow allocation. Full quality restores intensity and schedules
+a fresh shadow pass. Explicit quality and shadow preferences still apply.
+Tests cover repeated full/reduced transitions for Medium, High and Ultra,
+with shadows both enabled and disabled, including stable depth-texture references.
+
+The development profiler's **Measure rapid turns** retains automatic resolution
+mode and performs eight complete turns over eight seconds, with vertical sweeps
+of about 54 degrees in each direction. Each case starts with full effects and
+allows automatic fallback. Reports include long frames and pipeline creation;
+ending the probe restores the viewing direction without resetting adaptation.
+
+On Firefox 153.0.1, default online terrain, Ultra and shadows off, the original
+rapid-turn samples peaked at 4,512.68 and 3,966.94 ms. After the fix, fresh-page
+first and repeated samples peaked at 64.54 and 64.84 ms, averaged 37.1 and
+38.2 callback FPS, and created no terrain pipelines during either case.
+The first case created one cursor-highlight pipeline; the repeat created none.
+There were still seven frames above 50 ms across both fixed samples, so this
+fix removes the multi-second compilation stalls without claiming every frame
+meets 60 FPS. The [raw rapid-turn comparison](../src/dev/results/firefox-rapid-turns-2026-10-05.json)
+records the automatic resolution/effects state and frame statistics. These are
+callback timings on one Mac, not compositor presentation measurements.
+
+Validation passed 1,049 client tests with the same two existing baseline
+failures excluded, plus type checking, documentation checks and production build.
+
 ## Firefox camera rotation (2026-10-05)
 
 The entry gate now compiles resident terrain pipelines in all directions with
