@@ -398,11 +398,6 @@ export function GlobalSettingsModal() {
                   <span className="settings-label" id="setting-lighting-label">Lighting Quality</span>
                   <span className="settings-desc" id="setting-lighting-description" aria-live="polite">
                     {LIGHTING_PRESETS[state.lightingQuality].description}
-                    {state.lightingQuality !== 'low' && state.resolutionEffectsQuality === 'reduced'
-                      ? (state.lightingQuality === 'ultra'
-                        ? ' · Auto has paused sun rays and contact shadows; bloom, cinematic sky and color remain'
-                        : ' · Auto resolution has temporarily reduced effects; your selected quality is saved')
-                      : ''}
                   </span>
                 </div>
                 <div
@@ -430,7 +425,7 @@ export function GlobalSettingsModal() {
                   <span className="settings-label">Shadows</span>
                   <span className="settings-desc">{state.lightingQuality === 'low'
                     ? 'Paused at Low lighting quality · select Medium or higher to use shadows'
-                    : `Render real-time sunlight shadows${state.shadowsEnabled && state.resolutionEffectsQuality === 'reduced' ? ' · temporarily paused by Auto resolution' : ''}`}</span>
+                    : 'Render real-time sunlight shadows'}</span>
                 </div>
                 <div className="settings-segmented-control" id="setting-shadows-group">
                   {([
@@ -453,7 +448,7 @@ export function GlobalSettingsModal() {
               <div className="settings-row settings-resolution-row">
                 <div className="settings-label-group">
                   <span className="settings-label">Render Resolution</span>
-                  <span className="settings-desc">Auto targets {state.resolutionTargetFps} FPS{state.lightingQuality === 'ultra' ? ' for cinematic lighting' : ''} · currently {Math.round(state.resolutionScale * 100)}% ({state.resolutionPixelRatio.toFixed(2)}× pixel ratio){state.resolutionEffectsQuality === 'reduced' ? ' · effects reduced' : ''}</span>
+                  <span className="settings-desc">Auto adjusts resolution only · targets {state.resolutionTargetFps} FPS · currently {Math.round(state.resolutionScale * 100)}% ({state.resolutionPixelRatio.toFixed(2)}× pixel ratio)</span>
                 </div>
                 <div className="settings-segmented-control settings-resolution-control" id="setting-resolution-group">
                   {([

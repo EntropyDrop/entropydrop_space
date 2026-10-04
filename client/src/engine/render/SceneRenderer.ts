@@ -20,7 +20,6 @@ import {
   wrappedAxisDelta,
 } from './RemotePlayerMotion.ts';
 import { AdaptiveResolutionController } from './AdaptiveResolution.ts';
-import type { AdaptiveEffectsQuality } from './AdaptiveResolution.ts';
 import { CinematicEffects } from './CinematicEffects.ts';
 import { createSkyMaterial } from './CinematicSky.ts';
 import {
@@ -654,7 +653,6 @@ export class SceneRenderer {
   readonly ready: Promise<void>;
   private previewReady = false;
   declare adaptiveResolution: AdaptiveResolutionController;
-  declare adaptiveEffectsQuality: AdaptiveEffectsQuality;
   declare shadowsEnabled: boolean;
   declare lightingQuality: LightingQuality;
   declare cinematicEffects: CinematicEffects | null;
@@ -750,7 +748,6 @@ export class SceneRenderer {
     this.bentFillDirection = new THREE.Vector3();
     this.materialScanCountdown = 0;
     this.adaptiveResolution = new AdaptiveResolutionController();
-    this.adaptiveEffectsQuality = 'full';
     this.shadowsEnabled = false;
     this.lightingQuality = DEFAULT_LIGHTING_QUALITY;
     this.cinematicEffects = null;
@@ -2801,7 +2798,6 @@ export class SceneRenderer {
   setResolutionScale(setting: 'auto' | number) {
     const scale = this.adaptiveResolution.setSetting(setting);
     this.applyResolutionScale(scale);
-    this.applyAdaptiveEffects(this.adaptiveResolution.getState().effectsQuality);
     this.notifyResolutionScaleChange();
     return this.getResolutionScaleState();
   }
@@ -2829,7 +2825,6 @@ export class SceneRenderer {
     this.lightingQuality = normalizeLightingQuality(quality);
     if (this.adaptiveResolution) {
       this.adaptiveResolution.setTargetFps(this.lightingQuality === 'ultra' ? 60 : 120);
-      this.adaptiveEffectsQuality = this.adaptiveResolution.getState().effectsQuality;
     }
     this.applyLightingQuality();
     if (this.adaptiveResolution) this.notifyResolutionScaleChange();
@@ -2842,25 +2837,22 @@ export class SceneRenderer {
 
   private applyLightingQuality() {
     const preset = LIGHTING_PRESETS[this.lightingQuality];
-    const fullEffects = this.adaptiveEffectsQuality === 'full';
     const cinematic = this.lightingQuality === 'ultra';
     this.sunLight.color.setHex(preset.sunColor);
     this.sunLight.intensity = preset.sunIntensity;
     this.hemiLight.color.setHex(preset.hemisphereSkyColor);
     this.hemiLight.groundColor.setHex(preset.hemisphereGroundColor);
     this.hemiLight.intensity = preset.hemisphereIntensity;
-    // Keep the light list stable during automatic fallback. Removing a light
-    // invalidates every terrain pipeline, including offscreen warmed objects.
-    this.fillLight.intensity = fullEffects ? preset.fillIntensity : 0;
+    this.fillLight.intensity = preset.fillIntensity;
     this.fillLight.visible = preset.fillIntensity > 0;
     this.renderer.toneMappingExposure = preset.exposure;
     this.renderer.toneMapping = cinematic ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
     if (this.previewRenderer) this.previewRenderer.toneMappingExposure = preset.exposure;
     this.skyDomeUniforms.uGradientStrength.value = preset.skyGradient;
-    this.skyDomeUniforms.uSunGlow.value = fullEffects ? preset.sunGlow : 0;
+    this.skyDomeUniforms.uSunGlow.value = preset.sunGlow;
     this.skyDomeUniforms.uCinematic.value = cinematic ? 1 : 0;
     // Targets are allocated lazily on the next Ultra frame and released when
-    // leaving the preset. Adaptive fallback keeps the sky/grade/haze visible.
+    // leaving the preset.
     if (!cinematic && this.cinematicEffects) {
       this.cinematicEffects.dispose();
       this.cinematicEffects = null;
@@ -2901,31 +2893,20 @@ export class SceneRenderer {
     if (Math.abs(scale - this.resolutionScale) > 0.001) {
       this.applyResolutionScale(scale, true);
     }
-    this.applyAdaptiveEffects(this.adaptiveResolution.getState().effectsQuality);
-  }
-
-  private applyAdaptiveEffects(quality: AdaptiveEffectsQuality) {
-    if (quality === this.adaptiveEffectsQuality) return;
-    this.adaptiveEffectsQuality = quality;
-    this.applyLightingQuality();
-    this.notifyResolutionScaleChange();
   }
 
   private applyShadowState() {
     const enabled = this.shadowsEnabled && this.lightingQuality !== 'low';
-    const active = enabled && this.adaptiveEffectsQuality === 'full';
     // shadowMap.enabled participates in Three's program cache key. Keep the
     // light's castShadow flag stable: clearing it disposes a ShadowNode that
     // cached HDR render objects can still reference when Ultra is re-enabled.
     if (this.sunLight) {
       this.sunLight.castShadow = true;
-      // Adaptive fallback changes uniforms and stops shadow rendering without
-      // invalidating the warmed terrain's shadow shader variant.
-      this.sunLight.shadow.intensity = active ? 1 : 0;
-      this.sunLight.shadow.autoUpdate = active;
-      this.sunLight.shadow.needsUpdate = active;
+      this.sunLight.shadow.intensity = enabled ? 1 : 0;
+      this.sunLight.shadow.autoUpdate = enabled;
+      this.sunLight.shadow.needsUpdate = enabled;
     }
-    if (!active) this.releaseSunShadowMap();
+    if (!enabled) this.releaseSunShadowMap();
     if (this.renderer.shadowMap.enabled === enabled) return;
     this.renderer.shadowMap.enabled = enabled;
   }
@@ -3349,7 +3330,7 @@ export class SceneRenderer {
     const cinematic = this.lightingQuality === 'ultra';
     if (cinematic) {
       this.cinematicEffects ??= new CinematicEffects();
-      // The HDR atmosphere pass owns distance haze, including adaptive fallback.
+      // The HDR atmosphere pass owns distance haze.
       // Stacking material fog on top bleaches the kilometre-scale opposite ring.
       // Keep the fog object/program intact and restore it for non-HDR rendering.
       const fog = this.scene.fog instanceof THREE.FogExp2 ? this.scene.fog : null;
@@ -3357,7 +3338,7 @@ export class SceneRenderer {
       try {
         if (fog) fog.density = 0;
         this.cinematicEffects.render(this.renderer, this.scene, this.camera,
-          this.bentLightDirection, this.bentSurfaceUp, this.adaptiveEffectsQuality === 'full');
+          this.bentLightDirection, this.bentSurfaceUp);
       } finally {
         if (fog) fog.density = density;
       }
@@ -3408,7 +3389,7 @@ export class SceneRenderer {
     return png;
   }
 
-  /** Loading work must not lower the user's automatic resolution or effects. */
+  /** Loading work must not lower the user's automatic resolution. */
   prepareInitialTerrainFrame(playerPosition: THREE.Vector3, playerYaw: number) {
     this.update(0, playerPosition, playerYaw);
     this.render(false, true);

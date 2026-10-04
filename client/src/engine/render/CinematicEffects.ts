@@ -35,7 +35,6 @@ export class CinematicEffects {
   readonly sunDirection = uniform(new THREE.Vector3(0,1,0));
   readonly sunUv = uniform(new THREE.Vector2());
   readonly sunVisibility = uniform(0);
-  readonly secondaryEffects = uniform(1);
   readonly atmosphere: THREE.NodeMaterial;
   readonly secondary: THREE.NodeMaterial;
   readonly output: THREE.NodeMaterial;
@@ -126,7 +125,7 @@ export class CinematicEffects {
     this.atmosphere = fullscreen(Fn(() => {
       const scene = colorAt(uv()), color = scene.rgb.toVar(), coverage = clamp(scene.a.sub(1),0,1);
       const p = positionAt(uv()).toVar(), ray = this.cameraWorld.mul(vec4(p,0)).xyz.normalize();
-      const effects = this.secondaryEffects.greaterThan(.5).select(secondaryAt(p),vec2(1,0));
+      const effects = secondaryAt(p);
       If(depthAt(uv()).lessThan(.999999).and(p.z.negate().greaterThan(.8)), () => {
         color.mulAssign(mix(effects.x,1,coverage));
         const distance = p.length(), elevation = dot(ray,this.surfaceUp);
@@ -168,10 +167,10 @@ export class CinematicEffects {
   setSecondaryResolutionScale(scale: .5 | 1) { this.secondaryScale=scale; this.setSize(this.sceneTarget.width,this.sceneTarget.height); }
   getSecondaryResolutionScale() { return this.secondaryScale; }
   render(renderer: SpaceRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
-    sunDirection: THREE.Vector3, surfaceUp: THREE.Vector3, fullEffects: boolean) {
+    sunDirection: THREE.Vector3, surfaceUp: THREE.Vector3) {
     renderer.getDrawingBufferSize(this.size); this.setSize(this.size.x,this.size.y);
     this.inverseProjection.value.copy(camera.projectionMatrixInverse); this.cameraWorld.value.copy(camera.matrixWorld);
-    this.surfaceUp.value.copy(surfaceUp); this.sunDirection.value.copy(sunDirection); this.secondaryEffects.value=fullEffects?1:0;
+    this.surfaceUp.value.copy(surfaceUp); this.sunDirection.value.copy(sunDirection);
     this.projectedSun.copy(camera.position).addScaledVector(sunDirection,1000).applyMatrix4(camera.matrixWorldInverse);
     if(this.projectedSun.z<-.001) {
       this.projectedSun.applyMatrix4(camera.projectionMatrix);
@@ -183,10 +182,7 @@ export class CinematicEffects {
     try {
       renderer.autoClear=true; renderer.setRenderTarget(this.sceneTarget); renderer.render(scene,camera);
       const draw=(target: THREE.RenderTarget, material: THREE.NodeMaterial) => { renderer.setRenderTarget(target); this.quad.material=material; this.quad.render(renderer); };
-      if(fullEffects) draw(this.secondaryTarget,this.secondary);
-      // The atmosphere graph still binds this texture when its contribution
-      // is disabled. Refresh storage after a resize even if its pass is skipped.
-      else renderer.initRenderTarget(this.secondaryTarget);
+      draw(this.secondaryTarget,this.secondary);
       draw(this.atmosphereTarget,this.atmosphere); draw(this.displayTarget,this.output);
       this.pipeline ??= new THREE.RenderPipeline(renderer,this.antialias);
       this.pipeline.outputColorTransform=false;

@@ -159,8 +159,8 @@ export function installFrameDiagnostics(game: any) {
   function beginCase(now: number) {
     const run = comparison!;
     restore(run.saved);
-    // Fixed mode also selects full effects for the isolated A/B comparisons.
-    // Rapid turns retain Auto to exercise its full/reduced effect transitions.
+    // Hold resolution fixed for isolated A/B comparisons. Rapid turns retain
+    // the selected resolution mode to exercise automatic scale changes.
     if (!run.rapidTurns) scene.setResolutionScale(run.saved.resolution.scale);
     run.cases[run.index].apply(); clear(); refreshButtons();
     run.slowFrames = [];
@@ -478,7 +478,7 @@ export function installFrameDiagnostics(game: any) {
       if (comparison && comparison.pipelineEvents!.length < 1000) comparison.pipelineEvents!.push({
         elapsedMs: started - comparison.warmUntil, cpuMs: elapsed, async: !!args[1],
         object: args[0].object.name, objectId: args[0].object.id, materialId: args[0].material.id,
-        effects: scene.getResolutionScaleState().effectsQuality,
+        quality: scene.getLightingQuality(),
       });
     }
   }));
@@ -525,7 +525,7 @@ export function installFrameDiagnostics(game: any) {
     const resolution = scene.getResolutionScaleState();
     const fmt = (n: number) => n.toFixed(2);
     const arena=game.world.distantSurface?.voxels.group.userData.voxelArenaStats;
-    stats.textContent = `Merged buffers ${game.world.distantSurface?.voxels.getMergedBuffersEnabled() ? 'ON' : 'OFF'}\nFar command cache ${game.world.distantSurface?.voxels.getCommandCachingEnabled() ? 'ON' : 'OFF'}\n${cadence.count ? fmt(1000 / cadence.mean) : 'Warming up'} FPS | frame p50/p95 ${fmt(cadence.p50)}/${fmt(cadence.p95)} ms\nCPU p50/p95 ${fmt(cpu.p50)}/${fmt(cpu.p95)} ms | GPU ${!gpuEnabled ? 'OFF' : timer ? `${fmt(gpu.p50)}/${fmt(gpu.p95)} ms (${gpu.count} samples)` : 'timer unavailable'}\nWhole-frame calls ${calls} | triangles ${triangles}\nCanvas ${renderer.domElement.width} x ${renderer.domElement.height} | ${scene.getLightingQuality()} | scale ${resolution.scale} | effects ${resolution.effectsQuality}\nCPU stages p50/p95 (nested, not additive):\n`;
+    stats.textContent = `Merged buffers ${game.world.distantSurface?.voxels.getMergedBuffersEnabled() ? 'ON' : 'OFF'}\nFar command cache ${game.world.distantSurface?.voxels.getCommandCachingEnabled() ? 'ON' : 'OFF'}\n${cadence.count ? fmt(1000 / cadence.mean) : 'Warming up'} FPS | frame p50/p95 ${fmt(cadence.p50)}/${fmt(cadence.p95)} ms\nCPU p50/p95 ${fmt(cpu.p50)}/${fmt(cpu.p95)} ms | GPU ${!gpuEnabled ? 'OFF' : timer ? `${fmt(gpu.p50)}/${fmt(gpu.p95)} ms (${gpu.count} samples)` : 'timer unavailable'}\nWhole-frame calls ${calls} | triangles ${triangles}\nCanvas ${renderer.domElement.width} x ${renderer.domElement.height} | ${scene.getLightingQuality()} | scale ${resolution.scale}\nCPU stages p50/p95 (nested, not additive):\n`;
     for (const [name, values] of samples) {
       if (['Frame', 'CPU', 'GPU'].includes(name)) continue;
       const value = values.summary(); stats.textContent += `${name}: ${fmt(value.p50)}/${fmt(value.p95)} ms\n`;

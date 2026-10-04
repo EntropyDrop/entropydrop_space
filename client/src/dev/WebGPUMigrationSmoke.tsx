@@ -47,11 +47,11 @@ export function installWebGPUMigrationSmoke(game: any) {
       const adaptiveUpdate=sr.updateAdaptiveResolution;
       sr.updateAdaptiveResolution=()=>{};
       try {
-        for(const [effects, scale] of [['reduced', .5], ['full', 1]] as const) {
-          sr.setResolutionScale(scale);sr.applyAdaptiveEffects(effects);
+        for(const scale of [.5, 1]) {
+          sr.setResolutionScale(scale);
           for(let i=0;i<4;i++)await frame();
           sr.render();await device.queue.onSubmittedWorkDone();sr.render();
-          report.cases.push({effects:sr.adaptiveEffectsQuality,scale,...pixels(sr.renderer.domElement)});update();
+          report.cases.push({quality:sr.getLightingQuality(),scale,...pixels(sr.renderer.domElement)});update();
         }
       } finally { sr.updateAdaptiveResolution=adaptiveUpdate;sr.setResolutionScale(1); }
       const item={kind:'blockset',name:'WebGPU fixture',blocks:[{dx:0,dy:0,dz:0,size:1,color:0x40bbff},{dx:1,dy:0,dz:0,size:.5,color:0xff6633,materialId:1}]};
@@ -78,7 +78,7 @@ export function installWebGPUMigrationSmoke(game: any) {
       while(skin.querySelector('canvas')?.dataset.renderReady!=='true' && performance.now()<skinDeadline)await frame();
       if(skin.querySelector('canvas')?.dataset.renderReady!=='true')throw new Error('Skin preview did not render');
       report.cases.push({skinPreview:skin.querySelector('canvas')?.dataset.renderBackend});
-      if(report.cases.some((value:any)=>(value.quality||value.effects) && (value.colors<50||value.opaque!==4096)))throw new Error('A quality mode produced an empty frame');
+      if(report.cases.some((value:any)=>value.quality && (value.colors<50||value.opaque!==4096)))throw new Error('A quality mode produced an empty frame');
       await device.queue.onSubmittedWorkDone();await frame();
       report.complete=report.errors.length===0;update();
     } catch(error) {report.errors.push(String(error));update();}

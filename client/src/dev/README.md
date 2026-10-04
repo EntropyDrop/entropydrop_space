@@ -83,11 +83,11 @@ Temporary switches isolate scene drawing, distant LOD, standard near terrain,
 micro terrain, sky and Ultra post-processing. They only hide rendering for the
 draw and restore visibility immediately; simulation, streaming and world data
 are unchanged. **Run render A/B** holds the current resolution fixed and uses
-full effects (fixed mode disables Auto's effect degradation), warms each
+the selected lighting quality, warms each
 case for 1.5 seconds, samples for 4 seconds and repeats the baseline at the end.
 It also compares 50% resolution, or 100% if already at 50%. The results label
-these conditions; do not compare this full-effects baseline directly with an
-Auto/reduced-effects baseline. Click Play, then Escape before measuring to
+these conditions. Auto changes resolution only; lighting and effects remain
+at the selected quality. Click Play, then Escape before measuring to
 exclude the full-screen startup blur. Avoid moving the camera, resizing the window or
 running builds during sampling. Hiding the tab cancels the test. Completion,
 cancellation and closing the panel restore the original graphics preferences
@@ -95,8 +95,8 @@ without writing localStorage. Close removes instrumentation and GPU queries.
 
 Ultra evaluates contact occlusion and sun shafts at half width/height, then
 composites them over the original scene using depth-aware AO upsampling. Bloom,
-emission masking, fog, grading and FXAA keep their existing resolutions. Auto's
-reduced-effects mode skips the secondary pass entirely.
+emission masking, fog, grading and FXAA keep their existing resolutions. All
+Ultra passes run at every render resolution.
 
 ## WebGPU bottleneck investigation (2026-10-03)
 
@@ -180,8 +180,8 @@ reference, not a replay of the old combined shader or an online-world benchmark.
 
 Run this workspace's Vite server and open
 `/space/app/tools/cinematic-effects-preview.html` for a deterministic visual
-comparison of edges, thin geometry, emission and foreground viewmodels. It also
-checks reduced effects and reports pixel differences and shader compile errors.
+comparison of edges, thin geometry, emission and foreground viewmodels. It
+reports pixel differences and shader compile errors.
 The parent website's Vite server only mounts the app entry, so use the standalone
 Space server for this tool page. Neither tool is included in the production app.
 

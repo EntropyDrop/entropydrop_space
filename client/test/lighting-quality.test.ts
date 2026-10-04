@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import {
   bendDirection,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { AdaptiveResolutionController } from '../src/engine/render/AdaptiveResolution.ts';
 import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 import {
   LIGHTING_QUALITY_SETTING_KEY, normalizeLightingQuality,
@@ -18,7 +19,6 @@ function lightingRenderer(maxTextureSize = 8192) {
     maxTextureSize,
   } as any;
   renderer.shadowsEnabled = true;
-  renderer.adaptiveEffectsQuality = 'full';
   renderer.lightingQuality = 'medium';
   renderer.skyDomeUniforms = {
     uGradientStrength: { value: 0 },
@@ -110,78 +110,51 @@ test('shadow textures respect GPU limits and same-size changes keep their alloca
   assert.equal(shadow.map.width, 1);
 });
 
-test('adaptive fallback restores the selected quality without overriding disabled shadows', () => {
-  const renderer = lightingRenderer();
-  renderer.setLightingQuality('ultra');
-  // Isolate the lighting transition from window/DPR notification plumbing.
-  (renderer as any).notifyResolutionScaleChange = () => {};
-  (renderer as any).applyAdaptiveEffects('reduced');
-  assert.equal(renderer.getLightingQuality(), 'ultra');
-  assert.equal(renderer.renderer.shadowMap.enabled, true, 'retain the compiled shadow variant');
-  assert.equal(renderer.sunLight.shadow.intensity, 0);
-  assert.equal(renderer.sunLight.shadow.autoUpdate, false);
-  assert.equal(renderer.sunLight.shadow.needsUpdate, false);
-  assert.equal(renderer.fillLight.visible, true, 'preserve the compiled light list during fallback');
-  assert.equal(renderer.fillLight.intensity, 0);
-  assert.equal(renderer.skyDomeUniforms.uSunGlow.value, 0);
-  assert.equal(renderer.skyDomeUniforms.uCinematic.value, 1, 'fallback must preserve the cinematic sky');
-
-  renderer.setLightingQuality('high');
-  assert.equal(renderer.renderer.shadowMap.enabled, true);
-  assert.equal(renderer.sunLight.shadow.intensity, 0);
-  assert.equal(renderer.fillLight.visible, true);
-  assert.equal(renderer.fillLight.intensity, 0);
-  (renderer as any).applyAdaptiveEffects('full');
-  assert.equal(renderer.getLightingQuality(), 'high');
-  assert.equal(renderer.sunLight.shadow.mapSize.x, 2048);
-  assert.equal(renderer.renderer.shadowMap.enabled, true);
-  assert.equal(renderer.sunLight.shadow.intensity, 1);
-  assert.equal(renderer.sunLight.shadow.autoUpdate, true);
-  assert.equal(renderer.fillLight.visible, true);
-  assert.ok(renderer.fillLight.intensity > 0);
-
-  renderer.setShadowsEnabled(false);
-  renderer.setLightingQuality('low');
-  renderer.setLightingQuality('ultra');
-  (renderer as any).applyAdaptiveEffects('reduced');
-  (renderer as any).applyAdaptiveEffects('full');
-  assert.equal(renderer.shadowsEnabled, false);
-  assert.equal(renderer.renderer.shadowMap.enabled, false);
-  assert.equal(renderer.fillLight.visible, true);
-});
-
-test('automatic lighting transitions preserve the warmed light and shadow pipeline keys', () => {
-  for (const quality of ['medium', 'high', 'ultra'] as const) {
+test('slow frames and resolution settings preserve manual lighting, shadows and cinematic effects', t => {
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { devicePixelRatio: 2 } });
+  t.after(() => {
+    if (windowDescriptor) Object.defineProperty(globalThis, 'window', windowDescriptor);
+    else delete (globalThis as any).window;
+  });
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  for (const quality of ['low', 'medium', 'high', 'ultra'] as const) {
     for (const shadows of [false, true]) {
       const renderer = lightingRenderer();
-      (renderer as any).notifyResolutionScaleChange = () => {};
       renderer.setLightingQuality(quality);
       renderer.setShadowsEnabled(shadows);
-      const shadow = renderer.sunLight.shadow;
-      const map = new THREE.WebGLRenderTarget(shadow.mapSize.x, shadow.mapSize.y);
-      map.depthTexture = new THREE.DepthTexture(shadow.mapSize.x, shadow.mapSize.y);
-      shadow.map = map;
-      const depth = map.depthTexture;
-      const key = () => [renderer.renderer.shadowMap.enabled, ...renderer.scene.children
-        .filter((object: any) => object.isLight && object.visible)
-        .map((object: any) => `${object.id}:${object.castShadow}`)];
-      const originalKey = key(), intensity = renderer.fillLight.intensity;
-      for (let i = 0; i < 3; i++) {
-        (renderer as any).applyAdaptiveEffects('reduced');
-        assert.deepEqual(key(), originalKey);
-        assert.equal(shadow.intensity, 0);
-        assert.equal(shadow.autoUpdate || shadow.needsUpdate, false);
-        assert.equal(map.width, 1, 'release the expensive shadow allocation');
-        assert.equal(map.depthTexture, depth, 'keep cached comparison sampler references valid');
-        assert.equal(renderer.fillLight.intensity, 0);
-        (renderer as any).applyAdaptiveEffects('full');
-        assert.deepEqual(key(), originalKey);
-        assert.equal(shadow.intensity, shadows ? 1 : 0);
-        assert.equal(shadow.autoUpdate, shadows);
-        assert.equal(shadow.needsUpdate, shadows, 'the next active shadow pass must refresh the map');
-        assert.equal(renderer.fillLight.intensity, intensity);
+      let pixelRatio = 2;
+      renderer.renderer.getPixelRatio = () => pixelRatio;
+      renderer.renderer.setPixelRatio = value => { pixelRatio = value; };
+      renderer.adaptiveResolution = new AdaptiveResolutionController();
+      renderer.adaptiveResolution.setTargetFps(quality === 'ultra' ? 60 : 120);
+      let hdrFrames = 0, directFrames = 0;
+      const effects = { render: () => { hdrFrames++; }, dispose() { assert.fail('resolution must not dispose cinematic effects'); } };
+      renderer.cinematicEffects = effects as any;
+      renderer.renderer.render = () => { directFrames++; };
+      const lighting = () => ({
+        quality: renderer.getLightingQuality(), shadows: renderer.getShadowsEnabled(),
+        shadowEnabled: renderer.renderer.shadowMap.enabled, shadowUpdates: renderer.sunLight.shadow.autoUpdate,
+        shadowIntensity: renderer.sunLight.shadow.intensity, fill: renderer.fillLight.intensity,
+        sun: renderer.sunLight.intensity, glow: renderer.skyDomeUniforms.uSunGlow.value,
+      });
+      const selected = lighting();
+      renderer.setResolutionScale('auto');
+      for (let frame = 0; frame < 600; frame++) {
+        now += 100;
+        (renderer as any).updateAdaptiveResolution();
       }
-      depth.dispose(); map.dispose();
+      assert.equal(renderer.getResolutionScaleState().scale, 0.5);
+      assert.deepEqual(lighting(), selected, 'sustained low FPS must not change manually selected effects');
+      for (const setting of [1, .67, .5, 'auto'] as const) {
+        renderer.setResolutionScale(setting);
+        assert.deepEqual(lighting(), selected);
+        (renderer as any).renderWorld();
+        assert.equal(renderer.cinematicEffects, effects);
+      }
+      assert.equal(hdrFrames, quality === 'ultra' ? 4 : 0);
+      assert.equal(directFrames, quality === 'ultra' ? 0 : 4);
     }
   }
 });
@@ -268,17 +241,15 @@ test('Ultra applies distance haze once and restores material fog for other rende
   renderer.scene.fog = fog;
   let hdrFrames = 0;
   renderer.cinematicEffects = {
-    render: (_gpu, scene, _camera, _sun, _up, fullEffects) => {
+    render: (_gpu, scene) => {
       assert.equal(scene.fog, fog, 'preserve the compiled material fog variant');
       assert.equal(fog.density, 0, 'postprocess haze must not stack with material fog');
-      assert.equal(fullEffects, renderer.adaptiveEffectsQuality === 'full');
       hdrFrames++;
     },
     dispose() {},
   } as any;
   renderer.setLightingQuality('ultra');
-  for (const quality of ['full', 'reduced'] as const) {
-    renderer.adaptiveEffectsQuality = quality;
+  for (let frame = 0; frame < 2; frame++) {
     (renderer as any).renderWorld();
     assert.equal(fog.density, 0.00012);
   }

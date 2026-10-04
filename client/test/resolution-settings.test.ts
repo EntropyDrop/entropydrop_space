@@ -17,7 +17,7 @@ test('restoring Ultra publishes the final 60 FPS target after initial resolution
     else delete (globalThis as any).localStorage;
   });
   let targetFps = 120;
-  const state = () => ({ mode: 'auto', scale: 1, effectsQuality: 'full', targetFps });
+  const state = () => ({ mode: 'auto', scale: 1, targetFps });
   const renderer = {
     setResolutionScale: state,
     setLightingQuality: (quality: string) => { targetFps = quality === 'ultra' ? 60 : 120; return quality; },
@@ -60,21 +60,19 @@ test('resolution setting is applied to the renderer and follows automatic update
     scale: 0.8,
     fixedScale: 0.67,
     averageFrameMs: 16.5,
-    effectsQuality: 'reduced',
     nativePixelRatio: 2,
     effectivePixelRatio: 1.6,
   });
   assert.equal(store.getSnapshot().resolutionScaleMode, 'auto');
   assert.equal(store.getSnapshot().resolutionScale, 0.8);
   assert.equal(store.getSnapshot().resolutionPixelRatio, 1.6);
-  assert.equal(store.getSnapshot().resolutionEffectsQuality, 'reduced');
 });
 
-test('shadow preference is applied to the renderer independently of adaptive quality', () => {
+test('shadow preference is applied to the renderer independently of resolution', () => {
   const applied: boolean[] = [];
   const renderer: any = {
     setResolutionScale() {
-      return { mode: 'auto', scale: 1, effectivePixelRatio: 1, effectsQuality: 'full' };
+      return { mode: 'auto', scale: 1, effectivePixelRatio: 1 };
     },
     setShadowsEnabled(enabled: boolean) {
       applied.push(enabled);
@@ -142,31 +140,28 @@ test('minimap preference is restored, applied immediately, and persisted', () =>
   }
 });
 
-test('renderer combines the shadow preference with adaptive effects quality', () => {
+test('renderer combines the manual shadow preference with the selected lighting preset', () => {
   const renderer = Object.create(SceneRenderer.prototype) as SceneRenderer;
-  const internal = renderer as any;
-  internal.renderer = { shadowMap: { enabled: true } };
-  internal.sunLight = { castShadow: true, shadow: { needsUpdate: false } };
-  internal.shadowsEnabled = true;
-  internal.adaptiveEffectsQuality = 'full';
-
+  renderer.renderer = { shadowMap: { enabled: true } } as any;
+  renderer.sunLight = { castShadow: true, shadow: { needsUpdate: false } } as any;
+  renderer.lightingQuality = 'ultra';
   renderer.setShadowsEnabled(false);
-  assert.equal(internal.renderer.shadowMap.enabled, false);
-  assert.equal(internal.sunLight.shadow.needsUpdate, false);
+  assert.equal(renderer.renderer.shadowMap.enabled, false);
+  assert.equal(renderer.sunLight.shadow.intensity, 0);
+  assert.equal(renderer.sunLight.shadow.autoUpdate, false);
+  assert.equal(renderer.sunLight.shadow.needsUpdate, false);
 
-  internal.sunLight.shadow.needsUpdate = false;
-  internal.adaptiveEffectsQuality = 'reduced';
   renderer.setShadowsEnabled(true);
-  assert.equal(internal.renderer.shadowMap.enabled, true, 'automatic fallback keeps the shadow shader variant');
-  assert.equal(internal.sunLight.shadow.intensity, 0);
-  assert.equal(internal.sunLight.shadow.autoUpdate, false);
-  assert.equal(internal.sunLight.shadow.needsUpdate, false);
+  assert.equal(renderer.renderer.shadowMap.enabled, true);
+  assert.equal(renderer.sunLight.shadow.intensity, 1);
+  assert.equal(renderer.sunLight.shadow.autoUpdate, true);
+  assert.equal(renderer.sunLight.shadow.needsUpdate, true);
 
-  internal.adaptiveEffectsQuality = 'full';
+  renderer.lightingQuality = 'low';
   renderer.setShadowsEnabled(true);
-  assert.equal(internal.renderer.shadowMap.enabled, true);
-  assert.equal(internal.sunLight.shadow.intensity, 1);
-  assert.equal(internal.sunLight.shadow.autoUpdate, true);
+  assert.equal(renderer.shadowsEnabled, true);
+  assert.equal(renderer.renderer.shadowMap.enabled, false);
+  assert.equal(renderer.sunLight.shadow.autoUpdate, false);
 });
 
 test('the canonical torus distant layer stays enabled through renderer setup', () => {

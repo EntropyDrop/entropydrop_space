@@ -18,7 +18,6 @@ const FRAME_TIME_WEIGHT = 0.08;
 const SLOW_FRAME_WEIGHT = 0.06;
 
 export type ResolutionScaleMode = 'auto' | 'fixed';
-export type AdaptiveEffectsQuality = 'full' | 'reduced';
 
 export interface AdaptiveResolutionState {
   targetFps: number;
@@ -26,7 +25,6 @@ export interface AdaptiveResolutionState {
   scale: number;
   fixedScale: number;
   averageFrameMs: number;
-  effectsQuality: AdaptiveEffectsQuality;
 }
 
 function clampScale(value: number): number {
@@ -61,7 +59,6 @@ export class AdaptiveResolutionController {
   private fixedScale = MAX_RESOLUTION_SCALE;
   private lastFrameAt: number | null = null;
   private averageFrameMs = TARGET_FRAME_MS;
-  private effectsQuality: AdaptiveEffectsQuality = 'full';
   private slowFrameRatio = 0;
   private validSamples = 0;
   private sampledDurationMs = 0;
@@ -79,26 +76,22 @@ export class AdaptiveResolutionController {
       scale: this.scale,
       fixedScale: this.fixedScale,
       averageFrameMs: this.averageFrameMs,
-      effectsQuality: this.effectsQuality,
     };
   }
 
   setTargetFps(fps: 60 | 120): void {
     if (fps === this.targetFps) return;
     this.targetFps = fps;
-    this.effectsQuality = 'full';
     this.resetMeasurements();
   }
 
   setSetting(setting: 'auto' | number): number {
     if (setting === 'auto') {
       this.mode = 'auto';
-      this.effectsQuality = 'full';
     } else {
       this.mode = 'fixed';
       this.fixedScale = clampScale(Number(setting));
       this.scale = this.fixedScale;
-      this.effectsQuality = 'full';
     }
     this.resetMeasurements();
     return this.scale;
@@ -140,45 +133,33 @@ export class AdaptiveResolutionController {
     this.sampledDurationMs += sampledFrameMs;
 
     if (
-      (this.scale > MIN_RESOLUTION_SCALE || this.effectsQuality === 'full')
+      this.scale > MIN_RESOLUTION_SCALE
       && this.validSamples >= DOWNSCALE_SAMPLE_COUNT
       && this.sampledDurationMs >= DOWNSCALE_OBSERVATION_MS
       && now - this.lastAdjustmentAt >= DOWNSCALE_COOLDOWN_MS
       && this.averageFrameMs > slowFrameMs
       && this.slowFrameRatio > 0.3
     ) {
-      if (this.scale > MIN_RESOLUTION_SCALE) {
-        // Pixel-bound frame time is approximately proportional to scale squared.
-        // Jump near the estimated sustainable level instead of stepping down for
-        // several seconds on a clearly underpowered GPU.
-        const recommended = this.scale * Math.sqrt((1000 / this.targetFps) / this.averageFrameMs);
-        this.scale = lowerAdaptiveStep(this.scale, recommended);
-      } else {
-        // Resolution is already at its legibility floor. Let the renderer drop
-        // expensive secondary effects when still below the preset's target.
-        this.effectsQuality = 'reduced';
-      }
+      // Pixel-bound frame time is approximately proportional to scale squared.
+      // Jump near the estimated sustainable level instead of stepping down for
+      // several seconds on a clearly underpowered GPU.
+      const recommended = this.scale * Math.sqrt((1000 / this.targetFps) / this.averageFrameMs);
+      this.scale = lowerAdaptiveStep(this.scale, recommended);
       this.lastAdjustmentAt = now;
       this.resetMeasurements(now, false);
       return this.scale;
     }
 
     if (
-      (this.scale < MAX_RESOLUTION_SCALE || this.effectsQuality === 'reduced')
+      this.scale < MAX_RESOLUTION_SCALE
       && this.validSamples >= UPSCALE_SAMPLE_COUNT
       && now - this.lastAdjustmentAt >= UPSCALE_COOLDOWN_MS
       && this.averageFrameMs <= HEALTHY_FRAME_MS * cadenceRatio
       && this.slowFrameRatio < 0.08
     ) {
-      if (this.effectsQuality === 'reduced') {
-        // Restore lighting before probing extra pixels so visual quality returns
-        // in the inverse order in which it was reduced.
-        this.effectsQuality = 'full';
-      } else {
-        // Probe upward one step at a time. If the extra pixels are too expensive,
-        // the shorter downscale window returns quickly to the sustainable level.
-        this.scale = higherAdaptiveStep(this.scale);
-      }
+      // Probe upward one step at a time. If the extra pixels are too expensive,
+      // the shorter downscale window returns quickly to the sustainable level.
+      this.scale = higherAdaptiveStep(this.scale);
       this.lastAdjustmentAt = now;
       this.resetMeasurements(now, false);
     }

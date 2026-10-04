@@ -13,7 +13,6 @@ pre { white-space: pre-wrap; }
 <h1>Cinematic effect resolution comparison</h1>
 <p>Same scene, lighting and 1280 × 720 main image. Inspect contact edges, thin posts, red/blue emission and the white foreground viewmodel.</p>
 <button id="capture">Capture comparison</button>
-<button id="fallback">Check reduced effects</button>
 <pre id="status">Loading…</pre>
 <section><figure><figcaption>Half-resolution effects</figcaption><img id="half" alt="Half-resolution effect result"></figure>
 <figure><figcaption>Full-resolution reference</figcaption><img id="full" alt="Full-resolution effect reference"></figure></section>
@@ -59,13 +58,13 @@ const sun = new THREE.Vector3(0.4, 0.32, -1).normalize(), up = new THREE.Vector3
 const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.65), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(5, 4, 2.5) }));
 sunMesh.position.copy(camera.position).addScaledVector(sun, 20); scene.add(sunMesh);
 
-async function capture(fullEffects = true) {
+async function capture() {
   const pixels = [];
   for (const [scale, id] of [[0.5, 'half'], [1, 'full']]) {
     effects.setSecondaryResolutionScale(scale);
-    effects.render(renderer, scene, camera, sun, up, fullEffects);
+    effects.render(renderer, scene, camera, sun, up);
     await renderer.backend.device.queue.onSubmittedWorkDone();
-    effects.render(renderer, scene, camera, sun, up, fullEffects);
+    effects.render(renderer, scene, camera, sun, up);
     document.getElementById(id).src = renderer.domElement.toDataURL();
     const canvas = document.createElement('canvas'); canvas.width = 1280; canvas.height = 720;
     const context = canvas.getContext('2d'); context.drawImage(renderer.domElement, 0, 0);
@@ -77,12 +76,11 @@ async function capture(fullEffects = true) {
     for (let c = 0; c < 3; c++) { const delta = Math.abs(pixels[0][i+c] - pixels[1][i+c]); sum += delta; peak = Math.max(peak, delta); }
     max = Math.max(max, peak); if (peak > 8) changed++;
   }
-  document.getElementById('status').textContent = `Backend: WebGPU | Effects: ${fullEffects ? 'full' : 'reduced'} | GPU errors: ${errors.length}\n`
+  document.getElementById('status').textContent = `Backend: WebGPU | GPU errors: ${errors.length}\n`
     + `Mean RGB difference: ${(sum / (1280 * 720 * 3)).toFixed(3)}/255 | max: ${max}/255 | pixels differing >8: ${(100 * changed / (1280 * 720)).toFixed(2)}%`
     + (errors.length ? `\n${errors.join('\n')}` : '');
 }
-document.getElementById('capture').onclick = () => capture(true);
-document.getElementById('fallback').onclick = () => capture(false);
+document.getElementById('capture').onclick = () => capture();
 capture();
 </script>
 </html>

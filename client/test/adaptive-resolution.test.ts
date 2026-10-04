@@ -48,23 +48,19 @@ test('fixed resolution never changes in response to frame cadence', () => {
     scale: 0.67,
     fixedScale: 0.67,
     averageFrameMs: 1000 / 120,
-    effectsQuality: 'full',
   });
 });
 
-test('cinematic quality retains its effects at a healthy 60 FPS and still adapts below target', () => {
+test('cinematic resolution targets a healthy 60 FPS and still adapts below target', () => {
   const controller = new AdaptiveResolutionController();
   controller.setTargetFps(60);
   let now = sampleFrames(controller, 0, 600, 1000 / 60);
   assert.equal(controller.currentScale, 1);
-  assert.equal(controller.getState().effectsQuality, 'full');
   assert.equal(controller.getState().targetFps, 60);
   sampleFrames(controller, now, 500, 40);
   assert.equal(controller.currentScale, 0.5);
-  assert.equal(controller.getState().effectsQuality, 'reduced');
   controller.setTargetFps(120);
   assert.equal(controller.getState().targetFps, 120);
-  assert.equal(controller.getState().effectsQuality, 'full');
 });
 
 test('auto resolution treats a stable sub-120 cadence as too slow', () => {
@@ -85,14 +81,13 @@ test('auto resolution cautiously probes one step upward after a long healthy int
   assert.equal(controller.currentScale, 0.8);
 });
 
-test('auto resolution drops secondary effects only after reaching its scale floor', () => {
+test('auto resolution stays at its floor under prolonged load and recovers directly by increasing scale', () => {
   const controller = new AdaptiveResolutionController();
   let now = sampleFrames(controller, 0, 500, 12);
 
   assert.equal(controller.currentScale, 0.5);
-  assert.equal(controller.getState().effectsQuality, 'reduced');
-
-  now = sampleFrames(controller, now, 1_500, 8.2);
-  assert.equal(controller.getState().effectsQuality, 'full');
+  now = sampleFrames(controller, now, 2_000, 100);
   assert.equal(controller.currentScale, 0.5);
+  sampleFrames(controller, now, 300, 8.2);
+  assert.equal(controller.currentScale, 0.6);
 });

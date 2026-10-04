@@ -45,7 +45,7 @@ test('leaving cinematic quality disposes all render targets, shaders and bloom b
   assert.deepEqual(counts, resources.map(() => 1));
 });
 
-test('HDR stages render in order, restore renderer state and retain atmosphere during fallback', () => {
+test('all HDR stages render in order at every resolution and restore renderer state', () => {
   const effects = new CinematicEffects();
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 10000);
@@ -55,9 +55,7 @@ test('HDR stages render in order, restore renderer state and retain atmosphere d
   const previousTarget = new THREE.WebGLRenderTarget(1, 1);
   let currentTarget = previousTarget;
   const stages: string[] = [];
-  let refreshedSkippedTarget = 0;
   const renderer: any = {
-    initRenderTarget: (target: THREE.RenderTarget) => { assert.equal(target, effects.secondaryTarget); refreshedSkippedTarget++; },
     autoClear: false,
     getDrawingBufferSize: (size: THREE.Vector2) => size.set(1280, 720),
     getRenderTarget: () => currentTarget,
@@ -67,7 +65,7 @@ test('HDR stages render in order, restore renderer state and retain atmosphere d
       : currentTarget === effects.secondaryTarget ? 'secondary' : currentTarget === effects.atmosphereTarget ? 'atmosphere' : 'tone-map'); },
   };
   (effects as any).pipeline = { render: () => stages.push('fxaa'), dispose() {} };
-  effects.render(renderer, scene, camera, sun, up, true);
+  effects.render(renderer, scene, camera, sun, up);
   assert.deepEqual(stages, ['scene', 'secondary', 'atmosphere', 'tone-map', 'fxaa']);
   assert.equal(currentTarget, previousTarget);
   assert.equal(renderer.autoClear, false);
@@ -75,20 +73,20 @@ test('HDR stages render in order, restore renderer state and retain atmosphere d
 
   stages.length = 0;
   // Sun parallel to the view plane must never send infinities into the shader.
-  effects.render(renderer, scene, camera, new THREE.Vector3(1, 0, 0), up, false);
-  assert.deepEqual(stages, ['scene', 'atmosphere', 'tone-map', 'fxaa']);
-  assert.equal(effects.secondaryEffects.value, 0);
-  assert.equal(refreshedSkippedTarget, 1, 'skipped passes must refresh texture bindings after resize');
+  effects.render(renderer, scene, camera, new THREE.Vector3(1, 0, 0), up);
+  assert.deepEqual(stages, ['scene', 'secondary', 'atmosphere', 'tone-map', 'fxaa']);
   assert.equal(effects.sunVisibility.value, 0);
   assert.ok(Number.isFinite(effects.sunUv.value.x));
 
   stages.length = 0;
-  effects.render(renderer, scene, camera, sun, up, true);
+  renderer.getDrawingBufferSize = (size: THREE.Vector2) => size.set(640, 360);
+  effects.render(renderer, scene, camera, sun, up);
   assert.deepEqual(stages, ['scene', 'secondary', 'atmosphere', 'tone-map', 'fxaa'],
-    'recovering Auto quality retains the same emission pipeline');
+    'lower resolution must retain all selected effects');
+  assert.equal(effects.sceneTarget.width, 640);
 
   renderer.render = () => { throw new Error('lost render'); };
-  assert.throws(() => effects.render(renderer, scene, camera, sun, up, true), /lost render/);
+  assert.throws(() => effects.render(renderer, scene, camera, sun, up), /lost render/);
   assert.equal(currentTarget, previousTarget);
   assert.equal(renderer.autoClear, false);
   effects.dispose();

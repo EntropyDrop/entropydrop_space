@@ -1,5 +1,22 @@
 # Near terrain streaming
 
+## Manual lighting quality (2026-10-05)
+
+Automatic effect-quality switching has been removed. Lighting, fill light,
+sun glow, shadows and Ultra's complete post-processing chain follow the
+manually selected preset and shadow preference. Auto resolution adjusts only
+the drawing-buffer scale from 50% to 100%; reaching its floor does not disable
+effects. No saved lighting, shadow or resolution preference needs migration.
+The settings UI and development tools no longer expose a reduced-effects state.
+
+Regression coverage drives sustained slow frames to the resolution floor and
+switches between Auto and fixed scales at each lighting preset with shadows on
+and off, checking that lighting and post-processing remain selected. HDR tests
+verify that every pass still renders after a resolution decrease.
+
+The investigations below record the earlier automatic-effects implementation
+and its measurements before removal.
+
 ## Firefox rapid-turn follow-up (2026-10-05)
 
 The slow full-turn probe below fixed the resolution scale, which also held
