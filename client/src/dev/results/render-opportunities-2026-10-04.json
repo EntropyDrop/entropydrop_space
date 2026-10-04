@@ -1,0 +1,114 @@
+{
+  "date": "2026-10-04",
+  "kind": "exploratory-render-audit",
+  "baselineCommit": "d4748e9",
+  "workingTreeCleanAtStart": true,
+  "productionChangesByThisAudit": false,
+  "externalChangesDetectedAfterMeasurements": [
+    "client/src/dev/FrameDiagnostics.ts",
+    "engine/src/render/TerrainHandoff.ts",
+    "engine/src/torus/TorusWorld.ts",
+    "engine/test/near-terrain-materials.test.ts"
+  ],
+  "fixture": {
+    "url": "http://localhost:5173/space/app/?dev_offline=1&world=aether-archipelago&dev_lod=world&dev_perf=1&dev_dpr=2",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "adapterInfo": null,
+    "width": 2560,
+    "height": 1440,
+    "nearChunks": 153,
+    "districts": 128,
+    "repeatedDistricts": true,
+    "residentFarFaces": 2089207,
+    "renderDistanceChunks": 2048,
+    "viewDistanceMetres": 32768,
+    "subdivisionCssPx2": 64,
+    "geometryBudgetMiB": 160,
+    "dataBudgetMiB": 256,
+    "qualityDuringTiming": "medium",
+    "shadowsDuringTiming": false,
+    "resolutionScale": 1,
+    "commandCaching": true,
+    "mergedBuffers": true,
+    "gpuTimestampsDuringTiming": false
+  },
+  "method": {
+    "order": ["reference", "prototype", "reference-repeat"],
+    "warmupMs": 1500,
+    "sampleMs": 4000,
+    "cpu": "Wall time inside Game.animate; excludes other browser tasks and GPU completion.",
+    "cadence": "Wall interval between Game.animate starts; not verified screen presentation.",
+    "rotation": "Repeated 1.2-radian yaw sweep over four seconds. Sampling is by elapsed time, so endpoint visibility counters can differ slightly.",
+    "pixelChecks": "Drain the already queued animation callback, pause simulation, render twice per case, synchronously copy canvas RGB. Readbacks are excluded from timings.",
+    "record": "Compact record transcribed from the captured developer runtime outputs; complete CPU profile trees are not retained."
+  },
+  "prototype": {
+    "scope": "Only DistantVoxelTerrain.updateMatrixWorld",
+    "behavior": "Compute the group's current world matrix, compare it with its previous world matrix, and propagate force to static children only when that matrix changes. Child matrixWorldNeedsUpdate and matrixAutoUpdate still execute through Three's normal child method.",
+    "restoredInFinally": true,
+    "productionReady": false,
+    "remainingValidation": [
+      "New children under transformed parents and first publication",
+      "Child local-matrix mutations and explicit force requests",
+      "Reparenting, manual world matrices and updateWorldMatrix",
+      "Movement, source replacement, handoff reversal and teardown"
+    ]
+  },
+  "sceneInventoryAfterRotation": {
+    "sceneObjects": 2830,
+    "worldObjects": 2618,
+    "distantSurfaceObjects": 2251,
+    "voxelGroupObjects": 2248,
+    "voxelGroupDirectChildren": 2247,
+    "voxelGroupMatrixAutoUpdateObjects": 1,
+    "microObjects": 143
+  },
+  "timings": {
+    "near": [
+      {"enabled": false, "frames": 412, "cpuMs": {"mean": 3.548300975156062, "p50": 3.5999999046325684, "p95": 4.200000047683716}, "cadenceMs": {"mean": 9.705109488935076, "p50": 9.400000095367432, "p95": 11.5}, "calls": 313, "triangles": 2580517, "residentFarFaces": 2089207},
+      {"enabled": true, "frames": 415, "cpuMs": {"mean": 2.9498795204852, "p50": 3, "p95": 3.5999999046325684}, "cadenceMs": {"mean": 9.648792270301044, "p50": 9.599999904632568, "p95": 11.299999952316284}, "calls": 313, "triangles": 2580517, "residentFarFaces": 2089207},
+      {"enabled": false, "frames": 414, "cpuMs": {"mean": 3.5557970989153582, "p50": 3.5999999046325684, "p95": 4.299999952316284}, "cadenceMs": {"mean": 9.65714285737377, "p50": 9.5, "p95": 11}, "calls": 313, "triangles": 2580517, "residentFarFaces": 2089207}
+    ],
+    "across": [
+      {"enabled": false, "frames": 431, "cpuMs": {"mean": 2.392343391121955, "p50": 2.4000000953674316, "p95": 3.1000001430511475}, "cadenceMs": {"mean": 9.288604650941004, "p50": 9, "p95": 11.100000143051147}, "calls": 81, "triangles": 1543307, "residentFarFaces": 2089207},
+      {"enabled": true, "frames": 409, "cpuMs": {"mean": 2.1061124661732418, "p50": 2.0999999046325684, "p95": 2.700000047683716}, "cadenceMs": {"mean": 9.777205882703557, "p50": 9.5, "p95": 11.899999856948853}, "calls": 81, "triangles": 1543307, "residentFarFaces": 2089207},
+      {"enabled": false, "frames": 414, "cpuMs": {"mean": 2.6818840572799463, "p50": 2.700000047683716, "p95": 3.200000047683716}, "cadenceMs": {"mean": 9.644794188746529, "p50": 9.5, "p95": 12}, "calls": 81, "triangles": 1543307, "residentFarFaces": 2089207}
+    ],
+    "rotation": [
+      {"enabled": false, "frames": 417, "cpuMs": {"mean": 5.641247012346483, "p50": 5.599999904632568, "p95": 6.700000047683716}, "cadenceMs": {"mean": 9.606730768886896, "p50": 9.600000143051147, "p95": 11.799999952316284}, "callsAtEnd": 161, "trianglesAtEnd": 1806219, "residentFarFaces": 2089207, "visibleArenaFacesAtEnd": 542850, "mapUploadBytesAtEnd": 46016},
+      {"enabled": true, "frames": 418, "cpuMs": {"mean": 4.967224889394769, "p50": 4.900000095367432, "p95": 6}, "cadenceMs": {"mean": 9.561630694986247, "p50": 9.5, "p95": 11.600000143051147}, "callsAtEnd": 161, "trianglesAtEnd": 1806859, "residentFarFaces": 2089207, "visibleArenaFacesAtEnd": 543120, "mapUploadBytesAtEnd": 20864},
+      {"enabled": false, "frames": 414, "cpuMs": {"mean": 5.63695652415787, "p50": 5.599999904632568, "p95": 6.700000047683716}, "cadenceMs": {"mean": 9.65811138002982, "p50": 9.5, "p95": 12.5}, "callsAtEnd": 161, "trianglesAtEnd": 1805707, "residentFarFaces": 2089207, "visibleArenaFacesAtEnd": 542602, "mapUploadBytesAtEnd": 45888}
+    ],
+    "earlierAcross": [
+      {"enabled": false, "frames": 487, "cpuMs": {"mean": 2.7870636583598487, "p50": 2.700000047683716, "p95": 3.299999952316284}, "cadenceMs": {"mean": 8.211111111405454, "p50": 8.299999952316284, "p95": 10}},
+      {"enabled": true, "frames": 490, "cpuMs": {"mean": 2.203469378607614, "p50": 2.1999998092651367, "p95": 2.6999998092651367}, "cadenceMs": {"mean": 8.161758691011519, "p50": 8.200000047683716, "p95": 10}},
+      {"enabled": false, "frames": 484, "cpuMs": {"mean": 2.792768596617643, "p50": 2.799999952316284, "p95": 3.200000047683716}, "cadenceMs": {"mean": 8.258385093068977, "p50": 8.299999952316284, "p95": 10.200000047683716}}
+    ]
+  },
+  "stageObservationsMs": {
+    "stationary": {"pickingP50": 0.5, "pickingP95": 0.6, "lodViewP50": 0.1, "lodViewP95": 0.2},
+    "rotation": {"pickingP50": 0.5, "pickingP95": 0.6, "lodViewP50": 2.7, "lodViewP95": 3.0},
+    "nestedNotAdditive": true
+  },
+  "cpuProfileSummary": {
+    "near": {"durationMs": 10949.569, "samples": 14151},
+    "across": {
+      "durationMs": 20836.791,
+      "samples": 27594,
+      "aggregatedSelfTimeMs": {"idle": 11928.81, "updateMatrixWorld": 2710.9360000000006, "raycastBentVoxelFaces": 904.326, "multiplyMatrices": 257.657, "projectedCullingBounds": 175.197, "cullChunks": 107.12},
+      "interpretation": "Profiler sampling adds overhead. These are summed self samples over a trace, not per-frame durations. Matrix-update stacks originate from Renderer._renderScene."
+    }
+  },
+  "pixelChecks": [
+    {"quality": "medium", "view": "near", "yaw": 1.5707963267948966, "pitch": -0.85, "pixels": 3686400, "sampledColors": 7988, "prototypeChangedPixels": 0, "prototypeMaxChannelDelta": 0, "repeatChangedPixels": 0, "repeatMaxChannelDelta": 0},
+    {"quality": "medium", "view": "across", "yaw": 1.5707963267948966, "pitch": 1.35, "pixels": 3686400, "sampledColors": 2283, "prototypeChangedPixels": 0, "prototypeMaxChannelDelta": 0, "repeatChangedPixels": 0, "repeatMaxChannelDelta": 0},
+    {"quality": "ultra", "view": "near", "yaw": 1.5707963267948966, "pitch": -0.85, "pixels": 3686400, "sampledColors": 12271, "prototypeChangedPixels": 0, "prototypeMaxChannelDelta": 0, "repeatChangedPixels": 0, "repeatMaxChannelDelta": 0},
+    {"quality": "ultra", "view": "across", "yaw": 1.5707963267948966, "pitch": 1.35, "pixels": 3686400, "sampledColors": 5878, "prototypeChangedPixels": 0, "prototypeMaxChannelDelta": 0, "repeatChangedPixels": 0, "repeatMaxChannelDelta": 0}
+  ],
+  "conclusion": {
+    "confirmed": "Reducing redundant static far world-matrix calculations saves roughly 0.3-0.7 ms of main-thread CPU in these short traces, with unchanged stationary geometry and zero changed pixels in four fixed-view checks.",
+    "notEstablished": ["Stable FPS improvement", "GPU execution improvement", "Online-world performance", "Cross-device benefit", "Production-safe matrix invalidation"],
+    "nextPriorities": ["Production-safe static far matrix invalidation", "Separate arena lifecycle bookkeeping from visibility-only updates", "Cache exact aim queries only when all terrain/entity/camera dependencies are unchanged"],
+    "browserErrorLogsAtCapture": []
+  }
+}

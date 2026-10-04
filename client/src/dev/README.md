@@ -830,3 +830,88 @@ bounded publication, draw order, changed generations, handoff transitions,
 resource retirement, permanent teardown and renderer contract fallback. Both
 TypeScript checks, English-only validation, documentation links and production
 build pass. The production build excludes the development diagnostic entry.
+
+## Remaining rendering opportunities (2026-10-04)
+
+An exploratory audit found more CPU headroom while retaining the entire far
+world. This audit adds measurements and recommendations only. Runtime prototypes
+were restored in `finally`; no production renderer change is enabled by this
+audit. The [measurement record](results/render-opportunities-2026-10-04.json)
+includes reference repeats, cadence, CPU samples, geometry counters and pixel
+checks. The baseline was commit `d4748e9` with a clean checkout. Separate near
+material changes appeared after measurement and reloaded the fixture; those
+changes were preserved and are not attributed to this prototype.
+
+Use the existing Aether fixture with `dev_lod=world&dev_perf=1&dev_dpr=2` and wait
+for 153 near chunks, 128 repeated districts, 2,089,207 resident far faces and
+settled publication. The measured canvas was 2560 x 1440 in in-app Chromium 154.
+Far distance stayed at 2048 chunks (32,768 m), subdivision at 64 CSS px^2,
+geometry budget at 160 MiB, and fixed scene resolution at 100%. Command caching
+and shared far storage remained enabled. Timing used Medium with shadows and
+GPU timestamps off. Adapter metadata was unavailable, so this audit does not
+assert a freshly verified GPU model.
+
+The first priority is **static far matrix updates**. After a camera sweep, the
+voxel group still contained 2,247 direct children despite submitting only tens
+of arena draws. Retired source meshes remain in the scene tree for publication
+and culling. Three updates world matrices for invisible objects too, and the
+scene's automatic updates propagate `force` through those static children.
+Disabling `matrixAutoUpdate` alone does not stop that world-matrix propagation.
+CPU sample stacks confirmed this work originates in `Renderer._renderScene`.
+
+A temporary group override recalculated the group's world matrix, compared it
+with the previous matrix, and propagated force to children only when that
+matrix changed. Each case warmed for 1.5 seconds and sampled `Game.animate` for
+four seconds in reference / prototype / reference-repeat order:
+
+| View | Reference / repeat CPU p50, ms | Prototype CPU p50, ms | Reference / prototype / repeat cadence, ms |
+| --- | ---: | ---: | ---: |
+| Near | 3.6 / 3.6 | 3.0 | 9.71 / 9.65 / 9.66 |
+| Across ring | 2.4 / 2.7 | 2.1 | 9.29 / 9.78 / 9.64 |
+| Repeated 1.2-radian yaw sweep | 5.6 / 5.6 | 4.9 | 9.61 / 9.56 / 9.66 |
+
+An earlier across-ring run measured CPU p50 2.7 / 2.8 ms versus 2.2 ms, with
+cadence 8.21 / 8.16 / 8.26 ms. The consistent CPU reduction is about 0.3-0.7 ms;
+**there is no established stable FPS improvement**. Near geometry stayed at
+313 calls / 2,580,517 triangles, and across at 81 / 1,543,307. Resident faces
+and graphics settings were identical. The yaw trace uses wall-time sampling,
+so its last frame can have slightly different visibility and padding counts;
+those endpoint counters are retained in the record. CPU excludes other browser
+tasks and GPU completion. Cadence is callback scheduling, not verified display
+presentation. Profiling and synchronous pixel readbacks were separate from the
+timed cases.
+
+Fixed near and across-ring RGB comparisons at both Medium and Ultra each
+reported zero changed pixels and zero maximum channel delta over 3,686,400
+pixels; the reference repeat also matched exactly. Simulation was suspended
+only after the already queued callback drained. These four probes validate
+the loaded fixed views, not every transform or publication path. A production
+implementation must handle initial/new children under transformed parents,
+reparenting, local-matrix changes, explicit force requests, manually managed
+world matrices and `updateWorldMatrix`, plus streaming, handoff and teardown.
+Globally freezing the scene would be an unsafe shortcut.
+
+The second priority is **visibility-only arena maintenance**. LOD view work
+rose from about 0.1 ms stationary to 2.7 ms during rotation while sources and
+resident geometry stayed settled. `VoxelFaceArena.sync` rebuilds/sorts its source
+list, checks entries and recounts residency before testing whether the draw map
+changed. Map construction also allocates an eight-value array for every block.
+Keep source order and residency accounting until membership/attributes change;
+handle visibility in a separate pass with reusable storage and update only
+changed map ranges. This is a code-supported candidate, not a measured speedup;
+the whole LOD stage includes culling and material classification as well as the
+arena. Preserve draw ordering, fade fallback and source restoration.
+
+The third priority is **repeated exact aim queries**. Picking remained around
+0.5 ms per frame in these stationary, entity-free views. A query cache could
+reuse results when the bent ray, terrain publication, entity poses and tool
+policy are all unchanged. Camera motion, terrain edits, entity motion and view
+correction must invalidate it; lowering query frequency would change interaction
+behavior. This opportunity is smaller and is not yet benchmarked.
+
+Further GPU work still needs separate evidence. Previous torus-arithmetic
+prototypes did not produce reliable whole-frame gains, and the matrix experiment
+does not reduce executed geometry or shading. Conservative occlusion/cluster
+selection could preserve visible distant terrain, but its payoff and correctness
+are unmeasured here. Start with the confirmed matrix CPU waste, then measure
+visibility maintenance before expanding the rendering architecture.
