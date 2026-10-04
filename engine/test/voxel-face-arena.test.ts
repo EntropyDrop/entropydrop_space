@@ -80,6 +80,23 @@ test('updates during partial publication never replace visible sources early', (
   } finally { arena.dispose(); }
 });
 
+test('coarse clocks cannot starve the last pending source behind settled entries', t => {
+  const group = new THREE.BundleGroup(), a = source(64, 0); group.add(a);
+  const arena = new VoxelFaceArena(group, make);
+  try {
+    settle(arena);
+    const b = source(8000, 512); group.add(b);
+    let clock = 0;
+    t.mock.method(performance, 'now', () => ++clock);
+    arena.restoreSources(); arena.sync(.75);
+    assert.equal(arena.stats.copyFaces, 4096, 'one bounded slice must publish even with 1ms clock ticks');
+    assert.equal(arena.hasPendingWork, true);
+    arena.restoreSources(); arena.sync(.75);
+    assert.equal(arena.hasPendingWork, false);
+    assert.equal(b.geometry.getAttribute('voxelOffset'), undefined);
+  } finally { arena.dispose(); }
+});
+
 test('retirement notifies renderers before deleting attributes; storage is disposed exactly once', () => {
   const group=new THREE.BundleGroup(), a=source(65,0); group.add(a); const arena=new VoxelFaceArena(group,make), deleted:unknown[]=[];
   let retired=0; a.geometry.addEventListener('dispose',()=>{if(a.geometry.getAttribute('voxelOffset'))retired++;});

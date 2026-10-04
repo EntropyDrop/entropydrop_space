@@ -6,6 +6,7 @@ interface InitialDistantTerrainOptions {
   world: Pick<World, 'distantSurface' | 'installSurfaceZone' | 'removeSurfaceZone'
     | 'getDistantSurfaceSettings' | 'finalizeSurfaceConnections'>;
   drawFrame(): void;
+  preparePipelines(): Promise<void>;
   waitForGpu(): Promise<void>;
   reportProgress?: (value: number, message: string) => void;
 }
@@ -21,9 +22,9 @@ function nextLoadingFrame(): Promise<void> {
   });
 }
 
-/** Warm the fixed spawn view behind the entry gate without starting simulation. */
+/** Prepare resident terrain and its pipelines behind the entry gate. */
 export async function preloadInitialDistantTerrain({
-  remote, world, drawFrame, waitForGpu, reportProgress,
+  remote, world, drawFrame, preparePipelines, waitForGpu, reportProgress,
 }: InitialDistantTerrainOptions): Promise<void> {
   if (!remote) return;
   reportProgress?.(94, 'Loading all distant terrain…');
@@ -74,6 +75,10 @@ export async function preloadInitialDistantTerrain({
       }
       settledFrames = prepared && !world.distantSurface.hasPendingWork ? settledFrames + 1 : 0;
       if (settledFrames < 2) continue;
+      reportProgress?.(99, 'Preparing terrain shaders…');
+      await preparePipelines();
+      // Submit the restored spawn view after compilation and wait for it too.
+      drawFrame();
       reportProgress?.(99, 'Finishing terrain rendering…');
       await waitForGpu();
       if (world.distantSurface.preparationError) {

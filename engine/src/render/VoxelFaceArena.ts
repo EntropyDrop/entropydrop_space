@@ -148,7 +148,10 @@ export class VoxelFaceArena {
       if (!this.eligible(mesh)) continue;
       let entry = this.entries.get(mesh);
       if (entry && !entry.attributes) continue;
-      if (copied >= budgetFaces || performance.now() - started >= budgetMs) { pending++; continue; }
+      // Firefox's coarse clock can exhaust the soft time budget while merely
+      // scanning settled/hidden sources. Always permit one bounded copy so a
+      // source at the end of that list cannot starve the entry gate forever.
+      if (copied >= budgetFaces || (copied > 0 && performance.now() - started >= budgetMs)) { pending++; continue; }
       entry ??= this.allocate(mesh) ?? undefined;
       if (!entry) continue;
       const [offset, span, direction, emission, colors] = entry.attributes!;

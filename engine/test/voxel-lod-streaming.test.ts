@@ -67,6 +67,37 @@ function geometryDigest(layer: DistantVoxelLayer) {
   return hash.digest('hex');
 }
 
+test('hidden settled tiles finish arena publication before the first camera turn', async () => {
+  const handoff = new TerrainHandoff();
+  const layer = new DistantVoxelLayer(handoff.texture, { synchronous: true });
+  const visible = new THREE.Frustum();
+  for (const plane of visible.planes) plane.set(new THREE.Vector3(), 1);
+  const hidden = visible.clone(); hidden.planes[0].constant = -10000;
+  const update = (view: THREE.Frustum) => layer.updateView(view, camera, 720, 1, 32768, 100000);
+  try {
+    update(hidden); layer.setMergedBuffersEnabled(true); layer.install(source());
+    await delay(TERRAIN_FADE_MS + 10);
+    for (let i = 0; i < 100; i++) {
+      update(hidden);
+      if (!layer.hasPendingWork && !layer.hasPendingTransitions) break;
+    }
+    assert.equal(layer.hasPendingWork, false);
+    const stats = layer.group.userData.voxelArenaStats;
+    assert.ok(stats.residentFaces > 0, 'offscreen unowned faces must already reside in shared storage');
+    assert.equal(stats.visibleFaces, 0);
+    const sources = layer.group.children.filter(mesh => mesh.userData.voxelArenaCompatible) as THREE.Mesh[];
+    assert.ok(sources.every(mesh => mesh.material === mesh.userData.opaqueMaterial));
+    assert.ok(sources.every(mesh => !mesh.geometry.getAttribute('voxelOffset')));
+    const pages = stats.pages, faces = stats.residentFaces;
+    update(visible);
+    assert.equal(stats.pages, pages, 'turning must not create more GPU pages');
+    assert.equal(stats.residentFaces, faces);
+    assert.equal(stats.copyFaces, 0, 'turning must not repack resident faces');
+    assert.equal(layer.hasPendingWork, false);
+    assert.ok(stats.visibleFaces > 0);
+  } finally { layer.dispose(); handoff.texture.dispose(); }
+});
+
 for (const backend of ['worker', 'cooperative'] as const) test(`${backend} preserves geometry, budgets and rotation residency`, async () => {
   const handoff = new TerrainHandoff(), snapshot = source();
   const layer = new DistantVoxelLayer(handoff.texture, { workerFactory: () => backend === 'worker'

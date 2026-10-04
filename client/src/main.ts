@@ -380,6 +380,7 @@ class Game {
       drawFrame: () => this.sceneRenderer.prepareInitialTerrainFrame(
         this.playerPhysics.position, this.controller.bodyYaw,
       ),
+      preparePipelines: () => this.sceneRenderer.prepareInitialTerrainPipelines(),
       waitForGpu: () => this.sceneRenderer.renderer.backend.device.queue.onSubmittedWorkDone(),
       reportProgress,
     });
@@ -687,7 +688,13 @@ window.addEventListener('DOMContentLoaded', () => {
       }
       // Keep the convenient engine handle for local debugging without exposing
       // the authenticated session graph to every production-page script.
-      if (import.meta.env.DEV) (window as any).game = game;
+      if (import.meta.env.DEV) {
+        (window as any).game = game;
+        if (new URLSearchParams(location.search).get('dev_perf') === '1') {
+          const { installFrameDiagnostics } = await import('./dev/FrameDiagnostics.ts');
+          installFrameDiagnostics(game);
+        }
+      }
     },
     {
       onStateChange: state => {

@@ -1,4 +1,5 @@
 import { SpaceRenderer } from './SpaceRenderer.ts';
+import { warmTerrainPipelines } from './TerrainPipelineWarmup.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
 import {
@@ -3407,6 +3408,21 @@ export class SceneRenderer {
   prepareInitialTerrainFrame(playerPosition: THREE.Vector3, playerYaw: number) {
     this.update(0, playerPosition, playerYaw);
     this.render(false, true);
+  }
+
+  async prepareInitialTerrainPipelines() {
+    if (!this.world) return;
+    hookSceneMaterials(this.scene);
+    const roots: THREE.Object3D[] = [];
+    for (const chunk of this.world.chunks.values()) if (chunk.mesh) roots.push(chunk.mesh);
+    for (const mesh of this.world.microVoxels.renderMeshes.values()) roots.push(mesh);
+    if (this.world.distantSurface.isEnabled()) {
+      roots.push(this.world.distantSurface.mesh, this.world.distantSurface.sideMesh);
+    }
+    // Match the actual color/depth attachments. Compiling Ultra's terrain for
+    // the canvas would leave its HDR pipeline cold when the camera first turns.
+    const target = this.lightingQuality === 'ultra' ? this.cinematicEffects?.sceneTarget ?? null : null;
+    await warmTerrainPipelines(this.renderer, this.scene, this.camera, roots, target);
   }
 
   render(cleanScreenshot = false, preparingTerrain = false) {

@@ -40,7 +40,7 @@ function fixture(t: any) {
 test('entry waits for distant downloads, refinement, publication and completed GPU work', async t => {
   const { world, frame } = fixture(t);
   const downloads = deferred<{ loaded: number; complete: boolean }>();
-  const connections = deferred(), gpu = deferred();
+  const connections = deferred(), pipelines = deferred(), gpu = deferred();
   let calls = 0, drawings = 0, installed = 0, finalizing = false, gpuWaits = 0, entered = false;
   const progress: string[] = [];
   const remote: SpaceSurfaceSnapshotRemote = {
@@ -61,6 +61,7 @@ test('entry waits for distant downloads, refinement, publication and completed G
   world.finalizeSurfaceConnections = () => { finalizing = true; return connections.promise; };
   const entering = preloadInitialDistantTerrain({ remote, world,
     drawFrame: () => { drawings++; },
+    preparePipelines: () => pipelines.promise,
     waitForGpu: () => { gpuWaits++; return gpu.promise; },
     reportProgress: (_value, message) => progress.push(message),
   }).then(() => { entered = true; });
@@ -78,6 +79,9 @@ test('entry waits for distant downloads, refinement, publication and completed G
   assert.equal(gpuWaits, 0, 'queued mesh publication must finish first');
   world.distantSurface.hasPendingWork = false;
   await frame(); await frame();
+  assert.equal(gpuWaits, 0, 'pipeline compilation must complete before the final GPU fence');
+  assert.equal(entered, false, 'hidden terrain shaders must be prepared before gameplay');
+  pipelines.resolve(); await yieldTask();
   assert.equal(gpuWaits, 1);
   assert.equal(entered, false, 'a submitted frame is not completed GPU work');
   gpu.resolve(); await entering;
@@ -95,7 +99,7 @@ test('a partial manifest holds entry even when every currently available zone is
   } };
   world.distantSurface.hasPendingWork = false;
   world.finalizeSurfaceConnections = async () => { finalized = true; };
-  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async waitForGpu() {} })
+  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async preparePipelines() {}, async waitForGpu() {} })
     .then(() => { entered = true; });
   await frame();
   assert.equal(finalized, false);
@@ -108,7 +112,7 @@ test('a partial manifest holds entry even when every currently available zone is
   assert.equal(finalized, true);
 });
 
-for (const stage of ['download', 'connections', 'worker', 'gpu'] as const) {
+for (const stage of ['download', 'connections', 'worker', 'pipelines', 'gpu'] as const) {
   test(`a distant ${stage} failure keeps entry blocked and reaches the entry error handler`, async t => {
     const { world, frame } = fixture(t);
     world.distantSurface.hasPendingWork = false;
@@ -120,7 +124,9 @@ for (const stage of ['download', 'connections', 'worker', 'gpu'] as const) {
       if (stage === 'connections') throw new Error('connections failed');
     };
     if (stage === 'worker') world.distantSurface.preparationError = 'worker failed';
-    const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async waitForGpu() {
+    const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async preparePipelines() {
+      if (stage === 'pipelines') throw new Error('pipelines failed');
+    }, async waitForGpu() {
       if (stage === 'gpu') throw new Error('gpu failed');
     } });
     let finished = false;
@@ -144,7 +150,7 @@ test('hidden tabs continue preparing distant terrain without animation callbacks
   let frames = 0, gpuWaits = 0;
   await preloadInitialDistantTerrain({
     remote: { async loadAll() { return { loaded: 0, complete: true }; } }, world,
-    drawFrame() { frames++; }, async waitForGpu() { gpuWaits++; },
+    drawFrame() { frames++; }, async preparePipelines() {}, async waitForGpu() { gpuWaits++; },
   });
   assert.ok(frames >= 3);
   assert.equal(gpuWaits, 1);

@@ -1,5 +1,45 @@
 # Near terrain streaming
 
+## Firefox camera rotation (2026-10-05)
+
+The entry gate now compiles resident terrain pipelines in all directions with
+`compileAsync` before its final GPU completion fence. Hidden terrain is included,
+retired source attributes are excluded, and native bundle groups are temporarily
+opened because Three r183's compiler does not process their render lists.
+Compilation uses Ultra's HDR target when that is the active terrain pass. All
+visibility, culling, bundle and target state is restored before gameplay.
+
+Far ownership classification also covers offscreen tiles. Their settled faces
+can finish migration into shared GPU storage during loading; looking at them
+for the first time no longer creates storage pages or retires source attributes.
+The arena always allows one bounded copy before enforcing its soft time budget,
+so a coarse browser clock cannot starve the last pending source.
+
+Firefox 153.0.1 on this Mac reproduced approximately 1 FPS while turning in the
+default online terrain at `http://localhost:5173/space/app/`, with a callback gap
+of about 1.8 seconds. An isolated 8-second full-turn comparison, retaining the
+ownership fix but bypassing pipeline warmup, recorded a 925 ms maximum gap;
+the repeated turn peaked at 34 ms. The fixed build's first-turn sample peaked
+at 33 ms, and its full repeated turn averaged 63.8 callback FPS with a 26 ms
+maximum gap. The early first-turn sample covers 3.77 seconds, so it is not a
+complete 8-second timing sample. These measurements use Ultra, shadows off,
+1912 x 957 pixels, 1,511,059 resident LOD faces, and a fixed test resolution
+selected from the existing Auto scale. Callback FPS does not measure compositor
+presentation, and GPU timestamps exclude browser/driver compilation stalls.
+
+The development profiler is available on the normal local entry with
+`?dev_perf=1`; **Measure full rotation** retains current terrain and sweeps the
+camera 360 degrees twice. Its timed sweep starts after the warmup interval.
+The temporary pipeline-bypass switch used for diagnosis has been removed.
+Regression tests cover hidden-tile migration without work on rotation, progress
+with a coarse clock, pipeline state restoration after success/failure, and the
+entry gate waiting for compilation. Full validation passed 475 engine and
+1,048 client tests, excluding the same three previously documented baseline
+failures. Type checks, generated assets/contracts, documentation checks and
+the production build passed.
+
+## Streaming and publication
+
 The terrain worker starts its next eligible chunk as soon as a result arrives,
 with at most four completed results awaiting publication. Finished generation
 also publishes during render frames, even without local edits or idle time.

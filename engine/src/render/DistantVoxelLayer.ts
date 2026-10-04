@@ -328,7 +328,10 @@ export class DistantVoxelLayer {
       state.inView = frustum.intersectsSphere(this.projectedBounds)
         && this.cullCamera.distanceTo(bounds.center) - bounds.radius <= this.view.distance;
     }
-    if (state.inView && (state.maskVersion !== this.mask.version || transitionChanged)) {
+    // Ownership is resident state, independent of camera direction. Classify
+    // hidden tiles too so the entry gate can finish their arena migration;
+    // turning must not retire attributes or create new storage pages/shaders.
+    if (state.maskVersion !== this.mask.version || transitionChanged) {
       state.handoffMode.value = voxelHandoffMode(this.mask.image.data,
         batch.transitioning ? state.looseFlatBounds : state.flatBounds);
       state.maskVersion = this.mask.version;
