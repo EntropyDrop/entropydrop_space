@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
+import { setTimeout as delay } from 'node:timers/promises';
 import { bendPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import type { SurfaceByteCache } from '../src/bootstrap/SurfaceDiskCache.ts';
 import {
@@ -334,6 +335,76 @@ test('surface-zone remote verifies and progressively installs manifest entries',
   assert.equal(requests.length, 3);
   assert.equal(requests.every(request => request.authorization === 'Bearer test-token'), true);
   assert.match(requests[1].url, /digest=/);
+});
+
+test('surface loading progress counts the full world domain and refreshes stale zones', async t => {
+  let revision = 1, complete = false;
+  const bytes = [makeCoarseBytes(0), makeCoarseBytes(1)];
+  const entries = bytes.map((payload, x) => ({ zone_x: x, zone_z: 0, revision,
+    source_terrain_revision: 7, sample_size: 2, digest: `${x}`.repeat(64), byte_length: 327712,
+    url: '/unused-fine', lods: [{ sample_size: 64,
+      digest: createHash('sha256').update(payload).digest('hex'), byte_length: payload.length, url: `/coarse/${x}` }] }));
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/manifest', 20260827, 1,
+    (async input => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/manifest') return Response.json({ schema_version: 5, samples_per_chunk_axis: 8,
+        zone_size_chunks: 32, width_chunks: 64, length_chunks: 32, complete,
+        zones: (complete ? entries : entries.slice(0, 1)).map(entry => ({ ...entry, revision,
+          digest: revision === 1 ? entry.digest : 'a'.repeat(64) })) });
+      return new Response(bytes[Number(path.split('/').at(-1))]);
+    }) as typeof fetch);
+  const progress: { loadedZones: number; totalZones: number }[] = [];
+  const options = { getZoneDemand: () => ({ sampleSize: 64, priority: 0 }),
+    onProgress: (value: { loadedZones: number; totalZones: number }) => progress.push(value) };
+  const first = await remote.loadAll(() => {}, undefined, options);
+  assert.equal(first.complete, false);
+  assert.deepEqual(progress, [{ loadedZones: 0, totalZones: 2 }, { loadedZones: 1, totalZones: 2 }]);
+  complete = true; revision++;
+  progress.length = 0;
+  await remote.loadAll(() => {}, undefined, options);
+  assert.deepEqual(progress[0], { loadedZones: 0, totalZones: 2 }, 'stale revisions are not ready');
+  assert.deepEqual(progress.at(-1), { loadedZones: 2, totalZones: 2 });
+  revision++;
+  const refreshedAt = Date.now() + 10001;
+  t.mock.method(Date, 'now', () => refreshedAt);
+  progress.length = 0;
+  const unchanged = await remote.loadAll(() => assert.fail('identical snapshots need no reinstall'), undefined, options);
+  assert.equal(unchanged.loaded, 0);
+  assert.deepEqual(progress, [{ loadedZones: 2, totalZones: 2 }],
+    'a metadata-only manifest revision must still count identical ready snapshots');
+});
+
+test('distant entry readiness includes rebuilds and outgoing terrain fades', async () => {
+  const layer = new DistantSurfaceLayer();
+  try {
+    layer.updateView(torusCamera(8192, 100, 1024), 720);
+    layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2)));
+    assert.equal(layer.hasPendingWork, true);
+    await layer.finalizeConnections();
+    await delay(420);
+    layer.updateView(torusCamera(8192, 100, 1024), 720);
+    assert.equal(layer.hasPendingWork, false);
+    const replacement = parseSurfaceZoneSnapshot(makeCoarseBytes(16, 2, 64, 8));
+    replacement.heightsMicro.fill(256);
+    layer.installZone(replacement);
+    assert.equal(layer.hasPendingWork, true, 'downloaded replacements still need a build');
+    await layer.finalizeConnections();
+    assert.equal(layer.hasPendingWork, true, 'outgoing generations must finish fading');
+    await delay(420);
+    layer.updateView(torusCamera(8192, 100, 1024), 720);
+    assert.equal(layer.hasPendingWork, false);
+    assert.equal(layer.preparationError, null);
+  } finally { layer.setEnabled(false); }
+});
+
+test('a failed distant connection build rejects entry preparation instead of retrying forever', async () => {
+  const layer = new DistantSurfaceLayer();
+  try {
+    layer.installZone(parseSurfaceZoneSnapshot(makeCoarseBytes()));
+    (layer as any).stageConnections = async () => { throw new Error('fixture: connection build failed'); };
+    await assert.rejects(layer.finalizeConnections(), /fixture: connection build failed/);
+    assert.match(layer.preparationError!, /fixture: connection build failed/);
+  } finally { layer.setEnabled(false); }
 });
 
 test('surface-zone remote never forwards login credentials to a manifest-selected origin', async () => {

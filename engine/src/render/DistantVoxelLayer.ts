@@ -134,6 +134,11 @@ export class DistantVoxelLayer {
   hasZone(x: number, z: number) { return this.zones.get(`${x},${z}`)?.readyMask === 0xffff; }
   get hasPendingWork() { return this.active && !this.halted && this.zones.size > 0
     && (this.dirty || this.busy || !!this.packet || this.uploads.size > 0 || !!this.arena?.hasPendingWork); }
+  get hasPendingTransitions() { return this.active && [...this.zones.values()]
+    .some(zone => [...zone.batches.values()].some(batch => batch.transitioning)); }
+  get preparationError(): string | null {
+    return this.halted ? this.group.userData.voxelLodWorkStats.error || 'Distant voxel preparation failed.' : null;
+  }
 
   /** Reference switch for development A/B measurements; residency is unchanged. */
   setDrawOptimizationsEnabled(enabled: boolean, culling = enabled) {

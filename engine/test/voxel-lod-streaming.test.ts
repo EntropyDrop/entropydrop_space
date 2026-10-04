@@ -135,6 +135,7 @@ test('worker creation and runtime failures fall back without abandoning pending 
       await drain(layer);
       assert.equal(layer.group.userData.voxelLodWorkStats.backend, 'cooperative');
       assert.equal(layer.hasZone(16, 2), true);
+      assert.equal(layer.preparationError, null, 'successful cooperative fallback must not block entry');
     } finally { layer.dispose(); handoff.texture.dispose(); }
   }
 });

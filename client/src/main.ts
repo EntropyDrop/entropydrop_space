@@ -35,6 +35,7 @@ import {
 import { logConsoleSecurityWarning } from './bootstrap/ConsoleSecurityWarning.ts';
 import { isMonitoringRoute } from './bootstrap/MonitoringRoute.ts';
 import { installNetworkTrafficMonitor } from './bootstrap/NetworkTraffic.ts';
+import { preloadInitialDistantTerrain } from './bootstrap/InitialDistantTerrain.ts';
 
 installNetworkTrafficMonitor();
 logConsoleSecurityWarning();
@@ -87,6 +88,7 @@ class Game {
   terrainAreaLoadInFlight: boolean;
   terrainAreaRetryAt: number;
   started: boolean;
+  surfaceSnapshotRemote: ReadySpaceSession['surface_snapshot_remote'];
 
   constructor(
     session: ReadySpaceSession,
@@ -121,26 +123,7 @@ class Game {
       },
       session.world.terrain_generator_version,
     );
-    if (session.surface_snapshot_remote) {
-      const syncSurfaceSnapshots = () => {
-        void session.surface_snapshot_remote!.loadAll(
-          zone => this.world.installSurfaceZone(zone),
-          (zoneX, zoneZ) => this.world.removeSurfaceZone(zoneX, zoneZ),
-          {
-            getDataBudgetBytes: () => this.world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024,
-            getZoneDemand: (zoneX, zoneZ) => this.world.distantSurface.getZoneDemand(zoneX, zoneZ),
-          },
-        // Geometry publishes atomically in its own frame-sliced queue. Waiting
-        // for camera motion to become idle would starve subsequent downloads.
-        ).then(() => this.world.finalizeSurfaceConnections(false)).catch(error => {
-          console.warn('Space far-surface snapshots are temporarily unavailable.', error);
-        }).finally(() => {
-          window.setTimeout(syncSurfaceSnapshots, 1000);
-        });
-      };
-      // Let the initial camera finish setup.
-      window.setTimeout(syncSurfaceSnapshots, 0);
-    }
+    this.surfaceSnapshotRemote = session.surface_snapshot_remote;
     this.sceneRenderer.setWorld(this.world);
     this.soundManager = new SoundManager();
     this.particleSystem = new ParticleSystem(this.sceneRenderer.scene);
@@ -347,8 +330,7 @@ class Game {
       this.entitySync.start();
     }
 
-    // The entry gate owns when gameplay starts. It waits for preloadTerrainAoi
-    // to publish the complete initial detailed window first.
+    // The entry gate waits for both the detailed AOI and distant terrain.
     this.animate = this.animate.bind(this);
   }
 
@@ -381,7 +363,7 @@ class Game {
         const ratio = progress.totalChunks > 0
           ? progress.readyChunks / progress.totalChunks
           : 0;
-        const value = Math.min(99, 92 + Math.floor(ratio * 7));
+        const value = Math.min(94, 92 + Math.floor(ratio * 2));
         const count = `${progress.readyChunks}/${progress.totalChunks}`;
         reportProgress?.(
           value,
@@ -391,12 +373,45 @@ class Game {
     );
   }
 
+  async preloadInitialDistantTerrain(reportProgress?: (value: number, message: string) => void) {
+    await preloadInitialDistantTerrain({
+      remote: this.surfaceSnapshotRemote,
+      world: this.world,
+      drawFrame: () => this.sceneRenderer.prepareInitialTerrainFrame(
+        this.playerPhysics.position, this.controller.bodyYaw,
+      ),
+      waitForGpu: () => this.sceneRenderer.renderer.backend.device.queue.onSubmittedWorkDone(),
+      reportProgress,
+    });
+  }
+
+  private async syncSurfaceSnapshots() {
+    if (!this.surfaceSnapshotRemote) return;
+    try {
+      await this.surfaceSnapshotRemote.loadAll(
+        zone => this.world.installSurfaceZone(zone),
+        (x, z) => this.world.removeSurfaceZone(x, z),
+        {
+          getDataBudgetBytes: () => this.world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024,
+          getZoneDemand: (x, z) => this.world.distantSurface.getZoneDemand(x, z),
+        },
+      );
+      await this.world.finalizeSurfaceConnections(false);
+    } catch (error) {
+      console.warn('Space far-surface snapshots are temporarily unavailable.', error);
+    } finally {
+      window.setTimeout(() => { void this.syncSurfaceSnapshots(); }, 1000);
+    }
+  }
+
   start() {
     if (this.started) return;
     this.started = true;
     this.frameCount = 0;
     this.lastFpsTime = performance.now();
     requestAnimationFrame(this.animate);
+    // Initial preparation owns the first downloads. Only then begin refreshes.
+    window.setTimeout(() => { void this.syncSurfaceSnapshots(); }, 1000);
   }
 
   currentPlayerPosition() {
@@ -660,6 +675,7 @@ window.addEventListener('DOMContentLoaded', () => {
       const game = new Game(session, persistentStorage);
       await game.sceneRenderer.ready;
       await game.preloadInitialTerrain(reportProgress);
+      await game.preloadInitialDistantTerrain(reportProgress);
       game.start();
       if (session.entry_warning) {
         requestAnimationFrame(() => {

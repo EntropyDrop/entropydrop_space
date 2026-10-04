@@ -75,6 +75,14 @@ outbox under `space.world-edits.v3.*` preserves unacknowledged batches across a
 refresh; obsolete `space.world-edits.v1.*`/`v2` local-only overlays are ignored
 rather than migrated, so only v3 edits are uploaded.
 
+The entry gate waits for the complete near AOI and all 128 distant zone
+snapshots before exposing Play. It also finishes the initial view's refinement,
+mesh publication, terrain fades and GPU uploads at the saved graphics settings.
+Loading progress reports distant zones as they arrive. Missing server-generated
+zones keep the gate open; download or rendering failures show the entry error
+instead of starting gameplay with incomplete terrain. Later world revisions
+continue refreshing in the background after entry.
+
 The distant world no longer uses a browser-generated low-poly thumbnail or a
 synthetic doughnut. The backend builds 128 revisioned `32x32`-chunk zone
 snapshots, each carrying an `8x8` two-metre height/color summary per chunk. The

@@ -3403,8 +3403,14 @@ export class SceneRenderer {
     return png;
   }
 
-  render(cleanScreenshot = false) {
-    this.updateAdaptiveResolution();
+  /** Loading work must not lower the user's automatic resolution or effects. */
+  prepareInitialTerrainFrame(playerPosition: THREE.Vector3, playerYaw: number) {
+    this.update(0, playerPosition, playerYaw);
+    this.render(false, true);
+  }
+
+  render(cleanScreenshot = false, preparingTerrain = false) {
+    if (!preparingTerrain) this.updateAdaptiveResolution();
     if (!this.world) {
       if (cleanScreenshot) this.renderWorldForScreenshot();
       else {

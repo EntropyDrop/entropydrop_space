@@ -415,6 +415,7 @@ export class DistantSurfaceLayer {
   private lodViewKey = '';
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingBuild: Promise<void> | null = null;
+  private connectionBuildError: string | null = null;
 
   constructor() {
     this.detailMaskTexture = new THREE.DataTexture(
@@ -466,6 +467,18 @@ export class DistantSurfaceLayer {
   private syncVisibility() {
     this.mesh.visible = this.enabled && (this.mesh.geometry.instanceCount > 0 || this.authoredChunks.group.children.length > 0 || this.voxels.group.children.length > 0);
     this.sideMesh.visible = this.enabled && this.sideMesh.geometry.instanceCount > 0;
+  }
+
+  /** Includes publication and fades, not just downloaded snapshot residency. */
+  get hasPendingWork(): boolean {
+    return this.enabled && (this.voxels.hasPendingWork || this.voxels.hasPendingTransitions
+      || (this.zones.size > 0 && (this.connectionsDirty || this.connectionBuildPending
+        || this.rebuildTimer !== null || this.rebuildQueued
+        || [...this.batches.values()].some(batch => batch.transitioning))));
+  }
+
+  get preparationError(): string | null {
+    return this.enabled ? this.connectionBuildError ?? this.voxels.preparationError : null;
   }
 
   /** Called with the bent camera. Visibility updates immediately, without
@@ -1235,6 +1248,7 @@ export class DistantSurfaceLayer {
   }
 
   private scheduleConnectionRebuild(): Promise<void> {
+    this.connectionBuildError = null;
     this.ensureStorage();
     const generation = ++this.connectionBuildGeneration;
     this.buildPosition.copy(this.lodPosition);
@@ -1258,6 +1272,7 @@ export class DistantSurfaceLayer {
     })().catch(error => {
       if (generation !== this.connectionBuildGeneration) return;
       this.connectionBuildPending = false;
+      this.connectionBuildError = String(error);
       console.error('Failed to rebuild distant surface connections:', error);
     });
     this.pendingBuild = pending;
@@ -1265,6 +1280,7 @@ export class DistantSurfaceLayer {
   }
 
   private scheduleRebuild() {
+    this.connectionBuildError = null;
     this.ensureStorage();
     const generation = ++this.connectionBuildGeneration;
     this.buildPosition.copy(this.lodPosition);
@@ -1339,6 +1355,7 @@ export class DistantSurfaceLayer {
     })().catch(error => {
       if (generation !== this.connectionBuildGeneration) return;
       this.connectionBuildPending = false;
+      this.connectionBuildError = String(error);
       console.error('Failed to rebuild distant surface connections:', error);
     });
   }
@@ -1456,6 +1473,7 @@ export class DistantSurfaceLayer {
     }
     // Drain coalesced work too, including installs arriving during a build.
     do {
+      if (this.preparationError) throw new Error(this.preparationError);
       if (this.connectionBuildPending) await this.pendingBuild;
       else if (this.rebuildTimer !== null) {
         clearTimeout(this.rebuildTimer);

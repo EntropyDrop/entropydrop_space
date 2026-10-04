@@ -275,6 +275,7 @@ export interface SurfaceStreamOptions {
   getDataBudgetBytes?: () => number;
   /** Camera demand is evaluated on each pass; 64 keeps only the overview. */
   getZoneDemand(zoneX: number, zoneZ: number): { sampleSize: number; priority: number };
+  onProgress?: (progress: { loadedZones: number; totalZones: number }) => void;
 }
 
 export function createSpaceSurfaceSnapshotRemote(
@@ -309,6 +310,14 @@ export function createSpaceSurfaceSnapshotRemote(
         manifestFetchedAt = Date.now();
       }
       const manifest = cachedManifest;
+      const reportProgress = () => options?.onProgress?.({
+        loadedZones: manifest.zones.filter(entry => {
+          const current = installed.get(`${entry.zone_x},${entry.zone_z}`);
+          return !!current && (current.sourceDigest === entry.digest || current.revision > entry.revision);
+        }).length,
+        totalZones: manifest.width_chunks * manifest.length_chunks / manifest.zone_size_chunks ** 2,
+      });
+      reportProgress();
       // An absent zone is unavailable (initial build, migration, or a legacy
       // dirty manifest), never a deletion. Retain last-good coverage until an
       // authenticated replacement arrives. The world has a fixed zone domain.
@@ -426,6 +435,7 @@ export function createSpaceSurfaceSnapshotRemote(
           await onZone(zone);
           installed.set(key, { sourceDigest: entry.digest, sampleSize: level.sample_size, revision: entry.revision });
           loaded++;
+          reportProgress();
         });
         installationQueue = publication.catch(() => {});
         await publication;
