@@ -132,6 +132,8 @@ export function installFrameDiagnostics(game: any) {
     mergedBuffers: game.world.distantSurface?.voxels.getMergedBuffersEnabled() ?? false,
     commandCaching: game.world.distantSurface?.voxels.getCommandCachingEnabled() ?? false,
     opaqueFastPath: game.world.distantSurface?.voxels.getOpaqueFastPathEnabled() ?? false,
+    nearOpaqueFastPath: game.world.distantSurface?.handoff.getOpaqueFastPathEnabled() ?? true,
+    nearFrustumCulling: scene.nearFrustumCullingEnabled,
     secondaryScale: scene.cinematicEffects?.getSecondaryResolutionScale() ?? 0.5,
     voxelDrawOptimizations: game.world.distantSurface?.voxels.getDrawOptimizationsEnabled() ?? true });
   const restore = (saved: ReturnType<typeof capture>) => {
@@ -141,6 +143,8 @@ export function installFrameDiagnostics(game: any) {
     scene.cinematicEffects?.setSecondaryResolutionScale(saved.secondaryScale);
     game.world.distantSurface?.voxels.setDrawOptimizationsEnabled(saved.voxelDrawOptimizations);
     game.world.distantSurface?.voxels.setOpaqueFastPathEnabled(saved.opaqueFastPath);
+    game.world.distantSurface?.handoff.setOpaqueFastPathEnabled(saved.nearOpaqueFastPath);
+    scene.nearFrustumCullingEnabled = saved.nearFrustumCulling;
     game.world.distantSurface?.voxels.setCommandCachingEnabled(saved.commandCaching);
     game.world.distantSurface?.voxels.setMergedBuffersEnabled(saved.mergedBuffers);
     refreshButtons(); clear();
@@ -160,6 +164,31 @@ export function installFrameDiagnostics(game: any) {
     label:`Opaque terrain ${enabled?'ON':'OFF'}${i===2?' repeat':''}`,
     apply(){game.world.distantSurface.voxels.setOpaqueFastPathEnabled(enabled);}
   }));
+  const nearCases = () => [false, true, false].map((enabled, i) => ({
+    label: `Opaque near terrain ${enabled ? 'ON' : 'OFF'}${i === 2 ? ' repeat' : ''}`,
+    apply() { game.world.distantSurface.handoff.setOpaqueFastPathEnabled(enabled); },
+  }));
+  const nearDrawCases = () => [false, true, false].map((enabled, i) => ({
+    label: `Near draw optimizations ${enabled ? 'ON' : 'OFF'}${i === 2 ? ' repeat' : ''}`,
+    apply() {
+      game.world.distantSurface.handoff.setOpaqueFastPathEnabled(enabled);
+      scene.nearFrustumCullingEnabled = enabled;
+    },
+  }));
+  button('Compare near materials (about 17s)', () => {
+    if (!readyForTerrainProbe() || !game.world.getTerrainAoiLoadProgress().ready) return;
+    const saved = capture();
+    comparison = { saved, cases: nearCases(), index: 0, warmUntil: 0, endAt: 0, warmed: false,
+      rows: [`${saved.quality} | same near geometry, camera and resolution | near material only`] };
+    beginCase(performance.now());
+  });
+  button('Compare near drawing (about 17s)', () => {
+    if (!readyForTerrainProbe() || !game.world.getTerrainAoiLoadProgress().ready) return;
+    const saved = capture();
+    comparison = { saved, cases: nearDrawCases(), index: 0, warmUntil: 0, endAt: 0, warmed: false,
+      rows: [`${saved.quality} | near materials and shadow-aware culling | same resident terrain`] };
+    beginCase(performance.now());
+  });
   const commandCases = () => [false,true,false].map((enabled,i)=>({
     label:`Far commands ${enabled?'ON':'OFF'}${i===2?' repeat':''}`,
     apply(){game.world.distantSurface.voxels.setCommandCachingEnabled(enabled);}
@@ -259,6 +288,10 @@ export function installFrameDiagnostics(game: any) {
     game.world.distantSurface?.voxels.getMergedBuffersEnabled()
       ? [{label:'Retained merged buffers',apply(){}}, ...mergeCases()] : mergeCases()));
   button('Check completed merged work', () => { void checkCompletedWork(mergeCases()); });
+  button('Check near material pixels', () => checkTerrainPixels('Near-material pixel check', nearCases()));
+  button('Check completed near work', () => { void checkCompletedWork(nearCases()); });
+  button('Check near drawing pixels', () => checkTerrainPixels('Near-drawing pixel check', nearDrawCases()));
+  button('Check completed near drawing', () => { void checkCompletedWork(nearDrawCases()); });
   button('Check opaque terrain pixels', () => checkTerrainPixels('Opaque-terrain pixel check', faceCases()));
   button('Check far command pixels', () => checkTerrainPixels('Far-command pixel check', [{label:'Retained cache',apply(){}},...commandCases()]));
   button('Check far transparency', () => { void (async () => {
@@ -499,6 +532,8 @@ export function installFrameDiagnostics(game: any) {
               geometry:game.world.distantSurface?.voxels.group.userData.voxelLodStats,
               mergedBuffers: {...game.world.distantSurface?.voxels.group.userData.voxelArenaStats},
               commandCache: {...game.world.distantSurface?.voxels.group.userData.commandCacheStats},
+              nearOpaqueFastPath: game.world.distantSurface?.handoff.getOpaqueFastPathEnabled(),
+              nearFrustumCulling: scene.nearFrustumCullingEnabled,
               stagesNested:true,gpuExcludesPresentation:true});
             run.rows.push(`${run.cases[run.index].label}: ${(1000 / (frame.mean || 1)).toFixed(1)} FPS | frame ${frame.p50.toFixed(2)}/${frame.p95.toFixed(2)} ms | CPU ${cpu.p50.toFixed(2)}/${cpu.p95.toFixed(2)} ms | GPU ${gpu.count ? gpu.p50.toFixed(2) : 'N/A'} ms | ${calls} calls / ${triangles} tris`);
             showResults(run.rows);

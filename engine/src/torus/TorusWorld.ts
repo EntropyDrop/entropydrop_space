@@ -445,7 +445,9 @@ export const torusBendNode = (p: any) => {
 
 function hookMaterialForTorus(source: THREE.Material) {
   const material = asNodeMaterial(source);
-  if (hookedMaterials.has(material)) return material;
+  // NodeMaterial.clone shares the already deformed nodes. Material variants
+  // must not wrap that deformation again during the periodic scene scan.
+  if (hookedMaterials.has(material) || material.userData.torusNode) return material;
   hookedMaterials.add(material);
   const flatPosition = material.positionNode ?? ((material as any).isSpriteNodeMaterial ? vec3(0) : positionLocal);
   const flatNormal = material.userData.flatNormalNode ?? normalLocal;
@@ -506,7 +508,7 @@ function isLocalShadowCaster(camera, bs): boolean {
   ) <= bs.radius + TERRAIN_SHADOW_CASTER_DISTANCE;
 }
 
-function isBentSphereVisible(camera, bs): boolean {
+function isBentSphereVisible(camera, bs, retainLocalShadowCasters: boolean): boolean {
   // Parent visibility also gates the directional-light shadow pass. Keep a
   // compact ring of nearby casters even when they sit just behind the camera.
   const cameraDistance = Math.hypot(
@@ -514,7 +516,7 @@ function isBentSphereVisible(camera, bs): boolean {
     camera.position.y - bs.cy,
     camera.position.z - bs.cz,
   );
-  if (cameraDistance <= bs.radius + 80) return true;
+  if (retainLocalShadowCasters && cameraDistance <= bs.radius + 80) return true;
 
   for (let i = 0; i < 6; i++) {
     const p = _frustum.planes[i];
@@ -525,7 +527,7 @@ function isBentSphereVisible(camera, bs): boolean {
   return true;
 }
 
-export function cullChunks(camera, world) {
+export function cullChunks(camera, world, retainLocalShadowCasters = true) {
   if (!world || !world.chunks) return;
   world.distantSurface?.updateHandoffs();
   _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -553,7 +555,7 @@ export function cullChunks(camera, world) {
       mesh.userData.bentSphereRevision = WORLD_PROJECTION_REVISION;
     }
 
-    mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs));
+    mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs), retainLocalShadowCasters);
     const castShadow = mesh.visible && isLocalShadowCaster(camera, bs);
     mesh.traverse((child) => {
       if (child.isMesh) child.castShadow = castShadow;
@@ -592,7 +594,7 @@ export function cullChunks(camera, world) {
       mesh.userData.bentSphere = bs;
       mesh.userData.bentSphereRevision = WORLD_PROJECTION_REVISION;
     }
-    mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs));
+    mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs), retainLocalShadowCasters);
     mesh.castShadow = mesh.visible && isLocalShadowCaster(camera, bs);
   }
 }

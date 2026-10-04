@@ -638,6 +638,7 @@ export function createEntityPreviewCamera() {
 }
 
 export class SceneRenderer {
+  nearFrustumCullingEnabled = true;
   private worldOverlayListeners = new Set<(camera: THREE.PerspectiveCamera) => void>();
 
   subscribeWorldOverlay(listener: (camera: THREE.PerspectiveCamera) => void): () => void {
@@ -1568,7 +1569,7 @@ export class SceneRenderer {
     const handVisible = this.playerFirstPersonHand?.visible;
     try {
       setTorusViewCorrection(null);
-      cullChunks(this.previewCamera, this.world);
+      cullChunks(this.previewCamera, this.world, (this.previewRenderer.shadowMap?.enabled ?? true) || this.nearFrustumCullingEnabled === false);
       this.updateSkyDome(this.previewCamera.position);
       this.previewRenderer.setClearColor(this.skyColorDay, 1);
       this.previewRenderer.toneMappingExposure = this.renderer.toneMappingExposure;
@@ -1587,7 +1588,7 @@ export class SceneRenderer {
         this.previewWorldCullCamera ??= new THREE.PerspectiveCamera();
         this.previewWorldCullCamera.copy(this.camera, false);
         applyCameraBend(this.previewWorldCullCamera);
-        cullChunks(this.previewWorldCullCamera, this.world);
+        cullChunks(this.previewWorldCullCamera, this.world, (this.renderer.shadowMap?.enabled ?? true) || this.nearFrustumCullingEnabled === false);
       }
     }
   }
@@ -3431,7 +3432,7 @@ export class SceneRenderer {
     try {
       setTorusViewCorrection(this.flatCameraPosition);
       applyCameraBend(this.camera);
-      cullChunks(this.camera, this.world);
+      cullChunks(this.camera, this.world, (this.renderer.shadowMap?.enabled ?? true) || this.nearFrustumCullingEnabled === false);
       // Auto resolution responds to GPU pressure while turning. It must not
       // lower terrain LOD and then refine it again when the camera stops.
       this.world.distantSurface?.updateView(this.camera,
