@@ -91,29 +91,28 @@ function selectEntity(controller, contraption) {
   assert.equal(controller.selectAllSelectionBlocks(), true);
 }
 
-test('R copies into the entity category, T into the blockset category', () => {
+test('R and T create Items in one shared collection', () => {
   const { contraption, manager } = makeEntity();
   const controller = makeController({ manager, world: {} as any });
   selectEntity(controller, contraption);
-
   controller.copySelectionToInventory();
-  assert.equal(controller.inventories.entity.items.filter(Boolean).length, 1, 'R should fill an entity slot');
-  assert.equal(typeof controller.inventories.entity.items.find(Boolean).name, 'string');
-  assert.equal(controller.inventories.blockset.items.filter(Boolean).length, 0);
-  assert.equal(controller.activeInventoryCategory, 'entity', 'the bar should switch to entities after R');
-
-  const controller2 = makeController({ manager, world: {} as any });
-  selectEntity(controller2, contraption);
-  controller2.copySelectionAsBlockSet();
-  const blockset = controller2.inventories.blockset.items.find(Boolean);
-  assert.ok(blockset, 'T should fill a blockset slot');
-  assert.equal(blockset.kind, 'blockset');
-  assert.equal(typeof blockset.name, 'string');
-  assert.equal(controller2.inventories.entity.items.filter(Boolean).length, 0);
-  assert.equal(controller2.activeInventoryCategory, 'blockset');
+  const entityItem = controller.inventories.item.items[0];
+  assert.equal(entityItem.kind, 'item');
+  assert.equal(entityItem.entityList.length, 1);
+  assert.equal(entityItem.blockSet, undefined);
+  assert.equal(controller.activeInventoryCategory, 'item');
+  controller.activeTool = SpecialTool.SELECTOR;
+  selectEntity(controller, contraption);
+  controller.copySelectionAsBlockSet();
+  const staticItem = controller.inventories.item.items[1];
+  assert.equal(staticItem.kind, 'item');
+  assert.equal(staticItem.entityList.length, 0);
+  assert.ok(staticItem.blockSet.blocks.length);
+  assert.equal(controller.inventories.item.items.filter(Boolean).length, 2);
+  assert.equal(controller.activeInventoryCategory, 'item');
 });
 
-test('each category caps at 99 items and the copy reports the limit', () => {
+test('the shared Item collection caps at 198 and reports the limit', () => {
   const { contraption, manager } = makeEntity();
   const controller = makeController({ manager, world: {} as any });
   for (let i = 0; i < controller.inventories.entity.items.length; i++) {
@@ -123,8 +122,8 @@ test('each category caps at 99 items and the copy reports the limit', () => {
   selectEntity(controller, contraption);
   const hundredth = controller.copySelectionToInventory();
   assert.equal(hundredth, null, 'the 100th entity copy must be rejected');
-  assert.equal(controller.inventories.entity.items.filter(Boolean).length, 99);
-  assert.ok(controller.__toasts.some(m => m.includes('full (99)')));
+  assert.equal(controller.inventories.entity.items.filter(Boolean).length, 198);
+  assert.ok(controller.__toasts.some(m => m.includes('full (198)')));
 });
 
 test('color set inventory has capacity 99 and renders without visible group or slot labels', () => {
@@ -154,6 +153,81 @@ test('color set inventory has capacity 99 and renders without visible group or s
   assert.doesNotMatch(inventorySource, /My Color Sets \([^)]*(?:slots|groups)/i);
 });
 
+test('block sets and entities share one backpack tab and grid with type labels', () => {
+  const source = readFileSync(new URL('../src/ui/react/components/InventoryModal.tsx', import.meta.url), 'utf8');
+  assert.match(source, /id="backpack-tab-items"/);
+  assert.match(source, /id="backpack-panel-items"/);
+  assert.doesNotMatch(source, /id="backpack-(?:tab|panel)-(?:blockset|entity)"/);
+  assert.match(source, /<span>My Items<\/span>/);
+  assert.match(source, /<InventorySlotsRow\s+items=\{items\}/);
+  assert.match(source, /className=\{`backpack-item-kind \$\{itemKind\}`\}/);
+  assert.match(source, /<ImportProtobufButton category="items"/);
+  assert.match(source, /swapInventorySlots\('item', draggedIndex, index\)/);
+});
+
+test('the unified backpack import detects block sets and entities and rejects other files', () => {
+  const controller = makeController();
+  const ui = new SpaceUiStore();
+  const toasts: string[] = [];
+  ui.showToast = message => { toasts.push(String(message)); };
+  ui.setController(controller);
+  let payload: Uint8Array;
+  const originalReader = Object.getOwnPropertyDescriptor(globalThis, 'FileReader');
+  Object.defineProperty(globalThis, 'FileReader', {
+    configurable: true,
+    value: class {
+      result: ArrayBuffer;
+      onload: () => void;
+      readAsArrayBuffer() {
+        this.result = new Uint8Array(payload).buffer;
+        this.onload();
+      }
+    }
+  });
+  const importPayload = (bytes: Uint8Array) => {
+    payload = bytes;
+    ui.importInventoryFile('items', { size: bytes.byteLength } as File);
+  };
+
+  try {
+    importPayload(encodeInventoryResource('blockset', {
+      type: 'space-blockset', version: 8,
+      name: 'Imported blocks',
+      blocks: [{ dx: 0, dy: 0, dz: 0, color: 0xff0000 }]
+    }));
+    assert.equal(controller.inventories.blockset.items[0]?.name, 'Imported blocks');
+    assert.equal(controller.activeInventoryCategory, 'item');
+
+    importPayload(encodeInventoryResource('entity', {
+      type: 'space-entity', version: 8,
+      root: {
+        id: 'root',
+        name: 'Imported entity',
+        body: { type: 'dynamic' },
+        blocks: [{ dx: 0, dy: 0, dz: 0, color: 0x00ff00 }],
+        children: []
+      },
+      constraints: []
+    }));
+    assert.equal(controller.inventories.item.items[1]?.name, 'Imported entity');
+    assert.equal(controller.activeInventoryCategory, 'item');
+
+    const counts = Object.values(controller.inventories).map((group: any) => group.items.filter(Boolean).length);
+    importPayload(encodeInventoryResource('colorset', {
+      type: 'space-colorset', version: 8,
+      name: 'Separate palette', entries: solidEntries(new Array(9).fill('#123456'))
+    }));
+    assert.equal(toasts.at(-1), 'Import color sets from the Color Set tab');
+    importPayload(new Uint8Array([255]));
+    assert.match(toasts.at(-1), /^Import failed:/);
+    assert.deepEqual(Object.values(controller.inventories).map((group: any) => group.items.filter(Boolean).length), counts);
+    assert.equal(controller.activeInventoryCategory, 'item');
+  } finally {
+    if (originalReader) Object.defineProperty(globalThis, 'FileReader', originalReader);
+    else delete (globalThis as any).FileReader;
+  }
+});
+
 test('deleteInventoryItem frees a slot and keeps a valid selection', () => {
   const controller = makeController();
   controller.inventories.blockset.items[0] = { kind: 'blockset', blocks: [], blockCount: 0, name: 'a' };
@@ -174,22 +248,23 @@ test('deleteInventoryItem frees a slot and keeps a valid selection', () => {
   assert.equal(controller.inventories.entity.selected, 7, 'deleting another item preserves the active slot');
 });
 
-test('inventory slots bridge to the active category', () => {
+test('inventory slots use one Item cursor and retain a separate palette cursor', () => {
   const controller = makeController();
-  assert.equal(controller.activeInventoryCategory, 'blockset');
-  assert.equal(controller.inventorySlots.length, 99);
+  assert.equal(controller.activeInventoryCategory, 'item');
+  assert.equal(controller.inventorySlots.length, 198);
   controller.inventorySlots[0] = { kind: 'blockset', blocks: [], blockCount: 0, name: 'x' };
-  assert.equal(controller.selectedInventoryIndex, 0);
   controller.selectedInventoryIndex = 4;
   controller.setActiveInventoryCategory('entity');
-  assert.equal(controller.selectedInventoryIndex, 0, 'each category keeps its own cursor');
-  assert.equal(controller.inventories.blockset.selected, 4, 'the blockset cursor is preserved');
-  assert.equal(controller.inventorySlots[0], null, 'the entity list is empty');
-  controller.selectedInventoryIndex = 99;
-  assert.equal(controller.selectedInventoryIndex, 0, 'out-of-range indices reset to 0');
-
-  controller.inventorySlots = new Array(20).fill({ blocks: [{}], blockCount: 1 });
-  assert.equal(controller.inventorySlots.length, 9, 'the compatibility setter cannot exceed the 9-item cap');
+  assert.equal(controller.selectedInventoryIndex, 4);
+  assert.equal(controller.inventorySlots[0].name, 'x');
+  controller.setActiveInventoryCategory('colorset');
+  assert.equal(controller.selectedInventoryIndex, 0);
+  controller.setActiveInventoryCategory('item');
+  assert.equal(controller.selectedInventoryIndex, 4);
+  controller.selectedInventoryIndex = 198;
+  assert.equal(controller.selectedInventoryIndex, 0);
+  controller.inventorySlots = new Array(200).fill({ blocks: [{}], blockCount: 1 });
+  assert.equal(controller.inventorySlots.length, 198);
 });
 
 test('the backpack workbench no longer renders tool cards', () => {
@@ -213,13 +288,13 @@ test('the backpack workbench no longer renders tool cards', () => {
 
 test('all categories support duplicate editable names', () => {
   const controller = makeController();
-  const blockA = { kind: 'blockset', name: 'Shared', blocks: [{}], blockCount: 1 };
-  const blockB = { kind: 'blockset', name: 'Shared', blocks: [{}], blockCount: 1 };
+  const blockA = { kind: 'blockset', name: 'Shared', blocks: [{ dx: 0, dy: 0, dz: 0, color: 1 }], blockCount: 1 };
+  const blockB = { kind: 'blockset', name: 'Shared', blocks: [{ dx: 0, dy: 0, dz: 0, color: 1 }], blockCount: 1 };
   assert.equal(controller.addInventoryItem('blockset', blockA), 0);
   assert.equal(controller.addInventoryItem('blockset', blockB), 1);
   assert.equal(controller.renameInventoryItem('blockset', 1, 'Shared'), 'Shared');
 
-  assert.equal(controller.addInventoryItem('entity', { name: 'Shared', blocks: [{}], blockCount: 1 }), 0);
+  assert.equal(controller.addInventoryItem('entity', { name: 'Shared', rootComponentId: 'root', blocks: [{ localX: 0, localY: 0, localZ: 0, entityId: 'root', color: 1 }], blockCount: 1 }), 2);
   assert.equal(controller.addInventoryItem('colorset', { name: 'Shared', colors: new Array(9).fill('#123456') }), 0);
   assert.equal(controller.inventories.blockset.items[0].name, 'Shared');
   assert.equal(controller.inventories.blockset.items[1].name, 'Shared');
@@ -789,22 +864,22 @@ test('backpack persists all categories and seeds the default palette', () => {
   controller.setActiveInventoryCategory('entity');
   controller.selectedInventoryIndex = 0;
 
-  const raw = storage.getItem('space.backpack.v9.pb');
+  const raw = storage.getItem('space.backpack.v10.pb');
   assert.ok(raw);
   assert.throws(() => JSON.parse(raw), 'backpack storage is binary Protobuf encoded as base64 in localStorage');
   const stored = decodeBackpack(protobufFromBase64(raw));
-  assert.equal(stored.activeCategory, 'entity');
-  assert.equal(stored.categories.blockset.items[0].name, 'Renamed shape');
-  assert.equal('label' in stored.categories.blockset.items[0], false);
-  assert.equal('size' in stored.categories.blockset.items[0].blocks[0], false);
+  assert.equal(stored.activeCategory, 'item');
+  assert.equal(stored.categories.item.items[0].name, 'Renamed shape');
+  assert.equal('label' in stored.categories.item.items[0], false);
+  assert.equal('size' in stored.categories.item.items[0].blockSet.blocks[0], false);
 
   const restored = makeController();
   restored.persistentStorage = storage;
   assert.equal(restored.loadInventoriesFromLocalStorage(), true);
-  assert.equal(restored.activeInventoryCategory, 'entity');
+  assert.equal(restored.activeInventoryCategory, 'item');
   assert.equal(restored.inventories.blockset.items[0].name, 'Renamed shape');
-  assert.equal(restored.inventories.blockset.items[0].blocks[0].dx, 0.125);
-  assert.equal(restored.inventories.entity.items[0].name, 'Stored entity');
+  assert.equal(restored.inventories.item.items[0].blockSet.blocks[0].dx, 0.125);
+  assert.equal(restored.inventories.item.items[1].name, 'Stored entity');
   assert.equal(restored.inventories.colorset.items.filter(Boolean).length, 2);
 });
 
@@ -825,21 +900,14 @@ test('inventory export filenames use the item name', () => {
   assert.equal(ui.inventoryProtobufFilename('robot/body?.pb'), 'robot_body_.edpb');
 });
 
-test('Tab toggles the hammer bar between block sets and entities', () => {
+test('Hammer retains one shared Item hotbar when Tab is pressed', () => {
   const controller = makeController();
-  const renders: string[] = [];
-  controller.ui.renderInventoryBar = () => renders.push(controller.activeInventoryCategory);
-
-  assert.equal(controller.toggleHammerCategory(), 'entity', 'the default block-set focus toggles to entities');
-  assert.equal(controller.activeInventoryCategory, 'entity');
-  assert.equal(controller.toggleHammerCategory(), 'blockset', 'the entity focus toggles back to block sets');
-  assert.deepEqual(renders, ['entity', 'blockset'], 'the bar re-renders on every toggle');
-  assert.ok(controller.__toasts.some(m => m.includes('ENTITIES')));
-  assert.ok(controller.__toasts.some(m => m.includes('BLOCK SETS')));
-
-  // A legacy color-set focus still resolves into the two hammer-bar categories.
+  controller.selectedInventoryIndex = 5;
+  assert.equal(controller.toggleHammerCategory(), 'item');
+  assert.equal(controller.selectedInventoryIndex, 5);
   controller.setActiveInventoryCategory('colorset');
-  assert.equal(controller.toggleHammerCategory(), 'entity');
+  assert.equal(controller.toggleHammerCategory(), 'item');
+  assert.equal(controller.selectedInventoryIndex, 5);
 });
 
 test('hammer left-click applies a selected color set to the palette', () => {
@@ -917,7 +985,7 @@ test('assembleSelection creates the contraption without automatically writing to
   assert.ok(controller.__toasts.some(m => m.includes('assembled as root body')));
 });
 
-test('copySelectionToInventory reports an error toast and rejects writing when entity inventory is full', () => {
+test('copySelectionToInventory rejects writing when shared Item slots are full', () => {
   const { contraption, manager } = makeEntity();
   const controller = makeController({ manager, world: {} as any });
 
@@ -925,16 +993,16 @@ test('copySelectionToInventory reports an error toast and rejects writing when e
   for (let i = 0; i < controller.inventories.entity.items.length; i++) {
     controller.inventories.entity.items[i] = { rootComponentId: 'root', blockCount: 1, blocks: [{}], name: `E${i + 1}` };
   }
-  assert.equal(controller.inventories.entity.items.filter(Boolean).length, 99);
+  assert.equal(controller.inventories.entity.items.filter(Boolean).length, 198);
 
   selectEntity(controller, contraption);
   const result = controller.copySelectionToInventory();
   assert.equal(result, null, 'copy must be rejected when entity inventory is full');
-  assert.equal(controller.inventories.entity.items.filter(Boolean).length, 99);
-  assert.ok(controller.__toasts.some(m => m.includes('full (99)')), 'toast must report that entity inventory is full');
+  assert.equal(controller.inventories.entity.items.filter(Boolean).length, 198);
+  assert.ok(controller.__toasts.some(m => m.includes('full (198)')), 'toast must report that entity inventory is full');
 });
 
-test('copySelectionAsBlockSet reports an error toast and rejects writing when blockset inventory is full (99)', () => {
+test('copySelectionAsBlockSet rejects writing when shared Item slots are full (198)', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   world.setBlock(5, 5, 5, BlockTypes.COLOR_BLOCK, false, 0x0000ff);
@@ -946,15 +1014,15 @@ test('copySelectionAsBlockSet reports an error toast and rejects writing when bl
   for (let i = 0; i < controller.inventories.blockset.items.length; i++) {
     controller.inventories.blockset.items[i] = { kind: 'blockset', blockCount: 1, blocks: [{}], name: `B${i + 1}` };
   }
-  assert.equal(controller.inventories.blockset.items.filter(Boolean).length, 99);
+  assert.equal(controller.inventories.blockset.items.filter(Boolean).length, 198);
 
   manager.setCornerA({ x: 5, y: 5, z: 5 });
   manager.setCornerB({ x: 5, y: 5, z: 5 });
 
   const result = controller.copySelectionAsBlockSet();
   assert.equal(result, null, 'copy must be rejected when blockset inventory is full');
-  assert.equal(controller.inventories.blockset.items.filter(Boolean).length, 99);
-  assert.ok(controller.__toasts.some(m => m.includes('full (99)')), 'toast must report that block set inventory is full');
+  assert.equal(controller.inventories.blockset.items.filter(Boolean).length, 198);
+  assert.ok(controller.__toasts.some(m => m.includes('full (198)')), 'toast must report that block set inventory is full');
 });
 
 test('copySelectionSmart handles both entity and world block selection with unified R key', () => {
@@ -969,7 +1037,7 @@ test('copySelectionSmart handles both entity and world block selection with unif
   selectEntity(controller, contraption);
   const entSlot = controller.copySelectionSmart();
   assert.ok(entSlot, 'should copy confirmed entity blocks');
-  assert.equal(controller.activeInventoryCategory, 'entity');
+  assert.equal(controller.activeInventoryCategory, 'item');
   assert.equal(controller.inventories.entity.items[0].nodeCount, 1);
 
   // 2. World selection -> copySelectionSmart writes to blockset inventory
@@ -982,29 +1050,29 @@ test('copySelectionSmart handles both entity and world block selection with unif
 
   const blockSlot = controller.copySelectionSmart();
   assert.ok(blockSlot, 'should copy world block set');
-  assert.equal(controller.activeInventoryCategory, 'blockset');
+  assert.equal(controller.activeInventoryCategory, 'item');
   assert.equal(controller.inventories.blockset.items[0].blockCount, 1);
 });
 
-test('SpaceUiStore resolveDefaultInventoryCategory selects blockset for shovel/spoon/selector/hammer, colorset for brush, and entity for wrench', () => {
+test('SpaceUiStore selects Items for construction tools and Color Sets for palette tools', () => {
   const controller = makeController();
   spaceUiStore.setController(controller);
 
   // Hammer tool -> defaults to blockset
   controller.activeTool = SpecialTool.HAMMER;
-  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'blockset');
+  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'item');
 
   // Shovel tool -> defaults to blockset
   controller.activeTool = SpecialTool.SHOVEL;
-  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'blockset');
+  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'item');
 
   // Spoon tool -> defaults to blockset
   controller.activeTool = SpecialTool.SPOON;
-  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'blockset');
+  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'item');
 
   // Selector tool -> defaults to blockset
   controller.activeTool = SpecialTool.SELECTOR;
-  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'blockset');
+  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'item');
 
   // Brush tool -> defaults to colorset
   controller.activeTool = SpecialTool.BRUSH;
@@ -1016,7 +1084,7 @@ test('SpaceUiStore resolveDefaultInventoryCategory selects blockset for shovel/s
 
   // Wrench tool -> defaults to entity
   controller.activeTool = SpecialTool.WRENCH;
-  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'entity');
+  assert.equal(spaceUiStore.resolveDefaultInventoryCategory(), 'item');
 });
 
 test('SpaceUiStore keeps bulk progress visible through server sync completion', () => {
@@ -1045,14 +1113,14 @@ test('toggleInventoryModal automatically opens the corresponding default tab bas
   spaceUiStore.closeAllModals(false);
   spaceUiStore.toggleInventoryModal(true);
   assert.equal(spaceUiStore.getSnapshot().activeModal, 'inventory');
-  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'blockset');
+  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'item');
 
   // 2. Open with Wrench active
   controller.activeTool = SpecialTool.WRENCH;
   spaceUiStore.closeAllModals(false);
   spaceUiStore.toggleInventoryModal(true);
   assert.equal(spaceUiStore.getSnapshot().activeModal, 'inventory');
-  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'entity');
+  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'item');
 
   // 3. Open with Brush active
   controller.activeTool = SpecialTool.BRUSH;
@@ -1063,10 +1131,10 @@ test('toggleInventoryModal automatically opens the corresponding default tab bas
 
   // 4. Manually switch tab inside modal
   spaceUiStore.selectInventoryCategory('entity');
-  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'entity');
+  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'item');
 
   spaceUiStore.selectInventoryCategory('blockset');
-  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'blockset');
+  assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'item');
 
   spaceUiStore.selectInventoryCategory('colorset');
   assert.equal(spaceUiStore.getSnapshot().activeInventoryCategory, 'colorset');
@@ -1076,8 +1144,7 @@ test('toggleInventoryModal automatically opens the corresponding default tab bas
 
 test('InventoryModal tab buttons have clean labels without emoji icons or capacity badges', () => {
   const inventorySource = readFileSync(new URL('../src/ui/react/components/InventoryModal.tsx', import.meta.url), 'utf8');
-  assert.match(inventorySource, />\s*Block Set\s*<\/button>/);
-  assert.match(inventorySource, />\s*Entity\s*<\/button>/);
+  assert.match(inventorySource, />\s*Items\s*<\/button>/);
   assert.match(inventorySource, />\s*Color Set\s*<\/button>/);
   assert.doesNotMatch(inventorySource, /backpack-tab-icon/);
   assert.doesNotMatch(inventorySource, /backpack-tab-badge/);
@@ -1108,23 +1175,24 @@ test('SpaceUiStore copyInventoryItem clones colorset, blockset, and entity into 
   assert.equal(spaceUiStore.getSnapshot().activeColorSetId, 'cs_orig_1');
 
   // 2. Copy blockset
-  const blockset = { id: 'bs_orig_1', name: 'Pillar', blocks: [{ x: 0, y: 0, z: 0 }], blockCount: 1 };
+  const blockset = { kind: 'blockset', id: 'bs_orig_1', name: 'Pillar', blocks: [{ dx: 0, dy: 0, dz: 0, color: 1 }], blockCount: 1 };
   controller.inventories.blockset.items[0] = blockset;
   spaceUiStore.copyInventoryItem('blockset', 0);
   assert.ok(controller.inventories.blockset.items[1]);
   assert.equal(controller.inventories.blockset.items[1].name, 'Pillar (Copy)');
   assert.notEqual(controller.inventories.blockset.items[1].id, 'bs_orig_1');
-  assert.match(controller.inventories.blockset.items[1].id, /^bs_/);
+  assert.match(controller.inventories.blockset.items[1].id, /^item_/);
 
   // 3. Copy entity with unique ID check
-  const entity = { id: 'ent_original_123', publicId: 'ent_original_123', name: 'Drone', blocks: [{ x: 0, y: 0, z: 0 }], blockCount: 1, scripts: [] };
+  controller.inventories.item.items = new Array(198).fill(null);
+  const entity = { kind: 'entity', rootComponentId: 'root', id: 'ent_original_123', publicId: 'ent_original_123', name: 'Drone', blocks: [{ localX: 0, localY: 0, localZ: 0, entityId: 'root', color: 1 }], blockCount: 1, scripts: [] };
   controller.inventories.entity.items[0] = entity;
   spaceUiStore.copyInventoryItem('entity', 0);
   assert.ok(controller.inventories.entity.items[1]);
   assert.equal(controller.inventories.entity.items[1].name, 'Drone (Copy)');
   assert.notEqual(controller.inventories.entity.items[1].id, 'ent_original_123');
   assert.notEqual(controller.inventories.entity.items[1].publicId, 'ent_original_123');
-  assert.match(controller.inventories.entity.items[1].id, /^ent_/);
+  assert.match(controller.inventories.entity.items[1].id, /^item_/);
 });
 
 test('ColorSetCard renders 9 swatches in 1 row, places Protobuf import in footer, and omits activate text', () => {

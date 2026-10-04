@@ -668,7 +668,7 @@ test('3D model picker accepts one model with external buffers and textures', () 
   assert.match(source, /One model per import/);
 });
 
-test('PlayerController imports full-color 3D model into block set inventory', async () => {
+test('PlayerController imports full-color 3D model into a static Item', async () => {
   const controller = makeController();
   const blocks = [
     { dx: 0, dy: 0, dz: 0, size: 1, block: BlockTypes.COLOR_BLOCK, color: 0xff0000 },
@@ -678,12 +678,13 @@ test('PlayerController imports full-color 3D model into block set inventory', as
 
   const slot = controller.importBlockSetToInventory(blocks, 'robot.glb @size 16');
   assert.ok(slot);
-  assert.equal(slot.kind, 'blockset');
+  assert.equal(slot.kind, 'item');
   assert.equal(slot.blockCount, 3);
-  assert.equal(controller.activeInventoryCategory, 'blockset');
-  assert.equal(controller.inventories.blockset.items[0].blocks[0].color, 0xff0000);
-  assert.equal(controller.inventories.blockset.items[0].blocks[1].color, 0x00ff00);
-  assert.equal(controller.inventories.blockset.items[0].blocks[2].color, 0x0000ff);
+  assert.equal(slot.blockSet.kind, 'blockset');
+  assert.equal(controller.activeInventoryCategory, 'item');
+  assert.equal(controller.inventories.item.items[0].blockSet.blocks[0].color, 0xff0000);
+  assert.equal(controller.inventories.item.items[0].blockSet.blocks[1].color, 0x00ff00);
+  assert.equal(controller.inventories.item.items[0].blockSet.blocks[2].color, 0x0000ff);
 });
 
 test('parseGLTFData parses GLB model with material baseColorFactor', async () => {

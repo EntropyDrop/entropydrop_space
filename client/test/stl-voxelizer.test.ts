@@ -254,24 +254,25 @@ test('a 30-degree rotated cube voxelizes into a filled diamond-shaped solid', ()
   assert.ok(maxDx <= 12, `dx range should approximately match the grid, got ${maxDx}`);
 });
 
-test('importBlockSetToInventory fills empty block-set slots and rejects when the category is full', () => {
+test('importBlockSetToInventory fills shared Item slots and rejects a full backpack', () => {
   const controller = makeController();
   const blocks = [{ dx: 0, dy: 0, dz: 0, size: 1, block: 1, color: 0xff0000 }];
   controller.importBlockSetToInventory(blocks, 'cube');
-  assert.equal(controller.inventorySlots[0].kind, 'blockset');
+  assert.equal(controller.inventorySlots[0].kind, 'item');
+  assert.equal(controller.inventorySlots[0].blockSet.kind, 'blockset');
   assert.equal(controller.inventorySlots[0].name, 'cube');
   assert.equal(controller.selectedInventoryIndex, 0);
   controller.importBlockSetToInventory(blocks, 'cube2');
   assert.equal(controller.selectedInventoryIndex, 1, 'the second import should use slot 1');
-  // Fill every slot in the 99-item category, not only the 9-item hotbar view.
-  controller.inventories.blockset.items = controller.inventories.blockset.items.map(() => ({
+  // Fill all 198 shared slots, including storage outside the nine-slot hotbar.
+  controller.inventories.item.items = controller.inventories.item.items.map(() => ({
     kind: 'blockset', blocks, blockCount: 1, name: 'full'
   }));
   controller.selectedInventoryIndex = 3;
   const rejected = controller.importBlockSetToInventory(blocks, 'overwrite');
-  assert.equal(rejected, null, 'a full block-set category must reject the import');
+  assert.equal(rejected, null, 'a full Item backpack must reject the import');
   assert.equal(controller.inventorySlots[3].name, 'full', 'the selected slot must not be overwritten');
-  assert.ok(controller.__toasts.some(m => m.includes('full (99)')));
+  assert.ok(controller.__toasts.some(m => m.includes('full (198)')));
 });
 
 test('successful T block-set copy resets world cornerA and cornerB', () => {

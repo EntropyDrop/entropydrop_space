@@ -35,6 +35,7 @@ import {
   decodeInventoryResource,
   inventoryResourcePreviewItem,
   MAX_BACKPACK_SLOTS_PER_CATEGORY,
+  MAX_BACKPACK_ITEM_SLOTS,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
@@ -45,7 +46,7 @@ import {
   type SpaceMarketSort,
 } from '../../../bootstrap/SpaceMarketClient.ts';
 
-export type InventoryCategory = 'blockset' | 'entity' | 'colorset';
+export type InventoryCategory = 'item' | 'blockset' | 'entity' | 'colorset';
 
 export function PixelCopyIcon() {
   return <LiaCopySolid size={14} style={{ display: 'block' }} />;
@@ -71,7 +72,7 @@ export function PixelHeartIcon() {
   return <LiaHeartSolid size={14} style={{ display: 'block' }} />;
 }
 
-function ImportProtobufButton({ category }: { category: InventoryCategory }) {
+function ImportProtobufButton({ category }: { category: InventoryCategory | 'items' }) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
@@ -223,11 +224,11 @@ function Import3DModelPopover() {
           const result = event.data.result;
           const sizeLabel = `prec ${precision} · size ${sizeBlocks} blocks`;
           const slot = controller?.importBlockSetToInventory?.(result.blocks, `${modelName} @${sizeLabel}`);
-          if (!slot) throw new Error('Block set inventory is full');
-          const index = controller.inventories.blockset.items.indexOf(slot);
-          setStatus(`OK: ${result.blocks.length} voxels (${result.size.sx}×${result.size.sy}×${result.size.sz}) · ${sizeLabel} → block set slot ${index + 1}`);
+          if (!slot) throw new Error('Item inventory is full');
+          const index = controller.inventories.item.items.indexOf(slot);
+          setStatus(`OK: ${result.blocks.length} voxels (${result.size.sx}×${result.size.sy}×${result.size.sz}) · ${sizeLabel} → item slot ${index + 1}`);
           spaceUiStore.syncInventoryState();
-          spaceUiStore.showToast(`Imported "${modelName}" to Block Set slot ${index + 1}`);
+          spaceUiStore.showToast(`Imported "${modelName}" to Item slot ${index + 1}`);
           setTimeout(() => setIsOpen(false), 1200);
         } catch (error: any) {
           setStatus(`Error: ${error?.message || String(error)}`);
@@ -499,7 +500,7 @@ function InventoryItemCard({
   onDrop,
   onDragEnd,
 }: {
-  category: 'blockset' | 'entity';
+  category: 'item' | 'blockset' | 'entity';
   index: number;
   item: any;
   isHotbar?: boolean;
@@ -513,7 +514,8 @@ function InventoryItemCard({
   onDragEnd?: () => void;
 }) {
   const controller = useSpaceUi(state => state.controller);
-  const fallback = category === 'blockset' ? `Block set ${index + 1}` : `Entity ${index + 1}`;
+  const fallback = category === 'item' ? `Item ${index + 1}` : category === 'blockset' ? `Block set ${index + 1}` : `Entity ${index + 1}`;
+  const itemKind = item?.kind === 'item' ? (item.blockSet && item.entityList?.length ? 'mixed' : item.blockSet ? 'blockset' : 'entity') : item?.kind || 'item';
   const name = controller?.inventoryItemName?.(category, item, index) || item?.name || item?.rootComponentId || fallback;
   const count = item ? (item.blockCount || item.blocks?.length || 0) : 0;
   const thumbnailRenderer = InventoryThumbnailRenderer.getInstance();
@@ -525,6 +527,8 @@ function InventoryItemCard({
   return (
     <div
       className={`backpack-slot-card group ${item ? 'filled' : 'empty'} ${isHotbar ? 'hotbar-slot' : 'storage-slot'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+      data-category={category}
+      data-slot-index={index}
       draggable={Boolean(item)}
       onDragStart={e => {
         const target = e.target as HTMLElement | null;
@@ -545,7 +549,7 @@ function InventoryItemCard({
         {thumbnail ? (
           <img className="inv-slot-thumb" src={thumbnail} alt={name || fallback} draggable={false} />
         ) : item ? (
-          <span className="backpack-slot-empty-icon">{category === 'blockset' ? 'B' : 'E'}</span>
+          <span className="backpack-slot-empty-icon">{itemKind === 'blockset' ? 'B' : itemKind === 'entity' ? 'E' : '+'}</span>
         ) : (
           <span className="backpack-slot-empty-icon">+</span>
         )}
@@ -565,7 +569,7 @@ function InventoryItemCard({
             <button
               type="button"
               className="backpack-pixel-btn"
-              title={`Copy ${category === 'blockset' ? 'block set' : 'entity'}`}
+              title="Copy item"
               aria-label="Copy item"
               onClick={() => spaceUiStore.copyInventoryItem(category, index)}
             >
@@ -595,6 +599,10 @@ function InventoryItemCard({
           </div>
         )}
       </div>
+
+      <span className={`backpack-item-kind ${itemKind}`}>
+        {itemKind === 'blockset' ? 'Block Set' : itemKind === 'entity' ? 'Entity' : itemKind === 'mixed' ? 'Mixed' : 'Item'}
+      </span>
 
       <div
         className="backpack-slot-name-row"
@@ -631,108 +639,36 @@ function InventoryItemCard({
   );
 }
 
-function InventorySlotsRow({
-  category,
-  items,
-  onPublish,
-}: {
-  category: 'blockset' | 'entity';
+function InventorySlotsRow({ items, onPublish }: {
   items: any[];
   onPublish: (category: InventoryCategory, item: any) => void;
 }) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.setData('text/plain', String(index));
-    e.dataTransfer.effectAllowed = 'move';
-    setDraggedIndex(index);
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragOverIndex !== index) {
-      setDragOverIndex(index);
-    }
-  };
-
-  const handleDragLeave = () => {
-    setDragOverIndex(null);
-  };
-
-  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
-    e.preventDefault();
-    const sourceStr = e.dataTransfer.getData('text/plain');
-    const sourceIndex = Number(sourceStr);
-    if (!Number.isNaN(sourceIndex) && sourceIndex !== targetIndex) {
-      spaceUiStore.swapInventorySlots(category, sourceIndex, targetIndex);
-    }
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  };
-
   return (
-    <div className="backpack-slots-container" id="inventory-grid">
-      {/* Hotbar Section (Row 1: Slots #1 - #9) */}
-      <div className="backpack-section-subgroup hotbar-group">
-        <div className="backpack-subgroup-header">
-          <span className="backpack-hotbar-label">Active Hotbar</span>
-          <span className="backpack-subgroup-hint">Drag items here from storage to equip</span>
-        </div>
-        <div className="backpack-slots-row backpack-hotbar-row">
-          {Array.from({ length: 9 }, (_, index) => (
-            <InventoryItemCard
-              key={items[index]?.id || `${category}:${index}`}
-              category={category}
-              index={index}
-              item={items[index]}
-              isHotbar={true}
-              onPublish={onPublish}
-              draggedIndex={draggedIndex}
-              dragOverIndex={dragOverIndex}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onDragEnd={handleDragEnd}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Storage Section (Rows 2 - 11: Slots #10 - #99) */}
-      <div className="backpack-section-subgroup storage-group">
-        <div className="backpack-subgroup-header">
-          <span className="backpack-storage-label">Storage</span>
-        </div>
-        <div className="backpack-slots-grid backpack-storage-grid">
-          {Array.from({ length: 90 }, (_, offset) => {
-            const index = offset + 9;
-            return (
-              <InventoryItemCard
-                key={items[index]?.id || `${category}:${index}`}
-                category={category}
-                index={index}
-                item={items[index]}
-                isHotbar={false}
-                onPublish={onPublish}
-                draggedIndex={draggedIndex}
-                dragOverIndex={dragOverIndex}
-                onDragStart={handleDragStart}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onDragEnd={handleDragEnd}
-              />
-            );
-          })}
-        </div>
+    <div className="backpack-slots-container">
+      <div className="backpack-subgroup-hint">Drag between any item slots. Slots #1-9 appear in the hotbar.</div>
+      <div className="backpack-items-grid" id="inventory-grid">
+        {Array.from({ length: MAX_BACKPACK_ITEM_SLOTS }, (_, index) => (
+          <InventoryItemCard
+            key={index} category="item" index={index} item={items[index]}
+            isHotbar={index < 9} onPublish={onPublish}
+            draggedIndex={draggedIndex} dragOverIndex={dragOverIndex}
+            onDragStart={event => {
+              event.dataTransfer.setData('application/x-space-inventory-slot', String(index));
+              event.dataTransfer.effectAllowed = 'move';
+              setDraggedIndex(index);
+            }}
+            onDragOver={event => { if (draggedIndex !== null) { event.preventDefault(); setDragOverIndex(index); } }}
+            onDragLeave={() => setDragOverIndex(null)}
+            onDrop={event => {
+              event.preventDefault();
+              if (draggedIndex !== null) spaceUiStore.swapInventorySlots('item', draggedIndex, index);
+              setDraggedIndex(null); setDragOverIndex(null);
+            }}
+            onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}
+          />
+        ))}
       </div>
     </div>
   );
@@ -1122,7 +1058,7 @@ function MarketSection({
           <div className="market-title-header-row">
             <div className="backpack-section-title">
               <LiaStoreAltSolid size={18} style={{ color: 'var(--accent-light)' }} />
-              <span>Community Market ({category === 'blockset' ? 'Block Sets' : category === 'entity' ? 'Entities' : 'Color Sets'})</span>
+              <span>Community Market ({category === 'item' ? 'Items' : category === 'blockset' ? 'Block Sets' : category === 'entity' ? 'Entities' : 'Color Sets'})</span>
             </div>
             {onClose && (
               <button
@@ -1263,11 +1199,7 @@ function MarketSection({
 
 export function InventoryModal() {
   const state = useSpaceUi(snapshot => snapshot);
-  const activeCategory: InventoryCategory = state.activeInventoryCategory === 'entity'
-    ? 'entity'
-    : state.activeInventoryCategory === 'colorset'
-      ? 'colorset'
-      : 'blockset';
+  const activeCategory: 'item' | 'colorset' = state.activeInventoryCategory === 'colorset' ? 'colorset' : 'item';
 
   const [marketRefreshKey, setMarketRefreshKey] = useState(0);
   const marketClient = spaceUiStore.getMarketClient();
@@ -1294,8 +1226,7 @@ export function InventoryModal() {
   if (state.activeModal !== 'inventory') return null;
 
   const inventories = state.controller?.inventories || {};
-  const blocksets = inventories.blockset?.items || [];
-  const entities = inventories.entity?.items || [];
+  const items = inventories.item?.items || [];
   const colorsets = inventories.colorset?.items || [];
 
   const publishItem = async (category: InventoryCategory, item: any) => {
@@ -1338,18 +1269,19 @@ export function InventoryModal() {
     if (!marketClient || !state.controller) return;
     try {
       const downloaded = await marketClient.downloadResource(resource.id);
+      const category = downloaded.kind === 'colorset' ? 'colorset' : 'item';
       const parsed = state.controller.parseInventoryImport?.(
         downloaded.payload,
-        downloaded.kind
+        category
       );
       if (!parsed?.ok) throw new Error(parsed?.error || 'Downloaded resource failed local validation.');
-      const index = state.controller.addInventoryItem?.(downloaded.kind, parsed.item);
+      const index = state.controller.addInventoryItem?.(category, parsed.item);
       if (index === null || index === undefined) {
-        throw new Error(`${downloaded.kind} backpack is full.`);
+        throw new Error(`${category === 'item' ? 'Item' : 'Color set'} backpack is full.`);
       }
-      state.controller.setActiveInventoryCategory?.(downloaded.kind);
+      state.controller.setActiveInventoryCategory?.(category);
       spaceUiStore.syncInventoryState();
-      spaceUiStore.showToast(`Downloaded to ${downloaded.kind} slot ${index + 1} · AGPL-3.0`);
+      spaceUiStore.showToast(`Downloaded to ${category === 'item' ? 'item' : 'color set'} slot ${index + 1} · AGPL-3.0`);
     } catch (error: any) {
       spaceUiStore.showToast(error?.message || 'Download failed');
     }
@@ -1372,25 +1304,14 @@ export function InventoryModal() {
             <div className="backpack-tabs-bar" role="tablist" aria-label="Resource categories">
               <button
                 type="button"
-                id="backpack-tab-blockset"
+                id="backpack-tab-items"
                 role="tab"
                 tabIndex={-1}
-                aria-selected={activeCategory === 'blockset'}
-                className={`backpack-tab-btn ${activeCategory === 'blockset' ? 'active' : ''}`}
-                onClick={() => spaceUiStore.selectInventoryCategory('blockset')}
+                aria-selected={activeCategory !== 'colorset'}
+                className={`backpack-tab-btn ${activeCategory !== 'colorset' ? 'active' : ''}`}
+                onClick={() => spaceUiStore.selectInventoryCategory('item')}
               >
-                Block Set
-              </button>
-              <button
-                type="button"
-                id="backpack-tab-entity"
-                role="tab"
-                tabIndex={-1}
-                aria-selected={activeCategory === 'entity'}
-                className={`backpack-tab-btn ${activeCategory === 'entity' ? 'active' : ''}`}
-                onClick={() => spaceUiStore.selectInventoryCategory('entity')}
-              >
-                Entity
+                Items
               </button>
               <button
                 type="button"
@@ -1433,25 +1354,24 @@ export function InventoryModal() {
           </div>
         </div>
 
-        {activeCategory === 'blockset' && (
-          <div className={`backpack-tab-panel backpack-split-layout ${marketOpen ? '' : 'market-collapsed'}`} id="backpack-panel-blockset">
+        {activeCategory !== 'colorset' && (
+          <div className={`backpack-tab-panel backpack-split-layout ${marketOpen ? '' : 'market-collapsed'}`} id="backpack-panel-items">
             <div className="backpack-main-col">
               <div className="backpack-section-header">
                 <div className="backpack-section-title">
                   <LiaBoxesSolid size={18} />
-                  <span>My Block Sets (99 slots)</span>
+                  <span>My Items</span>
                 </div>
                 <div className="backpack-panel-footer">
                   <div className="backpack-panel-actions">
                     <Import3DModelPopover />
-                    <ImportProtobufButton category="blockset" />
+                    <ImportProtobufButton category="items" />
                   </div>
                 </div>
               </div>
 
               <InventorySlotsRow
-                category="blockset"
-                items={blocksets}
+                items={items}
                 onPublish={publishItem}
               />
             </div>
@@ -1459,42 +1379,8 @@ export function InventoryModal() {
             {marketOpen && (
               <aside className="backpack-market-sidebar">
                 <MarketSection
-                  category="blockset"
-                  onDownload={downloadResource}
-                  refreshKey={marketRefreshKey}
-                  onClose={() => setMarketOpen(false)}
-                />
-              </aside>
-            )}
-          </div>
-        )}
-
-        {activeCategory === 'entity' && (
-          <div className={`backpack-tab-panel backpack-split-layout ${marketOpen ? '' : 'market-collapsed'}`} id="backpack-panel-entity">
-            <div className="backpack-main-col">
-              <div className="backpack-section-header">
-                <div className="backpack-section-title">
-                  <LiaBoxesSolid size={18} />
-                  <span>My Entities (99 slots)</span>
-                </div>
-                <div className="backpack-panel-footer">
-                  <div className="backpack-panel-actions">
-                    <ImportProtobufButton category="entity" />
-                  </div>
-                </div>
-              </div>
-
-              <InventorySlotsRow
-                category="entity"
-                items={entities}
-                onPublish={publishItem}
-              />
-            </div>
-
-            {marketOpen && (
-              <aside className="backpack-market-sidebar">
-                <MarketSection
-                  category="entity"
+                  key={activeCategory}
+                  category={activeCategory}
                   onDownload={downloadResource}
                   refreshKey={marketRefreshKey}
                   onClose={() => setMarketOpen(false)}

@@ -838,9 +838,8 @@ test('default mass uses block volume: 10 kg/m³, 0.01953125 kg per 0.125m microb
 test('React UI store exposes palette, selector, and backpack tool modes', () => {
   const controller = makeMicroController();
   controller.inventories = {
-    entity: { items: Array(9).fill(null) },
-    blockset: { items: Array(9).fill(null) },
-    colorset: { items: Array(9).fill(null) }
+    item: { selected: 0, items: Array(198).fill(null) },
+    colorset: { selected: 0, items: Array(99).fill(null) }
   };
   const ui = new SpaceUiStore();
   ui.setController(controller);

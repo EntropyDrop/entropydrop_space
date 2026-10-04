@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { Backpack } from '../src/generated/backpack.ts';
+import { Backpack, LegacyBackpack } from '../src/generated/backpack.ts';
 import { InventoryResource } from '../src/generated/inventory.ts';
 import {
   BACKPACK_PROTO_SOURCE_SHA256,
@@ -21,6 +21,7 @@ import {
 
 
 const CROSS_LANGUAGE_BLOCKSET_HEX = '080852190a0543726f7373121008011004200128043003380240b4d64a';
+const CROSS_LANGUAGE_ITEM_HEX = '08086a400a076669787475726512054d697865641a0c0a04426173651204100140012220121e0a04726f6f741a00220240024a0909000000000000004062054d6f746f72';
 const CROSS_LANGUAGE_CANONICAL_ENTITY_HEX = '08085a5712290a05776f726c641a002202400142070a01421a020801420a0a04726f6f741a02080162054f726465721a0f0a014122014261cdccccccccccec3f1a190a017a1a05776f726c642204726f6f7461cdccccccccccec3f';
 
 test('checked-in protobuf bindings and descriptor match the source schema', () => {
@@ -30,6 +31,70 @@ test('checked-in protobuf bindings and descriptor match the source schema', () =
   assert.equal(createHash('sha256').update(inventory).digest('hex'), INVENTORY_PROTO_SOURCE_SHA256);
   assert.equal(createHash('sha256').update(backpack).digest('hex'), BACKPACK_PROTO_SOURCE_SHA256);
   assert.equal(createHash('sha256').update(spaceApi).digest('hex'), SPACE_API_PROTO_SOURCE_SHA256);
+});
+
+test('Item reuses BlockSet and Entity messages with identical Python wire bytes', () => {
+  const item: any = {
+    type: 'space-item', version: 8, id: 'fixture', name: 'Mixed',
+    blockSet: {
+      type: 'space-blockset', version: 8, name: 'Base',
+      blocks: [{ dx: 0, dy: -1, dz: 0, color: 1 }],
+    },
+    entityList: [{
+      type: 'space-entity', version: 8,
+      root: {
+        id: 'root', name: 'Motor', localPosition: [2, 0, 0],
+        body: { type: 'dynamic' },
+        blocks: [{ dx: 0, dy: 0, dz: 0, color: 2 }],
+        children: [], seats: [],
+      },
+      constraints: [],
+    }],
+  };
+  const encoded = encodeInventoryResource('item', item);
+  assert.equal(Buffer.from(encoded).toString('hex'), CROSS_LANGUAGE_ITEM_HEX);
+  const decoded = decodeInventoryResource(encoded, 'item');
+  assert.equal(decoded.portable.id, 'fixture');
+  assert.deepEqual(decoded.portable.entityList[0].root.localPosition, [2, 0, 0]);
+  assert.deepEqual(encodeInventoryResource('item', decoded.portable), encoded);
+  assert.throws(() => decodeInventoryResource(encoded, 'entity'), /Expected entity, received item/);
+
+  const originalContent = encodeInventoryResource('item', item, { includeNames: false });
+  item.id = 'copied-template';
+  item.name = 'Renamed';
+  item.blockSet.name = 'Renamed base';
+  item.entityList[0].root.name = 'Renamed motor';
+  assert.deepEqual(encodeInventoryResource('item', item, { includeNames: false }), originalContent);
+  item.entityList[0].root.localPosition = [3, 0, 0];
+  assert.notDeepEqual(encodeInventoryResource('item', item, { includeNames: false }), originalContent);
+});
+
+test('Item supports static-only and entity-only content with repeated local component ids', () => {
+  const decoded = decodeInventoryResource(Buffer.from(CROSS_LANGUAGE_ITEM_HEX, 'hex')).portable;
+  const staticOnly = { ...decoded, entityList: [] };
+  assert.deepEqual(decodeInventoryResource(encodeInventoryResource('item', staticOnly)).portable, staticOnly);
+  const entityOnly = { ...decoded, blockSet: undefined, entityList: [decoded.entityList[0], decoded.entityList[0]] };
+  const roundTrip = decodeInventoryResource(encodeInventoryResource('item', entityOnly)).portable;
+  assert.equal(roundTrip.blockSet, undefined);
+  assert.deepEqual(roundTrip.entityList.map((entity: any) => entity.root.id), ['root', 'root']);
+  const emptyStatic = { ...entityOnly, blockSet: { ...decoded.blockSet, blocks: [] } };
+  assert.deepEqual(encodeInventoryResource('item', emptyStatic), encodeInventoryResource('item', entityOnly));
+  assert.throws(() => encodeInventoryResource('item', { ...decoded, id: '' }), /template id/);
+});
+
+test('Item canonical root poses omit identity and normalize quaternion sign', () => {
+  const item = decodeInventoryResource(Buffer.from(CROSS_LANGUAGE_ITEM_HEX, 'hex')).portable;
+  const root = item.entityList[0].root;
+  delete root.localPosition;
+  const identity = encodeInventoryResource('item', item);
+  root.localPosition = [0, 0, 0];
+  root.localRotation = [0, 0, 0, -1];
+  assert.deepEqual(encodeInventoryResource('item', item), identity);
+  root.localRotation = [0, 1, 0, 0];
+  const halfTurn = encodeInventoryResource('item', item);
+  root.localRotation = [0, -1, 0, 0];
+  assert.deepEqual(encodeInventoryResource('item', item), halfTurn);
+  assert.notDeepEqual(halfTurn, identity);
 });
 
 test('inventory Protobuf has the same deterministic wire bytes as the backend codec', () => {
@@ -568,7 +633,7 @@ test('backpack decoder rejects a resource placed in the wrong category group', (
       materialId: 0,
     })),
   }));
-  const encoded = Backpack.encode({
+  const encoded = LegacyBackpack.encode({
     schemaVersion: 9,
     activeCategory: 0,
     blockSets: { selected: 0, slots: [{ resource: colorSet }] },
@@ -578,7 +643,7 @@ test('backpack decoder rejects a resource placed in the wrong category group', (
   assert.throws(() => decodeBackpack(encoded), /blockset group contains a colorset/);
 });
 
-test('backpack v9 positional wrappers preserve sparse slots and migrate v8', () => {
+test('backpack v10 preserves sparse slots and migrates legacy collections', () => {
   const currentBytes = encodeBackpack({
     activeCategory: 'blockset',
     categories: {
@@ -595,19 +660,19 @@ test('backpack v9 positional wrappers preserve sparse slots and migrate v8', () 
     },
   });
   const currentMessage = Backpack.decode(currentBytes);
-  assert.equal(currentMessage.schemaVersion, 9);
-  assert.equal(currentMessage.blockSets?.slots?.length, 6);
-  assert.equal('index' in currentMessage.blockSets!.slots![0], false);
-  assert.equal(currentMessage.blockSets?.slots?.[1].resource, undefined);
+  assert.equal(currentMessage.schemaVersion, 10);
+  assert.equal(currentMessage.items?.slots?.length, 6);
+  assert.equal('index' in currentMessage.items!.slots![0], false);
+  assert.equal(currentMessage.items?.slots?.[1].resource, undefined);
 
   const current = decodeBackpack(currentBytes);
-  assert.equal(current.sourceSchemaVersion, 9);
-  assert.equal(current.categories.blockset.items[0].name, 'First');
-  assert.equal(current.categories.blockset.items[1], null);
-  assert.equal(current.categories.blockset.items[5].name, 'Sixth');
-  assert.equal(current.categories.blockset.selected, 5);
+  assert.equal(current.sourceSchemaVersion, 10);
+  assert.equal(current.categories.item.items[0].name, 'First');
+  assert.equal(current.categories.item.items[1], null);
+  assert.equal(current.categories.item.items[5].name, 'Sixth');
+  assert.equal(current.categories.item.selected, 5);
 
-  const legacyVersion = Backpack.encode({
+  const legacyVersion = LegacyBackpack.encode({
     schemaVersion: 8,
     activeCategory: 2,
     blockSets: undefined,
@@ -633,7 +698,7 @@ test('backpack v9 positional wrappers preserve sparse slots and migrate v8', () 
   }]);
 
   const oldVersion = Backpack.encode({ schemaVersion: 7 }).finish();
-  assert.throws(() => decodeBackpack(oldVersion), /expected backpack protobuf v9/i);
+  assert.throws(() => decodeBackpack(oldVersion), /expected backpack protobuf v10/i);
 });
 
 test('market preview conversion preserves full resources and expands micro voxel coordinates', () => {

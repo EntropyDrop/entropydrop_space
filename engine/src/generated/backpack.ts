@@ -8,14 +8,20 @@
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 import { InventoryResource } from "./inventory.ts";
 
-export const protobufPackage = "entropydrop.space.backpack.v9";
+export const protobufPackage = "entropydrop.space.backpack.v10";
 
-/**
- * Browser-local UI state. Backpack messages are never uploaded to the market;
- * only InventoryResource crosses the frontend/backend boundary.
- * Backpack v9 embeds `entropydrop.space.inventory.v8.InventoryResource`. The
- * decoder upgrades v8 backpacks in place so existing local items are retained.
- */
+/** Browser-local UI state. Only InventoryResource is portable/public. */
+export const BackpackView = { BACKPACK_VIEW_ITEMS: 0, BACKPACK_VIEW_COLOR_SETS: 1, UNRECOGNIZED: -1 } as const;
+
+export type BackpackView = typeof BackpackView[keyof typeof BackpackView];
+
+export namespace BackpackView {
+  export type BACKPACK_VIEW_ITEMS = typeof BackpackView.BACKPACK_VIEW_ITEMS;
+  export type BACKPACK_VIEW_COLOR_SETS = typeof BackpackView.BACKPACK_VIEW_COLOR_SETS;
+  export type UNRECOGNIZED = typeof BackpackView.UNRECOGNIZED;
+}
+
+/** Retained solely for the explicit v8/v9 migration reader. */
 export const InventoryCategory = {
   INVENTORY_CATEGORY_BLOCK_SET: 0,
   INVENTORY_CATEGORY_ENTITY: 1,
@@ -32,10 +38,7 @@ export namespace InventoryCategory {
   export type UNRECOGNIZED = typeof InventoryCategory.UNRECOGNIZED;
 }
 
-/**
- * The repeated BackpackSlot position is the local UI slot position. Empty
- * wrappers preserve internal gaps, and trailing empty slots are omitted.
- */
+/** Empty wrappers preserve internal gaps; trailing empty slots are omitted. */
 export interface BackpackSlot {
   resource?: InventoryResource | undefined;
 }
@@ -46,6 +49,21 @@ export interface InventoryGroup {
 }
 
 export interface Backpack {
+  schemaVersion?: number | undefined;
+  colorSets?: InventoryGroup | undefined;
+  activeView?:
+    | BackpackView
+    | undefined;
+  /**
+   * Shared selection and one nine-slot hotbar, preserving all 198 legacy slots.
+   * New slots use Item. Legacy standalone resources remain readable when an
+   * absolute world constraint cannot be migrated without its source world pose.
+   */
+  items?: InventoryGroup | undefined;
+}
+
+/** Wire-compatible reader for old browser storage, never written by current code. */
+export interface LegacyBackpack {
   schemaVersion?: number | undefined;
   activeCategory?: InventoryCategory | undefined;
   blockSets?: InventoryGroup | undefined;
@@ -183,11 +201,106 @@ export const InventoryGroup: MessageFns<InventoryGroup> = {
 };
 
 function createBaseBackpack(): Backpack {
-  return { schemaVersion: 0, activeCategory: 0, blockSets: undefined, entities: undefined, colorSets: undefined };
+  return { schemaVersion: 0, colorSets: undefined, activeView: 0, items: undefined };
 }
 
 export const Backpack: MessageFns<Backpack> = {
   encode(message: Backpack, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.schemaVersion !== undefined && message.schemaVersion !== 0) {
+      writer.uint32(8).uint32(message.schemaVersion);
+    }
+    if (message.colorSets !== undefined) {
+      InventoryGroup.encode(message.colorSets, writer.uint32(42).fork()).join();
+    }
+    if (message.activeView !== undefined && message.activeView !== 0) {
+      writer.uint32(48).int32(message.activeView);
+    }
+    if (message.items !== undefined) {
+      InventoryGroup.encode(message.items, writer.uint32(58).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Backpack {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseBackpack();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.schemaVersion = reader.uint32();
+            continue;
+          }
+          case 5: {
+            if (tag !== 42) {
+              break;
+            }
+
+            message.colorSets = InventoryGroup.decode(reader, reader.uint32());
+            continue;
+          }
+          case 6: {
+            if (tag !== 48) {
+              break;
+            }
+
+            message.activeView = reader.int32() as any;
+            continue;
+          }
+          case 7: {
+            if (tag !== 58) {
+              break;
+            }
+
+            message.items = InventoryGroup.decode(reader, reader.uint32());
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  create<I extends Exact<DeepPartial<Backpack>, I>>(base?: I): Backpack {
+    return Backpack.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Backpack>, I>>(object: I): Backpack {
+    const message = createBaseBackpack();
+    message.schemaVersion = object.schemaVersion ?? 0;
+    message.colorSets = (object.colorSets !== undefined && object.colorSets !== null)
+      ? InventoryGroup.fromPartial(object.colorSets)
+      : undefined;
+    message.activeView = object.activeView ?? 0;
+    message.items = (object.items !== undefined && object.items !== null)
+      ? InventoryGroup.fromPartial(object.items)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseLegacyBackpack(): LegacyBackpack {
+  return { schemaVersion: 0, activeCategory: 0, blockSets: undefined, entities: undefined, colorSets: undefined };
+}
+
+export const LegacyBackpack: MessageFns<LegacyBackpack> = {
+  encode(message: LegacyBackpack, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.schemaVersion !== undefined && message.schemaVersion !== 0) {
       writer.uint32(8).uint32(message.schemaVersion);
     }
@@ -206,7 +319,7 @@ export const Backpack: MessageFns<Backpack> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): Backpack {
+  decode(input: BinaryReader | Uint8Array, length?: number): LegacyBackpack {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
     if (previousRecursionDepth >= 100) {
@@ -215,7 +328,7 @@ export const Backpack: MessageFns<Backpack> = {
     (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
     try {
       const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseBackpack();
+      const message = createBaseLegacyBackpack();
       while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -271,11 +384,11 @@ export const Backpack: MessageFns<Backpack> = {
     }
   },
 
-  create<I extends Exact<DeepPartial<Backpack>, I>>(base?: I): Backpack {
-    return Backpack.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<LegacyBackpack>, I>>(base?: I): LegacyBackpack {
+    return LegacyBackpack.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<Backpack>, I>>(object: I): Backpack {
-    const message = createBaseBackpack();
+  fromPartial<I extends Exact<DeepPartial<LegacyBackpack>, I>>(object: I): LegacyBackpack {
+    const message = createBaseLegacyBackpack();
     message.schemaVersion = object.schemaVersion ?? 0;
     message.activeCategory = object.activeCategory ?? 0;
     message.blockSets = (object.blockSets !== undefined && object.blockSets !== null)

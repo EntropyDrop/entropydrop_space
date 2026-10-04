@@ -70,6 +70,9 @@ export const MAX_INVENTORY_IMPORT_BYTES = 8 * 1024 * 1024;
 /** Maximum number of slots per category in the player backpack. */
 export const MAX_BACKPACK_SLOTS_PER_CATEGORY = 99;
 
+/** Combined capacity retains both legacy 99-slot item collections. */
+export const MAX_BACKPACK_ITEM_SLOTS = MAX_BACKPACK_SLOTS_PER_CATEGORY * 2;
+
 /** Maximum character length for inventory item names. */
 export const MAX_INVENTORY_NAME_LENGTH = 80;
 

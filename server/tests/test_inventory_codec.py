@@ -16,6 +16,10 @@ from space.inventory_v7 import convert_v7_inventory_resource
 
 
 CROSS_LANGUAGE_BLOCKSET_HEX = "080852190a0543726f7373121008011004200128043003380240b4d64a"
+CROSS_LANGUAGE_ITEM_HEX = (
+    "08086a400a076669787475726512054d697865641a0c0a0442617365120410014001"
+    "2220121e0a04726f6f741a00220240024a0909000000000000004062054d6f746f72"
+)
 CROSS_LANGUAGE_CANONICAL_ENTITY_HEX = (
     "08085a5712290a05776f726c641a002202400142070a01421a020801"
     "420a0a04726f6f741a02080162054f726465721a0f0a014122014261cdccccccccccec3f1a190a017a1a05776f"
@@ -51,6 +55,54 @@ def test_inventory_protobuf_matches_the_frontend_deterministic_wire_fixture():
     kind, decoded = decode_inventory_resource(bytes.fromhex(CROSS_LANGUAGE_BLOCKSET_HEX))
     assert kind == "blockset"
     assert decoded == canonical
+
+
+def test_item_round_trip_matches_frontend_and_keeps_original_entity_structure():
+    encoded = bytes.fromhex(CROSS_LANGUAGE_ITEM_HEX)
+    kind, item = decode_inventory_resource(encoded)
+    assert kind == "item"
+    assert item["id"] == "fixture"
+    assert item["blockSet"]["blocks"][0]["dy"] == -1
+    assert item["entityList"][0]["root"]["localPosition"] == [2, 0, 0]
+    assert encode_inventory_resource(kind, item) == encoded
+    original_digest = inventory_content_digest(kind, item)
+    item["id"] = "copied-template"
+    item["name"] = "Renamed"
+    item["blockSet"]["name"] = "Renamed base"
+    item["entityList"][0]["root"]["name"] = "Renamed motor"
+    assert inventory_content_digest(kind, item) == original_digest
+    item["entityList"][0]["root"]["localPosition"] = [3, 0, 0]
+    assert inventory_content_digest(kind, item) != original_digest
+
+
+def test_item_optional_block_set_and_repeated_local_ids():
+    _, item = decode_inventory_resource(bytes.fromhex(CROSS_LANGUAGE_ITEM_HEX))
+    item.pop("blockSet")
+    item["entityList"].append(deepcopy(item["entityList"][0]))
+    kind, decoded = decode_inventory_resource(encode_inventory_resource("item", item))
+    assert kind == "item"
+    assert "blockSet" not in decoded
+    assert [entity["root"]["id"] for entity in decoded["entityList"]] == ["root", "root"]
+    empty_static = {**item, "blockSet": {"type": "space-blockset", "version": 8, "name": "", "blocks": []}}
+    assert encode_inventory_resource("item", empty_static) == encode_inventory_resource("item", item)
+    item["id"] = ""
+    with pytest.raises(InventoryCodecError, match="template id"):
+        encode_inventory_resource("item", item)
+
+
+def test_item_canonical_root_pose_omits_identity_and_normalizes_quaternion_sign():
+    _, item = decode_inventory_resource(bytes.fromhex(CROSS_LANGUAGE_ITEM_HEX))
+    root = item["entityList"][0]["root"]
+    root.pop("localPosition")
+    identity = encode_inventory_resource("item", item)
+    root["localPosition"] = [0, 0, 0]
+    root["localRotation"] = [0, 0, 0, -1]
+    assert encode_inventory_resource("item", item) == identity
+    root["localRotation"] = [0, 1, 0, 0]
+    half_turn = encode_inventory_resource("item", item)
+    root["localRotation"] = [0, -1, 0, 0]
+    assert encode_inventory_resource("item", item) == half_turn
+    assert half_turn != identity
 
 
 def test_inventory_entity_matches_the_frontend_canonical_order_fixture():

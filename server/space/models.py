@@ -351,7 +351,7 @@ class SpaceMarketResource(Base):
     __table_args__ = (
         UniqueConstraint("content_digest", name="uq_space_market_resource_digest"),
         CheckConstraint(
-            "kind IN ('blockset', 'entity', 'colorset')",
+            "kind IN ('item', 'blockset', 'entity', 'colorset')",
             name="ck_space_market_resource_kind",
         ),
         CheckConstraint(

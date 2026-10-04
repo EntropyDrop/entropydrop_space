@@ -13,7 +13,7 @@ from space.contracts import inventory_pb2
 from space.voxel_grid import MICRO_DIVISIONS
 
 SCHEMA_VERSION = 8
-InventoryKind = Literal["blockset", "entity", "colorset"]
+InventoryKind = Literal["item", "blockset", "entity", "colorset"]
 
 
 class InventoryCodecError(ValueError):
@@ -390,7 +390,29 @@ def encode_inventory_resource(
     include_name: bool = True,
 ) -> bytes:
     resource = inventory_pb2.InventoryResource(schema_version=SCHEMA_VERSION)
-    if kind == "blockset":
+    if kind == "item":
+        if not isinstance(canonical.get("id"), str) or not canonical["id"].strip():
+            raise InventoryCodecError("an Item must have a template id")
+        resource.item.SetInParent()
+        if include_name:
+            resource.item.id = canonical["id"]
+            resource.item.name = canonical.get("name", "")
+        block_set = canonical.get("blockSet")
+        if block_set and block_set.get("blocks"):
+            _encode_block_set(resource.item.block_set, block_set, include_name)
+        for entity in canonical.get("entityList", []):
+            entity = {**entity, "root": {**entity["root"]}}
+            root = entity["root"]
+            if root.get("localPosition") is not None and all(value == 0 for value in root["localPosition"]):
+                root.pop("localPosition")
+            if root.get("localRotation") is not None:
+                values = [_canonical_double(value) for value in root["localRotation"]]
+                first = next((value for value in [values[3], *values[:3]] if value != 0), 0)
+                root["localRotation"] = [_canonical_double(value * (-1 if first < 0 else 1)) for value in values]
+                if root["localRotation"] == [0, 0, 0, 1]:
+                    root.pop("localRotation")
+            _encode_entity(resource.item.entity_list.add(), entity, include_name)
+    elif kind == "blockset":
         _encode_block_set(resource.block_set, canonical, include_name)
     elif kind == "entity":
         _encode_entity(resource.entity, canonical, include_name)
@@ -410,6 +432,17 @@ def decode_inventory_resource(encoded: bytes) -> tuple[InventoryKind, dict[str, 
     if resource.schema_version != SCHEMA_VERSION:
         raise InventoryCodecError(f"expected schema version {SCHEMA_VERSION}")
     content = resource.WhichOneof("content")
+    if content == "item":
+        result = {
+            "type": "space-item",
+            "version": SCHEMA_VERSION,
+            "id": resource.item.id,
+            "name": resource.item.name,
+            "entityList": [_decode_entity(entity) for entity in resource.item.entity_list],
+        }
+        if resource.item.HasField("block_set") and resource.item.block_set.blocks:
+            result["blockSet"] = _decode_block_set(resource.item.block_set)
+        return "item", result
     if content == "block_set":
         return "blockset", _decode_block_set(resource.block_set)
     if content == "entity":

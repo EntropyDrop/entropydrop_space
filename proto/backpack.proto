@@ -1,21 +1,23 @@
 syntax = "proto3";
 
-package entropydrop.space.backpack.v9;
+package entropydrop.space.backpack.v10;
 
 import "inventory.proto";
 
-// Browser-local UI state. Backpack messages are never uploaded to the market;
-// only InventoryResource crosses the frontend/backend boundary.
-// Backpack v9 embeds `entropydrop.space.inventory.v8.InventoryResource`. The
-// decoder upgrades v8 backpacks in place so existing local items are retained.
+// Browser-local UI state. Only InventoryResource is portable/public.
+enum BackpackView {
+  BACKPACK_VIEW_ITEMS = 0;
+  BACKPACK_VIEW_COLOR_SETS = 1;
+}
+
+// Retained solely for the explicit v8/v9 migration reader.
 enum InventoryCategory {
   INVENTORY_CATEGORY_BLOCK_SET = 0;
   INVENTORY_CATEGORY_ENTITY = 1;
   INVENTORY_CATEGORY_COLOR_SET = 2;
 }
 
-// The repeated BackpackSlot position is the local UI slot position. Empty
-// wrappers preserve internal gaps, and trailing empty slots are omitted.
+// Empty wrappers preserve internal gaps; trailing empty slots are omitted.
 message BackpackSlot {
   entropydrop.space.inventory.v8.InventoryResource resource = 1;
 }
@@ -26,6 +28,19 @@ message InventoryGroup {
 }
 
 message Backpack {
+  uint32 schema_version = 1;
+  reserved 2, 3, 4;
+  reserved "active_category", "block_sets", "entities";
+  InventoryGroup color_sets = 5;
+  BackpackView active_view = 6;
+  // Shared selection and one nine-slot hotbar, preserving all 198 legacy slots.
+  // New slots use Item. Legacy standalone resources remain readable when an
+  // absolute world constraint cannot be migrated without its source world pose.
+  InventoryGroup items = 7;
+}
+
+// Wire-compatible reader for old browser storage, never written by current code.
+message LegacyBackpack {
   uint32 schema_version = 1;
   InventoryCategory active_category = 2;
   InventoryGroup block_sets = 3;

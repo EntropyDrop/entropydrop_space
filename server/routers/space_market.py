@@ -2,7 +2,7 @@ import datetime
 import logging
 import math
 import re
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import (
@@ -328,6 +328,7 @@ class EntityConstraint(StrictResourceModel):
 
 
 class EntityPayload(StrictResourceModel):
+    _root_pose_allowed: ClassVar[bool] = False
     type: Literal["space-entity"]
     version: Literal[8]
     root: EntityComponent
@@ -335,7 +336,7 @@ class EntityPayload(StrictResourceModel):
 
     @model_validator(mode="after")
     def validate_entity(self):
-        if self.root.localPosition is not None or self.root.localRotation is not None:
+        if not self._root_pose_allowed and (self.root.localPosition is not None or self.root.localRotation is not None):
             raise ValueError("entity root may not have a parent-relative transform")
         known_ids: set[str] = set()
         total_blocks = 0
@@ -379,6 +380,75 @@ class EntityPayload(StrictResourceModel):
                 raise ValueError(f"constraint {constraint.id} references an invalid component")
 
         self.constraints.sort(key=lambda constraint: constraint.id)
+        return self
+
+
+class ItemEntityPayload(EntityPayload):
+    _root_pose_allowed: ClassVar[bool] = True
+
+
+class ItemPayload(StrictResourceModel):
+    type: Literal["space-item"]
+    version: Literal[8]
+    id: StrictStr = Field(min_length=1, max_length=128)
+    name: StrictStr = Field(default="", max_length=80)
+    blockSet: BlockSetPayload | None = None
+    entityList: list[ItemEntityPayload] = Field(default_factory=list, max_length=SPACE_MARKET_MAX_COMPONENTS)
+
+    @model_validator(mode="after")
+    def validate_item(self):
+        if not self.id.strip():
+            raise ValueError("item template id may not be blank")
+        self.name = self.name.strip()
+        totals = {"blocks": 0, "components": 0, "constraints": 0, "seats": 0, "scripts": 0}
+        boxes = []
+        if self.blockSet:
+            totals["blocks"] += len(self.blockSet.blocks)
+            for block in self.blockSet.blocks:
+                minimum, size = _voxel_bounds(block)
+                boxes.append(tuple(round(value * SPACE_MARKET_GRID_DIVISIONS) for value in (
+                    *minimum, *(value + size for value in minimum),
+                )))
+
+        def count(component):
+            totals["blocks"] += len(component.blocks)
+            totals["components"] += 1
+            totals["seats"] += len(component.seats)
+            totals["scripts"] += len((component.script or "").encode("utf-8"))
+            for child in component.children:
+                count(child)
+
+        for entity in self.entityList:
+            count(entity.root)
+            totals["constraints"] += len(entity.constraints)
+            position = entity.root.localPosition or (0, 0, 0)
+            fine_position = tuple(value * SPACE_MARKET_GRID_DIVISIONS for value in position)
+            if any(abs(value - round(value)) > SPACE_MARKET_GRID_EPSILON for value in fine_position):
+                raise ValueError("item entity position must align to the 0.125-unit construction grid")
+            rotation = _grid_rotation_matrix(entity.root.localRotation, "item entity rotation")
+            for box in _validate_stopped_entity_grid(entity.root):
+                corners = [
+                    _add_vectors(fine_position, _rotate_vector(rotation, (x, y, z)))
+                    for x in (box[0], box[3])
+                    for y in (box[1], box[4])
+                    for z in (box[2], box[5])
+                ]
+                boxes.append(tuple(round(operation(corner[axis] for corner in corners))
+                                   for operation in (min, max) for axis in range(3)))
+        limits = {
+            "blocks": SPACE_MARKET_MAX_BLOCKS, "components": SPACE_MARKET_MAX_COMPONENTS,
+            "constraints": SPACE_MARKET_MAX_CONSTRAINTS, "seats": SPACE_MARKET_MAX_SEATS,
+            "scripts": SPACE_MARKET_MAX_TOTAL_SCRIPT_BYTES,
+        }
+        if not totals["blocks"]:
+            raise ValueError("item must contain at least one voxel")
+        for field, limit in limits.items():
+            if totals[field] > limit:
+                raise ValueError(f"item exceeds aggregate {field} limit {limit}")
+        if any(max(box[axis + 3] for box in boxes) - min(box[axis] for box in boxes)
+               > SPACE_MARKET_MAX_BOUNDS * SPACE_MARKET_GRID_DIVISIONS for axis in range(3)):
+            raise ValueError("item bounds exceed the portable bounds")
+        _validate_grid_boxes(boxes)
         return self
 
 
@@ -556,6 +626,11 @@ def _validate_stopped_entity_grid(
     for child in root.children:
         visit(child, root_pivot, identity, root_pivot)
 
+    _validate_grid_boxes(grid_boxes)
+    return grid_boxes
+
+
+def _validate_grid_boxes(grid_boxes) -> None:
     buckets: dict[tuple[int, int, int], list[tuple[int, int, int, int, int, int]]] = {}
     for box in grid_boxes:
         min_x, min_y, min_z, max_x, max_y, max_z = box
@@ -575,7 +650,6 @@ def _validate_stopped_entity_grid(
                     raise ValueError("stopped entity components contain overlapping voxels")
         for key in keys:
             buckets.setdefault(key, []).append(box)
-    return grid_boxes
 
 
 def entity_stopped_y_bounds(canonical: dict[str, Any]) -> tuple[float, float]:
@@ -590,6 +664,7 @@ def entity_stopped_y_bounds(canonical: dict[str, Any]) -> tuple[float, float]:
 
 def validate_inventory_resource_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     model_type = {
+        "item": ItemPayload,
         "blockset": BlockSetPayload,
         "entity": EntityPayload,
         "colorset": ColorSetPayload,
@@ -601,6 +676,10 @@ def validate_inventory_resource_payload(kind: str, payload: dict[str, Any]) -> d
     if isinstance(model, EntityPayload):
         for canonical_constraint, constraint in zip(canonical["constraints"], model.constraints):
             canonical_constraint["bodyA"] = constraint.bodyA
+    if isinstance(model, ItemPayload):
+        for portable_entity, entity in zip(canonical["entityList"], model.entityList):
+            for portable_constraint, constraint in zip(portable_entity["constraints"], entity.constraints):
+                portable_constraint["bodyA"] = constraint.bodyA
     encoded = encode_inventory_resource(kind, canonical)
     if len(encoded) > SPACE_MARKET_MAX_RESOURCE_BYTES:
         raise ValueError("canonical resource exceeds 8 MiB")
@@ -771,7 +850,7 @@ def _validation_error_response(error: ValidationError | ValueError) -> HTTPExcep
 @limiter.limit(SPACE_MARKET_READ_RATE_LIMIT, key_func=get_authenticated_or_remote_address)
 def list_market_resources(
     request: Request,
-    kind: Literal["blockset", "entity", "colorset"] | None = Query(default=None),
+    kind: Literal["item", "blockset", "entity", "colorset"] | None = Query(default=None),
     sort: Literal["downloads", "likes", "latest"] = Query(default="latest"),
     mine: bool = Query(default=False),
     limit: int = Query(default=24, ge=1, le=100),
@@ -785,7 +864,8 @@ def list_market_resources(
         models.SpaceMarketResource.schema_version == INVENTORY_SCHEMA_VERSION,
     ]
     if kind:
-        filters.append(models.SpaceMarketResource.kind == kind)
+        filters.append(models.SpaceMarketResource.kind.in_(("item", "blockset", "entity"))
+                       if kind == "item" else models.SpaceMarketResource.kind == kind)
     if mine:
         filters.append(models.SpaceMarketResource.publisher_user_id == current_user.id)
     order = {
@@ -863,7 +943,15 @@ async def publish_market_resource(
 
     encoded = encode_inventory_resource(kind, canonical)
     digest = market_content_digest(kind, canonical)
-    if kind == "entity":
+    if kind == "item":
+        block_count = len(canonical.get("blockSet", {}).get("blocks", []))
+        node_count = script_count = 0
+        for entity in canonical["entityList"]:
+            entity_blocks, entity_nodes, entity_scripts = entity_resource_metrics(entity)
+            block_count += entity_blocks
+            node_count += entity_nodes
+            script_count += entity_scripts
+    elif kind == "entity":
         block_count, node_count, script_count = entity_resource_metrics(canonical)
     else:
         block_count = len(canonical.get("blocks", []))

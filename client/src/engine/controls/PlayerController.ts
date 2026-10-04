@@ -62,10 +62,16 @@ import { type SelectorShape, type StairsOrientation, computeSelectionCells } fro
 import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
 import {
   decodeBackpack,
+  inventoryKindForPortable,
+  inventoryResourcePreviewItem,
+  newItemTemplateId,
+  wrapLegacyInventoryResource,
+  MAX_BACKPACK_ITEM_SLOTS,
   decodeInventoryResource,
   encodeBackpack,
   encodeInventoryResource,
   INVENTORY_PROTOBUF_SCHEMA_VERSION,
+  BACKPACK_PROTOBUF_SCHEMA_VERSION,
   MAX_BACKPACK_SLOTS_PER_CATEGORY,
   portableEntityToRuntime,
   protobufFromBase64,
@@ -96,9 +102,10 @@ export type PlayerPerspective = 'first_person' | 'third_person' | 'third_person_
 
 const HEX_COLOR = /^#?[0-9a-f]{6}$/i;
 
-const INVENTORY_STORAGE_KEY = 'space.backpack.v9.pb';
+const INVENTORY_STORAGE_KEY = 'space.backpack.v10.pb';
+const PREVIOUS_INVENTORY_STORAGE_KEY = 'space.backpack.v9.pb';
 const LEGACY_INVENTORY_STORAGE_KEY = 'space.backpack.v8.pb';
-const INVENTORY_CATEGORIES = ['blockset', 'entity', 'colorset'];
+const INVENTORY_CATEGORIES = ['item', 'colorset'];
 const DEFAULT_COLOR_SET_NAME = 'Default palette';
 export const BULK_EDIT_FRAME_BUDGET_MS = 5;
 const ENTITY_PLACEMENT_MAX_DROP = 48;
@@ -296,7 +303,7 @@ function validateStoppedEntityGrid(slot): string | null {
     }
   }
 
-  const entries = getInventoryPreviewBlocks({ ...slot, kind: 'entity' });
+  const entries = getInventoryPreviewBlocks(slot?.kind === 'item' ? slot : { ...slot, kind: 'entity' });
   if (entries.length !== (slot?.blocks || []).length) {
     return 'Stopped entity hierarchy does not resolve every voxel';
   }
@@ -636,12 +643,10 @@ export class PlayerController {
     this.selectionShapeAnchor = null;
     this.brushMicroMode = false;
     this.brushSelection = null;
-    // The backpack holds three categories of at most 9 items each:
-    // - blockset: plain voxel stamps (T copy, STL import), built with the Hammer
-    // - entity: full component trees with scripts (R copy), built with the Hammer
-    // - colorset: named sets of 9 palette colors, applied to the keyboard palette
+    // Items share 198 slots; Color Sets retain 99 slots. The first nine slots
+    // of each group form its hotbar. Item content reuses Block Set and Entity data.
     this.inventories = this.createEmptyInventories();
-    this.activeInventoryCategory = 'blockset';
+    this.activeInventoryCategory = 'item';
     this.hammerRotationTurnsY = 0;
     this.hammerRotationTurnsX = 0;
     this.hammerRotatedSlotSource = null;
@@ -2889,7 +2894,7 @@ export class PlayerController {
       slot.nodeCount = 1;
       const index = this.addInventoryItem('entity', slot);
       if (index === null) {
-        this.ui?.showToast?.(`Entity inventory is full (${this.inventories.entity.items.length}) - delete one first`);
+        this.ui?.showToast?.(`Item inventory is full (${this.inventories.entity.items.length}) - delete one first`);
         return null;
       }
       this.setActiveInventoryCategory('entity');
@@ -2897,7 +2902,7 @@ export class PlayerController {
       this.clearSelection();
       this.activateTool(SpecialTool.HAMMER);
       if (this.ui) {
-        this.ui.showToast(`Copied ${blocks.length} own blocks of [${nodeId}] to entity slot ${index + 1} · switched to Hammer`);
+        this.ui.showToast(`Copied ${blocks.length} own blocks of [${nodeId}] to item slot ${index + 1} · switched to Hammer`);
       }
       return slot;
     }
@@ -2933,7 +2938,7 @@ export class PlayerController {
     const slot = { kind: 'blockset', name, blocks, blockCount: blocks.length };
     const index = this.addInventoryItem('blockset', slot);
     if (index === null) {
-      this.ui?.showToast?.(`Block set inventory is full (${this.inventories.blockset.items.length}) - delete one first`);
+      this.ui?.showToast?.(`Item inventory is full (${this.inventories.item.items.length}) - delete one first`);
       return null;
     }
     this.setActiveInventoryCategory('blockset');
@@ -4036,7 +4041,8 @@ export class PlayerController {
       const shape = this.getEntityPlacementShape(slot);
       const surface = this.getEntityPlacementSurfacePoint(placementHit);
       if (shape && surface) {
-        if (placementHit.targetContraption) {
+        if (placementHit.targetContraption && (slot.kind !== 'item'
+          || (!slot.blockSet && slot.entityList?.length === 1))) {
           const targetPose = this.resolveEntityTargetPlacement(slot, shape, surface, placementHit);
           if (!targetPose) return null;
           position.copy(targetPose.position);
@@ -4067,11 +4073,22 @@ export class PlayerController {
     return {
       slot,
       kind: slot.kind === 'blockset' ? 'blockset' : 'entity',
-      position,
+      position: slot.kind === 'item' && slot.blockSet
+        ? this.snapItemTerrainOrigin(slot, position)
+        : position,
       quaternion,
       targetContraption: placementHit.targetContraption || null,
       targetNodeId: placementHit.targetNodeId || null
     };
+  }
+
+  private snapItemTerrainOrigin(slot, position) {
+    const step = slot.blockSet.blocks.some(block => (block.size || 1) === 1) ? 1 : MICRO_SIZE;
+    return new THREE.Vector3(
+      Math.round(position.x / step) * step,
+      Math.ceil((position.y - 1e-6) / step) * step,
+      Math.round(position.z / step) * step,
+    );
   }
 
   /** Refresh the Hammer hover ghost without mutating either world or entity state. */
@@ -4189,7 +4206,7 @@ export class PlayerController {
   }
 
   /**
-   * Put an imported block set into the player's blockset inventory so it
+   * Put an imported block set into the player's shared Item inventory so it
    * matches block sets copied with T.
    * Enforces the same admission limits as backpack persistence and market publishing.
    * @returns The written slot, or null.
@@ -4229,15 +4246,15 @@ export class PlayerController {
     }
     const index = this.addInventoryItem('blockset', slot);
     if (index === null) {
-      if (this.ui) this.ui.showToast(`Block set inventory is full (99) - cannot import ${name}`);
+      if (this.ui) this.ui.showToast(`Item inventory is full (${MAX_BACKPACK_ITEM_SLOTS}) - cannot import ${name}`);
       return null;
     }
     this.setActiveInventoryCategory('blockset');
     this.ui?.renderInventoryBar?.();
     if (this.ui) {
-      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into block set slot ${index + 1} · Hammer LMB builds · RMB rotates 90°`);
+      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into item slot ${index + 1} · Hammer LMB builds · RMB rotates 90°`);
     }
-    return slot;
+    return this.inventories.item.items[index];
   }
 
   private finishWorldSelectionDelete(standard, micro) {
@@ -5606,9 +5623,24 @@ export class PlayerController {
     if (this.sceneRenderer) this.sceneRenderer.inventoryPlacementSlot = null;
   }
 
+  private itemPlacementSlot(item) {
+    if (item?.kind !== 'item') return item;
+    if (item.blockSet && !item.entityList?.length) {
+      return { ...item.blockSet, id: item.id, name: item.name };
+    }
+    const entity = item.entityList?.[0];
+    if (!item.blockSet && item.entityList?.length === 1
+      && (entity.itemPosition || [0, 0, 0]).every(value => value === 0)
+      && (entity.itemRotation || [0, 0, 0, 1]).every((value, index) => value === (index === 3 ? 1 : 0))) {
+      return { ...entity, id: item.id, itemName: item.name, itemWorldConstraints: true };
+    }
+    return item;
+  }
+
   /** Return the active item in its temporary Hammer placement orientation. */
   getActiveHammerInventoryItem() {
-    const slot = this.inventorySlots?.[this.selectedInventoryIndex];
+    const stored = this.inventorySlots?.[this.selectedInventoryIndex];
+    const slot = this.itemPlacementSlot(stored);
     if (!slot) return null;
 
     const turnsY = this.normalizeQuarterTurns(this.hammerRotationTurnsY);
@@ -5622,7 +5654,7 @@ export class PlayerController {
       return this.hammerRotatedSlotCache;
     }
 
-    const isEntity = slot.kind === 'entity' || this.activeInventoryCategory === 'entity';
+    const isEntity = slot.kind === 'entity' || slot.kind === 'item';
     const qY = new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(0, 1, 0),
       turnsY * Math.PI / 2
@@ -6470,7 +6502,7 @@ export class PlayerController {
       const slot = contraption.serializeSubtree(contraptionRootId(contraption));
       const index = this.addInventoryItem('entity', slot);
       if (index === null) {
-        this.ui?.showToast?.('Entity inventory is full; remove an item first', { tone: 'warning' });
+        this.ui?.showToast?.('Item inventory is full; remove an item first', { tone: 'warning' });
         return false;
       }
       this.clearSelection();
@@ -6918,7 +6950,7 @@ export class PlayerController {
     const slot = contraption.serializeSubtree(rootId);
     const index = this.addInventoryItem('entity', slot);
     if (index === null) {
-      this.ui?.showToast?.(`Entity inventory is full (${this.inventories.entity.items.length}) - delete one first`);
+      this.ui?.showToast?.(`Item inventory is full (${this.inventories.entity.items.length}) - delete one first`);
       return null;
     }
     this.setActiveInventoryCategory('entity');
@@ -6926,7 +6958,7 @@ export class PlayerController {
     this.clearSelection();
     this.activateTool(SpecialTool.HAMMER);
     if (this.ui) {
-      this.ui.showToast(`Copied [${rootId}] (${slot.blockCount} blocks, ${slot.scripts.length} scripts) to entity slot ${index + 1} · switched to Hammer`);
+      this.ui.showToast(`Copied [${rootId}] (${slot.blockCount} blocks, ${slot.scripts.length} scripts) to item slot ${index + 1} · switched to Hammer`);
     }
     return slot;
   }
@@ -6940,9 +6972,10 @@ export class PlayerController {
   }
   set inventorySlots(value) {
     this.clearHammerRotation();
-    const items = new Array(9).fill(null);
+    const capacity = this.activeInventoryCategory === 'colorset' ? MAX_BACKPACK_SLOTS_PER_CATEGORY : MAX_BACKPACK_ITEM_SLOTS;
+    const items = new Array(capacity).fill(null);
     if (Array.isArray(value)) {
-      for (let i = 0; i < Math.min(9, value.length); i++) items[i] = value[i];
+      for (let index = 0; index < Math.min(capacity, value.length); index++) items[index] = value[index];
     }
     this.inventoryCategory().items = items;
     this.saveInventoriesToLocalStorage();
@@ -6959,51 +6992,44 @@ export class PlayerController {
   }
 
   createEmptyInventories() {
-    return {
-      blockset: { items: new Array(MAX_BACKPACK_SLOTS_PER_CATEGORY).fill(null), selected: 0 },
-      entity: { items: new Array(MAX_BACKPACK_SLOTS_PER_CATEGORY).fill(null), selected: 0 },
-      colorset: { items: new Array(MAX_BACKPACK_SLOTS_PER_CATEGORY).fill(null), selected: 0 }
+    const inventories: any = {
+      item: { items: new Array(MAX_BACKPACK_ITEM_SLOTS).fill(null), selected: 0 },
+      colorset: { items: new Array(MAX_BACKPACK_SLOTS_PER_CATEGORY).fill(null), selected: 0 },
     };
+    // Existing copy/install commands use these private aliases. They share the
+    // same collection and cursor; persistence and UI expose only Item.
+    Object.defineProperties(inventories, {
+      blockset: { get: () => inventories.item },
+      entity: { get: () => inventories.item },
+    });
+    return inventories;
   }
 
   inventoryCategory() {
-    // Lazy bootstrap for prototype-created instances (tests skip the constructor).
     if (!this.inventories) {
       this.inventories = this.createEmptyInventories();
-      this.activeInventoryCategory = 'blockset';
+      this.activeInventoryCategory = 'item';
     }
-    return this.inventories[this.activeInventoryCategory] || this.inventories.blockset;
+    return this.inventories[this.activeInventoryCategory] || this.inventories.item;
   }
 
-  /** Switch the hammer bar between blocksets / entities. */
   setActiveInventoryCategory(category) {
     if (!this.inventories) this.inventoryCategory();
-    if (!this.inventories[category]) return this.activeInventoryCategory;
-    if (this.activeInventoryCategory !== category) this.clearHammerRotation();
-    this.activeInventoryCategory = category;
-    const group = this.inventories[category];
+    const view = category === 'colorset' ? 'colorset' : 'item';
+    if (this.activeInventoryCategory !== view) this.clearHammerRotation();
+    this.activeInventoryCategory = view;
+    const group = this.inventories[view];
     group.selected = Number.isInteger(group.selected) && group.selected >= 0 && group.selected < group.items.length
-      ? group.selected
-      : 0;
+      ? group.selected : 0;
     this.saveInventoriesToLocalStorage();
-    return category;
+    return view;
   }
 
-  /**
-   * Tab key: toggle the hammer bar between block sets (BKS) and entities
-   * (ENT). The bar no longer exposes color sets; its renderer snaps a
-   * legacy color-set focus back to block sets.
-   */
+  /** Hammer has one shared Item hotbar. */
   toggleHammerCategory() {
-    const next = this.activeInventoryCategory === 'entity' ? 'blockset' : 'entity';
-    this.setActiveInventoryCategory(next);
+    this.setActiveInventoryCategory('item');
     this.ui?.renderInventoryBar?.();
-    if (this.ui) {
-      this.ui.showToast(next === 'entity'
-        ? 'Hammer bar: ENTITIES · Tab switches to BLOCK SETS'
-        : 'Hammer bar: BLOCK SETS · Tab switches to ENTITIES');
-    }
-    return next;
+    return 'item';
   }
 
   /**
@@ -7694,13 +7720,33 @@ export class PlayerController {
       : { x: cornerA.x, y: cornerA.y, z: cornerA.z };
   }
 
-  /** Put an item into the first matching-category slot that is empty (or the selected
-   *  slot when it is empty and the bar is showing that category). Returns the index,
-   *  or null when the category is full (99 items max). */
+  /** Use an empty shared Item or Color Set slot, preferring the selected empty
+   *  hotbar slot. Returns its index, or null when the group is full. */
   addInventoryItem(category, item) {
     if (!this.inventories) this.inventoryCategory();
+    const originalCategory = category;
+    category = category === 'colorset' ? 'colorset' : 'item';
     const group = this.inventories?.[category];
     if (!group || !item) return null;
+    if (category === 'item' && item.kind !== 'item' && originalCategory !== 'item') {
+      const portable = this.serializeInventoryItem(originalCategory, item);
+      const worldPoseKnown = originalCategory === 'entity' && Array.isArray(item.sourcePosition) && Array.isArray(item.sourceRotation);
+      if (worldPoseKnown) {
+        const inverseRotation = new THREE.Quaternion().fromArray(item.sourceRotation).invert();
+        const origin = new THREE.Vector3().fromArray(item.sourcePosition);
+        for (const constraint of portable.constraints || []) {
+          if (constraint.bodyA != null) continue;
+          for (const field of ['anchorA', 'axisA', 'referenceA']) {
+            if (!constraint[field]) continue;
+            const value = new THREE.Vector3().fromArray(constraint[field]);
+            if (field === 'anchorA') value.sub(origin);
+            constraint[field] = value.applyQuaternion(inverseRotation).toArray();
+          }
+        }
+      }
+      const wrapped = wrapLegacyInventoryResource(originalCategory, portable, item.id || newItemTemplateId(), worldPoseKnown);
+      if (wrapped.type === 'space-item') item = inventoryResourcePreviewItem('item', wrapped);
+    }
     if (category === 'colorset') {
       const source = Array.isArray(item.entries)
         ? item.entries
@@ -7711,7 +7757,7 @@ export class PlayerController {
       delete item.colors;
     }
     if (!item.id) {
-      const prefix = category === 'colorset' ? 'cs_' : category === 'blockset' ? 'bs_' : 'ent_';
+      const prefix = category === 'colorset' ? 'cs_' : 'item_';
       item.id = typeof globalThis.crypto?.randomUUID === 'function'
         ? `${prefix}${globalThis.crypto.randomUUID()}`
         : `${prefix}${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -7719,7 +7765,7 @@ export class PlayerController {
     // Put an item into the first available empty slot in the category.
     const index = group.items.findIndex(slot => !slot);
     if (index < 0) return null;
-    if (category !== 'entity') item.name = this.inventoryItemName(category, item, index);
+    item.name = this.inventoryItemName(category, item, index);
     group.items[index] = item;
     if (index < 9) {
       if (this.activeInventoryCategory === category && group.selected !== index) this.clearHammerRotation();
@@ -7733,6 +7779,7 @@ export class PlayerController {
   inventoryItemName(category, item, index = 0) {
     const explicitName = typeof item?.name === 'string' ? trimInventoryName(item.name) : '';
     if (explicitName) return truncateInventoryName(explicitName);
+    if (category === 'item') return `Item ${index + 1}`;
     if (category === 'blockset') {
       return `Block set ${index + 1}`;
     }
@@ -7850,7 +7897,7 @@ export class PlayerController {
     return true;
   }
 
-  /** Persist all three backpack categories in the same canonical format used by export. */
+  /** Persist Items and palettes in the same canonical format used by export. */
   saveInventoriesToLocalStorage(storage = this.inventoryStorage()) {
     if (!storage || !this.inventories) return false;
     const categories = {} as PortableBackpack['categories'];
@@ -7878,17 +7925,21 @@ export class PlayerController {
   /** Restore the backpack on startup; old or malformed storage is intentionally ignored. */
   loadInventoriesFromLocalStorage(storage = this.inventoryStorage()) {
     const inventories = this.createEmptyInventories();
-    let activeCategory = 'blockset';
+    let activeCategory = 'item';
     let loaded = false;
     let changed = false;
+    let failed = false;
 
     try {
       const raw = storage?.getBytes?.(INVENTORY_STORAGE_KEY)
         ?? storage?.getItem(INVENTORY_STORAGE_KEY)
+        ?? storage?.getBytes?.(PREVIOUS_INVENTORY_STORAGE_KEY)
+        ?? storage?.getItem(PREVIOUS_INVENTORY_STORAGE_KEY)
         ?? storage?.getBytes?.(LEGACY_INVENTORY_STORAGE_KEY)
         ?? storage?.getItem(LEGACY_INVENTORY_STORAGE_KEY);
       if (raw) {
         const data = decodeBackpack(typeof raw === 'string' ? protobufFromBase64(raw) : raw);
+        changed = data.sourceSchemaVersion !== BACKPACK_PROTOBUF_SCHEMA_VERSION;
         for (const category of INVENTORY_CATEGORIES) {
           const storedGroup = data.categories?.[category];
           const maxLen = inventories[category].items.length;
@@ -7896,11 +7947,11 @@ export class PlayerController {
           for (let index = 0; index < storedItems.length; index++) {
             if (!storedItems[index]) continue;
             const parsed = this.parseInventoryImport(
-              encodeInventoryResource(category as any, storedItems[index]),
+              encodeInventoryResource(inventoryKindForPortable(storedItems[index]), storedItems[index]),
               category
             );
             if (parsed.ok) inventories[category].items[index] = (parsed as any).item;
-            else changed = true;
+            else failed = true;
           }
           const selected = Number(storedGroup?.selected);
           inventories[category].selected = Number.isInteger(selected) && selected >= 0 && selected < maxLen ? selected : 0;
@@ -7909,13 +7960,14 @@ export class PlayerController {
         loaded = true;
       }
     } catch (err) {
-      changed = true;
+      failed = true;
+      console.warn('Could not read backpack; original storage was retained:', err);
     }
 
     this.inventories = inventories;
     this.activeInventoryCategory = activeCategory;
     if (this.ensureDefaultColorSet()) changed = true;
-    if (storage && (!loaded || changed)) {
+    if (storage && !failed && (!loaded || changed)) {
       this.saveInventoriesToLocalStorage(storage);
     }
     return loaded;
@@ -7926,6 +7978,20 @@ export class PlayerController {
   /** Build the portable object that is encoded into Protobuf storage or transfer. */
   serializeInventoryItem(category, item) {
     if (!item) return null;
+    if (category === 'item') {
+      if (item.kind !== 'item') return this.serializeInventoryItem(item.kind || 'entity', item);
+      return {
+        type: 'space-item', version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
+        id: item.id || newItemTemplateId(), name: this.inventoryItemName('item', item),
+        ...(item.blockSet ? { blockSet: this.serializeInventoryItem('blockset', item.blockSet) } : {}),
+        entityList: (item.entityList || []).map(entity => {
+          const portable = this.serializeInventoryItem('entity', entity);
+          if (entity.itemPosition?.some(value => value !== 0)) portable.root.localPosition = [...entity.itemPosition];
+          if (entity.itemRotation?.some((value, index) => value !== (index === 3 ? 1 : 0))) portable.root.localRotation = [...entity.itemRotation];
+          return portable;
+        }),
+      };
+    }
     if (category === 'blockset') {
       return {
         type: 'space-blockset',
@@ -8102,7 +8168,7 @@ export class PlayerController {
   encodeInventoryItem(category, item) {
     const portable = this.serializeInventoryItem(category, item);
     if (!portable) return null;
-    return encodeInventoryResource(category, portable);
+    return encodeInventoryResource(inventoryKindForPortable(portable), portable);
   }
 
   /** Parse one Protobuf resource into a backpack item. Returns { ok, item, error }. */
@@ -8120,7 +8186,15 @@ export class PlayerController {
 
     let data;
     try {
-      data = decodeInventoryResource(encoded, category).portable;
+      const decoded = decodeInventoryResource(encoded);
+      if (category === 'item') {
+        if (decoded.category === 'colorset') return fail('Expected item, received colorset');
+        data = wrapLegacyInventoryResource(decoded.category, decoded.portable);
+        if (data.type !== 'space-item') return this.parseInventoryImport(encoded, decoded.category);
+      } else {
+        if (decoded.category !== category) return fail(`Expected ${category}, received ${decoded.category}`);
+        data = decoded.portable;
+      }
     } catch (err) {
       return fail(err instanceof Error ? err.message : 'Not valid inventory Protobuf');
     }
@@ -8188,7 +8262,8 @@ export class PlayerController {
       const result = {
         size: hasMicro ? 1 / MICRO_DIVISIONS : 1,
         block: BlockTypes.COLOR_BLOCK,
-        color
+        color,
+        materialId: normalizeVoxelMaterialId(block.materialId),
       };
       if (ownerId !== null) {
         return {
@@ -8201,6 +8276,56 @@ export class PlayerController {
       }
       return { ...result, dx: coordinates[0], dy: coordinates[1], dz: coordinates[2] };
     };
+
+    if (category === 'item') {
+      if (typeof data.id !== 'string' || !data.id.trim() || Array.from(data.id).length > 128) return fail('Item template id is invalid');
+      if (typeof data.name !== 'string' || inventoryNameLength(data.name) > MAX_INVENTORY_NAME_LENGTH) return fail('Item name is invalid');
+      const entityList = [];
+      let blockSet;
+      if (data.blockSet) {
+        const parsed = this.parseInventoryImport(encodeInventoryResource('blockset', data.blockSet), 'blockset');
+        if (!parsed.ok) return parsed;
+        blockSet = parsed.item;
+      }
+      let components = 0, constraints = 0, seats = 0, scriptBytes = 0;
+      const count = component => {
+        components++;
+        seats += (component.seats || []).length;
+        scriptBytes += new TextEncoder().encode(component.script || '').byteLength;
+        for (const child of component.children || []) count(child);
+      };
+      for (const entity of data.entityList || []) {
+        const position = portableVector(entity.root?.localPosition, MAX_IMPORT_COORDINATE) || [0, 0, 0];
+        if (entity.root?.localPosition !== undefined && portableVector(entity.root.localPosition, MAX_IMPORT_COORDINATE) === null) return fail('Item entity position is invalid');
+        if (position.some(value => Math.abs(value * MICRO_DIVISIONS - Math.round(value * MICRO_DIVISIONS)) > STOPPED_GRID_EPSILON)) return fail('Item entity position must align to the construction grid');
+        const rotation = entity.root?.localRotation === undefined ? [0, 0, 0, 1] : portableQuaternion(entity.root.localRotation);
+        if (!rotation) return fail('Item entity rotation must use 90-degree grid steps');
+        const definition = { ...entity, root: { ...entity.root } };
+        delete definition.root.localPosition;
+        delete definition.root.localRotation;
+        const parsed = this.parseInventoryImport(encodeInventoryResource('entity', definition), 'entity');
+        if (!parsed.ok) return parsed;
+        count(definition.root);
+        constraints += definition.constraints.length;
+        entityList.push({ ...parsed.item, itemPosition: position, itemRotation: rotation, itemWorldConstraints: true });
+      }
+      const blocks = [...(blockSet?.blocks || []), ...entityList.flatMap(entity => entity.blocks)];
+      if (!blocks.length || blocks.length > MAX_INVENTORY_BLOCKS) return fail('Item must contain between 1 and 65536 voxels');
+      if (components > MAX_ENTITY_COMPONENTS || constraints > MAX_INVENTORY_CONSTRAINTS || seats > 256 || scriptBytes > MAX_INVENTORY_TOTAL_SCRIPT_BYTES) return fail('Item exceeds aggregate component, constraint, seat or script limits');
+      const item = {
+        kind: 'item', id: data.id, name: trimInventoryName(data.name),
+        blockSet, entityList, blocks, blockCount: blocks.length, nodeCount: components,
+      };
+      const gridError = validateStoppedEntityGrid(item);
+      if (gridError) return fail(gridError);
+      const geometry = getInventoryPreviewBlocks(item).map(entry => ({
+        localX: entry.center.x - entry.size / 2,
+        localY: entry.center.y - entry.size / 2,
+        localZ: entry.center.z - entry.size / 2, size: entry.size,
+      }));
+      if (!withinEntityBounds(geometry, ['localX', 'localY', 'localZ'])) return fail('Item bounds exceed the portable bounds');
+      return { ok: true, item };
+    }
 
     if (category === 'blockset') {
       if (data?.type !== 'space-blockset' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
@@ -8449,6 +8574,26 @@ export class PlayerController {
     const rotation = pose?.quaternion?.isQuaternion
       ? pose.quaternion.clone().normalize()
       : new THREE.Quaternion();
+    const pendingWorldConstraints = [];
+    if (slot.itemWorldConstraints) {
+      const worldPose = pose.itemWorldPose || { position: origin, quaternion: rotation };
+      slot = { ...slot, constraints: (slot.constraints || []).filter(constraint => {
+        if (constraint.bodyA != null) return true;
+        const transformed = { ...constraint };
+        const axis = new THREE.Vector3().fromArray(constraint.axisA || [0, 0, 1]).normalize();
+        const perpendicular = Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+        transformed.axisA = constraint.axisA || axis.toArray();
+        transformed.referenceA = constraint.referenceA || perpendicular.addScaledVector(axis, -perpendicular.dot(axis)).normalize().toArray();
+        for (const field of ['anchorA', 'axisA', 'referenceA']) {
+          if (!transformed[field]) continue;
+          const value = new THREE.Vector3().fromArray(transformed[field]).applyQuaternion(worldPose.quaternion);
+          if (field === 'anchorA') value.add(worldPose.position);
+          transformed[field] = value.toArray();
+        }
+        pendingWorldConstraints.push(transformed);
+        return false;
+      }) };
+    }
     const created = this.contraptions.buildFromSlot(slot, origin, null, false, preparedBlocks);
     if (created) {
       // Preview coordinates use `origin + rotation * localPoint`, while a
@@ -8458,11 +8603,14 @@ export class PlayerController {
       created.quaternion.copy(rotation);
       created.updateTransform();
       created.originWorldPos.copy(origin);
+      // Defaults for world anchors/reference B depend on the final body pose.
+      for (const constraint of pendingWorldConstraints) created.createConstraint(constraint);
       // Placing an independent entity is a completed spawn operation, so it
       // has the same result as pressing global Play: physics is active and all
       // runnable component scripts start, even if the backpack copy was saved
       // with its component code disabled. Component installation intentionally
       // keeps its target stopped and does not pass through this path.
+      if (pose.deferStart) return created;
       this.performBasicAction({
         domain: ActionDomain.ENTITY,
         action: 'start-scripts',
@@ -8470,10 +8618,93 @@ export class PlayerController {
       });
       this.contraptions.saveEntitiesToStorage?.();
       this.sound?.playBlockPlace?.();
-      const builtLabel = slot.name || 'entity';
+      const builtLabel = slot.itemName || slot.name || 'entity';
       this.ui?.showToast?.(`Built [${builtLabel}] (${slot.blockCount} blocks) as running entity #${created.id}`);
     }
     return created;
+  }
+
+  /** Place all static geometry and independent Entity trees in one Item frame. */
+  private pasteCompositeItem(slot, installAsComponent = false) {
+    const singleEntity = !slot.blockSet && slot.entityList?.length === 1;
+    if (installAsComponent && !singleEntity) {
+      this.ui?.showToast?.('Component installation requires an item containing one entity and no static blocks');
+      return false;
+    }
+    const pose = this.getInventoryPlacementPose(slot);
+    if (!pose) {
+      this.ui?.showToast?.('No surface under the crosshair — aim at terrain or an entity to build');
+      return false;
+    }
+    const rotation = pose.quaternion || new THREE.Quaternion();
+    const origin = pose.position.clone();
+    if (singleEntity && (installAsComponent || pose.targetContraption)) {
+      if (!pose.targetContraption) {
+        this.ui?.showToast?.('Shift+LMB installs modules — aim directly at a stopped entity component');
+        return false;
+      }
+      if (this.handleRunningEntityInteraction(pose.targetContraption)) return false;
+      if (!pose.targetContraption.canEditInternalSelection?.()) {
+        this.ui?.showToast?.('Stop the target entity with the Wrench before installing components');
+        return false;
+      }
+      const entity = slot.entityList[0];
+      const entityPose = {
+        ...pose,
+        position: new THREE.Vector3().fromArray(entity.itemPosition || [0, 0, 0])
+          .applyQuaternion(rotation).add(origin),
+        quaternion: rotation.clone().multiply(new THREE.Quaternion().fromArray(entity.itemRotation || [0, 0, 0, 1])),
+      };
+      return entity.blocks.length > BULK_EDIT_THRESHOLD
+        ? this.startLargeEntitySlotInstall(entity, entityPose)
+        : !!this.finishEntitySlotInstall(entity, entityPose);
+    }
+    const step = slot.blockSet?.blocks?.some(block => (block.size || 1) === 1) ? 1 : MICRO_SIZE;
+    if (slot.blockSet) {
+      origin.x = Math.round(origin.x / step) * step;
+      origin.z = Math.round(origin.z / step) * step;
+      origin.y = Math.ceil((origin.y - 1e-6) / step) * step;
+    }
+    const blocks = (slot.blockSet?.blocks || []).map(block => {
+      const size = block.size || 1;
+      const minimum = new THREE.Vector3(block.dx + size / 2, block.dy + size / 2, block.dz + size / 2)
+        .applyQuaternion(rotation).addScalar(-size / 2);
+      return { ...block, dx: minimum.x, dy: minimum.y, dz: minimum.z };
+    });
+    const buildEntities = () => {
+      const created = [];
+      try {
+        for (const entity of slot.entityList || []) {
+          const position = new THREE.Vector3().fromArray(entity.itemPosition || [0, 0, 0])
+            .applyQuaternion(rotation).add(origin);
+          const quaternion = rotation.clone().multiply(new THREE.Quaternion().fromArray(entity.itemRotation || [0, 0, 0, 1]));
+          const result = this.finishEntitySlotBuild(entity, {
+            position, quaternion, itemWorldPose: { position: origin, quaternion: rotation }, deferStart: true,
+          });
+          if (!result) throw new Error('An Item entity could not be built');
+          created.push(result);
+        }
+      } catch (error) {
+        for (const entity of created) this.contraptions.removeContraption(entity, { skipSave: true, skipRemoteDelete: true });
+        this.ui?.showToast?.(error instanceof Error ? error.message : 'Item placement failed');
+        return false;
+      }
+      for (const entity of created) this.performBasicAction({
+        domain: ActionDomain.ENTITY, action: 'start-scripts', target: { contraption: entity },
+      });
+      if (created.length) this.contraptions.saveEntitiesToStorage?.();
+      this.sound?.playBlockPlace?.();
+      this.ui?.showToast?.(`Built [${slot.name || 'Item'}] (${blocks.length} static voxels, ${created.length} entities)`);
+      return true;
+    };
+    if (blocks.length > BULK_EDIT_THRESHOLD) {
+      return this.startBulkEditJob({
+        label: 'Building item', total: blocks.length,
+        step: index => this.applyBlockSetVoxel(origin, blocks[index]), finish: buildEntities,
+      });
+    }
+    for (const block of blocks) this.applyBlockSetVoxel(origin, block);
+    return buildEntities();
   }
 
   private describeComponentInstallFailure(reason) {
@@ -8621,7 +8852,9 @@ export class PlayerController {
 
     if (this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
 
-    if (slot.kind === 'blockset' || category === 'blockset') {
+    if (slot.kind === 'item') return this.pasteCompositeItem(slot, installAsComponent);
+
+    if (slot.kind === 'blockset') {
       return this.pasteBlockSet(slot);
     }
 

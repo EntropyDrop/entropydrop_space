@@ -2043,6 +2043,10 @@ export class Contraption {
 
     return {
       name: this.getComponentName(sourceRootId),
+      // Ephemeral capture context for rebasing external-world constraints into
+      // a portable Item. Runtime/portable entity projections omit these fields.
+      sourcePosition: this.position.clone().sub(this.localCenter.clone().applyQuaternion(this.quaternion)).toArray(),
+      sourceRotation: this.quaternion.toArray(),
       rootComponentId: sourceRootId,
       nodeCount: 1 + childEntities.length,
       blockCount: blocks.length,

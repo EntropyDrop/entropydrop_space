@@ -445,7 +445,7 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
 
 function InventoryBar() {
   const { controller, activeInventoryCategory, selectedInventoryIndex } = useSpaceUi(state => state);
-  const category = activeInventoryCategory === 'entity' ? 'entity' : 'blockset';
+  const category = 'item';
   const items = controller?.inventories?.[category]?.items || [];
   const renderer = InventoryThumbnailRenderer.getInstance();
   React.useSyncExternalStore(renderer.subscribe, renderer.getRevision, renderer.getRevision);
@@ -457,12 +457,10 @@ function InventoryBar() {
             <LiaBoxesSolid size={14} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />Backpack
           </button>
           <div id="inv-cat-tabs" className="inv-cat-tabs">
-            {(['blockset', 'entity'] as const).map(key => (
-              <button type="button" tabIndex={-1} key={key} className={`inv-cat-tab ${category === key ? 'active' : ''}`} onClick={() => spaceUiStore.selectInventoryCategory(key)}>{key === 'blockset' ? 'BKS' : 'ENT'}</button>
-            ))}
+            <span className="inv-cat-tab active">Items</span>
           </div>
         </div>
-        <span className="palette-hotkey-hint"><b>E</b> Full Backpack · <b>Tab</b> BKS↔ENT · <b>Arrows/RMB</b> Rotate{category === 'entity' ? <> · <b>LMB</b> Auto-attach</> : null}</span>
+        <span className="palette-hotkey-hint"><b>E</b> Full Backpack · <b>Arrows/RMB</b> Rotate · <b>LMB</b> Build</span>
       </div>
       <div id="inventory-bar" className="inventory-bar">
         {Array.from({ length: 9 }, (_, index) => {

@@ -26,7 +26,23 @@ message InventoryResource {
     BlockSet block_set = 10;
     Entity entity = 11;
     ColorSet color_set = 12;
+    Item item = 13;
   }
+}
+
+// A portable template. This additive alternative reuses the existing messages
+// and leaves standalone resources wire-compatible with inventory v8.
+// At least one voxel is required across block_set and entity_list. An absent or
+// empty block_set means no static terrain; an empty entity_list means no bodies.
+message Item {
+  // Template identity, independent of backpack slots and runtime entity UUIDs.
+  // Content deduplication excludes this id and all display names.
+  string id = 1;
+  string name = 2;
+  BlockSet block_set = 3;
+  // Each entry owns its original component tree, scripts, seats and constraints.
+  // Component ids are scoped to one Entity and may repeat between entries.
+  repeated Entity entity_list = 4;
 }
 
 message Voxel {
@@ -129,7 +145,11 @@ message Component {
   repeated Seat seats = 7;
   // Sibling order is non-semantic; canonical encoders and decoders sort by id.
   repeated Component children = 8;
-  // Parent-relative authored transform. The root omits these fields.
+  // Parent-relative authored transform. A standalone Entity root omits these
+  // fields. Inside Item, root fields position the Entity construction origin
+  // relative to Item: item_point = local_position + local_rotation * point.
+  // Missing root fields mean zero translation and identity rotation. Item
+  // codecs extract the root pose before handing the Entity to runtime consumers.
   // local_rotation is restricted to the 24 axis-aligned cube orientations so
   // Stop restores every owned voxel to one shared 0.125-unit construction grid.
   optional Vector3 local_position = 9;
@@ -161,6 +181,8 @@ message EntityConstraint {
   ConstraintType type = 2;
   // Absence means that side A is attached to the external world. Presence is
   // always an exact component id; no id spelling has sentinel semantics.
+  // World A vectors use absolute world coordinates for standalone resources;
+  // inside Item they use Item coordinates and are transformed by placement once.
   optional string body_a_component_id = 3;
   string body_b_component_id = 4;
   optional Vector3 anchor_a = 5;

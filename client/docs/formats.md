@@ -1,12 +1,12 @@
 # Space data formats
 
-Every version below is intentionally breaking: Space rejects older data instead of
-migrating it, and a release that changes a format resets the affected Space content.
+Portable contracts use additive changes when wire-compatible. Explicit release readers
+migrate supported legacy versions; unknown formats are rejected without rewriting their bytes.
 
 | Data | Version | Owner / location |
 | --- | --- | --- |
-| Portable `InventoryResource` | **7** | `entropydrop_space/proto/inventory.proto` |
-| Browser backpack | **8** | `entropydrop_space/proto/backpack.proto`; stored at `space.backpack.v8.pb` |
+| Portable `InventoryResource` | **8** | `entropydrop_space/proto/inventory.proto` |
+| Browser backpack | **10** | `entropydrop_space/proto/backpack.proto`; stored at `space.backpack.v10.pb` |
 | REST request envelopes | **2** | `entropydrop_space/proto/space_api.proto` (`entropydrop.space.api.v2`) |
 | Far-surface zone snapshot | **5** | `EDSZ` binary, parsed in `src/bootstrap/SpaceSurfaceSnapshot.ts` |
 | Local terrain outbox | **3** | `space.world-edits.v3.*` (`entropydrop_space/engine/src/voxel/WorldEditPersistence.ts`) |
@@ -14,11 +14,14 @@ migrating it, and a release that changes a format resets the affected Space cont
 | Realtime relay | `space-relay-v1` | MessagePack subprotocol; no `.proto` |
 | Authoritative realtime | `space.multiplayer.v2` | target design in `entropydrop_backend/space/contracts/protocol.proto`; not implemented |
 
-## Portable InventoryResource (v7)
+## Portable InventoryResource (v8)
 
 `InventoryResource` is the canonical binary contract for `.edpb` files, backpack export,
 market upload/CDN objects and entity definitions. It has a `schema_version` and a `oneof
-content` of `block_set`, `entity` or `color_set`.
+content` of `item`, `block_set`, `entity` or `color_set`. New backpack items use the
+`Item` wrapper: a template `id`, a display `name`, an optional original `BlockSet`, and
+an `entity_list` of original `Entity` messages. Static-only, Entity-only and mixed content
+share one item concept. Runtime entity APIs retain their single-Entity envelope.
 
 `Voxel` follows the authoritative realtime `VoxelMutation` conventions:
 
@@ -29,6 +32,7 @@ uint32 micro_x  = 5;                 // 0..7, meaningful only when is_micro
 uint32 micro_y  = 6;
 uint32 micro_z  = 7;
 uint32 color_rgb = 8;                // 0xRRGGBB varint
+uint32 material_id = 9;              // 0 default, 1 emissive
 ```
 
 The v6 packed `micro_index = 1 + mx + 8*my + 64*mz` and `fixed32 color` are rejected.
@@ -37,26 +41,35 @@ Canonical encoders (both `InventoryProtobuf.ts` and `inventory_codec.py`):
 
 - normalize every `double` `-0.0` to `+0.0`;
 - sort `BlockSet.blocks` and `Component.blocks` by
-  `(dx, dy, dz, is_micro, micro_x, micro_y, micro_z, color_rgb)`;
+  `(dx, dy, dz, is_micro, micro_x, micro_y, micro_z, color_rgb, material_id)`;
 - sort `Component.children` and `Entity.constraints` by Unicode code point id order;
-- preserve color-set order and seat order.
+- preserve Entity-list, palette-entry and seat order;
+- omit zero/identity Item root poses and normalize their quaternion sign.
 
-The market content digest is SHA-256 over the canonical bytes re-encoded with component
-`name` fields removed, so renaming never changes identity. Entity display names live on
+The market content digest is SHA-256 over canonical bytes with Item template ids and
+all display names removed, so copying or renaming does not change content identity. Entity display names live on
 `Component.name`; `Entity` has no `name` field (`reserved 1`, `reserved "name"`).
 
 Limits (enforced by `routers/space_market.py` and `routers/space_entities.py`): 8 MiB per
 definition, 65,536 voxels, 64 components, hierarchy depth 16, 256 constraints, 64 KiB per
-script and 512 KiB of scripts per entity.
+script and 512 KiB of scripts. For Item, these budgets apply across all its Entity trees
+and static geometry together. Root poses inside Item describe each Entity construction
+frame relative to the Item origin. World-constraint A endpoints use Item coordinates
+and transform once on placement; component-local endpoints retain their original frames.
 
-## Browser backpack (v8)
+## Browser backpack (v10)
 
-`backpack.proto` embeds `entropydrop.space.inventory.v7.InventoryResource` and is never
-uploaded. `PlayerController` stores it at `space.backpack.v8.pb` through
-`BrowserStorage` (IndexedDB with a localStorage fallback). Three category groups
-(`block_sets`, `entities`, `color_sets`) each keep a `selected` index and a list of
-`BackpackSlot` wrappers; empty wrappers preserve internal gaps and trailing empty slots are
-omitted. At most 99 slots per category. v7 backpacks are ignored.
+`backpack.proto` embeds `entropydrop.space.inventory.v8.InventoryResource` and is never
+uploaded. `PlayerController` stores it at `space.backpack.v10.pb` through
+`BrowserStorage` (IndexedDB with a localStorage fallback). `items` has one cursor, one
+nine-slot hotbar and 198 slots; `color_sets` retains its own cursor and 99 slots. Empty
+`BackpackSlot` wrappers preserve gaps; trailing empty wrappers are omitted.
+
+The explicit v8/v9 reader prioritizes the old active kind's nine hotbar slots, then the
+other kind's hotbar, followed by both storage ranges. It maps the selected index through
+this permutation and retains the original storage key. Legacy external-world Entity
+anchors require their source world pose to become Item coordinates, so those resources
+retain their standalone envelope instead of guessing or losing anchors.
 
 ## REST request envelopes (v2)
 

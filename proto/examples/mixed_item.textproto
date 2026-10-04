@@ -1,0 +1,27 @@
+schema_version: 8
+item {
+  id: "workshop-template"
+  name: "Workshop with door and cart"
+  block_set {
+    name: "Foundation"
+    blocks { dx: 2 dy: -1 dz: 0 color_rgb: 8421504 }
+  }
+  entity_list {
+    root {
+      id: "root"
+      name: "Door"
+      local_position { x: 2 }
+      body { type: BODY_TYPE_DYNAMIC }
+      blocks { color_rgb: 16753920 }
+    }
+  }
+  entity_list {
+    root {
+      id: "root"
+      name: "Cart"
+      local_position { x: 6 }
+      body { type: BODY_TYPE_DYNAMIC }
+      blocks { color_rgb: 3381759 }
+    }
+  }
+}

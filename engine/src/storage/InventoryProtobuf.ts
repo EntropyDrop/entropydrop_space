@@ -12,6 +12,7 @@ import { FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
 import { BinaryReader, configureTextEncoding, WireType } from '@bufbuild/protobuf/wire';
 import {
   Backpack,
+  BackpackView,
   InventoryCategory,
 } from '../generated/backpack.ts';
 import {
@@ -27,19 +28,19 @@ import {
 import { INVENTORY_DESCRIPTOR_SET_BYTES } from '../generated/inventory_descriptor.ts';
 
 export const INVENTORY_PROTOBUF_SCHEMA_VERSION = 8;
-export const BACKPACK_PROTOBUF_SCHEMA_VERSION = 9;
+export const BACKPACK_PROTOBUF_SCHEMA_VERSION = 10;
 export const INVENTORY_PROTOBUF_MIME = 'application/x-protobuf';
-export { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
-import { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
-export type InventoryKind = 'blockset' | 'entity' | 'colorset';
+export { MAX_BACKPACK_ITEM_SLOTS, MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
+import { MAX_BACKPACK_ITEM_SLOTS, MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
+export type InventoryKind = 'item' | 'blockset' | 'entity' | 'colorset';
 
 export interface PortableBackpack {
-  sourceSchemaVersion?: 8 | 9;
+  sourceSchemaVersion?: 8 | 9 | 10;
   activeCategory: InventoryKind;
-  categories: Record<InventoryKind, {
+  categories: Partial<Record<InventoryKind, {
     selected: number;
     items: Array<any | null>;
-  }>;
+  }>>;
 }
 
 const BODY_TYPE_TO_PROTO: Record<string, BodyType> = {
@@ -93,7 +94,11 @@ const INVENTORY_RESOURCE_DESCRIPTOR = requiredMessageDescriptor(
   'entropydrop.space.inventory.v8.InventoryResource',
 );
 const BACKPACK_DESCRIPTOR = requiredMessageDescriptor(
-  'entropydrop.space.backpack.v9.Backpack',
+  'entropydrop.space.backpack.v10.Backpack',
+);
+
+const LEGACY_BACKPACK_DESCRIPTOR = requiredMessageDescriptor(
+  'entropydrop.space.backpack.v10.LegacyBackpack',
 );
 
 function scalarWireType(type: ScalarType): WireType {
@@ -494,13 +499,47 @@ function portableComponent(component: Component): any {
 }
 
 function resourceMessage(category: InventoryKind, portable: any, includeNames = true): InventoryResourceMessage {
-  const expectedType = category === 'blockset'
+  const expectedType = category === 'item'
+    ? 'space-item'
+    : category === 'blockset'
     ? 'space-blockset'
     : category === 'entity'
       ? 'space-entity'
       : 'space-colorset';
   if (portable?.type !== expectedType || portable?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
     throw new Error(`Expected a ${expectedType} v${INVENTORY_PROTOBUF_SCHEMA_VERSION} resource.`);
+  }
+  if (category === 'item') {
+    if (typeof portable.id !== 'string' || !portable.id.trim()) {
+      throw new Error('An Item must have a template id.');
+    }
+    const blockContent = portable.blockSet?.blocks?.length
+      ? resourceMessage('blockset', portable.blockSet, includeNames).content
+      : undefined;
+    return {
+      schemaVersion: INVENTORY_PROTOBUF_SCHEMA_VERSION,
+      content: {
+        $case: 'item',
+        value: {
+          id: includeNames ? portable.id : '',
+          name: includeNames ? String(portable.name || '') : '',
+          blockSet: blockContent?.$case === 'blockSet' ? blockContent.value : undefined,
+          entityList: (portable.entityList || []).map((source: any) => {
+            const entity = { ...source, root: { ...source.root } };
+            if (entity.root.localPosition?.every((value: number) => value === 0)) delete entity.root.localPosition;
+            if (entity.root.localRotation) {
+              const values = entity.root.localRotation.map(canonicalDouble);
+              const sign = [values[3], ...values.slice(0, 3)].find((value: number) => value !== 0) < 0 ? -1 : 1;
+              entity.root.localRotation = values.map((value: number) => canonicalDouble(value * sign));
+              if (entity.root.localRotation.every((value: number, index: number) => value === (index === 3 ? 1 : 0))) delete entity.root.localRotation;
+            }
+            const content = resourceMessage('entity', entity, includeNames).content;
+            if (content?.$case !== 'entity') throw new Error('Invalid Item Entity.');
+            return content.value;
+          }),
+        },
+      },
+    };
   }
   if (category === 'blockset') {
     return {
@@ -572,7 +611,7 @@ function resourceMessage(category: InventoryKind, portable: any, includeNames = 
 function resourceContent(message: any): InventoryResourceMessage['content'] {
   const content = message?.content;
   if (content?.$case) return content;
-  if (content?.case === 'blockSet' || content?.case === 'entity' || content?.case === 'colorSet') {
+  if (content?.case === 'blockSet' || content?.case === 'entity' || content?.case === 'colorSet' || content?.case === 'item') {
     return { $case: content.case, value: content.value } as InventoryResourceMessage['content'];
   }
   return undefined;
@@ -589,6 +628,28 @@ function portableResource(message: any, allowLegacyV7 = false): { category: Inve
     throw new Error(`Expected inventory Protobuf v${INVENTORY_PROTOBUF_SCHEMA_VERSION}.`);
   }
   const content = resourceContent(message);
+  if (content?.$case === 'item') {
+    const item = content.value;
+    return {
+      category: 'item',
+      portable: {
+        type: 'space-item',
+        version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
+        id: String(item.id || ''),
+        name: String(item.name || ''),
+        ...(item.blockSet?.blocks?.length ? {
+          blockSet: portableResource({
+            schemaVersion,
+            content: { $case: 'blockSet', value: item.blockSet },
+          }).portable,
+        } : {}),
+        entityList: (item.entityList || []).map((entity: any) => portableResource({
+          schemaVersion,
+          content: { $case: 'entity', value: entity },
+        }).portable),
+      },
+    };
+  }
   if (content?.$case === 'blockSet') {
     const blockSet = content.value;
     const blocks = (blockSet.blocks || []).map(block => portableVoxel(block));
@@ -895,6 +956,21 @@ function previewVoxel(block: any, entity: boolean): any {
 
 /** Convert portable v8 coordinates into the runtime shape used by thumbnail rendering. */
 export function inventoryResourcePreviewItem(category: InventoryKind, portable: any): any {
+  if (category === 'item') {
+    const blockSet = portable.blockSet ? inventoryResourcePreviewItem('blockset', portable.blockSet) : undefined;
+    const entityList = (portable.entityList || []).map((entity: any) => ({
+      ...inventoryResourcePreviewItem('entity', entity),
+      itemPosition: entity.root.localPosition || [0, 0, 0],
+      itemRotation: entity.root.localRotation || [0, 0, 0, 1],
+    }));
+    const blocks = [...(blockSet?.blocks || []), ...entityList.flatMap((entity: any) => entity.blocks)];
+    return {
+      type: 'space-item', version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
+      kind: 'item', id: portable.id, name: portable.name, blockSet, entityList,
+      blocks, blockCount: blocks.length,
+      nodeCount: entityList.reduce((count: number, entity: any) => count + entity.nodeCount, 0),
+    };
+  }
   if (category === 'colorset') {
     return {
       type: 'space-colorset',
@@ -946,12 +1022,6 @@ export function inventoryResourcePreviewItem(category: InventoryKind, portable: 
   return preview;
 }
 
-function categoryEnum(category: InventoryKind): InventoryCategory {
-  if (category === 'entity') return InventoryCategory.INVENTORY_CATEGORY_ENTITY;
-  if (category === 'colorset') return InventoryCategory.INVENTORY_CATEGORY_COLOR_SET;
-  return InventoryCategory.INVENTORY_CATEGORY_BLOCK_SET;
-}
-
 function categoryName(category: InventoryCategory): InventoryKind {
   if (category === InventoryCategory.INVENTORY_CATEGORY_ENTITY) return 'entity';
   if (category === InventoryCategory.INVENTORY_CATEGORY_COLOR_SET) return 'colorset';
@@ -959,80 +1029,134 @@ function categoryName(category: InventoryCategory): InventoryKind {
   throw new Error(`Unknown backpack category enum value ${category}.`);
 }
 
-export function encodeBackpack(backpack: PortableBackpack): Uint8Array {
-  const group = (category: InventoryKind) => {
-    const source = backpack.categories[category];
-    const items = source.items || [];
-    if (items.length > MAX_BACKPACK_SLOTS_PER_CATEGORY) {
-      throw new Error(`Backpack ${category} group exceeds ${MAX_BACKPACK_SLOTS_PER_CATEGORY} slots.`);
-    }
-    if (!Number.isSafeInteger(source.selected)
-      || source.selected < 0
-      || source.selected >= MAX_BACKPACK_SLOTS_PER_CATEGORY) {
-      throw new Error(`Backpack ${category} group has an invalid selection.`);
+export function inventoryKindForPortable(portable: any): InventoryKind {
+  const kind = {
+    'space-item': 'item', 'space-blockset': 'blockset',
+    'space-entity': 'entity', 'space-colorset': 'colorset',
+  }[portable?.type];
+  if (!kind) throw new Error('Unknown portable inventory resource.');
+  return kind;
+}
+
+export function newItemTemplateId(): string {
+  return typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `item_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+/** Legacy world anchors cannot be rebased without the original world pose. */
+export function wrapLegacyInventoryResource(category: InventoryKind, portable: any, id = newItemTemplateId(), worldPoseKnown = false): any {
+  if (category === 'item' || category === 'colorset') return portable;
+  if (category === 'entity' && !worldPoseKnown && (portable.constraints || []).some((constraint: any) => constraint.bodyA == null)) {
+    return portable;
+  }
+  return {
+    type: 'space-item', version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
+    id, name: inventoryResourceName(category, portable),
+    ...(category === 'blockset' ? { blockSet: portable } : {}),
+    entityList: category === 'entity' ? [portable] : [],
+  };
+}
+
+function migrateLegacyBackpack(backpack: PortableBackpack): PortableBackpack {
+  const priority = backpack.activeCategory === 'entity' ? 'entity' : 'blockset';
+  const other = priority === 'entity' ? 'blockset' : 'entity';
+  const order = [
+    ...Array.from({ length: 9 }, (_, index) => [priority, index] as const),
+    ...Array.from({ length: 9 }, (_, index) => [other, index] as const),
+    ...Array.from({ length: 90 }, (_, index) => [priority, index + 9] as const),
+    ...Array.from({ length: 90 }, (_, index) => [other, index + 9] as const),
+  ];
+  const items = order.map(([category, index]) => {
+    const portable = backpack.categories[category]?.items[index];
+    return portable ? wrapLegacyInventoryResource(category, portable) : null;
+  });
+  const selected = order.findIndex(([category, index]) => (
+    category === priority && index === (backpack.categories[priority]?.selected || 0)
+  ));
+  return {
+    sourceSchemaVersion: backpack.sourceSchemaVersion,
+    activeCategory: backpack.activeCategory === 'colorset' ? 'colorset' : 'item',
+    categories: {
+      item: { selected: Math.max(0, selected), items },
+      colorset: backpack.categories.colorset || { selected: 0, items: [] },
+    },
+  };
+}
+
+export function encodeBackpack(source: PortableBackpack): Uint8Array {
+  const backpack = source.categories.item ? source : migrateLegacyBackpack(source);
+  const group = (category: 'item' | 'colorset') => {
+    const collection = backpack.categories[category] || { selected: 0, items: [] };
+    const items = collection.items || [];
+    const capacity = category === 'item' ? MAX_BACKPACK_ITEM_SLOTS : MAX_BACKPACK_SLOTS_PER_CATEGORY;
+    if (items.length > capacity || !Number.isSafeInteger(collection.selected)
+      || collection.selected < 0 || collection.selected >= capacity) {
+      throw new Error(`Backpack ${category} group exceeds its capacity or has an invalid selection.`);
     }
     let lastOccupied = items.length - 1;
     while (lastOccupied >= 0 && !items[lastOccupied]) lastOccupied -= 1;
     return {
-      selected: source.selected,
-      // Repeated-message order is the browser-local slot position.
-      // Empty wrappers retain internal gaps; trailing empty slots need no bytes.
+      selected: collection.selected,
       slots: items.slice(0, lastOccupied + 1).map(portable => ({
-        resource: portable ? resourceMessage(category, portable) : undefined,
+        resource: portable ? resourceMessage(inventoryKindForPortable(portable), portable) : undefined,
       })),
     };
   };
   return Backpack.encode({
     schemaVersion: BACKPACK_PROTOBUF_SCHEMA_VERSION,
-    activeCategory: categoryEnum(backpack.activeCategory),
-    blockSets: group('blockset'),
-    entities: group('entity'),
-    colorSets: group('colorset'),
+    activeView: backpack.activeCategory === 'colorset'
+      ? BackpackView.BACKPACK_VIEW_COLOR_SETS : BackpackView.BACKPACK_VIEW_ITEMS,
+    items: group('item'), colorSets: group('colorset'),
   }).finish();
 }
 
 export function decodeBackpack(encoded: Uint8Array): PortableBackpack {
-  const backpack: any = decodeInventoryMessage(BACKPACK_DESCRIPTOR, encoded);
-  const sourceSchemaVersion = Number(backpack.schemaVersion);
-  if (sourceSchemaVersion !== BACKPACK_PROTOBUF_SCHEMA_VERSION && sourceSchemaVersion !== 8) {
+  const current: any = decodeInventoryMessage(BACKPACK_DESCRIPTOR, encoded);
+  const sourceSchemaVersion = Number(current.schemaVersion);
+  const legacy = sourceSchemaVersion === 8 || sourceSchemaVersion === 9;
+  if (sourceSchemaVersion !== BACKPACK_PROTOBUF_SCHEMA_VERSION && !legacy) {
     throw new Error(`Expected backpack Protobuf v${BACKPACK_PROTOBUF_SCHEMA_VERSION}.`);
   }
+  const backpack: any = legacy ? decodeInventoryMessage(LEGACY_BACKPACK_DESCRIPTOR, encoded) : current;
   const decodeGroup = (category: InventoryKind, group: any) => {
     const slots = group?.slots || [];
     const selected = Number(group?.selected || 0);
-    if (!Array.isArray(slots)
-      || slots.length > MAX_BACKPACK_SLOTS_PER_CATEGORY
-      || !Number.isSafeInteger(selected)
-      || selected < 0
-      || selected >= MAX_BACKPACK_SLOTS_PER_CATEGORY) {
+    const capacity = category === 'item' ? MAX_BACKPACK_ITEM_SLOTS : MAX_BACKPACK_SLOTS_PER_CATEGORY;
+    if (!Array.isArray(slots) || slots.length > capacity
+      || !Number.isSafeInteger(selected) || selected < 0 || selected >= capacity) {
       throw new Error('Backpack contains an invalid group.');
-    }
-    const items: Array<any | null> = [];
-    for (let position = 0; position < slots.length; position += 1) {
-      const slot = slots[position];
-      if (!slot.resource) {
-        items[position] = null;
-        continue;
-      }
-      const decoded = portableResource(slot.resource, sourceSchemaVersion === 8);
-      if (decoded.category !== category) {
-        throw new Error(`Backpack ${category} group contains a ${decoded.category} resource.`);
-      }
-      items[position] = decoded.portable;
     }
     return {
       selected,
-      items,
+      items: slots.map((slot: any) => {
+        if (!slot.resource) return null;
+        const decoded = portableResource(slot.resource, sourceSchemaVersion === 8);
+        if (category === 'item' ? decoded.category === 'colorset' : decoded.category !== category) {
+          throw new Error(`Backpack ${category} group contains a ${decoded.category} resource.`);
+        }
+        return category === 'item' ? wrapLegacyInventoryResource(decoded.category, decoded.portable) : decoded.portable;
+      }),
     };
   };
+  if (legacy) {
+    return migrateLegacyBackpack({
+      sourceSchemaVersion,
+      activeCategory: categoryName(backpack.activeCategory!),
+      categories: {
+        blockset: decodeGroup('blockset', backpack.blockSets),
+        entity: decodeGroup('entity', backpack.entities),
+        colorset: decodeGroup('colorset', backpack.colorSets),
+      },
+    });
+  }
+  if (![BackpackView.BACKPACK_VIEW_ITEMS, BackpackView.BACKPACK_VIEW_COLOR_SETS].includes(backpack.activeView)) {
+    throw new Error('Backpack contains an invalid view.');
+  }
   return {
     sourceSchemaVersion,
-    activeCategory: categoryName(backpack.activeCategory!),
-    categories: {
-      blockset: decodeGroup('blockset', backpack.blockSets),
-      entity: decodeGroup('entity', backpack.entities),
-      colorset: decodeGroup('colorset', backpack.colorSets),
-    },
+    activeCategory: backpack.activeView === BackpackView.BACKPACK_VIEW_COLOR_SETS ? 'colorset' : 'item',
+    categories: { item: decodeGroup('item', backpack.items), colorset: decodeGroup('colorset', backpack.colorSets) },
   };
 }
 

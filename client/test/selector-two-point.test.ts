@@ -175,7 +175,7 @@ test('R copies a block selection and pastes it as an independent entity', () => 
   assert.ok(slot);
   assert.equal(slot.blockCount, 1, 'the slot should contain only the arm block');
 
-  const pasted = manager.buildFromSlot(slot, new THREE.Vector3(20, 0, 20));
+  const pasted = manager.buildFromSlot(controller.getActiveHammerInventoryItem(), new THREE.Vector3(20, 0, 20));
   assert.ok(pasted);
   assert.equal(pasted.blocks.length, 1);
   assert.equal(pasted.rootComponentId, 'arm');
@@ -744,16 +744,18 @@ test('inventory copy prunes empty ghost children and scripts from a block select
   const slot = controller.inventorySlots[0];
   assert.ok(slot);
   assert.equal(slot.blockCount, 1);
-  assert.equal(slot.rootComponentId, 'arm');
-  assert.deepEqual([...new Set(slot.blocks.map(b => b.entityId))], ['arm']);
-  assert.equal(slot.childEntities.length, 0, 'hand definition should be pruned because its blocks are not selected');
-  assert.deepEqual(slot.scripts.map(s => s.id), ['arm'], 'the copied level script stays attached to the selected component ID');
-  assert.deepEqual(slot.enabled.map(e => e.id), ['arm']);
+  assert.equal(slot.kind, 'item');
+  const copiedEntity = slot.entityList[0];
+  assert.equal(copiedEntity.rootComponentId, 'arm');
+  assert.deepEqual([...new Set(copiedEntity.blocks.map(b => b.entityId))], ['arm']);
+  assert.equal(copiedEntity.childEntities.length, 0, 'hand definition should be pruned because its blocks are not selected');
+  assert.deepEqual(copiedEntity.scripts.map(s => s.id), ['arm'], 'the copied level script stays attached to the selected component ID');
+  assert.deepEqual(copiedEntity.enabled.map(e => e.id), ['arm']);
 
   // Pasting should not create ghost children.
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, {}, null, null);
-  const pasted = manager.buildFromSlot(slot, new THREE.Vector3(30, 0, 30));
+  const pasted = manager.buildFromSlot(controller.getActiveHammerInventoryItem(), new THREE.Vector3(30, 0, 30));
   assert.equal(pasted.blocks.length, 1);
   const ghost = [...pasted.entityNodes.keys()].filter(id => id !== pasted.rootComponentId);
   assert.equal(ghost.length, 0, 'pasted entity should contain no ghost components');

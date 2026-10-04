@@ -36,7 +36,7 @@ import {
 } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { SpaceApiKeyClient } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import { SpaceMarketClient } from '../../../bootstrap/SpaceMarketClient.ts';
-import { MAX_BACKPACK_SLOTS_PER_CATEGORY } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
+import { decodeInventoryResource, MAX_BACKPACK_SLOTS_PER_CATEGORY } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { MAX_SELECTION_BOUNDS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, LIGHTING_QUALITY_SETTING_KEY,
@@ -222,7 +222,7 @@ export interface SpaceUiSnapshot {
   paletteColors: PaletteEntry[];
   paletteEditorOpen: boolean;
   activeColorSetId: string | null;
-  activeInventoryCategory: 'blockset' | 'entity' | 'colorset';
+  activeInventoryCategory: 'item' | 'colorset';
   selectedInventoryIndex: number;
   editingContraption: any;
   selectedComponentNodeId: string;
@@ -400,7 +400,7 @@ export class SpaceUiStore {
     })),
     paletteEditorOpen: false,
     activeColorSetId: null,
-    activeInventoryCategory: 'blockset',
+    activeInventoryCategory: 'item',
     selectedInventoryIndex: 0,
     editingContraption: null,
     selectedComponentNodeId: '',
@@ -829,17 +829,13 @@ export class SpaceUiStore {
     else controller?.unlock?.();
   }
 
-  resolveDefaultInventoryCategory(): 'blockset' | 'entity' | 'colorset' {
+  resolveDefaultInventoryCategory(): 'item' | 'colorset' {
     const activeTool = this.snapshot.controller?.activeTool
       || this.snapshot.hotbarSlots[this.snapshot.selectedHotbarIndex]?.value;
     if (activeTool === SpecialTool.BRUSH || activeTool === SpecialTool.PIPETTE) {
       return 'colorset';
     }
-    if (activeTool === SpecialTool.WRENCH) {
-      return 'entity';
-    }
-    // Shovel, Spoon, Selector, Hammer, and default tools map to block set
-    return 'blockset';
+    return 'item';
   }
 
   private toggleModal(modal: Exclude<SpaceModal, null>, forceState: boolean | null = null): void {
@@ -868,7 +864,7 @@ export class SpaceUiStore {
     }
   }
 
-  toggleInventoryModal(forceState: boolean | null = null, defaultCategory?: 'blockset' | 'entity' | 'colorset'): void {
+  toggleInventoryModal(forceState: boolean | null = null, defaultCategory?: 'item' | 'colorset'): void {
     if (forceState !== false && (forceState === true || this.snapshot.activeModal !== 'inventory')) {
       const targetCategory = defaultCategory || this.resolveDefaultInventoryCategory();
       this.snapshot.controller?.setActiveInventoryCategory?.(targetCategory);
@@ -1376,10 +1372,10 @@ export class SpaceUiStore {
   syncInventoryState(): void {
     const controller = this.snapshot.controller;
     if (!controller) return;
-    let activeInventoryCategory = controller.activeInventoryCategory || this.snapshot.activeInventoryCategory || 'blockset';
+    let activeInventoryCategory = controller.activeInventoryCategory || this.snapshot.activeInventoryCategory || 'item';
     if (activeInventoryCategory === 'colorset' && controller.activeTool === SpecialTool.HAMMER && this.snapshot.activeModal !== 'inventory') {
-      controller.setActiveInventoryCategory?.('blockset');
-      activeInventoryCategory = 'blockset';
+      controller.setActiveInventoryCategory?.('item');
+      activeInventoryCategory = 'item';
     }
     let activeColorSetId = this.snapshot.activeColorSetId;
     if (!activeColorSetId) {
@@ -1403,11 +1399,11 @@ export class SpaceUiStore {
   renderInventory(): void { this.syncInventoryState(); }
   renderInventoryBar(): void { this.syncInventoryState(); }
 
-  selectInventoryCategory(category: 'blockset' | 'entity' | 'colorset'): boolean {
+  selectInventoryCategory(category: 'item' | 'blockset' | 'entity' | 'colorset'): boolean {
     const controller = this.snapshot.controller;
     if (!controller) return false;
     controller.setActiveInventoryCategory?.(category);
-    this.patch({ activeInventoryCategory: category });
+    this.patch({ activeInventoryCategory: category === 'colorset' ? 'colorset' : 'item' });
     this.syncInventoryState();
     return true;
   }
@@ -1434,7 +1430,7 @@ export class SpaceUiStore {
     triggerProtobufDownload(filename, data);
   }
 
-  importInventoryFile(category: 'blockset' | 'entity' | 'colorset', file: File | null): void {
+  importInventoryFile(category: 'items' | 'item' | 'blockset' | 'entity' | 'colorset', file: File | null): void {
     const controller = this.snapshot.controller;
     if (!file || !controller) return;
     if (file.size > MAX_INVENTORY_IMPORT_BYTES) {
@@ -1447,18 +1443,31 @@ export class SpaceUiStore {
         this.showToast('Failed to read the Protobuf file');
         return;
       }
-      const parsed = controller.parseInventoryImport(new Uint8Array(reader.result), category);
+      const bytes = new Uint8Array(reader.result);
+      let targetCategory: 'item' | 'blockset' | 'entity' | 'colorset';
+      try {
+        const decodedCategory = decodeInventoryResource(bytes).category;
+        targetCategory = category === 'items' ? (decodedCategory === 'colorset' ? 'colorset' : 'item') : category;
+      } catch (error) {
+        this.showToast(`Import failed: ${error instanceof Error ? error.message : 'Not valid inventory Protobuf'}`);
+        return;
+      }
+      if (category === 'items' && targetCategory === 'colorset') {
+        this.showToast('Import color sets from the Color Set tab');
+        return;
+      }
+      const parsed = controller.parseInventoryImport(bytes, targetCategory);
       if (!parsed.ok) {
         this.showToast(`Import failed: ${parsed.error}`);
         return;
       }
-      const index = controller.addInventoryItem(category, parsed.item);
+      const index = controller.addInventoryItem(targetCategory, parsed.item);
       if (index === null) {
-        this.showToast(`${category} inventory is full (${MAX_BACKPACK_SLOTS_PER_CATEGORY}) - delete one first`);
+        this.showToast(`${targetCategory} inventory is full (${controller.inventories[targetCategory]?.items.length || MAX_BACKPACK_SLOTS_PER_CATEGORY}) - delete one first`);
         return;
       }
-      controller.setActiveInventoryCategory(category);
-      this.showToast(`Imported into ${category} slot ${index + 1}`);
+      controller.setActiveInventoryCategory(targetCategory);
+      this.showToast(`Imported into ${targetCategory} slot ${index + 1}`);
       this.syncInventoryState();
     };
     reader.onerror = () => this.showToast('Failed to read the file');
@@ -1481,7 +1490,7 @@ export class SpaceUiStore {
     clone.name = `${baseName} (Copy)`;
 
     // Assign fresh unique IDs so copied items and entities never collide with originals
-    const prefix = category === 'colorset' ? 'cs_' : category === 'blockset' ? 'bs_' : 'ent_';
+    const prefix = category === 'colorset' ? 'cs_' : 'item_';
     const newUniqueId = typeof globalThis.crypto?.randomUUID === 'function'
       ? `${prefix}${globalThis.crypto.randomUUID()}`
       : `${prefix}${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;

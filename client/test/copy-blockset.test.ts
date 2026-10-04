@@ -63,7 +63,8 @@ test('two-point world selection copied with T stores a normalized block set', ()
   const slot = controller.inventorySlots[0];
   assert.ok(slot, 'the slot should be written');
   assert.equal(controller.activeTool, SpecialTool.HAMMER, 'successful copy should switch to Hammer');
-  assert.equal(slot.kind, 'blockset');
+  assert.equal(slot.kind, 'item');
+  assert.equal(slot.blockSet.kind, 'blockset');
   assert.equal(slot.blockCount, 3);
   assert.ok(slot.name.includes('world selection'));
 
@@ -202,7 +203,8 @@ test('T copies an entity block selection using selected block-local coordinates'
   };
   controller.copySelectionAsBlockSet();
   const slot = controller.inventorySlots[0];
-  assert.equal(slot.kind, 'blockset');
+  assert.equal(slot.kind, 'item');
+  assert.equal(slot.blockSet.kind, 'blockset');
   assert.equal(slot.blockCount, 2);
   assert.ok(slot.name.includes('[root]'));
   const offsets = slot.blocks.map(b => [b.dx, b.dy, b.dz]).sort((a, b) => a[1] - b[1]);

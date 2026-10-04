@@ -1,4 +1,5 @@
 import math
+from copy import deepcopy
 
 import pytest
 
@@ -120,6 +121,72 @@ def _publish(client, kind: str, payload: dict):
         content=encode_inventory_resource(kind, payload),
         headers={"content-type": "application/x-protobuf"},
     )
+
+
+def _item():
+    entities = [_entity("Motor"), _entity("Cart")]
+    for entry, position in zip(entities, (3, 8)):
+        entry["root"]["localPosition"] = [position, 0, 0]
+    return {
+        "type": "space-item", "version": 8, "id": "workshop", "name": "Workshop",
+        "blockSet": _blockset(), "entityList": entities,
+    }
+
+
+def test_market_item_upload_preserves_local_id_scopes_and_reports_combined_metrics(client, db, market_object_storage):
+    user = _user(db)
+    app.dependency_overrides[get_current_user] = lambda: user
+    response = _publish(client, "item", _item())
+    assert response.status_code == 201, response.text
+    resource = response.json()["resource"]
+    assert resource["kind"] == "item"
+    assert resource["block_count"] == 6
+    assert resource["node_count"] == 4
+    assert resource["script_count"] == 2
+    stored = db.query(SpaceMarketResource).one()
+    kind, portable = decode_inventory_resource(market_object_storage["objects"][stored.object_key])
+    assert kind == "item"
+    assert [entry["root"]["id"] for entry in portable["entityList"]] == ["root", "root"]
+    assert portable["entityList"][1]["root"]["localPosition"] == [8, 0, 0]
+    renamed = _item()
+    renamed["id"] = "copy"
+    renamed["name"] = "Renamed workshop"
+    assert _publish(client, "item", renamed).status_code == 409
+
+
+def test_market_items_listing_includes_existing_standalone_content(client, db):
+    user = _user(db)
+    app.dependency_overrides[get_current_user] = lambda: user
+    for kind, payload in (("item", _item()), ("blockset", _blockset()), ("entity", _entity()), ("colorset", _colorset())):
+        assert _publish(client, kind, payload).status_code == 201
+    response = client.get("/space/api/v2/market/resources?kind=item")
+    assert response.status_code == 200
+    assert {entry["kind"] for entry in response.json()["items"]} == {"item", "blockset", "entity"}
+
+
+def test_item_validation_enforces_root_pose_combined_overlap_and_aggregate_limits():
+    canonical = space_market.validate_inventory_resource_payload("item", _item())
+    assert len(canonical["entityList"]) == 2
+    overlap = _item()
+    overlap["entityList"][1]["root"]["localPosition"] = [3, 0, 0]
+    with pytest.raises(ValueError, match="overlap"):
+        space_market.validate_inventory_resource_payload("item", overlap)
+    off_grid = _item()
+    off_grid["entityList"][0]["root"]["localPosition"] = [3.1, 0, 0]
+    with pytest.raises(ValueError, match="grid"):
+        space_market.validate_inventory_resource_payload("item", off_grid)
+    aggregate = _item()
+    prototype = aggregate["entityList"][0]["root"]["children"][0]
+    for entry in aggregate["entityList"]:
+        entry["root"]["children"] = []
+        for index in range(32):
+            child = deepcopy(prototype)
+            child.update({"id": f"child_{index}", "blocks": [], "script": None, "seats": []})
+            entry["root"]["children"].append(child)
+    with pytest.raises(ValueError, match="aggregate components"):
+        space_market.validate_inventory_resource_payload("item", aggregate)
+    with pytest.raises(ValueError, match="root"):
+        space_market.validate_inventory_resource_payload("entity", _item()["entityList"][0])
 
 
 def test_market_publishes_strict_canonical_resources_with_agpl_and_digest(client, db, market_object_storage):

@@ -24,7 +24,9 @@ The internal account endpoint requires the same service token on both sides.
 
 The existing migration chain and table names are preserved. Run
 `python -m alembic -c space/alembic.ini upgrade head` before starting the updated API
-and hosting workers. `space_0006` adds the actual execution-holder account separately
+and hosting workers. `space_0010` admits unified Item market resources while
+preserving existing objects and their digests. Apply it before publishing Items.
+`space_0006` adds the actual execution-holder account separately
 from creator attribution and backfills older browser/hosting leases. World members
 operate unoccupied entities equally; only market resources retain publisher checks.
 `space_0007` creates the global 128-slot physical-core pool and adds per-entity core

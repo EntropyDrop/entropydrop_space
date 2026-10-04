@@ -87,6 +87,12 @@ export class InventoryThumbnailRenderer {
    */
   private getItemCacheKey(item: any, size: number): string {
     if (!item) return '';
+    if (item.kind === 'item') {
+      const geometry = getInventoryPreviewBlocks(item).map(entry => (
+        `${entry.center.toArray()}:${entry.size}:${entry.color}:${normalizeVoxelMaterialId(entry.materialId)}`
+      )).join(';');
+      return `item:${geometry}:${size}`;
+    }
     const kind = item.kind
       || (item.type === 'space-entity' || Array.isArray(item.childEntities) ? 'entity' : 'blockset');
     const blockCount = item.blockCount || item.blocks?.length || 0;

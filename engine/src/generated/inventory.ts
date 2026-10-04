@@ -56,10 +56,35 @@ export namespace ConstraintType {
  */
 export interface InventoryResource {
   schemaVersion?: number | undefined;
-  content?: { $case: "blockSet"; value: BlockSet } | { $case: "entity"; value: Entity } | {
-    $case: "colorSet";
-    value: ColorSet;
-  } | undefined;
+  content?:
+    | { $case: "blockSet"; value: BlockSet }
+    | { $case: "entity"; value: Entity }
+    | { $case: "colorSet"; value: ColorSet }
+    | { $case: "item"; value: Item }
+    | undefined;
+}
+
+/**
+ * A portable template. This additive alternative reuses the existing messages
+ * and leaves standalone resources wire-compatible with inventory v8.
+ * At least one voxel is required across block_set and entity_list. An absent or
+ * empty block_set means no static terrain; an empty entity_list means no bodies.
+ */
+export interface Item {
+  /**
+   * Template identity, independent of backpack slots and runtime entity UUIDs.
+   * Content deduplication excludes this id and all display names.
+   */
+  id?: string | undefined;
+  name?: string | undefined;
+  blockSet?:
+    | BlockSet
+    | undefined;
+  /**
+   * Each entry owns its original component tree, scripts, seats and constraints.
+   * Component ids are scoped to one Entity and may repeat between entries.
+   */
+  entityList?: Entity[] | undefined;
 }
 
 export interface Voxel {
@@ -196,7 +221,11 @@ export interface Component {
     | Component[]
     | undefined;
   /**
-   * Parent-relative authored transform. The root omits these fields.
+   * Parent-relative authored transform. A standalone Entity root omits these
+   * fields. Inside Item, root fields position the Entity construction origin
+   * relative to Item: item_point = local_position + local_rotation * point.
+   * Missing root fields mean zero translation and identity rotation. Item
+   * codecs extract the root pose before handing the Entity to runtime consumers.
    * local_rotation is restricted to the 24 axis-aligned cube orientations so
    * Stop restores every owned voxel to one shared 0.125-unit construction grid.
    */
@@ -236,6 +265,8 @@ export interface EntityConstraint {
   /**
    * Absence means that side A is attached to the external world. Presence is
    * always an exact component id; no id spelling has sentinel semantics.
+   * World A vectors use absolute world coordinates for standalone resources;
+   * inside Item they use Item coordinates and are transformed by placement once.
    */
   bodyAComponentId?: string | undefined;
   bodyBComponentId?: string | undefined;
@@ -274,6 +305,9 @@ export const InventoryResource: MessageFns<InventoryResource> = {
         break;
       case "colorSet":
         ColorSet.encode(message.content.value, writer.uint32(98).fork()).join();
+        break;
+      case "item":
+        Item.encode(message.content.value, writer.uint32(106).fork()).join();
         break;
     }
     return writer;
@@ -324,6 +358,14 @@ export const InventoryResource: MessageFns<InventoryResource> = {
             message.content = { $case: "colorSet", value: ColorSet.decode(reader, reader.uint32()) };
             continue;
           }
+          case 13: {
+            if (tag !== 106) {
+              break;
+            }
+
+            message.content = { $case: "item", value: Item.decode(reader, reader.uint32()) };
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -361,7 +403,111 @@ export const InventoryResource: MessageFns<InventoryResource> = {
         }
         break;
       }
+      case "item": {
+        if (object.content?.value !== undefined && object.content?.value !== null) {
+          message.content = { $case: "item", value: Item.fromPartial(object.content.value) };
+        }
+        break;
+      }
     }
+    return message;
+  },
+};
+
+function createBaseItem(): Item {
+  return { id: "", name: "", blockSet: undefined, entityList: [] };
+}
+
+export const Item: MessageFns<Item> = {
+  encode(message: Item, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== undefined && message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.name !== undefined && message.name !== "") {
+      writer.uint32(18).string(message.name);
+    }
+    if (message.blockSet !== undefined) {
+      BlockSet.encode(message.blockSet, writer.uint32(26).fork()).join();
+    }
+    if (message.entityList !== undefined && message.entityList.length !== 0) {
+      for (const v of message.entityList) {
+        Entity.encode(v!, writer.uint32(34).fork()).join();
+      }
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Item {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseItem();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.id = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.name = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.blockSet = BlockSet.decode(reader, reader.uint32());
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            const el = Entity.decode(reader, reader.uint32());
+            if (el !== undefined) {
+              message.entityList!.push(el);
+            }
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  create<I extends Exact<DeepPartial<Item>, I>>(base?: I): Item {
+    return Item.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Item>, I>>(object: I): Item {
+    const message = createBaseItem();
+    message.id = object.id ?? "";
+    message.name = object.name ?? "";
+    message.blockSet = (object.blockSet !== undefined && object.blockSet !== null)
+      ? BlockSet.fromPartial(object.blockSet)
+      : undefined;
+    message.entityList = object.entityList?.map((e) => Entity.fromPartial(e)) || [];
     return message;
   },
 };

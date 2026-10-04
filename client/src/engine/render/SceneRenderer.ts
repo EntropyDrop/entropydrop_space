@@ -185,6 +185,18 @@ function previewQuaternion(value) {
  * hierarchy, so articulated copies preview in the same pose they build in.
  */
 export function getInventoryPreviewBlocks(slot) {
+  if (slot?.kind === 'item') {
+    return [
+      ...getInventoryPreviewBlocks(slot.blockSet),
+      ...(slot.entityList || []).flatMap(entity => {
+        const position = new THREE.Vector3().fromArray(entity.itemPosition || [0, 0, 0]);
+        const rotation = new THREE.Quaternion().fromArray(entity.itemRotation || [0, 0, 0, 1]);
+        return getInventoryPreviewBlocks(entity).map(entry => ({
+          ...entry, center: entry.center.clone().applyQuaternion(rotation).add(position),
+        }));
+      }),
+    ];
+  }
   if (!slot || !Array.isArray(slot.blocks)) return [];
   if (slot.kind === 'blockset') {
     return slot.blocks.map(block => ({

@@ -11,7 +11,7 @@ import {
   INVENTORY_PROTOBUF_SCHEMA_VERSION,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 
-export type SpaceMarketCategory = 'blockset' | 'entity' | 'colorset';
+export type SpaceMarketCategory = 'item' | 'blockset' | 'entity' | 'colorset';
 export type SpaceMarketSort = 'downloads' | 'likes' | 'latest';
 
 export const MAX_MARKET_RESOURCE_BYTES = 8 * 1024 * 1024;
