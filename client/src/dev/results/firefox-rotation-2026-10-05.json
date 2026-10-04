@@ -1,0 +1,654 @@
+{
+  "date": "2026-10-05",
+  "browser": "Firefox 153.0.1",
+  "platform": "macOS",
+  "scene": "Default online terrain at http://localhost:5173/space/app/",
+  "measurement": "Two 8-second stationary 360-degree yaw sweeps after entry; requestAnimationFrame callback cadence, not compositor presentation. GPU timestamps exclude browser/driver compilation stalls.",
+  "diagnostic": {
+    "description": "Offscreen ownership classification and bounded arena migration fixed; only initial pipeline warmup bypassed through a temporary development switch, since removed.",
+    "samples": [
+      {
+        "time": "2026-10-04T17:08:41.808Z",
+        "label": "First full turn",
+        "motion": {
+          "yawStart": 0.964903362093804,
+          "yawSweep": 6.283185307179586,
+          "durationMs": 8000,
+          "pitch": 0
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          0,
+          -0.4629084630955444,
+          0,
+          -0.8864060891005436
+        ],
+        "timings": {
+          "CPU": {
+            "count": 376,
+            "mean": 11.845744680851064,
+            "p50": 11,
+            "p95": 14
+          },
+          "Simulation": {
+            "count": 376,
+            "mean": 0.07446808510638298,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 376,
+            "mean": 0.0026595744680851063,
+            "p50": 0,
+            "p95": 0
+          },
+          "Terrain publish": {
+            "count": 376,
+            "mean": 0.013297872340425532,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 376,
+            "mean": 0.5957446808510638,
+            "p50": 1,
+            "p95": 1
+          },
+          "Scene update": {
+            "count": 376,
+            "mean": 0.03723404255319149,
+            "p50": 0,
+            "p95": 0
+          },
+          "HUD": {
+            "count": 376,
+            "mean": 0.018617021276595744,
+            "p50": 0,
+            "p95": 0
+          },
+          "Minimap": {
+            "count": 376,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 376,
+            "mean": 4.013297872340425,
+            "p50": 4,
+            "p95": 5
+          },
+          "WebGPU submit": {
+            "count": 376,
+            "mean": 6.816489361702128,
+            "p50": 6,
+            "p95": 8
+          },
+          "Render total": {
+            "count": 376,
+            "mean": 10.98936170212766,
+            "p50": 10,
+            "p95": 14
+          },
+          "Frame": {
+            "count": 375,
+            "mean": 21.31327999999999,
+            "p50": 16.659999999996217,
+            "p95": 25.080000000001746
+          },
+          "GPU": {
+            "count": 62,
+            "mean": 14.785427919354836,
+            "p50": 14.836289999999998,
+            "p95": 20.745835
+          }
+        },
+        "frame": {
+          "count": 375,
+          "elapsedMs": 7992.479999999996,
+          "averageFps": 46.91910395772028,
+          "onePercentLowFps": 2.3300518436535156,
+          "p50Ms": 16.659999999996217,
+          "p95Ms": 25.080000000001746,
+          "p99Ms": 125.02000000000407,
+          "maxMs": 924.9800000000032,
+          "over16_67ms": 150,
+          "over33_33ms": 10,
+          "over50ms": 10,
+          "over16_67Percent": 40
+        },
+        "calls": 326,
+        "triangles": 2653274,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 5242880,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 469740,
+          "paddedFaces": 482112,
+          "draws": 70,
+          "sourceDraws": 363,
+          "mapUploadBytes": 3968,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 12,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 657,
+          "replays": 1180
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      },
+      {
+        "time": "2026-10-04T17:08:51.319Z",
+        "label": "Repeated full turn",
+        "motion": {
+          "yawStart": 0.964903362093804,
+          "yawSweep": 6.283185307179586,
+          "durationMs": 8000,
+          "pitch": 0
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          0,
+          -0.4629084630955444,
+          0,
+          -0.8864060891005436
+        ],
+        "timings": {
+          "CPU": {
+            "count": 512,
+            "mean": 10.716796875,
+            "p50": 11,
+            "p95": 13
+          },
+          "Simulation": {
+            "count": 512,
+            "mean": 0.064453125,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 512,
+            "mean": 0.00390625,
+            "p50": 0,
+            "p95": 0
+          },
+          "Terrain publish": {
+            "count": 512,
+            "mean": 0.00390625,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 512,
+            "mean": 0.556640625,
+            "p50": 1,
+            "p95": 1
+          },
+          "Scene update": {
+            "count": 512,
+            "mean": 0.04296875,
+            "p50": 0,
+            "p95": 0
+          },
+          "HUD": {
+            "count": 512,
+            "mean": 0.021484375,
+            "p50": 0,
+            "p95": 0
+          },
+          "Minimap": {
+            "count": 512,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 512,
+            "mean": 3.91796875,
+            "p50": 4,
+            "p95": 5
+          },
+          "WebGPU submit": {
+            "count": 512,
+            "mean": 5.85546875,
+            "p50": 6,
+            "p95": 8
+          },
+          "Render total": {
+            "count": 512,
+            "mean": 9.904296875,
+            "p50": 10,
+            "p95": 12
+          },
+          "Frame": {
+            "count": 511,
+            "mean": 15.63925636007827,
+            "p50": 16.660000000003492,
+            "p95": 24.9800000000032
+          },
+          "GPU": {
+            "count": 85,
+            "mean": 15.300461270588235,
+            "p50": 15.367628,
+            "p95": 21.94208
+          }
+        },
+        "frame": {
+          "count": 511,
+          "elapsedMs": 7991.659999999996,
+          "averageFps": 63.94165917969486,
+          "onePercentLowFps": 36.90490835281218,
+          "p50Ms": 16.660000000003492,
+          "p95Ms": 24.9800000000032,
+          "p99Ms": 25.65999999998894,
+          "maxMs": 33.69999999999709,
+          "over16_67ms": 216,
+          "over33_33ms": 1,
+          "over50ms": 0,
+          "over16_67Percent": 42.27005870841487
+        },
+        "calls": 326,
+        "triangles": 2653274,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 5242880,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 469740,
+          "paddedFaces": 482112,
+          "draws": 70,
+          "sourceDraws": 363,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 12,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 1105,
+          "replays": 1337
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      }
+    ]
+  },
+  "fixed": {
+    "commit": "423af39",
+    "description": "Fresh reload with all entry preparation enabled; complete first and repeated full turns.",
+    "samples": [
+      {
+        "time": "2026-10-04T17:14:50.898Z",
+        "label": "First full turn",
+        "motion": {
+          "yawStart": 0.964903362093804,
+          "yawSweep": 6.283185307179586,
+          "durationMs": 8000,
+          "pitch": 0
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          0,
+          -0.4604700812005088,
+          0,
+          -0.8876752245721387
+        ],
+        "timings": {
+          "CPU": {
+            "count": 547,
+            "mean": 10.03473491773309,
+            "p50": 10,
+            "p95": 12
+          },
+          "Simulation": {
+            "count": 547,
+            "mean": 0.0712979890310786,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 547,
+            "mean": 0.003656307129798903,
+            "p50": 0,
+            "p95": 0
+          },
+          "Terrain publish": {
+            "count": 547,
+            "mean": 0.007312614259597806,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 547,
+            "mean": 0.5210237659963437,
+            "p50": 1,
+            "p95": 1
+          },
+          "Scene update": {
+            "count": 547,
+            "mean": 0.04570383912248629,
+            "p50": 0,
+            "p95": 0
+          },
+          "HUD": {
+            "count": 547,
+            "mean": 0.031078610603290677,
+            "p50": 0,
+            "p95": 0
+          },
+          "Minimap": {
+            "count": 547,
+            "mean": 0.0018281535648994515,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 547,
+            "mean": 3.696526508226691,
+            "p50": 4,
+            "p95": 5
+          },
+          "WebGPU submit": {
+            "count": 547,
+            "mean": 5.360146252285192,
+            "p50": 5,
+            "p95": 8
+          },
+          "Render total": {
+            "count": 547,
+            "mean": 9.248628884826326,
+            "p50": 9,
+            "p95": 12
+          },
+          "Frame": {
+            "count": 546,
+            "mean": 14.621465201465215,
+            "p50": 16.660000000003492,
+            "p95": 24.29999999998836
+          },
+          "GPU": {
+            "count": 91,
+            "mean": 13.962989296703299,
+            "p50": 13.586876,
+            "p95": 21.471623999999995
+          }
+        },
+        "frame": {
+          "count": 546,
+          "elapsedMs": 7983.320000000007,
+          "averageFps": 68.39259856801425,
+          "onePercentLowFps": 39.478878799839364,
+          "p50Ms": 16.660000000003492,
+          "p95Ms": 24.29999999998836,
+          "p99Ms": 25.05999999999767,
+          "maxMs": 25.860000000015134,
+          "over16_67ms": 204,
+          "over33_33ms": 0,
+          "over50ms": 0,
+          "over16_67Percent": 37.362637362637365
+        },
+        "calls": 311,
+        "triangles": 2651774,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 5242880,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 469740,
+          "paddedFaces": 482112,
+          "draws": 56,
+          "sourceDraws": 363,
+          "mapUploadBytes": 960,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 2,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 735,
+          "replays": 8169
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      },
+      {
+        "time": "2026-10-04T17:15:00.412Z",
+        "label": "Repeated full turn",
+        "motion": {
+          "yawStart": 0.964903362093804,
+          "yawSweep": 6.283185307179586,
+          "durationMs": 8000,
+          "pitch": 0
+        },
+        "quality": "ultra",
+        "shadows": false,
+        "flags": {
+          "draw": true,
+          "far": true,
+          "near": true,
+          "micro": true,
+          "sky": true,
+          "post": true
+        },
+        "gpuTimingEnabled": true,
+        "width": 1912,
+        "height": 957,
+        "camera": [
+          6551.05,
+          26.62,
+          940.33
+        ],
+        "rotation": [
+          0,
+          -0.46395241418726324,
+          0,
+          -0.8858601229143404
+        ],
+        "timings": {
+          "CPU": {
+            "count": 550,
+            "mean": 9.932727272727274,
+            "p50": 10,
+            "p95": 12
+          },
+          "Simulation": {
+            "count": 550,
+            "mean": 0.06,
+            "p50": 0,
+            "p95": 1
+          },
+          "Terrain window": {
+            "count": 550,
+            "mean": 0.0018181818181818182,
+            "p50": 0,
+            "p95": 0
+          },
+          "Terrain publish": {
+            "count": 550,
+            "mean": 0.005454545454545455,
+            "p50": 0,
+            "p95": 0
+          },
+          "Picking": {
+            "count": 550,
+            "mean": 0.5309090909090909,
+            "p50": 1,
+            "p95": 1
+          },
+          "Scene update": {
+            "count": 550,
+            "mean": 0.03272727272727273,
+            "p50": 0,
+            "p95": 0
+          },
+          "HUD": {
+            "count": 550,
+            "mean": 0.02727272727272727,
+            "p50": 0,
+            "p95": 0
+          },
+          "Minimap": {
+            "count": 550,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0
+          },
+          "LOD view": {
+            "count": 550,
+            "mean": 3.6672727272727275,
+            "p50": 4,
+            "p95": 5
+          },
+          "WebGPU submit": {
+            "count": 550,
+            "mean": 5.374545454545455,
+            "p50": 5,
+            "p95": 7
+          },
+          "Render total": {
+            "count": 550,
+            "mean": 9.194545454545455,
+            "p50": 9,
+            "p95": 11
+          },
+          "Frame": {
+            "count": 549,
+            "mean": 14.571985428050983,
+            "p50": 16.660000000003492,
+            "p95": 24.95999999999185
+          },
+          "GPU": {
+            "count": 91,
+            "mean": 13.852903868131865,
+            "p50": 13.490625999999999,
+            "p95": 19.027041
+          }
+        },
+        "frame": {
+          "count": 549,
+          "elapsedMs": 8000.0199999999895,
+          "averageFps": 68.624828437929,
+          "onePercentLowFps": 39.24646781788772,
+          "p50Ms": 16.660000000003492,
+          "p95Ms": 24.95999999999185,
+          "p99Ms": 25.119999999995343,
+          "maxMs": 25.820000000006985,
+          "over16_67ms": 203,
+          "over33_33ms": 0,
+          "over50ms": 0,
+          "over16_67Percent": 36.97632058287796
+        },
+        "calls": 312,
+        "triangles": 2653914,
+        "geometry": {
+          "faces": 1511059,
+          "budget": 5242880,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "mergedBuffers": {
+          "residentFaces": 1405252,
+          "bytes": 24870912,
+          "visibleFaces": 470002,
+          "paddedFaces": 482432,
+          "draws": 56,
+          "sourceDraws": 364,
+          "mapUploadBytes": 1120,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 2,
+          "pendingSources": 0,
+          "releasedSourceBytes": 44968064,
+          "pages": 23
+        },
+        "commandCache": {
+          "recordings": 1204,
+          "replays": 8351
+        },
+        "nearOpaqueFastPath": true,
+        "nearFrustumCulling": true,
+        "stagesNested": true,
+        "gpuExcludesPresentation": true
+      }
+    ]
+  }
+}

@@ -19,10 +19,11 @@ Firefox 153.0.1 on this Mac reproduced approximately 1 FPS while turning in the
 default online terrain at `http://localhost:5173/space/app/`, with a callback gap
 of about 1.8 seconds. An isolated 8-second full-turn comparison, retaining the
 ownership fix but bypassing pipeline warmup, recorded a 925 ms maximum gap;
-the repeated turn peaked at 34 ms. The fixed build's first-turn sample peaked
-at 33 ms, and its full repeated turn averaged 63.8 callback FPS with a 26 ms
-maximum gap. The early first-turn sample covers 3.77 seconds, so it is not a
-complete 8-second timing sample. These measurements use Ultra, shadows off,
+the repeated turn peaked at 34 ms. After a fresh reload of the fixed build,
+complete 8-second first and repeated turns averaged 68.4 and 68.6 callback FPS.
+Their maximum gaps were 25.86 and 25.82 ms, with no frames above 33.33 ms.
+The [raw comparison](../src/dev/results/firefox-rotation-2026-10-05.json)
+preserves both diagnostic and final samples. These measurements use Ultra, shadows off,
 1912 x 957 pixels, 1,511,059 resident LOD faces, and a fixed test resolution
 selected from the existing Auto scale. Callback FPS does not measure compositor
 presentation, and GPU timestamps exclude browser/driver compilation stalls.
