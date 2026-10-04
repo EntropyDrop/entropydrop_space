@@ -8,7 +8,7 @@ import {
   decodeBackpack, decodeInventoryResource, encodeInventoryResource,
   protobufFromBase64, protobufToBase64,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
-import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
+import { BULK_EDIT_THRESHOLD, PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 import { getInventoryPreviewBlocks } from '../src/engine/render/SceneRenderer.ts';
 
 function controller() {
@@ -109,6 +109,8 @@ test('mixed Item placement shares one rotation/origin and creates fresh independ
     return { placed: 1 };
   };
   assert.equal(instance.pasteInventorySlot(), true);
+  assert.equal(instance.activeTool, SpecialTool.WRENCH);
+  assert.equal(instance.inventoryPlacementPreview, null);
   assert.equal(cells.length, 1);
   assert.deepEqual(Object.values(cells[0]), [10, 19, 29]);
   const created = instance.contraptions.contraptions;
@@ -124,10 +126,76 @@ test('mixed Item placement shares one rotation/origin and creates fresh independ
   assert.equal(started.length, 2);
   assert.notEqual(created[0].publicId, created[1].publicId);
   const firstIds = created.map(entry => entry.publicId);
+  instance.activateTool(SpecialTool.HAMMER);
   assert.equal(instance.pasteInventorySlot(), true);
   assert.equal(new Set(created.map(entry => entry.publicId)).size, 4);
   assert.deepEqual(created.slice(0, 2).map(entry => entry.publicId), firstIds);
   for (const entry of created) entry.dispose();
+});
+
+test('Hammer switches tools only after actual construction and clears its placement pose', () => {
+  const instance = controller();
+  assert.equal(instance.pasteInventorySlot(), false);
+  assert.equal(instance.activeTool, SpecialTool.HAMMER);
+  instance.inventories.item.items[0] = parse(instance, { ...mixedItem(), entityList: [] });
+  instance.world = {};
+  instance.getInventoryPlacementPose = () => null;
+  assert.equal(instance.pasteInventorySlot(), false);
+  assert.equal(instance.activeTool, SpecialTool.HAMMER);
+  instance.getInventoryPlacementPose = () => ({ position: new THREE.Vector3() });
+  instance.performBasicAction = () => ({ placed: 0 });
+  assert.equal(instance.pasteInventorySlot(), false, 'occupied cells do not count as construction');
+  assert.equal(instance.activeTool, SpecialTool.HAMMER);
+
+  const tools: string[] = [];
+  instance.ui.selectTool = tool => tools.push(tool);
+  instance.inventoryPlacementPreview = { position: new THREE.Vector3() };
+  instance.hammerRotationTurnsY = 1;
+  instance.performBasicAction = () => ({ placed: 1 });
+  assert.equal(instance.pasteInventorySlot(), true);
+  assert.equal(instance.activeTool, SpecialTool.WRENCH);
+  assert.deepEqual(tools, [SpecialTool.WRENCH]);
+  assert.equal(instance.inventoryPlacementPreview, null);
+  assert.equal(instance.hammerRotationTurnsY, 0);
+
+  instance.activateTool(SpecialTool.HAMMER);
+  instance.inventories.item.items[0] = parse(instance, {
+    ...mixedItem(), blockSet: undefined, entityList: [entity(0)],
+  });
+  instance.contraptions = { buildFromSlot: () => null };
+  assert.equal(instance.pasteInventorySlot(), false);
+  assert.equal(instance.activeTool, SpecialTool.HAMMER);
+});
+
+test('large static and mixed Item builds switch to Wrench after their final frame', () => {
+  for (const withEntities of [false, true]) {
+    for (const changedTool of [false, true]) {
+      const instance = controller();
+      const item = mixedItem();
+      const total = BULK_EDIT_THRESHOLD + 44;
+      item.blockSet.blocks = Array.from({ length: total }, (_, index) => ({
+        dx: index % 10, dy: -1 - Math.floor(index / 100), dz: Math.floor(index / 10) % 10,
+        color: 1, materialId: 1,
+      }));
+      if (!withEntities) item.entityList = [];
+      instance.inventories.item.items[0] = parse(instance, item);
+      instance.world = {};
+      instance.contraptions = new ContraptionManager(new THREE.Scene(), {}, null, null);
+      instance.getInventoryPlacementPose = () => ({ position: new THREE.Vector3(10, 20, 30) });
+      instance.performBasicAction = () => ({ placed: 1 });
+      assert.equal(instance.pasteInventorySlot(), true);
+      assert.equal(instance.activeTool, SpecialTool.HAMMER);
+      instance.processBulkEditFrame(128, Infinity);
+      assert.ok(instance.bulkEditJob);
+      assert.equal(instance.activeTool, SpecialTool.HAMMER);
+      assert.equal(instance.contraptions.contraptions.length, 0);
+      if (changedTool) instance.activateTool(SpecialTool.SHOVEL);
+      while (instance.bulkEditJob) instance.processBulkEditFrame(128, Infinity);
+      assert.equal(instance.activeTool, changedTool ? SpecialTool.SHOVEL : SpecialTool.WRENCH);
+      assert.equal(instance.contraptions.contraptions.length, withEntities ? 2 : 0);
+      for (const entry of instance.contraptions.contraptions) entry.dispose();
+    }
+  }
 });
 
 test('legacy backpack migration keeps all 198 slots, selection and unresolved world anchors', () => {

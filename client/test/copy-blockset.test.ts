@@ -306,8 +306,10 @@ test('Hammer LMB builds block sets into empty cells only, skipping occupied cell
   assert.equal(world.getBlockColor(10, 21, 30), 0xff0000);
   assert.equal(world.getBlockColor(11, 21, 30), 0x00ff00, 'LMB must not overwrite occupied cells');
   assert.ok(controller.__toasts.some(m => m.includes('occupied cell(s) skipped')));
+  assert.equal(controller.activeTool, SpecialTool.WRENCH);
 
-  // RMB: rotates the active block set 90 degrees.
+  // Re-equip Hammer; RMB rotates the active block set 90 degrees.
+  controller.activateTool(SpecialTool.HAMMER);
   controller.handleRightClick();
   assert.ok(controller.__toasts.some(m => m.includes('Rotated')));
   const rotatedSlot = controller.getActiveHammerInventoryItem();

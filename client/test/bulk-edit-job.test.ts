@@ -117,9 +117,11 @@ test('large entity Hammer placement prepares blocks in BulkEditJob before atomic
   assert.equal(manager.contraptions.length, 0, 'no partial entity is registered');
   controller.processBulkEditFrame(128, Infinity);
   assert.equal(manager.contraptions.length, 0);
+  assert.equal(controller.activeTool, SpecialTool.HAMMER);
   while (controller.bulkEditJob) controller.processBulkEditFrame(128, Infinity);
 
   assert.equal(manager.contraptions.length, 1);
+  assert.equal(controller.activeTool, SpecialTool.WRENCH);
   assert.equal(manager.contraptions[0].blocks.length, total);
   assert.equal(controller.__progress.at(-1).phase, 'complete');
 });
@@ -166,9 +168,11 @@ test('large Hammer component installation prepares blocks before one atomic tree
   assert.equal(target.blocks.length, 1, 'the target is unchanged while preparation is incomplete');
   controller.processBulkEditFrame(128, Infinity);
   assert.equal(target.blocks.length, 1);
+  assert.equal(controller.activeTool, SpecialTool.HAMMER);
   while (controller.bulkEditJob) controller.processBulkEditFrame(128, Infinity);
 
   assert.equal(manager.contraptions.length, 1);
+  assert.equal(controller.activeTool, SpecialTool.WRENCH);
   assert.equal(target.blocks.length, total + 1);
   assert.ok(target.getEntityNode('root_2'));
   assert.equal(target.getComponentName('root_2'), 'Cargo');

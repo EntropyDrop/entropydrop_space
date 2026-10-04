@@ -227,6 +227,7 @@ test('plain Hammer placement on an entity installs under the hit component autom
   const pose = controller.getInventoryPlacementPose(sensorSlot);
   const expectedCenter = getExpectedPlacedCenter(sensorSlot.blocks[0], pose);
   assert.equal(controller.pasteInventorySlot(false), true);
+  assert.equal(controller.activeTool, SpecialTool.WRENCH);
 
   assert.equal(manager.contraptions.length, 1, 'entity-on-entity placement must not spawn a second Contraption');
   assert.equal(target.getEntityNode('root_2').parentId, 'arm');

@@ -4267,8 +4267,17 @@ export class PlayerController {
     return result.placed || 0;
   }
 
+  /** Finish successful construction while preserving a tool changed during a bulk job. */
+  private completeHammerPlacement() {
+    if (this.activeTool !== SpecialTool.HAMMER) return;
+    this.activateTool(SpecialTool.WRENCH);
+  }
+
   private finishBlockSetPaste(target, total, placed, replace) {
-    if (placed > 0) this.sound?.playBlockPlace?.();
+    if (placed > 0) {
+      this.sound?.playBlockPlace?.();
+      this.completeHammerPlacement();
+    }
     if (!this.ui) return;
     const skipped = Math.max(0, total - placed);
     const where = `at (${target.x}, ${target.y}, ${target.z})`;
@@ -8726,6 +8735,7 @@ export class PlayerController {
       });
       this.contraptions.saveEntitiesToStorage?.();
       this.sound?.playBlockPlace?.();
+      this.completeHammerPlacement();
       const builtLabel = slot.itemName || slot.name || 'entity';
       this.ui?.showToast?.(`Built [${builtLabel}] (${slot.blockCount} blocks) as running entity #${created.id}`);
     }
@@ -8779,6 +8789,7 @@ export class PlayerController {
         .applyQuaternion(rotation).addScalar(-size / 2);
       return { ...block, dx: minimum.x, dy: minimum.y, dz: minimum.z };
     });
+    let placed = 0;
     const buildEntities = () => {
       const created = [];
       try {
@@ -8802,16 +8813,22 @@ export class PlayerController {
       });
       if (created.length) this.contraptions.saveEntitiesToStorage?.();
       this.sound?.playBlockPlace?.();
+      if (placed > 0 || created.length > 0) this.completeHammerPlacement();
       this.ui?.showToast?.(`Built [${slot.name || 'Item'}] (${blocks.length} static voxels, ${created.length} entities)`);
       return true;
     };
     if (blocks.length > BULK_EDIT_THRESHOLD) {
       return this.startBulkEditJob({
         label: 'Building item', total: blocks.length,
-        step: index => this.applyBlockSetVoxel(origin, blocks[index]), finish: buildEntities,
+        step: index => {
+          const changed = this.applyBlockSetVoxel(origin, blocks[index]);
+          placed += changed;
+          return changed;
+        },
+        finish: buildEntities,
       });
     }
-    for (const block of blocks) this.applyBlockSetVoxel(origin, block);
+    for (const block of blocks) placed += this.applyBlockSetVoxel(origin, block);
     return buildEntities();
   }
 
@@ -8864,6 +8881,7 @@ export class PlayerController {
     this.sound?.playAssemblyClack?.();
     this.sound?.playBlockPlace?.();
     this.ui?.notifyContraptionStructureChanged?.(target);
+    this.completeHammerPlacement();
     const skipped = result.skippedExternalConstraints > 0
       ? ` · ignored ${result.skippedExternalConstraints} external constraint(s)`
       : '';
