@@ -6,6 +6,8 @@ transaction. Market object bytes are migrated separately by
 ``python -m space.migrate_market_v8`` because Alembic must not perform object
 store I/O inside its database transaction.
 """
+import hashlib
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -44,7 +46,7 @@ def upgrade():
             raise RuntimeError(
                 f"Entity {entity_id} has unsupported inventory schema version {version}"
             )
-        kind, _portable, canonical, digest = convert_v7_inventory_resource(bytes(definition))
+        kind, _portable, canonical, _resource_digest = convert_v7_inventory_resource(bytes(definition))
         if kind != "entity":
             raise RuntimeError(f"Entity {entity_id} is not an entity inventory resource")
         bind.execute(
@@ -52,7 +54,7 @@ def upgrade():
             .where(entities.c.world_id == world_id, entities.c.id == entity_id)
             .values(
                 definition=canonical,
-                content_digest=digest,
+                content_digest=hashlib.sha256(canonical).digest(),
                 size_bytes=len(canonical),
                 revision=int(revision) + 1,
                 schema_version=8,

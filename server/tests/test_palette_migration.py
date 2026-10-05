@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 
 from alembic.migration import MigrationContext
@@ -80,7 +81,7 @@ def test_palette_migration_upgrades_world_entities_and_market_schema(monkeypatch
         assert row.schema_version == 8
         assert row.revision == 5
         assert row.size_bytes == len(row.definition)
-        assert row.content_digest != b"x" * 32
+        assert row.content_digest == hashlib.sha256(row.definition).digest()
         assert decode_inventory_resource(row.definition)[0] == "entity"
 
         connection.execute(sa.text(

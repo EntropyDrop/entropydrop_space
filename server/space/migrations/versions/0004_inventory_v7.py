@@ -3,8 +3,8 @@
 Inventory v7 adopts the authoritative realtime Voxel encoding: `is_micro` plus
 `micro_x`/`micro_y`/`micro_z` and a varint `color_rgb`, replacing the packed
 `micro_index` and `fixed32 color` of v6. This migration rewrites every
-`space_world_entities.definition` from v6 to canonical v7, recomputes the name-free
-content digest and byte size, and increments `revision` so clients refetch.
+`space_world_entities.definition` from v6 to canonical v7, recomputes the exact-byte
+download digest and byte size, and increments `revision` so clients refetch.
 
 Terrain chunks, far-surface snapshots, player positions, entity operation receipts
 and hosting-worker leases use their own formats and are left untouched. Market
@@ -15,6 +15,8 @@ billing/outbox records are unchanged.
 
 Deploy with all Space API and hosting writers stopped and a verified backup.
 """
+import hashlib
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -53,7 +55,7 @@ def upgrade():
             raise RuntimeError(
                 f'Entity {entity_id} has unsupported inventory schema version {version}'
             )
-        kind, _portable, canonical, digest = convert_v6_inventory_resource(bytes(definition))
+        kind, _portable, canonical, _resource_digest = convert_v6_inventory_resource(bytes(definition))
         if kind != 'entity':
             raise RuntimeError(f'Entity {entity_id} is not an entity inventory resource')
         bind.execute(
@@ -61,7 +63,7 @@ def upgrade():
             .where(entities.c.world_id == world_id, entities.c.id == entity_id)
             .values(
                 definition=canonical,
-                content_digest=digest,
+                content_digest=hashlib.sha256(canonical).digest(),
                 size_bytes=len(canonical),
                 revision=int(revision) + 1,
                 schema_version=7,

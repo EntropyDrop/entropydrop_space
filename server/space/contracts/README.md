@@ -62,3 +62,9 @@ durably stored and committed.
 digests, attribution, likes or download counts. Items listings include `item`,
 `blockset` and `entity` rows; Color Sets stay separate. Apply this migration before
 publishing mixed Items. Its downgrade requires restoring the pre-release backup.
+
+`space_0011` repairs world entity download hashes written by older migrations as
+name-free Market digests. It preserves the exact definition and snapshot bytes,
+updates only recognized legacy hashes and revisions, and aborts on unexplained
+corruption. World downloads use SHA-256 of the full bytes; Market deduplication
+continues to ignore component names.
