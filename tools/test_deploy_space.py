@@ -258,6 +258,8 @@ class RemoteRolloutTests(SpaceTestCase):
             elif args[:3] == ["docker", "ps", "-a"]:
                 output = "\n".join(f"{prefix}-{role}" for prefix in ("entropydrop-space", "entropydrop-space-dev")
                                    for role in ("api", "worker"))
+            elif "space.release_check" in args:
+                output = json.dumps({"worlds_verified": ["nature", "copper-metropolis"], "entity_downloads_verified": 24})
             return subprocess.CompletedProcess(args, 0, stdout=output)
         self.mock("run", side_effect=shell)
 
@@ -269,10 +271,12 @@ class RemoteRolloutTests(SpaceTestCase):
         smoke = self.index(lambda c: "space.hosting_smoke" in c)
         backup = self.index(lambda c: any(arg.endswith("backup-production.sh") for arg in c))
         migrate = self.index(lambda c: "alembic" in c)
+        data_check = self.index(lambda c: "space.release_check" in c)
         stop = self.index(lambda c: c[:2] == ["docker", "stop"])
         self.assertLess(smoke, backup)
         self.assertLess(backup, migrate)
-        self.assertLess(migrate, stop)
+        self.assertLess(migrate, data_check)
+        self.assertLess(data_check, stop)
         self.assertFalse(any(c[:2] == ["docker", "rm"] for c in self.commands))
         self.assertTrue(all("space/alembic.ini" in c for c in self.commands if "alembic" in c))
         self.wait.assert_called_once_with("prod", "sha256:new")
@@ -286,6 +290,7 @@ class RemoteRolloutTests(SpaceTestCase):
             lambda c: "space.hosting_smoke" in c,
             lambda c: any(arg.endswith("backup-production.sh") for arg in c),
             lambda c: "alembic" in c,
+            lambda c: "space.release_check" in c,
         ):
             with self.subTest(stage=predicate):
                 self.commands.clear()

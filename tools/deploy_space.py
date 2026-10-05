@@ -387,6 +387,19 @@ def remote_deploy(environment, branch="main", quiesce=False):
                      "_get_or_create_bootstrap_world(db, 'astral-foundry'); "
                      "_get_or_create_bootstrap_world(db, 'brutalist-dusk'); "
                      "_get_or_create_bootstrap_world(db, 'mixed'); db.commit(); db.close()"])
+            phase("world and entity download checks")
+            result = run([
+                "docker", "run", "--rm", "--network", "host", "--read-only", "--tmpfs", "/tmp",
+                "--memory", "512m", "--cpus", "1", "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges:true", "--env-file", config / "app.env",
+                image, "python", "-m", "space.release_check",
+                "--require-world", "nature", "--require-world", "copper-metropolis",
+            ], capture_output=True, text=True)
+            checks = json.loads(result.stdout)
+            if (checks.get("worlds_verified") != ["nature", "copper-metropolis"]
+                    or not isinstance(checks.get("entity_downloads_verified"), int)):
+                raise RuntimeError("World/entity release check returned an invalid report")
+            state["data_checks"] = checks
             phase("replace API and worker")
             # Retained containers must not restart next to the new worker after a DS reboot.
             for role in ("worker", "api"):
@@ -436,7 +449,7 @@ def local_deploy(environment, dry_run=False, branch="main", quiesce=False):
         print("Plan: Git fetch + fast-forward on DS -> build -> native smoke -> infrastructure -> "
               + ("stop Space writers -> " if quiesce else "")
               + ("production backup -> " if environment == "prod" else "")
-              + "Space migration -> replace API/worker -> readiness -> gateway check")
+              + "Space migration -> world/entity download checks -> replace API/worker -> readiness -> gateway check")
         return
     if environment == "dev":
         if get_json("http://localhost:8000/skin/api/health").get("status") != "ok":

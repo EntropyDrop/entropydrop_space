@@ -101,6 +101,8 @@ Production and development Space are built from this repository. The backend's
 legacy world implementation has been removed; historical account Alembic revisions
 remain intact. Production deployments and CDN uploads must use the 19100 proxy.
 See [deployment and rollback](deploy/README.md).
+The [production release gates](tools/RELEASING.md) cover staged CDN publication,
+legacy entry synchronization, live asset verification and persisted entity checks.
 
 The repository retains the original engine Git history and the new repository's
 initial commit. The frontend's client history remains in its original repository.

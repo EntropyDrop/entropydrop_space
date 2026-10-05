@@ -12,6 +12,7 @@ spec.loader.exec_module(deploy)
 CONFIG = '''
 location /api/ { proxy_pass http://127.0.0.1:18082; }
 location /skin/api/ { proxy_pass http://127.0.0.1:18082; }
+location /space/api/v2/agent-authorizations { proxy_pass http://127.0.0.1:18082; }
 location /internal/ { return 404; }
 '''
 
