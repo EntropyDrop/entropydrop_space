@@ -15,6 +15,11 @@ Build with `build_prod_domain.py` so both applications receive the explicit
 production account/Google configuration. A missing generated page or referenced
 asset fails preflight. Static publication takes a private build snapshot and a
 local writer lock; changes to the working build cannot mix files within a run.
+The Space build also evaluates the emitted simulation, script runtime and SDK
+chunks in separate Node processes. Both import orders must succeed: a circular
+chunk dependency can initialize correctly from simulation but fail when the
+application imports the runtime first. This gate catches module initialization
+errors; it does not replace checking the actual production entry in a browser.
 
 `prepare` now **uploads before switching** the Space origin. It retains previous
 immutable assets for open browser tabs, checks staged objects against the build,

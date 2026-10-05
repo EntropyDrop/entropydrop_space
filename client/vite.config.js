@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => {
             || id.endsWith('/engine/contraption/BehaviorAgent.ts')) return 'agent';
           if (id.endsWith('/engine/contraption/Blueprints.ts')) return 'blueprints';
           if (id.includes('/components/monitoring/')) return 'admin-monitoring';
+          // The contract reads this data at module initialization. Keep it out of
+          // the runtime chunk, which imports simulation code and creates a cycle.
+          if (id.endsWith('/engine/src/scripting/EntityScriptSDK.generated.ts')) return 'script-sdk';
           if (id.includes('/entropydrop_space/engine/src/scripting/')) return 'script-runtime';
           if (/\/entropydrop_space\/engine\/src\/(physics|contraption|simulation|actions|voxel|torus|worldgen|mesher|render)\//.test(id)) return 'world-simulation';
           if (id.includes('/client/src/engine/physics/')
