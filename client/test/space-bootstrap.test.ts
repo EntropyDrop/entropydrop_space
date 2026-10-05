@@ -5,6 +5,7 @@ import {
   createPlayerPositionRemote,
   DEFAULT_PLAYER_SKIN_URL,
   encodePlayerPosition,
+  entryErrorFromResponse,
   hasPngSignature,
   initialTerrainStreamArea,
   loadTerrainEditRemote,
@@ -22,10 +23,20 @@ test('Space derives the API origin from the main frontend API configuration', ()
   assert.equal(resolveApiOrigin('https://api.entropydrop.com/skin/', 'https://entropydrop.com'), 'https://api.entropydrop.com');
 });
 
-test('Space selects an alternate development world from the entry URL', () => {
+test('Space selects an alternate world from the entry URL', () => {
   assert.equal(requestedSpaceWorld('?world=copper-metropolis&sso_attempted=1'), 'copper-metropolis');
   assert.equal(requestedSpaceWorld('?sso_attempted=1'), null);
   assert.equal(requestedSpaceWorld('?world=%20%20'), null);
+});
+
+test('an unavailable world offers world selection instead of a player-profile retry', () => {
+  const error = entryErrorFromResponse(404, { detail: { code: 'WORLD_NOT_FOUND' } });
+  assert.equal(error.code, 'WORLD_UNAVAILABLE');
+  assert.match(error.message, /world.*unavailable/i);
+  assert.doesNotMatch(error.message, /player profile/i);
+  assert.equal(error.actionLabel, 'Choose World');
+  assert.ok(error.actionUrl.endsWith('/space/intro'));
+  assert.equal(error.actions.some(action => action.label === 'Retry'), false);
 });
 
 test('Space accepts only a PNG signature before decoding the configured skin', () => {

@@ -38,7 +38,9 @@ terrain-lab algorithm with terrain generator version 2. Enter it at
 `https://space-dev-908123.entropydrop.com/?world=copper-metropolis` on the
 private development domain. The default natural world is named **Nature**:
 `?world=nature` selects it, and `default` or an omitted selector remain compatible.
-The alternate world is intentionally unavailable in production.
+Copper is also available in production at
+`https://space.entropydrop.com/?world=copper-metropolis`; its data is isolated
+from the development deployment and from Nature.
 Copper has coherent old-town, garden, industrial, terraced, civic and business
 districts. Larger floor plates, gently changing neighbourhood heights and occasional
 station halls, courtyard complexes, terraced megastructures and sky gates give the

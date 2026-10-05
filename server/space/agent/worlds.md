@@ -13,7 +13,7 @@ always be interpreted together with the world ID.
 | Display name | Canonical slug | Compatibility alias | Availability |
 | --- | --- | --- | --- |
 | Nature | `nature` | `default` | Default natural terrain world |
-| Copper Metropolis | `copper-metropolis` | — | Development/test backends |
+| Copper Metropolis | `copper-metropolis` | — | Production and development/test backends |
 | Aether Archipelago | `aether-archipelago` | — | Development/test backends |
 | Colossus Harbor | `colossus-harbor` | — | Development/test backends |
 | Titan Canyon | `titan-canyon` | — | Development/test backends |

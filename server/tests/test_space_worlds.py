@@ -112,14 +112,26 @@ def test_unknown_world_never_joins_or_falls_back(client, db, selector):
 
 def test_development_worlds_remain_unavailable_in_production_even_with_old_membership(client, db, monkeypatch):
     _, headers = connection(db)
-    copper = join(client, headers, 'copper-metropolis')
+    experimental = join(client, headers, 'aether-archipelago')
     monkeypatch.setattr(settings, 'ENVIRONMENT', 'production')
     catalog = client.get('/space/api/v2/worlds', headers=headers).json()
-    assert [world['slug'] for world in catalog['worlds']] == ['nature']
-    for selector in ['copper-metropolis', copper['id']]:
+    assert [world['slug'] for world in catalog['worlds']] == ['nature', 'copper-metropolis']
+    for selector in ['aether-archipelago', experimental['id']]:
         assert client.get(f'/space/api/v2/worlds/{selector}', headers=headers).status_code == 404
         assert client.post(f'/space/api/v2/worlds/{selector}/join', headers=headers).status_code == 404
         assert client.get(f'/space/api/v2/players/me/position?world={selector}', headers=headers).status_code == 404
+
+
+def test_production_copper_discovery_and_join_use_the_published_world(client, db, monkeypatch):
+    monkeypatch.setattr(settings, 'ENVIRONMENT', 'production')
+    owner, headers = connection(db)
+    catalog = client.get('/space/api/v2/worlds', headers=headers).json()
+    copper = next(world for world in catalog['worlds'] if world['slug'] == 'copper-metropolis')
+    assert copper['id'] == settings.SPACE_COPPER_METROPOLIS_WORLD_ID
+    for selector in ['copper-metropolis', copper['id']]:
+        assert client.get(f'/space/api/v2/worlds/{selector}', headers=headers).status_code == 200
+        assert join(client, headers, selector)['id'] == copper['id']
+    assert db.query(models.SpaceWorldPlayerProfile).filter_by(world_id=copper['id'], user_id=owner.id).count() == 1
 
 
 def test_entities_and_blocksets_are_isolated_between_worlds_with_same_operation_and_coordinates(client, db):

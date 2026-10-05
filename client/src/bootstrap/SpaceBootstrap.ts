@@ -207,6 +207,7 @@ export interface PreparedOnlineSpace {
 export type SpaceEntryErrorCode =
   | 'PC_ONLY_REQUIRED'
   | 'LOGIN_REQUIRED'
+  | 'WORLD_UNAVAILABLE'
   | 'BOOTSTRAP_FAILED';
 
 export interface SpaceEntryAction {
@@ -439,7 +440,7 @@ export function encodePlayerPosition(
   };
 }
 
-function entryErrorFromResponse(status: number, body: any) {
+export function entryErrorFromResponse(status: number, body: any) {
   const detail = body?.detail;
   if (status === 401 || (status === 403 && detail?.code === 'ACCOUNT_LOGIN_REQUIRED')) {
     return new SpaceEntryError(
@@ -451,6 +452,14 @@ function entryErrorFromResponse(status: number, body: any) {
         { label: 'Sign in on main site', url: spaceLoginUrl({ reauthenticate: true }) },
         { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
       ]
+    );
+  }
+  if (status === 404 && detail?.code === 'WORLD_NOT_FOUND') {
+    return new SpaceEntryError(
+      'WORLD_UNAVAILABLE',
+      'The selected world was not found or is unavailable on this server. Please choose another world.',
+      mainSiteUrl('/space/intro'),
+      'Choose World'
     );
   }
   return new SpaceEntryError(

@@ -17,9 +17,7 @@ class WorldSpec:
 def configured_worlds(*, include_unavailable=False) -> tuple[WorldSpec, ...]:
     default = WorldSpec("nature", settings.SPACE_DEFAULT_WORLD_ID, "Nature",
                         settings.SPACE_WORLD_SEED, 1, True)
-    if not include_unavailable and settings.ENVIRONMENT.lower() not in {"dev", "development", "test", "testing"}:
-        return (default,)
-    return (default, *(
+    worlds = (default, *(
         WorldSpec(slug, getattr(settings, f"SPACE_{key}_WORLD_ID"), name,
                   getattr(settings, f"SPACE_{key}_WORLD_SEED"), version)
         for slug, key, name, version in (
@@ -32,6 +30,11 @@ def configured_worlds(*, include_unavailable=False) -> tuple[WorldSpec, ...]:
             ("mixed", "MIXED", "Mixed", 8),
         )
     ))
+    if not include_unavailable and settings.ENVIRONMENT.lower() not in {"dev", "development", "test", "testing"}:
+        # The public landing page offers Nature and Copper. Keep experimental
+        # terrain-lab worlds restricted without rejecting the published Copper entry.
+        return tuple(world for world in worlds if world.slug in {"nature", "copper-metropolis"})
+    return worlds
 
 
 def find_world_spec(selector: str | None, *, include_unavailable=False) -> WorldSpec | None:

@@ -121,7 +121,9 @@ def test_space_bootstrap_allows_user_without_skin(client, db):
     assert db.query(SpaceWorldPlayerProfile).count() == 1
 
 
-def test_development_bootstrap_creates_the_copper_metropolis_world(client, db):
+@pytest.mark.parametrize('environment', ['development', 'production'])
+def test_bootstrap_creates_the_published_copper_metropolis_world(client, db, monkeypatch, environment):
+    monkeypatch.setattr(space_router.settings, 'ENVIRONMENT', environment)
     user = _user(db, "copper-city-user", None)
     app.dependency_overrides[get_current_user] = lambda: user
 
