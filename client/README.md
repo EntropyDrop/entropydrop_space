@@ -29,14 +29,20 @@ Aim and left-click a decoration to select it while keeping pointer lock. Hold
 LMB on the decoration to move it in the camera plane, or aim at and drag its
 local X/Y/Z arrows, curved arrows, or outer cubes to move, rotate, or resize.
 The view stays fixed during a drag and resumes mouse look on release. A right
-click adds a default cube on release; holding RMB and dragging draws a custom
-footprint from the initial surface point, with the wheel adjusting thickness.
+click adds a 0.5 × 0.5 × 0.5 m cube on release initially. Successful decoration
+edits remember that decoration's dimensions in browser localStorage; subsequent
+placements reuse them, including the thickness when drawing. Holding RMB and
+dragging draws a custom footprint from the initial surface point, with the wheel
+adjusting thickness.
 There is no idle placement ghost; a translucent preview appears only during
 RMB drawing. Release RMB to create once. Hold Shift for 0.125 m / 15° snapping.
-Esc keeps the selection and opens exact component-local position, Euler rotation
-(degrees), and dimensions (meters); during a drag it first cancels that preview.
-The numeric panel docks on the right on desktop. Continue building closes the
-numeric panel and resumes game controls while retaining selection. Each
+The right panel always shows exact component-local position, Euler rotation
+(degrees), and dimensions (meters). Esc releases the cursor while retaining the
+selection; during a drag it first cancels that preview. Press Esc again to resume
+game controls. Press I or click the toolbar color chip to open the shared palette
+editor; color and material changes apply to the editable selected decoration and
+set the appearance for new decorations. Copy (R), Delete (Del), Undo, and Redo are
+in the toolbar. Each
 completed drag saves one edit and creates one undo step; previews do not mutate
 authored data or physics.
 

@@ -40,9 +40,8 @@ test('selected decorations expose all nine numeric fields while the game cursor 
     assert.match(panel, /aria-label="Decoration properties"/);
     assert.doesNotMatch(panel, /Exact values|>Duplicate</);
     assert.doesNotMatch(panel, /Back to game|Local axes|resize from center|Position relative to component|release cursor|aria-label="Decoration color"/);
-    assert.match(toolbar, /aria-label="Decoration color"/);
-    assert.match(toolbar, /Use palette color/);
-    assert.match(toolbar, /Emissive/);
+    assert.match(toolbar, /aria-label="Set color \(I\)"/);
+    assert.doesNotMatch(toolbar, /Use palette color|Emissive|type="color"/);
     assert.match(toolbar, /<b>R<\/b> Copy/);
     assert.match(toolbar, /class="banner-btn danger"[^>]*title="Delete only the selected decoration/);
     assert.doesNotMatch(toolbar, /type="number"/);
@@ -59,6 +58,6 @@ test('empty and read-only selections keep the inspector visible and disable dest
     }
     if (selected) assert.match(panel, /<fieldset disabled="">/);
     else assert.match(panel, /Select a decoration with LMB/);
-    if (!selected) assert.match(toolbar, /aria-label="New decoration color"/);
+    assert.match(toolbar, /aria-label="Set color \(I\)"/);
   }
 });

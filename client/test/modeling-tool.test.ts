@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
-import { ModelingTool } from '../src/engine/controls/ModelingTool.ts';
+import { ModelingTool, MODELING_DIMENSIONS_STORAGE_KEY } from '../src/engine/controls/ModelingTool.ts';
 import { DecorationOwnershipLink } from '../src/engine/render/DecorationOwnershipLink.ts';
 import { getInventoryPreviewBlocks } from '../src/engine/render/SceneRenderer.ts';
 import { TransformGizmo, transformAxis, transformScreenPoint, transformViewCamera, type TransformHandle } from '../src/engine/render/TransformGizmo.ts';
@@ -305,7 +305,7 @@ test('locked gizmo dragging accumulates relative motion instead of stale client 
 function creationFixture() {
   const f = dragFixture();
   f.controller.isLocked = true;
-  const value = { id: 'preview', color: 0x123456, position: [0, 0.5, 0] as [number, number, number] };
+  const value = { id: 'preview', color: 0x123456, position: [0, 0.25, 0] as [number, number, number], scale: [0.5, 0.5, 0.5] as [number, number, number] };
   f.tool.placement = { target: { contraption: f.entity, componentId: 'base' }, value };
   const node = f.entity.getEntityNode('base');
   const worldRotation = node.group.getWorldQuaternion(new THREE.Quaternion());
@@ -316,6 +316,116 @@ function creationFixture() {
   const deltaFor = (x: number, z: number) => screenAxis('x').multiplyScalar(x).add(screenAxis('z').multiplyScalar(z));
   return { ...f, deltaFor };
 }
+
+function mockSizeStorage(t: test.TestContext) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  } });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete (globalThis as any).localStorage;
+  });
+  return values;
+}
+
+function aimAtSurface(f: ReturnType<typeof creationFixture>, tool = f.tool) {
+  tool.update({ kind: 'entity', entityHit: { contraption: f.entity, componentId: 'base', distance: 0,
+    point: f.entity.entityLocalToWorld('base', new THREE.Vector3()),
+    worldNormal: new THREE.Vector3(0, 1, 0).applyQuaternion(f.entity.getEntityNode('base')!.group.getWorldQuaternion(new THREE.Quaternion())) } });
+  return tool.placement!.value;
+}
+
+test('placements start at half a meter and reuse the last committed dimensions after recreating the tool', t => {
+  const storage = mockSizeStorage(t);
+  const f = creationFixture();
+  let restored: ModelingTool | null = null;
+  try {
+    assert.deepEqual(aimAtSurface(f).scale, [0.5, 0.5, 0.5]);
+    assert.ok(new THREE.Vector3().fromArray(f.tool.placement!.value.position!).distanceTo(new THREE.Vector3(0, 0.25, 0)) < 1e-8);
+    assert.equal(f.tool.change({ scale: [2, 0.125, 0.75] }), true);
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), '[2,0.125,0.75]');
+    assert.deepEqual(aimAtSurface(f).scale, [2, 0.125, 0.75]);
+    assert.ok(new THREE.Vector3().fromArray(f.tool.placement!.value.position!).distanceTo(new THREE.Vector3(0, 0.0625, 0)) < 1e-8);
+    f.tool.deactivate();
+    restored = new ModelingTool(f.controller);
+    assert.deepEqual(aimAtSurface(f, restored).scale, [2, 0.125, 0.75]);
+    assert.equal(restored.beginCreation(), true);
+    assert.equal(restored.endCreation(), true);
+    assert.deepEqual(restored.getSelection()!.value.scale, [2, 0.125, 0.75]);
+    assert.ok(new THREE.Vector3().fromArray(restored.getSelection()!.value.position!).distanceTo(new THREE.Vector3(0, 0.0625, 0)) < 1e-8);
+  } finally { restored?.deactivate(); f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); }
+});
+
+test('size memory follows drag commits and undo/redo, and ignores cancelled, invalid and read-only edits', t => {
+  const storage = mockSizeStorage(t);
+  const f = creationFixture();
+  try {
+    const delta = f.screenDelta('x', 0.5);
+    f.tool.beginDrag(f.handle('scale', 'x'), { clientX: 0, clientY: 0 });
+    f.tool.updateDrag({ clientX: 0, clientY: 0, movementX: delta.x, movementY: delta.y });
+    assert.equal(storage.has(MODELING_DIMENSIONS_STORAGE_KEY), false, 'preview is not remembered');
+    f.tool.cancelDrag();
+    assert.equal(storage.has(MODELING_DIMENSIONS_STORAGE_KEY), false);
+    f.tool.beginDrag(f.handle('scale', 'x'), { clientX: 0, clientY: 0 });
+    f.tool.updateDrag({ clientX: 0, clientY: 0, movementX: delta.x, movementY: delta.y });
+    assert.equal(f.tool.endDrag(), true);
+    const size = f.tool.getSelection()!.value.scale!;
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), JSON.stringify(size));
+    assert.equal(f.tool.undo(), true);
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), '[1,1,1]');
+    assert.equal(f.tool.undo(true), true);
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), JSON.stringify(size));
+    assert.equal(f.tool.change({ scale: [-1, 1, 1] }), false);
+    f.entity.serverCanEdit = false;
+    assert.equal(f.tool.change({ scale: [3, 3, 3] }), false);
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), JSON.stringify(size));
+    f.entity.serverCanEdit = true;
+    f.tool.remove();
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), JSON.stringify(size), 'deletion retains the last dimensions');
+  } finally { f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); }
+});
+
+test('drawing remembers the committed footprint and thickness rather than a cancelled preview', t => {
+  const storage = mockSizeStorage(t);
+  const f = creationFixture();
+  try {
+    aimAtSurface(f);
+    f.tool.beginCreation();
+    const delta = f.deltaFor(2, 3);
+    f.tool.updateCreation({ clientX: 0, clientY: 0, movementX: delta.x, movementY: delta.y });
+    assert.equal(storage.has(MODELING_DIMENSIONS_STORAGE_KEY), false);
+    const dimensions = [...f.tool.creationDimensions!];
+    f.tool.endCreation();
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), JSON.stringify(dimensions));
+    assert.deepEqual(aimAtSurface(f).scale, dimensions);
+    f.tool.beginCreation();
+    f.tool.updateCreation({ clientX: 0, clientY: 0, movementX: delta.x, movementY: delta.y });
+    assert.equal(f.tool.creationDimensions![1], dimensions[1], 'drawing inherits the remembered thickness');
+    f.tool.creationWheel({ deltaY: -1 });
+    f.tool.cancelDrag();
+    assert.equal(storage.get(MODELING_DIMENSIONS_STORAGE_KEY), JSON.stringify(dimensions));
+  } finally { f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); }
+});
+
+test('invalid persisted dimensions and blocked browser storage keep creation usable', t => {
+  const storage = mockSizeStorage(t);
+  for (const invalid of ['broken JSON', 'null', '{}', '[]', '[0,1,1]', '[1e100,1,1]', '[null,1,1]']) {
+    storage.set(MODELING_DIMENSIONS_STORAGE_KEY, invalid);
+    const f = creationFixture();
+    try { assert.deepEqual(aimAtSurface(f).scale, [0.5, 0.5, 0.5], invalid); }
+    finally { f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); }
+  }
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('Storage blocked'); } });
+  const f = creationFixture();
+  try {
+    assert.deepEqual(aimAtSurface(f).scale, [0.5, 0.5, 0.5]);
+    assert.equal(f.tool.change({ scale: [0.25, 0.125, 0.75] }), true);
+    assert.deepEqual(aimAtSurface(f).scale, [0.25, 0.125, 0.75], 'in-memory size survives failed writes');
+  } finally { f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); }
+});
 
 test('right click has no ghost and creates one default cube only on release, preserving pointer lock', () => {
   const f = creationFixture();
@@ -331,8 +441,8 @@ test('right click has no ghost and creates one default cube only on release, pre
     assert.equal(f.tool.endCreation(), true);
     assert.equal(f.tool.endCreation(), false);
     assert.equal(f.entity.getDecorationCount(), count + 1);
-    assert.equal(f.tool.getSelection()!.value.scale, undefined);
-    assert.deepEqual(f.tool.getSelection()!.value.position, [0, 0.5, 0]);
+    assert.deepEqual(f.tool.getSelection()!.value.scale, [0.5, 0.5, 0.5]);
+    assert.deepEqual(f.tool.getSelection()!.value.position, [0, 0.25, 0]);
     assert.equal(f.saves(), 1);
     assert.equal(f.unlocks(), 0);
     assert.equal(f.controller.isLocked, true);
@@ -356,11 +466,11 @@ test('RMB drawing previews anchored dimensions on a rotated component and commit
     let prevented = false;
     assert.equal(f.tool.creationWheel({ deltaY: -1, preventDefault: () => { prevented = true; } }), true);
     assert.equal(prevented, true);
-    assert.ok(new THREE.Vector3().fromArray(f.tool.creationDimensions!).distanceTo(new THREE.Vector3(2, 1.25, 3)) < 1e-8);
+    assert.ok(new THREE.Vector3().fromArray(f.tool.creationDimensions!).distanceTo(new THREE.Vector3(2, 0.75, 3)) < 1e-8);
     assert.equal(f.tool.endCreation(), true);
     const added = f.tool.getSelection()!.value;
-    assert.ok(new THREE.Vector3().fromArray(added.scale!).distanceTo(new THREE.Vector3(2, 1.25, 3)) < 1e-8);
-    assert.ok(new THREE.Vector3().fromArray(added.position!).distanceTo(new THREE.Vector3(-1, 0.625, 1.5)) < 1e-8);
+    assert.ok(new THREE.Vector3().fromArray(added.scale!).distanceTo(new THREE.Vector3(2, 0.75, 3)) < 1e-8);
+    assert.ok(new THREE.Vector3().fromArray(added.position!).distanceTo(new THREE.Vector3(-1, 0.375, 1.5)) < 1e-8);
     assert.equal(f.saves(), 1);
     assert.equal((f.tool as any).preview, null);
     assert.deepEqual(f.entity.position.toArray(), bodyPosition);
@@ -401,7 +511,7 @@ test('drawing snaps dimensions and a read-only target cannot begin creation', ()
     assert.equal(f.tool.beginCreation(), true);
     const delta = f.deltaFor(1.29, -0.29);
     f.tool.updateCreation({ clientX: 0, clientY: 0, movementX: delta.x, movementY: delta.y, shiftKey: true });
-    assert.deepEqual(f.tool.creationDimensions, [1.25, 1, 0.25]);
+    assert.deepEqual(f.tool.creationDimensions, [1.25, 0.5, 0.25]);
     f.tool.cancelDrag();
     assert.equal(f.tool.endCreation(), false);
     assert.equal(f.saves(), 0);
@@ -493,6 +603,43 @@ test('modeling Escape is routed to exact values, leaving the decoration selected
     assert.equal(f.tool.precisionOpen, false);
     assert.equal(locks, 1);
     assert.equal(f.tool.getSelection()!.decorationId, 'trim');
+  } finally { f.tool.deactivate(); f.entity.dispose(); }
+});
+
+test('Modeling palette edits recolor the editable selection, while opening, closed palettes and read-only selections do not', () => {
+  const f = fixture();
+  const store = new SpaceUiStore();
+  f.controller.activeTool = 'modeling';
+  f.controller.modeling = f.tool;
+  f.entity.setComponentDecorations('base', [{ id: 'trim', color: 1 }]);
+  f.tool.selected = { contraption: f.entity, componentId: 'base', decorationId: 'trim' };
+  store.setController(f.controller);
+  f.controller.activeTool = 'modeling';
+  try {
+    store.openColorPicker();
+    assert.equal(f.saves(), 0, 'opening the picker must not repaint');
+    store.setPaletteColor(0, '#33cc88', false);
+    assert.equal(f.tool.getSelection()!.value.color, 0x33cc88);
+    assert.equal(f.controller.selectedColor, 0x33cc88);
+    assert.equal(f.saves(), 1);
+    store.setPaletteMaterial(0, 1);
+    assert.equal(f.tool.getSelection()!.value.materialId, 1);
+    assert.equal(f.saves(), 2);
+    assert.equal(f.tool.undo(), true);
+    assert.equal(f.tool.getSelection()!.value.materialId || 0, 0);
+    store.closeColorPicker();
+    store.setPaletteColor(0, '#111111', false);
+    assert.equal(f.tool.getSelection()!.value.color, 0x33cc88);
+    store.openColorPicker();
+    f.entity.serverCanEdit = false;
+    const saves = f.saves();
+    store.setPaletteColor(0, '#222222', false);
+    assert.equal(f.tool.getSelection()!.value.color, 0x33cc88);
+    assert.equal(f.saves(), saves);
+    f.tool.clearSelection();
+    store.setPaletteColor(0, '#abcdef', false);
+    assert.equal(f.controller.selectedColor, 0xabcdef, 'palette remains usable for new decorations');
+    assert.equal(f.saves(), saves);
   } finally { f.tool.deactivate(); f.entity.dispose(); }
 });
 

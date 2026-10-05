@@ -1188,6 +1188,15 @@ export class SpaceUiStore {
       this.snapshot.controller.selectedGradientStops = entry.stops.map(stop => ({ ...stop }));
     }
     this.patch({ selectedColorIndex: index, selectedColor, selectedMaterialId });
+    const controller = this.snapshot.controller;
+    if (this.snapshot.paletteEditorOpen && controller?.activeTool === SpecialTool.MODELING) {
+      const tool = controller.modeling;
+      const selection = tool?.getSelection();
+      if (selection && !tool.isDragging && controller.canEditEntityInternals(selection.contraption)
+        && (selection.value.color !== selectedColor || (selection.value.materialId || 0) !== selectedMaterialId)) {
+        tool.change({ color: selectedColor, materialId: selectedMaterialId });
+      }
+    }
     if (notify && this.snapshot.hasStarted) {
       this.showToast(`${entry.stops.length > 1 ? 'Gradient' : 'Color'}: ${entry.hex.toUpperCase()} · ${selectedMaterialId === 1 ? 'Emissive' : 'Default'}`);
     }

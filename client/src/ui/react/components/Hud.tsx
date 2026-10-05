@@ -906,7 +906,7 @@ export function Hud() {
                 ) : activeTool === SpecialTool.WRENCH ? (
                   <WrenchPanel />
                 ) : activeTool === SpecialTool.MODELING ? (
-                  <ModelingToolbar />
+                  <><ModelingToolbar /><PaletteEditor /></>
                 ) : (
                   <PaletteBar isBrush={activeTool === SpecialTool.BRUSH} />
                 )}

@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { gradientCss, normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
 
@@ -71,38 +73,24 @@ export function ModelingPanel() {
 }
 
 export function ModelingToolbar() {
-  const { controller, selectedColor } = useSpaceUi(state => state);
+  const { controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUi(state => state);
   const tool = controller?.modeling;
   const selection = tool?.getSelection();
   const editable = selection && !tool.isDragging && controller.canEditEntityInternals(selection.contraption);
-  const color = selection?.value.color ?? selectedColor;
-  const colorHex = `#${color.toString(16).padStart(6, '0')}`;
+  const activeEntry = normalizePaletteEntry(paletteColors[selectedColorIndex], colorToHex(selectedColor));
   return <div id="modeling-toolbar" className="selector-panel-wrapper wrench-panel-wrapper">
     <div className="palette-info-row">
       <div className="selector-title-group">
         <span className="palette-title">Modeling</span>
         <span className="mode-badge std">DECORATION</span>
-        <label className="selector-recent-color modeling-toolbar-color" title={`${selection ? 'Decoration' : 'New decoration'} color ${colorHex.toUpperCase()} · Click to edit`}>
-          <span className="selector-recent-color-chip" style={{ background: colorHex }} />
-          <input type="color" aria-label={selection ? 'Decoration color' : 'New decoration color'}
-            value={colorHex} disabled={!!selection && !editable}
-            onPointerDown={() => { if (controller?.isLocked) controller.unlock(); }}
-            onChange={event => {
-              const next = Number.parseInt(event.target.value.slice(1), 16);
-              if (selection) tool.change({ color: next });
-              else spaceUiStore.setBuildColor(next, false);
-            }} />
-        </label>
+        <div className="selector-recent-color" title="Active palette · Click or press I to edit">
+          <button type="button" tabIndex={-1} className="selector-recent-color-chip" aria-label="Set color (I)"
+            style={{ background: gradientCss(activeEntry.stops) }} onClick={() => spaceUiStore.openColorPicker()} />
+        </div>
       </div>
-      <span className="palette-hotkey-hint">LMB select / drag · RMB add / draw size</span>
+      <span className="palette-hotkey-hint"><b>I</b> set color · LMB select / drag · RMB add / draw size</span>
     </div>
     <div className="selector-toolbox-content" id="modeling-toolbox-content">
-      <div className="modeling-toolbar-appearance">
-        <label><input type="checkbox" checked={selection?.value.materialId === 1} disabled={!editable}
-          onChange={event => tool.change({ materialId: event.target.checked ? 1 : 0 })} /> Emissive</label>
-        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!editable}
-          onClick={() => tool.change({ color: controller.selectedColor, materialId: controller.selectedMaterialId })}>Use palette color</button>
-      </div>
       <div className="wrench-action-buttons">
         <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!editable}
           title="Copy the selected decoration in its component (R or Ctrl/Cmd+D)" onClick={() => tool?.duplicate()}><b>R</b> Copy</button>

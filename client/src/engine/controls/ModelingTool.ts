@@ -17,6 +17,7 @@ type Drag = PointerGesture & { target: Target; before: DecorationDefinition[]; s
 type Creation = PointerGesture & { target: Target; start: DecorationDefinition; value: DecorationDefinition; anchor: THREE.Vector3;
   screenX: THREE.Vector2; screenZ: THREE.Vector2; thickness: number; drawing: boolean; shift: boolean; validPlane: boolean };
 const DRAG_THRESHOLD = 4;
+export const MODELING_DIMENSIONS_STORAGE_KEY = 'space_modeling_dimensions';
 
 /** Editor-only state. Persisted decorations remain owned by their components. */
 export class ModelingTool {
@@ -38,7 +39,23 @@ export class ModelingTool {
   get canUndo() { return this.undoStack.length > 0; }
   get canRedo() { return this.redoStack.length > 0; }
   private controller: PlayerController;
-  constructor(controller: PlayerController) { this.controller = controller; }
+  private creationSize: [number, number, number] = [0.5, 0.5, 0.5];
+  constructor(controller: PlayerController) {
+    this.controller = controller;
+    try {
+      const stored = localStorage.getItem(MODELING_DIMENSIONS_STORAGE_KEY);
+      if (stored !== null) {
+        const scale = JSON.parse(stored);
+        if (!Array.isArray(scale)) return;
+        this.creationSize = normalizeDecoration({ id: 'size', color: 0, scale }).scale || [1, 1, 1];
+      }
+    } catch { /* Missing, blocked or invalid browser storage keeps the default size. */ }
+  }
+
+  private rememberSize(value: DecorationDefinition) {
+    this.creationSize = [...(value.scale || [1, 1, 1])];
+    try { localStorage.setItem(MODELING_DIMENSIONS_STORAGE_KEY, JSON.stringify(this.creationSize)); } catch { }
+  }
 
   getSelection() {
     const target = this.selected;
@@ -156,10 +173,11 @@ export class ModelingTool {
       if (node) {
         const inverse = node.group.getWorldQuaternion(new THREE.Quaternion()).invert();
         const normal = hit.worldNormal.clone().applyQuaternion(inverse).normalize();
-        const position = entity.worldToEntityLocal(componentId, hit.point.clone().addScaledVector(hit.worldNormal, 0.5));
+        const scale: [number, number, number] = [...this.creationSize];
+        const position = entity.worldToEntityLocal(componentId, hit.point.clone().addScaledVector(hit.worldNormal, scale[1] / 2));
         const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
         try { this.placement = { target: { contraption: entity, componentId }, value: normalizeDecoration({
-          id: 'preview', position: position.toArray(), rotation: rotation.toArray(),
+          id: 'preview', position: position.toArray(), rotation: rotation.toArray(), scale,
           color: this.controller.selectedColor, materialId: this.controller.selectedMaterialId,
         }) }; } catch { this.placement = null; }
       }
@@ -418,7 +436,7 @@ export class ModelingTool {
       return false;
     }
     if (JSON.stringify(drag.start) === JSON.stringify(drag.value)) return false;
-    return this.commit(drag.target, drag.before.map(value => value.id === drag.value.id ? drag.value : value));
+    return this.commit(drag.target, drag.before.map(value => value.id === drag.value.id ? drag.value : value), drag.value);
   }
 
   selectHovered() {
@@ -440,7 +458,7 @@ export class ModelingTool {
     return false;
   }
 
-  private commit(target: Target, after: DecorationDefinition[]) {
+  private commit(target: Target, after: DecorationDefinition[], edited?: DecorationDefinition) {
     if (!this.editable(target)) return false;
     const before = target.contraption.getComponentDecorations(target.componentId);
     try {
@@ -449,9 +467,12 @@ export class ModelingTool {
       this.controller.ui?.showToast?.((error as Error).message, { tone: 'warning' });
       return false;
     }
-    this.undoStack.push({ target: { ...target }, before, after: target.contraption.getComponentDecorations(target.componentId) });
+    const committed = target.contraption.getComponentDecorations(target.componentId);
+    this.undoStack.push({ target: { ...target, decorationId: edited?.id || target.decorationId }, before, after: committed });
     if (this.undoStack.length > 100) this.undoStack.shift();
     this.redoStack = [];
+    const value = edited && committed.find(value => value.id === edited.id);
+    if (value) this.rememberSize(value);
     this.save(target);
     return true;
   }
@@ -474,7 +495,7 @@ export class ModelingTool {
     if (!node) return false;
     const rotation = new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1]);
     const anchor = new THREE.Vector3().fromArray(value.position || [0, 0, 0])
-      .addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(rotation), -0.5);
+      .addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(rotation), -(value.scale?.[1] ?? 1) / 2);
     const origin = target.contraption.entityLocalToWorld(target.componentId, anchor);
     const worldRotation = node.group.getWorldQuaternion(new THREE.Quaternion()).multiply(rotation);
     const camera = transformViewCamera(this.controller.camera);
@@ -487,7 +508,7 @@ export class ModelingTool {
     const validPlane = screenX.length() >= 2 && screenZ.length() >= 2
       && Math.abs(determinant) / (screenX.length() * screenZ.length()) > 0.08;
     this.creation = { target: { ...target }, start: value, value, anchor, screenX, screenZ, validPlane,
-      thickness: 1, drawing: false, shift: false, ...this.gesture(event) };
+      thickness: value.scale?.[1] ?? 1, drawing: false, shift: false, ...this.gesture(event) };
     this.renderGizmo();
     return true;
   }
@@ -562,7 +583,7 @@ export class ModelingTool {
     }
     const { target, value } = placement;
     const decoration = { ...value, id: `d_${crypto.randomUUID().replaceAll('-', '')}` };
-    if (!this.commit(target, [...target.contraption.getComponentDecorations(target.componentId), decoration])) return false;
+    if (!this.commit(target, [...target.contraption.getComponentDecorations(target.componentId), decoration], decoration)) return false;
     this.controller.toolUseSequence = (this.controller.toolUseSequence || 0) + 1;
     this.clearSelection();
     this.selected = { ...target, decorationId: decoration.id };
@@ -579,7 +600,7 @@ export class ModelingTool {
     try {
       const value = normalizeDecoration({ ...selection.value, ...patch, id: selection.value.id });
       return this.commit(selection, selection.contraption.getComponentDecorations(selection.componentId)
-        .map(decoration => decoration.id === value.id ? value : decoration));
+        .map(decoration => decoration.id === value.id ? value : decoration), value);
     } catch (error) {
       this.controller.ui?.showToast?.((error as Error).message, { tone: 'warning' });
       return false;
@@ -591,7 +612,7 @@ export class ModelingTool {
     const selection = this.getSelection();
     if (!selection) return false;
     const value = { ...selection.value, id: `d_${crypto.randomUUID().replaceAll('-', '')}` };
-    if (!this.commit(selection, [...selection.contraption.getComponentDecorations(selection.componentId), value])) return false;
+    if (!this.commit(selection, [...selection.contraption.getComponentDecorations(selection.componentId), value], value)) return false;
     this.selected = { ...selection, decorationId: value.id };
     selection.contraption.setDecorationSelection(this.selected);
     this.controller.ui?.refresh?.();
@@ -626,6 +647,9 @@ export class ModelingTool {
     }
     source.pop();
     (redo ? this.undoStack : this.redoStack).push(edit);
+    const restored = edit.target.contraption.getComponentDecorations(edit.target.componentId)
+      .find(value => value.id === edit.target.decorationId);
+    if (restored) this.rememberSize(restored);
     this.getSelection();
     this.save(edit.target);
     return true;

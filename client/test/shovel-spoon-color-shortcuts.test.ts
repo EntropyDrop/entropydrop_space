@@ -103,8 +103,8 @@ test('Spoon: Alt + 1~9 selects preset color and Shift + 1~9 does not', () => {
   assert.equal(getSelectedColorIndex(), 1);
 });
 
-test('KeyI triggers unlock and calls ui.openColorPicker', () => {
-  const { controller, wasColorPickerOpened } = createMockController(SpecialTool.SHOVEL);
+for (const tool of [SpecialTool.SHOVEL, SpecialTool.MODELING]) test(`${tool}: KeyI unlocks and opens the shared palette editor`, () => {
+  const { controller, wasColorPickerOpened } = createMockController(tool);
 
   assert.equal(controller.unlocked, false);
   assert.equal(wasColorPickerOpened(), false);
