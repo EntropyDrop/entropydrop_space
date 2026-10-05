@@ -24,6 +24,28 @@ The delete confirmation retains its explicit irreversible-action warning.
 Nameplates share the world render pass's bent camera and interpolated component
 transforms, caching authored extents rather than transforming every voxel per frame.
 
+Modeling (`7`) edits visual decoration cubes owned by an entity component.
+Aim and left-click a decoration to select it while keeping pointer lock. Hold
+LMB on the decoration to move it in the camera plane, or aim at and drag its
+local X/Y/Z arrows, curved arrows, or outer cubes to move, rotate, or resize.
+The view stays fixed during a drag and resumes mouse look on release. A right
+click adds a default cube on release; holding RMB and dragging draws a custom
+footprint from the initial surface point, with the wheel adjusting thickness.
+There is no idle placement ghost; a translucent preview appears only during
+RMB drawing. Release RMB to create once. Hold Shift for 0.125 m / 15° snapping.
+Esc keeps the selection and opens exact component-local position, Euler rotation
+(degrees), and dimensions (meters); during a drag it first cancels that preview.
+The numeric panel docks on the right on desktop. Continue building closes the
+numeric panel and resumes game controls while retaining selection. Each
+completed drag saves one edit and creates one undo step; previews do not mutate
+authored data or physics.
+
+Wrench (`3`) shares Modeling's colored XYZ arrows, curved rotation arrows, and
+camera-distance scaling so both tools have matching stroke widths,
+with scaling disabled. These handles move or rotate the whole entity around its
+root body's center of mass. The current handles stay visible while aiming
+between the body and an arrow, until another entity is targeted or it is out of range.
+
 Driver seats with `fixedOrientation:true` keep the rider's body aligned to the
 seat's solved world rotation, including articulated components. Camera mouse
 look stays free in all three perspectives. Mounting, dismounting and runtime
@@ -46,7 +68,7 @@ saved perspective settings restore without an initial animation.
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | Three-repository split, module map and runtime data flow. |
 | [docs/networking.md](docs/networking.md) | REST boundaries, credentials and the `space-relay-v1` MessagePack schema. |
-| [docs/formats.md](docs/formats.md) | Inventory v7, backpack v8, API envelopes v2, `EDSZ` v5 and the world-edit outbox. |
+| [docs/formats.md](docs/formats.md) | Unified Items, inventory v8, backpack v10, API envelopes v2, surface snapshots and the world-edit outbox. |
 | [docs/ai-builder.md](docs/ai-builder.md) | Agent Build external-agent workflow and retired BuildPlan reference. |
 | [docs/micro-grid-p0.md](docs/micro-grid-p0.md) | 8×8×8 micro grid, collision caching and physics benchmarks. |
 | [docs/agent-access-design.md](docs/agent-access-design.md) | Agent access architecture and migration plan (design, not shipped status). |
@@ -67,8 +89,9 @@ character skin. An invalid or temporarily unavailable configured skin falls back
 the same way instead of blocking entry. The first random position is checkpointed
 immediately; later wrapped position/yaw updates are saved every five seconds,
 on realtime disconnect, and before page suspension. Backpack data remains browser-local under
-`space.backpack.v8.pb` and is never uploaded by this app. Older backpack schemas are
-intentionally ignored. Player-authored standard
+`space.backpack.v10.pb` and is never uploaded by this app. The explicit v8/v9 reader
+migrates old slots and selection while retaining the original stored bytes.
+Unsupported backpack versions are rejected. Player-authored standard
 and micro-voxel terrain overlays are loaded from the authenticated spaceAPI and
 sent back in idempotent batches of at most 256 mutations. A durable browser
 outbox under `space.world-edits.v3.*` preserves unacknowledged batches across a
@@ -208,6 +231,13 @@ the right hand. Tools use silver metal; the brush has a wooden handle, metal
 ferrule and matte natural bristles. The hammer's handle stays upright with its
 striking face forward.
 
+The backpack has one **Items** collection for static blocks, entities, and mixed
+creations, with 198 slots, one selection, and one nine-slot hotbar. An Item contains
+an optional BlockSet and zero or more complete Entity trees; the content must
+include at least one voxel. Color Sets remain a separate collection of 99 slots.
+The Market's Items listing also includes existing BlockSet and Entity resources.
+Users select and build an Item without choosing its internal resource kind.
+
 1. Choose any color, then use the shovel for standard construction or the spoon
    for micro-voxel sculpting.
 2. Use the Selector to confirm both selection corners A and B.
@@ -216,13 +246,16 @@ striking face forward.
 4. Aim at the entity and press `C`.
 5. Describe the behavior, inspect the generated controller, and run it.
 
-Entity backpack items can also be reused as modules with the Hammer: left-clicking
-terrain spawns an independent entity and immediately puts it in **Play** (physics
+An Item containing one Entity and no static blocks can also be reused as a module
+with the Hammer: left-clicking terrain spawns an independent entity and puts it in **Play** (physics
 active and all runnable component scripts enabled). Placing on a stopped entity
 installs the item as a rigid child component under the crosshair; `Shift` + left-click
 requests this installation mode explicitly, and the combined entity stays stopped.
 Successful Hammer construction automatically switches to the Wrench; large items
 switch after their frame-sliced construction finishes.
+Mixed Items or Items with multiple Entities place static geometry as terrain and
+each Entity as an independent running body, preserving their shared frame. They
+cannot be installed as one child component.
 
 For world selections, **Copy (R)** saves the orange selected terrain voxels and all
 complete entities fully contained by the cyan outer box as one Item. Their relative
@@ -291,12 +324,14 @@ state every six seconds. Removing one performs a backend hard delete. Legacy
 browser entity data is removed and intentionally ignored. This boundary applies
 only to world entities: the backpack deliberately remains local.
 
-Inventory Protobuf v7 stores display names on every `Component`, with no `Entity.name`.
+Inventory Protobuf v8 stores display names on every `Component`, with no `Entity.name`.
 An entity's display name is `root.name`; empty names display the component ID. Names may
 repeat and survive subtree copies, attachment, independent publication, and reloads.
-Only IDs determine references and sibling ordering. Market content digests recursively
-omit all component names; database list names are derived metadata. Browser backpacks
-use Protobuf v8, and old resource, backpack, and offline entity versions are not migrated.
+Only IDs determine references and sibling ordering. An Item has its own template `id`
+and display `name`; each enclosed Entity retains its component tree and id namespace.
+Market content digests omit Item template ids and all display names. Browser backpacks
+use Protobuf v10 with explicit v8/v9 migration; unsupported versions and legacy offline
+world entities retain their separate rejection/purge rules.
 Micro voxels use `is_micro` plus `micro_x`/`micro_y`/`micro_z` offsets and a `uint32 color_rgb`,
 matching the realtime `protocol.proto` encoding; the removed packed `micro_index` and
 `fixed32 color` of v6 are not accepted.
@@ -344,7 +379,8 @@ deltas, and PostgreSQL stores compressed chunk/entity checkpoints plus ordered
 durable events. The database never participates in the per-frame physics path.
 The V2 contract caps each world at 32 occupied sessions with FIFO queueing,
 uses reliable AOI presence plus wake/sleep entity activation, and keeps the
-three-category backpack in browser IndexedDB with automatic localStorage migration.
+Item and Color Set backpack collections in browser IndexedDB with automatic
+localStorage and supported v8/v9 migration.
 
 - Architecture and consistency contract: [`entropydrop_space/server/docs/space-backend.md`](../server/docs/space-backend.md)
 - PostgreSQL 15+ schema: [`entropydrop_space/server/space/contracts/schema.sql`](../server/space/contracts/schema.sql)

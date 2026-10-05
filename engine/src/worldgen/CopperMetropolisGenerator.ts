@@ -19,14 +19,26 @@ import {
  */
 
 const METROPOLIS_HEIGHT = 112;
-const METROPOLIS_LOTS = 19;
-const METROPOLIS_SPREAD = 0.7;
+const METROPOLIS_PARKS = 0.1;
 const METROPOLIS_DETAIL = 0.7;
 const METROPOLIS_BRIDGES = 0.35;
 const MICRO_DIVISIONS = 8;
 const MICRO_SIZE = 1 / MICRO_DIVISIONS;
 
-type Parcel = { x: number; z: number; w: number; d: number; id: number };
+type DistrictKind = 'old-town' | 'gardens' | 'works' | 'terraces' | 'civic' | 'business';
+type LandmarkKind = 'park' | 'hall' | 'court' | 'terraces' | 'gateway';
+type District = {
+  kind: DistrictKind;
+  lotSize: number;
+  palette: number;
+  centreX: number;
+  centreZ: number;
+  radiusX: number;
+  radiusZ: number;
+  landmark: LandmarkKind | null;
+  landmarkId: number;
+};
+type Parcel = { x: number; z: number; w: number; d: number; id: number; district: District; landmark?: boolean };
 type Section = { x: number; z: number; w: number; d: number; bottom: number; top: number };
 type Building = Parcel & {
   height: number;
@@ -45,6 +57,37 @@ function hash(x: number, z: number, salt: number, seed: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+function smoothField(x: number, z: number, scale: number, salt: number, seed: number) {
+  const ix = Math.floor(x / scale), iz = Math.floor(z / scale);
+  const fx = x / scale - ix, fz = z / scale - iz;
+  const tx = fx * fx * (3 - 2 * fx), tz = fz * fz * (3 - 2 * fz);
+  const a = hash(ix, iz, salt, seed) * (1 - tx) + hash(ix + 1, iz, salt, seed) * tx;
+  const b = hash(ix, iz + 1, salt, seed) * (1 - tx) + hash(ix + 1, iz + 1, salt, seed) * tx;
+  return a * (1 - tz) + b * tz;
+}
+
+function makeDistrict(rx: number, rz: number, x: number, z: number, w: number, d: number, seed: number): District {
+  const random = (salt: number) => hash(rx, rz, 200 + salt, seed);
+  const kinds: DistrictKind[] = ['old-town', 'old-town', 'gardens', 'works', 'terraces', 'terraces', 'civic', 'business', 'business'];
+  const kind = rx === 0 && rz === 0 ? 'business' : kinds[Math.floor(random(0) * kinds.length)];
+  const lots = { 'old-town': 19, gardens: 30, works: 54, terraces: 38, civic: 44, business: 38 };
+  const landmarks: LandmarkKind[] = ['hall', 'court', 'terraces', 'gateway'];
+  const landmark = kind === 'gardens' ? 'park' : kind === 'works' ? 'hall'
+    : kind === 'civic' ? 'court' : landmarks[Math.floor(random(4) * landmarks.length)];
+  return {
+    kind,
+    lotSize: lots[kind] * (0.88 + random(1) * 0.26),
+    palette: Math.floor(random(2) * PALETTES.length),
+    centreX: x + w * (0.36 + random(3) * 0.28),
+    centreZ: z + d * (0.36 + random(5) * 0.28),
+    radiusX: w * (0.3 + random(6) * 0.12),
+    radiusZ: d * (0.3 + random(7) * 0.12),
+    landmark: rx === 0 && rz === 0 ? 'gateway'
+      : random(8) < (kind === 'gardens' || kind === 'civic' ? 0.85 : 0.48) ? landmark : null,
+    landmarkId: 7 + Math.floor(random(9) * 4),
+  };
+}
+
 const C = {
   road: 0x414c51,
   paving: 0xb9aa87,
@@ -61,6 +104,7 @@ const C = {
   brass: 0xb9894b,
   leaf: 0x537851,
   leafLight: 0x799453,
+  grass: 0x66834b,
   wood: 0x68543e,
 };
 
@@ -87,9 +131,7 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
   const width = CHUNK_SIZE_X;
   const depth = CHUNK_SIZE_Z;
   const ceiling = CHUNK_SIZE_Y;
-  const lotSize = METROPOLIS_LOTS;
   const maxHeight = METROPOLIS_HEIGHT;
-  const spread = METROPOLIS_SPREAD;
   const detail = METROPOLIS_DETAIL;
   const parcels: Parcel[] = [];
   const buildings: Building[] = [];
@@ -192,6 +234,125 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
     box(x, y + 2, z - 1, 1, 2, 3, green);
     box(x, y + 4, z, 1, 1, 1, green);
   };
+  const park = (parcel: Parcel) => {
+    const { x: px, z: pz, w: pw, d: pd } = parcel;
+    const pathX = px + Math.floor(pw / 2) - 1;
+    const pathZ = pz + Math.floor(pd / 2) - 1;
+    const large = Math.min(pw, pd) >= 40;
+    box(px, 1, pz, pw, 1, pd, C.paving);
+    box(px + 1, 1, pz + 1, pw - 2, 1, pd - 2, C.grass);
+    rim(px + 2, 1, pz + 2, pw - 4, pd - 4, C.stone);
+    box(pathX, 1, pz + 1, large ? 4 : 2, 1, pd - 2, C.stone);
+    box(px + 1, 1, pathZ, pw - 2, 1, large ? 4 : 2, C.stone);
+    const spacing = large ? 9 : 5;
+    for (let tx = px + 4; tx < px + pw - 3; tx += spacing) {
+      for (let tz = pz + 4; tz < pz + pd - 3; tz += spacing) {
+        const treeX = tx + Math.floor(hash(tx, tz, 19, seed) * 3);
+        const treeZ = tz + Math.floor(hash(tx, tz, 20, seed) * 3);
+        if ((treeX >= pathX - 1 && treeX <= pathX + (large ? 4 : 2))
+          || (treeZ >= pathZ - 1 && treeZ <= pathZ + (large ? 4 : 2))) continue;
+        tree(treeX, 2, treeZ, Math.floor(hash(tx, tz, 21, seed) * 2));
+      }
+    }
+    const benchW = large ? 3 : 2;
+    const benchX = Math.min(px + pw - benchW - 2, pathX + (large ? 6 : 3));
+    for (const benchZ of [pz + 2, pz + pd - 3]) {
+      box(benchX, 2, benchZ, benchW, 1, 1, C.wood);
+      microBox(benchX, 3, benchZ + 0.75, benchW, 0.5, 0.25, C.brass);
+    }
+    if (large) {
+      // A broad reflecting pool and its crossing read as one civic space at LOD.
+      const poolW = Math.floor(pw * 0.28), poolD = Math.floor(pd * 0.48);
+      const poolX = px + Math.floor(pw * 0.16), poolZ = pz + Math.floor(pd * 0.26);
+      box(poolX, 1, poolZ, poolW, 1, poolD, C.glass);
+      rim(poolX, 2, poolZ, poolW, poolD, C.teal);
+      box(poolX, 2, pathZ, poolW, 1, 4, C.stone);
+    } else if (pw >= 16 && pd >= 16 && hash(px, pz, 22, seed) < 0.4) {
+      box(pathX - 1, 2, pathZ - 1, 4, 1, 4, C.teal);
+      box(pathX, 2, pathZ, 2, 1, 2, C.glass);
+    }
+  };
+  const mass = (x: number, z: number, w: number, d: number, bottom: number, top: number,
+    colors: typeof PALETTES[number]) => {
+    box(x, bottom, z, w, top - bottom, d, colors.wall);
+    for (let y = bottom + 3; y < top - 2; y += 6) {
+      for (const far of [false, true]) {
+        for (let u = 3; u < w - 3; u += 5) box(x + u, y, z + (far ? d - 1 : 0), 2, 2, 1, C.glass);
+        for (let u = 3; u < d - 3; u += 5) box(x + (far ? w - 1 : 0), y, z + u, 1, 2, 2, C.glass);
+      }
+    }
+    for (let y = bottom + 9; y < top; y += 12) rim(x, y, z, w, d, colors.frame);
+    box(x, top, z, w, 2, d, colors.roof);
+    rim(x, top + 2, z, w, d, colors.frame);
+  };
+  const landmark = (parcel: Parcel) => {
+    if (parcel.district.landmark === 'park') { park(parcel); return; }
+    const { x: px, z: pz, w: pw, d: pd, district } = parcel;
+    const x = px + 5, z = pz + 5, w = pw - 10, d = pd - 10;
+    const colors = PALETTES[district.palette];
+    const random = (salt: number) => hash(px, pz, 300 + salt, seed);
+    box(px, 1, pz, pw, 1, pd, C.paving);
+    box(x - 2, 2, z - 2, w + 4, 2, d + 4, colors.frame);
+    if (district.landmark === 'hall') {
+      // A long station/exhibition hall, with one continuous barrel-like roof.
+      const alongX = w > d;
+      const high = 17 + Math.floor(random(0) * 10);
+      mass(x, z, w, d, 4, high, colors);
+      const narrow = Math.min(w, d);
+      for (let step = 0; step < 9; step++) {
+        const inset = Math.floor(step * narrow / 20);
+        box(x + (alongX ? 0 : inset), high + 2 + step, z + (alongX ? inset : 0),
+          alongX ? w : w - inset * 2, 1, alongX ? d - inset * 2 : d, step % 3 ? colors.roof : C.brass);
+      }
+      for (let t = 6; t < (alongX ? w : d) - 6; t += 12) {
+        box(x + (alongX ? t : 2), high + 11, z + (alongX ? 2 : t),
+          alongX ? 3 : w - 4, 1, alongX ? d - 4 : 3, C.glass);
+      }
+    } else if (district.landmark === 'court') {
+      const wing = Math.max(10, Math.floor(Math.min(w, d) * 0.2));
+      const high = 28 + Math.floor(random(0) * 18);
+      mass(x, z, w, wing, 4, high, colors);
+      mass(x, z + d - wing, w, wing, 4, high, colors);
+      mass(x, z + wing, wing, d - wing * 2, 4, high - 6, colors);
+      mass(x + w - wing, z + wing, wing, d - wing * 2, 4, high - 6, colors);
+      box(x + wing, 4, z + wing, w - wing * 2, 1, d - wing * 2, C.grass);
+      box(x + Math.floor(w / 2) - 3, 4, z + wing, 6, 1, d - wing * 2, C.stone);
+      // Two arcaded entrances leave the courtyard visible from the street.
+      for (const gateZ of [z, z + d - wing]) {
+        box(x + Math.floor(w / 2) - 4, 4, gateZ, 8, 9, wing, 0);
+        box(x + Math.floor(w / 2) - 5, 13, gateZ, 10, 2, wing, colors.frame);
+      }
+      const cx = x + Math.floor(w / 2), cz = z + Math.floor(d / 2);
+      const poolW = Math.min(18, w - wing * 2 - 4), poolD = Math.min(12, d - wing * 2 - 4);
+      const poolX = cx - Math.floor(poolW / 2), poolZ = cz - Math.floor(poolD / 2);
+      box(poolX, 5, poolZ, poolW, 1, poolD, C.teal);
+      box(poolX + 1, 5, poolZ + 1, poolW - 2, 1, poolD - 2, C.glass);
+      for (const tx of [x + wing + 3, x + w - wing - 4]) {
+        for (let tz = z + wing + 4; tz < z + d - wing - 3; tz += 9) tree(tx, 5, tz, tz);
+      }
+    } else if (district.landmark === 'gateway' && w >= 48) {
+      const towerW = Math.floor(w * 0.31), high = 82 + Math.floor(random(0) * 24);
+      mass(x, z, towerW, d, 4, high, colors);
+      mass(x + w - towerW, z, towerW, d, 4, high, colors);
+      const deck = Math.floor(high * 0.64), deckD = Math.max(10, Math.floor(d * 0.34));
+      mass(x + towerW, z + Math.floor((d - deckD) / 2), w - towerW * 2, deckD, deck, deck + 12, colors);
+      box(x + towerW + 1, deck + 13, z + Math.floor((d - deckD) / 2) + 1,
+        w - towerW * 2 - 2, 1, deckD - 2, C.grass);
+      box(x + towerW, 4, z, w - towerW * 2, 1, d, C.stone);
+    } else {
+      // Broad occupied terraces create a mountain-like landmark, not a needle.
+      const high = 68 + Math.floor(random(0) * 24);
+      for (let tier = 0; tier < 4; tier++) {
+        const insetX = tier * Math.max(4, Math.floor(w * 0.065));
+        const insetZ = tier * Math.max(4, Math.floor(d * 0.065));
+        const bottom = tier === 0 ? 4 : 4 + Math.floor((high - 4) * tier / 4) + 2;
+        const top = 4 + Math.floor((high - 4) * (tier + 1) / 4);
+        mass(x + insetX, z + insetZ, w - insetX * 2, d - insetZ * 2, bottom, top, colors);
+        box(x + insetX + 2, top + 1, z + insetZ + 2, w - insetX * 2 - 4, 1, 3, C.grass);
+        for (let tx = x + insetX + 5; tx < x + w - insetX - 5; tx += 12) tree(tx, top + 2, z + insetZ + 3, tx);
+      }
+    }
+  };
 
   box(originX, 0, originZ, width, 1, depth, C.road);
 
@@ -201,10 +362,15 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
   );
   const split = (parcel: Parcel, level: number) => {
     const random = (salt: number) => hash(parcel.x, parcel.z, parcel.id + salt, seed);
+    if (level === 2 && parcel.id === parcel.district.landmarkId && parcel.district.landmark
+      && Math.min(parcel.w, parcel.d) >= 44) {
+      parcels.push({ ...parcel, landmark: true });
+      return;
+    }
     const alongX = parcel.w / parcel.d > 1.3
       || (parcel.w / parcel.d > 0.77 && random(5) > 0.5);
     const length = alongX ? parcel.w : parcel.d;
-    const stop = lotSize * (1 + random(6) * 0.58);
+    const stop = parcel.district.lotSize * (1 + random(6) * 0.35);
     const road = level < 2
       ? 5 + Math.floor(random(7) * 3)
       : level < 4 ? 4 : 2 + Math.floor(random(8) * 2);
@@ -236,6 +402,7 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
       id: parcel.id * 2 + 1,
     }, level + 1);
     split({
+      ...parcel,
       x: alongX ? parcel.x + cut + road : parcel.x,
       z: alongX ? parcel.z : parcel.z + cut + road,
       w: alongX ? remainder : parcel.w,
@@ -264,7 +431,7 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
         || z > originZ + depth + 32
         || z + d < originZ - 32
       ) continue;
-      split({ x, z, w, d, id: 1 }, 0);
+      split({ x, z, w, d, id: 1, district: makeDistrict(rx, rz, x, z, w, d, seed) }, 0);
     }
   }
 
@@ -277,7 +444,14 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
     ) continue;
     const random = (salt: number) => hash(parcel.x, parcel.z, salt, seed);
     const { x: px, z: pz, w: pw, d: pd } = parcel;
+    const { district } = parcel;
+    if (parcel.landmark) { landmark(parcel); continue; }
     box(px, 1, pz, pw, 1, pd, C.paving);
+
+    if (random(18) < (district.kind === 'gardens' ? 0.28 : METROPOLIS_PARKS)) {
+      park(parcel);
+      continue;
+    }
 
     if (random(10) < 0.065 && pw > 12 && pd > 12) {
       box(px + 3, 2, pz + 3, pw - 6, 1, pd - 6, C.stone);
@@ -289,29 +463,36 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
       continue;
     }
 
-    const family = Math.floor(random(11) * 6);
-    const crown = Math.floor(random(17) * 8);
-    const colors = PALETTES[Math.floor(random(12) * PALETTES.length)];
-    const x = px + 1;
-    const z = pz + 1;
-    const w = pw - 2;
-    const d = pd - 2;
+    const family = district.kind === 'business' ? 1 : district.kind === 'works' ? 3 : Math.floor(random(11) * 6);
+    const crown = district.kind === 'old-town' || district.kind === 'works' ? 7
+      : district.kind === 'business' ? 1 : district.kind === 'civic' && random(17) < 0.12 ? Math.floor(random(24) * 7) : 5;
+    const colors = PALETTES[random(12) < 0.18 ? Math.floor(random(23) * PALETTES.length) : district.palette];
+    const yard = district.kind === 'gardens' ? Math.max(2, Math.floor(Math.min(pw, pd) * 0.16)) : 1;
+    const x = px + yard;
+    const z = pz + yard;
+    const w = pw - yard * 2;
+    const d = pd - yard * 2;
+    if (yard > 1) {
+      box(px + 1, 1, pz + 1, pw - 2, 1, pd - 2, C.grass);
+      box(x, 1, z, w, 1, d, C.paving);
+      tree(px + 2, 2, pz + 2, parcel.id);
+    }
     const cx = x + w / 2;
     const cz = z + d / 2;
-    const centre = Math.exp(-((cx + 9) ** 2 / 4900 + (cz + 16) ** 2 / 3600));
-    const secondary = Math.max(
-      Math.exp(-((cx - 75) ** 2 + (cz + 51) ** 2) / 1800) * 0.57,
-      Math.exp(-((cx + 68) ** 2 + (cz - 29) ** 2) / 1500) * 0.49,
-    );
-    const cluster = Math.max(centre, secondary);
-    const variation = 0.54 + random(13) * 0.46;
-    const height = Math.max(
-      12,
-      Math.floor(maxHeight * (0.16 + cluster * 0.78) * (1 - spread + spread * variation)),
-    );
+    const variation = smoothField(cx, cz, 96, 240, seed);
+    const centre = Math.exp(-((cx - district.centreX) ** 2 / district.radiusX ** 2
+      + (cz - district.centreZ) ** 2 / district.radiusZ ** 2));
+    const cluster = Math.max(0, Math.min(1, (centre - 0.18) / 0.7));
+    const heights = { 'old-town': 10 + variation * 12, gardens: 12 + variation * 10,
+      works: 14 + variation * 14, terraces: 30 + variation * 28,
+      civic: 25 + variation * 18, business: 24 + variation * 9 + cluster * 76 };
+    // Ninety-six-metre height fields and larger tower lots give adjacent
+    // buildings related heights. Distinct districts supply the large changes.
+    const height = Math.max(12, Math.min(maxHeight, Math.round(heights[district.kind] + (random(13) - 0.5) * 4)));
     const floorHeight = 3 + Math.floor(random(14) * 2);
     const bay = 2 + Math.floor(random(15) * 3);
-    const tiers = Math.min(4, 1 + Math.floor(height / 23) + (family === 2 ? 1 : 0));
+    const tiers = district.kind === 'old-town' || district.kind === 'works' || district.kind === 'gardens'
+      ? 1 : Math.min(3, 1 + Math.floor(height / 38));
     const sections: Section[] = [];
     let sx = x;
     let sz = z;
@@ -542,6 +723,7 @@ export function generateCopperMetropolisChunk(chunk: Chunk, seed: number, includ
     }
     if (random(73) < 0.23 && pw > 14) tree(px + pw - 2, 2, pz + 1, parcel.id);
     buildings.push({
+      ...parcel,
       x,
       z,
       w,

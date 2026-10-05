@@ -19,7 +19,7 @@ export function AgentBuildModal() {
         <ol className="agent-build-steps">
           <li>Copy the Agent Prompt below to your agent.</li>
           <li>Open the authorization link your agent provides, check the matching code, and approve the connection.</li>
-          <li>Describe what to build. Keep Space open so the agent can locate you and run browser-executed entities.</li>
+          <li>Describe what to build and where in the selected world. Keep Space open to run browser-executed entities.</li>
         </ol>
         <p className="settings-desc">Your agent receives its own key automatically after approval. The connection grants full Space access and can be revoked below.</p>
         <SpaceApiKeysSettings />

@@ -1,10 +1,10 @@
 import * as THREE from 'three/webgpu';
 
-export type HeldTool = 'shovel' | 'spoon' | 'selector' | 'hammer' | 'wrench' | 'brush';
+export type HeldTool = 'shovel' | 'spoon' | 'selector' | 'hammer' | 'wrench' | 'brush' | 'modeling';
 
 export function normalizeHeldTool(tool: string | null | undefined): HeldTool | null {
   switch (tool) {
-    case 'shovel': case 'spoon': case 'selector': case 'hammer': case 'wrench': case 'brush':
+    case 'shovel': case 'spoon': case 'selector': case 'hammer': case 'wrench': case 'brush': case 'modeling':
       return tool;
     case 'pipette': return 'brush';
     default: return null;
@@ -147,6 +147,15 @@ function toolVoxels(tool: HeldTool) {
       box(-4, -3, 18, 19, -1, 1, 4);
       box(3, 4, 18, 19, -1, 1, 4);
       box(-2, 2, 11, 12, 2, 2, 3);
+      break;
+    case 'modeling':
+      handle(9);
+      box(-1, 1, 9, 12, -1, 1);
+      // Thin triangular steel trowel, matching the Modeling toolbar icon.
+      for (let y = 12; y <= 23; y++) {
+        const halfWidth = Math.floor((23 - y) / 2);
+        box(-halfWidth, halfWidth, y, y, 0, 0, 1);
+      }
       break;
     case 'brush':
       box(-1, 1, -4, 10, -1, 1, 6);

@@ -1,6 +1,7 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import { parseVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import { normalizeGradientStops, normalizePaletteEntry } from '../voxel/Palette.ts';
+import { normalizeDecorations } from '../contraption/Decorations.ts';
 import {
   createFileRegistry,
   fromBinary,
@@ -433,6 +434,10 @@ function componentMessage(component: any, includeNames = true): Component {
       collisionEnabled: body.collisionEnabled === undefined ? undefined : body.collisionEnabled === true,
     },
     blocks: canonicalVoxelMessages(component?.blocks || []),
+    decorations: normalizeDecorations(component?.decorations).map(value => ({
+      id: value.id, position: vector3(value.position), rotation: quaternion(value.rotation),
+      scale: vector3(value.scale), colorRgb: value.color, materialId: value.materialId ?? 0,
+    })),
     script: component?.script === undefined ? undefined : (component.scriptLanguage === "assemblyscript" ? String(component.script) : ""),
     scriptLanguage: component?.script === undefined ? "" : "assemblyscript",
     scriptDisabled: component?.scriptDisabled === true,
@@ -473,6 +478,10 @@ function portableComponent(component: Component): any {
       ...(seat.fixedOrientation === true ? { fixedOrientation: true } : {}),
     };
   });
+  const decorations = normalizeDecorations((component.decorations || []).map(value => ({
+    id: value.id, position: vectorArray(value.position), rotation: quaternionArray(value.rotation),
+    scale: vectorArray(value.scale), color: value.colorRgb, materialId: value.materialId,
+  })));
   return {
     id: String(component.id || ''),
     name: String(component.name ?? ''),
@@ -486,6 +495,7 @@ function portableComponent(component: Component): any {
       ...(component.body.collisionEnabled === undefined ? {} : { collisionEnabled: component.body.collisionEnabled }),
     },
     blocks: (component.blocks || []).map(block => portableVoxel(block)),
+    ...(decorations.length ? { decorations } : {}),
     ...(component.script === undefined ? {} : { script: component.scriptLanguage === 'assemblyscript' ? String(component.script) : '', scriptLanguage: 'assemblyscript' }),
     ...(component.scriptDisabled === true ? { scriptDisabled: true } : {}),
     seats,
@@ -751,6 +761,7 @@ export function runtimeEntityToPortable(runtime: any): any {
     ...(source?.localRotation === undefined ? {} : { localRotation: source.localRotation.map(canonicalDouble) }),
     ...(source?.anchorRotation === undefined ? {} : { anchorRotation: source.anchorRotation.map(canonicalDouble) }),
     body: bodyFromRuntime(source, fallbackType),
+    ...(source?.decorations?.length ? { decorations: normalizeDecorations(source.decorations) } : {}),
     blocks: [],
     ...(scripts.has(id) ? { script: scripts.get(id), scriptLanguage: 'assemblyscript' } : {}),
     ...(scripts.has(id) && enabled.get(id) === false ? { scriptDisabled: true } : {}),
@@ -851,6 +862,7 @@ export function portableEntityToRuntime(portable: any): any {
         ...(body.useGravity === undefined ? {} : { useGravity: body.useGravity === true }),
         ...(body.collisionEnabled === undefined ? {} : { collisionEnabled: body.collisionEnabled === true }),
         seats: (component.seats || []).map((seat: any) => portableSeat(seat)),
+        ...(component.decorations?.length ? { decorations: normalizeDecorations(component.decorations) } : {}),
       });
     }
     for (const child of [...(component.children || [])]
@@ -889,6 +901,7 @@ export function portableEntityToRuntime(portable: any): any {
     ...(rootBody.useGravity === undefined ? {} : { useGravity: rootBody.useGravity === true }),
     ...(rootBody.collisionEnabled === undefined ? {} : { collisionEnabled: rootBody.collisionEnabled === true }),
     seats: (portable.root?.seats || []).map((seat: any) => portableSeat(seat)),
+    ...(portable.root?.decorations?.length ? { decorations: normalizeDecorations(portable.root.decorations) } : {}),
   };
 }
 
@@ -1013,6 +1026,7 @@ export function inventoryResourcePreviewItem(category: InventoryKind, portable: 
     seats: source.seats,
   };
   if (source.rootPivotOverride !== undefined) preview.rootPivotOverride = source.rootPivotOverride;
+  if (source.decorations !== undefined) preview.decorations = source.decorations;
   if (source.anchorRotation !== undefined) preview.anchorRotation = source.anchorRotation;
   if (source.mass !== undefined) preview.mass = source.mass;
   if (source.restitution !== undefined) preview.restitution = source.restitution;

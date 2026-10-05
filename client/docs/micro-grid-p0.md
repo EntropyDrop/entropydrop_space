@@ -5,7 +5,7 @@ Each standard one-metre block is divided into 512 micro cells with a 0.125-metre
 ## Completed work
 
 - Unified scale handling across carving, micro-cell selection, copy/paste, assembly/disassembly, rotation, previews, model import, and collision geometry.
-- Historical note: Protobuf originally used the packed micro-cell index `1 + mx + 8*my + 64*mz` (indices 1–512). Inventory v7 now uses `is_micro` plus the three `micro_x`/`micro_y`/`micro_z` components (0–7). See [formats.md](formats.md) for the current wire format.
+- Historical note: Protobuf originally used the packed micro-cell index `1 + mx + 8*my + 64*mz` (indices 1–512). Inventory v7 replaced it with `is_micro` plus the three `micro_x`/`micro_y`/`micro_z` components (0–7), retained in v8. See [formats.md](formats.md) for the current wire format.
 - Updated coordinate conversion in backend voxel operations, the hosting runtime, distant-height snapshots, and shaders.
 - Cached merged collision boxes and BVHs in three-dimensional 2×2×2-metre partitions, with at most 4,096 micro cells per partition. Collision boxes can merge across colors while preserving holes, and queries no longer scan empty micro cells inside the bounding volume.
 - Tied collision-cache publication to mesh publication. Editing and sliced clearing continue using the complete displayed shape, including across toroidal world seams.
@@ -16,11 +16,16 @@ Each standard one-metre block is divided into 512 micro cells with a 0.125-metre
 
 | Data | Current version |
 | --- | --- |
-| InventoryResource | 7 |
-| Backpack | 8, `space.backpack.v8.pb` |
+| InventoryResource | 8, including unified Item |
+| Backpack | 10, `space.backpack.v10.pb`; explicit v8/v9 migration |
 | Legacy browser entities | 4 |
 | Local terrain cache and upload outbox | 3, `space.world-edits.v3.*` |
-| Distant-surface snapshots | 3 |
+| Distant-surface snapshots | Independently versioned; see [formats.md](formats.md) |
+
+The Item wrapper reuses an optional BlockSet and existing Entity trees without
+changing micro-cell geometry. Their combined construction frame uses the same
+0.125-metre grid. Backpack storage exposes one 198-slot Item collection and a
+separate 99-slot Color Set collection.
 
 As required, v1/v2 local terrain data is not converted. Standalone Space database migration `space_0003` resets old terrain, entities, market resources, player positions, and derived snapshots, then updates resource constraints to v6. Migration `space_0004` converts v6 entity definitions in place to the v7 wire format (`is_micro` + `micro_x/y/z` + `color_rgb`), recomputes content digests and sizes, and increments entity revisions while preserving terrain, surfaces, player positions, and hosting leases. Market resources remain in object storage but are temporarily unavailable for download. World configuration, account data, quotas, and billing records are preserved. Stop all Space API and worker writes, create a backup, and run `tools/deploy_space.py <dev|prod> --quiesce` before release. `space_0003` refuses to run while unused paid hosting time or linked authorizations remain.
 

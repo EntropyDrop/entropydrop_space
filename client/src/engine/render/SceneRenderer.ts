@@ -1,4 +1,5 @@
 import { SpaceRenderer } from './SpaceRenderer.ts';
+import { TransformGizmo, TRANSFORM_GIZMO_ROTATION_RADIUS } from './TransformGizmo.ts';
 import { warmTerrainPipelines } from './TerrainPipelineWarmup.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
@@ -35,11 +36,7 @@ export const ENTITY_PREVIEW_MAX_FPS = 30;
 const ENTITY_PREVIEW_FRAME_INTERVAL_MS = 1000 / ENTITY_PREVIEW_MAX_FPS;
 /** Invisible pick-sphere radius for a selection axis handle, in metres (pre-scale). */
 const SELECTION_GIZMO_PICK_RADIUS = 0.32;
-/** Pick radius shared by the Wrench translation axes. */
-const WRENCH_GIZMO_PICK_RADIUS = 0.12;
-const WRENCH_GIZMO_ARROW_LENGTH = 0.2;
-export const WRENCH_GIZMO_ROTATION_RADIUS = 0.48;
-export const WRENCH_GIZMO_ROTATION_PICK_RADIUS = 0.075;
+export const WRENCH_GIZMO_ROTATION_RADIUS = TRANSFORM_GIZMO_ROTATION_RADIUS;
 const remotePlayerCullCamera = new THREE.PerspectiveCamera();
 const remotePlayerProjectedPosition = new THREE.Vector3();
 
@@ -184,15 +181,16 @@ function previewQuaternion(value) {
  * placement origin. Entity component transforms mirror Contraption's initial
  * hierarchy, so articulated copies preview in the same pose they build in.
  */
-export function getInventoryPreviewBlocks(slot) {
+export function getInventoryPreviewBlocks(slot, includeDecorations = false): any[] {
   if (slot?.kind === 'item') {
     return [
-      ...getInventoryPreviewBlocks(slot.blockSet),
+      ...getInventoryPreviewBlocks(slot.blockSet, includeDecorations),
       ...(slot.entityList || []).flatMap(entity => {
         const position = new THREE.Vector3().fromArray(entity.itemPosition || [0, 0, 0]);
         const rotation = new THREE.Quaternion().fromArray(entity.itemRotation || [0, 0, 0, 1]);
-        return getInventoryPreviewBlocks(entity).map(entry => ({
+        return getInventoryPreviewBlocks(entity, includeDecorations).map(entry => ({
           ...entry, center: entry.center.clone().applyQuaternion(rotation).add(position),
+          ...(entry.quaternion ? { quaternion: rotation.clone().multiply(entry.quaternion) } : {}),
         }));
       }),
     ];
@@ -284,7 +282,7 @@ export function getInventoryPreviewBlocks(slot) {
     });
   }
 
-  return blocks.flatMap(block => {
+  const result = blocks.flatMap(block => {
     const node = nodes.get(block.entityId ?? rootComponentId);
     if (!node) return [];
     const size = Number(block.size) || 1;
@@ -295,6 +293,22 @@ export function getInventoryPreviewBlocks(slot) {
     ).sub(node.pivot).applyMatrix4(node.matrix);
     return [{ center, size, color: block.color, materialId: block.materialId }];
   });
+  if (!includeDecorations) return result;
+  const decorations: any[] = [];
+  for (const definition of [{ id: rootComponentId, decorations: slot.decorations }, ...definitions]) {
+    const node = nodes.get(definition.id);
+    if (!node) continue;
+    for (const value of definition.decorations || []) {
+      decorations.push({
+        center: new THREE.Vector3().fromArray(value.position || [0, 0, 0]).sub(node.pivot).applyMatrix4(node.matrix),
+        size: 1, color: value.color, materialId: value.materialId, decoration: true,
+        scale: new THREE.Vector3().fromArray(value.scale || [1, 1, 1]),
+        quaternion: new THREE.Quaternion().setFromRotationMatrix(node.matrix)
+          .multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1])),
+      });
+    }
+  }
+  return [...result, ...decorations];
 }
 
 /**
@@ -614,12 +628,14 @@ export function calculatePreviewDragForce(
 
 export function calculateEntityPreviewCameraPose(contraption, aspect = 1, fov = 42) {
   const safeAspect = Math.max(0.2, Number(aspect) || 1);
-  const radius = Math.max(0.75, contraption.boundingRadius || 0.75);
+  const visual = contraption.getDecorationCount?.() > 0
+    ? contraption.getVisualWorldBounds().getBoundingSphere(new THREE.Sphere()) : null;
+  const radius = Math.max(0.75, visual?.radius || contraption.boundingRadius || 0.75);
   const verticalHalfFov = THREE.MathUtils.degToRad(fov * 0.5);
   const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * safeAspect);
   const limitingHalfFov = Math.max(0.1, Math.min(verticalHalfFov, horizontalHalfFov));
   const distance = (radius / Math.sin(limitingHalfFov)) * 1.16;
-  const center = contraption.position.clone();
+  const center = visual?.center.clone() || contraption.position.clone();
   const worldUp = new THREE.Vector3(0, 1, 0);
   const localRear = new THREE.Vector3(0, 0, 1).applyQuaternion(contraption.quaternion).normalize();
   const position = center.clone()
@@ -687,9 +703,9 @@ export class SceneRenderer {
   declare boxSelectionEdges: THREE.LineSegments;
   declare wrenchTetherLine: THREE.Line;
   declare wrenchPivotGizmo: THREE.Group;
-  declare wrenchPivotArrows: Map<string, THREE.ArrowHelper>;
-  declare wrenchPivotHandles: Map<string, THREE.Group>;
-  declare wrenchPivotOrigin: THREE.Mesh;
+  declare modelingGizmo: THREE.Group | undefined;
+  declare modelingPreview: THREE.Group | undefined;
+  private declare wrenchTransformGizmo: TransformGizmo;
   declare selectionAxisGizmo: THREE.Group;
   declare selectionGizmoHandles: Map<string, THREE.Group>;
   declare selectionGizmoMaterials: Map<string, THREE.MeshBasicNodeMaterial>;
@@ -1058,6 +1074,10 @@ export class SceneRenderer {
   }
 
   rebuildInventoryPlacementPreview(slot) {
+    for (const object of this.inventoryPlacementGroup.children.filter(object => object.name === 'DecorationPreview')) {
+      (object as THREE.Mesh).geometry.dispose();
+      ((object as THREE.Mesh).material as THREE.Material).dispose();
+    }
     this.inventoryPlacementGroup.clear();
     if (this.inventoryPlacementFill) {
       this.inventoryPlacementFill.geometry.dispose();
@@ -1108,6 +1128,15 @@ export class SceneRenderer {
     fill.frustumCulled = false;
     wire.frustumCulled = false;
     this.inventoryPlacementGroup.add(fill, wire);
+    for (const entry of getInventoryPreviewBlocks(slot, true).filter(entry => entry.decoration)) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshBasicNodeMaterial({ color: entry.color, transparent: true, opacity: 0.38, depthWrite: false }));
+      mesh.name = 'DecorationPreview';
+      mesh.position.copy(entry.center);
+      mesh.quaternion.copy(entry.quaternion);
+      mesh.scale.copy(entry.scale);
+      this.inventoryPlacementGroup.add(mesh);
+    }
     this.inventoryPlacementFill = fill;
     this.inventoryPlacementWire = wire;
     // Slot changes can occur just after the periodic scene scan; hook the new
@@ -1648,175 +1677,9 @@ export class SceneRenderer {
   }
 
   setupWrenchPivotGizmo() {
-    // Interactive local transform axes centred on the root rigid body's centre
-    // of mass. Translation arrows and rotation arcs share one pick/highlight
-    // contract so locked crosshair and ordinary pointer input behave alike.
-    this.wrenchPivotGizmo = new THREE.Group();
-    this.wrenchPivotGizmo.name = 'WrenchPivotGizmo';
-    this.wrenchPivotGizmo.visible = false;
-    this.wrenchPivotGizmo.renderOrder = 95;
-    this.wrenchPivotArrows = new Map();
-    this.wrenchPivotHandles = new Map();
-
-    const definitions = [
-      ['x', new THREE.Vector3(1, 0, 0), 0xff3b30],
-      ['y', new THREE.Vector3(0, 1, 0), 0x34c759],
-      ['z', new THREE.Vector3(0, 0, 1), 0x248aff]
-    ] as const;
-    for (const [axis, direction, color] of definitions) {
-      const handleKey = `move-${axis}`;
-      const handle = new THREE.Group();
-      handle.name = `WrenchPivotMove_${axis.toUpperCase()}`;
-      const movePickRadius = 0.10;
-      const pickLocalPoints = [0.65, 0.82, 1].map(distance =>
-        direction.clone().multiplyScalar(distance * WRENCH_GIZMO_ARROW_LENGTH));
-      handle.userData = {
-        isWrenchGizmoHandle: true,
-        handleKey,
-        kind: 'move',
-        axis,
-        baseColor: color,
-        pickRadius: movePickRadius,
-        pickLocalPoints
-      };
-
-      const arrow = new THREE.ArrowHelper(
-        direction,
-        new THREE.Vector3(),
-        WRENCH_GIZMO_ARROW_LENGTH,
-        color,
-        0.19,
-        0.095
-      );
-      arrow.name = `WrenchPivotAxis_${axis.toUpperCase()}`;
-      for (const object of [arrow.line, arrow.cone]) {
-        object.userData = handle.userData;
-        const material: any = object.material;
-        material.depthTest = false;
-        material.depthWrite = false;
-        material.transparent = true;
-        material.opacity = 0.96;
-        object.renderOrder = 96;
-        object.frustumCulled = false;
-      }
-      for (const point of pickLocalPoints) {
-        const pick = new THREE.Mesh(
-          new THREE.SphereGeometry(movePickRadius, 8, 6),
-          new THREE.MeshBasicNodeMaterial({ visible: false })
-        );
-        pick.position.copy(point);
-        pick.userData = handle.userData;
-        handle.add(pick);
-      }
-      this.wrenchPivotArrows.set(axis, arrow);
-      handle.add(arrow);
-      this.wrenchPivotHandles.set(handleKey, handle);
-      this.wrenchPivotGizmo.add(handle);
-
-      const rotateKey = `rotate-${axis}`;
-      const rotate = new THREE.Group();
-      rotate.name = `WrenchPivotRotate_${axis.toUpperCase()}`;
-      const axisVector = direction.clone();
-      const basisU = axis === 'x'
-        ? new THREE.Vector3(0, 1, 0)
-        : new THREE.Vector3(1, 0, 0);
-      const basisV = new THREE.Vector3().crossVectors(axisVector, basisU).normalize();
-      const arcRadius = WRENCH_GIZMO_ROTATION_RADIUS;
-      const arcStart = -Math.PI * 0.15;
-      const arcLength = Math.PI * 1.7;
-      const arcPoints: THREE.Vector3[] = [];
-      for (let index = 0; index <= 48; index++) {
-        const angle = arcStart + arcLength * index / 48;
-        arcPoints.push(basisU.clone().multiplyScalar(Math.cos(angle) * arcRadius)
-          .addScaledVector(basisV, Math.sin(angle) * arcRadius));
-      }
-      const end = arcPoints[arcPoints.length - 1];
-      const tangent = arcPoints[arcPoints.length - 1].clone()
-        .sub(arcPoints[arcPoints.length - 2]).normalize();
-      const rotatePickPoints = arcPoints.filter((_, index) => index % 3 === 0);
-      // Include the rotation cone tip to make clicking the button responsive
-      rotatePickPoints.push(end.clone().addScaledVector(tangent, 0.07));
-      const rotatePickSegments = arcPoints.slice(1).map((point, index) => [
-        arcPoints[index],
-        point
-      ]);
-
-      rotate.userData = {
-        isWrenchGizmoHandle: true,
-        handleKey: rotateKey,
-        kind: 'rotate',
-        axis,
-        baseColor: color,
-        pickRadius: WRENCH_GIZMO_ROTATION_PICK_RADIUS,
-        pickLocalPoints: rotatePickPoints,
-        // Match the visible polyline continuously. Sparse pick spheres alone
-        // let a nearer sphere from another projected ring win even when the
-        // pointer sits directly on this axis's rendered arc.
-        pickLocalSegments: rotatePickSegments
-      };
-      const arcMaterial = new THREE.LineBasicNodeMaterial({
-        color,
-        depthTest: false,
-        depthWrite: false,
-        transparent: true,
-        opacity: 0.9
-      });
-      const arc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(arcPoints), arcMaterial);
-      arc.name = `WrenchPivotRotationArc_${axis.toUpperCase()}`;
-      arc.renderOrder = 96;
-      arc.frustumCulled = false;
-      arc.userData = rotate.userData;
-      rotate.add(arc);
-
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(0.055, 0.14, 12),
-        new THREE.MeshBasicNodeMaterial({
-          color,
-          depthTest: false,
-          depthWrite: false,
-          transparent: true,
-          opacity: 0.96
-        })
-      );
-      cone.position.copy(end);
-      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
-      cone.name = `WrenchPivotRotationArrow_${axis.toUpperCase()}`;
-      cone.renderOrder = 97;
-      cone.frustumCulled = false;
-      cone.userData = rotate.userData;
-      rotate.add(cone);
-
-      for (const point of rotatePickPoints) {
-        const pick = new THREE.Mesh(
-          new THREE.SphereGeometry(WRENCH_GIZMO_ROTATION_PICK_RADIUS, 8, 6),
-          new THREE.MeshBasicNodeMaterial({ visible: false })
-        );
-        pick.position.copy(point);
-        pick.userData = rotate.userData;
-        rotate.add(pick);
-      }
-      this.wrenchPivotHandles.set(rotateKey, rotate);
-      this.wrenchPivotGizmo.add(rotate);
-    }
-
-    const center = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 12, 10),
-      new THREE.MeshBasicNodeMaterial({
-        color: 0xffffff,
-        depthTest: false,
-        depthWrite: false,
-        transparent: true,
-        opacity: 0.95
-      })
-    );
-    center.name = 'WrenchPivotOrigin';
-    center.visible = false;
-    center.renderOrder = 97;
-    center.frustumCulled = false;
-    this.wrenchPivotOrigin = center;
-    this.wrenchPivotGizmo.add(center);
-
-    hookSceneMaterials(this.wrenchPivotGizmo);
+    this.wrenchTransformGizmo?.dispose();
+    this.wrenchTransformGizmo = new TransformGizmo({ includeScale: false, name: 'WrenchPivotGizmo' });
+    this.wrenchPivotGizmo = this.wrenchTransformGizmo.group;
     this.scene.add(this.wrenchPivotGizmo);
   }
 
@@ -1827,47 +1690,18 @@ export class SceneRenderer {
     hoveredHandle: string | null = null,
     activeHandle: string | null = null
   ) {
-    if (!this.wrenchPivotGizmo) this.setupWrenchPivotGizmo();
+    if (!this.wrenchTransformGizmo) this.setupWrenchPivotGizmo();
     if (!position) {
-      this.wrenchPivotGizmo.visible = false;
+      this.clearWrenchPivotGizmo();
       return;
     }
-
-    this.wrenchPivotGizmo.position.copy(position);
-    this.wrenchPivotGizmo.quaternion.copy(
-      quaternion?.isQuaternion ? quaternion : new THREE.Quaternion()
-    );
-    this.wrenchPivotGizmo.scale.setScalar(Math.max(0.1, Number(axisLength) || 1));
-    const moveHandleScale = 0.7 / this.wrenchPivotGizmo.scale.x;
-    for (const axis of ['x', 'y', 'z']) {
-      this.wrenchPivotHandles.get(`move-${axis}`)?.scale.setScalar(moveHandleScale);
-    }
-    this.highlightWrenchPivotHandle(hoveredHandle, activeHandle);
-    if (this.wrenchPivotOrigin) {
-      const material = this.wrenchPivotOrigin.material as THREE.MeshBasicNodeMaterial;
-      material.color.setHex(0xffffff);
-      this.wrenchPivotOrigin.scale.setScalar(1);
-    }
-    this.wrenchPivotGizmo.visible = true;
-    this.wrenchPivotGizmo.updateMatrixWorld(true);
+    this.wrenchTransformGizmo.setPose(position,
+      quaternion?.isQuaternion ? quaternion : new THREE.Quaternion(),
+      Math.max(0.1, Number(axisLength) || 1), activeHandle || hoveredHandle || undefined);
   }
 
   clearWrenchPivotGizmo() {
     if (this.wrenchPivotGizmo) this.wrenchPivotGizmo.visible = false;
-  }
-
-  highlightWrenchPivotHandle(hoveredHandle: string | null, activeHandle: string | null = null) {
-    for (const [key, handle] of this.wrenchPivotHandles || []) {
-      const color = key === activeHandle ? 0xffea00
-        : key === hoveredHandle ? 0xffffff
-          : Number(handle.userData.baseColor) || 0xffffff;
-      handle.traverse(object => {
-        const material: any = (object as any).material;
-        if (!material || material.visible === false || !material.color) return;
-        material.color.setHex(color);
-        if (material.opacity !== undefined) material.opacity = key === activeHandle ? 1 : 0.94;
-      });
-    }
   }
 
   raycastWrenchPivotGizmo(raycaster: THREE.Raycaster) {
@@ -1883,83 +1717,8 @@ export class SceneRenderer {
 
   raycastWrenchPivotGizmoBent(origin: THREE.Vector3, direction: THREE.Vector3) {
     if (!this.wrenchPivotGizmo?.visible || !origin || !direction) return null;
-    const ray = new THREE.Ray(origin.clone(), direction.clone().normalize());
-    const flatPoint = new THREE.Vector3();
-    const bentPoint = new THREE.Vector3();
-    const pointOnRay = new THREE.Vector3();
-    const pointOnHandle = new THREE.Vector3();
-    const flatSegmentStart = new THREE.Vector3();
-    const flatSegmentEnd = new THREE.Vector3();
-    const bentSegmentStart = new THREE.Vector3();
-    const bentSegmentEnd = new THREE.Vector3();
-    const segmentDirection = new THREE.Vector3();
-    let best: any = null;
-    this.wrenchPivotGizmo.updateMatrixWorld(true);
-    for (const handle of this.wrenchPivotHandles.values()) {
-      const data = handle.userData;
-      const radius = (Number(data.pickRadius) || WRENCH_GIZMO_PICK_RADIUS)
-        * this.wrenchPivotGizmo.scale.x;
-      const radiusSq = radius * radius;
-
-      const consider = (missDistanceSq: number, worldPoint: THREE.Vector3) => {
-        if (missDistanceSq > radiusSq) return;
-        const distance = ray.direction.dot(pointOnRay.clone().sub(ray.origin));
-        if (distance < 0) return;
-        const score = missDistanceSq / radiusSq;
-        // Depth is only a tie-breaker. Choosing the first sphere intersected
-        // by the ray made projected X/Y/Z rings steal one another's hover;
-        // screen-ray proximity corresponds to what the pointer actually sees.
-        if (best && (score > best.pickScore + 1e-9
-          || (Math.abs(score - best.pickScore) <= 1e-9 && distance >= best.distance))) return;
-        best = {
-          handleKey: data.handleKey as string,
-          kind: data.kind as 'move' | 'rotate',
-          axis: data.axis as 'x' | 'y' | 'z',
-          point: pointOnRay.clone(),
-          worldPoint: worldPoint.clone(),
-          distance,
-          pickScore: score
-        };
-      };
-
-      for (const localPoint of data.pickLocalPoints || []) {
-        flatPoint.copy(localPoint);
-        handle.localToWorld(flatPoint);
-        bendPointForView(flatPoint.x, flatPoint.y, flatPoint.z, bentPoint);
-        const distanceAlongRay = ray.direction.dot(bentPoint.clone().sub(ray.origin));
-        if (distanceAlongRay < 0) continue;
-        ray.at(distanceAlongRay, pointOnRay);
-        consider(pointOnRay.distanceToSquared(bentPoint), flatPoint);
-      }
-
-      for (const [localStart, localEnd] of data.pickLocalSegments || []) {
-        flatSegmentStart.copy(localStart);
-        flatSegmentEnd.copy(localEnd);
-        handle.localToWorld(flatSegmentStart);
-        handle.localToWorld(flatSegmentEnd);
-        bendPointForView(flatSegmentStart.x, flatSegmentStart.y, flatSegmentStart.z, bentSegmentStart);
-        bendPointForView(flatSegmentEnd.x, flatSegmentEnd.y, flatSegmentEnd.z, bentSegmentEnd);
-        const missDistanceSq = ray.distanceSqToSegment(
-          bentSegmentStart,
-          bentSegmentEnd,
-          pointOnRay,
-          pointOnHandle
-        );
-        segmentDirection.copy(bentSegmentEnd).sub(bentSegmentStart);
-        const segmentLengthSq = segmentDirection.lengthSq();
-        const t = segmentLengthSq > 1e-12
-          ? THREE.MathUtils.clamp(
-            pointOnHandle.clone().sub(bentSegmentStart).dot(segmentDirection) / segmentLengthSq,
-            0,
-            1
-          )
-          : 0;
-        flatPoint.lerpVectors(flatSegmentStart, flatSegmentEnd, t);
-        consider(missDistanceSq, flatPoint);
-      }
-    }
-    if (best) delete best.pickScore;
-    return best;
+    const hit = this.wrenchTransformGizmo.pick(new THREE.Ray(origin.clone(), direction.clone().normalize()));
+    return hit ? { ...hit, handleKey: hit.key } : null;
   }
 
   setupSelectionAxisGizmo() {
@@ -3358,6 +3117,8 @@ export class SceneRenderer {
       this.boxSelectionGroup,
       this.wrenchTetherLine,
       this.wrenchPivotGizmo,
+      this.modelingGizmo,
+      this.modelingPreview,
       this.selectionAxisGizmo,
       this.inventoryPlacementGroup,
       this.selectionGroup,

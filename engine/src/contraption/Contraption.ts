@@ -1,6 +1,8 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
+import { normalizeDecorations, offsetDecorations, type DecorationDefinition } from './Decorations.ts';
+import { createDecorationGroup, raycastDecorationGroup } from './DecorationMeshes.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import {
   normalizeVoxelMaterialId,
@@ -42,6 +44,7 @@ import {
   MAX_ENTITY_TOTAL_SCRIPT_BYTES,
   MAX_ENTITY_BOUNDS,
   MAX_ENTITY_COMPONENTS,
+  MAX_ENTITY_DECORATIONS,
   MAX_COMPONENT_ID_LENGTH
 } from '../constants/SpaceConstants.ts';
 
@@ -470,6 +473,9 @@ export interface EntityRigidBody {
 }
 
 export class Contraption {
+  decorations: DecorationDefinition[];
+  decorationGroups = new Map<string, THREE.Group>();
+  selectedDecoration: { componentId: string; decorationId: string } | null = null;
   // --- Identity & data ---
   id: string;
   publicId: string;
@@ -798,6 +804,7 @@ export class Contraption {
       : null;
     this.rootAnchorQuaternion = asQuaternion(options.anchorRotation);
     this.seats = this.normalizeSeats(options.seats);
+    this.decorations = normalizeDecorations(options.decorations);
     this.scriptLogs = [];
     this.lastExecutionTimeMs = 0;
     this.tickCount = 0;
@@ -1052,7 +1059,8 @@ export class Contraption {
       friction: clampUnit(definition?.friction, this.friction),
       useGravity: definition?.useGravity !== false,
       collisionEnabled: definition?.collisionEnabled !== false,
-      seats: this.normalizeSeats(definition?.seats)
+      seats: this.normalizeSeats(definition?.seats),
+      ...(definition?.decorations?.length ? { decorations: normalizeDecorations(definition.decorations) } : {})
     };
     if (isFiniteVector3Array(definition?.pivot)) {
       normalized.pivot = definition.pivot.slice(0, 3).map(Number);
@@ -1096,7 +1104,8 @@ export class Contraption {
       friction: defaults?.friction ?? definition.friction,
       useGravity: defaults?.useGravity ?? (definition.useGravity !== false),
       collisionEnabled: defaults?.collisionEnabled ?? (definition.collisionEnabled !== false),
-      seats: definition.seats
+      seats: definition.seats,
+      decorations: definition.decorations
     }, definition.id, parentId);
     const configuredMass = normalizeBodyMass(defaults?.mass);
     if (configuredMass === null) delete serialized.mass;
@@ -1108,6 +1117,91 @@ export class Contraption {
     const id = String(nodeId || this.rootComponentId);
     const source = id === this.rootComponentId ? this.seats : this.childDefinitions.get(id)?.seats;
     return this.normalizeSeats(source);
+  }
+
+  getComponentDecorations(nodeId = this.rootComponentId): DecorationDefinition[] {
+    return normalizeDecorations(nodeId === this.rootComponentId ? this.decorations : this.childDefinitions.get(nodeId)?.decorations);
+  }
+
+  getDecorationCount(): number {
+    return this.decorations.length + [...this.childDefinitions.values()].reduce((sum, value) => sum + (value.decorations?.length || 0), 0);
+  }
+
+  /** Visual edits never invalidate collision indexes, bodies, mass or inertia. */
+  setComponentDecorations(nodeId: string, values: unknown): boolean {
+    if (!this.entityNodes.has(nodeId)) return false;
+    const decorations = normalizeDecorations(values);
+    if (this.getDecorationCount() - this.getComponentDecorations(nodeId).length + decorations.length > MAX_ENTITY_DECORATIONS) {
+      throw new Error(`An entity may contain at most ${MAX_ENTITY_DECORATIONS} decorations.`);
+    }
+    if (nodeId === this.rootComponentId) this.decorations = decorations;
+    else this.childDefinitions.get(nodeId).decorations = decorations;
+    this.rebuildDecorationMeshes(nodeId);
+    return true;
+  }
+
+  rebuildDecorationMeshes(nodeId: string) {
+    const previous = this.decorationGroups.get(nodeId);
+    if (previous) {
+      this.disposeGroupChildren(previous);
+      previous.removeFromParent();
+    }
+    this.decorationGroups.delete(nodeId);
+    const node = this.entityNodes.get(nodeId);
+    if (!node) return;
+    const group = createDecorationGroup(this.getComponentDecorations(nodeId), node.pivotLocal);
+    node.group.add(group);
+    this.decorationGroups.set(nodeId, group);
+    this.setDecorationSelection(this.selectedDecoration);
+  }
+
+  setDecorationSelection(selection: { componentId: string; decorationId: string } | null) {
+    this.selectedDecoration = selection;
+    for (const [componentId, group] of this.decorationGroups) {
+      for (const object of [...group.children]) {
+        if (object.name === 'DecorationSelection') {
+          group.remove(object);
+          (object as THREE.Mesh).geometry.dispose();
+          ((object as THREE.Mesh).material as THREE.Material).dispose();
+        }
+      }
+      const mesh = group.children.find(object => componentId === selection?.componentId
+        && object.userData.decorationId === selection.decorationId) as THREE.Mesh | undefined;
+      if (!mesh) continue;
+      const outline = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01),
+        new THREE.MeshBasicNodeMaterial({ color: 0x5cff5c, wireframe: true, depthTest: false }));
+      outline.name = 'DecorationSelection';
+      outline.position.copy(mesh.position);
+      outline.quaternion.copy(mesh.quaternion);
+      outline.scale.copy(mesh.scale);
+      outline.renderOrder = 95;
+      group.add(outline);
+    }
+  }
+
+  raycastDecorations(origin: THREE.Vector3, direction: THREE.Vector3, maxDistance = 16, bent = true) {
+    let closest: any = null;
+    for (const [componentId, group] of this.decorationGroups) {
+      const hit = raycastDecorationGroup(group, origin, direction, closest?.distance ?? maxDistance, bent);
+      if (hit && (!closest || hit.distance < closest.distance)) closest = { ...hit, componentId, contraption: this };
+    }
+    return closest;
+  }
+
+  /** Presentation bounds are separate from physical bounds and control budgets. */
+  getVisualWorldBounds(): THREE.Box3 {
+    const bounds = new THREE.Box3();
+    for (const block of this.blocks) bounds.union(this.getBlockWorldBounds(block, new THREE.Box3()));
+    for (const group of this.decorationGroups.values()) {
+      group.updateWorldMatrix(true, true);
+      for (const object of group.children) {
+        if (!object.userData.decorationId) continue;
+        const mesh = object as THREE.Mesh;
+        mesh.geometry.computeBoundingBox();
+        bounds.union(mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld));
+      }
+    }
+    return bounds;
   }
 
   setComponentSeats(nodeId, seats) {
@@ -2064,7 +2158,8 @@ export class Contraption {
       friction: rootBodyDefaults?.friction,
       useGravity: rootBodyDefaults?.useGravity,
       collisionEnabled: rootBodyDefaults?.collisionEnabled,
-      seats: this.getComponentSeats(sourceRootId)
+      seats: this.getComponentSeats(sourceRootId),
+      ...(this.getComponentDecorations(sourceRootId).length ? { decorations: this.getComponentDecorations(sourceRootId) } : {})
     };
   }
 
@@ -2242,6 +2337,9 @@ export class Contraption {
       return fail('hierarchy_too_deep');
     }
     if (this.entityNodes.size + sourceIds.size > MAX_ENTITY_COMPONENTS) return fail('too_many_components');
+    const sourceDecorationCount = normalizeDecorations(slot.decorations).length
+      + sourceDefinitions.reduce((sum, definition) => sum + normalizeDecorations(definition.decorations).length, 0);
+    if (this.getDecorationCount() + sourceDecorationCount > MAX_ENTITY_DECORATIONS) return fail('too_many_decorations');
 
     const sourceBlocks = (Array.isArray(preparedBlocks) ? preparedBlocks : slot.blocks).map(block => ({
       localX: Number(block?.localX),
@@ -2349,7 +2447,8 @@ export class Contraption {
       friction: slot.friction,
       useGravity: false,
       collisionEnabled: slot.collisionEnabled !== false,
-      seats: cloneScriptData(slot.seats || [], [])
+      seats: cloneScriptData(slot.seats || [], []),
+      decorations: offsetDecorations(slot.decorations, coordinateOffset.toArray())
     }];
     for (const definition of sourceDefinitions) {
       const pivot = isFiniteVector3Array(definition.pivot)
@@ -2364,6 +2463,7 @@ export class Contraption {
         installedParentId
       );
       installedDefinition.pivot = pivot;
+      if (definition.decorations?.length) installedDefinition.decorations = offsetDecorations(definition.decorations, coordinateOffset.toArray());
       installedDefinitions.push(installedDefinition);
     }
 
@@ -3165,6 +3265,7 @@ export class Contraption {
       }
     }
 
+    if (this.getDecorationCount() > MAX_ENTITY_DECORATIONS) throw new Error('Entity exceeds the decoration limit.');
     this.rebuildEntityHierarchy();
   }
 
@@ -3193,6 +3294,7 @@ export class Contraption {
     }
 
     this.disposeGroupChildren(this.meshGroup);
+    this.decorationGroups.clear();
     this.entityNodes = new Map();
     this.childScriptApis.clear();
 
@@ -3304,6 +3406,7 @@ export class Contraption {
 
     for (const node of this.entityNodes.values()) {
       this.buildNodeChunkMeshes(node);
+      this.rebuildDecorationMeshes(node.id);
     }
 
     if (!this.collisionCellMap) {
@@ -5268,6 +5371,7 @@ export class Contraption {
       ),
       scriptOrder,
       world: {
+        info: runtimeContext?.world?.getInfo?.() || null,
         entities: nearbyEntities,
         size: [TORUS_SIZE_X, TORUS_SIZE_Z]
       },

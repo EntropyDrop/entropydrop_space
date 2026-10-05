@@ -416,6 +416,9 @@ of every source mip. The panel explicitly labels this repeated-district fixture.
 budgeting, recovery and rotation stability without a browser.
 
 Wait for `8/8 districts` and stable LOD publications, then rotate for at least 20 seconds.
+For Copper, **City overview** moves to a fixed aerial view of the actual surrounding
+districts. Use `dev_lod=1` to inspect city diversity; the `world` fixture deliberately
+repeats one source district and cannot validate the procedural city's layout variety.
 The pixel-area selector need not load every far district at 1m resolution.
 Source reads and LOD publications should remain fixed; draw counts may change.
 Reload: source reads should be zero when IndexedDB is available and warm.

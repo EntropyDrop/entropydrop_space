@@ -43,14 +43,69 @@ test('strong uses the slim cute torso with four-pixel outward-tilted arms', () =
     'strong and slim should share the same tapered torso geometry'
   );
   assert.equal((strongArm.geometry as THREE.BoxGeometry).parameters.width, 4);
-  assert.ok(Math.abs(strongRig.parts.leftArm.position.x - 3.725) < 1e-12);
-  assert.ok(Math.abs(strongRig.parts.rightArm.position.x + 3.725) < 1e-12);
-  assert.equal(strongRig.parts.leftArm.rotation.z, 0.2);
-  assert.equal(strongRig.parts.rightArm.rotation.z, -0.2);
+  assert.ok(strongRig.parts.leftArm.position.x > slimRig.parts.leftArm.position.x);
+  assert.equal(strongRig.parts.rightArm.position.x, -strongRig.parts.leftArm.position.x);
+  assert.ok(strongRig.parts.leftArm.rotation.z > 0);
+  assert.equal(strongRig.parts.rightArm.rotation.z, -strongRig.parts.leftArm.rotation.z);
 
   strong.dispose();
   slim.dispose();
 });
+
+for (const model of ['strong', 'slim'] as const) {
+  test(`${model} arms follow the torso sides at rest and stay parallel through locomotion`, () => {
+    const character = createTestCharacter(model);
+    try {
+      const rig = character as any;
+      const torsoGroup = rig.parts.body.children[0] as THREE.Group;
+      const torso = torsoGroup.children[0] as THREE.Mesh;
+      const positions = torso.geometry.attributes.position;
+      torso.geometry.computeBoundingBox();
+      const bounds = torso.geometry.boundingBox!;
+      let topX = 0;
+      let bottomX = 0;
+      for (let index = 0; index < positions.count; index++) {
+        if (positions.getY(index) === bounds.max.y) topX = Math.max(topX, positions.getX(index));
+        if (positions.getY(index) === bounds.min.y) bottomX = Math.max(bottomX, positions.getX(index));
+      }
+      const topY = bounds.max.y * torsoGroup.scale.y;
+      const slope = (bottomX - topX) * torsoGroup.scale.x / ((bounds.max.y - bounds.min.y) * torsoGroup.scale.y);
+      const arms = [[rig.parts.leftArm, 1], [rig.parts.rightArm, -1]] as const;
+
+      for (const [arm, sign] of arms) {
+        assert.ok(Math.abs(arm.rotation.x) < 1e-12, 'the resting arm should share the torso side plane');
+        const mesh = arm.getObjectByProperty('type', 'Mesh') as THREE.Mesh;
+        const geometry = mesh.geometry as THREE.BoxGeometry;
+        arm.updateMatrix();
+        for (const y of [0, -geometry.parameters.height]) {
+          const point = new THREE.Vector3(-sign * geometry.parameters.width / 2, y, 0).applyMatrix4(arm.matrix);
+          const sideX = topX * torsoGroup.scale.x + slope * (topY - point.y);
+          assert.ok(Math.abs(sign * point.x - sideX) < 1e-7, 'the inner arm edge should meet the torso side');
+        }
+      }
+
+      let maximumSwing = 0;
+      for (let frame = 0; frame < 300; frame++) {
+        const moving = frame >= 60 && frame < 180;
+        character.update(1 / 60, {
+          speed: moving ? 5 : 0,
+          forwardSpeed: moving ? (frame < 120 ? 5 : -5) : 0,
+          maxSpeed: 5,
+          grounded: true
+        });
+        for (const [arm, sign] of arms) {
+          const direction = new THREE.Vector3(0, -1, 0).applyQuaternion(arm.quaternion);
+          assert.ok(Math.abs(sign * direction.x / -direction.y - slope) < 1e-7,
+            `arm slope should match the rendered torso during frame ${frame}`);
+          maximumSwing = Math.max(maximumSwing, Math.abs(arm.rotation.x));
+        }
+      }
+      assert.ok(maximumSwing > 0.4, 'parallel alignment should preserve the walking swing');
+    } finally {
+      character.dispose();
+    }
+  });
+}
 
 test('remote characters expose a one-plane billboard and switch expensive details off', () => {
   const data = new Uint8ClampedArray(64 * 64 * 4);

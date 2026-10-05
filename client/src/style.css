@@ -1976,10 +1976,10 @@ button.palette-title:hover {
   color: #ff9f43;
 }
 
-/* 6-Tool Hotbar */
+/* Tool hotbar */
 #hotbar {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 5px;
   width: 100%;
   background: var(--bg-surface-glass);
@@ -7022,3 +7022,27 @@ button.palette-title:hover {
   text-decoration: underline;
   overflow-wrap: anywhere;
 }
+
+.modeling-tool-icon { display: inline-flex; width: 20px; height: 20px; }
+.modeling-panel { width: 100%; padding: 10px 12px; box-sizing: border-box; }
+.modeling-panel.is-precision { position: fixed; top: 76px; right: 18px; width: 400px; max-height: calc(100dvh - 180px); overflow-y: auto; }
+.modeling-panel.is-precision .modeling-vector-row { grid-template-columns: 64px repeat(3, minmax(0, 1fr)); gap: 5px; }
+.modeling-panel .palette-info-row .banner-btn { margin-left: auto; }
+@media (max-width: 900px) {
+  .modeling-panel.is-precision { position: static; width: 100%; max-height: 45dvh; }
+}
+.modeling-panel fieldset { border: 0; padding: 0; margin: 8px 0; min-width: 0; }
+.modeling-owner { color: #9ea8b6; font-size: 11px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modeling-vector-row { display: grid; grid-template-columns: 80px repeat(3, minmax(0, 1fr)); align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+.modeling-vector-row label { display: flex; gap: 5px; align-items: center; min-width: 0; }
+.modeling-vector-row input { width: 100%; min-width: 0; color: #eef2f7; background: #141923; border: 1px solid #374050; border-radius: 4px; padding: 5px; }
+.modeling-panel .axis-x { color: #ff7878; }
+.modeling-panel .axis-y { color: #80d994; }
+.modeling-panel .axis-z { color: #80baff; }
+.modeling-axis-legend { display: flex; gap: 10px; align-items: center; margin: 8px 0; font-size: 11px; color: #aeb9c9; }
+.modeling-axis-legend .axis-x, .modeling-axis-legend .axis-y, .modeling-axis-legend .axis-z { font-weight: 700; }
+.modeling-panel kbd { color: #eef2f7; font: inherit; border: 1px solid #455063; border-radius: 3px; padding: 0 3px; }
+.modeling-appearance, .modeling-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.modeling-appearance label { display: flex; align-items: center; gap: 5px; }
+.modeling-appearance input[type="color"] { width: 32px; height: 26px; border: 0; padding: 0; background: transparent; }
+.modeling-hint { margin: 10px 0; color: #aeb9c9; font-size: 12px; }

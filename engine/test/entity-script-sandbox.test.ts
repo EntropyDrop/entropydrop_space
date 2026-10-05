@@ -48,6 +48,26 @@ test('host/browser globals, dynamic JS, npm imports and unregistered imports fai
   }
 });
 
+test('entityAPI reads frozen world identity through the typed WASM SDK', async () => {
+  const f = fixture();
+  assert.equal((await f.set(`
+    const world = ctx.world.getInfo();
+    self.state.setString("worldId", world.getString("id"));
+    self.state.setString("worldSlug", world.getString("slug"));
+    self.state.setNumber("generator", world.getNumber("terrainGeneratorVersion"));
+  `)).ok, true);
+  for (const [slug, generator] of [['nature', 1], ['copper-metropolis', 2]] as const) {
+    const result = f.tick({ world: { info: { id: `world-${slug}`, slug, terrainGeneratorVersion: generator } } });
+    assert.equal(result.states.root.worldId, `world-${slug}`);
+    assert.equal(result.states.root.worldSlug, slug);
+    assert.equal(result.states.root.generator, generator);
+    assert.deepEqual(result.commands, []);
+  }
+  await f.set('ctx.world.getInfo().setString("id", "another-world");');
+  const rejected = f.tick({ world: { info: { id: 'world-nature' } } });
+  assert.match(rejected.errors[0].error, /read-only/);
+});
+
 test('optimized empty loops and recursion are bounded and discard the entire frame', async () => {
   for (const code of ['self.state.setNumber("x", 1); self.applyForce([1,0,0]); while (true) {}',
     'recurse(); } function recurse(): void { recurse(); } function unused(): void {']) {

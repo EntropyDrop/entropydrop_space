@@ -22,7 +22,7 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
   const session: ReadySpaceSession = {
     protocol_version: 2, max_online_players: 32, queue_enabled: true,
     mode: 'online', api_origin: '', token: '', websocket_url: '',
-    world: { id: 'dev-offline-copper', name: 'Offline Copper (development only)',
+    world: { id: 'dev-offline-copper', slug: 'copper-metropolis', name: 'Offline Copper (development only)',
       seed: 20260922, terrain_generator_version: 2, terrain_revision: 0, surface_snapshot_url: '' },
     player: { user_id: 'dev-local', username: 'Local developer', player_entity_id: 'dev-player',
       skin_url: DEFAULT_PLAYER_SKIN_URL, skin_type: 'strong', is_admin: false,
@@ -33,12 +33,12 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
     player_position_remote: { async save() {} },
   };
   if (world === 'nature' || world === 'default') {
-    session.world = { ...session.world, id: 'dev-offline-nature', name: 'Offline Nature (development only)',
+    session.world = { ...session.world, id: 'dev-offline-nature', slug: 'nature', name: 'Offline Nature (development only)',
       seed: 42, terrain_generator_version: 1 };
     Object.assign(session.player, { start_x_cm: 537760, start_y_cm: 1800, start_z_cm: 82130 });
   }
   if (world === 'aether-archipelago') {
-    session.world = { ...session.world, id: 'dev-offline-aether', name: 'Offline Aether (development only)',
+    session.world = { ...session.world, id: 'dev-offline-aether', slug: 'aether-archipelago', name: 'Offline Aether (development only)',
       seed: 42, terrain_generator_version: 3 };
     Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 18000, start_z_cm: 102450 });
   }
@@ -51,7 +51,7 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
   };
   const lab = labWorlds[world];
   if (lab) {
-    session.world = { ...session.world, id: `dev-offline-${world}`, name: `Offline ${lab.name} (development only)`,
+    session.world = { ...session.world, id: `dev-offline-${world}`, slug: world, name: `Offline ${lab.name} (development only)`,
       seed: 42, terrain_generator_version: lab.version };
     Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 22000, start_z_cm: 102450 });
   }
@@ -122,7 +122,7 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
   busyStreaming = false) {
   const panel = document.createElement('section');
   panel.id = 'dev-render-diagnostics';
-  panel.style.cssText = 'position:fixed;top:210px;left:12px;z-index:10000;background:#101820ed;color:#fff;padding:12px;font:12px monospace;pointer-events:auto;max-width:420px';
+  panel.style.cssText = 'position:fixed;top:210px;left:12px;z-index:200;background:#101820ed;color:#fff;padding:12px;font:12px monospace;pointer-events:auto;max-width:420px';
   const title = document.createElement('strong');
   title.textContent = `LOCAL OFFLINE · ${baseline ? 'Baseline' : 'Optimized'} · no account / no sync`;
   const stats = document.createElement('pre');
@@ -208,6 +208,14 @@ function installDiagnostics(game: OfflineGame, baseline: boolean,
     const near = document.createElement('button'); near.textContent = 'Near terrain view';
     near.onclick = () => { game.controller.pitch = -.85; game.controller.yaw = Math.PI / 2; };
     panel.append(across, whip, skyline, near);
+    if (game.world.terrainGen.version === 2) {
+      const city = document.createElement('button'); city.textContent = 'City overview';
+      city.onclick = () => {
+        game.playerPhysics.position.set(8402, 240, 1234);
+        game.controller.pitch = -.75; game.controller.yaw = Math.PI / 4;
+      };
+      panel.append(city);
+    }
   }
   document.body.append(panel);
   let last = performance.now(), updated = last;

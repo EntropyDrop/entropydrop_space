@@ -116,8 +116,8 @@ def test_public_markdown_links_work_without_auth_and_do_not_expose_files(client)
     assert 'color=0xE58024' not in entity_create
 
     skill = client.get('/space/agent/SKILL.md').text
-    assert 'Classify the Build Autonomously' in skill
-    assert 'Do not ask the player to choose this implementation category' in skill
+    assert 'Plan the World Effects Autonomously' in skill
+    assert 'do not ask them to choose internal' in skill
     assert 'Use a **blockset** for static construction' in skill
     assert 'Use an **entity** when the creation must remain a distinct object' in skill
 

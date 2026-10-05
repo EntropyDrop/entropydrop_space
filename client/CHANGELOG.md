@@ -1,7 +1,28 @@
 # Changelog
 
-All notable Space wire-format and API changes. Space intentionally rejects older data, so
-breaking versions are called out explicitly.
+All notable Space wire-format and API changes. Supported legacy formats use explicit
+migration readers; breaking versions and unsupported formats are called out explicitly.
+
+## 2026-10 — Unified Items and shared backpack
+
+- Add `InventoryResource.item` within inventory v8. `Item` wraps a template `id`,
+  display `name`, optional original `BlockSet`, and original `Entity` trees in one
+  construction frame. Component hierarchies, scripts and constraints retain their
+  original structure; runtime entity APIs keep their single-Entity envelope.
+- Backpack v10 exposes one 198-slot Items collection, one selection and nine-slot
+  hotbar, plus a separate 99-slot Color Sets collection. Explicit v8/v9 migration
+  preserves gaps and selected slots, and retains original stored bytes. Legacy
+  external world anchors remain standalone until their source pose is known.
+- Market migration `space_0010` admits Items; the Items listing includes existing
+  v8 BlockSet and Entity rows while preserving immutable objects and counters.
+  Deduplication excludes template ids and all display names; admission validates
+  aggregate geometry, component, seat, constraint and script budgets.
+- Default world Copy (`R`) combines orange selected terrain with complete entities
+  inside the cyan outer box. Component-local Copy keeps its existing behavior;
+  `T` continues to copy selected geometry only.
+- Successful Hammer construction switches to Wrench after placement or component
+  installation completes, including frame-sliced builds. Failed placement preserves
+  Hammer; a manually selected tool during a bulk job is retained.
 
 ## 2026-09 — Inventory v7 and unified Protobuf transport
 

@@ -66,6 +66,8 @@ export interface SpaceBootstrapPayload {
   websocket_url: string;
   world: {
     id: string;
+    slug?: string | null;
+    is_default?: boolean;
     name: string;
     seed: number;
     terrain_generator_version: number;
@@ -120,6 +122,8 @@ export function parseSpaceBootstrapPayload(value: unknown): SpaceBootstrapPayloa
     || payload?.queue_enabled !== true
     || !isBoundedString(payload?.websocket_url, 2048)
     || !isBoundedString(world?.id, 128)
+    || !(world?.slug === undefined || world.slug === null || isBoundedString(world.slug, 64))
+    || !(world?.is_default === undefined || typeof world.is_default === 'boolean')
     || !isBoundedString(world?.name, 128)
     || !isBoundedInteger(world?.seed, -2_147_483_648, 2_147_483_647)
     || !isBoundedInteger(world?.terrain_generator_version, 1, 1_000_000)

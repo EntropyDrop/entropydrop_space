@@ -53,6 +53,14 @@ const arm = self.child("arm");
 if (arm) arm.setLocalSpin([0, 1, 0], 60);
 ```
 
+## Portable Items and runtime Entity scope
+
+- Backpack and Market share a portable Item template: `id`, `name`, an optional BlockSet, and an Entity list. The wrapper reuses complete Entity component trees, physics defaults, scripts, seats and constraints.
+- Independent Item placement stamps BlockSet voxels into world terrain and creates each Entity tree as a separate runtime Entity in one shared construction frame. Static BlockSet voxels have no component scripts or Entity start/stop lifecycle.
+- `ctx.entityId` identifies the current runtime Entity, not the Item template id. `ctx.root` and `self` belong to that Entity; component ids and `self.child(id)` lookups are scoped to its component tree. Separate Entity entries may reuse component ids.
+- An Item containing one Entity and no static blocks can instead be installed as a component of a stopped target Entity. Its component ids are remapped into the target tree; scripts then run in the target Entity context. Mixed or multiple-Entity Items cannot be installed as one component.
+- Item integration does not add a runtime Item object, backpack access, or Item-wide start/stop to entityAPI V3. Use the existing component, world voxel, nearby Entity and messaging APIs for runtime behavior. spaceAPI world creation still accepts standalone Entity or BlockSet resources, rather than an Item wrapper.
+
 ## Defaults and coordinate conventions
 
 - Coordinates are right-handed and Y-up: +X right, +Y up, -Z forward. Euler angles use YXZ order; quaternions are `[x,y,z,w]`.
@@ -277,6 +285,7 @@ Extends Value; inherited typed data accessors are available.
 
 | API | Description |
 | --- | --- |
+| `getInfo(): Value` | Callable SDK signature. |
 | `get voxels(): Voxels` | Callable SDK signature. |
 | `get microVoxels(): MicroVoxels` | Callable SDK signature. |
 | `entities(origin: f64[], radius: f64 = 16): Value` | Callable SDK signature. |
@@ -441,6 +450,7 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 | API | Description |
 | --- | --- |
 | `ctx.world.apiVersion` | Current world API version: `3`. |
+| `ctx.world.getInfo(): Value` | Read the current runtime world: `id`, `slug`, `name`, `seed`, `terrainGeneratorVersion`, and `width`, `height`, `length` in metres. Use typed Value getters. Identity strings can be empty in engine-only fixtures without server metadata. |
 | `ctx.world.voxels.get(position)` | Read a real standard world voxel as `{block,color,materialId}` plus the current tick's admitted-write overlay; maximum 256 combined standard/micro host reads per entity tick. |
 | `ctx.world.voxels.set(position, options?)` | Queue a standard placement; `options.materialId` is `0` (default) or `1` (emissive), and the admitted result is provisional `{ok:true,placed:1,reason:'queued'}`. |
 | `ctx.world.voxels.clear(position)` | Queue removal of one standard voxel without deleting micro voxels in its cell. |
@@ -456,6 +466,10 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 | `ctx.world.entitiesInChunk(chunkId: string)` | Filter nearby entities by wrapped chunk ID `"cx,cz"`. |
 | `ctx.world.raycast(origin, direction, maxDistance=24)` | Compatibility form: bounded synchronous standard-world-voxel raycast. |
 | `ctx.world.raycastWithOptions(origin: f64[], direction: f64[], options: Value)` | Full existing engine raycast over standard/micro world voxels and/or entities. Returns normalized kind, voxelKind, IDs, block/color, normal, position, and distance; maximum 64 calls per entity tick. |
+
+> Every entity executes in its selected world. All ctx.world voxel reads, writes, entity queries, raycasts, players and messages stay in that world; equal coordinates in Nature and Copper Metropolis identify different terrain.
+
+> External agents select worlds through spaceAPI: GET /space/api/v2/worlds, resolve nature (default alias) or copper-metropolis to the returned UUID, and use that UUID for construction and configuration. Entity programs have no HTTP credentials or network access and cannot switch runtime worlds.
 
 > World writes never overwrite occupied cells or implicitly convert between standard and micro voxels. X/Z wrap automatically.
 

@@ -141,6 +141,7 @@ export class HostedSimulation {
       canAcceptLocalMutation: () => this.mutations.length < 256,
     } as any;
     const manager = new ContraptionManager(this.scene, this.world, null, null);
+    manager.setWorldIdentity({ id: input.world_id, slug: input.world_slug, name: input.world_name });
     manager.setPhysics(new ContraptionPhysics(this.world));
     manager.entityPersistenceMode = 'remote';
     manager.setRuntimeContextProvider(() => ({

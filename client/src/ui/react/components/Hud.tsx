@@ -34,6 +34,8 @@ import { SiDiscord } from 'react-icons/si';
 import { formatByteRate } from '../../../bootstrap/NetworkTraffic.ts';
 
 import { LuShovel } from "react-icons/lu";
+import { ModelingPanel } from './ModelingPanel.tsx';
+import modelingToolSvg from '../../../assets/icons/modeling-tool.svg?raw';
 
 function getHotbarToolIcon(toolValue: string): React.ReactNode {
   switch (toolValue) {
@@ -49,6 +51,8 @@ function getHotbarToolIcon(toolValue: string): React.ReactNode {
       return <LiaHammerSolid size={20} className="slot-pixel-icon" aria-hidden="true" />;
     case SpecialTool.WRENCH:
       return <LiaWrenchSolid size={20} className="slot-pixel-icon" aria-hidden="true" />;
+    case SpecialTool.MODELING:
+      return <span className="slot-pixel-icon modeling-tool-icon" aria-hidden="true" dangerouslySetInnerHTML={{ __html: modelingToolSvg }} />;
     default:
       return <LiaCubeSolid size={20} className="slot-pixel-icon" aria-hidden="true" />;
   }
@@ -901,6 +905,8 @@ export function Hud() {
                   <SelectorPanel />
                 ) : activeTool === SpecialTool.WRENCH ? (
                   <WrenchPanel />
+                ) : activeTool === SpecialTool.MODELING ? (
+                  <ModelingPanel />
                 ) : (
                   <PaletteBar isBrush={activeTool === SpecialTool.BRUSH} />
                 )}

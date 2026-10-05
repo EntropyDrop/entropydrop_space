@@ -242,6 +242,24 @@ class ComponentSeat(StrictResourceModel):
         return self
 
 
+class ComponentDecoration(StrictResourceModel):
+    id: StrictStr = Field(min_length=1, max_length=64)
+    position: Vector3 | None = None
+    rotation: Quaternion | None = None
+    scale: Vector3 | None = None
+    color: StrictInt = Field(default=0, ge=0, le=0xFFFFFF)
+    materialId: StrictInt = Field(default=0, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_decoration(self):
+        from space.decorations import normalize_decoration
+        canonical = normalize_decoration(self.model_dump(exclude_none=True))
+        self.position = tuple(canonical["position"]) if "position" in canonical else None
+        self.rotation = tuple(canonical["rotation"]) if "rotation" in canonical else None
+        self.scale = tuple(canonical["scale"]) if "scale" in canonical else None
+        return self
+
+
 class EntityComponent(StrictResourceModel):
     id: StrictStr = Field(min_length=1, max_length=64)
     name: StrictStr = Field(default="", max_length=80)
@@ -255,6 +273,7 @@ class EntityComponent(StrictResourceModel):
     scriptLanguage: StrictStr = Field(default="", max_length=32)
     scriptDisabled: StrictBool = False
     seats: list[ComponentSeat] = Field(default_factory=list, max_length=SPACE_MARKET_MAX_SEATS)
+    decorations: list[ComponentDecoration] = Field(default_factory=list, max_length=1024)
     children: list["EntityComponent"] = Field(default_factory=list, max_length=SPACE_MARKET_MAX_COMPONENTS - 1)
 
     @model_validator(mode="after")
@@ -276,6 +295,9 @@ class EntityComponent(StrictResourceModel):
             _validate_voxel_collection(self.blocks, lambda _block: self.id)
             self.blocks.sort(key=_voxel_sort_key)
         self.children.sort(key=lambda child: child.id)
+        if len({decoration.id for decoration in self.decorations}) != len(self.decorations):
+            raise ValueError("decoration ids must be unique within a component")
+        self.decorations.sort(key=lambda decoration: decoration.id)
         return self
 
 
@@ -342,9 +364,10 @@ class EntityPayload(StrictResourceModel):
         total_blocks = 0
         total_script_bytes = 0
         total_seats = 0
+        total_decorations = 0
 
         def visit(component: EntityComponent, depth: int) -> None:
-            nonlocal total_blocks, total_script_bytes, total_seats
+            nonlocal total_blocks, total_script_bytes, total_seats, total_decorations
             if depth > SPACE_MARKET_MAX_COMPONENT_DEPTH:
                 raise ValueError("component hierarchy exceeds maximum depth 16")
             if component.id in known_ids:
@@ -352,6 +375,7 @@ class EntityPayload(StrictResourceModel):
             known_ids.add(component.id)
             total_blocks += len(component.blocks)
             total_seats += len(component.seats)
+            total_decorations += len(component.decorations)
             if component.script is not None:
                 total_script_bytes += len(component.script.encode("utf-8"))
             for child in component.children:
@@ -366,6 +390,8 @@ class EntityPayload(StrictResourceModel):
             raise ValueError("entity scripts exceed 512 KiB in total")
         if total_seats > SPACE_MARKET_MAX_SEATS:
             raise ValueError("entity exceeds 256 seats")
+        if total_decorations > 1024:
+            raise ValueError("entity exceeds 1024 decorations")
         _validate_stopped_entity_grid(self.root)
 
         constraint_ids = [constraint.id for constraint in self.constraints]
@@ -400,7 +426,7 @@ class ItemPayload(StrictResourceModel):
         if not self.id.strip():
             raise ValueError("item template id may not be blank")
         self.name = self.name.strip()
-        totals = {"blocks": 0, "components": 0, "constraints": 0, "seats": 0, "scripts": 0}
+        totals = {"blocks": 0, "components": 0, "constraints": 0, "seats": 0, "scripts": 0, "decorations": 0}
         boxes = []
         if self.blockSet:
             totals["blocks"] += len(self.blockSet.blocks)
@@ -414,6 +440,7 @@ class ItemPayload(StrictResourceModel):
             totals["blocks"] += len(component.blocks)
             totals["components"] += 1
             totals["seats"] += len(component.seats)
+            totals["decorations"] += len(component.decorations)
             totals["scripts"] += len((component.script or "").encode("utf-8"))
             for child in component.children:
                 count(child)
@@ -439,6 +466,7 @@ class ItemPayload(StrictResourceModel):
             "blocks": SPACE_MARKET_MAX_BLOCKS, "components": SPACE_MARKET_MAX_COMPONENTS,
             "constraints": SPACE_MARKET_MAX_CONSTRAINTS, "seats": SPACE_MARKET_MAX_SEATS,
             "scripts": SPACE_MARKET_MAX_TOTAL_SCRIPT_BYTES,
+            "decorations": 1024,
         }
         if not totals["blocks"]:
             raise ValueError("item must contain at least one voxel")

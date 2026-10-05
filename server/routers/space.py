@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, defer
 
 from space import auth
 from space import models
+from space.worlds import find_world_spec, world_identity
 import space_surface
 from config import settings
 from space.database import get_db
@@ -74,6 +75,8 @@ _last_receipt_cleanup_at = 0.0
 
 class SpaceWorldResponse(BaseModel):
     id: str
+    slug: str | None = None
+    is_default: bool = False
     name: str
     seed: int
     terrain_generator_version: int
@@ -598,6 +601,9 @@ def _get_or_create_world(
         models.SpaceWorld.id == world_id
     ).first()
     if world:
+        if world_id == settings.SPACE_DEFAULT_WORLD_ID and world.name == "EntropyDrop Space":
+            world.name = "Nature"
+            db.commit()
         return world
 
     world = models.SpaceWorld(
@@ -628,44 +634,18 @@ def _get_or_create_default_world(db: Session) -> models.SpaceWorld:
     return _get_or_create_world(
         db,
         world_id=settings.SPACE_DEFAULT_WORLD_ID,
-        name="EntropyDrop Space",
+        name="Nature",
         seed=settings.SPACE_WORLD_SEED,
         terrain_generator_version=1,
     )
 
 
 def _get_or_create_bootstrap_world(db: Session, requested_world: str | None) -> models.SpaceWorld:
-    requested = (requested_world or "").strip().lower()
-    if not requested or requested in {"default", settings.SPACE_DEFAULT_WORLD_ID.lower()}:
-        return _get_or_create_default_world(db)
-    development_worlds = (
-        ("copper-metropolis", settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
-         "Copper Metropolis", settings.SPACE_COPPER_METROPOLIS_WORLD_SEED, 2),
-        ("aether-archipelago", settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID,
-         "Aether Archipelago", settings.SPACE_AETHER_ARCHIPELAGO_WORLD_SEED, 3),
-        ("colossus-harbor", settings.SPACE_COLOSSUS_HARBOR_WORLD_ID,
-         "Colossus Harbor", settings.SPACE_COLOSSUS_HARBOR_WORLD_SEED, 4),
-        ("titan-canyon", settings.SPACE_TITAN_CANYON_WORLD_ID,
-         "Titan Canyon", settings.SPACE_TITAN_CANYON_WORLD_SEED, 5),
-        ("astral-foundry", settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID,
-         "Astral Foundry", settings.SPACE_ASTRAL_FOUNDRY_WORLD_SEED, 6),
-        ("brutalist-dusk", settings.SPACE_BRUTALIST_DUSK_WORLD_ID,
-         "Brutalist Dusk", settings.SPACE_BRUTALIST_DUSK_WORLD_SEED, 7),
-        ("mixed", settings.SPACE_MIXED_WORLD_ID, "Mixed", settings.SPACE_MIXED_WORLD_SEED, 8),
-    )
-    for alias, world_id, name, seed, version in development_worlds:
-        if requested not in {alias, world_id.lower()}:
-            continue
-        if settings.ENVIRONMENT.lower() not in {"dev", "development", "test", "testing"}:
-            raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
-        return _get_or_create_world(
-            db,
-            world_id=world_id,
-            name=name,
-            seed=seed,
-            terrain_generator_version=version,
-        )
-    raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
+    spec = find_world_spec(requested_world)
+    if spec is None:
+        raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
+    return _get_or_create_world(db, world_id=spec.id, name=spec.name, seed=spec.seed,
+                               terrain_generator_version=spec.terrain_generator_version)
 
 
 def _world_terrain_revision(db: Session, world: models.SpaceWorld) -> int:
@@ -821,6 +801,7 @@ def bootstrap_space(
         "websocket_url": settings.SPACE_WS_URL,
         "world": {
             "id": str(world.id),
+            **world_identity(str(world.id)),
             "name": world.name,
             "seed": world.seed,
             "terrain_generator_version": world.terrain_generator_version,

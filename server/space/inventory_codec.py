@@ -8,6 +8,7 @@ from typing import Any, Literal
 from google.protobuf.message import DecodeError
 
 from space.contracts import inventory_pb2
+from space.decorations import normalize_decorations as _normalize_decorations
 
 
 from space.voxel_grid import MICRO_DIVISIONS
@@ -18,6 +19,13 @@ InventoryKind = Literal["item", "blockset", "entity", "colorset"]
 
 class InventoryCodecError(ValueError):
     pass
+
+
+def normalize_decorations(value):
+    try:
+        return _normalize_decorations(value)
+    except (ValueError, TypeError) as error:
+        raise InventoryCodecError(str(error)) from error
 
 
 def _canonical_double(value: Any) -> float:
@@ -264,6 +272,17 @@ def _encode_component(message, component: dict[str, Any], include_name: bool) ->
         _set_quaternion(message.local_rotation, component["localRotation"])
     if component.get("anchorRotation") is not None:
         _set_quaternion(message.anchor_rotation, component["anchorRotation"])
+    for decoration in normalize_decorations(component.get("decorations", [])):
+        encoded = message.decorations.add()
+        encoded.id = decoration["id"]
+        encoded.color_rgb = decoration["color"]
+        encoded.material_id = decoration.get("materialId", 0)
+        if "position" in decoration:
+            _set_vector(encoded.position, decoration["position"])
+        if "rotation" in decoration:
+            _set_quaternion(encoded.rotation, decoration["rotation"])
+        if "scale" in decoration:
+            _set_vector(encoded.scale, decoration["scale"])
 
 
 def _decode_seat(component_id: str, seat) -> dict[str, Any]:
@@ -304,6 +323,14 @@ def _decode_component(message) -> dict[str, Any]:
         result["localRotation"] = _quaternion(message.local_rotation)
     if message.HasField("anchor_rotation"):
         result["anchorRotation"] = _quaternion(message.anchor_rotation)
+    if message.decorations:
+        result["decorations"] = normalize_decorations([{
+            "id": decoration.id, "color": decoration.color_rgb,
+            "materialId": decoration.material_id,
+            **({"position": _vector(decoration.position)} if decoration.HasField("position") else {}),
+            **({"rotation": _quaternion(decoration.rotation)} if decoration.HasField("rotation") else {}),
+            **({"scale": _vector(decoration.scale)} if decoration.HasField("scale") else {}),
+        } for decoration in message.decorations])
     return result
 
 

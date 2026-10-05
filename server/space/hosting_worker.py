@@ -176,7 +176,9 @@ def prepare(db, world_id, instance_id, entity_id=None, cpu_ids=None):
     ).all()}
     running = {str(e.id) for e in funded}
     duration_ms = min([STEP_MS] + [int(e.hosting_remaining_ms) for e in funded if e.hosting_remaining_ms > 0])
-    payload = {"world_id": world_id, "seed": world.seed,
+    from space.worlds import world_identity, world_display_name
+    payload = {"world_id": world_id, "world_slug": world_identity(world_id)["slug"],
+        "world_name": world_display_name(world), "seed": world.seed,
         "terrain_generator_version": world.terrain_generator_version,
         "steps": duration_ms // 50,
         "epoch": lease.epoch, "terrain_revision": terrain_revision(db, world_id),

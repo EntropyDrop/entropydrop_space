@@ -5,27 +5,35 @@
 The canonical schemas live in `entropydrop_space/proto/`:
 
 - `inventory.proto` — portable `InventoryResource` (v8) and backpack-independent content.
-- `backpack.proto` — browser-local backpack state (v9), never uploaded.
+- `backpack.proto` — browser-local backpack state (v10), never uploaded.
 - `space_api.proto` — `entropydrop.space.api.v2` binary REST request envelopes whose
   `definition` field carries raw canonical `InventoryResource` bytes.
+
+Inventory v8 includes the additive `Item` wrapper: template `id`, display `name`, an
+optional existing `BlockSet`, and `entity_list` of existing `Entity` trees. Each tree
+keeps its component-id namespace, scripts, physics, seats and constraints. Backpack
+v10 merges BlockSet and Entity slots into one Item collection with explicit v8/v9
+migration; world entity APIs retain their standalone Entity contract. See the
+[canonical Item contract](../../../proto/README.md#unified-items).
 
 This directory retains the generated Python bindings so the Python API can run without a
 Node or engine checkout. `inventory_v6.proto` is a legacy read-only copy of the retired v6
 schema, used only by the `space_0004` entity migration; it is never served or used by the
 running API.
 
-From the backend root, with protoc 33.2 (Python gencode 6.33.2):
+From `server/`, with protoc 33.2 (Python gencode 6.33.2):
 
 ```sh
-protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/inventory.proto
-protoc --proto_path=space/contracts=../entropydrop_space/proto --python_out=. space/contracts/space_api.proto
+protoc --proto_path=space/contracts=../proto --python_out=. space/contracts/inventory.proto
+protoc --proto_path=space/contracts=../proto --python_out=. space/contracts/space_api.proto
 protoc -I. --python_out=. space/contracts/inventory_v6.proto   # legacy migration reader
 ```
 
 The virtual path keeps the existing `space.contracts.inventory_pb2` /
 `space.contracts.space_api_pb2` module and Protobuf descriptor identity. Regenerate and
-check in the bindings whenever the shared schema changes; `space/sync_agent_docs.py
---protobuf` verifies the current bindings against the engine schemas byte for byte.
+check in the bindings whenever the shared schema changes;
+`python3 tools/sync_server_contracts.py --check --protobuf` from the workspace root
+verifies the bindings and public reference copies against the canonical schemas.
 `protocol.proto` and `schema.sql` remain the backend's multiplayer storage contracts.
 
 ## Guardrails
@@ -49,3 +57,8 @@ rewrites v7 world entities to v8, then `python -m space.migrate_market_v8` upgra
 market objects and rows to the gradient-aware v8 contract. No database or object-store
 content is deleted except superseded v7 market objects after their v8 replacements are
 durably stored and committed.
+
+`space_0010` admits the `item` market kind without rewriting existing v8 objects,
+digests, attribution, likes or download counts. Items listings include `item`,
+`blockset` and `entity` rows; Color Sets stay separate. Apply this migration before
+publishing mixed Items. Its downgrade requires restoring the pre-release backup.

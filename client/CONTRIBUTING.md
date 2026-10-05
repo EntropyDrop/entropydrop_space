@@ -15,15 +15,19 @@ npm run audit:deps --workspace @entropydrop/space
 ```
 
 `entropydrop_space/proto/` owns the shared contracts: `inventory.proto`
-(portable resource, v7), `backpack.proto` (browser-local state, v8) and
+(portable resource, v8), `backpack.proto` (browser-local state, v10) and
 `space_api.proto` (binary REST request envelopes, v2). See
 [`proto/README.md`](../proto/README.md) for the
 versioning rules and generation commands. After any schema change run
 `npm run generate:protobuf` and commit the regenerated TypeScript bindings and
-descriptor in the engine repository. Shared resource or API-envelope changes
+descriptor under `engine/src/generated/`. Unified Item is an additive inventory v8
+alternative that reuses `BlockSet` and `Entity`; backpack v10 merges their local
+collections and explicitly reads v8/v9 storage. Shared resource or API-envelope changes
 must also regenerate both backend Python bindings (`inventory_pb2.py`,
-`space_api_pb2.py`) and sync the public agent reference copies with
-`entropydrop_backend/space/sync_agent_docs.py`. `npm run check` runs the engine
+`space_api_pb2.py`). Sync the public agent reference copies with
+`python3 tools/sync_server_contracts.py`, then verify with
+`python3 tools/sync_server_contracts.py --check --protobuf` from the workspace root.
+`npm run check` runs the engine
 checks (including `check:protobuf`) and the frontend integration tests.
 
 Add a regression test for behavior changes. Browser-facing changes should also

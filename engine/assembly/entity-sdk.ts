@@ -137,6 +137,7 @@ export class Component extends Value {
   setPivot(v: f64[]): void { this.call("setPivot", args1(Value.vector(v))); }
 }
 export class World extends Value {
+  getInfo(): Value { return this.call("getInfo"); }
   get voxels(): Voxels { return new Voxels(read(this.handle, "voxels")); }
   get microVoxels(): MicroVoxels { return new MicroVoxels(read(this.handle, "microVoxels")); }
   entities(origin: f64[], radius: f64 = 16): Value { return this.call("entities", args2(Value.vector(origin), Value.number(radius))); }

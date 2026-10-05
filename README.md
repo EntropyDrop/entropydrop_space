@@ -36,8 +36,20 @@ Development also provisions the Copper Metropolis world, generated from the
 terrain-lab algorithm with terrain generator version 2. Enter it at
 `/space/app/?world=copper-metropolis` in the integrated local frontend, or at
 `https://space-dev-908123.entropydrop.com/?world=copper-metropolis` on the
-private development domain. Omitting `world` continues to select the default
-nature world. The alternate world is intentionally unavailable in production.
+private development domain. The default natural world is named **Nature**:
+`?world=nature` selects it, and `default` or an omitted selector remain compatible.
+The alternate world is intentionally unavailable in production.
+Copper has coherent old-town, garden, industrial, terraced, civic and business
+districts. Larger floor plates, gently changing neighbourhood heights and occasional
+station halls, courtyard complexes, terraced megastructures and sky gates give the
+city a varied distant silhouette. Seeded parks include paths, trees and reflecting pools.
+
+Agents discover available worlds through authenticated `GET /space/api/v2/worlds`,
+resolve `nature` or `copper-metropolis` to a backend-specific UUID, and join with
+`POST /space/api/v2/worlds/{world}/join`. All entity, terrain and configuration
+operations retain that UUID. Entity code reads its current world through
+`ctx.world.getInfo()`, and the client copies the current world into its Agent Prompt.
+See [the world-selection guide](server/space/agent/worlds.md).
 
 Development also provisions Aether Archipelago (seed 42, generator version 3),
 ported from terrain lab with floating islands, castles, bridges, crystals and
@@ -49,6 +61,11 @@ private development domain. This world is unavailable in production.
 
 ## Contracts
 
+The backpack and Market use one Item concept for static blocks, entities, or both.
+An Item reuses an optional `BlockSet` and a list of existing `Entity` trees;
+inventory remains v8 and browser-local backpack state is v10. See the
+[Item contract and migration rules](proto/README.md#unified-items).
+
 ```sh
 npm run generate:protobuf
 npm run check:protobuf
@@ -56,7 +73,7 @@ npm run docs:generate
 npm run docs:check
 ```
 
-Protobuf checks require protoc 33.2. Schemas and wire formats are unchanged.
+Protobuf checks require protoc 33.2.
 Python bindings and public Agent copies live in `server/space/`. Verify them with:
 
 ```sh

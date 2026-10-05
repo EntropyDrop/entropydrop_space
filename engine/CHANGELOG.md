@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10 — Portable Items and backpack v10
+
+- Add an inventory v8 Item alternative that reuses optional static BlockSet geometry
+  and complete Entity trees, with relative root poses and Item-frame world anchors.
+- Preserve independent Entity component-id namespaces and validate aggregate voxel,
+  component, constraint, seat and script limits, plus combined grid occupancy.
+- Exclude Item template ids and display names from canonical content digests while
+  retaining the standalone Entity and BlockSet wire envelopes.
+- Write backpack v10 with shared Item slots and explicitly migrate v8/v9 collections,
+  preserving all 198 positions and the selected index. Keep legacy absolute-world
+  anchors in their original envelope until the source world pose is available.
+
 ## 2026-09 — Joint and contact solvers in WASM
 
 - Run all point, hinge, limited-hinge and weld iterations against resident f64

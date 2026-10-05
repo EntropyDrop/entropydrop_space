@@ -79,7 +79,7 @@ test('Agent Build reuses external-agent instructions and existing key management
   assert.match(settings, /<SpaceAgentInstructions\s*\/>/);
   assert.match(settings, /client\.create\(name\.trim\(\)\)/);
   assert.match(settings, /client\.revoke\(apiKey\.id\)/);
-  assert.match(guide, /spaceAgentPrompt\(connection\.origin\)/);
+  assert.match(guide, /spaceAgentPrompt\(connection\.origin, connection\.worldSelector\)/);
   assert.match(guide, /navigator\.clipboard\.writeText\(prompt\)/);
   assert.doesNotMatch(modal, /AgentModelField|runSpaceBuildAgentTurn|saveAgentSettings|commit\(|preview\(/);
 });

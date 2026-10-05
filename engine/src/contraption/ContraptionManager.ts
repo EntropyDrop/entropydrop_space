@@ -94,6 +94,8 @@ export class ContraptionManager {
   declare entitySelection: any;
   declare selectionHost: any;
   declare worldId: string;
+  declare worldSlug: string;
+  declare worldName: string;
   declare lastEntitySaveTime: number;
   declare persistentStorage: SpaceStorage | null;
   declare entityPersistenceMode: 'browser' | 'remote' | 'none';
@@ -110,6 +112,8 @@ export class ContraptionManager {
     this.lastEntityChunkWindow = null;
     this.nextId = 1;
     this.worldId = 'default';
+    this.worldSlug = '';
+    this.worldName = '';
     this.lastEntitySaveTime = 0;
     this.persistentStorage = persistentStorage;
     this.entityPersistenceMode = 'browser';
@@ -292,6 +296,7 @@ export class ContraptionManager {
 
     this.scriptWorldApi = Object.freeze({
       apiVersion: 3,
+      getInfo: () => this.getWorldInfo(),
       voxels: worldVoxels,
       microVoxels: worldMicroVoxels,
       entities: worldEntities,
@@ -969,7 +974,26 @@ export class ContraptionManager {
   }
 
   setWorldId(worldId: string) {
+    if (this.worldId !== String(worldId || 'default')) {
+      this.worldSlug = '';
+      this.worldName = '';
+    }
     this.worldId = String(worldId || 'default');
+  }
+
+  setWorldIdentity(world: { id: string; slug?: string | null; name?: string }) {
+    this.setWorldId(world.id);
+    this.worldSlug = String(world.slug || '');
+    this.worldName = String(world.name || '');
+  }
+
+  getWorldInfo() {
+    return Object.freeze({
+      id: this.worldId, slug: this.worldSlug, name: this.worldName,
+      seed: this.world?.terrainGen?.seed ?? 0,
+      terrainGeneratorVersion: this.world?.terrainGen?.version ?? 1,
+      width: TORUS_SIZE_X, height: CHUNK_SIZE_Y, length: TORUS_SIZE_Z,
+    });
   }
 
   /** Select browser persistence for offline worlds, backend persistence online, or none to disable persistence. */
@@ -2221,6 +2245,7 @@ export class ContraptionManager {
         useGravity: slot.useGravity,
         collisionEnabled: slot.collisionEnabled,
         seats: slot.seats,
+        decorations: slot.decorations,
         behaviorPrompt: restoreState?.behaviorPrompt,
         agentInterpretation: restoreState?.agentInterpretation,
         localCenter: restoreState?.localCenter,

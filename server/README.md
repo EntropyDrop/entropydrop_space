@@ -56,6 +56,21 @@ Copper's TypeScript grammar uses the same kernels in the Node surface runtime.
 Install the pinned Python requirements when updating. No terrain/schema migration
 or snapshot invalidation is needed. See [kernel controls and benchmarks](../engine/wasm/README.md).
 
+After changing Copper's generation grammar, update the development terrain and
+hosting runtime bundles, then clear only that world's generated far-surface cache:
+
+```sh
+# Run inside the development API container, or server/ with its environment.
+PYTHONPATH=. python tools/clear_copper_surface_cache.py --dry-run
+PYTHONPATH=. python tools/clear_copper_surface_cache.py
+```
+
+The command requires the development environment and the configured Copper world
+(generator version 2). It retains authored chunk edits and other world data.
+The API's background job rebuilds the snapshots from the updated grammar, starting
+at spawn. New snapshot digests automatically replace browser disk-cache entries;
+Redis does not hold this terrain cache.
+
 Terrain edit AOIs can be rectangular: `GET /worlds/{id}/terrain-edits` accepts
 `radius_chunks_z` alongside the existing X radius `radius_chunks`; heartbeat
 accepts the matching `terrain_radius_chunks_z`. Omitting Z retains the original
@@ -67,6 +82,14 @@ surface snapshots still cover the world, including when flying above the tube.
 
 
 Agent connection discovery is public at `GET /space/api/v2/agent/authorization`.
+Authenticated world discovery is `GET /space/api/v2/worlds`. The default world is
+Nature (`nature`, legacy alias `default`); named development worlds include
+`copper-metropolis`. Resolve through `GET /worlds/{slug_or_uuid}` and explicitly
+join with `POST /worlds/{slug_or_uuid}/join` when needed. Joining requires no online
+browser and does not create a position checkpoint. Position queries accept
+`?world={slug_or_uuid}`; omitting it continues to select Nature. Operational paths
+use the resolved UUID. The public [world guide](space/agent/worlds.md) describes
+membership, environment availability, world isolation and retry behavior.
 Set `SPACE_ACCOUNT_PUBLIC_API_URL` if the agent-reachable account origin differs
 from `SPACE_ACCOUNT_API_URL`; the latter is the default. The account backend must
 include its agent-authorization migration and endpoints, and the main site must

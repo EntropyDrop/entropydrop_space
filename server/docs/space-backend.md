@@ -4,6 +4,16 @@
 
 spaceAPI handles Agent/client HTTP requests; entityAPI is called by entity component code (`self` / `ctx`) inside the runtime.
 
+World selection uses the shared `space/worlds.py` registry. Nature (`nature`,
+legacy alias `default`) retains `SPACE_DEFAULT_WORLD_ID`; development/test worlds
+are exposed only in those environments. Authenticated `GET /worlds` and
+`GET /worlds/{selector}` discover worlds without writes. `POST /worlds/{selector}/join`
+idempotently establishes membership without a player checkpoint or live admission.
+Every operation and retry uses the returned UUID. Bootstrap exposes `slug` and
+`is_default`; position queries may select a slug/UUID with `?world=`. Browser and
+hosted entity runtimes carry the same identity into `ctx.world.getInfo()`.
+See [world API details](../space/agent/worlds.md).
+
 Entity responses include creator attribution `owner_user_id`/`owner_name`, actual
 holder `execution_user_id`/`executor_name`, and `execution_lease_expires_at` display
 metadata. Any world member may operate an unoccupied entity regardless of author.
@@ -76,7 +86,7 @@ state, and snapshot-plus-event persistence**.
 - Each world admits at most **32 occupied session slots**. Reserved handshakes,
   active players, and reconnect-grace sessions consume a slot; excess players
   wait in a FIFO admission queue without creating hot world state.
-- The three-category backpack is browser-local (`space.backpack.v8.pb`). PostgreSQL
+- The Item and Color Set backpack collections are browser-local (`space.backpack.v10.pb`). PostgreSQL
   and the real-time protocol store no backpack slots, selection, names, or quantities.
 - The server's in-memory model and atomic commands enforce standard-block and
   microblock coexistence rules; client state is never trusted.
@@ -654,12 +664,15 @@ position prevents edits rather than weakening the range check. Expired counters 
 windows of one day or less are removed in bounded hourly batches after a two-day retention
 period, so the per-second world buckets do not grow without limit.
 
-The browser owns the backpack. The client persists frontend-only Protobuf v7 backpack
-state under `space.backpack.v8.pb`: IndexedDB stores the bytes directly, while the
+The browser owns the backpack. The client persists frontend-only Protobuf v10 backpack
+state under `space.backpack.v10.pb`: IndexedDB stores the bytes directly, while the
 localStorage fallback stores those same bytes as base64. `.edpb` Protobuf export/import
-carries only the shared `InventoryResource` v7 message and is the manual backup and
-transfer mechanism. The
-server does not know which slot is selected, which name a player gave an unpublished
+carries only the shared `InventoryResource` v8 message and is the manual backup and
+transfer mechanism. One 198-slot Item collection combines the old Entity and BlockSet
+collections, with one selection and nine-slot hotbar; Color Sets retain 99 separate
+slots. The explicit v8/v9 migration preserves gaps and selection, and leaves the
+original stored bytes available. The server does not know which slot is selected,
+which name a player gave an unpublished
 item, or whether two unpublished local entries are identical. Publishing is an explicit
 copy operation; it never synchronizes or mutates a player's local slots.
 
@@ -671,9 +684,10 @@ browser backpack entry --untrusted placement command--> authoritative world muta
                                                     `--> durable world entity definition
 ```
 
-- `ENTITY`, `BLOCK_SET`, and `COLOR_SET` content stays local until the player explicitly
-  publishes it. Entity/block-set placement remains independent from publication.
-- Copying a world selection to the backpack downloads a validated structural snapshot;
+- Item and Color Set content stays local until the player explicitly publishes it.
+  An Item's static BlockSet and independent Entity trees are placed in one shared
+  frame through the existing terrain/entity operations, independently from publication.
+- Copying a world selection to the backpack captures a validated structural snapshot;
   it does not create a server inventory record.
 - Clearing browser site data loses local slots. A player can download a published resource
   again, but the market is not cross-device synchronization, backup, or slot recovery.
@@ -696,25 +710,38 @@ browser backpack entry --untrusted placement command--> authoritative world muta
 
 #### 9.4.1 Canonical publish contract
 
-All published resources use the shared `InventoryResource` Protobuf schema version 7.
+All published resources use the shared `InventoryResource` Protobuf schema version 8.
 The API decodes the binary message and then validates a closed canonical model
 (`extra=forbid`):
 
-- `space-blockset`: a non-empty name and bounded voxel array;
+- `space-item`: a non-empty template `id`, display `name`, optional original `BlockSet`,
+  and `entityList` of original `Entity` trees. Static-only, Entity-only and mixed Items
+  share one publication kind. Combined content must contain at least one voxel;
+- `space-blockset`: a non-empty name and bounded voxel array, retained for compatibility;
 - `space-entity`: one recursive `root` component with at most 63 descendants. Every
   component owns its optional display name, voxels, body/material/gravity/collision config, optional script,
   script-disabled flag, zero or more driver seats, and recursively nested children;
-- `space-colorset`: exactly nine normalized six-digit `#rrggbb` values.
+- `space-colorset`: exactly nine palette entries, each with one solid color or up to
+  five gradient stops, normalized `#rrggbb` colors, and a default or emissive material.
 
 Every voxel has the sole portable block id `1`. Voxel base coordinates (`dx/dy/dz`) are safe integers. A micro voxel provides all three
-integer offsets (`mx/my/mz`) in `0..4`; omission of all three means a standard voxel. The
-API rejects duplicate occupancy, standard/micro overlap in one cell, bounds above 64 cells on an axis, unknown component
+integer offsets (`mx/my/mz`) in `0..7`; omission of all three means a standard voxel. The
+API rejects duplicate occupancy, standard/micro overlap in one cell, bounds above 256 cells on an axis, unknown component
 references, duplicate ids, excessive hierarchy depth, non-finite physics values, oversized scripts,
 and resources above the block/component/constraint/byte budgets. Authored `local_rotation`
 and `anchor_rotation` values are limited to the 24 axis-aligned cube orientations. The
 complete stopped component hierarchy must place every voxel on one shared 0.125-unit
 construction grid without volume overlap; runtime motion is discarded when Stop restores
 that authored pose.
+
+Item admission applies the 65,536-voxel, 64-component, 256-constraint, 256-seat and
+512-KiB total-script budgets across static geometry and all Entity trees together,
+with at most 64 KiB per script, hierarchy depth 16 and 8 MiB of canonical bytes.
+Entity root `local_position`/`local_rotation` values place each tree relative to the
+Item origin. Combined geometry must align to the construction grid without overlap.
+Each Entity has an independent component-id namespace; constraints cannot connect
+separate Entity entries. External-world A endpoints inside an Item use Item coordinates
+and transform once on placement; body-local endpoints retain their own frames.
 
 Component ids are opaque portable ASCII identifiers and are unique across the entity;
 `root` and `world` have no reserved meaning. Tree position alone identifies the root.
@@ -727,8 +754,8 @@ component.
 
 Before object storage, the API recomputes derived counts, normalizes colors and numbers,
 sorts order-insensitive arrays, and deterministically re-encodes Protobuf. SHA-256 is
-computed over deterministic Protobuf with all display names (recursively for components)
-and derived counts omitted, so
+computed over deterministic Protobuf with Item template ids, all display names
+(recursively for components), and derived counts omitted, so
 renaming or reordering cannot evade the global duplicate
 constraint. Every publication has the fixed SPDX license `AGPL-3.0-only`; each user may
 have at most ten publications created during the current UTC day. Permanent deletion
@@ -737,7 +764,7 @@ and upload budgets are not refunded.
 
 New publications upload canonical Protobuf as `application/x-protobuf` to
 `space-market/resources/{resource_id}/{digest}.pb` before the database row is committed.
-If the database write fails, the API removes the unreferenced object. The v7
+If the database write fails, the API removes the unreferenced object. The v8
 schema accepts no older entity wire shape. The 8×8×8 release targets fresh
 terrain content: `space_0003` resets old terrain overlays, entities, market
 resources and derived surface data, and moves the market constraint to version 6.
@@ -752,6 +779,14 @@ first and take a verified backup (`tools/deploy_space.py <dev|prod> --quiesce`).
 The migrations preserve worlds, identities, quotas and billing/outbox records;
 `space_0003` refuses to discard prepaid time or an active hosting authorization.
 This change does not automatically delete database or object-store contents.
+The subsequent `space_0009` migration upgrades world entities to inventory v8;
+`python -m space.migrate_market_v8` upgrades v7 market objects explicitly. Apply
+`space_0010` before publishing Item resources: it admits the new `item` kind without
+rewriting existing v8 BlockSet or Entity objects, digests, publisher attribution,
+likes or downloads. The `kind=item` listing includes all three kinds, while Color
+Sets remain separate. Existing resources keep their original wire envelopes and
+are wrapped when imported into the shared local Item collection; absolute world
+anchors remain standalone until the source world pose is available.
 Voxel ownership follows recursive component nesting, so voxels carry neither component
 indexes nor `part`; mountability is derived solely from explicit component seats.
 
@@ -1208,14 +1243,17 @@ The system is not real-time multiplayer until it passes at least these scenarios
 - One thousand identical world entity instances reuse one structural asset; editing one
   instance does not alter the others.
 - Backpack edits survive a same-browser reload through frontend-local
-  `space.backpack.v8.pb`, create no server inventory rows/messages, and are lost when
+  `space.backpack.v10.pb`, create no server inventory rows/messages, and are lost when
   that browser storage is cleared.
-- Market publication accepts only canonical Protobuf v7 resources, rejects renamed/reordered
+- Market publication accepts only canonical Protobuf v8 resources, rejects renamed/reordered
   duplicates, enforces ten successful publications per UTC day, and fixes the license to
   `AGPL-3.0-only`; direct-CDN previews do not increment downloads, while explicit
   download/like rankings, publisher filtering, and authorized hard deletion converge.
 - Entity placement creates a new `entity_id` without copying velocity or `self.state`;
   block-set placement edits terrain only.
+- Mixed Item placement preserves the relative frame of its static blocks and all
+  independent Entity trees. A single Entity Item can be installed as a component;
+  mixed or multiple-Entity Items require independent placement.
 - An enabled sleeping entity wakes exactly once when overlapping AOIs arrive concurrently,
   remains active through cooldown, and sleeps only after a durable conditional checkpoint.
 - A wake during checkpoint resumes from the frozen state; stale async jobs, checkpoint
@@ -1261,8 +1299,8 @@ implemented.
 | All world entity information | Immutable `build_assets` + `entity_snapshots` + indexed events + coverage manifest | Reliable entity presence; immutable HTTPS definition; 20 Hz runtime deltas | Checkpoint/replay and 1,000 shared definitions recover identically |
 | Enabled entity auto-run in loaded chunks | Durable desired run state, health, lifecycle/ownership epochs | AOI wake references and exhaustive wake/sleep state machine | Concurrent observers wake once; durable sleep, retry, quarantine and handoff tested |
 | Visible player state/orientation/skin/pose | Latest `player_snapshots`, stable player id, and existing `users.skin_url`/`skin_type` | Reliable presence carries URL/model; epoch-gated 20 Hz motion deltas never carry PNG bytes | Missing skin blocks entry; latest checkpoint restores, AOI enter/leave and reconnect reset converge |
-| Browser-only backpack | No inventory tables; frontend-only `space.backpack.v8.pb` Protobuf in IndexedDB/base64 localStorage fallback | Untrusted local placement is revalidated; only accepted world result persists | Reload stays local, clearing storage loses it, server has no backpack endpoint/message |
-| Explicit resource market | Immutable canonical Protobuf v7 content, global SHA-256 uniqueness, publisher/quota metadata, likes and permanent deletion | Authenticated REST publish/list/download/like/delete with a current-publisher filter; no slot synchronization | Protobuf wire fixtures, strict-schema validation, duplicate/order/name equivalence, 10/day, counters/rankings and authorization tests |
+| Browser-only backpack | No inventory tables; frontend-only `space.backpack.v10.pb` with shared Items and separate Color Sets in IndexedDB/base64 localStorage fallback | Untrusted local placement is revalidated; only accepted world result persists | Supported v8/v9 storage migration, reload stays local, clearing storage loses it, no backpack endpoint/message |
+| Explicit resource market | Immutable canonical Protobuf v8 Items and compatible standalone resources, global SHA-256 uniqueness, publisher/quota metadata, likes and permanent deletion | Authenticated REST publish/list/download/like/delete with a current-publisher filter; Items listing includes legacy BlockSet/Entity kinds; no slot synchronization | Protobuf wire fixtures, aggregate Item limits, duplicate/order/name/id equivalence, 10/day, counters/rankings and authorization tests |
 | Maximum 32 online with queue | Fixed session slots, FIFO queue leases and user advisory lock | Queue status/heartbeat, reservation, active and reconnect-grace states | 32 simultaneous admits, 33rd queues, promotion/reconnect never oversubscribes |
 | Real-time WebSocket behavior | No frame history in PostgreSQL | WSS binary protobuf, reliable presence/events, coalesced state, bounded fragmentation/backpressure | Slow client and stale-interest tests cannot delay tick or install obsolete data |
 | Reconnect/idempotency/conflicts | Resume hash, operation id unique index, revisions, event/checkpoint watermarks | Input replay, presence reset, `InterestReset`, compare-and-swap commands | Crash points and 10,000 retries produce one durable result |

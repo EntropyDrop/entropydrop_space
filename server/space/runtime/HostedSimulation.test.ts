@@ -2,12 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeInventoryResource,
+  decodeInventoryResource,
   INVENTORY_PROTOBUF_SCHEMA_VERSION,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { HostedSimulation } from './HostedSimulation.ts';
 
 const SOURCE_ID = '10000000-0000-4000-8000-000000000001';
 const TARGET_ID = '10000000-0000-4000-8000-000000000002';
+
+test('hosted simulation preserves component decorations across checkpoints', async () => {
+  const input = inputFor('self.state.setNumber("count", self.state.getNumber("count") + 1);');
+  const resource: any = decodeInventoryResource(Buffer.from(input.entities[0].definition_base64, 'base64'), 'entity').portable;
+  resource.root.decorations = [{ id: 'trim', color: 0x112233, position: [4, 1, 0], scale: [2, 0.1, 1], materialId: 1 }];
+  input.entities[0].definition_base64 = Buffer.from(encodeInventoryResource('entity', resource)).toString('base64');
+  const first: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(first.faults, []);
+  const restored: any = decodeInventoryResource(Buffer.from(first.entities[0].definition_base64, 'base64'), 'entity').portable;
+  assert.deepEqual(restored.root.decorations, resource.root.decorations);
+  input.entities[0].definition_base64 = first.entities[0].definition_base64;
+  input.entities[0].snapshot = first.entities[0].snapshot;
+  const second: any = await new HostedSimulation(1337).step(input);
+  const checkpoint: any = decodeInventoryResource(Buffer.from(second.entities[0].definition_base64, 'base64'), 'entity').portable;
+  assert.deepEqual(checkpoint.root.decorations, resource.root.decorations);
+  assert.equal(second.entities[0].snapshot.states.root.count, 2);
+});
 
 test('hosted AssemblyScript restores typed state across transaction batches', async () => {
   const input = inputFor('self.state.setNumber("count", self.state.getNumber("count") + 1);');
@@ -30,6 +48,23 @@ test('hosted entity code errors automatically stop execution', async () => {
   assert.equal(result.entities[0].snapshot.physicsSimulationEnabled, false);
   assert.deepEqual(result.entities[0].snapshot.states.root, {});
   assert.match(result.entities[0].snapshot.scriptError, /hosted failure/);
+});
+
+test('hosted entityAPI observes the selected runtime world identity', async () => {
+  for (const [slug, name, version] of [['nature', 'Nature', 1], ['copper-metropolis', 'Copper Metropolis', 2]] as const) {
+    const input = { ...inputFor(`
+      const world = ctx.world.getInfo();
+      self.state.setString("worldId", world.getString("id"));
+      self.state.setString("worldSlug", world.getString("slug"));
+      self.state.setString("worldName", world.getString("name"));
+      self.state.setNumber("generator", world.getNumber("terrainGeneratorVersion"));
+    `), world_id: `test-${slug}`, world_slug: slug, world_name: name, terrain_generator_version: version };
+    const result: any = await new HostedSimulation(1337, version).step(input);
+    assert.deepEqual(result.faults, []);
+    assert.deepEqual(result.entities[0].snapshot.states.root, {
+      worldId: `test-${slug}`, worldSlug: slug, worldName: name, generator: version,
+    });
+  }
 });
 
 function inputFor(script: string, steps = 1) {

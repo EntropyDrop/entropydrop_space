@@ -19,6 +19,7 @@ test('entityAPI V3 contract is valid and renders every supported view', () => {
     'self.body.setMass',
     'self.constraints.create',
     'ctx.world.voxels.set',
+    'ctx.world.getInfo',
     'ctx.selection.createChild',
     'ctx.groundDistance',
     'ctx.messages.received',

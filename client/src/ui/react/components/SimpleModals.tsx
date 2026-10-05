@@ -574,12 +574,13 @@ export function PauseScreen() {
           <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
           <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
           <span><kbd className="key-badge">E</kbd> Backpack / Color sets</span>
-          <span><kbd className="key-badge">1</kbd> Shovel: remove / place 1m blocks</span>
-          <span><kbd className="key-badge">2</kbd> Spoon: micro-carve 8x8x8</span>
-          <span><kbd className="key-badge">3</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy</span>
-          <span><kbd className="key-badge">4</kbd> Hammer: LMB build / attach to entity · RMB / Arrows rotate</span>
-          <span><kbd className="key-badge">5</kbd> Wrench: drag COM axes to move · drag arrows to rotate · hold entity to lift · RMB to start</span>
+          <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy</span>
+          <span><kbd className="key-badge">2</kbd> Hammer: LMB build / attach to entity · RMB / Arrows rotate</span>
+          <span><kbd className="key-badge">3</kbd> Wrench: drag COM axes to move · drag arrows to rotate · hold entity to lift · RMB to start</span>
+          <span><kbd className="key-badge">4</kbd> Shovel: remove / place 1m blocks</span>
+          <span><kbd className="key-badge">5</kbd> Spoon: micro-carve 8x8x8</span>
           <span><kbd className="key-badge">6</kbd> Brush: paint / right-click 2-point dye · Tab micro/standard</span>
+          <span><kbd className="key-badge">7</kbd> Modeling: LMB select / drag · RMB add / draw size · Esc exact values</span>
           <span><kbd className="key-badge">Shift+Click</kbd> Multi-select component blocks</span>
           <span><kbd className="key-badge">C</kbd> Entity editor</span>
           <span><kbd className="key-badge">G</kbd> Assemble contraption / sub-contraption</span>

@@ -396,6 +396,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     Object.freeze(entities);
     return Object.freeze({
       apiVersion: 3,
+      getInfo: () => frozenClone(frame.world?.info || null),
       voxels,
       microVoxels,
       entities,

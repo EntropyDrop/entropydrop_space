@@ -82,6 +82,9 @@ export const MAX_COMPONENT_ID_LENGTH = 64;
 /** Maximum component hierarchy nodes in a single entity. */
 export const MAX_ENTITY_COMPONENTS = 64;
 
+/** Visual-only cubes across one entity or one portable Item. */
+export const MAX_ENTITY_DECORATIONS = 1024;
+
 /** Maximum hierarchy nesting depth in an entity tree. */
 export const MAX_ENTITY_HIERARCHY_DEPTH = 16;
 

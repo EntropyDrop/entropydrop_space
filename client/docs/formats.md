@@ -23,6 +23,22 @@ content` of `item`, `block_set`, `entity` or `color_set`. New backpack items use
 an `entity_list` of original `Entity` messages. Static-only, Entity-only and mixed content
 share one item concept. Runtime entity APIs retain their single-Entity envelope.
 
+The outer wrapper reuses the existing messages:
+
+```proto
+message Item {
+  string id = 1;
+  string name = 2;
+  BlockSet block_set = 3;
+  repeated Entity entity_list = 4;
+}
+```
+
+`block_set` may be absent and `entity_list` may be empty, but their combined content
+must contain at least one voxel. Template ids identify saved Items independently from
+backpack slot indices and newly created world-entity UUIDs. Each Entity retains its own
+component ids, hierarchy, scripts, physics, seats and constraints.
+
 `Voxel` follows the authoritative realtime `VoxelMutation` conventions:
 
 ```proto
@@ -57,6 +73,11 @@ and static geometry together. Root poses inside Item describe each Entity constr
 frame relative to the Item origin. World-constraint A endpoints use Item coordinates
 and transform once on placement; component-local endpoints retain their original frames.
 
+Market migration `space_0010` admits `item`; the Items listing also includes existing
+v8 `blockset` and `entity` rows without rewriting their immutable objects, digests or
+counters. Static and Entity resources are wrapped on backpack import, subject to the
+legacy-world-anchor exception below. See the [Item contract](../../proto/README.md#unified-items).
+
 ## Browser backpack (v10)
 
 `backpack.proto` embeds `entropydrop.space.inventory.v8.InventoryResource` and is never
@@ -81,7 +102,7 @@ message CheckpointEntityRequest { string operation_id = 1; uint64 expected_revis
 message BuildBlocksetRequest  { string operation_id = 1; uint64 created_at_ms = 2; bytes definition = 3; PositionCm position = 4; uint32 yaw_quarter_turns = 5; }
 ```
 
-`definition` is the raw `InventoryResource` v7, so the resource uses the same encoding on
+`definition` is the raw `InventoryResource` v8, so the resource uses the same encoding on
 upload and download. `snapshot_json` is the opaque engine runtime state as UTF-8 JSON;
 it stays JSON until a typed snapshot schema exists. Requests use
 `Content-Type: application/x-protobuf`; the equivalent JSON form with `definition_base64`
@@ -127,6 +148,22 @@ The parser caps each payload at 16 MiB, validates exact lengths, dimensions, sol
 bounds, unique chunk ownership and safe revisions, and verifies SHA-256 and manifest
 identity before installation. Unavailable/dirty zones retain their last valid data;
 `complete: false` means more generation is pending, not that absent zones were deleted.
+
+## Visual decorations
+
+Inventory v8 Component field 14 stores `decorations`: component-local ids, optional
+construction-frame position, unit quaternion, positive XYZ scale, RGB and material.
+Default transforms are omitted. Each centered 1m cube follows its owner; dimensions
+may vary independently from physical voxels. The aggregate limit is 1024 per Entity
+or Item. Decorations are preserved by backpack copies, binary export, market
+validation, entity checkpoints and hosted simulation, without entering physical
+bounds, mass, collision or construction-grid validation.
+
+Tool 7 (Modeling, the triangular trowel) adds a cube with RMB at an entity or component
+surface. LMB selects a decoration and releases the cursor for local position,
+Euler-angle input (stored as a quaternion), XYZ dimensions and appearance controls.
+Entities must be stopped and editable. Duplicate/Delete and Ctrl/Cmd+Z,
+Ctrl/Cmd+Shift+Z provide decoration-only undo/redo during the current session.
 
 ## Local terrain outbox (v3)
 

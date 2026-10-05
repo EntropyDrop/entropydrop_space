@@ -88,8 +88,8 @@ export class InventoryThumbnailRenderer {
   private getItemCacheKey(item: any, size: number): string {
     if (!item) return '';
     if (item.kind === 'item') {
-      const geometry = getInventoryPreviewBlocks(item).map(entry => (
-        `${entry.center.toArray()}:${entry.size}:${entry.color}:${normalizeVoxelMaterialId(entry.materialId)}`
+      const geometry = getInventoryPreviewBlocks(item, true).map(entry => (
+        `${entry.center.toArray()}:${entry.size}:${entry.color}:${normalizeVoxelMaterialId(entry.materialId)}:${entry.scale?.toArray()}:${entry.quaternion?.toArray()}`
       )).join(';');
       return `item:${geometry}:${size}`;
     }
@@ -104,7 +104,8 @@ export class InventoryThumbnailRenderer {
       `${b.localX ?? b.dx}_${b.localY ?? b.dy}_${b.localZ ?? b.dz}_${b.color}_${b.size || 1}_${normalizeVoxelMaterialId(b.materialId)}`
     ).join(';');
 
-    return `${kind}:${name}:${blockCount}:${childCount}:${sample}:${size}`;
+    const decorationSignature = JSON.stringify([item.decorations, (item.childEntities || []).map(child => child.decorations)]);
+    return `${kind}:${name}:${blockCount}:${childCount}:${sample}:${decorationSignature}:${size}`;
   }
 
   /**
@@ -145,7 +146,7 @@ export class InventoryThumbnailRenderer {
     const createdMeshes: THREE.InstancedMesh[] = [];
     try {
       // 1. Convert inventory item into resting / stopped state voxel instances
-      const previewBlocks = getInventoryPreviewBlocks(item);
+      const previewBlocks = getInventoryPreviewBlocks(item, true);
       if (!previewBlocks || previewBlocks.length === 0) return null;
 
       // 2. Compute bounding box
@@ -153,7 +154,7 @@ export class InventoryThumbnailRenderer {
       let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
       for (const block of previewBlocks) {
-        const half = (Number(block.size) || 1) / 2;
+        const half = block.decoration ? block.scale.length() / 2 : (Number(block.size) || 1) / 2;
         minX = Math.min(minX, block.center.x - half);
         minY = Math.min(minY, block.center.y - half);
         minZ = Math.min(minZ, block.center.z - half);
@@ -173,7 +174,7 @@ export class InventoryThumbnailRenderer {
       const boundingRadius = Math.max(0.5, Math.hypot(sizeX, sizeY, sizeZ) / 2);
 
       // 3. Build meshes grouped by block size and material.
-      const blocksByGroup = new Map<string, Array<{ center: THREE.Vector3; color: any; materialId?: number }>>();
+      const blocksByGroup = new Map<string, any[]>();
       for (const block of previewBlocks) {
         const s = Number(block.size) || 1;
         const materialId = normalizeVoxelMaterialId(block.materialId);
@@ -204,6 +205,9 @@ export class InventoryThumbnailRenderer {
             b.center.z - centerZ
           );
           dummy.scale.set(1, 1, 1);
+          dummy.quaternion.identity();
+          if (b.scale) dummy.scale.copy(b.scale);
+          if (b.quaternion) dummy.quaternion.copy(b.quaternion);
           dummy.updateMatrix();
           instancedMesh.setMatrixAt(i, dummy.matrix);
 

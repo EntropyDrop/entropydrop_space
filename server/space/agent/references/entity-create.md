@@ -4,6 +4,13 @@
 
 This guide sends HTTP requests through spaceAPI. Component scripts inside the submitted definition use entityAPI (`self` / `ctx`), executed by the entity runtime.
 
+Unified backpack and Market Items use `InventoryResource.item`, but the world
+entity creation endpoint still requires `InventoryResource.entity`. The example
+below creates one standalone Entity; an Item wrapper is not accepted by this
+endpoint, including an Item containing only one Entity. For mixed creations, use
+separate Entity and BlockSet requests as explained in
+[Item templates and world construction](../spaceAPI.md#unified-item-templates-and-world-construction).
+
 Use [inventory.proto](inventory.proto) as the binary schema. Generate language bindings with your Protobuf toolchain, or use a library that loads `.proto` files. For Python:
 
 ```sh
@@ -19,20 +26,40 @@ The preferred transport sends the canonical resource as raw bytes inside the
 `definition_base64` JSON example below uploads the same canonical bytes and remains
 accepted, so either form stores identical content and shares one content digest.
 
-The following example prepares **one stopped orange cube** six metres east of the player's latest saved position. The player may be offline or inactive; the example uses the saved coordinates even when the checkpoint is stale. Replace the component geometry and scripts with the user's requested construction. It saves a secret-free idempotent request file and does not submit automatically. If the request file already exists, it preserves it for retry.
+The following example prepares **one stopped orange cube** six metres east of the
+player's saved position in the selected world. Set `SPACE_WORLD` to `nature`,
+`copper-metropolis`, or a UUID resolved from the [world catalog](../worlds.md).
+Resolve and join that world before reading its position. The player may be offline;
+a stale checkpoint remains usable. If this world has no saved position, use
+explicit placement coordinates for this world. Replace the component geometry and
+scripts with the requested construction. The example saves a secret-free
+idempotent request file without submitting automatically and preserves it for retry.
 
 ```python
-import base64, json, os, pathlib, urllib.request, uuid
+import base64, json, os, pathlib, urllib.request, urllib.parse, uuid
 import inventory_pb2 as pb
 
 base = os.environ['SPACE_BASE_URL'].rstrip('/')
 key = os.environ['SPACE_API_KEY']
+selector = os.environ.get('SPACE_WORLD', 'nature')
 request_path = pathlib.Path('entity-request.json')
 if not request_path.exists():
-    request = urllib.request.Request(base + '/space/api/v2/players/me/position',
+    world_url = base + '/space/api/v2/worlds/' + urllib.parse.quote(selector, safe='')
+    request = urllib.request.Request(world_url,
+        headers={'Authorization': 'Bearer ' + key})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        world = json.load(response)
+    if not world['joined']:
+        request = urllib.request.Request(world_url + '/join', data=b'', method='POST',
+            headers={'Authorization': 'Bearer ' + key})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            world = json.load(response)
+    request = urllib.request.Request(base + '/space/api/v2/worlds/' + world['id'] + '/players/me/position',
         headers={'Authorization': 'Bearer ' + key})
     with urllib.request.urlopen(request, timeout=20) as response:
         pose = json.load(response)
+    if pose['world_id'] != world['id']:
+        raise SystemExit('Position response belongs to a different world.')
     resource = pb.InventoryResource(schema_version=8)
     root = resource.entity.root
     root.id, root.name = 'chassis', 'Orange cube'
@@ -49,14 +76,14 @@ if not request_path.exists():
         'operation_id': str(uuid.uuid4()),
         'definition_base64': base64.b64encode(resource.SerializeToString(deterministic=True)).decode(),
         'position': {
-            'x_cm': (position['x_cm'] + 600) % 1638400,
+            'x_cm': (position['x_cm'] + 600) % world['width_cm'],
             'y_cm': target_y,
-            'z_cm': position['z_cm'] % 204800,
+            'z_cm': position['z_cm'] % world['length_cm'],
         },
         'yaw_quarter_turns': 0,
         'desired_run_state': 'stopped',
     }
-    request_path.write_text(json.dumps({'world_id': pose['world_id'], 'body': body}))
+    request_path.write_text(json.dumps({'backend_origin': base, 'world_id': world['id'], 'body': body}))
 print('Prepared:', request_path)
 ```
 
@@ -64,6 +91,8 @@ Once the request implements the user's authorized build, submit it:
 
 ```python
 saved = json.loads(request_path.read_text())
+if saved['backend_origin'] != base:
+    raise SystemExit('Retry with the original backend origin.')
 request = urllib.request.Request(
     base + '/space/api/v2/worlds/' + saved['world_id'] + '/entities',
     data=json.dumps(saved['body']).encode(), method='POST',

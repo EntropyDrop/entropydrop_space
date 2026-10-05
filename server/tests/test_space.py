@@ -131,6 +131,8 @@ def test_development_bootstrap_creates_the_copper_metropolis_world(client, db):
     payload = response.json()
     assert payload["world"] == {
         "id": space_router.settings.SPACE_COPPER_METROPOLIS_WORLD_ID,
+        "slug": "copper-metropolis",
+        "is_default": False,
         "name": "Copper Metropolis",
         "seed": space_router.settings.SPACE_COPPER_METROPOLIS_WORLD_SEED,
         "terrain_generator_version": 2,

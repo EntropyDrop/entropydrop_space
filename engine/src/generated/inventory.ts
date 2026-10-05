@@ -48,7 +48,7 @@ export namespace ConstraintType {
  * Canonical encoders normalize every double -0.0 to +0.0; sort BlockSet.blocks
  * and Component.blocks by
  * (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb,material_id);
- * and sort Component.children and Entity.constraints by Unicode code-point id
+ * and sort Component.children, Component.decorations and Entity.constraints by Unicode code-point id
  * order. Color and seat order remains significant and is preserved.
  * Schema v8 adds portable palette gradients and per-entry materials. V7 entity
  * and block-set bytes remain wire-compatible and are upgraded by the database
@@ -200,6 +200,37 @@ export interface Seat {
 }
 
 /**
+ * Visual-only unit cube, centered at the origin. Decorations are editor-pickable
+ * but never contribute collision, mass, inertia, seats, or physical constraints.
+ * Canonical encoders omit default transforms and choose the quaternion sign so
+ * the first nonzero component in (w,x,y,z) is positive.
+ */
+export interface Decoration {
+  /** Unique within the owning Component; stable across edits and persistence. */
+  id?:
+    | string
+    | undefined;
+  /**
+   * Uses the same construction coordinates as the owning Component.blocks,
+   * independent of its current pivot/center of mass. Absent means (0,0,0).
+   */
+  position?:
+    | Vector3
+    | undefined;
+  /** Arbitrary unit quaternion; absent means identity (0,0,0,1). */
+  rotation?:
+    | Quaternion
+    | undefined;
+  /** Positive dimensions along the cube's own XYZ axes; absent means (1,1,1). */
+  scale?: Vector3 | undefined;
+  colorRgb?:
+    | number
+    | undefined;
+  /** 0 = default lit material, 1 = unlit emissive, matching Voxel.material_id. */
+  materialId?: number | undefined;
+}
+
+/**
  * Entity.root and Component.children alone determine root/child hierarchy;
  * do not add a hierarchy kind or index. Component ids are opaque identifiers:
  * no spelling has special root, child, or world semantics. Children recursively
@@ -249,7 +280,14 @@ export interface Component {
     | string
     | undefined;
   /** Only "assemblyscript" is executable. Missing/other languages load as empty code. */
-  scriptLanguage?: string | undefined;
+  scriptLanguage?:
+    | string
+    | undefined;
+  /**
+   * Ownership follows this component through movement, copying and installation.
+   * Order is non-semantic; canonical encoders and decoders sort by id.
+   */
+  decorations?: Decoration[] | undefined;
 }
 
 export interface ConstraintLimits {
@@ -1347,6 +1385,127 @@ export const Seat: MessageFns<Seat> = {
   },
 };
 
+function createBaseDecoration(): Decoration {
+  return { id: "", position: undefined, rotation: undefined, scale: undefined, colorRgb: 0, materialId: 0 };
+}
+
+export const Decoration: MessageFns<Decoration> = {
+  encode(message: Decoration, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== undefined && message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.position !== undefined) {
+      Vector3.encode(message.position, writer.uint32(18).fork()).join();
+    }
+    if (message.rotation !== undefined) {
+      Quaternion.encode(message.rotation, writer.uint32(26).fork()).join();
+    }
+    if (message.scale !== undefined) {
+      Vector3.encode(message.scale, writer.uint32(34).fork()).join();
+    }
+    if (message.colorRgb !== undefined && message.colorRgb !== 0) {
+      writer.uint32(40).uint32(message.colorRgb);
+    }
+    if (message.materialId !== undefined && message.materialId !== 0) {
+      writer.uint32(48).uint32(message.materialId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Decoration {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseDecoration();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.id = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.position = Vector3.decode(reader, reader.uint32());
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.rotation = Quaternion.decode(reader, reader.uint32());
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.scale = Vector3.decode(reader, reader.uint32());
+            continue;
+          }
+          case 5: {
+            if (tag !== 40) {
+              break;
+            }
+
+            message.colorRgb = reader.uint32();
+            continue;
+          }
+          case 6: {
+            if (tag !== 48) {
+              break;
+            }
+
+            message.materialId = reader.uint32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  create<I extends Exact<DeepPartial<Decoration>, I>>(base?: I): Decoration {
+    return Decoration.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Decoration>, I>>(object: I): Decoration {
+    const message = createBaseDecoration();
+    message.id = object.id ?? "";
+    message.position = (object.position !== undefined && object.position !== null)
+      ? Vector3.fromPartial(object.position)
+      : undefined;
+    message.rotation = (object.rotation !== undefined && object.rotation !== null)
+      ? Quaternion.fromPartial(object.rotation)
+      : undefined;
+    message.scale = (object.scale !== undefined && object.scale !== null)
+      ? Vector3.fromPartial(object.scale)
+      : undefined;
+    message.colorRgb = object.colorRgb ?? 0;
+    message.materialId = object.materialId ?? 0;
+    return message;
+  },
+};
+
 function createBaseComponent(): Component {
   return {
     id: "",
@@ -1362,6 +1521,7 @@ function createBaseComponent(): Component {
     anchorRotation: undefined,
     name: "",
     scriptLanguage: "",
+    decorations: [],
   };
 }
 
@@ -1411,6 +1571,11 @@ export const Component: MessageFns<Component> = {
     }
     if (message.scriptLanguage !== undefined && message.scriptLanguage !== "") {
       writer.uint32(106).string(message.scriptLanguage);
+    }
+    if (message.decorations !== undefined && message.decorations.length !== 0) {
+      for (const v of message.decorations) {
+        Decoration.encode(v!, writer.uint32(114).fork()).join();
+      }
     }
     return writer;
   },
@@ -1541,6 +1706,17 @@ export const Component: MessageFns<Component> = {
             message.scriptLanguage = reader.string();
             continue;
           }
+          case 14: {
+            if (tag !== 114) {
+              break;
+            }
+
+            const el = Decoration.decode(reader, reader.uint32());
+            if (el !== undefined) {
+              message.decorations!.push(el);
+            }
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -1581,6 +1757,7 @@ export const Component: MessageFns<Component> = {
       : undefined;
     message.name = object.name ?? "";
     message.scriptLanguage = object.scriptLanguage ?? "";
+    message.decorations = object.decorations?.map((e) => Decoration.fromPartial(e)) || [];
     return message;
   },
 };

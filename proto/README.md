@@ -71,6 +71,20 @@ source hashes in `engine/src/generated/inventory_descriptor.ts` fail `npm run ch
 
 ## Unified Items
 
+`Component.decorations` (field 14) adds visual cubes without changing v8 voxel or
+physics semantics. Each decoration has a component-local id, an optional position
+in the component's voxel construction frame, a unit quaternion, positive XYZ
+dimensions, RGB and material (0 standard, 1 emissive). The unit cube is centered on
+its position. Omitted transforms mean zero translation, identity rotation and
+1m dimensions; component pivot changes preserve its authored position.
+
+Decorations follow their owning component through articulation, copies, exports,
+checkpoints and hosted simulation. They do not affect mass, colliders, voxel counts,
+physical bounds or structural raycasts. Dedicated modeling raycasts and visual
+preview bounds include them. Ids are unique within each component and sorted;
+default transforms are omitted and quaternion signs are canonicalized. The limit
+is 1024 decorations per Entity and per aggregate Item.
+
 `inventory.proto` adds `Item` as an additive v8 resource alternative. An Item contains
 `id`, `name`, an optional original `BlockSet`, and `entity_list` of original `Entity`
 messages. Existing standalone resource tags and runtime entity APIs remain compatible.

@@ -4,9 +4,27 @@
 
 **spaceAPI** is used by agents and clients for authenticated HTTP requests. **entityAPI** is called only by entity component code through `self` and `ctx` inside the runtime. To program an entity, generate entityAPI code and submit it as part of the entity definition through spaceAPI. Reading entityAPI documentation does not grant direct runtime access.
 
-Use the designated backend origin and an authorized `edapi_…` API key. A handoff needs **backend origin + this document URL + the requested build**; credentials are obtained through browser authorization. Documentation and authorization discovery are public; player positions and writes require authentication. Send the key only to the user-approved Space backend in `Authorization: Bearer <API_KEY>`, never in a URL or public artifact.
+Use the designated backend origin and an authorized `edapi_…` API key. A handoff needs **backend origin + target world + this document URL + the requested build**; credentials are obtained through browser authorization. Documentation and authorization discovery are public; world discovery, player positions and writes require authentication. Send the key only to the user-approved Space backend in `Authorization: Bearer <API_KEY>`, never in a URL or public artifact.
 
 `localhost` means the machine executing the request. A remote agent needs a reachable backend. Preserve the user's intended server; do not substitute another server when a connection fails.
+
+## Select a world
+
+Read [world names, discovery, joining and runtime scope](worlds.md). The default
+natural world is **Nature** (`nature`, compatibility alias `default`); the city
+world is **Copper Metropolis** (`copper-metropolis`).
+
+| Request | Purpose |
+| --- | --- |
+| `GET /space/api/v2/worlds` | List worlds available on this backend, canonical IDs, dimensions and the account's membership/position availability |
+| `GET /space/api/v2/worlds/{slug_or_uuid}` | Resolve one target world without joining |
+| `POST /space/api/v2/worlds/{slug_or_uuid}/join` | Idempotently join the requested named world without a browser session or invented position |
+| `GET /space/api/v2/players/me/position?world={slug_or_uuid}` | Read the account's saved position in that world |
+
+Use the resolved UUID for all entity, blockset, configuration, run-state, quota,
+terrain and message paths. Existing operational endpoints continue to use UUIDs.
+Keep the world ID with each idempotent request; do not change it on retry. World
+availability is environment-specific and must come from discovery.
 
 ## Connect through browser authorization
 
@@ -26,7 +44,11 @@ curl --fail-with-body "$SPACE_BASE_URL/space/api/v2/players/me/position" \
   -H "Authorization: Bearer $SPACE_API_KEY"
 ```
 
-This reads the key owner's latest saved position in the server's default world. No world ID is needed beforehand. To target a known world the owner has joined, use `GET /space/api/v2/worlds/{world_id}/players/me/position`.
+With no `world` query this reads the key owner's latest saved position in Nature.
+For a selected world, pass `?world=copper-metropolis` or use
+`GET /space/api/v2/worlds/{world_id}/players/me/position`. The response identifies
+the world using `world_id`, `world_slug` and `world_name`; verify the ID before
+placement. Read and build requests require membership, established by `join`.
 
 ```json
 {
@@ -53,8 +75,39 @@ Both position routes are self-only. All existing keys work without reissuing the
 
 ## Create the requested object
 
+### Unified Item templates and world construction
+
+The backpack and Market present one **Item** concept. Inventory Protobuf v8 adds
+`InventoryResource.item` with a template `id`, display `name`, optional original
+`BlockSet` in `block_set`, and original `Entity` trees in `entity_list`. At least one
+voxel is required across the complete Item. Each Entity retains its component-id
+namespace, hierarchy, scripts, physics, seats and constraints.
+
+This portable wrapper does not replace the existing world-operation payloads:
+
+| Operation | Required `InventoryResource` content |
+| --- | --- |
+| Portable Item export/import and Market content | `item`; existing v8 standalone resources remain compatible |
+| `POST /worlds/{world_id}/entities` | `entity`, one standalone Entity tree |
+| `POST /worlds/{world_id}/blocksets/build` | `block_set`, static terrain voxels |
+
+World paths above use the `/space/api/v2` prefix. Entity create and checkpoint
+requests still require `entity`; blockset build requests require `block_set`.
+Sending `item` directly to either world construction endpoint is rejected, even
+when it contains only one Entity or one BlockSet. There is no composite Item-build
+endpoint or backpack synchronization endpoint.
+
+For a mixed world construction, plan the static terrain and interactive Entities
+as one creation, then submit the supported world operations for each part. Preserve
+their intended world positions and orientations, with a stable request body and
+operation ID for each call. Those calls commit separately; the complete build is
+not one atomic transaction. An Item template id is separate from returned runtime
+Entity IDs. Component code still uses [entityAPI](entityAPI.md) for one runtime Entity.
+
+### Encode and submit the world resource
+
 1. Read [entity encoding and a complete request example](references/entity-create.md).
-2. Encode a canonical **InventoryResource Protobuf v8** using [inventory.proto](references/inventory.proto). Raw JSON in `definition_base64` is not accepted.
+2. Encode a canonical **InventoryResource Protobuf v8** using [inventory.proto](references/inventory.proto), choosing `entity` for the entity creation endpoint. Raw JSON in `definition_base64` is not accepted.
 3. Preferred transport: send the request body as `application/x-protobuf` using the
    `entropydrop.space.api.v2.CreateEntityRequest` envelope from
    [space_api.proto](references/space_api.proto), whose `definition` field holds the raw

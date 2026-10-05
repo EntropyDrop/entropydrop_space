@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import re
 from pathlib import Path
 
 
@@ -40,7 +41,9 @@ def test_space_contract_covers_persistence_queue_and_browser_only_backpack():
     assert "slot_number BETWEEN 0 AND 31" in SCHEMA
     assert "player_inventories" not in SCHEMA
     assert "spawn_x_cm" not in SCHEMA
-    assert "space.backpack.v8.pb" in DESIGN
+    controller = (ROOT.parent / 'client/src/engine/controls/PlayerController.ts').read_text()
+    storage_key = re.search(r"const INVENTORY_STORAGE_KEY = '([^']+)'", controller).group(1)
+    assert storage_key in DESIGN
     assert "QueueStatus queue_status" in PROTOCOL
 
 

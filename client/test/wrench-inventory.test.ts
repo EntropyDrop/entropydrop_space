@@ -12,12 +12,14 @@ import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts'
 import { ContraptionPhysics } from '@entropydrop/space-engine/physics/ContraptionPhysics.ts';
 import {
   SceneRenderer,
-  WRENCH_GIZMO_ROTATION_RADIUS,
-  WRENCH_GIZMO_ROTATION_PICK_RADIUS
+  WRENCH_GIZMO_ROTATION_RADIUS
 } from '../src/engine/render/SceneRenderer.ts';
+import { TransformGizmo, TRANSFORM_GIZMO_ROTATION_RADIUS, transformAxis, transformViewCamera } from '../src/engine/render/TransformGizmo.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import {
   bendPoint,
+  bendPointForView,
+  setTorusViewCorrection,
   unbendDirection,
   TORUS_SPAWN_X,
   TORUS_SPAWN_Z
@@ -570,116 +572,102 @@ test('pivot reset returns root and child pivots to their default centers without
   }
 });
 
-test('Wrench COM gizmo exposes three translation and three rotation handles', () => {
+test('Wrench uses Modeling arrows and rotation arcs with no scale geometry or scale picking', () => {
   const renderer: any = Object.create(SceneRenderer.prototype);
   renderer.scene = new THREE.Scene();
   renderer.setupWrenchPivotGizmo();
-  assert.equal(renderer.wrenchPivotArrows.size, 3);
-  assert.deepEqual([...renderer.wrenchPivotHandles.keys()].sort(), [
-    'move-x', 'move-y', 'move-z', 'rotate-x', 'rotate-y', 'rotate-z'
-  ]);
+  const modeling = new TransformGizmo();
+  try {
+    const objects = renderer.wrenchPivotGizmo.children;
+    assert.deepEqual([...new Set(objects.map(object => object.userData.transformHandle))].sort(), [
+      'move-x', 'move-y', 'move-z', 'rotate-x', 'rotate-y', 'rotate-z'
+    ]);
+    assert.equal(objects.some(object => object.geometry.type === 'BoxGeometry'), false);
+    for (const object of objects) {
+      const reference: any = modeling.group.children.find((candidate: any) =>
+        candidate.userData.transformHandle === object.userData.transformHandle && candidate.geometry.type === object.geometry.type);
+      assert.ok(reference, 'every Wrench visual comes from the Modeling handle design');
+      assert.deepEqual(object.geometry.parameters, reference.geometry.parameters);
+      assert.deepEqual(object.position.toArray(), reference.position.toArray());
+      assert.deepEqual(object.quaternion.toArray(), reference.quaternion.toArray());
+      assert.equal(object.material.color.getHex(), reference.material.color.getHex());
+    }
+    const position = new THREE.Vector3(1, 2, 3);
+    const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.4);
+    renderer.setWrenchPivotGizmo(position, rotation, 2, 'move-x');
+    const material = (key: string) => objects.find(object => object.userData.transformHandle === key).material;
+    assert.equal(renderer.wrenchPivotGizmo.visible, true);
+    assert.deepEqual(renderer.wrenchPivotGizmo.position.toArray(), position.toArray());
+    assert.deepEqual(renderer.wrenchPivotGizmo.quaternion.toArray(), rotation.toArray());
+    assert.deepEqual(renderer.wrenchPivotGizmo.scale.toArray(), [2, 2, 2]);
+    assert.equal(material('move-x').color.getHex(), 0xffdc73);
+    renderer.setWrenchPivotGizmo(position, rotation, 2, 'move-x', 'rotate-y');
+    assert.equal(material('move-x').color.getHex(), 0xff5757);
+    assert.equal(material('rotate-y').color.getHex(), 0xffdc73);
+    assert.equal(WRENCH_GIZMO_ROTATION_RADIUS, TRANSFORM_GIZMO_ROTATION_RADIUS,
+      'Wrench drag sensitivity must use the rendered rotation radius');
 
-  renderer.setWrenchPivotGizmo(
-    new THREE.Vector3(1, 2, 3),
-    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.4),
-    2,
-    'move-x',
-    'rotate-y'
-  );
-  assert.equal(renderer.wrenchPivotGizmo.visible, true);
-  assert.deepEqual(renderer.wrenchPivotGizmo.position.toArray(), [1, 2, 3]);
-  assert.deepEqual(renderer.wrenchPivotGizmo.scale.toArray(), [2, 2, 2]);
-  assert.equal(renderer.wrenchPivotArrows.get('x').line.material.color.getHex(), 0xffffff);
-  assert.equal(renderer.wrenchPivotArrows.get('y').line.material.color.getHex(), 0x34c759);
-  assert.equal(renderer.wrenchPivotArrows.get('z').line.material.color.getHex(), 0x248aff);
-  const activeRotation = renderer.wrenchPivotHandles.get('rotate-y')
-    .getObjectByName('WrenchPivotRotationArc_Y');
-  assert.equal(activeRotation.material.color.getHex(), 0xffea00);
-  assert.equal(renderer.wrenchPivotOrigin.material.color.getHex(), 0xffffff);
-  assert.equal(renderer.wrenchPivotOrigin.scale.x, 1);
+    const camera = new THREE.PerspectiveCamera(60, 1.5, 0.1, 1000);
+    camera.position.set(4, 3, 6); camera.lookAt(0, 0, 0);
+    setTorusViewCorrection(camera.position);
+    const view = transformViewCamera(camera);
+    renderer.setWrenchPivotGizmo(new THREE.Vector3(), new THREE.Quaternion(), 1);
+    modeling.setPose(new THREE.Vector3(), new THREE.Quaternion(), 1);
+    const cube = new THREE.Vector3(1.38, 0, 0);
+    const ray = new THREE.Ray(view.position.clone(), bendPointForView(cube.x, cube.y, cube.z).sub(view.position).normalize());
+    assert.equal(modeling.pick(ray)?.key, 'scale-x');
+    assert.equal(renderer.raycastWrenchPivotGizmoBent(ray.origin, ray.direction), null);
+    renderer.clearWrenchPivotGizmo();
+    assert.equal(renderer.wrenchPivotGizmo.visible, false);
+    assert.equal(renderer.raycastWrenchPivotGizmoBent(ray.origin, ray.direction), null);
+  } finally {
+    modeling.dispose(); renderer.wrenchTransformGizmo.dispose(); setTorusViewCorrection(null);
+  }
+});
 
-  const pickBentHandle = (key: string) => {
-    const handle = renderer.wrenchPivotHandles.get(key);
-    const samples = handle.userData.pickLocalPoints;
-    const worldPoint = samples[Math.floor(samples.length / 2)].clone();
-    renderer.wrenchPivotGizmo.localToWorld(worldPoint);
-    const target = bendPoint(worldPoint.x, worldPoint.y, worldPoint.z, new THREE.Vector3());
-    const origin = target.clone().add(new THREE.Vector3(0.23, 0.31, 3));
-    return renderer.raycastWrenchPivotGizmoBent(
-      origin,
-      target.clone().sub(origin).normalize()
-    );
-  };
-  assert.equal(pickBentHandle('move-x')?.handleKey, 'move-x');
-  assert.equal(pickBentHandle('rotate-z')?.handleKey, 'rotate-z');
-
-  // Verify smaller cone geometry and smaller rotation radius
-  const rotateArrowMesh: any = renderer.wrenchPivotHandles.get('rotate-y')
-    .getObjectByName('WrenchPivotRotationArrow_Y');
-  assert.equal(rotateArrowMesh.geometry.parameters.radius, 0.055);
-  assert.equal(rotateArrowMesh.geometry.parameters.height, 0.14);
-  assert.equal(renderer.wrenchPivotHandles.get('rotate-y').userData.pickRadius, WRENCH_GIZMO_ROTATION_PICK_RADIUS);
-  assert.equal(WRENCH_GIZMO_ROTATION_RADIUS, 0.48);
-
-  // Verify that the torus raycast accurately hits rotation and move handles.
-    assert.equal(pickBentHandle('move-x')?.handleKey, 'move-x');
-    assert.equal(pickBentHandle('rotate-z')?.handleKey, 'rotate-z');
-
-    // Verify the standard Raycaster path automatically follows the torus.
-    const handle = renderer.wrenchPivotHandles.get('rotate-z');
-    const samples = handle.userData.pickLocalPoints;
-    const worldPoint = samples[Math.floor(samples.length / 2)].clone();
-    renderer.wrenchPivotGizmo.localToWorld(worldPoint);
-    const targetBent = bendPoint(worldPoint.x, worldPoint.y, worldPoint.z, new THREE.Vector3());
-    const originBent = targetBent.clone().add(new THREE.Vector3(0, 0, 2));
-    const flatRaycaster = new THREE.Raycaster(
-      worldPoint.clone().add(new THREE.Vector3(0, 0, 2)),
-      new THREE.Vector3(0, 0, -1)
-    );
-    const bentRayHit = renderer.raycastWrenchPivotGizmoBent(
-      originBent,
-      targetBent.clone().sub(originBent).normalize()
-    );
-    assert.equal(bentRayHit?.handleKey, 'rotate-z');
-    const delegatedHit = renderer.raycastWrenchPivotGizmo(flatRaycaster);
-    assert.equal(delegatedHit?.handleKey, 'rotate-z');
-  // A ray through the rendered arc must prefer that arc, even when another
-  // axis has a pick sphere closer to the camera at nearly the same pixel.
-  // The old first-sphere intersection selected the wrong axis for all three
-  // of these ordinary oblique-view points.
-    renderer.setWrenchPivotGizmo(
-      new THREE.Vector3(),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.6, 0.2)),
-      2
-    );
-    const eyeBent = bendPoint(3, 2, 6, new THREE.Vector3());
-    const pickVisibleArcPoint = (axis: 'x' | 'y' | 'z', vertexIndex: number) => {
-      const arc: any = renderer.wrenchPivotHandles.get(`rotate-${axis}`)
-        .getObjectByName(`WrenchPivotRotationArc_${axis.toUpperCase()}`);
-      const localPoint = new THREE.Vector3().fromBufferAttribute(
-        arc.geometry.attributes.position,
-        vertexIndex
-      );
-      renderer.wrenchPivotGizmo.localToWorld(localPoint);
-      const targetBent = bendPoint(localPoint.x, localPoint.y, localPoint.z, new THREE.Vector3());
-      return renderer.raycastWrenchPivotGizmoBent(
-        eyeBent,
-        targetBent.sub(eyeBent).normalize()
-      );
-    };
-    assert.equal(pickVisibleArcPoint('x', 6)?.handleKey, 'rotate-x');
-    assert.equal(pickVisibleArcPoint('y', 14)?.handleKey, 'rotate-y');
-    assert.equal(pickVisibleArcPoint('z', 18)?.handleKey, 'rotate-z');
-  // Verify move and rotate pick points do not overlap at the 0.48 axis crossing
-  const moveX = renderer.wrenchPivotHandles.get('move-x');
-  const rotateZ = renderer.wrenchPivotHandles.get('rotate-z');
-  const moveMinDist = Math.min(...moveX.userData.pickLocalPoints.map((p: THREE.Vector3) => p.x));
-  const rotateRadius = WRENCH_GIZMO_ROTATION_RADIUS;
-  // Move pick spheres start at 0.65 (down to 0.65 - 0.10 = 0.55), rotate pick sphere is at 0.48 (up to 0.48 + 0.075 = 0.555)
-  assert.ok(moveMinDist > rotateRadius, 'move pick points start outside the rotation arc');
-
-  renderer.clearWrenchPivotGizmo();
-  assert.equal(renderer.wrenchPivotGizmo.visible, false);
+test('Wrench picks each visible arrow and rotation arc at different orientations and distances', () => {
+  const renderer: any = Object.create(SceneRenderer.prototype);
+  renderer.scene = new THREE.Scene();
+  renderer.setupWrenchPivotGizmo();
+  const camera = new THREE.PerspectiveCamera(60, 1.5, 0.1, 1000);
+  camera.position.set(4, 3, 6); camera.lookAt(0, 0, 0);
+  setTorusViewCorrection(camera.position);
+  try {
+    const view = transformViewCamera(camera);
+    const controller: any = Object.assign(Object.create(PlayerController.prototype), {
+      _activeTool: SpecialTool.WRENCH, sceneRenderer: renderer, camera,
+    });
+    for (const rotation of [new THREE.Quaternion(), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.6, 0.2))]) {
+      for (const size of [0.6, 1.2, 2]) {
+        controller.wrenchPivotTarget = { position: new THREE.Vector3(), quaternion: rotation, axisLength: size };
+        renderer.setWrenchPivotGizmo(new THREE.Vector3(), rotation, size);
+        for (const kind of ['move', 'rotate'] as const) for (const axis of ['x', 'y', 'z'] as const) {
+          let point = transformAxis(axis).multiplyScalar(0.97);
+          if (kind === 'rotate') {
+            const u = axis === 'x' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+            const v = transformAxis(axis).cross(u);
+            const angle = -0.12 * Math.PI + 16 / 64 * Math.PI * 1.75;
+            point = u.multiplyScalar(Math.cos(angle) * WRENCH_GIZMO_ROTATION_RADIUS)
+              .addScaledVector(v, Math.sin(angle) * WRENCH_GIZMO_ROTATION_RADIUS);
+          }
+          renderer.wrenchPivotGizmo.localToWorld(point);
+          const bent = bendPointForView(point.x, point.y, point.z);
+          const ray = new THREE.Ray(view.position.clone(), bent.sub(view.position).normalize());
+          const hit = renderer.raycastWrenchPivotGizmoBent(ray.origin, ray.direction);
+          assert.equal(hit?.handleKey, `${kind}-${axis}`, `${kind}-${axis} at scale ${size}`);
+          // Straight pick segments approximate the torus-bent cylinder between
+          // its endpoints, so recovered flat points have sub-millimetre error.
+          assert.ok(hit.worldPoint.distanceTo(point) < 0.001 * size,
+            `${kind}-${axis}: flat hit error ${hit.worldPoint.distanceTo(point)}`);
+          const pixel = bendPointForView(point.x, point.y, point.z).project(view);
+          assert.equal(controller.updateWrenchGizmoPointerHover({
+            clientX: (pixel.x + 1) * (globalThis.innerWidth || 1) / 2,
+            clientY: (1 - pixel.y) * (globalThis.innerHeight || 1) / 2,
+          })?.handleKey, `${kind}-${axis}`, 'pointer picking follows the rendered camera');
+        }
+      }
+    }
+  } finally { renderer.wrenchTransformGizmo.dispose(); setTorusViewCorrection(null); }
 });
 
 test('Wrench displays the entity COM even when pointing at a child, while body clicks still point-grab', async () => {
@@ -743,6 +731,20 @@ function makeWrenchGizmoController(entity, manager, camera) {
   controller.updateWrenchPivotGizmo({ contraption: entity, entityId: 'root' });
   return controller;
 }
+
+test('Wrench retains handles while aiming across the gap to an arrow, and clears them outside edit range', async () => {
+  const entity = await makeContraptionWithChildren();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.position.copy(entity.position).add(new THREE.Vector3(0, 0, 4));
+  camera.lookAt(entity.position);
+  const controller = makeWrenchGizmoController(entity, { contraptions: [entity] }, camera);
+  try {
+    assert.equal(controller.updateWrenchPivotGizmo(null)?.contraption, entity);
+    camera.position.copy(entity.position).add(new THREE.Vector3(0, 0, 20));
+    assert.equal(controller.updateWrenchPivotGizmo(null), null);
+    assert.equal(controller.wrenchPivotTarget, null);
+  } finally { entity.dispose(); }
+});
 
 for (const serverManaged of [false, true]) {
   test(`Wrench gizmo poses stay fixed across render phases (${serverManaged ? 'network' : 'local'})`, async () => {

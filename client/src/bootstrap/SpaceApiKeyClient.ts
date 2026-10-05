@@ -73,8 +73,8 @@ export class SpaceApiKeyClient {
     this.fetchImpl = fetchImpl.bind(globalThis);
   }
 
-  getAgentConnection() {
-    return spaceAgentConnection(this.usageOrigin);
+  getAgentConnection(worldSelector?: string | null) {
+    return spaceAgentConnection(this.usageOrigin, worldSelector);
   }
 
   private async request(path: string, options: RequestInit = {}, origin?: string): Promise<any> {

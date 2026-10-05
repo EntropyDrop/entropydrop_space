@@ -136,7 +136,7 @@ class Game {
       persistentStorage
     );
     this.contraptionManager.setPhysics(this.contraptionPhysics);
-    this.contraptionManager.setWorldId(session.world.id);
+    this.contraptionManager.setWorldIdentity(session.world);
     this.contraptionManager.setEntityPersistenceMode(offline ? 'none' : 'remote');
 
     this.playerPhysics = new PlayerPhysics(this.world, this.contraptionManager);

@@ -52,8 +52,8 @@ import { ContraptionPhysics } from '@entropydrop/space-engine/physics/Contraptio
 ## Contracts and validation
 
 `proto/` owns the shared contracts and their versioning rules (see
-[`../proto/README.md`](../proto/README.md)): `inventory.proto` (portable resource, v7),
-`backpack.proto` (browser-local state, v8) and `space_api.proto`
+[`../proto/README.md`](../proto/README.md)): `inventory.proto` (portable resource, v8),
+`backpack.proto` (browser-local state, v10) and `space_api.proto`
 (`entropydrop.space.api.v2` binary REST request envelopes). `npm run check` verifies the
 generated Protobuf files, lints the schemas with the pinned `@bufbuild/buf` CLI,
 verifies the API docs, typechecks the package, and runs engine tests.
@@ -61,6 +61,13 @@ Protobuf generation/checks require `protoc` on PATH; the TypeScript generator is
 dev dependency. Use `npm run generate:protobuf` after changing `proto/`, and
 `npm run docs:generate` after changing `src/contraption/ScriptApiContract.ts`. Generated
 files are checked in, so ordinary consumer builds do not need `protoc`.
+
+The additive v8 `Item` wrapper reuses an optional `BlockSet` and a list of complete
+`Entity` trees, each in the Item's common construction frame. Existing runtime entity
+APIs keep their single-Entity contract. Backpack v10 merges the old BlockSet and Entity
+collections into 198 Item slots with one selection and nine-slot hotbar, while retaining
+Color Sets separately. Explicit v8/v9 readers preserve old slots and selection; see
+[Item poses, world anchors and migration](../proto/README.md#unified-items).
 
 The Python server keeps its generated bindings under `server/space/contracts/`. To
 regenerate them from the Space workspace root (using protoc 33.2 to match the checked-in
@@ -168,10 +175,11 @@ Torus queries unwrap these boxes into the caller's periodic window.
 
 The construction grid is 8×8×8: 512 cells of 0.125 m per standard 1 m block.
 The pure `src/voxel/MicroGrid.ts` constants are shared by editing, geometry, physics,
-inventory and the browser. Inventory v7, backpack v8, offline entities v4, local
-world edits v3 and far-surface snapshots v3 intentionally reject older formats.
-Backend deployment requires fresh Space content/storage; no historical migration
-or automatic deletion is included.
+inventory and the browser. Inventory v8 and backpack v10 use the portable contracts
+above, including explicit v8/v9 backpack migration. Legacy offline entities and local
+world edits have independent format rules. Current migrations and surface formats are
+documented in the [client format guide](../client/docs/formats.md) and
+[server contract guide](../server/space/contracts/README.md).
 
 Run a reproducible CPU benchmark with `node tools/benchmark-physics.ts`. It reports
 median/p95 time per 50 ms simulation update for 100 entities of 100 voxels each,

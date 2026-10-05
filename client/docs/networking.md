@@ -38,10 +38,16 @@ consistency contract is [the Space backend contract](../../server/docs/space-bac
 | `/worlds/{id}/entities/{id}/hosting` | GET/PUT | JSON, explicit credit budget + operation/epoch | Hosted status, Start, early Stop/release |
 | `/markets/...`, `/api-keys`, `/api-usage` | — | JSON | Market, key management and allowances |
 
-Entity definitions travel as raw `InventoryResource` v7 bytes: upload through the
+Entity definitions travel as raw `InventoryResource` v8 bytes: upload through the
 `space_api.proto` envelope (`Content-Type: application/x-protobuf`), download as raw
 protobuf. JSON `definition_base64` requests remain accepted for existing agents. See
 [formats.md](formats.md).
+
+Unified Item groups portable content for backpack and Market use. Entity create and
+checkpoint requests still carry a single `Entity`; blockset build requests still carry
+a `BlockSet`. The browser places a mixed Item's static geometry and independent Entity
+trees in one shared frame through those existing world operations. This adds no backpack
+synchronization or composite-Item world endpoint.
 
 Heartbeat responses fit the 16 MiB and 512-chunk client limits. `max_terrain_revision`
 advances only past complete events. If one event spans several pages, echo the

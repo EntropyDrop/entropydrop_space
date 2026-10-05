@@ -48,6 +48,11 @@ const CUTE_TARGET_SIDE_HEIGHT = CUTE_SOURCE_SIDE_ROWS * 0.55;
 const CUTE_SIDE_ROWS = Math.round(CUTE_TARGET_SIDE_HEIGHT / CUTE_X_SCALE);
 const CUTE_Y_CELL_SCALE = CUTE_X_SCALE;
 const CUTE_HALF_SIDE_HEIGHT = CUTE_SIDE_ROWS * CUTE_Y_CELL_SCALE / 2;
+const CUTE_BODY_WIDTH = 8;
+const CUTE_BODY_TAPER = 0.3;
+const CUTE_ARM_TILT = Math.atan(
+  CUTE_BODY_WIDTH * CUTE_BODY_TAPER * CUTE_X_SCALE / (2 * CUTE_SIDE_ROWS * CUTE_Y_CELL_SCALE)
+);
 // The local player is rendered at 1.8 m. At that scale the unchanged hip/torso
 // base is 0.567 m above the character root, which is also the seat anchor.
 // Keeping the torso fixed makes authored seats deterministic while the legs
@@ -463,7 +468,7 @@ function taperGeometry(geometry: THREE.BufferGeometry, height = CUTE_SOURCE_SIDE
   for (let index = 0; index < positions.count; index++) {
     const y = positions.getY(index);
     const t = THREE.MathUtils.clamp((y + height / 2) / height, 0, 1);
-    positions.setX(index, positions.getX(index) * (1 - 0.3 * t));
+    positions.setX(index, positions.getX(index) * (1 - CUTE_BODY_TAPER * t));
   }
   positions.needsUpdate = true;
   geometry.computeVertexNormals();
@@ -473,7 +478,7 @@ function taperVoxelGroup(group: THREE.Group, height = CUTE_SOURCE_SIDE_ROWS) {
   for (const child of group.children) {
     if (!(child instanceof THREE.Mesh)) continue;
     const t = THREE.MathUtils.clamp((child.position.y + height / 2) / height, 0, 1);
-    const scale = 1 - 0.3 * t;
+    const scale = 1 - CUTE_BODY_TAPER * t;
     child.position.x *= scale;
     child.scale.x *= scale;
   }
@@ -549,7 +554,7 @@ export class CuteCharacter {
 
     const overlays = showOverlay ? {
       head: createVoxelGroup(overlayPixels, shiftUvMap(uv.head, 32, 0), 1, [8, 8, 8]),
-      body: createVoxelGroup(overlayPixels, shiftUvMap(uv.body, 0, 16), 0.5, [8, CUTE_SIDE_ROWS, 4]),
+      body: createVoxelGroup(overlayPixels, shiftUvMap(uv.body, 0, 16), 0.5, [CUTE_BODY_WIDTH, CUTE_SIDE_ROWS, 4]),
       leftArm: createVoxelGroup(overlayPixels, shiftUvMap(uv.leftArm, 16, 0), 0.5, [uv.armWidth, CUTE_SIDE_ROWS, 4]),
       rightArm: createVoxelGroup(overlayPixels, shiftUvMap(uv.rightArm, 0, 16), 0.5, [uv.armWidth, CUTE_SIDE_ROWS, 4]),
       leftLeg: createVoxelGroup(overlayPixels, shiftUvMap(uv.leftLeg, -16, 0), 0.5, [4, CUTE_SIDE_ROWS, 4]),
@@ -557,7 +562,7 @@ export class CuteCharacter {
     } : null;
     this.overlayGroups = overlays ? Object.values(overlays) : [];
 
-    const bodyGeometry = new THREE.BoxGeometry(8, CUTE_SIDE_ROWS, 4, 8, CUTE_SIDE_ROWS, 4);
+    const bodyGeometry = new THREE.BoxGeometry(CUTE_BODY_WIDTH, CUTE_SIDE_ROWS, 4, 8, CUTE_SIDE_ROWS, 4);
     taperGeometry(bodyGeometry, CUTE_SIDE_ROWS);
     if (overlays) taperVoxelGroup(overlays.body, CUTE_SIDE_ROWS);
 
@@ -597,9 +602,10 @@ export class CuteCharacter {
     };
 
     const armScale: [number, number, number] = [CUTE_X_SCALE, CUTE_Y_CELL_SCALE, 1];
-    // Both cute models share the slim torso. Keep the inner arm edge aligned
-    // while allowing the strong model's fourth pixel to extend outward.
-    const shoulderX = 3.3 + ((uv.armWidth - 3) * armScale[0]) / 2;
+    const shoulderHalfWidth = CUTE_BODY_WIDTH * (1 - CUTE_BODY_TAPER) * CUTE_X_SCALE / 2;
+    const armHalfWidth = uv.armWidth * armScale[0] / 2;
+    // Account for the rotated arm's width so its inner side follows the torso.
+    const shoulderX = shoulderHalfWidth + armHalfWidth / Math.cos(CUTE_ARM_TILT);
     const leftArm = addLimb(
       shoulderX, CUTE_HALF_SIDE_HEIGHT, armScale,
       new THREE.BoxGeometry(uv.armWidth, CUTE_SIDE_ROWS, 4), materials.leftArm, overlays?.leftArm ?? null
@@ -608,6 +614,9 @@ export class CuteCharacter {
       -shoulderX, CUTE_HALF_SIDE_HEIGHT, armScale,
       new THREE.BoxGeometry(uv.armWidth, CUTE_SIDE_ROWS, 4), materials.rightArm, overlays?.rightArm ?? null
     );
+    // Swing around the tilted arm's local X axis to preserve its front-view slope.
+    leftArm.rotation.order = 'ZYX';
+    rightArm.rotation.order = 'ZYX';
     this.rightHandGrip.name = 'CuteRightHandGrip';
     this.rightHandGrip.position.set(0, -CUTE_SIDE_ROWS + 1.3, 0);
     this.rightHandGrip.scale.set(1 / armScale[0], 1 / armScale[1], 1);
@@ -846,7 +855,7 @@ export class CuteCharacter {
 
     this.action = seated ? 'sit' : movingTarget > 0.05 ? 'walk' : 'idle';
     const slim = this.model === 'slim';
-    const armZ = 0.2;
+    const armZ = CUTE_ARM_TILT;
     const blend = this.locomotionBlend;
     const air = this.airborneBlend;
     const speedRatio = THREE.MathUtils.clamp(this.smoothedSpeed / maxSpeed, 0, 1);
@@ -869,8 +878,8 @@ export class CuteCharacter {
     let leftLegX = gait * stride;
     let rightLegX = -gait * stride;
     const idleArmMotion = idleBreath * 0.012 * idleWeight;
-    let leftArmX = 0.05 * (1 - blend) - gait * armSwing + idleArmMotion;
-    let rightArmX = 0.05 * (1 - blend) + gait * armSwing - idleArmMotion;
+    let leftArmX = -gait * armSwing + idleArmMotion;
+    let rightArmX = gait * armSwing - idleArmMotion;
     let bodyPitch = this.smoothedForward * speedRatio * 0.055 * blend;
     let bodyYaw = -this.smoothedSide * 0.045 * blend;
     let bodyRoll = (-this.smoothedSide * 0.07 + Math.sin(this.gaitPhase) * 0.018) * blend;

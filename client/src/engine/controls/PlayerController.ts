@@ -1,5 +1,7 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import * as THREE from 'three';
+import { ModelingTool } from './ModelingTool.ts';
+import { normalizeDecorations, offsetDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { MAX_INVENTORY_NAME_LENGTH, trimInventoryName, inventoryNameLength, truncateInventoryName } from '@entropydrop/space-engine/storage/InventoryName.ts';
 import { BlockTypes, colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import {
@@ -21,6 +23,7 @@ import {
 import {
   MAX_ENTITY_BOUNDS,
   MAX_ENTITY_COMPONENTS,
+  MAX_ENTITY_DECORATIONS,
   MAX_SELECTION_BOUNDS,
   MAX_IMPORT_COORDINATE,
   MAX_PORTABLE_VECTOR_COMPONENT,
@@ -56,6 +59,7 @@ import {
   wrapMicroX, wrapMicroZ
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { calculatePreviewDragForce, getInventoryPreviewBlocks, WRENCH_GIZMO_ROTATION_RADIUS } from '../render/SceneRenderer.ts';
+import { transformViewCamera, transformScreenPoint, transformGizmoSize } from '../render/TransformGizmo.ts';
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
 import { type SelectorShape, type StairsOrientation, computeSelectionCells } from './SelectorShapes.ts';
@@ -395,11 +399,13 @@ export const SpecialTool = {
   SHOVEL: 'shovel',         // 4. Shovel (remove / place 1x1x1 standard blocks)
   SPOON: 'spoon',           // 5. Spoon (carve 8x8x8 micro voxels)
   BRUSH: 'brush',           // 6. Brush (repaint block colors)
+  MODELING: 'modeling',     // 7. Modeling (visual-only decoration cubes)
   PIPETTE: 'pipette',       // Legacy alias; color sampling is part of Brush
   SUPER_GLUE: 'selector'    // alias for backwards compatibility
 };
 
 export class PlayerController {
+  modeling = new ModelingTool(this);
   // Reusable temporary vectors for torus-world aiming.
   static _bentEye = new THREE.Vector3();
   static _forwardFlat = new THREE.Vector3();
@@ -467,6 +473,7 @@ export class PlayerController {
       this.releaseWrenchGrab();
       this.clearWrenchPivotDisplay();
     }
+    if (prev === SpecialTool.MODELING && tool !== SpecialTool.MODELING) this.modeling.deactivate();
     this._activeTool = tool;
   }
   selectedBlock: number;
@@ -677,6 +684,7 @@ export class PlayerController {
       }
       this.applyPointerLockState(locked);
       if (!locked) {
+        this.modeling?.onPointerUnlocked();
         this.pointerLockDesired = false;
         this.resetEntityInputState();
         this.releaseWrenchGizmoDrag();
@@ -756,6 +764,10 @@ export class PlayerController {
     // Mouse Look
     document.addEventListener('mousemove', (e) => {
       if (this.worldPickingSuspended) return;
+      if (this.activeTool === SpecialTool.MODELING && !this.isLocked) {
+        this.modeling.pointerMove(e);
+        return;
+      }
       if (this.activeWrenchGizmoDrag) {
         this.updateWrenchGizmoDrag(e);
         return;
@@ -779,6 +791,11 @@ export class PlayerController {
         return;
       }
 
+      if (this.activeTool === SpecialTool.MODELING && this.modeling.isDragging) {
+        this.modeling.pointerMove(e);
+        return;
+      }
+
       // Seat orientation belongs to the rider's body. Mouse look remains in
       // world space, including unrestricted horizontal turns while mounted.
       this.yaw -= e.movementX * this.mouseSensitivity;
@@ -791,7 +808,9 @@ export class PlayerController {
     });
 
     document.addEventListener('mouseup', (e) => {
+      if (e.button === 2) this.modeling?.endCreation();
       if (e.button !== 0) return;
+      this.modeling?.endDrag();
       this.releaseWrenchGizmoDrag();
       this.releaseWrenchGrab();
       this.releaseGizmoDrag();
@@ -801,6 +820,11 @@ export class PlayerController {
     document.addEventListener('mousedown', (e) => {
       if (this.worldPickingSuspended) return;
       if (!this.isLocked) {
+        if (this.activeTool === SpecialTool.MODELING && this.modeling.pointerDown(e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         if (this.activeTool === SpecialTool.SELECTOR && e.button === 0) {
           this.updateSelectionGizmoPointerHover(e);
           if (this.hoveredGizmoHandle) {
@@ -872,6 +896,7 @@ export class PlayerController {
     });
 
     window.addEventListener('blur', () => {
+      this.modeling?.cancelDrag();
       this.resetEntityInputState();
       this.releaseWrenchGizmoDrag();
       this.releaseWrenchGrab();
@@ -952,6 +977,13 @@ export class PlayerController {
     }
 
     this.recordEntityKeyDown(e.code);
+
+    if (this.activeTool === SpecialTool.MODELING) {
+      if (e.code === 'Escape') { e.preventDefault(); this.modeling.openPrecision(); return; }
+      if (e.code === 'Delete' || e.code === 'Backspace') { e.preventDefault(); this.modeling.remove(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); this.modeling.undo(e.shiftKey); return; }
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') { e.preventDefault(); this.modeling.duplicate(); return; }
+    }
 
     switch (e.code) {
       case 'KeyW': this.keys.forward = true; break;
@@ -1095,11 +1127,13 @@ export class PlayerController {
       case 'Digit4': this.setHotbarSlot(3); break;
       case 'Digit5': this.setHotbarSlot(4); break;
       case 'Digit6': this.setHotbarSlot(5); break;
+      case 'Digit7': this.setHotbarSlot(6); break;
     }
   }
 
   handleWheel(e: { deltaY: number; deltaMode?: number; shiftKey?: boolean; ctrlKey?: boolean; preventDefault?: () => void }) {
     if (this.worldPickingSuspended) return;
+    if (this.activeTool === SpecialTool.MODELING && this.modeling?.creationWheel(e)) return;
     if (this.activeTool === SpecialTool.WRENCH) {
       const unitScale = e.deltaMode === 1
         ? 16
@@ -1262,6 +1296,7 @@ export class PlayerController {
     this.worldPickingSuspended = next;
     if (!next) return;
 
+    this.modeling?.deactivate();
     this.releaseWrenchGizmoDrag();
     this.releaseGizmoDrag();
     this.releaseWrenchGrab();
@@ -1353,6 +1388,7 @@ export class PlayerController {
     if (this.worldPickingSuspended) return false;
     if (this.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
     if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
+    if (this.activeTool === SpecialTool.MODELING) return this.modeling.leftDown(e);
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
@@ -2976,6 +3012,8 @@ export class PlayerController {
       }
       const slot = contraption.serializeSubtree(nodeId);
       const slotRootId = inventoryEntityRootId(slot);
+      const copiedMinY = Math.min(...blocks.map(block => Number(block.localY)));
+      if (slot.decorations?.length) slot.decorations = offsetDecorations(slot.decorations, [0, -copiedMinY, 0]);
       slot.blocks = this.stripCopiedBottomGap(
         // Virtual micro descriptors carry resolver-only fields that must not leak
         // into the portable inventory payload.
@@ -5322,6 +5360,7 @@ export class PlayerController {
   handleRightClick(e = null) {
     if (this.worldPickingSuspended) return false;
     if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
+    if (this.activeTool === SpecialTool.MODELING) return this.modeling.beginCreation(e);
     // Selector RMB opens the complete action menu. Pointer lock is released by
     // the UI bridge so the player can choose an item, then restored on close.
     if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
@@ -5891,7 +5930,7 @@ export class PlayerController {
     );
     const distance = eyeBent.distanceTo(pivotBent);
     if (!Number.isFinite(distance) || distance > 12) return null;
-    target.axisLength = Math.min(3.5, Math.max(1.2, distance * 0.18));
+    target.axisLength = transformGizmoSize(target.position, this.camera?.position || eye);
     return target;
   }
 
@@ -5913,16 +5952,9 @@ export class PlayerController {
 
   private getWrenchGizmoCrosshairHit() {
     if (!this.wrenchPivotTarget || !this.sceneRenderer) return null;
-    const eyePos = this.physics?.getEyePosition?.() || this.camera?.position;
-    if (!eyePos || !this.camera?.quaternion) return null;
-    const forwardFlat = PlayerController._forwardFlat
-      .set(0, 0, -1)
-      .applyQuaternion(this.camera.quaternion);
-    const eyeBent = bendPointForView(eyePos.x, eyePos.y, eyePos.z, PlayerController._bentEye);
-    const forwardBent = bendDirection(
-      eyePos.x, eyePos.y, eyePos.z, forwardFlat, PlayerController._forwardBent
-    );
-    return this.sceneRenderer.raycastWrenchPivotGizmoBent?.(eyeBent, forwardBent) || null;
+    if (!this.camera) return null;
+    const view = transformViewCamera(this.camera);
+    return this.sceneRenderer.raycastWrenchPivotGizmoBent?.(view.position, view.getWorldDirection(new THREE.Vector3())) || null;
   }
 
   updateWrenchGizmoPointerHover(e: MouseEvent) {
@@ -5941,16 +5973,15 @@ export class PlayerController {
       (e.clientX / width) * 2 - 1,
       -(e.clientY / height) * 2 + 1
     );
-    this.wrenchGizmoRaycaster.setFromCamera(pointer, this.camera);
-    const flatOrigin = this.wrenchGizmoRaycaster.ray.origin;
-    const flatDirection = this.wrenchGizmoRaycaster.ray.direction;
-    const eyeBent = bendPointForView(flatOrigin.x, flatOrigin.y, flatOrigin.z, PlayerController._bentEye);
-    const directionBent = bendDirection(
-      flatOrigin.x, flatOrigin.y, flatOrigin.z, flatDirection, PlayerController._forwardBent
-    );
-    const hit = this.sceneRenderer.raycastWrenchPivotGizmoBent
-      ? this.sceneRenderer.raycastWrenchPivotGizmoBent(eyeBent, directionBent)
-      : this.sceneRenderer.raycastWrenchPivotGizmo?.(this.wrenchGizmoRaycaster);
+    let hit;
+    if (this.sceneRenderer.raycastWrenchPivotGizmoBent) {
+      this.wrenchGizmoRaycaster.setFromCamera(pointer, transformViewCamera(this.camera));
+      const { origin, direction } = this.wrenchGizmoRaycaster.ray;
+      hit = this.sceneRenderer.raycastWrenchPivotGizmoBent(origin, direction);
+    } else {
+      this.wrenchGizmoRaycaster.setFromCamera(pointer, this.camera);
+      hit = this.sceneRenderer.raycastWrenchPivotGizmo?.(this.wrenchGizmoRaycaster);
+    }
     this.hoveredWrenchGizmoHandle = hit || null;
     this.renderWrenchPivotTarget();
     return this.hoveredWrenchGizmoHandle;
@@ -5986,8 +6017,14 @@ export class PlayerController {
 
     this.hoveredWrenchGizmoHandle = null;
     if (!entityHit?.contraption) {
-      this.wrenchPivotTarget = null;
-      this.sceneRenderer?.clearWrenchPivotGizmo?.();
+      // Keep the current frame while aiming through empty space between the
+      // body and its arrows. Otherwise an outer handle vanishes on approach.
+      const current = this.refreshWrenchPivotTargetPose();
+      if (current) {
+        this.renderWrenchPivotTarget();
+        return current;
+      }
+      this.clearWrenchPivotDisplay();
       return null;
     }
     const rootId = contraptionRootId(entityHit.contraption);
@@ -6050,13 +6087,10 @@ export class PlayerController {
   }
 
   private wrenchScreenVector(origin: THREE.Vector3, vector: THREE.Vector3) {
-    this.camera?.updateMatrixWorld?.(true);
-    const start = origin.clone().project(this.camera);
-    const end = origin.clone().add(vector).project(this.camera);
-    return new THREE.Vector2(
-      (end.x - start.x) * Math.max(1, globalThis.innerWidth || 1) * 0.5,
-      -(end.y - start.y) * Math.max(1, globalThis.innerHeight || 1) * 0.5
-    );
+    const view = transformViewCamera(this.camera);
+    const width = Math.max(1, globalThis.innerWidth || 1), height = Math.max(1, globalThis.innerHeight || 1);
+    return transformScreenPoint(origin.clone().add(vector), view, width, height)
+      .sub(transformScreenPoint(origin, view, width, height));
   }
 
   startWrenchGizmoDrag(hit: any, e: MouseEvent | null = null) {
@@ -8195,7 +8229,8 @@ export class PlayerController {
         ...(optionalNumber(definition.mass) !== undefined ? { mass: optionalNumber(definition.mass) } : {}),
         ...(optionalNumber(definition.restitution) !== undefined ? { restitution: optionalNumber(definition.restitution) } : {}),
         ...(optionalNumber(definition.friction) !== undefined ? { friction: optionalNumber(definition.friction) } : {}),
-        seats: portableSeats(definition.seats)
+        seats: portableSeats(definition.seats),
+        ...(definition.decorations?.length ? { decorations: normalizeDecorations(definition.decorations) } : {})
       }));
       const constraints = (item.constraints || []).map(constraint => ({
         id: String(constraint.id || ''),
@@ -8267,7 +8302,8 @@ export class PlayerController {
         friction: item.friction,
         useGravity: item.useGravity,
         collisionEnabled: item.collisionEnabled,
-        seats: portableSeats(item.seats)
+        seats: portableSeats(item.seats),
+        ...(item.decorations?.length ? { decorations: normalizeDecorations(item.decorations) } : {})
       });
     }
     if (category === 'colorset') {
@@ -8404,10 +8440,11 @@ export class PlayerController {
         if (!parsed.ok) return parsed;
         blockSet = parsed.item;
       }
-      let components = 0, constraints = 0, seats = 0, scriptBytes = 0;
+      let components = 0, constraints = 0, seats = 0, scriptBytes = 0, decorations = 0;
       const count = component => {
         components++;
         seats += (component.seats || []).length;
+        decorations += (component.decorations || []).length;
         scriptBytes += new TextEncoder().encode(component.script || '').byteLength;
         for (const child of component.children || []) count(child);
       };
@@ -8428,7 +8465,7 @@ export class PlayerController {
       }
       const blocks = [...(blockSet?.blocks || []), ...entityList.flatMap(entity => entity.blocks)];
       if (!blocks.length || blocks.length > MAX_INVENTORY_BLOCKS) return fail('Item must contain between 1 and 65536 voxels');
-      if (components > MAX_ENTITY_COMPONENTS || constraints > MAX_INVENTORY_CONSTRAINTS || seats > 256 || scriptBytes > MAX_INVENTORY_TOTAL_SCRIPT_BYTES) return fail('Item exceeds aggregate component, constraint, seat or script limits');
+      if (components > MAX_ENTITY_COMPONENTS || constraints > MAX_INVENTORY_CONSTRAINTS || seats > 256 || scriptBytes > MAX_INVENTORY_TOTAL_SCRIPT_BYTES || decorations > MAX_ENTITY_DECORATIONS) return fail('Item exceeds aggregate component, constraint, seat, decoration or script limits');
       const item = {
         kind: 'item', id: data.id, name: trimInventoryName(data.name),
         blockSet, entityList, blocks, blockCount: blocks.length, nodeCount: components,
@@ -8489,6 +8526,7 @@ export class PlayerController {
       let componentCount = 0;
       let blockCount = 0;
       let seatCount = 0;
+      let decorationCount = 0;
       let totalScriptBytes = 0;
       const validateBody = (body, id) => {
         if (!body || (body.type !== 'dynamic' && body.type !== 'kinematic')) {
@@ -8547,6 +8585,10 @@ export class PlayerController {
           }
         }
         validateBody(component.body, id);
+        const decorations = normalizeDecorations(component.decorations);
+        decorationCount += decorations.length;
+        if (decorationCount > MAX_ENTITY_DECORATIONS) throw new Error(`An entity may contain at most ${MAX_ENTITY_DECORATIONS} decorations`);
+        if (decorations.length) component.decorations = decorations;
         if (!Array.isArray(component.blocks) || !Array.isArray(component.children) || !Array.isArray(component.seats)) {
           throw new Error(`Component ${id} has malformed repeated fields`);
         }
@@ -9623,6 +9665,7 @@ export class PlayerController {
     this.updateCameraPosition();
     if (this.worldPickingSuspended) return;
     const query = this.performAimRaycast('all');
+    this.modeling?.update(query);
     this.currentRaycast = query.worldHit || { hit: false };
 
     // Entity and terrain candidates are resolved by the shared raycast query,
@@ -9642,7 +9685,7 @@ export class PlayerController {
     }
 
     if (this.hoveredContraption) {
-      if (this.activeTool === SpecialTool.WRENCH) {
+      if (this.activeTool === SpecialTool.WRENCH || this.activeTool === SpecialTool.MODELING) {
         this.hoveredContraption.setHighlighted(false);
         this.hoveredContraption.clearFocusHighlight();
       } else if (this.activeTool === SpecialTool.BRUSH) {
@@ -9728,6 +9771,7 @@ export class PlayerController {
    */
   getCursorHighlight() {
     if (this.worldPickingSuspended) return null;
+    if (this.activeTool === SpecialTool.MODELING) return null;
     if (this.hoveredContraptionHit) {
       const hit = this.hoveredContraptionHit;
       const contraption = hit.contraption;
