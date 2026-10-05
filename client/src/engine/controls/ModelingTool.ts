@@ -6,6 +6,7 @@ import type { PlayerController } from './PlayerController.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import { MAX_ENTITY_BOUNDS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import { TransformGizmo, transformAxis, transformGizmoSize, transformScreenPoint, transformViewCamera, type TransformHandle } from '../render/TransformGizmo.ts';
+import { DecorationOwnershipLink } from '../render/DecorationOwnershipLink.ts';
 
 type Target = { contraption: any; componentId: string; decorationId?: string };
 type Edit = { target: Target; before: DecorationDefinition[]; after: DecorationDefinition[] };
@@ -24,6 +25,7 @@ export class ModelingTool {
   placement: { target: Target; value: DecorationDefinition } | null = null;
   precisionOpen = false;
   private gizmo: TransformGizmo | null = null;
+  private ownershipLink: DecorationOwnershipLink | null = null;
   private hoveredHandle: TransformHandle | null = null;
   private drag: Drag | null = null;
   private creation: Creation | null = null;
@@ -33,6 +35,8 @@ export class ModelingTool {
   private preview: THREE.Group | null = null;
   private undoStack: Edit[] = [];
   private redoStack: Edit[] = [];
+  get canUndo() { return this.undoStack.length > 0; }
+  get canRedo() { return this.redoStack.length > 0; }
   private controller: PlayerController;
   constructor(controller: PlayerController) { this.controller = controller; }
 
@@ -49,6 +53,12 @@ export class ModelingTool {
     return { ...target, value };
   }
 
+  /** The inspector follows a drag preview without changing the saved definition. */
+  getDisplaySelection() {
+    const selection = this.getSelection();
+    return selection && this.drag ? { ...selection, value: this.drag.value } : selection;
+  }
+
   clearSelection(refresh = true) {
     this.cancelDrag();
     this.selected?.contraption.setDecorationSelection(null);
@@ -56,6 +66,7 @@ export class ModelingTool {
     this.precisionOpen = false;
     this.hoveredHandle = null;
     if (this.gizmo) this.gizmo.group.visible = false;
+    if (this.ownershipLink) this.ownershipLink.group.visible = false;
     if (refresh) this.controller.ui?.refresh?.();
   }
 
@@ -65,6 +76,11 @@ export class ModelingTool {
     if (this.gizmo && this.controller.sceneRenderer?.modelingGizmo === this.gizmo.group) this.controller.sceneRenderer.modelingGizmo = undefined;
     this.gizmo?.dispose();
     this.gizmo = null;
+    if (this.ownershipLink && this.controller.sceneRenderer?.modelingOwnershipLink === this.ownershipLink.group) {
+      this.controller.sceneRenderer.modelingOwnershipLink = undefined;
+    }
+    this.ownershipLink?.dispose();
+    this.ownershipLink = null;
     this.hovered = this.placement = null;
   }
 
@@ -152,6 +168,7 @@ export class ModelingTool {
 
   private renderGizmo() {
     const selection = this.getSelection();
+    this.updateOwnershipLink();
     if (!selection || this.creation || !this.controller.camera || !this.controller.canEditEntityInternals(selection.contraption)) {
       if (this.gizmo) this.gizmo.group.visible = false;
       return;
@@ -168,6 +185,27 @@ export class ModelingTool {
     const rotation = node.group.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1]));
     const size = this.drag?.size || transformGizmoSize(position, this.controller.camera.position);
     this.gizmo.setPose(position, rotation, size, this.drag?.handle.key || this.hoveredHandle?.key);
+  }
+
+  /** Also refreshed after render interpolation so the line stays attached to moving components. */
+  updateOwnershipLink(seconds = performance.now() / 1000) {
+    const selection = this.getSelection();
+    const camera = this.controller.camera;
+    const mesh = selection?.contraption.decorationGroups.get(selection.componentId)?.children
+      .find(object => object.userData.decorationId === selection.decorationId);
+    const node = selection?.contraption.getEntityNode(selection.componentId);
+    if (this.controller.activeTool !== 'modeling' || !mesh || !node || !camera) {
+      if (this.ownershipLink) this.ownershipLink.group.visible = false;
+      return;
+    }
+    if (!this.ownershipLink) {
+      this.ownershipLink = new DecorationOwnershipLink();
+      selection.contraption.scene.add(this.ownershipLink.group);
+      if (this.controller.sceneRenderer) this.controller.sceneRenderer.modelingOwnershipLink = this.ownershipLink.group;
+    }
+    const center = mesh.getWorldPosition(new THREE.Vector3());
+    const pivot = node.group.getWorldPosition(new THREE.Vector3());
+    this.ownershipLink.setEndpoints(center, pivot, camera, transformGizmoSize(center, camera.position), seconds);
   }
 
   private isSceneEvent(event: MouseEvent) {
@@ -339,6 +377,7 @@ export class ModelingTool {
     } catch { return false; }
     this.previewTransform(drag.target, drag.value);
     this.renderGizmo();
+    this.controller.ui?.refresh?.();
     return true;
   }
 
@@ -367,6 +406,7 @@ export class ModelingTool {
     const current = drag.target.contraption.getComponentDecorations(drag.target.componentId)
       .find(value => value.id === drag.target.decorationId);
     if (current) this.previewTransform(drag.target, current);
+    this.controller.ui?.refresh?.();
   }
 
   endDrag() {

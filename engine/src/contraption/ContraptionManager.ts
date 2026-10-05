@@ -622,6 +622,7 @@ export class ContraptionManager {
       nodes,
       bodies,
       states,
+      runtimeDecorations: wrenchStopped ? [] : contraption.captureRuntimeDecorations(),
       scriptStatus: wrenchStopped ? 'stopped' : contraption.scriptStatus,
       physicsSimulationEnabled: wrenchStopped
         ? false
@@ -802,6 +803,7 @@ export class ContraptionManager {
     }
     contraption.scriptRuntimeClient.reset(contraption.getSerializableComponentStates());
     contraption.scriptStatus = record.scriptStatus || 'stopped';
+    contraption.restoreRuntimeDecorations(contraption.scriptStatus === 'stopped' ? [] : record.runtimeDecorations ?? []);
     const physicsEnabled = record.physicsSimulationEnabled !== false;
     contraption.setPhysicsSimulationEnabled?.(physicsEnabled, {
       // A stopped snapshot has no trajectory to preserve. Pin both render and

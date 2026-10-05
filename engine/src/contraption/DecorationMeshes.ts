@@ -3,6 +3,23 @@ import { bendPointForView, hookSceneMaterials } from '../torus/TorusWorld.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import type { DecorationDefinition } from './Decorations.ts';
 
+/** Transform/color animation reuses geometry and materials. */
+export function updateDecorationMesh(mesh: THREE.Mesh, value: DecorationDefinition, pivot: THREE.Vector3) {
+  mesh.position.fromArray(value.position || [0, 0, 0]).sub(pivot);
+  mesh.quaternion.fromArray(value.rotation || [0, 0, 0, 1]);
+  mesh.scale.fromArray(value.scale || [1, 1, 1]);
+  if (mesh.userData.decorationColor !== value.color) {
+    (mesh.material as THREE.MeshStandardNodeMaterial).color.setHex(value.color);
+    const colors = mesh.geometry.getAttribute('color');
+    if (value.materialId === 1 && colors) {
+      for (let i = 0; i < colors.count; i++) colors.setXYZ(i,
+        ((value.color >> 16) & 255) / 255, ((value.color >> 8) & 255) / 255, (value.color & 255) / 255);
+      colors.needsUpdate = true;
+    }
+    mesh.userData.decorationColor = value.color;
+  }
+}
+
 export function createDecorationGroup(values: DecorationDefinition[], pivot: THREE.Vector3): THREE.Group {
   const group = new THREE.Group();
   group.name = 'Decorations';
@@ -21,9 +38,8 @@ export function createDecorationGroup(values: DecorationDefinition[], pivot: THR
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `Decoration:${value.id}`;
     mesh.userData.decorationId = value.id;
-    mesh.position.fromArray(value.position || [0, 0, 0]).sub(pivot);
-    mesh.quaternion.fromArray(value.rotation || [0, 0, 0, 1]);
-    mesh.scale.fromArray(value.scale || [1, 1, 1]);
+    mesh.userData.decorationMaterialId = value.materialId || 0;
+    updateDecorationMesh(mesh, value, pivot);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);

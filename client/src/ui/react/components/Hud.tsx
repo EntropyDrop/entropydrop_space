@@ -34,7 +34,7 @@ import { SiDiscord } from 'react-icons/si';
 import { formatByteRate } from '../../../bootstrap/NetworkTraffic.ts';
 
 import { LuShovel } from "react-icons/lu";
-import { ModelingPanel } from './ModelingPanel.tsx';
+import { ModelingPanel, ModelingToolbar } from './ModelingPanel.tsx';
 import modelingToolSvg from '../../../assets/icons/modeling-tool.svg?raw';
 
 function getHotbarToolIcon(toolValue: string): React.ReactNode {
@@ -906,7 +906,7 @@ export function Hud() {
                 ) : activeTool === SpecialTool.WRENCH ? (
                   <WrenchPanel />
                 ) : activeTool === SpecialTool.MODELING ? (
-                  <ModelingPanel />
+                  <ModelingToolbar />
                 ) : (
                   <PaletteBar isBrush={activeTool === SpecialTool.BRUSH} />
                 )}
@@ -923,6 +923,7 @@ export function Hud() {
       >
         {state.toast?.message || ''}
       </div>
+      {activeTool === SpecialTool.MODELING && <ModelingPanel />}
       <SelectorContextMenu />
       <EntityNameplates />
       <EntityContextMenu />

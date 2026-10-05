@@ -24,6 +24,7 @@ from space import models
 from config import settings
 from space.contracts import space_api_pb2
 from space.database import get_db
+from space.decorations import MAX_DECORATIONS, normalize_decoration
 from rate_limit import limiter, get_authenticated_or_remote_address
 from routers.space import (
     MAX_PLAYER_Y_CM,
@@ -340,6 +341,34 @@ EntityVoxelOperation = Annotated[
 ]
 
 
+class EntityDecorationUpsert(StrictEntityModel):
+    op: Literal["upsert"]
+    id: StrictStr = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    position: list[StrictFloat | StrictInt] | None = None
+    rotation: list[StrictFloat | StrictInt] | None = None
+    scale: list[StrictFloat | StrictInt] | None = None
+    color: StrictInt | None = None
+    materialId: StrictInt | None = None
+
+    @model_validator(mode="after")
+    def validate_values(self):
+        if any(getattr(self, key) is None for key in self.model_fields_set):
+            raise ValueError("Decoration properties cannot be null")
+        normalize_decoration(self.model_dump(exclude_unset=True, exclude={"op"}))
+        return self
+
+
+class EntityDecorationRemove(StrictEntityModel):
+    op: Literal["remove"]
+    id: StrictStr = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
+EntityDecorationOperation = Annotated[
+    EntityDecorationUpsert | EntityDecorationRemove,
+    Field(discriminator="op"),
+]
+
+
 class EntityScriptPatch(StrictEntityModel):
     format: Literal["unified"]
     base_sha256: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
@@ -377,17 +406,23 @@ class EntityComponentPatch(StrictEntityModel):
         min_length=1,
         max_length=SPACE_MARKET_MAX_BLOCKS,
     )
+    decoration_ops: list[EntityDecorationOperation] | None = Field(
+        default=None, min_length=1, max_length=MAX_DECORATIONS,
+    )
 
     @model_validator(mode="after")
     def nonempty_nonnull(self):
         if self.model_fields_set == {"id"} or any(getattr(self, key) is None for key in self.model_fields_set):
-            raise ValueError("Supply name, script, script_patch, body or voxel_ops; use an empty string to clear code")
+            raise ValueError("Supply name, script, script_patch, body, voxel_ops or decoration_ops; use an empty string to clear code")
         if "script" in self.model_fields_set and "script_patch" in self.model_fields_set:
             raise ValueError("Supply either script or script_patch, not both")
         if self.voxel_ops is not None:
             keys = [_voxel_operation_key(operation) for operation in self.voxel_ops]
             if len(set(keys)) != len(keys):
                 raise ValueError("Each voxel coordinate may appear only once per component patch")
+        if self.decoration_ops is not None:
+            if len({operation.id for operation in self.decoration_ops}) != len(self.decoration_ops):
+                raise ValueError("Each decoration id may appear only once per component patch")
         return self
 
 
@@ -403,6 +438,8 @@ class UpdateEntityConfigurationRequest(StrictEntityModel):
         operation_count = sum(len(item.voxel_ops or ()) for item in self.components)
         if operation_count > SPACE_MARKET_MAX_BLOCKS:
             raise ValueError(f"An entity patch may contain at most {SPACE_MARKET_MAX_BLOCKS} voxel operations")
+        if sum(len(item.decoration_ops or ()) for item in self.components) > MAX_DECORATIONS:
+            raise ValueError(f"An entity patch may contain at most {MAX_DECORATIONS} decoration operations")
         return self
 
 
@@ -1348,10 +1385,11 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
         raise HTTPException(409, detail={"code": "ENTITY_HOSTED_EDIT_FORBIDDEN"})
     if payload.expected_revision != entity.revision:
         raise HTTPException(409, detail={"code": "ENTITY_REVISION_CONFLICT", "current": _entity_response(entity, creator.user)})
+    _require_execution_holder(entity, None, None, creator.user.id)
     if entity.desired_run_state != "stopped":
         raise HTTPException(409, detail={
             "code": "ENTITY_MUST_BE_STOPPED",
-            "message": "Stop the entity before editing code, defaults or voxels.",
+            "message": "Stop the entity before editing code, defaults, voxels or decorations.",
         })
     _kind, definition = decode_inventory_resource(bytes(entity.definition))
     components = {}
@@ -1366,7 +1404,7 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
         target = components[patch.id]
         ordinary_fields = patch.model_dump(
             exclude_unset=True,
-            exclude={"id", "script_patch", "voxel_ops"},
+            exclude={"id", "script_patch", "voxel_ops", "decoration_ops"},
         )
         for key, value in ordinary_fields.items():
             if key == "body":
@@ -1395,6 +1433,23 @@ def update_entity_configuration(request: Request, world_id: str, entity_id: str,
                     "component_id": patch.id,
                     "message": str(error),
                 }) from error
+        if patch.decoration_ops is not None:
+            decorations = {value["id"]: value for value in target.get("decorations", [])}
+            for operation in patch.decoration_ops:
+                if operation.op == "remove":
+                    if operation.id not in decorations:
+                        raise HTTPException(422, detail={
+                            "code": "ENTITY_DECORATION_NOT_FOUND",
+                            "component_id": patch.id,
+                            "decoration_id": operation.id,
+                        })
+                    del decorations[operation.id]
+                else:
+                    decorations[operation.id] = normalize_decoration({
+                        **decorations.get(operation.id, {}),
+                        **operation.model_dump(exclude_unset=True, exclude={"op"}),
+                    })
+            target["decorations"] = list(decorations.values())
         if patch.voxel_ops is not None:
             voxels = {_stored_voxel_key(voxel): voxel for voxel in target.get("blocks", [])}
             for operation in patch.voxel_ops:

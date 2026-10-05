@@ -64,6 +64,24 @@ export function normalizeDecorations(values: unknown): DecorationDefinition[] {
   return result.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 }
 
+/** A closed partial update: omitted fields preserve the previous value. */
+export function patchDecoration(id: string, patch: unknown, previous?: DecorationDefinition): DecorationDefinition {
+  const fields = new Set(['position', 'rotation', 'scale', 'color', 'materialId']);
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)
+    || Object.entries(patch).some(([key, value]) => !fields.has(key) || value == null)) {
+    throw new Error('Decoration patch contains an unknown or null property.');
+  }
+  return normalizeDecoration({ ...previous, ...patch, id });
+}
+
+export function freezeDecorationSnapshot<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeDecorationSnapshot(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 /** Rebase construction coordinates when component voxels/pivots are rebased. */
 export function offsetDecorations(values: unknown, offset: number[]): DecorationDefinition[] {
   return normalizeDecorations(values).map(value => normalizeDecoration({

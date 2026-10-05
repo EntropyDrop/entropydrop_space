@@ -100,12 +100,19 @@ export class Constraints extends Value {
   create(options: Value): Value { return this.call("create", args1(options)); }
   remove(id: string): bool { return this.call("remove", args1(Value.string(id))).asBoolean(); }
 }
+export class Decorations extends Value {
+  all(): Value { return this.call("all"); }
+  get(id: string): Value { return this.call("get", args1(Value.string(id))); }
+  upsert(id: string, patch: Value): Value { return this.call("upsert", args2(Value.string(id), patch)); }
+  remove(id: string): Value { return this.call("remove", args1(Value.string(id))); }
+}
 export class Component extends Value {
   get id(): string { return this.getString("id"); }
   get parentId(): string { return this.getString("parentId"); }
   get state(): State { return new State(read(this.handle, "state")); }
   get body(): Body { return new Body(read(this.handle, "body")); }
   get constraints(): Constraints { return new Constraints(read(this.handle, "constraints")); }
+  get decorations(): Decorations { return new Decorations(read(this.handle, "decorations")); }
   get voxels(): Voxels { return new Voxels(read(this.handle, "voxels")); }
   get microVoxels(): MicroVoxels { return new MicroVoxels(read(this.handle, "microVoxels")); }
   child(id: string): Component | null { const v = this.call("child", args1(Value.string(id))); return v.isNull ? null : new Component(v.handle); }

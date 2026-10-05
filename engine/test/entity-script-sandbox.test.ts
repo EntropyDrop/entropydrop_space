@@ -20,6 +20,53 @@ function fixture() {
   return { service, send, set, tick };
 }
 
+test('typed decoration API provides shared optimistic reads, immutable snapshots and command receipts', async () => {
+  const f = fixture();
+  assert.equal((await f.set(`
+    const arm = self.child("arm");
+    if (arm) {
+      const result = arm.decorations.upsert("trim", Value.object().setVector("position", [2, 1, 0]).setNumber("color", 123));
+      self.state.setString("queued", result.getString("reason"));
+      self.state.setNumber("color", arm.decorations.get("trim").getNumber("color"));
+      self.state.setNumber("count", arm.decorations.all().length);
+      self.state.setBoolean("invalid", arm.decorations.upsert("trim", Value.object().setVector("scale", [0, 1, 1])).getBoolean("ok"));
+    }
+  `)).ok, true);
+  assert.equal((await f.set(`
+    self.state.setNumber("seen", self.decorations.get("trim").getNumber("color"));
+    self.decorations.remove("trim");
+    self.state.setBoolean("absent", self.decorations.get("trim").isNull);
+  `, 'arm')).ok, true);
+  const result = f.tick();
+  assert.deepEqual(result.states.root, { queued: 'queued', color: 123, count: 1, invalid: false });
+  assert.deepEqual(result.states.arm, { seen: 123, absent: true });
+  assert.deepEqual(result.commands.map(command => [command.nodeId, command.path]),
+    [['arm', 'decorations.upsert'], ['arm', 'decorations.remove']]);
+  assert.ok(result.commands.every(command => command.commandId));
+  await f.set(`self.decorations.upsert("trim", Value.object()); self.decorations.get("trim").setNumber("color", 4);`);
+  assert.match(f.tick().errors[0].error, /read-only/);
+});
+
+test('decoration command and entity limits reject without changing the optimistic view', async () => {
+  const f = fixture();
+  assert.equal((await f.set(`
+    for (let i = 0; i < 256; i++) self.decorations.upsert("trim", Value.object().setNumber("color", i));
+    const rejected = self.decorations.upsert("trim", Value.object().setNumber("color", 999));
+    self.state.setString("reason", rejected.getString("reason"));
+    self.state.setNumber("color", self.decorations.get("trim").getNumber("color"));
+  `)).ok, true);
+  const limited = f.tick();
+  assert.equal(limited.commands.length, 256);
+  assert.deepEqual(limited.states.root, { reason: 'command_limit', color: 255 });
+  await f.set(`self.state.setString("reason", self.decorations.upsert("extra", Value.object()).getString("reason"));`);
+  const full = f.tick({ components: [
+    { id: 'root', parentId: null, children: ['arm'], decorations: [] },
+    { id: 'arm', parentId: 'root', children: [], decorations: Array.from({ length: 1024 }, (_, i) => ({ id: 'd'+i, color: 0 })) },
+  ] });
+  assert.equal(full.states.root.reason, 'too_many_decorations');
+  assert.deepEqual(full.commands, []);
+});
+
 test('AssemblyScript executes native WASM with typed state, input and command buffers', async () => {
   const f = fixture();
   assert.equal((await f.set(`

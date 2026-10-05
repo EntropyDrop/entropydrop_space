@@ -580,7 +580,7 @@ export function PauseScreen() {
           <span><kbd className="key-badge">4</kbd> Shovel: remove / place 1m blocks</span>
           <span><kbd className="key-badge">5</kbd> Spoon: micro-carve 8x8x8</span>
           <span><kbd className="key-badge">6</kbd> Brush: paint / right-click 2-point dye · Tab micro/standard</span>
-          <span><kbd className="key-badge">7</kbd> Modeling: LMB select / drag · RMB add / draw size · Esc exact values</span>
+          <span><kbd className="key-badge">7</kbd> Modeling: LMB select / drag · RMB add / draw size · R copy · Del delete · right panel: properties</span>
           <span><kbd className="key-badge">Shift+Click</kbd> Multi-select component blocks</span>
           <span><kbd className="key-badge">C</kbd> Entity editor</span>
           <span><kbd className="key-badge">G</kbd> Assemble contraption / sub-contraption</span>

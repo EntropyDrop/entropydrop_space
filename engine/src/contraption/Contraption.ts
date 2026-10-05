@@ -1,8 +1,8 @@
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
-import { normalizeDecorations, offsetDecorations, type DecorationDefinition } from './Decorations.ts';
-import { createDecorationGroup, raycastDecorationGroup } from './DecorationMeshes.ts';
+import { normalizeDecorations, offsetDecorations, patchDecoration, freezeDecorationSnapshot, type DecorationDefinition } from './Decorations.ts';
+import { createDecorationGroup, raycastDecorationGroup, updateDecorationMesh } from './DecorationMeshes.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import {
   normalizeVoxelMaterialId,
@@ -14,6 +14,7 @@ import {
   bendPoint,
   bendPointForView,
   computeBentBoundsSphere,
+  hookSceneMaterials,
   projectBentSphereForView,
   TORUS_GREF,
   TORUS_K_PHI,
@@ -256,7 +257,7 @@ const SCRIPT_COMPONENT_COMMANDS = new Set([
   'body.setCollisionEnabled', 'body.applyForce', 'body.applyLocalForce', 'body.applyTorque',
   'constraints.create', 'constraints.remove', 'voxels.set', 'voxels.clear',
   'voxels.paint', 'voxels.clearCell', 'voxels.subdivide', 'microVoxels.set', 'microVoxels.clear',
-  'microVoxels.paint'
+  'microVoxels.paint', 'decorations.upsert', 'decorations.remove'
 ]);
 // These commands describe continuous physical output. If a runtime is still
 // finishing an earlier request, its latest output remains held instead of
@@ -474,6 +475,8 @@ export interface EntityRigidBody {
 
 export class Contraption {
   decorations: DecorationDefinition[];
+  // Effective runtime values are checkpointed separately from authored definitions.
+  runtimeDecorations = new Map<string, DecorationDefinition[]>();
   decorationGroups = new Map<string, THREE.Group>();
   selectedDecoration: { componentId: string; decorationId: string } | null = null;
   // --- Identity & data ---
@@ -1127,6 +1130,77 @@ export class Contraption {
     return this.decorations.length + [...this.childDefinitions.values()].reduce((sum, value) => sum + (value.decorations?.length || 0), 0);
   }
 
+  getRuntimeComponentDecorations(nodeId = this.rootComponentId): DecorationDefinition[] {
+    return normalizeDecorations(this.runtimeDecorations.get(nodeId) ?? this.getComponentDecorations(nodeId));
+  }
+
+  getRuntimeDecorationCount(): number {
+    let count = 0;
+    for (const id of this.entityNodes.keys()) count += this.getRuntimeComponentDecorations(id).length;
+    return count;
+  }
+
+  editRuntimeDecoration(nodeId: string, id: string, patch?: unknown, remove = false) {
+    const fail = (reason: string) => Object.freeze({ ok: false, reason });
+    if (!this.entityNodes.has(nodeId)) return fail('component_not_found');
+    const values = this.getRuntimeComponentDecorations(nodeId);
+    const previous = values.find(value => value.id === id);
+    if (remove && !previous) return fail('decoration_not_found');
+    let next: DecorationDefinition | undefined;
+    if (!remove) {
+      try { next = patchDecoration(id, patch, previous); }
+      catch { return fail('invalid_decoration'); }
+      if (!previous && this.getRuntimeDecorationCount() >= MAX_ENTITY_DECORATIONS) return fail('too_many_decorations');
+    }
+    const updated = values.filter(value => value.id !== id);
+    if (next) updated.push(next);
+    this.runtimeDecorations.set(nodeId, normalizeDecorations(updated));
+    const group = this.decorationGroups.get(nodeId);
+    if (group) {
+      const mesh = group.children.find(value => value.userData.decorationId === id) as THREE.Mesh;
+      const pivot = this.entityNodes.get(nodeId)!.pivotLocal;
+      if (next && mesh && mesh.userData.decorationMaterialId === (next.materialId || 0)) {
+        updateDecorationMesh(mesh, next, pivot);
+      } else {
+        if (mesh) {
+          group.remove(mesh);
+          mesh.geometry.dispose();
+          (mesh.material as THREE.Material).dispose();
+        }
+        if (next) group.add(createDecorationGroup([next], pivot).children[0]);
+      }
+      if (this.selectedDecoration?.componentId === nodeId) this.setDecorationSelection(this.selectedDecoration);
+    } else this.rebuildDecorationMeshes(nodeId);
+    return Object.freeze({ ok: true, reason: 'applied', id });
+  }
+
+  clearRuntimeDecorations() {
+    const ids = [...this.runtimeDecorations.keys()];
+    this.runtimeDecorations.clear();
+    for (const id of ids) this.rebuildDecorationMeshes(id);
+  }
+
+  captureRuntimeDecorations() {
+    return [...this.runtimeDecorations.keys()].sort().map(id => ({ id, decorations: this.getRuntimeComponentDecorations(id) }));
+  }
+
+  restoreRuntimeDecorations(records: unknown = []) {
+    if (!Array.isArray(records) || records.length > this.entityNodes.size) throw new Error('Invalid runtime decorations.');
+    const restored = new Map<string, DecorationDefinition[]>();
+    for (const record of records) {
+      if (!record || !this.entityNodes.has(record.id) || restored.has(record.id) || !Array.isArray(record.decorations)) {
+        throw new Error('Invalid runtime decoration component.');
+      }
+      restored.set(record.id, normalizeDecorations(record.decorations));
+    }
+    let count = 0;
+    for (const id of this.entityNodes.keys()) count += (restored.get(id) ?? this.getComponentDecorations(id)).length;
+    if (count > MAX_ENTITY_DECORATIONS) throw new Error('Too many runtime decorations.');
+    const changed = new Set([...this.runtimeDecorations.keys(), ...restored.keys()]);
+    this.runtimeDecorations = restored;
+    for (const id of changed) this.rebuildDecorationMeshes(id);
+  }
+
   /** Visual edits never invalidate collision indexes, bodies, mass or inertia. */
   setComponentDecorations(nodeId: string, values: unknown): boolean {
     if (!this.entityNodes.has(nodeId)) return false;
@@ -1136,6 +1210,7 @@ export class Contraption {
     }
     if (nodeId === this.rootComponentId) this.decorations = decorations;
     else this.childDefinitions.get(nodeId).decorations = decorations;
+    this.runtimeDecorations.delete(nodeId);
     this.rebuildDecorationMeshes(nodeId);
     return true;
   }
@@ -1149,7 +1224,7 @@ export class Contraption {
     this.decorationGroups.delete(nodeId);
     const node = this.entityNodes.get(nodeId);
     if (!node) return;
-    const group = createDecorationGroup(this.getComponentDecorations(nodeId), node.pivotLocal);
+    const group = createDecorationGroup(this.getRuntimeComponentDecorations(nodeId), node.pivotLocal);
     node.group.add(group);
     this.decorationGroups.set(nodeId, group);
     this.setDecorationSelection(this.selectedDecoration);
@@ -1161,20 +1236,21 @@ export class Contraption {
       for (const object of [...group.children]) {
         if (object.name === 'DecorationSelection') {
           group.remove(object);
-          (object as THREE.Mesh).geometry.dispose();
-          ((object as THREE.Mesh).material as THREE.Material).dispose();
+          (object as THREE.LineSegments).geometry.dispose();
+          ((object as THREE.LineSegments).material as THREE.Material).dispose();
         }
       }
       const mesh = group.children.find(object => componentId === selection?.componentId
         && object.userData.decorationId === selection.decorationId) as THREE.Mesh | undefined;
       if (!mesh) continue;
-      const outline = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01),
-        new THREE.MeshBasicNodeMaterial({ color: 0x5cff5c, wireframe: true, depthTest: false }));
+      const outline = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry),
+        new THREE.LineBasicNodeMaterial({ color: 0x5cff5c, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
       outline.name = 'DecorationSelection';
       outline.position.copy(mesh.position);
       outline.quaternion.copy(mesh.quaternion);
       outline.scale.copy(mesh.scale);
       outline.renderOrder = 95;
+      hookSceneMaterials(outline);
       group.add(outline);
     }
   }
@@ -1616,6 +1692,12 @@ export class Contraption {
         return result.ok;
       }
     });
+    api.decorations = Object.freeze({
+      all: () => freezeDecorationSnapshot(this.getRuntimeComponentDecorations(id)),
+      get: decorationId => freezeDecorationSnapshot(this.getRuntimeComponentDecorations(id).find(value => value.id === decorationId) || null),
+      upsert: (decorationId, patch) => this.editRuntimeDecoration(id, decorationId, patch),
+      remove: decorationId => this.editRuntimeDecoration(id, decorationId, undefined, true)
+    });
     api.voxels = Object.freeze({
       set: (location, options = null) => this.setComponentStandardVoxel(id, node, location, options),
       clear: location => this.clearComponentStandardVoxel(id, node, location),
@@ -1865,6 +1947,7 @@ export class Contraption {
    * Script content and component switches are preserved.
    */
   resetAllComponentState() {
+    this.clearRuntimeDecorations();
     for (const state of this.componentVariables.values()) {
       for (const key of Object.keys(state)) delete state[key];
     }
@@ -2610,6 +2693,7 @@ export class Contraption {
       this.componentVariables.delete(id);
       this.childScriptApis.delete(id);
       this.runtimeBodyConfigDefaults.delete(id);
+      this.runtimeDecorations.delete(id);
     }
     for (const [id, constraint] of this.constraintDefinitions) {
       if (nodeIds.has(constraint.bodyA) || nodeIds.has(constraint.bodyB)) {
@@ -2785,6 +2869,10 @@ export class Contraption {
       const defaults = this.runtimeBodyConfigDefaults.get(oldId);
       this.runtimeBodyConfigDefaults.delete(oldId);
       this.runtimeBodyConfigDefaults.set(cleanNewId, defaults);
+    }
+    if (this.runtimeDecorations.has(oldId)) {
+      this.runtimeDecorations.set(cleanNewId, this.runtimeDecorations.get(oldId)!);
+      this.runtimeDecorations.delete(oldId);
     }
 
     // Update children's parentId
@@ -5283,6 +5371,7 @@ export class Contraption {
           })),
           bounds: this.getNodeBlocksBounds(node.id),
           constraints: this.getConstraints(node.id),
+          decorations: this.getRuntimeComponentDecorations(node.id),
           body: {
             type: this.getNodeBodyType(node.id),
             mass: this.getNodeBodyMass(node.id),
@@ -6453,6 +6542,7 @@ export class Contraption {
 
   dispose() {
     this.scriptRuntimeClient.dispose();
+    this.setDecorationSelection(null);
     this.setHighlightedNode(null);
     this.clearGlueSelection();
     if (this.rootGroup && this.scene) {

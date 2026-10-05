@@ -173,6 +173,14 @@ Extends Value; inherited typed data accessors are available.
 - `all(): Value` — Callable SDK signature.
 - `create(options: Value): Value` — Callable SDK signature.
 - `remove(id: string): bool` — Callable SDK signature.
+#### Decorations
+
+Extends Value; inherited typed data accessors are available.
+
+- `all(): Value` — Callable SDK signature.
+- `get(id: string): Value` — Callable SDK signature.
+- `upsert(id: string, patch: Value): Value` — Callable SDK signature.
+- `remove(id: string): Value` — Callable SDK signature.
 #### Component
 
 Extends Value; inherited typed data accessors are available.
@@ -182,6 +190,7 @@ Extends Value; inherited typed data accessors are available.
 - `get state(): State` — Callable SDK signature.
 - `get body(): Body` — Callable SDK signature.
 - `get constraints(): Constraints` — Callable SDK signature.
+- `get decorations(): Decorations` — Callable SDK signature.
 - `get voxels(): Voxels` — Callable SDK signature.
 - `get microVoxels(): MicroVoxels` — Callable SDK signature.
 - `child(id: string): Component | null` — Callable SDK signature.
@@ -322,6 +331,20 @@ Every root and child receives the same top-level API. Namespaces target the curr
 > All voxel changes are queued and action-specific. Check `result.getBoolean("ok")` and `result.getString("reason")`; entity bounds are capped at 256×256×256.
 
 > Removing an entity's final voxel deletes the entity, scripts, and state.
+#### Visual decorations
+
+- Decorations are visual-only cubes. They never change collisions, mass, inertia, seats or constraints, and accept runtime edits on both dynamic and kinematic components.
+- IDs are component-local, case-sensitive, 1-64 ASCII letters, digits, underscores or hyphens. Use self.child(id) or ctx.root to address another component. An entity may display at most 1024 decorations in total.
+- position is [x,y,z] in component construction coordinates, independent of the pivot, each within ±512. rotation is a unit [x,y,z,w] quaternion. scale contains positive dimensions, each at most 256. color is an integer 0xRRGGBB; materialId is 0 (lit) or 1 (emissive). Unknown/null fields and malformed transforms return invalid_decoration.
+- New decorations default to position [0,0,0], rotation [0,0,0,1], scale [1,1,1], color 0 and materialId 0. Reads may omit default transform/material fields. Supply explicit identity values to reset a field.
+- Admitted commands update the shared optimistic in-tick view and consume the usual 256-command budget. Check ok/reason/commandId and later ctx.commands.result(commandId) for final commit; command_limit and too_many_decorations leave the view unchanged.
+- Script edits affect runtime values only. They survive ticks, disabling code and streaming/checkpoints; global Stop or reset restores authored decorations and removes runtime-created ones. Inventory export and configuration reads retain the authored definition. Use spaceAPI configuration decoration_ops for persistent edits.
+- The executor displays edits each script tick. Remote observers receive decoration values at checkpoint cadence; the 20 Hz rigid-body pose stream does not yet carry decoration animation.
+
+- `self.decorations.all(): Value` — Read the sorted, frozen effective decoration list for this component.
+- `self.decorations.get(id: string): Value` — Read one frozen decoration; isNull is true when absent.
+- `self.decorations.upsert(id: string, patch: Value): Value` — Queue creation or a partial update. Fields are position, rotation, scale, color and materialId; omitted fields retain existing values.
+- `self.decorations.remove(id: string): Value` — Queue removal of an existing decoration. Missing IDs return decoration_not_found.
 #### Kinematics
 
 Only kinematic bodies accept direct pose commands; dynamic bodies are solver-driven.

@@ -241,6 +241,30 @@ self.applyForce([dx, 0, dz]);`
             "Removing an entity's final voxel deletes the entity, scripts, and state."
           ]
         },
+        {
+          id: 'self-decorations', title: 'Visual decorations',
+          entries: [
+            { signature: 'self.decorations.all(): Value', description: 'Read the sorted, frozen effective decoration list for this component.' },
+            { signature: 'self.decorations.get(id: string): Value', description: 'Read one frozen decoration; isNull is true when absent.' },
+            { signature: 'self.decorations.upsert(id: string, patch: Value): Value', description: 'Queue creation or a partial update. Fields are position, rotation, scale, color and materialId; omitted fields retain existing values.' },
+            { signature: 'self.decorations.remove(id: string): Value', description: 'Queue removal of an existing decoration. Missing IDs return decoration_not_found.' }
+          ],
+          facts: [
+            'Decorations are visual-only cubes. They never change collisions, mass, inertia, seats or constraints, and accept runtime edits on both dynamic and kinematic components.',
+            'IDs are component-local, case-sensitive, 1-64 ASCII letters, digits, underscores or hyphens. Use self.child(id) or ctx.root to address another component. An entity may display at most 1024 decorations in total.',
+            'position is [x,y,z] in component construction coordinates, independent of the pivot, each within ±512. rotation is a unit [x,y,z,w] quaternion. scale contains positive dimensions, each at most 256. color is an integer 0xRRGGBB; materialId is 0 (lit) or 1 (emissive). Unknown/null fields and malformed transforms return invalid_decoration.',
+            'New decorations default to position [0,0,0], rotation [0,0,0,1], scale [1,1,1], color 0 and materialId 0. Reads may omit default transform/material fields. Supply explicit identity values to reset a field.',
+            'Admitted commands update the shared optimistic in-tick view and consume the usual 256-command budget. Check ok/reason/commandId and later ctx.commands.result(commandId) for final commit; command_limit and too_many_decorations leave the view unchanged.',
+            'Script edits affect runtime values only. They survive ticks, disabling code and streaming/checkpoints; global Stop or reset restores authored decorations and removes runtime-created ones. Inventory export and configuration reads retain the authored definition. Use spaceAPI configuration decoration_ops for persistent edits.',
+            'The executor displays edits each script tick. Remote observers receive decoration values at checkpoint cadence; the 20 Hz rigid-body pose stream does not yet carry decoration animation.'
+          ],
+          examples: [{ title: 'Animate a visual panel', code: `const panel = Value.object()
+  .setVector("position", [0, 1 + Math.sin(ctx.time), 0])
+  .setVector("scale", [2, 0.1, 1])
+  .setVector("rotation", [0, Math.sin(ctx.time / 2), 0, Math.cos(ctx.time / 2)])
+  .setNumber("color", 0x44aaff);
+self.decorations.upsert("panel", panel);` }]
+        },
         { id: 'self-kinematics', title: 'Kinematics', intro: 'Only kinematic bodies accept direct pose commands; dynamic bodies are solver-driven.', entries: kinematicEntries },
         {
           id: 'self-body',
@@ -312,7 +336,7 @@ self.applyForce([dx, 0, dz]);`
       'localToWorldDirection', 'getBounds', 'setLocalPosition', 'setLocalRotation', 'setLocalEuler',
       'setLocalSpin', 'getLocalPosition', 'getLocalRotation', 'setPivot', 'applyForce', 'applyLocalForce',
       'applyForceAt', 'applyTorque', 'setSeats', 'stop', 'getSeats', 'child', 'state', 'children',
-      'body', 'constraints', 'voxels', 'microVoxels'
+      'body', 'constraints', 'voxels', 'microVoxels', 'decorations'
     ],
     'self.body': [
       'getType', 'setType', 'getMass', 'setMass', 'getMaterial', 'setMaterial', 'getGravityEnabled',
@@ -320,6 +344,7 @@ self.applyForce([dx, 0, dz]);`
       'applyForce', 'applyLocalForce', 'applyTorque'
     ],
     'self.constraints': ['all', 'create', 'remove'],
+    'self.decorations': ['all', 'get', 'upsert', 'remove'],
     'self.voxels': ['set', 'clear', 'paint', 'clearCell', 'subdivide'],
     'self.microVoxels': ['set', 'clear', 'paint']
   }

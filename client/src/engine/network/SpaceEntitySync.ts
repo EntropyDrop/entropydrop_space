@@ -811,6 +811,10 @@ export class SpaceEntitySync {
       if (entity.desired_run_state === 'running' && (active.serverExecutesLocally
         || (stream && stream.frame.execution_epoch === entity.execution_epoch
           && Date.now() - stream.receivedAt < 500))) {
+        // The pose stream carries rigid bodies only. Remote visual overrides
+        // still need the checkpoint, without rewinding streamed body poses or
+        // the local executor's more recent animation state.
+        if (!active.serverExecutesLocally) active.restoreRuntimeDecorations?.(snapshot.runtimeDecorations ?? []);
         this.applyRecordMetadata(active, entity);
         return true;
       }

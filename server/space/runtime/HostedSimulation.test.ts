@@ -27,6 +27,32 @@ test('hosted simulation preserves component decorations across checkpoints', asy
   assert.equal(second.entities[0].snapshot.states.root.count, 2);
 });
 
+test('hosted decoration animation is checkpointed independently from the authored definition', async () => {
+  const input = inputFor(`
+    if (!self.state.getBoolean("created")) {
+      self.decorations.upsert("panel", Value.object().setNumber("color", 123).setVector("position", [2, 1, 0]));
+      self.state.setBoolean("created", true);
+    } else {
+      self.state.setNumber("restored", self.decorations.get("panel").getNumber("color"));
+      self.decorations.upsert("panel", Value.object().setVector("position", [3, 1, 0]));
+    }
+  `);
+  const first: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(first.faults, []);
+  assert.deepEqual(first.entities[0].snapshot.runtimeDecorations, [
+    { id: 'root', decorations: [{ id: 'panel', color: 123, position: [2, 1, 0] }] },
+  ]);
+  const authored: any = decodeInventoryResource(Buffer.from(first.entities[0].definition_base64, 'base64'), 'entity').portable;
+  assert.equal(authored.root.decorations?.length || 0, 0);
+  input.entities[0].definition_base64 = first.entities[0].definition_base64;
+  input.entities[0].snapshot = first.entities[0].snapshot;
+  const second: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(second.faults, []);
+  assert.equal(second.entities[0].snapshot.states.root.restored, 123);
+  assert.deepEqual(second.entities[0].snapshot.runtimeDecorations[0].decorations[0].position, [3, 1, 0]);
+  assert.equal(second.entities[0].definition_base64, first.entities[0].definition_base64);
+});
+
 test('hosted AssemblyScript restores typed state across transaction batches', async () => {
   const input = inputFor('self.state.setNumber("count", self.state.getNumber("count") + 1);');
   const first: any = await new HostedSimulation(1337).step(input);

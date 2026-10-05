@@ -152,7 +152,7 @@ Use the entity ID returned by creation or copied from the Entity Editor. The fol
 | Request | Purpose |
 | --- | --- |
 | `GET /configuration` | Read `{ "entity": <metadata>, "definition": <decoded InventoryResource v8 JSON> }`, including component code and authored body defaults |
-| `PATCH /configuration` | Modify selected components' code, names, body defaults and voxels while stopped |
+| `PATCH /configuration` | Modify selected components' code, names, body defaults, voxels and decorations while stopped |
 | `PUT /run-state` | Set `desired_run_state` to `running` or `stopped` |
 
 Configuration reads are private and not cached. Binary definition/snapshot, AOI listing, checkpoint and execution-lease endpoints remain browser login interfaces. Use the JSON configuration endpoint for Agent reads; a spaceAPI key is not a general login credential.
@@ -191,7 +191,30 @@ If Stop returns revision 2, send this JSON to `PATCH /configuration`, with `Cont
 }
 ```
 
-Only named fields change; other components, constraints and properties remain intact. `components` contains 1–64 unique, existing component IDs. Each patch accepts `name`, `script`, `script_patch`, `body`, and/or `voxel_ops`. Use `script: ""` to clear code. Null values, duplicate IDs, unknown fields and empty patches are rejected. No owner, permission, runtime-state or arbitrary object-path updates are accepted.
+Only named fields change; other components, constraints and properties remain intact. `components` contains 1–64 unique, existing component IDs. Each patch accepts `name`, `script`, `script_patch`, `body`, `voxel_ops`, and/or `decoration_ops`. Use `script: ""` to clear code. Null values, duplicate IDs, unknown fields and empty patches are rejected. No owner, permission, runtime-state or arbitrary object-path updates are accepted.
+
+`decoration_ops` changes persisted visual-only cubes, without adding collision, mass or inertia. Each operation is either `{"op":"upsert","id":"trim",...}` or `{"op":"remove","id":"trim"}`. IDs are case-sensitive, component-local, 1–64 ASCII letters, digits, underscores or hyphens. `upsert` creates a decoration or merges only the supplied properties; `remove` requires an existing ID (`422 ENTITY_DECORATION_NOT_FOUND`). The request is atomic, including other component edits: stale revisions, invalid values or missing removals leave everything unchanged. The usual stopped/unoccupied/non-hosted requirements apply.
+
+Allowed upsert properties match the portable definition: `position` ([x,y,z] construction coordinates, each within ±512, independent of pivot), `rotation` (unit [x,y,z,w] quaternion), `scale` (positive dimensions, each at most 256), `color` (integer 0–16777215), and `materialId` (0 lit, 1 emissive). New IDs default to origin, identity rotation, unit scale, black and lit material. Omitted fields preserve existing values; supply identity values explicitly to reset a transform. Unknown fields and null values are rejected. Each ID may appear once per component patch; a request permits at most 1024 decoration operations and the resulting entity at most 1024 decorations across all components.
+
+For example, create or reshape a panel using the current revision and a fresh operation ID:
+
+```json
+{
+  "operation_id": "b88b2a40-46ca-46ab-b904-4127bc9dc281",
+  "expected_revision": 2,
+  "components": [{
+    "id": "root",
+    "decoration_ops": [{
+      "op": "upsert", "id": "panel",
+      "position": [0, 1, 0], "scale": [2, 0.1, 1],
+      "color": 4500223, "materialId": 0
+    }]
+  }]
+}
+```
+
+`GET /configuration` returns authored `decorations` within each component; runtime animation overrides are in execution snapshots, not this definition. For animation, use entityAPI `self.decorations.upsert/remove/get/all`. Those edits survive execution checkpoints and are cleared by Stop. Inventory export also retains authored decoration values. The executor displays changes each script tick; remote observers receive them at checkpoint cadence. The 20 Hz rigid-body pose stream does not yet carry decoration animation.
 
 `body` accepts `type` (`dynamic` / `kinematic`), `mass` (0.1–10¹²), `restitution` / `friction` (0–1), and Boolean `useGravity` / `collisionEnabled`. It merges into persisted defaults, which are also restored on Stop. Script bodies are limited to 64 KiB per component and 512 KiB per entity. Stored-definition validation checks the schema and limits; JavaScript compilation and execution errors are reported by the runtime.
 

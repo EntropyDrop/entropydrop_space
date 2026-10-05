@@ -508,11 +508,36 @@ test('an executor checkpoint echo updates metadata without overwriting its curre
   const { sync, created, restored } = harness('owner-1', overrides);
   await sync.poll();
   created[0].position.set(9, 40, 10);
+  created[0].restoreRuntimeDecorations = () => assert.fail('executor must not rewind its current decorations');
   overrides.snapshot_digest = 'b'.repeat(64);
   (sync as any).client.getSnapshot = async () => ({ position: [1, 32, 2] });
   await sync.poll();
   assert.equal(restored.length, 0);
   assert.deepEqual(created[0].position.toArray(), [9, 40, 10]);
+});
+
+test('a remote checkpoint updates decorations while its live rigid-body timeline is preserved', async () => {
+  const overrides = { snapshot_digest: 'a'.repeat(64), execution_epoch: 1,
+    execution_user_id: 'owner-1', execution_lease_expires_at: new Date(Date.now() + 8_000).toISOString() };
+  const { sync, created, restored } = harness('observer', overrides);
+  await sync.poll();
+  const entity = created[0];
+  const values: any[] = [];
+  entity.restoreRuntimeDecorations = value => values.push(value);
+  entity.position.set(9, 40, 10);
+  const internal = sync as any;
+  internal.poseBuffers.set(entity.publicId, { frame: { execution_epoch: 1 }, receivedAt: Date.now() });
+  const decorations = [{ id: 'root', decorations: [{ id: 'panel', color: 123 }] }];
+  internal.client.getSnapshot = async () => ({ position: [1, 32, 2], runtimeDecorations: decorations });
+  overrides.snapshot_digest = 'b'.repeat(64);
+  await sync.poll();
+  assert.deepEqual(values, [decorations]);
+  assert.equal(restored.length, 0);
+  assert.deepEqual(entity.position.toArray(), [9, 40, 10]);
+  internal.client.getSnapshot = async () => ({ position: [1, 32, 2] });
+  overrides.snapshot_digest = 'c'.repeat(64);
+  await sync.poll();
+  assert.deepEqual(values, [decorations, []], 'a checkpoint without overrides clears old visual state');
 });
 
 test('an owner replica without a lease cannot autosave a stopped pose over a running entity', async t => {

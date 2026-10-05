@@ -3,15 +3,16 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { ModelingTool } from '../src/engine/controls/ModelingTool.ts';
+import { DecorationOwnershipLink } from '../src/engine/render/DecorationOwnershipLink.ts';
 import { getInventoryPreviewBlocks } from '../src/engine/render/SceneRenderer.ts';
 import { TransformGizmo, transformAxis, transformScreenPoint, transformViewCamera, type TransformHandle } from '../src/engine/render/TransformGizmo.ts';
 import { bendPointForView, setTorusViewCorrection } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { PlayerController } from '../src/engine/controls/PlayerController.ts';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
-function fixture() {
+function fixture(options = {}) {
   const entity = new Contraption(1, [{ localX: 0, localY: 0, localZ: 0, size: 1, block: 1, color: 1, entityId: 'base' }],
-    new THREE.Vector3(), new THREE.Scene(), { rootComponentId: 'base' });
+    new THREE.Vector3(), new THREE.Scene(), { rootComponentId: 'base', ...options });
   let saves = 0, unlocks = 0;
   const controller: any = { contraptions: { contraptions: [entity], saveEntitiesToStorage: () => saves++ },
     selectedColor: 0x112233, selectedMaterialId: 1, ui: {}, unlock: () => unlocks++,
@@ -38,6 +39,80 @@ test('create auto-selects, edit, duplicate, delete, undo and redo persist decora
     assert.equal(f.tool.undo(true), true);
     assert.equal(f.entity.getDecorationCount(), 1);
     assert.equal(f.saves(), 6);
+  } finally { f.tool.deactivate(); f.entity.dispose(); }
+});
+
+test('ownership wave animates with fixed endpoints and handles coincident or camera-aligned pivots', () => {
+  const link = new DecorationOwnershipLink();
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 0, 8);
+  const center = new THREE.Vector3(1, 2, 3), pivot = new THREE.Vector3(4, 2, 3);
+  const wave = link.group.getObjectByName('OwnershipWave') as THREE.Mesh;
+  const marker = link.group.getObjectByName('OwnerPivot')!;
+  const arrow = link.group.getObjectByName('OwnershipArrow')!;
+  try {
+    link.setEndpoints(center, pivot, camera, 1, 0);
+    const buffer = wave.geometry.getAttribute('position');
+    const firstFrame = Array.from(buffer.array);
+    link.setEndpoints(center, pivot, camera, 1, 0.2);
+    assert.equal(wave.geometry.getAttribute('position'), buffer, 'animation reuses the GPU buffer');
+    assert.notDeepEqual(Array.from(buffer.array), firstFrame);
+    const ringCenter = (start: number) => {
+      const sum = new THREE.Vector3();
+      for (let i = 0; i < 6; i++) sum.add(new THREE.Vector3().fromBufferAttribute(buffer, start + i));
+      return sum.divideScalar(6).add(link.group.position);
+    };
+    assert.ok(ringCenter(0).distanceTo(center) < 1e-6);
+    assert.ok(ringCenter(buffer.count - 6).distanceTo(pivot) < 1e-6);
+    assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(pivot) < 1e-8);
+    assert.ok(arrow.localToWorld(new THREE.Vector3(0, 0.5, 0)).distanceTo(pivot) < 1e-8);
+    link.setEndpoints(new THREE.Vector3(), new THREE.Vector3(0, 0, 4), camera, 1, 0.4);
+    assert.ok(Array.from(buffer.array).every(Number.isFinite));
+    link.setEndpoints(center, center, camera, 1, 0.5);
+    assert.equal(wave.visible, false);
+    assert.equal(arrow.visible, false);
+    assert.equal(link.group.visible, true);
+    assert.equal(marker.visible, true);
+  } finally { link.dispose(); }
+});
+
+test('selected decoration links to its component pivot, follows render poses, and clears with selection', () => {
+  const f = fixture({ childEntities: [{ id: 'arm', parentId: 'base', kind: 'child', pivot: [2, 1, 0], blockKeys: [] }] });
+  f.controller.activeTool = 'modeling';
+  f.controller.camera = new THREE.PerspectiveCamera();
+  f.controller.camera.position.set(0, 0, 10);
+  f.controller.sceneRenderer = {};
+  f.entity.setComponentDecorations('arm', [{ id: 'trim', color: 1, position: [4, 2, 0] }]);
+  f.tool.hovered = { contraption: f.entity, componentId: 'arm', decorationId: 'trim' };
+  try {
+    f.tool.selectHovered();
+    const link = f.controller.sceneRenderer.modelingOwnershipLink as THREE.Group;
+    const node = f.entity.getEntityNode('arm')!;
+    const mesh = f.entity.decorationGroups.get('arm')!.children[0];
+    const marker = link.getObjectByName('OwnerPivot')!;
+    assert.equal(link.visible, true);
+    assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(node.group.getWorldPosition(new THREE.Vector3())) < 1e-8);
+    assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(f.entity.getEntityNodeWorldPosition('base')) > 0.1);
+    // The render graph can interpolate independently from saved decorations and physics.
+    node.group.position.add(new THREE.Vector3(2, 3, 1));
+    node.group.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 4);
+    f.tool.updateOwnershipLink(0.5);
+    assert.ok(link.position.distanceTo(mesh.getWorldPosition(new THREE.Vector3())) < 1e-8);
+    assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(node.group.getWorldPosition(new THREE.Vector3())) < 1e-8);
+    f.entity.serverCanEdit = false;
+    f.tool.updateOwnershipLink(0.6);
+    assert.equal(link.visible, true, 'inspecting a read-only decoration still shows ownership');
+    assert.equal(f.saves(), 0);
+    f.tool.clearSelection();
+    assert.equal(link.visible, false);
+    f.tool.selectHovered();
+    assert.equal(link.visible, true);
+    f.entity.setComponentDecorations('arm', []);
+    f.tool.updateOwnershipLink();
+    assert.equal(link.visible, false, 'remote removal clears the overlay');
+    f.tool.deactivate();
+    assert.equal(link.parent, null);
+    assert.equal(f.controller.sceneRenderer.modelingOwnershipLink, undefined);
   } finally { f.tool.deactivate(); f.entity.dispose(); }
 });
 
@@ -89,6 +164,7 @@ test('drag follows decoration local axes on a rotated owner, previews without sa
     }
     assert.equal(f.saves(), 0);
     assert.deepEqual(f.entity.getComponentDecorations('base'), [f.start]);
+    assert.notDeepEqual(f.tool.getDisplaySelection()!.value, f.start, 'the inspector follows the live preview');
     const mesh = f.entity.decorationGroups.get('base')!.children[0];
     const expected = transformAxis('x').applyQuaternion(new THREE.Quaternion().fromArray(f.start.rotation!));
     assert.ok(mesh.position.clone().add(f.entity.getEntityNode('base').pivotLocal).distanceTo(expected) < 1e-8);
@@ -97,6 +173,7 @@ test('drag follows decoration local axes on a rotated owner, previews without sa
     assert.ok(new THREE.Vector3().fromArray(f.tool.getSelection()!.value.position!).distanceTo(expected) < 1e-8);
     assert.equal(f.tool.undo(), true);
     assert.deepEqual(f.tool.getSelection()!.value, f.start);
+    assert.deepEqual(f.tool.getDisplaySelection()!.value, f.start);
     assert.equal(f.tool.undo(), false);
     assert.deepEqual(f.entity.position.toArray(), originalBodyPose);
     assert.deepEqual(f.entity.quaternion.toArray(), originalRotation);
@@ -410,6 +487,43 @@ test('modeling Escape is routed to exact values, leaving the decoration selected
     assert.equal(prevented, true);
     assert.equal(f.tool.precisionOpen, true);
     assert.equal(f.tool.getSelection()!.decorationId, 'trim');
+    let locks = 0;
+    f.controller.requestLock = () => { locks++; };
+    PlayerController.prototype.handleKeyDown.call(f.controller, { code: 'Escape', preventDefault() {} } as any);
+    assert.equal(f.tool.precisionOpen, false);
+    assert.equal(locks, 1);
+    assert.equal(f.tool.getSelection()!.decorationId, 'trim');
+  } finally { f.tool.deactivate(); f.entity.dispose(); }
+});
+
+test('modeling Copy and Delete shortcuts target only the selected decoration and ignore numeric inputs', () => {
+  const f = fixture();
+  const controller = Object.setPrototypeOf(f.controller, PlayerController.prototype);
+  Object.assign(controller, { activeTool: 'modeling', modeling: f.tool, recordEntityKeyDown() {} });
+  f.entity.setComponentDecorations('base', [{ id: 'trim', color: 1, scale: [2, 0.1, 1] }]);
+  f.tool.selected = { contraption: f.entity, componentId: 'base', decorationId: 'trim' };
+  const key = (code: string, extra = {}) => controller.handleKeyDown({ code, preventDefault() {}, ...extra });
+  try {
+    const body = f.entity.getRigidBody('base');
+    key('KeyR', { target: { tagName: 'INPUT' } });
+    assert.equal(f.entity.getDecorationCount(), 1);
+    key('KeyR');
+    assert.equal(f.entity.getDecorationCount(), 2);
+    assert.notEqual(f.tool.getSelection()!.decorationId, 'trim');
+    assert.deepEqual(f.tool.getSelection()!.value.scale, [2, 0.1, 1]);
+    key('KeyR', { repeat: true });
+    assert.equal(f.entity.getDecorationCount(), 2);
+    key('Delete', { target: { tagName: 'INPUT' } });
+    assert.equal(f.entity.getDecorationCount(), 2);
+    key('Delete');
+    assert.deepEqual(f.entity.getComponentDecorations('base'), [{ id: 'trim', color: 1, scale: [2, 0.1, 1] }]);
+    assert.equal(f.tool.getSelection(), null);
+    assert.equal(f.tool.canUndo, true);
+    assert.equal(f.tool.undo(), true);
+    assert.equal(f.tool.canRedo, true);
+    assert.equal(f.entity.getDecorationCount(), 2);
+    assert.equal(f.entity.getRigidBody('base'), body);
+    assert.equal(f.entity.blocks.length, 1);
   } finally { f.tool.deactivate(); f.entity.dispose(); }
 });
 

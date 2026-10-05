@@ -28,8 +28,8 @@ function NumberField({ label, value, step, onCommit }: {
 export function ModelingPanel() {
   const { controller } = useSpaceUi(state => state);
   const tool = controller?.modeling;
-  const selection = tool?.getSelection();
-  const editable = selection && controller.canEditEntityInternals(selection.contraption);
+  const selection = tool?.getDisplaySelection();
+  const editable = selection && !tool.isDragging && controller.canEditEntityInternals(selection.contraption);
   const value = selection?.value;
   const creationDimensions = tool?.creationDimensions;
   const position = value?.position || [0, 0, 0];
@@ -50,39 +50,69 @@ export function ModelingPanel() {
     </label>)}
   </div>;
 
-  return <div id="modeling-panel" className={`selector-panel-wrapper modeling-panel${tool?.precisionOpen ? ' is-precision' : ''}`} onPointerDown={() => controller?.unlock?.()}>
+  return <aside id="modeling-panel" aria-label="Decoration properties" className="selector-panel-wrapper modeling-panel"
+    onPointerDown={event => { event.stopPropagation(); if (controller?.isLocked) tool?.openPrecision(); }}
+    onMouseDown={event => event.stopPropagation()}>
     <div className="palette-info-row">
       <span className="palette-title">Modeling</span>
       <span className="mode-badge std">DECORATION</span>
-      {tool?.precisionOpen && <button type="button" className="banner-btn secondary" onClick={() => tool.continueBuilding()}>Back to game</button>}
     </div>
     {creationDimensions && <div className="modeling-hint" role="status">Creating {creationDimensions.map(value => Number(value.toFixed(3))).join(' × ')} m<br />Wheel: thickness · release RMB: create · Esc: cancel</div>}
     {selection ? <>
-      <div className="modeling-owner">{selection.contraption.getComponentName(selection.componentId)} · {selection.decorationId}</div>
-      <div className="modeling-hint">Aim + LMB: select / drag · arrows: move · arcs: rotate · cubes: resize<br />RMB: add · RMB drag: draw size · wheel while drawing: thickness<br /><kbd>Shift</kbd> snap · <kbd>Esc</kbd> exact values / cancel drag</div>
-      <div className="modeling-axis-legend"><span className="axis-x">X</span><span className="axis-y">Y</span><span className="axis-z">Z</span><span>Local axes · resize from center</span></div>
-      {!tool.precisionOpen && <button type="button" className="banner-btn secondary" onClick={() => tool.openPrecision()}>Exact values · Esc</button>}
-      {tool.precisionOpen && <fieldset disabled={!editable}>
+      <div className="modeling-owner">{selection.contraption.getComponentName(selection.componentId) || selection.componentId} · {selection.decorationId}</div>
+      <fieldset disabled={!editable} key={`${selection.contraption.id}:${selection.componentId}:${selection.decorationId}`}>
         {vectorField('position', position, 0.125)}
         {vectorField('rotation', rotation, 5)}
         {vectorField('scale', scale, 0.125)}
-        <div className="modeling-appearance">
-          <label>Color <input type="color" aria-label="Decoration color" value={`#${value.color.toString(16).padStart(6, '0')}`}
-            onChange={event => tool.change({ color: Number.parseInt(event.target.value.slice(1), 16) })} /></label>
-          <label><input type="checkbox" checked={value.materialId === 1}
-            onChange={event => tool.change({ materialId: event.target.checked ? 1 : 0 })} /> Emissive</label>
-          <button type="button" className="banner-btn secondary" onClick={() => tool.change({ color: controller.selectedColor, materialId: controller.selectedMaterialId })}>Use palette color</button>
-        </div>
-      </fieldset>}
-      {tool.precisionOpen && <div className="modeling-hint">Position relative to component · rotation in degrees · dimensions in meters. Press Enter to apply.</div>}
-      {!editable && <div className="modeling-hint">Stop the entity and obtain edit access to change this decoration.</div>}
-    </> : <div className="modeling-hint">RMB: add a cube · RMB drag: draw size · wheel while drawing: thickness<br />LMB: select or drag a decoration · Esc: exact values / cancel drag</div>}
-    <div className="modeling-actions">
-      <button type="button" className="banner-btn secondary" onClick={() => tool?.undo()}>Undo</button>
-      <button type="button" className="banner-btn secondary" onClick={() => tool?.undo(true)}>Redo</button>
-      <button type="button" className="banner-btn secondary" disabled={!editable} onClick={() => tool?.duplicate()}>Duplicate</button>
-      <button type="button" className="banner-btn secondary" disabled={!editable} onClick={() => tool?.remove()}>Delete</button>
-      <button type="button" className="banner-btn" onClick={() => tool?.continueBuilding()}>Continue building</button>
+      </fieldset>
+      {!controller.canEditEntityInternals(selection.contraption) && <div className="modeling-hint">Stop the entity and obtain edit access to change this decoration.</div>}
+    </> : <div className="modeling-hint">Select a decoration with LMB to inspect its position, rotation and dimensions.</div>}
+  </aside>;
+}
+
+export function ModelingToolbar() {
+  const { controller, selectedColor } = useSpaceUi(state => state);
+  const tool = controller?.modeling;
+  const selection = tool?.getSelection();
+  const editable = selection && !tool.isDragging && controller.canEditEntityInternals(selection.contraption);
+  const color = selection?.value.color ?? selectedColor;
+  const colorHex = `#${color.toString(16).padStart(6, '0')}`;
+  return <div id="modeling-toolbar" className="selector-panel-wrapper wrench-panel-wrapper">
+    <div className="palette-info-row">
+      <div className="selector-title-group">
+        <span className="palette-title">Modeling</span>
+        <span className="mode-badge std">DECORATION</span>
+        <label className="selector-recent-color modeling-toolbar-color" title={`${selection ? 'Decoration' : 'New decoration'} color ${colorHex.toUpperCase()} · Click to edit`}>
+          <span className="selector-recent-color-chip" style={{ background: colorHex }} />
+          <input type="color" aria-label={selection ? 'Decoration color' : 'New decoration color'}
+            value={colorHex} disabled={!!selection && !editable}
+            onPointerDown={() => { if (controller?.isLocked) controller.unlock(); }}
+            onChange={event => {
+              const next = Number.parseInt(event.target.value.slice(1), 16);
+              if (selection) tool.change({ color: next });
+              else spaceUiStore.setBuildColor(next, false);
+            }} />
+        </label>
+      </div>
+      <span className="palette-hotkey-hint">LMB select / drag · RMB add / draw size</span>
+    </div>
+    <div className="selector-toolbox-content" id="modeling-toolbox-content">
+      <div className="modeling-toolbar-appearance">
+        <label><input type="checkbox" checked={selection?.value.materialId === 1} disabled={!editable}
+          onChange={event => tool.change({ materialId: event.target.checked ? 1 : 0 })} /> Emissive</label>
+        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!editable}
+          onClick={() => tool.change({ color: controller.selectedColor, materialId: controller.selectedMaterialId })}>Use palette color</button>
+      </div>
+      <div className="wrench-action-buttons">
+        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!editable}
+          title="Copy the selected decoration in its component (R or Ctrl/Cmd+D)" onClick={() => tool?.duplicate()}><b>R</b> Copy</button>
+        <button type="button" tabIndex={-1} className="banner-btn danger" disabled={!editable}
+          title="Delete only the selected decoration (Del)" onClick={() => tool?.remove()}><b>Del</b> Delete</button>
+        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!tool?.canUndo || tool.isDragging}
+          title="Undo decoration edit (Ctrl/Cmd+Z)" onClick={() => tool?.undo()}>Undo</button>
+        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!tool?.canRedo || tool.isDragging}
+          title="Redo decoration edit (Ctrl/Cmd+Shift+Z)" onClick={() => tool?.undo(true)}>Redo</button>
+      </div>
     </div>
   </div>;
 }

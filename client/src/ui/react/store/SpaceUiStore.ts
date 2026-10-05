@@ -282,7 +282,7 @@ const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SHOVEL, name: 'Shovel', icon: '', desc: 'Remove / place 1x1x1 standard blocks' },
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
   { type: 'tool', value: SpecialTool.BRUSH, name: 'Brush', icon: '', desc: 'LMB paint · RMB 2-point dye · Tab micro/std' },
-  { type: 'tool', value: SpecialTool.MODELING, name: 'Modeling', icon: '', desc: 'LMB select / drag · RMB add / draw size · Esc exact values' }
+  { type: 'tool', value: SpecialTool.MODELING, name: 'Modeling', icon: '', desc: 'LMB select / drag · RMB add / draw size · R copy · Del delete · right panel: properties' }
 ];
 
 const EMPTY_SELECTOR: SelectorView = {

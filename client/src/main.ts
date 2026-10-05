@@ -578,6 +578,8 @@ class Game {
     this.controller.syncDrivenVehiclePose();
     this.controller.updateCameraPosition();
 
+    this.controller.modeling?.updateOwnershipLink();
+
     // 4. Update Particles
     this.particleSystem.update(dt);
 

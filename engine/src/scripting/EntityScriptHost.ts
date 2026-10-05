@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { normalizeDecorations, patchDecoration } from '../contraption/Decorations.ts';
+import { MAX_ENTITY_DECORATIONS } from '../constants/SpaceConstants.ts';
 // Trusted host API. Guest programs only reach this through the bounded WASM handle bridge.
 export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
   let states = Object.create(null);
@@ -13,6 +15,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
   let stopped = false;
   let worldVoxelOverlays = new Map();
   let worldMicroVoxelOverlays = new Map();
+  let decorationOverlays = new Map();
   const STOP = Object.freeze({ kind: 'space-stop' });
   const MAX_COMMANDS = 256;
   const MAX_BODY_VECTOR_COMPONENT = 1e12;
@@ -254,6 +257,33 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         return queuedResult(accepted, { id: null }, { id: null });
       },
       remove: constraintId => !!emit('component', id, 'constraints.remove', [constraintId])
+    });
+    const decorations = () => decorationOverlays.get(id) || node.decorations || [];
+    api.decorations = Object.freeze({
+      all: () => frozenClone(decorations()),
+      get: decorationId => frozenClone(decorations().find(value => value.id === decorationId) || null),
+      upsert: (decorationId, patch) => {
+        const values = decorations();
+        const previous = values.find(value => value.id === decorationId);
+        let next;
+        try { next = patchDecoration(decorationId, patch, previous); }
+        catch { return Object.freeze({ ok: false, reason: 'invalid_decoration' }); }
+        let count = 0;
+        for (const [componentId, component] of componentMap) {
+          count += (decorationOverlays.get(componentId) || component.decorations || []).length;
+        }
+        if (!previous && count >= MAX_ENTITY_DECORATIONS) return Object.freeze({ ok: false, reason: 'too_many_decorations' });
+        const accepted = emit('component', id, 'decorations.upsert', [decorationId, patch]);
+        if (accepted) decorationOverlays.set(id, normalizeDecorations([...values.filter(value => value.id !== decorationId), next]));
+        return queuedResult(accepted, { id: decorationId });
+      },
+      remove: decorationId => {
+        const values = decorations();
+        if (!values.some(value => value.id === decorationId)) return Object.freeze({ ok: false, reason: 'decoration_not_found' });
+        const accepted = emit('component', id, 'decorations.remove', [decorationId]);
+        if (accepted) decorationOverlays.set(id, values.filter(value => value.id !== decorationId));
+        return queuedResult(accepted, { id: decorationId });
+      }
     });
     api.voxels = makeVoxelApi(id, false);
     api.microVoxels = makeVoxelApi(id, true);
@@ -550,6 +580,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     );
     rootMessages = prepareEntityMessages(frame.messages);
     selfCache = new Map();
+    decorationOverlays = new Map();
     commands = [];
     errors = [];
     stopped = false;

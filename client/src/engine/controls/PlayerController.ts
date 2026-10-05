@@ -979,10 +979,20 @@ export class PlayerController {
     this.recordEntityKeyDown(e.code);
 
     if (this.activeTool === SpecialTool.MODELING) {
-      if (e.code === 'Escape') { e.preventDefault(); this.modeling.openPrecision(); return; }
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        if (this.modeling.precisionOpen && !this.modeling.isDragging) this.modeling.continueBuilding();
+        else this.modeling.openPrecision();
+        return;
+      }
       if (e.code === 'Delete' || e.code === 'Backspace') { e.preventDefault(); this.modeling.remove(); return; }
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); this.modeling.undo(e.shiftKey); return; }
-      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') { e.preventDefault(); this.modeling.duplicate(); return; }
+      if ((e.code === 'KeyR' && !e.ctrlKey && !e.metaKey && !e.altKey)
+        || ((e.ctrlKey || e.metaKey) && e.code === 'KeyD')) {
+        e.preventDefault();
+        if (!e.repeat) this.modeling.duplicate();
+        return;
+      }
     }
 
     switch (e.code) {

@@ -704,6 +704,7 @@ export class SceneRenderer {
   declare wrenchTetherLine: THREE.Line;
   declare wrenchPivotGizmo: THREE.Group;
   declare modelingGizmo: THREE.Group | undefined;
+  declare modelingOwnershipLink: THREE.Group | undefined;
   declare modelingPreview: THREE.Group | undefined;
   private declare wrenchTransformGizmo: TransformGizmo;
   declare selectionAxisGizmo: THREE.Group;
@@ -3118,6 +3119,7 @@ export class SceneRenderer {
       this.wrenchTetherLine,
       this.wrenchPivotGizmo,
       this.modelingGizmo,
+      this.modelingOwnershipLink,
       this.modelingPreview,
       this.selectionAxisGizmo,
       this.inventoryPlacementGroup,
