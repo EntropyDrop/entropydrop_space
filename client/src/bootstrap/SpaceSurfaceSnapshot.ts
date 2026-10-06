@@ -271,11 +271,34 @@ export interface SpaceSurfaceSnapshotRemote {
   }>;
 }
 
+export interface SurfaceStreamProgressDetails {
+  phase: 'manifest' | 'overview' | 'detail' | 'complete';
+  availableZones: number;
+  completedFiles: number;
+  totalFiles: number;
+  processedBytes: number;
+  totalBytes: number;
+  cacheHits: number;
+  cacheBytes: number;
+  downloadedFiles: number;
+  downloadedBytes: number;
+  reading: number;
+  downloading: number;
+  verifying: number;
+  preparing: number;
+}
+
+export interface SurfaceStreamProgress {
+  loadedZones: number;
+  totalZones: number;
+  details?: SurfaceStreamProgressDetails;
+}
+
 export interface SurfaceStreamOptions {
   getDataBudgetBytes?: () => number;
   /** Camera demand is evaluated on each pass; 64 keeps only the overview. */
   getZoneDemand(zoneX: number, zoneZ: number): { sampleSize: number; priority: number };
-  onProgress?: (progress: { loadedZones: number; totalZones: number }) => void;
+  onProgress?: (progress: SurfaceStreamProgress) => void;
 }
 
 export function createSpaceSurfaceSnapshotRemote(
@@ -298,6 +321,22 @@ export function createSpaceSurfaceSnapshotRemote(
   const run: SpaceSurfaceSnapshotRemote['loadAll'] = async (onZone, onZoneRemoved, options) => {
     const safeManifestUrl = resolveSurfaceApiUrl(manifestUrl, apiOrigin);
     let loaded = 0;
+    const progress: SurfaceStreamProgress = { loadedZones: 0, totalZones: 0 };
+    const newDetails = (phase: SurfaceStreamProgressDetails['phase']): SurfaceStreamProgressDetails => ({
+      phase, availableZones: 0, completedFiles: 0, totalFiles: 0, processedBytes: 0, totalBytes: 0,
+      cacheHits: 0, cacheBytes: 0, downloadedFiles: 0, downloadedBytes: 0,
+      reading: 0, downloading: 0, verifying: 0, preparing: 0,
+    });
+    let details = newDetails('manifest');
+    const reportProgress = () => options?.onProgress?.({ ...progress, details: { ...details } });
+    const trackWork = async <T>(stage: 'reading' | 'downloading' | 'verifying' | 'preparing',
+      work: () => Promise<T>): Promise<T> => {
+      details[stage]++;
+      reportProgress();
+      try { return await work(); }
+      finally { details[stage]--; reportProgress(); }
+    };
+    reportProgress();
     while (true) {
       if (!options || !cachedManifest || Date.now() - manifestFetchedAt >= 10_000 || !cachedManifest.complete) {
         const response = await fetchImpl(safeManifestUrl.toString(), {
@@ -310,13 +349,12 @@ export function createSpaceSurfaceSnapshotRemote(
         manifestFetchedAt = Date.now();
       }
       const manifest = cachedManifest;
-      const reportProgress = () => options?.onProgress?.({
-        loadedZones: manifest.zones.filter(entry => {
-          const current = installed.get(`${entry.zone_x},${entry.zone_z}`);
-          return !!current && (current.sourceDigest === entry.digest || current.revision > entry.revision);
-        }).length,
-        totalZones: manifest.width_chunks * manifest.length_chunks / manifest.zone_size_chunks ** 2,
-      });
+      progress.loadedZones = manifest.zones.filter(entry => {
+        const current = installed.get(`${entry.zone_x},${entry.zone_z}`);
+        return !!current && (current.sourceDigest === entry.digest || current.revision > entry.revision);
+      }).length;
+      progress.totalZones = manifest.width_chunks * manifest.length_chunks / manifest.zone_size_chunks ** 2;
+      details.availableZones = manifest.zones.length;
       reportProgress();
       // An absent zone is unavailable (initial build, migration, or a legacy
       // dirty manifest), never a deletion. Retain last-good coverage until an
@@ -363,41 +401,65 @@ export function createSpaceSurfaceSnapshotRemote(
         const key = `${entry.zone_x},${entry.zone_z}`;
         const cached = overviews.get(key);
         const url = resolveSurfaceApiUrl(level.url, apiOrigin);
-        if (level.sample_size === 64 && cached?.digest === level.digest) return cached.zone;
-        let bytes = await byteCache.get(level.digest).catch(() => undefined);
-        if (bytes && (bytes.byteLength !== level.byte_length || await sha256Hex(bytes) !== level.digest)) {
+        if (level.sample_size === 64 && cached?.digest === level.digest) {
+          details.cacheHits++;
+          details.cacheBytes += level.byte_length;
+          details.processedBytes += level.byte_length;
+          reportProgress();
+          return cached.zone;
+        }
+        let bytes = await trackWork('reading', () => byteCache.get(level.digest).catch(() => undefined));
+        if (bytes && !await trackWork('verifying', async () =>
+          bytes!.byteLength === level.byte_length && await sha256Hex(bytes!) === level.digest)) {
           await byteCache.remove(level.digest).catch(() => {});
           bytes = undefined;
         }
         const downloaded = !bytes;
+        if (bytes) {
+          details.cacheHits++;
+          details.cacheBytes += bytes.byteLength;
+          details.processedBytes += bytes.byteLength;
+          reportProgress();
+        }
         if (!bytes) {
-          let zoneResponse: Response | undefined;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            zoneResponse = await fetchImpl(url.toString(), {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/vnd.entropydrop.surface-zone',
-              },
-              cache: 'force-cache',
-            });
-            if (zoneResponse.status === 429 && attempt < 2) {
-              const retryAfter = zoneResponse.headers?.get?.('Retry-After');
-              const seconds = retryAfter ? Number(retryAfter) : NaN;
-              const delayMs = Number.isFinite(seconds) && seconds > 0
-                ? seconds * 1000
-                : 500 * (attempt + 1);
-              await new Promise(resolve => setTimeout(resolve, Math.min(delayMs, 3000)));
-              continue;
+          bytes = await trackWork('downloading', async () => {
+            let zoneResponse: Response | undefined;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              zoneResponse = await fetchImpl(url.toString(), {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Accept: 'application/vnd.entropydrop.surface-zone',
+                },
+                cache: 'force-cache',
+              });
+              if (zoneResponse.status === 429 && attempt < 2) {
+                const retryAfter = zoneResponse.headers?.get?.('Retry-After');
+                const seconds = retryAfter ? Number(retryAfter) : NaN;
+                const delayMs = Number.isFinite(seconds) && seconds > 0
+                  ? seconds * 1000
+                  : 500 * (attempt + 1);
+                await new Promise(resolve => setTimeout(resolve, Math.min(delayMs, 3000)));
+                continue;
+              }
+              break;
             }
-            break;
-          }
-          if (!zoneResponse || !zoneResponse.ok) {
-            throw new Error(`Space surface zone failed with HTTP ${zoneResponse?.status}.`);
-          }
-          bytes = await readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES);
-          if (bytes.byteLength !== level.byte_length || await sha256Hex(bytes) !== level.digest) {
+            if (!zoneResponse || !zoneResponse.ok) {
+              throw new Error(`Space surface zone failed with HTTP ${zoneResponse?.status}.`);
+            }
+            let received = 0;
+            return readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES, count => {
+              details.downloadedBytes += count - received;
+              details.processedBytes += count - received;
+              received = count;
+              reportProgress();
+            });
+          });
+          if (!await trackWork('verifying', async () =>
+            bytes!.byteLength === level.byte_length && await sha256Hex(bytes!) === level.digest)) {
             throw new Error('Space surface-zone snapshot checksum mismatch.');
           }
+          details.downloadedFiles++;
+          reportProgress();
         }
         const zone = parseSurfaceZoneSnapshot(bytes);
         if (
@@ -412,7 +474,7 @@ export function createSpaceSurfaceSnapshotRemote(
         }
         // Do not keep a duplicate decoded fine lattice in JS memory. The GPU
         // working set can shrink independently without losing downloaded data.
-        if (downloaded) await byteCache.put(level.digest, bytes).catch(() => {});
+        if (downloaded) await trackWork('preparing', () => byteCache.put(level.digest, bytes!).catch(() => {}));
         if (level.sample_size === 64) overviews.set(key, { digest: level.digest, zone });
         return zone;
       };
@@ -422,7 +484,7 @@ export function createSpaceSurfaceSnapshotRemote(
         if (current && (current.revision > entry.revision
           || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) return;
         const zone = await download(entry, level);
-        const publication = installationQueue.then(async () => {
+        const publication = trackWork('preparing', () => installationQueue.then(async () => {
           // Network concurrency must not turn six fine mip builds into one
           // long render-frame task. Keep downloads parallel, install one fine
           // source per frame; hidden tabs continue warming via a timer.
@@ -433,14 +495,31 @@ export function createSpaceSurfaceSnapshotRemote(
             });
           }
           await onZone(zone);
+          if (!current || (current.sourceDigest !== entry.digest && current.revision <= entry.revision)) {
+            progress.loadedZones++;
+          }
           installed.set(key, { sourceDigest: entry.digest, sampleSize: level.sample_size, revision: entry.revision });
           loaded++;
+          details.completedFiles++;
           reportProgress();
-        });
+        }));
         installationQueue = publication.catch(() => {});
         await publication;
       };
       const pass = async (overview: boolean) => {
+        details = newDetails(overview ? 'overview' : 'detail');
+        details.availableZones = manifest.zones.length;
+        for (const { entry } of zones) {
+          const key = `${entry.zone_x},${entry.zone_z}`;
+          const level = overview ? entry.lods?.find(level => level.sample_size === 64) : targets.get(key);
+          if (!level || (overview && (!options || installed.has(key)))) continue;
+          const current = installed.get(key);
+          if (current && (current.revision > entry.revision
+            || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) continue;
+          details.totalFiles++;
+          details.totalBytes += level.byte_length;
+        }
+        reportProgress();
         let cursor = 0;
         let failed = false;
         const worker = async () => {
@@ -472,6 +551,8 @@ export function createSpaceSurfaceSnapshotRemote(
       // pass instead of waiting for another poll / an idle rendering queue.
       selectTargets();
       await pass(false);
+      details.phase = 'complete';
+      reportProgress();
       return { loaded, complete: manifest.complete };
     }
   };

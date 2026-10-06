@@ -265,7 +265,8 @@ cannot be installed as one child component.
 
 For world selections, **Copy (R)** saves the orange selected terrain voxels and all
 complete entities fully contained by the cyan outer box as one Item. Their relative
-positions and orientations are preserved, including world constraint anchors. Entities
+positions and orientations are preserved, including world constraint anchors. Entity
+positions may fall between construction-grid cells and keep their original offsets. Entities
 crossing the box boundary are excluded. A region containing only entities can also be
 copied. Component-local Copy keeps its existing component behavior; `T` still copies
 only selected voxel geometry. Copy leaves the source terrain and entities unchanged.

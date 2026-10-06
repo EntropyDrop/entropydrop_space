@@ -72,6 +72,9 @@ script and 512 KiB of scripts. For Item, these budgets apply across all its Enti
 and static geometry together. Root poses inside Item describe each Entity construction
 frame relative to the Item origin. World-constraint A endpoints use Item coordinates
 and transform once on placement; component-local endpoints retain their original frames.
+Entity root translations may be any finite bounded position relative to Item, including
+offsets between micro cells. Grid alignment applies to each Entity's internal construction;
+combined Item overlap and extent checks preserve fractional root offsets.
 
 Market migration `space_0010` admits `item`; the Items listing also includes existing
 v8 `blockset` and `entity` rows without rewriting their immutable objects, digests or

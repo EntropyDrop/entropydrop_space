@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate as yieldTask, setTimeout as delay } from 'node:timers/promises';
 import { preloadInitialDistantTerrain } from '../src/bootstrap/InitialDistantTerrain.ts';
-import type { SpaceSurfaceSnapshotRemote } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
+import type { SpaceSurfaceSnapshotRemote, SurfaceStreamProgress } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
@@ -99,17 +99,76 @@ test('a partial manifest holds entry even when every currently available zone is
   } };
   world.distantSurface.hasPendingWork = false;
   world.finalizeSurfaceConnections = async () => { finalized = true; };
-  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async preparePipelines() {}, async waitForGpu() {} })
+  const messages: string[] = [];
+  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async preparePipelines() {}, async waitForGpu() {},
+    reportProgress: (_value, message) => messages.push(message) })
     .then(() => { entered = true; });
   await frame();
   assert.equal(finalized, false);
   assert.equal(entered, false);
+  assert.ok(messages.some(message => message.includes('Waiting for server terrain (127/128 zones available)')));
   complete = true;
   await delay(1050);
   await frame(); await frame();
   await entering;
   assert.equal(calls, 2);
   assert.equal(finalized, true);
+});
+
+test('the entry gate shows cache and byte progress through shader and GPU preparation', async t => {
+  const { world, frame } = fixture(t);
+  world.distantSurface.hasPendingWork = false;
+  let now = 1000;
+  t.mock.method(performance, 'now', () => now);
+  let tick!: () => void, cleared = false;
+  t.mock.method(globalThis, 'setInterval', callback => { tick = callback; return 123 as any; });
+  t.mock.method(globalThis, 'clearInterval', timer => { assert.equal(timer, 123); cleared = true; });
+  const downloads = deferred<{ loaded: number; complete: boolean }>();
+  const pipelines = deferred(), gpu = deferred();
+  const updates: { value: number; message: string }[] = [];
+  let emit!: (progress: SurfaceStreamProgress) => void, entered = false;
+  let calls = 0;
+  const remote: SpaceSurfaceSnapshotRemote = { async loadAll(_install, _remove, options) {
+    emit = options!.onProgress!;
+    if (++calls === 1) return downloads.promise;
+    // A subsequent readiness check must not reset the overall entry bar.
+    emit({ loadedZones: 0, totalZones: 0, details: { ...details, phase: 'manifest' } });
+    return { loaded: 0, complete: true };
+  } };
+  const details: NonNullable<SurfaceStreamProgress['details']> = {
+    phase: 'detail', availableZones: 128, completedFiles: 2, totalFiles: 4,
+    processedBytes: 3 * 1024 * 1024, totalBytes: 8 * 1024 * 1024,
+    cacheHits: 2, cacheBytes: 2 * 1024 * 1024, downloadedFiles: 0, downloadedBytes: 1024 * 1024,
+    reading: 1, downloading: 1, verifying: 0, preparing: 0,
+  };
+  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {},
+    preparePipelines: () => pipelines.promise, waitForGpu: () => gpu.promise,
+    reportProgress: (value, message) => updates.push({ value, message }),
+  }).then(() => { entered = true; });
+  emit({ loadedZones: 128, totalZones: 128, details });
+  assert.match(updates.at(-1)!.message, /2\/4 files · 50%/);
+  assert.match(updates.at(-1)!.message, /Data: 3.0 MiB \/ 8.0 MiB/);
+  assert.match(updates.at(-1)!.message, /Cache: 2 files \(2.0 MiB\).*Download: 0 files \(1.0 MiB\)/);
+  assert.match(updates.at(-1)!.message, /Reading cache: 1 · Downloading: 1/);
+  assert.equal(entered, false, 'full overview coverage is not complete entry');
+  now += 2500;
+  tick();
+  assert.match(updates.at(-1)!.message, /Elapsed: 2s/);
+  downloads.resolve({ loaded: 4, complete: true });
+  await frame(); await frame(); await frame();
+  assert.match(updates.at(-1)!.message, /Preparing terrain shaders/);
+  assert.match(updates.at(-1)!.message, /Cache: 2 files/);
+  assert.equal(entered, false);
+  pipelines.resolve(); await yieldTask();
+  assert.match(updates.at(-1)!.message, /Finishing terrain rendering/);
+  assert.equal(entered, false);
+  gpu.resolve(); await entering;
+  assert.equal(cleared, true, 'entry must stop its progress timer');
+  assert.ok(updates.every((update, i) => i === 0 || update.value >= updates[i - 1].value));
+  assert.ok(updates.every(update => update.value < 100), 'only the entry owner may report world ready');
+  const count = updates.length;
+  now += 1000; tick();
+  assert.equal(updates.length, count, 'late progress must not overwrite the next entry state');
 });
 
 for (const stage of ['download', 'connections', 'worker', 'pipelines', 'gpu'] as const) {

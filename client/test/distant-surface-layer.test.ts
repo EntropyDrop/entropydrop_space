@@ -10,6 +10,7 @@ import {
   parseSurfaceZoneSnapshot,
   SURFACE_ZONE_HEADER_BYTES,
   LEGACY_SURFACE_ZONE_RECORD_BYTES as SURFACE_ZONE_RECORD_BYTES,
+  type SurfaceStreamProgress,
 } from '../src/bootstrap/SpaceSurfaceSnapshot.ts';
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
@@ -355,7 +356,13 @@ test('surface loading progress counts the full world domain and refreshes stale 
     }) as typeof fetch);
   const progress: { loadedZones: number; totalZones: number }[] = [];
   const options = { getZoneDemand: () => ({ sampleSize: 64, priority: 0 }),
-    onProgress: (value: { loadedZones: number; totalZones: number }) => progress.push(value) };
+    onProgress: ({ loadedZones, totalZones }: SurfaceStreamProgress) => {
+      if (!totalZones) return;
+      const previous = progress.at(-1);
+      if (previous?.loadedZones !== loadedZones || previous?.totalZones !== totalZones) {
+        progress.push({ loadedZones, totalZones });
+      }
+    } };
   const first = await remote.loadAll(() => {}, undefined, options);
   assert.equal(first.complete, false);
   assert.deepEqual(progress, [{ loadedZones: 0, totalZones: 2 }, { loadedZones: 1, totalZones: 2 }]);
@@ -395,6 +402,97 @@ test('distant entry readiness includes rebuilds and outgoing terrain fades', asy
     assert.equal(layer.hasPendingWork, false);
     assert.equal(layer.preparationError, null);
   } finally { layer.setEnabled(false); }
+});
+
+test('surface progress covers concurrent cache reads, streamed detail and queued publication', { timeout: 10_000 }, async () => {
+  const payloads = new Map<string, Uint8Array>(), saved = new Map<string, Uint8Array>();
+  const entries = [0, 1].map(x => {
+    const level = (size: number) => {
+      const bytes = makeCoarseBytes(x, 0, size), url = `/z/${x}/${size}`;
+      payloads.set(url, bytes);
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      if (x === 0) saved.set(digest, bytes);
+      else if (size === 64) {
+        const corrupt = bytes.slice();
+        corrupt[corrupt.length - 1] ^= 1;
+        saved.set(digest, corrupt);
+      }
+      return { sample_size: size, url, digest, byte_length: bytes.length };
+    };
+    return { zone_x: x, zone_z: 0, revision: 1, source_terrain_revision: 7,
+      ...level(2), lods: [level(64), level(32)] };
+  });
+  let releaseReads!: () => void, releasePublication!: () => void, startedDownload!: () => void;
+  let queuedPublication!: () => void;
+  const reads = new Promise<void>(resolve => { releaseReads = resolve; });
+  const publication = new Promise<void>(resolve => { releasePublication = resolve; });
+  const downloading = new Promise<void>(resolve => { startedDownload = resolve; });
+  const queued = new Promise<void>(resolve => { queuedPublication = resolve; });
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const cache: SurfaceByteCache = {
+    async get(digest) { await reads; return saved.get(digest); },
+    async put(digest, bytes) { saved.set(digest, bytes); },
+    async remove(digest) { saved.delete(digest); },
+  };
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/manifest', 20260827, 1,
+    (async input => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/manifest') return Response.json({ schema_version: 5, samples_per_chunk_axis: 8,
+        zone_size_chunks: 32, width_chunks: 64, length_chunks: 32, complete: true, zones: entries });
+      if (path === '/z/1/32') {
+        const response = new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; } }));
+        startedDownload();
+        return response;
+      }
+      return new Response(payloads.get(path)!.slice().buffer);
+    }) as typeof fetch, cache);
+  const progress: SurfaceStreamProgress[] = [];
+  const options = { getZoneDemand: () => ({ sampleSize: 32, priority: 0 }),
+    onProgress: (value: SurfaceStreamProgress) => {
+      progress.push(value);
+      if (value.details?.phase === 'detail' && value.details.preparing === 2
+        && value.details.downloadedFiles === 1) queuedPublication();
+    } };
+  const loading = remote.loadAll(async zone => {
+    if (zone.sampleSize === 32) await publication;
+  }, undefined, options);
+  await new Promise(resolve => setImmediate(resolve));
+  const concurrentReads = progress.find(value => value.details?.reading === 2);
+  assert.ok(concurrentReads, 'cache activity must be visible before reads finish');
+  assert.equal(concurrentReads.details!.totalFiles, 2);
+  releaseReads();
+  await downloading;
+  const overview = progress.filter(value => value.details?.phase === 'overview').at(-1);
+  assert.equal(overview!.loadedZones, 2);
+  assert.equal(overview!.details!.completedFiles, 2);
+  assert.equal(overview!.details!.cacheHits, 1, 'corrupt cache bytes are not a hit');
+  assert.equal(overview!.details!.downloadedFiles, 1);
+  assert.equal(overview!.details!.processedBytes, 2 * payloads.get('/z/0/64')!.length);
+
+  controller.enqueue(payloads.get('/z/1/32')!.subarray(0, 100));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(progress.some(value => value.details?.phase === 'detail'
+    && value.details.downloading === 1 && value.details.downloadedBytes === 100),
+  'network bytes must advance while the file is still downloading');
+  controller.enqueue(payloads.get('/z/1/32')!.subarray(100));
+  controller.close();
+  await queued;
+  assert.equal(progress.at(-1)!.details!.completedFiles, 0, 'verified bytes still wait for installation');
+  releasePublication();
+  assert.deepEqual(await loading, { loaded: 4, complete: true });
+  const finished = progress.at(-1)!;
+  assert.equal(finished.loadedZones, 2, 'refinements must not double-count zones');
+  assert.deepEqual(finished.details, {
+    phase: 'complete', availableZones: 2, completedFiles: 2, totalFiles: 2,
+    processedBytes: 2 * payloads.get('/z/0/32')!.length, totalBytes: 2 * payloads.get('/z/0/32')!.length,
+    cacheHits: 1, cacheBytes: payloads.get('/z/0/32')!.length,
+    downloadedFiles: 1, downloadedBytes: payloads.get('/z/1/32')!.length,
+    reading: 0, downloading: 0, verifying: 0, preparing: 0,
+  });
+  assert.equal(concurrentReads.details!.reading, 2, 'progress snapshots must retain their original counters');
+  await remote.loadAll(() => assert.fail('settled terrain must not reinstall'), undefined, options);
+  assert.equal(progress.at(-1)!.details!.totalFiles, 0);
+  assert.equal(progress.at(-1)!.loadedZones, 2);
 });
 
 test('a failed distant connection build rejects entry preparation instead of retrying forever', async () => {

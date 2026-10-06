@@ -95,18 +95,24 @@ export function resolveSafeHttpUrl(input: string, baseUrl?: string): URL {
 }
 
 /** Read a response incrementally so a corrupt CDN/API cannot force a huge allocation. */
-export async function readResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+export async function readResponseBytes(
+  response: Response,
+  maxBytes: number,
+  onProgress?: (loadedBytes: number) => void,
+): Promise<Uint8Array> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new TypeError('maxBytes must be a positive integer');
   recordResponseBytes(response, 0);
   const declaredLength = Number(response.headers?.get?.('Content-Length'));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     throw new NetworkPayloadTooLargeError(maxBytes);
   }
+  onProgress?.(0);
 
   if (!response.body || typeof response.body.getReader !== 'function') {
     const bytes = new Uint8Array(await response.arrayBuffer());
     recordResponseBytes(response, bytes.byteLength);
     if (bytes.byteLength > maxBytes) throw new NetworkPayloadTooLargeError(maxBytes);
+    onProgress?.(bytes.byteLength);
     return bytes;
   }
 
@@ -125,6 +131,7 @@ export async function readResponseBytes(response: Response, maxBytes: number): P
         throw new NetworkPayloadTooLargeError(maxBytes);
       }
       chunks.push(value);
+      onProgress?.(total);
     }
   } finally {
     reader.releaseLock?.();

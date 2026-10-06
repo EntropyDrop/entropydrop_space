@@ -6781,6 +6781,10 @@ button.palette-title:hover {
   margin: 0 0 16px;
 }
 
+#space-entry-status {
+  white-space: pre-line;
+}
+
 .space-entry-progress {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;

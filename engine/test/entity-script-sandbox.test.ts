@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAssemblyScriptRuntimeService } from '../src/scripting/AssemblyScriptRuntimeService.ts';
-import { compileEntityScript } from '../src/scripting/AssemblyScriptCompiler.ts';
+import { compileEntityScript, getEntityScriptMemoryPages } from '../src/scripting/AssemblyScriptCompiler.ts';
 import { remapEntityScriptChildIds } from '../src/scripting/EntityScriptRuntime.ts';
 import { SPACE_SCRIPT_API_V3 } from '../src/contraption/ScriptApiContract.ts';
 
@@ -248,4 +248,150 @@ test('standard-library randomness is reproducible for a frame and varies across 
   assert.equal(f.tick({ tick: 1 }).states.root.sample, sample);
   assert.notEqual(f.tick({ tick: 2 }).states.root.sample, sample);
   assert.ok(sample >= 0 && sample < 1);
+});
+
+test('imported memory is reused while globals, allocator and every guest byte reset each frame', async t => {
+  const f = fixture();
+  assert.equal((await f.set(`
+    const array = new Uint8Array(4);
+    self.state.setNumber("array", array[0]); array[0] = 99;
+    self.state.setNumber("counter", ++counter);
+    self.state.setNumber("data", load<u8>(datum)); store<u8>(datum, 31);
+    self.state.setNumber("scratch", load<u8>(60000)); store<u8>(60000, 99);
+    self.state.setNumber("pages", memory.size());
+  } let counter: i32 = 7;
+    const datum: usize = memory.data<u8>([17, 99]);
+    function unused(): void {
+  `)).ok, true);
+  const Memory = WebAssembly.Memory, Instance = WebAssembly.Instance;
+  let allocations = 0, instances = 0;
+  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
+  t.mock.method(WebAssembly, 'Instance', function (module, imports) { instances++; return new Instance(module, imports); });
+  try {
+    let states = {};
+    for (let tick = 0; tick < 20; tick++) {
+      const result = f.tick({ states, tick });
+      assert.equal(result.ok, true, result.error);
+      assert.deepEqual(result.states.root, { array: 0, counter: 8, data: 17, scratch: 0, pages: 1 });
+      states = result.states;
+    }
+    assert.equal(allocations, 1);
+    assert.equal(instances, 20, 'globals and start functions still belong to a fresh instance');
+    f.send({ type: 'reset' });
+    assert.equal(f.tick().states.root.scratch, 0);
+    assert.equal(allocations, 1);
+  } finally { t.mock.restoreAll(); }
+});
+
+test('memory caches are isolated across entities and invalidated on script edits and disposal', async t => {
+  const first = fixture(), second = fixture();
+  const code = 'self.state.setNumber("initial", load<u8>(60000)); store<u8>(60000, 99);';
+  await first.set(code); await second.set(code);
+  const Memory = WebAssembly.Memory;
+  const memories: WebAssembly.Memory[] = [];
+  t.mock.method(WebAssembly, 'Memory', function (descriptor) {
+    const memory = new Memory(descriptor); memories.push(memory); return memory;
+  });
+  try {
+    assert.equal(first.tick().states.root.initial, 0);
+    assert.equal(second.tick().states.root.initial, 0);
+    assert.notEqual(memories[0], memories[1]);
+    first.tick(); assert.equal(memories.length, 2);
+    await first.set(code); first.tick(); assert.equal(memories.length, 3);
+    first.send({ type: 'dispose' }); await first.set(code); first.tick();
+    assert.equal(memories.length, 4);
+  } finally { t.mock.restoreAll(); }
+});
+
+test('grown linear memory is discarded so memory.size starts fresh on the next frame', async t => {
+  const f = fixture();
+  await f.set('self.state.setNumber("before", memory.size()); memory.grow(1); self.state.setNumber("after", memory.size());');
+  const Memory = WebAssembly.Memory;
+  let allocations = 0;
+  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
+  try {
+    for (let tick = 0; tick < 3; tick++) {
+      const result = f.tick({ tick });
+      assert.equal(result.ok, true, result.error);
+      assert.deepEqual(result.states.root, { before: 1, after: 2 });
+    }
+    assert.equal(allocations, 3);
+  } finally { t.mock.restoreAll(); }
+});
+
+test('worker-cloned modules preserve the initial memory size needed for large static data', async () => {
+  const text = 'x'.repeat(40_000);
+  const code = `self.state.setString("text", "${text}");`;
+  const module = await compileEntityScript(code);
+  assert.ok(getEntityScriptMemoryPages(structuredClone(module)) >= 2);
+  const f = fixture(); await f.set(code);
+  assert.equal(f.tick().states.root.text, text);
+});
+
+test('a reentrant host query never clears the active guest memory', async t => {
+  const f = fixture();
+  await f.set('const array: i32[] = [7,9]; ctx.world.raycast([0,0,0], [0,-1,0]); self.state.setNumber("value", array[1]);');
+  const Memory = WebAssembly.Memory;
+  let allocations = 0;
+  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
+  try {
+    let nested: any;
+    const result = f.tick({}, { worldRaycast: () => { nested = f.tick(); return null; } });
+    assert.equal(result.ok, true, result.error); assert.equal(nested.ok, true, nested.error);
+    assert.equal(result.states.root.value, 9); assert.equal(nested.states.root.value, 9);
+    assert.equal(allocations, 2);
+  } finally { t.mock.restoreAll(); }
+});
+
+test('inactive components cannot retain more than the entity memory allowance', async t => {
+  const f = fixture();
+  const code = `self.state.setString("text", "${'x'.repeat(40_000)}");`;
+  const module = await compileEntityScript(code);
+  const capacity = Math.floor(64 / getEntityScriptMemoryPages(module));
+  assert.ok(capacity < 64);
+  for (let i = 0; i <= capacity; i++) await f.set(code, `node${i}`);
+  const Memory = WebAssembly.Memory;
+  let allocations = 0;
+  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
+  const run = (id: string) => f.tick({ rootComponentId: id, scriptOrder: [id],
+    components: [{ id, parentId: null, children: [], body: { type: 'dynamic', mass: 10 } }] });
+  try {
+    for (let i = 0; i <= capacity; i++) assert.equal(run(`node${i}`).ok, true);
+    assert.equal(allocations, capacity + 1);
+    run(`node${capacity}`); assert.equal(allocations, capacity + 1, 'the newest memory is retained');
+    run('node0'); assert.equal(allocations, capacity + 2, 'the oldest memory was evicted');
+  } finally { t.mock.restoreAll(); }
+});
+
+
+test('50 ms failures identify setup or guest execution and discard the entire tick', async t => {
+  for (const phase of ['wasm-instantiation', 'wasm-execution']) {
+    const f = fixture();
+    await f.set(`
+      self.state.setNumber("partial", 1);
+      self.applyForce([1, 0, 0]);
+      ctx.world.raycast([0, 0, 0], [0, -1, 0]);
+      self.state.setNumber("after", 1);
+    `);
+    let clock = 0;
+    t.mock.method(performance, 'now', () => clock);
+    if (phase === 'wasm-instantiation') {
+      const Instance = WebAssembly.Instance;
+      t.mock.method(WebAssembly, 'Instance', function (module, imports) {
+        clock = 75;
+        return new Instance(module, imports);
+      });
+    }
+    try {
+      const result = f.tick({}, { worldRaycast: () => { clock = 75; return null; } });
+      assert.equal(result.fatal, true);
+      assert.equal(result.states, undefined);
+      assert.equal(result.commands, undefined);
+      assert.match(result.error, /Script exceeded 50 ms/);
+      assert.ok(result.error.includes(`phase=${phase}`), result.error);
+      assert.match(result.error, /elapsed=75\.0 ms/);
+      assert.match(result.error, phase === 'wasm-instantiation'
+        ? /hostOps=0, lastHostCall=none/ : /lastHostCall=raycast/);
+    } finally { t.mock.restoreAll(); }
+  }
 });

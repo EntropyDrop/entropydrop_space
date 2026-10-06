@@ -154,6 +154,58 @@ def test_market_item_upload_preserves_local_id_scopes_and_reports_combined_metri
     assert _publish(client, "item", renamed).status_code == 409
 
 
+def test_market_item_upload_preserves_fractional_entity_positions(client, db, market_object_storage):
+    user = _user(db)
+    app.dependency_overrides[get_current_user] = lambda: user
+    payload = _item()
+    positions = [[3.1, 0.03, 0.02], [8.013, 0.007, 0.004]]
+    for entity, position in zip(payload["entityList"], positions):
+        entity["root"]["localPosition"] = position
+    response = _publish(client, "item", payload)
+    assert response.status_code == 201, response.text
+    stored = db.query(SpaceMarketResource).one()
+    kind, portable = decode_inventory_resource(market_object_storage["objects"][stored.object_key])
+    assert kind == "item"
+    assert [entity["root"]["localPosition"] for entity in portable["entityList"]] == positions
+
+
+def test_item_fractional_positions_keep_exact_micro_occupancy_and_internal_grid_validation():
+    def micro_entity(position):
+        return {
+            "type": "space-entity", "version": 8,
+            "root": {
+                "id": "root", "localPosition": position, "body": {"type": "dynamic"},
+                "blocks": [{"dx": 0, "dy": 0, "dz": 0, "mx": 0, "my": 0, "mz": 0, "color": 2}],
+                "children": [],
+            },
+            "constraints": [],
+        }
+
+    payload = {
+        "type": "space-item", "version": 8, "id": "micros", "name": "Micros",
+        "entityList": [micro_entity([1.01, 0, 0]), micro_entity([1.12, 0, 0])],
+    }
+    with pytest.raises(ValueError, match="overlap"):
+        space_market.validate_inventory_resource_payload("item", payload)
+    payload["entityList"][1]["root"]["localPosition"] = [1.135, 0, 0]
+    assert space_market.validate_inventory_resource_payload("item", payload)
+    payload["entityList"] = [micro_entity([0.99, 0, 0]), micro_entity([256.74, 0, 0])]
+    assert space_market.validate_inventory_resource_payload("item", payload)
+    payload["entityList"][1]["root"]["localPosition"] = [256.9, 0, 0]
+    with pytest.raises(ValueError, match="bounds"):
+        space_market.validate_inventory_resource_payload("item", payload)
+    for position in ([-1.03, 0.2, 0.031], [1e-8, 0.01, -0.1]):
+        payload["entityList"] = [micro_entity(position)]
+        canonical = space_market.validate_inventory_resource_payload("item", payload)
+        kind, decoded = decode_inventory_resource(encode_inventory_resource("item", canonical))
+        assert kind == "item"
+        assert decoded["entityList"][0]["root"]["localPosition"] == position
+    invalid_component = _item()
+    invalid_component["entityList"][0]["root"]["children"][0]["localPosition"] = [0.6, 0, 0]
+    with pytest.raises(ValueError, match="grid"):
+        space_market.validate_inventory_resource_payload("item", invalid_component)
+
+
 def test_market_items_listing_includes_existing_standalone_content(client, db):
     user = _user(db)
     app.dependency_overrides[get_current_user] = lambda: user
@@ -171,10 +223,10 @@ def test_item_validation_enforces_root_pose_combined_overlap_and_aggregate_limit
     overlap["entityList"][1]["root"]["localPosition"] = [3, 0, 0]
     with pytest.raises(ValueError, match="overlap"):
         space_market.validate_inventory_resource_payload("item", overlap)
-    off_grid = _item()
-    off_grid["entityList"][0]["root"]["localPosition"] = [3.1, 0, 0]
-    with pytest.raises(ValueError, match="grid"):
-        space_market.validate_inventory_resource_payload("item", off_grid)
+    invalid_position = _item()
+    invalid_position["entityList"][0]["root"]["localPosition"] = [513, 0, 0]
+    with pytest.raises(ValueError, match="local position"):
+        space_market.validate_inventory_resource_payload("item", invalid_position)
     aggregate = _item()
     prototype = aggregate["entityList"][0]["root"]["children"][0]
     for entry in aggregate["entityList"]:

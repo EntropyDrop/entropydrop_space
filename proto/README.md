@@ -93,6 +93,10 @@ Template ids and all display names are excluded from content deduplication.
 
 An Entity root inside Item uses `local_position`/`local_rotation` for its construction
 frame relative to the Item origin. Missing fields mean zero translation and identity.
+Root translation may be any finite bounded position; it is not snapped to the
+construction grid. Each Entity's own authored voxels and component transforms still
+use its local 0.125-metre grid. Combined Item occupancy and bounds are checked with
+the original offsets, without rounding them to grid cells.
 The Item decoder extracts this pose before standalone Entity validation. World constraint
 A endpoints inside Item use Item coordinates and are transformed by the overall world
 placement pose once. Body-local endpoints retain their original frames. Separate Entity

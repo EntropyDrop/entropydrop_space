@@ -217,23 +217,54 @@ test('world Copy unwraps enclosed entities and their world anchors across the to
   } finally { f.dispose(); }
 });
 
-test('invalid or full Item copies leave sources, selection and backpack contents intact', () => {
+test('world Copy preserves an arbitrary Entity position through export, preview and placement', () => {
+  const f = fixture();
+  try {
+    f.select({ x: 10, y: 20, z: 30 }, { x: 14, y: 24, z: 34 });
+    f.terrain.set(f.key(10, 20, 30), 0xff0000);
+    const source = f.entity([11.1, 21.03, 31.02], { child: true });
+    const worldAnchor = new THREE.Vector3(11.6, 21.53, 31.52);
+    source.constraintDefinitions.set('world_joint', {
+      id: 'world_joint', type: 'point', bodyA: null, bodyB: 'root', anchorA: worldAnchor.toArray(),
+    });
+    const before = source.serializeSubtree();
+    const selectionOrigin = new THREE.Vector3(10, 20, 30);
+    const relativePosition = new THREE.Vector3().fromArray(before.sourcePosition).sub(selectionOrigin);
+    const item = f.controller.copySelectionSmart();
+    assert.ok(item, f.toasts.join('\n'));
+    assert.deepEqual(item.entityList[0].itemPosition, relativePosition.toArray());
+    assert.deepEqual(source.serializeSubtree(), before);
+    const encoded = f.controller.encodeInventoryItem('item', item);
+    assert.deepEqual(decodeInventoryResource(encoded).portable.entityList[0].root.localPosition, relativePosition.toArray());
+    assert.equal(f.controller.parseInventoryImport(encoded, 'item').ok, true);
+    const preview = getInventoryPreviewBlocks(item).find(block => block.color === 0x12ab34);
+    assert.ok(preview.center.distanceTo(relativePosition.clone().addScalar(0.5)) < 1e-9);
+
+    const origin = new THREE.Vector3(100, 50, 100);
+    const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+    f.controller.getInventoryPlacementPose = () => ({ position: origin.clone(), quaternion: rotation.clone() });
+    f.controller.performBasicAction = () => ({ placed: 1 });
+    assert.equal(f.controller.pasteInventorySlot(), true);
+    const copied = f.manager.contraptions[1];
+    assert.ok(copied.originWorldPos.distanceTo(relativePosition.applyQuaternion(rotation).add(origin)) < 1e-9);
+    const expectedAnchor = worldAnchor.sub(selectionOrigin).applyQuaternion(rotation).add(origin);
+    assert.ok(new THREE.Vector3().fromArray(copied.constraintDefinitions.get('world_joint').anchorA).distanceTo(expectedAnchor) < 1e-9);
+    assert.notEqual(copied.publicId, source.publicId);
+  } finally { f.dispose(); }
+});
+
+test('full Item copies leave sources, selection and backpack contents intact', () => {
   const f = fixture();
   try {
     f.select({ x: 10, y: 20, z: 30 }, { x: 12, y: 22, z: 32 });
-    f.entity([11.1, 21, 31]);
-    assert.equal(f.controller.copySelectionSmart(), null);
-    assert.match(f.toasts.at(-1), /align.*grid/);
-    assert.equal(f.manager.selectionBoxConfirmed, true);
-    assert.equal(f.controller.inventories.item.items.filter(Boolean).length, 0);
-    f.manager.contraptions[0].dispose();
-    f.manager.contraptions.length = 0;
-    f.entity([11, 21, 31]);
+    const source = f.entity([11.1, 21, 31]);
+    const before = source.serializeSubtree();
     f.controller.inventories.item.items.fill({ kind: 'item', name: 'Existing' });
     assert.equal(f.controller.copySelectionSmart(), null);
     assert.match(f.toasts.at(-1), /inventory is full/);
     assert.equal(f.manager.selectionBoxConfirmed, true);
     assert.equal(f.controller.activeTool, SpecialTool.SELECTOR);
     assert.ok(f.controller.inventories.item.items.every(item => item.name === 'Existing'));
+    assert.deepEqual(source.serializeSubtree(), before);
   } finally { f.dispose(); }
 });

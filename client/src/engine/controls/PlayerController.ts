@@ -307,12 +307,17 @@ function validateStoppedEntityGrid(slot): string | null {
     }
   }
 
-  const entries = getInventoryPreviewBlocks(slot?.kind === 'item' ? slot : { ...slot, kind: 'entity' });
+  const entries = getInventoryPreviewBlocks({ ...slot, kind: 'entity' });
   if (entries.length !== (slot?.blocks || []).length) {
     return 'Stopped entity hierarchy does not resolve every voxel';
   }
-  type GridBox = [number, number, number, number, number, number];
-  const buckets = new Map<string, GridBox[]>();
+  return validateInventoryVoxelBounds(entries, true);
+}
+
+/** Validate occupancy in micro-grid units, allowing an Item's Entity origins to be fractional. */
+function validateInventoryVoxelBounds(entries, requireGridAlignment: boolean): string | null {
+  type VoxelBox = [number, number, number, number, number, number];
+  const buckets = new Map<string, VoxelBox[]>();
   for (const entry of entries) {
     const size = Number(entry?.size) || 1;
     const bounds = [
@@ -323,26 +328,26 @@ function validateStoppedEntityGrid(slot): string | null {
       (Number(entry?.center?.y) + size / 2) * MICRO_DIVISIONS,
       (Number(entry?.center?.z) + size / 2) * MICRO_DIVISIONS
     ];
-    const box = bounds.map(Math.round) as GridBox;
+    const box = (requireGridAlignment ? bounds.map(Math.round) : bounds) as VoxelBox;
     if (bounds.some((value, index) => (
-      !Number.isFinite(value) || Math.abs(value - box[index]) > STOPPED_GRID_EPSILON
+      !Number.isFinite(value) || (requireGridAlignment && Math.abs(value - box[index]) > STOPPED_GRID_EPSILON)
     ))) {
       return 'Stopped entity voxels must align to the 0.125-unit construction grid';
     }
     const [minX, minY, minZ, maxX, maxY, maxZ] = box;
     const keys: string[] = [];
-    for (let x = Math.floor(minX / MICRO_DIVISIONS); x <= Math.floor((maxX - 1) / MICRO_DIVISIONS); x++) {
-      for (let y = Math.floor(minY / MICRO_DIVISIONS); y <= Math.floor((maxY - 1) / MICRO_DIVISIONS); y++) {
-        for (let z = Math.floor(minZ / MICRO_DIVISIONS); z <= Math.floor((maxZ - 1) / MICRO_DIVISIONS); z++) {
+    for (let x = Math.floor(minX / MICRO_DIVISIONS); x <= Math.floor((maxX - STOPPED_GRID_EPSILON) / MICRO_DIVISIONS); x++) {
+      for (let y = Math.floor(minY / MICRO_DIVISIONS); y <= Math.floor((maxY - STOPPED_GRID_EPSILON) / MICRO_DIVISIONS); y++) {
+        for (let z = Math.floor(minZ / MICRO_DIVISIONS); z <= Math.floor((maxZ - STOPPED_GRID_EPSILON) / MICRO_DIVISIONS); z++) {
           keys.push(`${x},${y},${z}`);
         }
       }
     }
     for (const key of keys) {
       for (const other of buckets.get(key) || []) {
-        if (minX < other[3] && maxX > other[0]
-          && minY < other[4] && maxY > other[1]
-          && minZ < other[5] && maxZ > other[2]) {
+        if (Math.min(maxX, other[3]) - Math.max(minX, other[0]) > STOPPED_GRID_EPSILON
+          && Math.min(maxY, other[4]) - Math.max(minY, other[1]) > STOPPED_GRID_EPSILON
+          && Math.min(maxZ, other[5]) - Math.max(minZ, other[2]) > STOPPED_GRID_EPSILON) {
           return 'Stopped entity components contain overlapping voxels';
         }
       }
@@ -2906,8 +2911,8 @@ export class PlayerController {
         if (!periodicOffset) {
           const blockCenter = blockBounds.getCenter(new THREE.Vector3());
           periodicOffset = new THREE.Vector3(
-            unwrapPeriodicNear(blockCenter.x, center.x, TORUS_SIZE_X) - blockCenter.x, 0,
-            unwrapPeriodicNear(blockCenter.z, center.z, TORUS_SIZE_Z) - blockCenter.z,
+            Math.round((center.x - blockCenter.x) / TORUS_SIZE_X) * TORUS_SIZE_X, 0,
+            Math.round((center.z - blockCenter.z) / TORUS_SIZE_Z) * TORUS_SIZE_Z,
           );
         }
         // Most loaded entities are outside the region; reject at the first outside voxel.
@@ -2919,10 +2924,7 @@ export class PlayerController {
       const source = entity.serializeSubtree(contraptionRootId(entity));
       const portable = this.serializeInventoryItem('entity', source);
       const position = new THREE.Vector3().fromArray(source.sourcePosition).add(periodicOffset).sub(origin);
-      portable.root.localPosition = position.toArray().map(value => {
-        const aligned = Math.round(value * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-        return Math.abs(value - aligned) < STOPPED_GRID_EPSILON ? aligned : value;
-      });
+      portable.root.localPosition = position.toArray();
       portable.root.localRotation = [...source.sourceRotation];
       // World endpoints belong to the Item frame; body-local endpoints keep their own frames.
       for (const constraint of portable.constraints || []) {
@@ -8461,7 +8463,6 @@ export class PlayerController {
       for (const entity of data.entityList || []) {
         const position = portableVector(entity.root?.localPosition, MAX_IMPORT_COORDINATE) || [0, 0, 0];
         if (entity.root?.localPosition !== undefined && portableVector(entity.root.localPosition, MAX_IMPORT_COORDINATE) === null) return fail('Item entity position is invalid');
-        if (position.some(value => Math.abs(value * MICRO_DIVISIONS - Math.round(value * MICRO_DIVISIONS)) > STOPPED_GRID_EPSILON)) return fail('Item entity position must align to the construction grid');
         const rotation = entity.root?.localRotation === undefined ? [0, 0, 0, 1] : portableQuaternion(entity.root.localRotation);
         if (!rotation) return fail('Item entity rotation must use 90-degree grid steps');
         const definition = { ...entity, root: { ...entity.root } };
@@ -8480,14 +8481,19 @@ export class PlayerController {
         kind: 'item', id: data.id, name: trimInventoryName(data.name),
         blockSet, entityList, blocks, blockCount: blocks.length, nodeCount: components,
       };
-      const gridError = validateStoppedEntityGrid(item);
-      if (gridError) return fail(gridError);
-      const geometry = getInventoryPreviewBlocks(item).map(entry => ({
-        localX: entry.center.x - entry.size / 2,
-        localY: entry.center.y - entry.size / 2,
-        localZ: entry.center.z - entry.size / 2, size: entry.size,
-      }));
-      if (!withinEntityBounds(geometry, ['localX', 'localY', 'localZ'])) return fail('Item bounds exceed the portable bounds');
+      const geometry = getInventoryPreviewBlocks(item);
+      const geometryError = validateInventoryVoxelBounds(geometry, false);
+      if (geometryError) return fail(geometryError);
+      for (const axis of ['x', 'y', 'z']) {
+        let minimum = Infinity, maximum = -Infinity;
+        for (const entry of geometry) {
+          minimum = Math.min(minimum, entry.center[axis] - entry.size / 2);
+          maximum = Math.max(maximum, entry.center[axis] + entry.size / 2);
+        }
+        if ((maximum - minimum) * MICRO_DIVISIONS > MAX_ENTITY_BOUNDS * MICRO_DIVISIONS + STOPPED_GRID_EPSILON) {
+          return fail('Item bounds exceed the portable bounds');
+        }
+      }
       return { ok: true, item };
     }
 

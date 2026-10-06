@@ -1,4 +1,4 @@
-import { compileEntityScript, getCompiledEntityScript, ENTITY_FUEL } from './AssemblyScriptCompiler.ts';
+import { compileEntityScript, getCompiledEntityScript, getEntityScriptMemoryPages, ENTITY_FUEL } from './AssemblyScriptCompiler.ts';
 import { createEntityScriptHost } from './EntityScriptHost.ts';
 export { preloadAssemblyScriptRuntime } from './AssemblyScriptCompiler.ts';
 
@@ -26,12 +26,14 @@ function dataCopy(value: any, budget = { bytes: 0, nodes: 0 }, depth = 0): any {
   return out;
 }
 
-type Entity = { modules: Map<string, WebAssembly.Module>; revisions: Map<string, number>; pending: Set<Promise<any>>; disposed: boolean };
+type ComponentMemory = { module: WebAssembly.Module; memory: WebAssembly.Memory; initialBytes: number; inUse: boolean };
+type Entity = { modules: Map<string, WebAssembly.Module>; memories: Map<string, ComponentMemory>; revisions: Map<string, number>; pending: Set<Promise<any>>; disposed: boolean };
 export function createAssemblyScriptRuntimeService() {
   const entities = new Map<string, Entity>();
+  const stringDecoder = new TextDecoder('utf-16le', { ignoreBOM: true });
   const entityFor = (id: string): Entity => {
     let e = entities.get(id);
-    if (!e) entities.set(id, e = { modules: new Map(), revisions: new Map(), pending: new Set(), disposed: false });
+    if (!e) entities.set(id, e = { modules: new Map(), memories: new Map(), revisions: new Map(), pending: new Set(), disposed: false });
     return e;
   };
   const tick = (entity: Entity, message: any) => {
@@ -64,7 +66,10 @@ export function createAssemblyScriptRuntimeService() {
           seed = Math.imul(seed ^ character.charCodeAt(0), 16777619) >>> 0;
         }
         let instance: WebAssembly.Instance | null = null;
+        let componentMemory: ComponentMemory | undefined;
         let hostOperations = 0;
+        let phase = 'bridge-setup';
+        let lastHostCall = 'none';
         const handles: any[] = [null];
         const writable = new WeakSet<object>();
         const allowWrite = (v: any) => {
@@ -76,7 +81,10 @@ export function createAssemblyScriptRuntimeService() {
         for (const node of snapshot.components || []) allowWrite(host.getSelf(node.id)?.state);
         const memory = () => (instance!.exports.memory as WebAssembly.Memory).buffer;
         const check = () => {
-          if (performance.now() - componentStarted > 50) throw new BudgetError('Script exceeded 50 ms and the entity was stopped');
+          const componentElapsed = performance.now() - componentStarted;
+          if (componentElapsed > 50) {
+            throw new BudgetError(`Script exceeded 50 ms and the entity was stopped (elapsed=${componentElapsed.toFixed(1)} ms, phase=${phase}, hostOps=${hostOperations}, lastHostCall=${lastHostCall})`);
+          }
           if (performance.now() - scriptsStarted > 250) throw new BudgetError('Entity exceeded the aggregate 250 ms tick limit');
           if (instance && (instance.exports.__fuel as Function)() < 0) throw new BudgetError('Entity exceeded its WASM execution fuel budget');
           if (instance && memoryUsed + memory().byteLength > MEMORY_LIMIT) throw new BudgetError('Entity exceeded 4 MiB WASM memory');
@@ -102,7 +110,7 @@ export function createAssemblyScriptRuntimeService() {
           if (ptr < 4 || ptr % 2 || ptr > buffer.byteLength) throw new Error('Invalid WASM string pointer');
           const length = new DataView(buffer).getUint32(ptr - 4, true);
           if (length > 128 * 1024 || length % 2 || ptr + length > buffer.byteLength) throw new Error('Invalid WASM string length');
-          return new TextDecoder('utf-16le', { ignoreBOM: true }).decode(new Uint8Array(buffer, ptr, length));
+          return stringDecoder.decode(new Uint8Array(buffer, ptr, length));
         };
         const keyAt = (ptr: number) => {
           const key = stringAt(ptr);
@@ -143,11 +151,37 @@ export function createAssemblyScriptRuntimeService() {
           call: (h: number, namePtr: number, argsHandle: number) => {
             operation(); const target = value(h), name = keyAt(namePtr), args = value(argsHandle);
             if (!own(target, name) || typeof target[name] !== 'function' || !Array.isArray(args) || args.length > 16) throw new Error('Unknown entity API call');
+            lastHostCall = name;
             return put(target[name](...args));
           }
         };
         try {
+          phase = 'memory-preparation';
+          componentMemory = entity.memories.get(nodeId);
+          if (!componentMemory || componentMemory.module !== module || componentMemory.inUse) {
+            const pages = getEntityScriptMemoryPages(module);
+            componentMemory = { module, memory: new WebAssembly.Memory({ initial: pages, maximum: 64 }),
+              initialBytes: pages * 65536, inUse: false };
+            entity.memories.delete(nodeId);
+            entity.memories.set(nodeId, componentMemory);
+            // Disabled components must not turn the per-frame 4 MiB allowance
+            // into an unbounded retained-memory cache across many frames.
+            let retainedBytes = 0;
+            for (const entry of entity.memories.values()) retainedBytes += entry.initialBytes;
+            for (const [id, entry] of entity.memories) {
+              if (retainedBytes <= MEMORY_LIMIT) break;
+              entity.memories.delete(id);
+              retainedBytes -= entry.initialBytes;
+            }
+          }
+          componentMemory.inUse = true;
+          // A fresh instance still resets globals, tables, passive segments and
+          // the stub allocator. Clear imported memory before data segments and
+          // the module's (metered) start function initialize it again.
+          new Uint8Array(componentMemory.memory.buffer).fill(0);
+          phase = 'wasm-instantiation';
           instance = new WebAssembly.Instance(module, { entity: imports, env: {
+            memory: componentMemory.memory,
             abort: (msg: number) => {
               const message = instance ? stringAt(msg) : 'AssemblyScript abort';
               if (/memory|allocat|heap/i.test(message)) throw new BudgetError(message);
@@ -156,13 +190,26 @@ export function createAssemblyScriptRuntimeService() {
             seed: () => { operation(); return seed || 1; }, trace: () => { operation(); }
           } });
           (instance.exports.__setFuel as Function)(fuel);
-          (instance.exports.__tick as Function)(put(self), put(host.context(nodeId)));
+          check();
+          phase = 'context-construction';
+          const context = host.context(nodeId);
+          check();
+          phase = 'wasm-execution';
+          (instance.exports.__tick as Function)(put(self), put(context));
+          phase = 'final-check';
           check();
         } catch (error: any) {
           if (host.isStop(error)) break;
           if (error instanceof BudgetError || error instanceof WebAssembly.RuntimeError || error instanceof RangeError) throw error;
           errors.push({ nodeId, error: String(error?.message || error).slice(0, 2000) });
         } finally {
+          if (componentMemory) {
+            componentMemory.inUse = false;
+            // Memory cannot shrink. Retaining a grown buffer would expose a
+            // different memory.size on the next frame, so discard it instead.
+            if (componentMemory.memory.buffer.byteLength !== componentMemory.initialBytes
+              && entity.memories.get(nodeId) === componentMemory) entity.memories.delete(nodeId);
+          }
           if (instance) {
             fuel = (instance.exports.__fuel as Function)();
             memoryUsed += memory().byteLength;
@@ -183,7 +230,7 @@ export function createAssemblyScriptRuntimeService() {
     const { type, entityRuntimeId, requestId, nodeId } = message;
     if (type === 'dispose') {
       const entity = entities.get(entityRuntimeId);
-      if (entity) { entity.disposed = true; entity.modules.clear(); }
+      if (entity) { entity.disposed = true; entity.modules.clear(); entity.memories.clear(); }
       entities.delete(entityRuntimeId);
       return { requestId, ok: true };
     }
@@ -192,6 +239,7 @@ export function createAssemblyScriptRuntimeService() {
       const revision = (entity.revisions.get(nodeId) || 0) + 1;
       entity.revisions.set(nodeId, revision);
       entity.modules.delete(nodeId);
+      entity.memories.delete(nodeId);
       const code = String(message.code || '');
       if (!code.trim()) return { requestId, nodeId, ok: true };
       if (entity.modules.size + entity.pending.size >= 64) return { requestId, nodeId, ok: false, error: 'Entity script component limit exceeded' };
@@ -205,7 +253,12 @@ export function createAssemblyScriptRuntimeService() {
       pending.finally(() => entity.pending.delete(pending));
       return pending;
     }
-    if (type === 'reset') return { requestId, ok: true };
+    if (type === 'reset') {
+      for (const entry of entity.memories.values()) {
+        if (!entry.inUse) new Uint8Array(entry.memory.buffer).fill(0);
+      }
+      return { requestId, ok: true };
+    }
     if (type === 'ready') return Promise.all([...entity.pending]).then(() => ({ requestId, ok: true }));
     if (type === 'tick') {
       if (entity.pending.size) return { requestId, ok: true, pending: true };

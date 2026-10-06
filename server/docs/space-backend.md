@@ -738,7 +738,9 @@ Item admission applies the 65,536-voxel, 64-component, 256-constraint, 256-seat 
 512-KiB total-script budgets across static geometry and all Entity trees together,
 with at most 64 KiB per script, hierarchy depth 16 and 8 MiB of canonical bytes.
 Entity root `local_position`/`local_rotation` values place each tree relative to the
-Item origin. Combined geometry must align to the construction grid without overlap.
+Item origin. Root translations may be arbitrary finite bounded offsets; only each
+Entity's internal construction must align to its local grid. Combined occupancy and
+bounds are checked without rounding these offsets, and overlapping volumes are rejected.
 Each Entity has an independent component-id namespace; constraints cannot connect
 separate Entity entries. External-world A endpoints inside an Item use Item coordinates
 and transform once on placement; body-local endpoints retain their own frames.

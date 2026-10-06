@@ -72,9 +72,9 @@ test('Item validation rejects empty content, overlaps, invalid poses and aggrega
   };
   rejects({ ...mixedItem(), blockSet: undefined, entityList: [] }, /at least|between/);
   rejects({ ...mixedItem(), blockSet: undefined, entityList: [entity(2), entity(2)] }, /overlap/);
-  const offGrid = mixedItem();
-  offGrid.entityList[0].root.localPosition = [0.1, 0, 0];
-  rejects(offGrid, /grid/);
+  const invalidPosition = mixedItem();
+  invalidPosition.entityList[0].root.localPosition = [513, 0, 0];
+  rejects(invalidPosition, /position/);
   const badRotation = mixedItem();
   badRotation.entityList[0].root.localRotation = [0, 0, 0, 0];
   rejects(badRotation, /rotation/);
@@ -85,6 +85,46 @@ test('Item validation rejects empty content, overlaps, invalid poses and aggrega
     }));
   }
   rejects(tooMany, /aggregate/);
+});
+
+test('Item Entity origins keep fractional offsets while exact occupancy still rejects overlaps', () => {
+  const instance = controller();
+  for (const position of [[-1.03, 0.2, 0.031], [1e-8, 0.01, -0.1]]) {
+    const definition = entity(0);
+    definition.root.localPosition = position;
+    const item = { ...mixedItem(), blockSet: undefined, entityList: [definition] };
+    const slot = parse(instance, item);
+    assert.deepEqual(slot.entityList[0].itemPosition, position);
+    const exported = decodeInventoryResource(instance.encodeInventoryItem('item', slot)).portable;
+    assert.deepEqual(exported.entityList[0].root.localPosition, position);
+  }
+  const microEntity = x => {
+    const definition = entity(x);
+    definition.root.blocks = [{ dx: 0, dy: 0, dz: 0, mx: 0, my: 0, mz: 0, color: 2 }];
+    return definition;
+  };
+  const item = { ...mixedItem(), blockSet: undefined, entityList: [microEntity(1.01), microEntity(1.12)] };
+  const overlap = instance.parseInventoryImport(encodeInventoryResource('item', item), 'item');
+  assert.equal(overlap.ok, false);
+  assert.match(overlap.error, /overlap/);
+  item.entityList[1].root.localPosition = [1.135, 0, 0];
+  assert.ok(parse(instance, item), 'touching micro voxels at a fractional boundary remain valid');
+  item.entityList = [microEntity(0.99), microEntity(256.74)];
+  assert.ok(parse(instance, item), 'portable bounds measure occupied volume rather than rounded parent cells');
+  item.entityList[1].root.localPosition = [256.9, 0, 0];
+  const oversized = instance.parseInventoryImport(encodeInventoryResource('item', item), 'item');
+  assert.equal(oversized.ok, false);
+  assert.match(oversized.error, /bounds/);
+  const invalidComponent = entity(2);
+  invalidComponent.root.children = [{
+    id: 'arm', pivot: [1.5, 0.5, 0.5], localPosition: [0.1, 0, 0],
+    body: { type: 'kinematic' }, blocks: [{ dx: 1, dy: 0, dz: 0, color: 2 }], children: [], seats: [],
+  }];
+  const invalid = instance.parseInventoryImport(encodeInventoryResource('item', {
+    ...mixedItem(), blockSet: undefined, entityList: [invalidComponent],
+  }), 'item');
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.error, /grid/);
 });
 
 test('mixed Item placement shares one rotation/origin and creates fresh independent entities', () => {

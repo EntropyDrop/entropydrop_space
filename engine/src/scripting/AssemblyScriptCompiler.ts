@@ -16,12 +16,32 @@ function remember(source: string, module: WebAssembly.Module) {
 export const getCompiledEntityScript = (source: string) => readyModules.get(source);
 export const MAX_SCRIPT_SOURCE_BYTES = 64 * 1024;
 export const ENTITY_FUEL = 100_000;
+const MEMORY_PAGES_SECTION = 'entity-memory-pages';
+const memoryPages = new WeakMap<WebAssembly.Module, number>();
+
+/** The custom section survives the compiler worker's structured clone. */
+export function getEntityScriptMemoryPages(module: WebAssembly.Module): number {
+  const cached = memoryPages.get(module);
+  if (cached !== undefined) return cached;
+  const sections = WebAssembly.Module.customSections(module, MEMORY_PAGES_SECTION);
+  const pages = sections.length === 1 && sections[0].byteLength === 1
+    ? new Uint8Array(sections[0])[0] : 0;
+  if (pages < 1 || pages > 64) throw new Error('Invalid entity WASM memory layout');
+  memoryPages.set(module, pages);
+  return pages;
+}
 
 /** Instrument the FINAL optimized WASM, so optimization cannot erase budget checks. */
 function meter(binary: Uint8Array, b: any): Uint8Array {
   const m = b.readBinary(binary);
   m.setFeatures(b.Features.MVP | b.Features.BulkMemory | b.Features.BulkMemoryOpt | b.Features.NontrappingFPToInt | b.Features.SignExt);
   try {
+    const memory = m.getMemoryInfo();
+    if (memory.module !== 'env' || memory.base !== 'memory' || memory.shared || memory.is64
+      || memory.initial < 1 || memory.initial > 64 || memory.max !== 64) {
+      throw new Error('Invalid entity WASM memory import');
+    }
+    m.addCustomSection(MEMORY_PAGES_SECTION, Uint8Array.of(memory.initial));
     m.addFunctionImport('__entityBudget', 'entity', 'budget', b.none, b.none);
     m.addGlobal('__entityFuel', b.i32, true, m.i32.const(ENTITY_FUEL));
     const keys: Record<number, string[]> = {
@@ -89,7 +109,7 @@ export function compileEntityScriptDirect(source: string): Promise<WebAssembly.M
     let bytes: Uint8Array | null = null;
     const errors = asc.createMemoryStream();
     const output = await asc.main(['entity.ts', '--outFile', 'entity.wasm', '--runtime', 'stub',
-      '--exportRuntime', '--initialMemory', '1', '--maximumMemory', '64', '--stackSize', '16384',
+      '--exportRuntime', '--importMemory', '--initialMemory', '0', '--maximumMemory', '64', '--stackSize', '16384',
       '--optimizeLevel', '2', '--shrinkLevel', '0', '--disable', 'simd,threads,exception-handling,tail-calls'], {
       readFile: (name: string) => files[name] ?? null,
       listFiles: () => [],
@@ -101,8 +121,10 @@ export function compileEntityScriptDirect(source: string): Promise<WebAssembly.M
     const module = new WebAssembly.Module(wasm as BufferSource);
     const allowed = new Set(['get', 'number', 'boolean', 'stringLength', 'stringCopy', 'make', 'set', 'call', 'budget']);
     for (const entry of WebAssembly.Module.imports(module)) {
-      if (entry.kind !== 'function' || !(entry.module === 'entity' && allowed.has(entry.name)
-        || entry.module === 'env' && ['abort', 'seed', 'trace'].includes(entry.name))) {
+      const allowedFunction = entry.kind === 'function' && (entry.module === 'entity' && allowed.has(entry.name)
+        || entry.module === 'env' && ['abort', 'seed', 'trace'].includes(entry.name));
+      const allowedMemory = entry.kind === 'memory' && entry.module === 'env' && entry.name === 'memory';
+      if (!allowedFunction && !allowedMemory) {
         throw new Error(`Unsupported entity import: ${entry.module}.${entry.name}`);
       }
     }

@@ -450,8 +450,6 @@ class ItemPayload(StrictResourceModel):
             totals["constraints"] += len(entity.constraints)
             position = entity.root.localPosition or (0, 0, 0)
             fine_position = tuple(value * SPACE_MARKET_GRID_DIVISIONS for value in position)
-            if any(abs(value - round(value)) > SPACE_MARKET_GRID_EPSILON for value in fine_position):
-                raise ValueError("item entity position must align to the 0.125-unit construction grid")
             rotation = _grid_rotation_matrix(entity.root.localRotation, "item entity rotation")
             for box in _validate_stopped_entity_grid(entity.root):
                 corners = [
@@ -460,7 +458,7 @@ class ItemPayload(StrictResourceModel):
                     for y in (box[1], box[4])
                     for z in (box[2], box[5])
                 ]
-                boxes.append(tuple(round(operation(corner[axis] for corner in corners))
+                boxes.append(tuple(operation(corner[axis] for corner in corners)
                                    for operation in (min, max) for axis in range(3)))
         limits = {
             "blocks": SPACE_MARKET_MAX_BLOCKS, "components": SPACE_MARKET_MAX_COMPONENTS,
@@ -474,7 +472,7 @@ class ItemPayload(StrictResourceModel):
             if totals[field] > limit:
                 raise ValueError(f"item exceeds aggregate {field} limit {limit}")
         if any(max(box[axis + 3] for box in boxes) - min(box[axis] for box in boxes)
-               > SPACE_MARKET_MAX_BOUNDS * SPACE_MARKET_GRID_DIVISIONS for axis in range(3)):
+               > SPACE_MARKET_MAX_BOUNDS * SPACE_MARKET_GRID_DIVISIONS + SPACE_MARKET_GRID_EPSILON for axis in range(3)):
             raise ValueError("item bounds exceed the portable bounds")
         _validate_grid_boxes(boxes)
         return self
@@ -659,21 +657,22 @@ def _validate_stopped_entity_grid(
 
 
 def _validate_grid_boxes(grid_boxes) -> None:
-    buckets: dict[tuple[int, int, int], list[tuple[int, int, int, int, int, int]]] = {}
+    """Check exact occupancy in micro-grid units, including fractional Item offsets."""
+    buckets: dict[tuple[int, int, int], list[tuple[float, float, float, float, float, float]]] = {}
     for box in grid_boxes:
         min_x, min_y, min_z, max_x, max_y, max_z = box
         keys = [
             (x, y, z)
-            for x in range(min_x // SPACE_MARKET_GRID_DIVISIONS, (max_x - 1) // SPACE_MARKET_GRID_DIVISIONS + 1)
-            for y in range(min_y // SPACE_MARKET_GRID_DIVISIONS, (max_y - 1) // SPACE_MARKET_GRID_DIVISIONS + 1)
-            for z in range(min_z // SPACE_MARKET_GRID_DIVISIONS, (max_z - 1) // SPACE_MARKET_GRID_DIVISIONS + 1)
+            for x in range(math.floor(min_x / SPACE_MARKET_GRID_DIVISIONS), math.floor((max_x - SPACE_MARKET_GRID_EPSILON) / SPACE_MARKET_GRID_DIVISIONS) + 1)
+            for y in range(math.floor(min_y / SPACE_MARKET_GRID_DIVISIONS), math.floor((max_y - SPACE_MARKET_GRID_EPSILON) / SPACE_MARKET_GRID_DIVISIONS) + 1)
+            for z in range(math.floor(min_z / SPACE_MARKET_GRID_DIVISIONS), math.floor((max_z - SPACE_MARKET_GRID_EPSILON) / SPACE_MARKET_GRID_DIVISIONS) + 1)
         ]
         for key in keys:
             for other in buckets.get(key, []):
                 if (
-                    min_x < other[3] and max_x > other[0]
-                    and min_y < other[4] and max_y > other[1]
-                    and min_z < other[5] and max_z > other[2]
+                    min(max_x, other[3]) - max(min_x, other[0]) > SPACE_MARKET_GRID_EPSILON
+                    and min(max_y, other[4]) - max(min_y, other[1]) > SPACE_MARKET_GRID_EPSILON
+                    and min(max_z, other[5]) - max(min_z, other[2]) > SPACE_MARKET_GRID_EPSILON
                 ):
                     raise ValueError("stopped entity components contain overlapping voxels")
         for key in keys:
