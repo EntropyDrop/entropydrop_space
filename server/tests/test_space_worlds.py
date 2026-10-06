@@ -38,11 +38,13 @@ def test_discovery_resolves_names_without_creating_worlds_or_memberships(client,
     assert response.status_code == 200
     assert response.headers['cache-control'] == 'no-store'
     catalog = response.json()
-    assert catalog['default_world_id'] == settings.SPACE_DEFAULT_WORLD_ID
+    assert catalog['default_world_id'] == settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID
     worlds = {world['slug']: world for world in catalog['worlds']}
     assert worlds['nature']['name'] == 'Nature'
-    assert worlds['nature']['aliases'] == ['default']
-    assert worlds['nature']['is_default'] is True
+    assert worlds['nature']['aliases'] == []
+    assert worlds['nature']['is_default'] is False
+    assert worlds['aether-archipelago']['aliases'] == ['default']
+    assert worlds['aether-archipelago']['is_default'] is True
     copper = worlds['copper-metropolis']
     assert copper['name'] == 'Copper Metropolis'
     assert copper['joined'] is False and copper['position_available'] is False
@@ -84,9 +86,16 @@ def test_selected_positions_never_fall_back_to_a_different_world(client, db):
         assert pose['world_id'] == copper['id'] and pose['world_slug'] == 'copper-metropolis'
         assert pose['world_name'] == 'Copper Metropolis' and pose['position']['x_cm'] == 820000
         assert pose['stale'] is True
-    for selector in ['', '?world=nature', '?world=default']:
+    for selector in ['?world=nature']:
         pose = client.get('/space/api/v2/players/me/position' + selector, headers=headers).json()
         assert pose['world_id'] == nature['id'] and pose['position']['x_cm'] == 744710
+    aether = join(client, headers, 'aether-archipelago')
+    for selector in ['', '?world=default']:
+        assert client.get('/space/api/v2/players/me/position' + selector, headers=headers).status_code == 404
+    save_position(db, owner.id, aether['id'])
+    for selector in ['', '?world=default']:
+        pose = client.get('/space/api/v2/players/me/position' + selector, headers=headers).json()
+        assert pose['world_id'] == aether['id'] and pose['world_slug'] == 'aether-archipelago'
 
 
 def test_membership_is_required_until_explicit_join(client, db):
@@ -112,11 +121,11 @@ def test_unknown_world_never_joins_or_falls_back(client, db, selector):
 
 def test_development_worlds_remain_unavailable_in_production_even_with_old_membership(client, db, monkeypatch):
     _, headers = connection(db)
-    experimental = join(client, headers, 'aether-archipelago')
+    experimental = join(client, headers, 'colossus-harbor')
     monkeypatch.setattr(settings, 'ENVIRONMENT', 'production')
     catalog = client.get('/space/api/v2/worlds', headers=headers).json()
-    assert [world['slug'] for world in catalog['worlds']] == ['nature', 'copper-metropolis']
-    for selector in ['aether-archipelago', experimental['id']]:
+    assert [world['slug'] for world in catalog['worlds']] == ['nature', 'copper-metropolis', 'aether-archipelago']
+    for selector in ['colossus-harbor', experimental['id']]:
         assert client.get(f'/space/api/v2/worlds/{selector}', headers=headers).status_code == 404
         assert client.post(f'/space/api/v2/worlds/{selector}/join', headers=headers).status_code == 404
         assert client.get(f'/space/api/v2/players/me/position?world={selector}', headers=headers).status_code == 404
@@ -132,6 +141,28 @@ def test_production_copper_discovery_and_join_use_the_published_world(client, db
         assert client.get(f'/space/api/v2/worlds/{selector}', headers=headers).status_code == 200
         assert join(client, headers, selector)['id'] == copper['id']
     assert db.query(models.SpaceWorldPlayerProfile).filter_by(world_id=copper['id'], user_id=owner.id).count() == 1
+
+
+def test_production_aether_is_default_for_discovery_join_and_bootstrap(client, db, monkeypatch):
+    monkeypatch.setattr(settings, 'ENVIRONMENT', 'production')
+    owner, headers = connection(db)
+    catalog = client.get('/space/api/v2/worlds', headers=headers).json()
+    aether = next(world for world in catalog['worlds'] if world['slug'] == 'aether-archipelago')
+    assert catalog['default_world_id'] == aether['id'] == settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID
+    assert aether['aliases'] == ['default'] and aether['is_default'] is True
+    assert db.query(models.SpaceWorld).count() == 0
+    for selector in ['default', 'aether-archipelago', aether['id']]:
+        assert join(client, headers, selector)['id'] == aether['id']
+    for params in [{}, {'world': 'default'}, {'world': 'aether-archipelago'}]:
+        response = client.post('/space/api/v2/bootstrap', params=params, headers=headers)
+        assert response.status_code == 200, response.text
+        world = response.json()['world']
+        assert world['id'] == aether['id'] and world['terrain_generator_version'] == 3
+        assert world['seed'] == settings.SPACE_AETHER_ARCHIPELAGO_WORLD_SEED
+        assert world['is_default'] is True
+    assert space._get_or_create_default_world(db).id == aether['id']
+    assert client.get('/space/api/v2/status').json()['world_id'] == aether['id']
+    assert db.query(models.SpaceWorldPlayerProfile).filter_by(world_id=aether['id'], user_id=owner.id).count() == 1
 
 
 def test_entities_and_blocksets_are_isolated_between_worlds_with_same_operation_and_coordinates(client, db):
@@ -160,12 +191,12 @@ def test_entities_and_blocksets_are_isolated_between_worlds_with_same_operation_
     assert db.query(models.SpacePlayerSnapshot).count() == 0
 
 
-def test_nature_alias_retains_existing_default_world_and_preserves_custom_names(client, db):
+def test_nature_retains_existing_world_and_preserves_custom_names(client, db):
     _, headers = connection(db)
     world = models.SpaceWorld(id=settings.SPACE_DEFAULT_WORLD_ID, name='EntropyDrop Space', seed=42)
     db.add(world)
     db.commit()
-    selected = join(client, headers, 'default')
+    selected = join(client, headers, 'nature')
     assert selected['id'] == settings.SPACE_DEFAULT_WORLD_ID and selected['name'] == 'Nature'
     assert selected['slug'] == 'nature' and selected['seed'] == 42
     world.name = 'Our nature world'

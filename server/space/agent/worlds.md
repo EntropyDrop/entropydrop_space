@@ -12,18 +12,18 @@ always be interpreted together with the world ID.
 
 | Display name | Canonical slug | Compatibility alias | Availability |
 | --- | --- | --- | --- |
-| Nature | `nature` | `default` | Default natural terrain world |
+| Nature | `nature` | — | Production and development/test backends |
 | Copper Metropolis | `copper-metropolis` | — | Production and development/test backends |
-| Aether Archipelago | `aether-archipelago` | — | Development/test backends |
+| Aether Archipelago | `aether-archipelago` | `default` | Default world; production and development/test backends |
 | Colossus Harbor | `colossus-harbor` | — | Development/test backends |
 | Titan Canyon | `titan-canyon` | — | Development/test backends |
 | Astral Foundry | `astral-foundry` | — | Development/test backends |
 | Brutalist Dusk | `brutalist-dusk` | — | Development/test backends |
 | Mixed | `mixed` | — | Development/test backends |
 
-Nature is the name of the existing default world, not a new world. Its UUID,
-terrain seed, terrain edits and existing entities are retained. Existing clients
-may keep using `default` or omit the bootstrap/position world selector.
+Aether Archipelago is the default world. `default` and an omitted bootstrap or
+position selector resolve to Aether. Nature retains its original UUID, terrain
+seed, edits and entities; select `nature` or its UUID to return there.
 
 Slugs are case-insensitive selectors for discovery, joining, bootstrap and saved
 position queries. Display names are labels, not URL selectors. Read the catalog
@@ -57,14 +57,15 @@ token is also accepted. Responses use `Cache-Control: no-store`.
    configuration, run-state, terrain and entity messaging. Those operational
    paths keep their existing UUID contract; resolve a slug before calling them.
 
-Browser entry uses `POST /space/api/v2/bootstrap?world=nature` or
-`?world=copper-metropolis` with a login token. The bootstrap world includes its
+Browser entry uses `POST /space/api/v2/bootstrap?world=aether-archipelago`,
+`?world=nature` or `?world=copper-metropolis` with a login token. Omitting the
+selector enters Aether. The bootstrap world includes its
 canonical `slug` and `is_default` alongside its UUID and terrain metadata. The
 client's **Copy Agent Prompt** carries the current world's UUID.
 
 ## Position and failure handling
 
-An omitted world on `GET /players/me/position` always means Nature; it does not
+An omitted world on `GET /players/me/position` means the configured default, Aether; it does not
 mean the most recently visited world. Once a target world is known, always supply
 it. The response includes `world_id`, `world_slug`, `world_name`, position and
 checkpoint freshness. Verify `world_id` before planning placement.

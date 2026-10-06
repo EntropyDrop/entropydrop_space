@@ -173,8 +173,8 @@ def test_space_bootstrap_returns_ephemeral_world_wide_random_start_without_persi
     ])
     monkeypatch.setattr(space_router, "_random_initial_position", lambda _world: next(starts))
 
-    first = client.post("/space/api/v2/bootstrap")
-    second = client.post("/space/api/v2/bootstrap")
+    first = client.post("/space/api/v2/bootstrap?world=nature")
+    second = client.post("/space/api/v2/bootstrap?world=nature")
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -645,7 +645,7 @@ def test_space_terrain_height_is_256_metres(client, db):
 def test_space_surface_zone_snapshot_matches_browser_generator_and_serves_immutable_bytes(client, db):
     user = _user(db, "space-surface-1", "https://cdn.entropydrop.com/skins/surface.png")
     app.dependency_overrides[get_current_user] = lambda: user
-    bootstrap = client.post("/space/api/v2/bootstrap").json()
+    bootstrap = client.post("/space/api/v2/bootstrap?world=nature").json()
     world = db.query(SpaceWorld).filter_by(id=bootstrap["world"]["id"]).one()
 
     generator = space_surface.TerrainSurfaceGenerator(world.seed, 16384, 2048)
@@ -1226,12 +1226,18 @@ def test_development_aether_bootstrap(client, db, alias):
 
 
 @pytest.mark.parametrize('alias', ['aether-archipelago', '00000000-0000-4000-8000-000000000004'])
-def test_production_cannot_provision_aether(client, db, monkeypatch, alias):
+def test_production_aether_bootstrap_preserves_generator_and_safe_spawn(client, db, monkeypatch, alias):
     monkeypatch.setattr(space_router.settings, 'ENVIRONMENT', 'production')
     user = _user(db, 'aether-production-user', None)
     app.dependency_overrides[get_current_user] = lambda: user
-    assert client.post('/space/api/v2/bootstrap', params={'world': alias}).status_code == 404
-    assert db.query(SpaceWorld).filter_by(id=space_router.settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID).count() == 0
+    response = client.post('/space/api/v2/bootstrap', params={'world': alias})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['world']['id'] == space_router.settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID
+    assert payload['world']['terrain_generator_version'] == 3
+    assert payload['world']['seed'] == 42
+    assert payload['world']['is_default'] is True
+    assert (payload['player']['start_x_cm'], payload['player']['start_y_cm'], payload['player']['start_z_cm']) == (819250, 18000, 102450)
 
 
 LAB_WORLDS = [

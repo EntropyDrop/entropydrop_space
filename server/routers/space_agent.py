@@ -14,7 +14,7 @@ from rate_limit import limiter, get_authenticated_or_remote_address
 from routers import space, space_entities as entities
 from space import models
 from space.database import get_db
-from space.worlds import configured_worlds, find_world_spec, world_identity, world_display_name
+from space.worlds import configured_worlds, default_world_spec, find_world_spec, world_identity, world_display_name
 
 router = APIRouter(prefix="/space/api/v2", tags=["space-agent"])
 public_router = APIRouter(prefix="/space/agent", tags=["space-agent-docs"])
@@ -130,7 +130,7 @@ def list_my_worlds(request: Request, response: Response, db: Session = Depends(g
     configured = {world.id for world in configured_worlds(include_unavailable=True)}
     memberships = db.query(models.SpaceWorldPlayerProfile).filter_by(user_id=creator.user.id).all()
     available.extend(str(row.world_id) for row in memberships if str(row.world_id) not in configured)
-    result = {"default_world_id": settings.SPACE_DEFAULT_WORLD_ID,
+    result = {"default_world_id": default_world_spec().id,
               "worlds": [_world_descriptor(db, world_id, creator) for world_id in available]}
     db.commit()
     return result

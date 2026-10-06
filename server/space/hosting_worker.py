@@ -23,6 +23,7 @@ from sqlalchemy import and_, or_
 from space.voxel_grid import MICRO_DIVISIONS
 from space import models
 from config import settings
+from space.worlds import configured_worlds
 from space.database import SessionLocal
 from routers import space as terrain
 from routers.space_entities import _decode_entity_definition, _encode_snapshot, EntityPosition, _enforce_entity_storage_quota
@@ -48,14 +49,11 @@ def now():
 def requested_world_ids():
     requested = [value.strip() for value in os.getenv("SPACE_HOSTING_WORLD_IDS", "").split(",") if value.strip()]
     if not requested:
-        requested = [settings.SPACE_DEFAULT_WORLD_ID]
-    if settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}:
-        for world_id in (settings.SPACE_COPPER_METROPOLIS_WORLD_ID, settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID,
-                         settings.SPACE_COLOSSUS_HARBOR_WORLD_ID, settings.SPACE_TITAN_CANYON_WORLD_ID,
-                         settings.SPACE_ASTRAL_FOUNDRY_WORLD_ID, settings.SPACE_BRUTALIST_DUSK_WORLD_ID,
-                         settings.SPACE_MIXED_WORLD_ID):
-            if world_id not in requested:
-                requested.append(world_id)
+        requested = [world.id for world in configured_worlds()]
+    elif settings.ENVIRONMENT.lower() in {"dev", "development", "test", "testing"}:
+        for world in configured_worlds():
+            if world.id not in requested:
+                requested.append(world.id)
     return requested
 
 

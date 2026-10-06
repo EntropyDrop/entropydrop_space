@@ -507,7 +507,7 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 
 > Every entity executes in its selected world. All ctx.world voxel reads, writes, entity queries, raycasts, players and messages stay in that world; equal coordinates in Nature and Copper Metropolis identify different terrain.
 
-> External agents select worlds through spaceAPI: GET /space/api/v2/worlds, resolve nature (default alias) or copper-metropolis to the returned UUID, and use that UUID for construction and configuration. Entity programs have no HTTP credentials or network access and cannot switch runtime worlds.
+> External agents select worlds through spaceAPI: GET /space/api/v2/worlds, resolve aether-archipelago (default alias), nature or copper-metropolis to the returned UUID, and use that UUID for construction and configuration. Entity programs have no HTTP credentials or network access and cannot switch runtime worlds.
 
 > World writes never overwrite occupied cells or implicitly convert between standard and micro voxels. X/Z wrap automatically.
 

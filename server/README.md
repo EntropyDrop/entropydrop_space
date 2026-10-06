@@ -94,12 +94,15 @@ surface snapshots still cover the world, including when flying above the tube.
 
 Agent connection discovery is public at `GET /space/api/v2/agent/authorization`.
 Authenticated world discovery is `GET /space/api/v2/worlds`. The default world is
-Nature (`nature`, legacy alias `default`). Copper Metropolis (`copper-metropolis`)
-is also published in production; other named terrain-lab worlds remain development-only.
+Aether Archipelago (`aether-archipelago`, alias `default`). Nature (`nature`) and
+Copper Metropolis (`copper-metropolis`) are also published in production;
+other named terrain-lab worlds remain development-only.
 Resolve through `GET /worlds/{slug_or_uuid}` and explicitly
 join with `POST /worlds/{slug_or_uuid}/join` when needed. Joining requires no online
 browser and does not create a position checkpoint. Position queries accept
-`?world={slug_or_uuid}`; omitting it continues to select Nature. Operational paths
+`?world={slug_or_uuid}`; omitting it selects Aether. `SPACE_DEFAULT_WORLD_SLUG`
+controls default selection; the legacy `SPACE_DEFAULT_WORLD_ID` remains Nature's
+persistent UUID. Operational paths
 use the resolved UUID. The public [world guide](space/agent/worlds.md) describes
 membership, environment availability, world isolation and retry behavior.
 Set `SPACE_ACCOUNT_PUBLIC_API_URL` if the agent-reachable account origin differs

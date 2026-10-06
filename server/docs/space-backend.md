@@ -4,9 +4,11 @@
 
 spaceAPI handles Agent/client HTTP requests; entityAPI is called by entity component code (`self` / `ctx`) inside the runtime.
 
-World selection uses the shared `space/worlds.py` registry. Nature (`nature`,
-legacy alias `default`) retains `SPACE_DEFAULT_WORLD_ID`; development/test worlds
-are exposed only in those environments. Authenticated `GET /worlds` and
+World selection uses the shared `space/worlds.py` registry. Nature (`nature`)
+retains the legacy `SPACE_DEFAULT_WORLD_ID`. `SPACE_DEFAULT_WORLD_SLUG` selects
+Aether Archipelago (`aether-archipelago`, alias `default`) by default. Nature,
+Copper and Aether are published in production; the remaining terrain-lab worlds
+are development/test only. Authenticated `GET /worlds` and
 `GET /worlds/{selector}` discover worlds without writes. `POST /worlds/{selector}/join`
 idempotently establishes membership without a player checkpoint or live admission.
 Every operation and retry uses the returned UUID. Bootstrap exposes `slug` and

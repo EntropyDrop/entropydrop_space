@@ -52,10 +52,13 @@ Read-only re-verification is available without republishing:
 ```
 
 The DS server deployment runs `space.release_check` after migrations and before
-replacing API/worker containers. It requires the migration head, available Nature
-and Copper configurations, and valid byte lengths, SHA-256 hashes and decoding for
+replacing API/worker containers. It requires the migration head, available Nature,
+Copper and Aether configurations, and valid byte lengths, SHA-256 hashes and decoding for
 every stored entity definition and snapshot. The PostgreSQL transaction is read-only;
-worlds are not provisioned by this check. Failure leaves the existing containers
+worlds are not provisioned by this check. After validation, the deployment
+provisions any missing published worlds
+before starting the worker, which discovers its world coordinators at startup.
+Existing world identities, seeds and edits are preserved. Failure leaves old containers
 in place unless `--quiesce` intentionally stopped writers for a breaking migration.
 It does not automatically restore a database over live writes.
 
@@ -73,7 +76,7 @@ back mutable application data as part of a static rollback.
 
 These gates verify public delivery and persisted data, not an authenticated browser
 session. Releases that change login, world entry or entity loading also need a real
-browser check of both published worlds; API readiness and HTML hashes do not prove
+browser check of all three published worlds; API readiness and HTML hashes do not prove
 that login or in-game interactions work.
 
 Offline regression checks:

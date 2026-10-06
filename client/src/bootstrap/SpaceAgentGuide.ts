@@ -1,6 +1,6 @@
 export function spaceAgentConnection(apiOrigin: string, worldSelector?: string | null) {
   const origin = new URL(apiOrigin).origin;
-  const world = worldSelector?.trim() || 'nature';
+  const world = worldSelector?.trim() || 'default';
   return {
     origin,
     worldSelector: world,

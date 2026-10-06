@@ -36,8 +36,8 @@ Development also provisions the Copper Metropolis world, generated from the
 terrain-lab algorithm with terrain generator version 2. Enter it at
 `/space/app/?world=copper-metropolis` in the integrated local frontend, or at
 `https://space-dev-908123.entropydrop.com/?world=copper-metropolis` on the
-private development domain. The default natural world is named **Nature**:
-`?world=nature` selects it, and `default` or an omitted selector remain compatible.
+private development domain. The natural world is named **Nature**:
+`?world=nature` selects its original persistent world.
 Copper is also available in production at
 `https://space.entropydrop.com/?world=copper-metropolis`; its data is isolated
 from the development deployment and from Nature.
@@ -47,19 +47,21 @@ station halls, courtyard complexes, terraced megastructures and sky gates give t
 city a varied distant silhouette. Seeded parks include paths, trees and reflecting pools.
 
 Agents discover available worlds through authenticated `GET /space/api/v2/worlds`,
-resolve `nature` or `copper-metropolis` to a backend-specific UUID, and join with
+resolve `aether-archipelago`, `nature` or `copper-metropolis` to a backend-specific UUID, and join with
 `POST /space/api/v2/worlds/{world}/join`. All entity, terrain and configuration
 operations retain that UUID. Entity code reads its current world through
 `ctx.world.getInfo()`, and the client copies the current world into its Agent Prompt.
 See [the world-selection guide](server/space/agent/worlds.md).
 
-Development also provisions Aether Archipelago (seed 42, generator version 3),
+Aether Archipelago is the default world (seed 42, generator version 3),
 ported from terrain lab with floating islands, castles, bridges, crystals and
 waterfalls. Solid terrain and buildings use 1 m blocks; ornaments use 0.125 m
 micro blocks, including emissive details. The spawn is aligned with a major island.
 Enter at `/space/app/?world=aether-archipelago` locally or
 `https://space-dev-908123.entropydrop.com/?world=aether-archipelago` on the
-private development domain. This world is unavailable in production.
+private development domain. Production is available at
+`https://space.entropydrop.com/?world=aether-archipelago`; `default` and an omitted
+selector enter Aether. Nature and Copper retain their existing identities and data.
 
 ## Contracts
 

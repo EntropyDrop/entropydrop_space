@@ -8,17 +8,17 @@ test('agent connection uses the Space origin independently of account authentica
   const client = new SpaceApiKeyClient('https://accounts.example.test', 'private-login-token', fetch, 'https://space.example.test/');
   assert.deepEqual(client.getAgentConnection(), {
     origin: 'https://space.example.test',
-    worldSelector: 'nature',
+    worldSelector: 'default',
     worldsUrl: 'https://space.example.test/space/api/v2/worlds',
     skillUrl: 'https://space.example.test/space/agent/SKILL.md',
     spaceApiUrl: 'https://space.example.test/space/agent/spaceAPI.md',
     entityApiUrl: 'https://space.example.test/space/agent/entityAPI.md',
-    positionUrl: 'https://space.example.test/space/api/v2/players/me/position?world=nature',
+    positionUrl: 'https://space.example.test/space/api/v2/players/me/position?world=default',
   });
 });
 
 test('agent handoff retains the selected world for positions, writes and retries', () => {
-  for (const world of ['nature', 'copper-metropolis', '00000000-0000-4000-8000-000000000003']) {
+  for (const world of ['aether-archipelago', 'nature', 'copper-metropolis', '00000000-0000-4000-8000-000000000003']) {
     const client = new SpaceApiKeyClient('https://accounts.example.test', 'private-login-token', fetch, 'https://space.example.test');
     const connection = client.getAgentConnection(world);
     assert.equal(connection.worldSelector, world);

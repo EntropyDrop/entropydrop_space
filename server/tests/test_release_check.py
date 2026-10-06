@@ -37,13 +37,13 @@ def entity(db):
 
 
 def check(db):
-    return release_check.check_data(db, ['nature', 'copper-metropolis'])
+    return release_check.check_data(db, ['nature', 'copper-metropolis', 'aether-archipelago'])
 
 
 def test_checks_existing_entities_without_writing_or_provisioning_worlds(db, entity):
     row, _ = entity
     before = (row.definition, row.snapshot, row.revision, row.updated_at)
-    assert check(db) == {'worlds_verified': ['nature', 'copper-metropolis'], 'entity_downloads_verified': 1}
+    assert check(db) == {'worlds_verified': ['nature', 'copper-metropolis', 'aether-archipelago'], 'entity_downloads_verified': 1}
     assert db.query(models.SpaceWorld).count() == 1
     assert not db.dirty and not db.new and not db.deleted
     assert (row.definition, row.snapshot, row.revision, row.updated_at) == before
@@ -90,6 +90,13 @@ def test_unpublished_copper_blocks_release_before_bootstrap_can_fail(db, monkeyp
     specs = release_check.configured_worlds()
     monkeypatch.setattr(release_check, 'configured_worlds', lambda: specs[:1])
     with pytest.raises(RuntimeError, match='unavailable: copper-metropolis'):
+        check(db)
+
+
+def test_unpublished_aether_blocks_release(db, monkeypatch):
+    specs = tuple(spec for spec in release_check.configured_worlds() if spec.slug != 'aether-archipelago')
+    monkeypatch.setattr(release_check, 'configured_worlds', lambda: specs)
+    with pytest.raises(RuntimeError, match='unavailable: aether-archipelago'):
         check(db)
 
 

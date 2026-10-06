@@ -11,8 +11,8 @@ Use the designated backend origin and an authorized `edapi_…` API key. A hando
 ## Select a world
 
 Read [world names, discovery, joining and runtime scope](worlds.md). The default
-natural world is **Nature** (`nature`, compatibility alias `default`); the city
-world is **Copper Metropolis** (`copper-metropolis`).
+world is **Aether Archipelago** (`aether-archipelago`, alias `default`).
+**Nature** (`nature`) and **Copper Metropolis** (`copper-metropolis`) are also published.
 
 | Request | Purpose |
 | --- | --- |
@@ -44,7 +44,8 @@ curl --fail-with-body "$SPACE_BASE_URL/space/api/v2/players/me/position" \
   -H "Authorization: Bearer $SPACE_API_KEY"
 ```
 
-With no `world` query this reads the key owner's latest saved position in Nature.
+With no `world` query this reads the key owner's latest saved position in the
+configured default world, Aether Archipelago.
 For a selected world, pass `?world=copper-metropolis` or use
 `GET /space/api/v2/worlds/{world_id}/players/me/position`. The response identifies
 the world using `world_id`, `world_slug` and `world_name`; verify the ID before

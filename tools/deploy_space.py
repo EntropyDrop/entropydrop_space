@@ -394,12 +394,23 @@ def remote_deploy(environment, branch="main", quiesce=False):
                 "--security-opt", "no-new-privileges:true", "--env-file", config / "app.env",
                 image, "python", "-m", "space.release_check",
                 "--require-world", "nature", "--require-world", "copper-metropolis",
+                "--require-world", "aether-archipelago",
             ], capture_output=True, text=True)
             checks = json.loads(result.stdout)
-            if (checks.get("worlds_verified") != ["nature", "copper-metropolis"]
+            if (checks.get("worlds_verified") != ["nature", "copper-metropolis", "aether-archipelago"]
                     or not isinstance(checks.get("entity_downloads_verified"), int)):
                 raise RuntimeError("World/entity release check returned an invalid report")
             state["data_checks"] = checks
+            if environment == "prod":
+                # The worker discovers worlds at startup. Provision published
+                # identities after validation so a new world has a coordinator.
+                phase("provision published worlds")
+                run(["docker", "run", "--rm", "--network", "host", "--env-file", config / "app.env", image,
+                     "python", "-c", "from space.database import SessionLocal; "
+                     "from routers.space import _get_or_create_bootstrap_world; "
+                     "db = SessionLocal(); "
+                     "[_get_or_create_bootstrap_world(db, slug) for slug in "
+                     "('nature', 'copper-metropolis', 'aether-archipelago')]; db.close()"])
             phase("replace API and worker")
             # Retained containers must not restart next to the new worker after a DS reboot.
             for role in ("worker", "api"):

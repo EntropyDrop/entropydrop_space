@@ -40,6 +40,15 @@ def test_development_worker_always_hosts_development_worlds(monkeypatch):
     ]
 
 
+def test_production_worker_hosts_all_published_worlds_by_default(monkeypatch):
+    monkeypatch.setattr(settings, 'ENVIRONMENT', 'production')
+    monkeypatch.delenv('SPACE_HOSTING_WORLD_IDS', raising=False)
+    assert requested_world_ids() == [settings.SPACE_DEFAULT_WORLD_ID,
+        settings.SPACE_COPPER_METROPOLIS_WORLD_ID, settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID]
+    monkeypatch.setenv('SPACE_HOSTING_WORLD_IDS', settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID)
+    assert requested_world_ids() == [settings.SPACE_AETHER_ARCHIPELAGO_WORLD_ID]
+
+
 def setup(client, db, monkeypatch, cpu_ids=(2, 4)):
     actor = _user(db, 'hosting-core-user')
     actor.credits = 10

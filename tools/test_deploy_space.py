@@ -259,7 +259,7 @@ class RemoteRolloutTests(SpaceTestCase):
                 output = "\n".join(f"{prefix}-{role}" for prefix in ("entropydrop-space", "entropydrop-space-dev")
                                    for role in ("api", "worker"))
             elif "space.release_check" in args:
-                output = json.dumps({"worlds_verified": ["nature", "copper-metropolis"], "entity_downloads_verified": 24})
+                output = json.dumps({"worlds_verified": ["nature", "copper-metropolis", "aether-archipelago"], "entity_downloads_verified": 24})
             return subprocess.CompletedProcess(args, 0, stdout=output)
         self.mock("run", side_effect=shell)
 
@@ -272,11 +272,13 @@ class RemoteRolloutTests(SpaceTestCase):
         backup = self.index(lambda c: any(arg.endswith("backup-production.sh") for arg in c))
         migrate = self.index(lambda c: "alembic" in c)
         data_check = self.index(lambda c: "space.release_check" in c)
+        provision = self.index(lambda c: any("('nature', 'copper-metropolis', 'aether-archipelago')" in arg for arg in c))
         stop = self.index(lambda c: c[:2] == ["docker", "stop"])
         self.assertLess(smoke, backup)
         self.assertLess(backup, migrate)
         self.assertLess(migrate, data_check)
-        self.assertLess(data_check, stop)
+        self.assertLess(data_check, provision)
+        self.assertLess(provision, stop)
         self.assertFalse(any(c[:2] == ["docker", "rm"] for c in self.commands))
         self.assertTrue(all("space/alembic.ini" in c for c in self.commands if "alembic" in c))
         self.wait.assert_called_once_with("prod", "sha256:new")

@@ -8,8 +8,8 @@ description: Use spaceAPI to discover and select EntropyDrop worlds such as Natu
 [spaceAPI](spaceAPI.md) · [entityAPI](entityAPI.md) · [entity messaging](entityMessaging.md)
 
 Read [world selection and runtime scope](worlds.md) before querying positions or
-building. Nature (`nature`, compatibility alias `default`) is the default world;
-Copper Metropolis uses `copper-metropolis`. Resolve names on the designated
+building. Aether Archipelago (`aether-archipelago`, alias `default`) is the default world;
+Nature uses `nature` and Copper Metropolis uses `copper-metropolis`. Resolve names on the designated
 backend; do not assume world UUIDs match across environments.
 
 - **spaceAPI** is the HTTP interface used by agents and clients. Read the [spaceAPI guide](spaceAPI.md) before sending requests; it covers authorization, coordinates, freshness, creation, code/default edits, start/stop, quotas, and error handling.
@@ -34,7 +34,7 @@ If browser authorization is unavailable, explain the failure; use manual key set
 - **World entities**: Authorship does not restrict operations. All world members may edit stopped/unoccupied entities; only the occupying browser endpoint may stop or modify a live entity. Market publisher permissions remain separate.
 
 ## Agent Workflow
-1. **API Key, World & Position**: Complete browser authorization or reuse the existing authorized spaceAPI key. Read `GET /space/api/v2/worlds` and select the world named by the user or supplied in the copied Agent Prompt. Resolve its slug/UUID with `GET /space/api/v2/worlds/{world}` and retain the returned UUID. If no world is specified, use Nature and state that choice. Join the requested named world with `POST /space/api/v2/worlds/{world}/join` when `joined` is false. Then query `GET /space/api/v2/worlds/{world_id}/players/me/position` for that same UUID. A stale position is still usable for nearby building. If no position is available, use explicit coordinates for this world or ask for placement; a browser visit is not required. Never use another world's position or silently fall back to Nature when the target is unavailable.
+1. **API Key, World & Position**: Complete browser authorization or reuse the existing authorized spaceAPI key. Read `GET /space/api/v2/worlds` and select the world named by the user or supplied in the copied Agent Prompt. Resolve its slug/UUID with `GET /space/api/v2/worlds/{world}` and retain the returned UUID. If no world is specified, use the catalog default_world_id (Aether Archipelago) and state that choice. Join the requested named world with `POST /space/api/v2/worlds/{world}/join` when `joined` is false. Then query `GET /space/api/v2/worlds/{world_id}/players/me/position` for that same UUID. A stale position is still usable for nearby building. If no position is available, use explicit coordinates for this world or ask for placement; a browser visit is not required. Never use another world's position or silently fall back to Nature when the target is unavailable.
 2. **Plan the World Effects Autonomously**: Infer each part's static terrain or independent Entity behavior from the player's request. Users handle one Item concept in the backpack and Market; do not ask them to choose internal `entity`/`blockset` resource kinds unless their requirements contradict one another.
    - Use a **blockset** for static construction that should become part of the world's terrain, such as buildings, walls, roads, landscaping, and non-interactive decoration. A stamped blockset does not move or run scripts and has no independent start/stop lifecycle.
    - Use an **entity** when the creation must remain a distinct object, move or use physics, run code, contain independently moving components, expose seats or controls, sense its surroundings, communicate, or be started/stopped as a unit. A visually static prop is still an entity when the player requires this independent behavior or lifecycle.

@@ -15,11 +15,12 @@ class WorldSpec:
 
 
 def configured_worlds(*, include_unavailable=False) -> tuple[WorldSpec, ...]:
-    default = WorldSpec("nature", settings.SPACE_DEFAULT_WORLD_ID, "Nature",
-                        settings.SPACE_WORLD_SEED, 1, True)
-    worlds = (default, *(
+    nature = WorldSpec("nature", settings.SPACE_DEFAULT_WORLD_ID, "Nature",
+                       settings.SPACE_WORLD_SEED, 1, settings.SPACE_DEFAULT_WORLD_SLUG == "nature")
+    worlds = (nature, *(
         WorldSpec(slug, getattr(settings, f"SPACE_{key}_WORLD_ID"), name,
-                  getattr(settings, f"SPACE_{key}_WORLD_SEED"), version)
+                  getattr(settings, f"SPACE_{key}_WORLD_SEED"), version,
+                  settings.SPACE_DEFAULT_WORLD_SLUG == slug)
         for slug, key, name, version in (
             ("copper-metropolis", "COPPER_METROPOLIS", "Copper Metropolis", 2),
             ("aether-archipelago", "AETHER_ARCHIPELAGO", "Aether Archipelago", 3),
@@ -31,16 +32,21 @@ def configured_worlds(*, include_unavailable=False) -> tuple[WorldSpec, ...]:
         )
     ))
     if not include_unavailable and settings.ENVIRONMENT.lower() not in {"dev", "development", "test", "testing"}:
-        # The public landing page offers Nature and Copper. Keep experimental
-        # terrain-lab worlds restricted without rejecting the published Copper entry.
-        return tuple(world for world in worlds if world.slug in {"nature", "copper-metropolis"})
+        worlds = tuple(world for world in worlds if world.slug in {
+            "nature", "copper-metropolis", "aether-archipelago"})
+    if sum(world.is_default for world in worlds) != 1:
+        raise RuntimeError("SPACE_DEFAULT_WORLD_SLUG must select an available world")
     return worlds
 
 
+def default_world_spec() -> WorldSpec:
+    return next(world for world in configured_worlds() if world.is_default)
+
+
 def find_world_spec(selector: str | None, *, include_unavailable=False) -> WorldSpec | None:
-    requested = (selector or "nature").strip().lower()
+    requested = (selector or "").strip().lower()
     if requested in {"", "default"}:
-        requested = "nature"
+        requested = settings.SPACE_DEFAULT_WORLD_SLUG
     return next((world for world in configured_worlds(include_unavailable=include_unavailable)
                  if requested in {world.slug, world.id.lower()}), None)
 

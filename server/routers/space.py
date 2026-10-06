@@ -637,13 +637,7 @@ def _get_or_create_world(
 
 
 def _get_or_create_default_world(db: Session) -> models.SpaceWorld:
-    return _get_or_create_world(
-        db,
-        world_id=settings.SPACE_DEFAULT_WORLD_ID,
-        name="Nature",
-        seed=settings.SPACE_WORLD_SEED,
-        terrain_generator_version=1,
-    )
+    return _get_or_create_bootstrap_world(db, None)
 
 
 def _get_or_create_bootstrap_world(db: Session, requested_world: str | None) -> models.SpaceWorld:
@@ -754,8 +748,9 @@ def get_space_public_status(
 ):
     """Expose only aggregate recent presence for the public Space landing page."""
     now = datetime.datetime.now(datetime.timezone.utc)
+    default_world_id = find_world_spec(None).id
     world = db.query(models.SpaceWorld).filter(
-        models.SpaceWorld.id == settings.SPACE_DEFAULT_WORLD_ID,
+        models.SpaceWorld.id == default_world_id,
     ).first()
     max_online_players = max(1, min(32, int(world.max_online_players))) if world else 32
     online_players = 0
@@ -768,7 +763,7 @@ def get_space_public_status(
         online_players = min(max_online_players, online_players)
     response.headers["Cache-Control"] = "public, max-age=5, stale-while-revalidate=10"
     return {
-        "world_id": str(world.id) if world is not None else settings.SPACE_DEFAULT_WORLD_ID,
+        "world_id": str(world.id) if world is not None else default_world_id,
         "online_players": online_players,
         "max_online_players": max_online_players,
         "presence_window_seconds": SPACE_ONLINE_PRESENCE_SECONDS,

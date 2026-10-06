@@ -27,7 +27,7 @@ The preferred transport sends the canonical resource as raw bytes inside the
 accepted, so either form stores identical content and shares one content digest.
 
 The following example prepares **one stopped orange cube** six metres east of the
-player's saved position in the selected world. Set `SPACE_WORLD` to `nature`,
+player's saved position in the selected world. Set `SPACE_WORLD` to `aether-archipelago`, `nature`,
 `copper-metropolis`, or a UUID resolved from the [world catalog](../worlds.md).
 Resolve and join that world before reading its position. The player may be offline;
 a stale checkpoint remains usable. If this world has no saved position, use
@@ -41,7 +41,7 @@ import inventory_pb2 as pb
 
 base = os.environ['SPACE_BASE_URL'].rstrip('/')
 key = os.environ['SPACE_API_KEY']
-selector = os.environ.get('SPACE_WORLD', 'nature')
+selector = os.environ.get('SPACE_WORLD', 'default')
 request_path = pathlib.Path('entity-request.json')
 if not request_path.exists():
     world_url = base + '/space/api/v2/worlds/' + urllib.parse.quote(selector, safe='')
