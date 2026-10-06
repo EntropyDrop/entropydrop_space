@@ -6523,6 +6523,7 @@ button.palette-title:hover {
 .settings-agent-guide details { margin: 12px 0; }
 .settings-agent-guide summary { cursor: pointer; }
 .settings-agent-guide pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.settings-agent-links { display: flex; flex-wrap: wrap; gap: 12px; }
 
 .settings-api-keys,
 .settings-api-list {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { spaceAgentConnection, spaceAgentPrompt } from '../../../bootstrap/SpaceAgentGuide.ts';
+import { spaceAgentConnection, spaceAgentOnboarding, spaceAgentPrompt } from '../../../bootstrap/SpaceAgentGuide.ts';
 import { resolveApiOrigin } from '../../../bootstrap/SpaceBootstrap.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi } from '../store/useSpaceUi.ts';
@@ -14,34 +14,34 @@ export function SpaceAgentInstructions() {
     worldSelector,
   );
   const prompt = spaceAgentPrompt(connection.origin, connection.worldSelector);
+  const text = spaceAgentOnboarding;
   const [message, setMessage] = React.useState('');
   return <section className="settings-agent-guide" aria-labelledby="settings-agent-guide-title">
-    <div className="settings-section-title" id="settings-agent-guide-title">Build nearby with an external agent</div>
-    <p>Copy the prompt below to your agent (e.g. Claude, Cursor). Open the link it provides, check the matching code, and approve the connection. Your agent receives a key automatically and can start building.</p>
-    <p>Agents send HTTP requests through spaceAPI. Entity code calls entityAPI (self / ctx) inside the runtime. Both public documents link to each other.</p>
-    <dl>
-      <div><dt>Backend URL</dt><dd><code>{connection.origin}</code></dd></div>
-      <div><dt>Target world</dt><dd>{worldName || connection.worldSelector}</dd></div>
-      <div><dt>spaceAPI · Agent HTTP requests</dt><dd><a href={connection.spaceApiUrl} target="_blank" rel="noopener noreferrer">{connection.spaceApiUrl}</a></dd></div>
-      <div><dt>entityAPI · Entity code</dt><dd><a href={connection.entityApiUrl} target="_blank" rel="noopener noreferrer">{connection.entityApiUrl}</a></dd></div>
-      <div><dt>Agent Skill</dt><dd><a href={connection.skillUrl} target="_blank" rel="noopener noreferrer">{connection.skillUrl}</a></dd></div>
-      <div><dt>Own position · key required</dt><dd><code>GET /space/api/v2/players/me/position?world={connection.worldSelector}</code></dd></div>
-    </dl>
-    <p>The copied prompt targets this world. Agents can discover Aether Archipelago, Nature, Copper Metropolis and other worlds available on this backend, then join the requested world and build there. The guide needs no login; world discovery, position and build requests need a Bearer API key. Positions older than 30 seconds are marked stale. All API keys, including existing keys, have full Space permissions to create, edit, start/stop entities and build blocksets. No permission selection is needed. Stop before editing and keep your browser online for execution. A localhost address works only for an agent on the same machine.</p>
-    <details>
-      <summary>View an example prompt for your agent</summary>
-      <pre>{prompt}</pre>
-    </details>
-    <button className="small-btn" onClick={() => {
+    <div className="settings-section-title" id="settings-agent-guide-title">{text.title}</div>
+    <p>{text.description}</p>
+    <ol className="agent-build-steps">{text.steps.map(step => <li key={step}>{step}</li>)}</ol>
+    <p>{text.targetWorld}: <strong>{worldName || connection.worldSelector}</strong></p>
+    <button type="button" className="small-btn" onClick={() => {
       if (!navigator.clipboard?.writeText) {
-        setMessage('Expand the example and copy it manually.');
+        setMessage(text.copyFailed);
         return;
       }
       void navigator.clipboard.writeText(prompt).then(
-        () => setMessage('Copied. Send directly to your agent.'),
-        () => setMessage('Copy failed. Expand the example and copy it manually.'),
+        () => setMessage(text.copied),
+        () => setMessage(text.copyFailed),
       );
-    }}>Copy Agent Prompt</button>
+    }}>{text.copy}</button>
     {message ? <p role="status">{message}</p> : null}
+    <p className="settings-desc">{text.note}</p>
+    <details>
+      <summary>{text.example}</summary>
+      <pre>{prompt}</pre>
+      <p>{text.backend}: <code>{connection.origin}</code></p>
+      <div className="settings-agent-links">
+        <a href={connection.spaceApiUrl} target="_blank" rel="noopener noreferrer">{text.guide}</a>
+        <a href={connection.entityApiUrl} target="_blank" rel="noopener noreferrer">{text.entityGuide}</a>
+        <a href={connection.skillUrl} target="_blank" rel="noopener noreferrer">Agent Skill</a>
+      </div>
+    </details>
   </section>;
 }

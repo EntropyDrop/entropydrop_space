@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { logConsoleSecurityWarning } from '../src/bootstrap/ConsoleSecurityWarning.ts';
+import { spaceAgentOnboarding } from '../src/bootstrap/SpaceAgentGuide.ts';
 
 test('console security warning cautions against pasted code and browser-storage API-key theft', () => {
   const calls: unknown[][] = [];
@@ -33,9 +34,9 @@ test('app startup logs the console warning and entity assistant settings retain 
 
 test('Agent Build distinguishes full-access Space credentials from model API keys', () => {
   const source = readFileSync(new URL('../src/ui/react/components/AgentBuildModal.tsx', import.meta.url), 'utf8');
-  assert.match(source, /A spaceAPI key grants full Space access/);
-  assert.match(source, /agent you trust/);
-  assert.match(source, /revoke it here/);
-  assert.match(source, /This is not a model API key/);
+  assert.match(spaceAgentOnboarding.note, /full Space access/);
+  assert.match(spaceAgentOnboarding.note, /agents you trust/);
+  assert.match(spaceAgentOnboarding.note, /revoke access in API Keys/);
+  assert.match(spaceAgentOnboarding.note, /No model API key is needed/);
   assert.doesNotMatch(source, /rememberApiKey|localStorage|sessionStorage|saveAgentSettings/);
 });
