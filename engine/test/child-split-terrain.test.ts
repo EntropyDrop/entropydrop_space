@@ -27,9 +27,9 @@ const FLOOR_TOP = 5; // solid terrain for y <= 4
 
 function makeFloorWorld() {
   return {
-    getBlock: (x, y, z) => (y <= 4 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR),
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    getBlock: (x: number, y: number, z: number) => (y <= 4 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR),
+    raycast: () => ({ hit: false as const, distance: 0 }),
+    raycastMicro: () => ({ hit: false as const, distance: 0 }),
     microVoxels: { get: () => null }
   };
 }
@@ -42,7 +42,7 @@ function makeCubeBlocks() {
   return blocks;
 }
 
-function stepEntity(contraption, physics, dt, frames) {
+function stepEntity(contraption: import('../src/contraption/Contraption.ts').Contraption, physics: import('../src/physics/ContraptionPhysics.ts').ContraptionPhysics, dt: number, frames: number) {
   for (let i = 0; i < frames; i++) {
     const ctx = {
       entityId: contraption.id,

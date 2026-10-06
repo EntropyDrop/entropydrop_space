@@ -95,8 +95,8 @@ test('Hammer entity installation merges a reusable subtree and keeps the target 
   assert.equal(target.scriptStatus, 'stopped', 'installing scripts cannot start a stopped target');
   assert.equal(target.isNodeScriptEnabled('root_2'), false);
 
-  const installedRootBlock = target.blocks.find(item => item.entityId === 'root_2');
-  const installedArmBlock = target.blocks.find(item => item.entityId === 'root_2_arm');
+  const installedRootBlock = target.blocks.find((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.entityId === 'root_2');
+  const installedArmBlock = target.blocks.find((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.entityId === 'root_2_arm');
   assert.ok(installedRootBlock);
   assert.ok(installedArmBlock);
   assert.ok(target.getBlockWorldCenter(installedRootBlock).distanceTo(placement.clone().addScalar(0.5)) < 1e-9);
@@ -137,7 +137,7 @@ test('installed modules keep the Hammer world pose on rotated targets and after 
 
   const result = manager.installSlotAsComponent(target, moduleSlot(), 'arm', placement, false);
   assert.equal(result.ok, true);
-  const installedBlock = target.blocks.find(item => item.entityId === result.rootId);
+  const installedBlock = target.blocks.find((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.entityId === result.rootId);
   const before = target.getBlockWorldCenter(installedBlock);
   assert.ok(before.distanceTo(placement.clone().addScalar(0.5)) < 1e-9,
     'the module follows its world-space Hammer ghost instead of inheriting target rotation');
@@ -150,7 +150,7 @@ test('installed modules keep the Hammer world pose on rotated targets and after 
     record,
     false
   ) as any;
-  const restoredBlock = restored.blocks.find(item => item.entityId === result.rootId);
+  const restoredBlock = restored.blocks.find((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.entityId === result.rootId);
 
   assert.ok(restored.getEntityNode(result.rootId));
   assert.equal(restored.getEntityNode(result.rootId).parentId, 'arm');
@@ -178,7 +178,7 @@ test('Hammer forwards Shift/crouch as an explicit install modifier', () => {
   controller.bulkEditJob = null;
   controller.keys = { crouch: false };
   const calls: boolean[] = [];
-  controller.pasteInventorySlot = value => calls.push(value);
+  controller.pasteInventorySlot = (value: boolean) => calls.push(value);
 
   controller.handleLeftClick({ shiftKey: false });
   controller.handleLeftClick({ shiftKey: true });
@@ -212,7 +212,7 @@ test('plain Hammer placement on an entity installs under the hit component autom
   controller.inventories.entity.items[0] = sensorSlot;
   controller.inventories.entity.selected = 0;
   controller.contraptions = manager;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.hoveredContraptionHit = {
     point: new THREE.Vector3(1.5, 0.5, 1),
     worldNormal: new THREE.Vector3(0, 0, 1),
@@ -232,7 +232,7 @@ test('plain Hammer placement on an entity installs under the hit component autom
   assert.equal(manager.contraptions.length, 1, 'entity-on-entity placement must not spawn a second Contraption');
   assert.equal(target.getEntityNode('root_2').parentId, 'arm');
   assert.equal(target.getComponentName('root_2'), 'Sensor');
-  const installedBlock = target.blocks.find(item => item.entityId === 'root_2');
+  const installedBlock = target.blocks.find((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.entityId === 'root_2');
   assert.ok(installedBlock);
   assert.ok(target.getBlockWorldCenter(installedBlock).distanceTo(expectedCenter) < 1e-8,
     'the installed child must use the exact preview position and outward rotation');
@@ -267,7 +267,7 @@ test('entity anchor frame and Hammer roll compose into the installed localRotati
   controller.inventories.entity.selected = 0;
   controller.hammerRotationTurns = 1;
   controller.contraptions = manager;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.hoveredContraptionHit = {
     point: new THREE.Vector3(1.5, 0.5, 1),
     worldNormal: new THREE.Vector3(0, 0, 1),

@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -60,7 +61,7 @@ test('streaming preserves runtime BodyConfig overrides without replacing PB defa
     scripts: [],
     enabled: [],
     constraints: [],
-    bodyType: 'dynamic',
+    bodyType: 'dynamic' as const,
     restitution: 0.2,
     friction: 0.4,
     useGravity: true,
@@ -68,13 +69,13 @@ test('streaming preserves runtime BodyConfig overrides without replacing PB defa
   };
   const managerA = new ContraptionManager(new THREE.Scene(), null, null, null);
   const source = managerA.buildFromSlot(slot, new THREE.Vector3(1, 2, 3), null, false);
-  source.scriptApi.body.setType('kinematic');
-  source.scriptApi.body.setMass(70);
-  source.scriptApi.body.setMaterial({ restitution: 0.8, friction: 0.1 });
-  source.scriptApi.body.setGravityEnabled(false);
-  source.scriptApi.body.setCollisionEnabled(false);
+  requireValue(requireValue(source).scriptApi).body.setType('kinematic');
+  requireValue(requireValue(source).scriptApi).body.setMass(70);
+  requireValue(requireValue(source).scriptApi).body.setMaterial({ restitution: 0.8, friction: 0.1 });
+  requireValue(requireValue(source).scriptApi).body.setGravityEnabled(false);
+  requireValue(requireValue(source).scriptApi).body.setCollisionEnabled(false);
 
-  const record = managerA.captureContraptionForStreaming(source, { id: '0,0' });
+  const record = managerA.captureContraptionForStreaming(requireValue(source), { id: '0,0' });
   const managerB = new ContraptionManager(new THREE.Scene(), null, null, null);
   const restored = managerB.buildFromSlot(
     record.slot,
@@ -83,21 +84,21 @@ test('streaming preserves runtime BodyConfig overrides without replacing PB defa
     false
   );
 
-  assert.equal(restored.getNodeBodyType('root'), 'kinematic');
-  assert.equal(restored.getNodeBodyMass('root'), 70);
-  assert.deepEqual(restored.getNodeBodyMaterial('root'), { restitution: 0.8, friction: 0.1 });
-  assert.equal(restored.getNodeGravityEnabled('root'), false);
-  assert.equal(restored.getNodeCollisionEnabled('root'), false);
-  assert.equal(restored.serializeSubtree('root').bodyType, 'dynamic');
+  assert.equal(requireValue(restored).getNodeBodyType('root'), 'kinematic');
+  assert.equal(requireValue(restored).getNodeBodyMass('root'), 70);
+  assert.deepEqual(requireValue(restored).getNodeBodyMaterial('root'), { restitution: 0.8, friction: 0.1 });
+  assert.equal(requireValue(restored).getNodeGravityEnabled('root'), false);
+  assert.equal(requireValue(restored).getNodeCollisionEnabled('root'), false);
+  assert.equal(requireValue(requireValue(restored).serializeSubtree('root')).bodyType, 'dynamic');
 
-  restored.stopAllNodeScripts();
-  assert.equal(restored.getNodeBodyType('root'), 'dynamic');
-  assert.equal(restored.getNodeBodyMass('root'), 10);
-  assert.deepEqual(restored.getNodeBodyMaterial('root'), { restitution: 0.2, friction: 0.4 });
-  assert.equal(restored.getNodeGravityEnabled('root'), true);
-  assert.equal(restored.getNodeCollisionEnabled('root'), true);
+  requireValue(restored).stopAllNodeScripts();
+  assert.equal(requireValue(restored).getNodeBodyType('root'), 'dynamic');
+  assert.equal(requireValue(restored).getNodeBodyMass('root'), 10);
+  assert.deepEqual(requireValue(restored).getNodeBodyMaterial('root'), { restitution: 0.2, friction: 0.4 });
+  assert.equal(requireValue(restored).getNodeGravityEnabled('root'), true);
+  assert.equal(requireValue(restored).getNodeCollisionEnabled('root'), true);
 
-  const stoppedRecord = managerB.captureContraptionForStreaming(restored, { id: '0,0' });
+  const stoppedRecord = managerB.captureContraptionForStreaming(requireValue(restored), { id: '0,0' });
   assert.equal(stoppedRecord.physicsSimulationEnabled, false);
   const managerC = new ContraptionManager(new THREE.Scene(), null, null, null);
   const stoppedRestored = managerC.buildFromSlot(
@@ -106,9 +107,9 @@ test('streaming preserves runtime BodyConfig overrides without replacing PB defa
     stoppedRecord,
     false
   );
-  assert.equal(stoppedRestored.isPhysicsSimulationEnabled(), false);
-  assert.equal(stoppedRestored.getRigidBody('root').simulationEnabled, false);
-  assert.equal(stoppedRestored.canEditInternalSelection(), true);
+  assert.equal(requireValue(stoppedRestored).isPhysicsSimulationEnabled(), false);
+  assert.equal(requireValue(requireValue(stoppedRestored).getRigidBody('root')).simulationEnabled, false);
+  assert.equal(requireValue(stoppedRestored).canEditInternalSelection(), true);
 });
 
 test('contraption manager saves assembled entity and restores it after simulated reload', () => {
@@ -145,13 +146,13 @@ test('contraption manager saves assembled entity and restores it after simulated
   created.velocity.set(4.5, -2.25, 1.125);
   created.angularVelocity.set(-0.4, 0.8, 0.2);
   const createdBody = created.getRigidBody('root');
-  createdBody.linearDamping = 0.876;
-  createdBody.angularDamping = 0.654;
-  created.linearDamping = createdBody.linearDamping;
-  created.angularDamping = createdBody.angularDamping;
-  createdBody.previousKinematicPosition.set(99, 14, 199);
-  createdBody.previousKinematicQuaternion.setFromEuler(new THREE.Euler(0.1, 0.2, 0.3));
-  createdBody.isOnGround = true;
+  requireValue(createdBody).linearDamping = 0.876;
+  requireValue(createdBody).angularDamping = 0.654;
+  created.linearDamping = requireValue(createdBody).linearDamping;
+  created.angularDamping = requireValue(createdBody).angularDamping;
+  requireValue(createdBody).previousKinematicPosition.set(99, 14, 199);
+  requireValue(createdBody).previousKinematicQuaternion.setFromEuler(new THREE.Euler(0.1, 0.2, 0.3));
+  requireValue(createdBody).isOnGround = true;
   created.isOnGround = true;
   created.groundDistance = 0.125;
 
@@ -194,22 +195,22 @@ test('contraption manager saves assembled entity and restores it after simulated
   assert.equal(restored.groundDistance, 0.125);
 
   const restoredBody = restored.getRigidBody('root');
-  assert.equal(restoredBody.type, createdBody.type);
-  assert.equal(restoredBody.mass, createdBody.mass);
-  assert.equal(restoredBody.inverseInertia, createdBody.inverseInertia);
-  assert.equal(restoredBody.restitution, createdBody.restitution);
-  assert.equal(restoredBody.friction, createdBody.friction);
-  assert.equal(restoredBody.linearDamping, createdBody.linearDamping);
-  assert.equal(restoredBody.angularDamping, createdBody.angularDamping);
-  assert.deepEqual(restoredBody.centerOfMassLocal.toArray(), createdBody.centerOfMassLocal.toArray());
-  assert.deepEqual(restoredBody.previousKinematicPosition.toArray(), createdBody.previousKinematicPosition.toArray());
-  assert.ok(Math.abs(restoredBody.previousKinematicQuaternion.dot(createdBody.previousKinematicQuaternion)) > 1 - 1e-12);
-  assert.equal(restoredBody.isOnGround, true);
+  assert.equal(requireValue(restoredBody).type, requireValue(createdBody).type);
+  assert.equal(requireValue(restoredBody).mass, requireValue(createdBody).mass);
+  assert.equal(requireValue(restoredBody).inverseInertia, requireValue(createdBody).inverseInertia);
+  assert.equal(requireValue(restoredBody).restitution, requireValue(createdBody).restitution);
+  assert.equal(requireValue(restoredBody).friction, requireValue(createdBody).friction);
+  assert.equal(requireValue(restoredBody).linearDamping, requireValue(createdBody).linearDamping);
+  assert.equal(requireValue(restoredBody).angularDamping, requireValue(createdBody).angularDamping);
+  assert.deepEqual(requireValue(restoredBody).centerOfMassLocal.toArray(), requireValue(createdBody).centerOfMassLocal.toArray());
+  assert.deepEqual(requireValue(restoredBody).previousKinematicPosition.toArray(), requireValue(createdBody).previousKinematicPosition.toArray());
+  assert.ok(Math.abs(requireValue(restoredBody).previousKinematicQuaternion.dot(requireValue(createdBody).previousKinematicQuaternion)) > 1 - 1e-12);
+  assert.equal(requireValue(restoredBody).isOnGround, true);
 
   const airWorld = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycast: () => ({ hit: false as const, distance: 0 }),
+    raycastMicro: () => ({ hit: false as const, distance: 0 }),
     microVoxels: { get: () => null }
   };
   new ContraptionPhysics(airWorld as any).update(created, 1 / 60);
@@ -225,7 +226,7 @@ test('a wrench-held autosave restores as a motionless stopped pose', () => {
   const entity = manager.buildFromSlot({
     rootComponentId: 'root',
     mode: ContraptionMode.PROGRAMMABLE,
-    bodyType: 'dynamic',
+    bodyType: 'dynamic' as const,
     blocks: [
       { localX: 0, localY: 0, localZ: 0, size: 1, color: 0xff0000,
         block: BlockTypes.COLOR_BLOCK, entityId: 'root' }
@@ -238,7 +239,7 @@ test('a wrench-held autosave restores as a motionless stopped pose', () => {
   assert.ok(entity);
 
   entity.position.set(7, 18, 9);
-  entity.getRigidBody('root').position.copy(entity.position);
+  requireValue(entity.getRigidBody('root')).position.copy(entity.position);
   entity.updateTransform();
   entity.scriptStatus = 'stopped';
   entity.setPhysicsSimulationEnabled(true);
@@ -246,9 +247,9 @@ test('a wrench-held autosave restores as a motionless stopped pose', () => {
   entity.velocity.set(4, 5, 6);
   entity.angularVelocity.set(1, 2, 3);
   const body = entity.getRigidBody('root');
-  body.velocity.set(-3, 8, 2);
-  body.angularVelocity.set(5, -4, 1);
-  body.previousKinematicPosition.set(-100, -100, -100);
+  requireValue(body).velocity.set(-3, 8, 2);
+  requireValue(body).angularVelocity.set(5, -4, 1);
+  requireValue(body).previousKinematicPosition.set(-100, -100, -100);
 
   const record = manager.captureContraptionForStreaming(entity, { id: '0,0' });
   assert.equal(record.scriptStatus, 'stopped');
@@ -269,7 +270,7 @@ test('a wrench-held autosave restores as a motionless stopped pose', () => {
   assert.ok(restored);
   assert.equal(restored.isPhysicsSimulationEnabled(), false);
   assert.deepEqual(restored.velocity.toArray(), [0, 0, 0]);
-  assert.deepEqual(restored.getRigidBody('root').velocity.toArray(), [0, 0, 0]);
+  assert.deepEqual(requireValue(restored.getRigidBody('root')).velocity.toArray(), [0, 0, 0]);
   assert.deepEqual(restored.previousPosition.toArray(), restored.position.toArray());
 
   for (const alpha of [0, 0.25, 0.75, 1]) {
@@ -288,7 +289,7 @@ test('refresh preserves the root pivot after live block edits change the bounds'
   const entity = manager.buildFromSlot({
     rootComponentId: 'root',
     mode: ContraptionMode.PROGRAMMABLE,
-    bodyType: 'kinematic',
+    bodyType: 'kinematic' as const,
     blocks: [
       { localX: 0, localY: 0, localZ: 0, size: 1, color: 0xff0000, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }
     ],
@@ -299,7 +300,7 @@ test('refresh preserves the root pivot after live block edits change the bounds'
   }, new THREE.Vector3(20, 5, 20), null, false);
   assert.ok(entity);
 
-  const originalPivot = entity.scriptApi.getPivot();
+  const originalPivot = requireValue(entity.scriptApi).getPivot();
   entity.blocks.push({
     localX: 3,
     localY: 0,
@@ -311,8 +312,8 @@ test('refresh preserves the root pivot after live block edits change the bounds'
   });
   entity.rebuildAfterBlockChange('place', 'root');
 
-  assert.deepEqual(entity.scriptApi.getBounds().center, [2, 0.5, 0.5]);
-  assert.deepEqual(entity.scriptApi.getPivot(), originalPivot, 'live edits keep the original pivot');
+  assert.deepEqual(requireValue(requireValue(entity.scriptApi).getBounds()).center, [2, 0.5, 0.5]);
+  assert.deepEqual(requireValue(entity.scriptApi).getPivot(), originalPivot, 'live edits keep the original pivot');
   const blockWorldBefore = entity.getBlockWorldCenter(entity.blocks[0]);
 
   assert.equal(manager.saveEntitiesToStorage(storage as any), true);
@@ -324,7 +325,7 @@ test('refresh preserves the root pivot after live block edits change the bounds'
   assert.equal(reloaded.loadEntitiesFromStorage(storage as any), 1);
   const restored = reloaded.contraptions[0];
 
-  assert.deepEqual(restored.scriptApi.getPivot(), originalPivot);
+  assert.deepEqual(requireValue(restored.scriptApi).getPivot(), originalPivot);
   assert.deepEqual(restored.localCenter.toArray(), originalPivot);
   assert.ok(
     restored.getBlockWorldCenter(restored.blocks[0]).distanceTo(blockWorldBefore) < 1e-12,
@@ -340,7 +341,7 @@ test('refresh applies an explicit root pivot before rebuilding the hierarchy', (
   const entity = manager.buildFromSlot({
     rootComponentId: 'root',
     mode: ContraptionMode.PROGRAMMABLE,
-    bodyType: 'kinematic',
+    bodyType: 'kinematic' as const,
     blocks: [
       { localX: 0, localY: 0, localZ: 0, size: 1, color: 0xff0000, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }
     ],
@@ -351,7 +352,7 @@ test('refresh applies an explicit root pivot before rebuilding the hierarchy', (
   }, new THREE.Vector3(30, 5, 30), null, false);
   assert.ok(entity);
 
-  entity.scriptApi.setPivot([2, 0.5, 0.5]);
+  requireValue(entity.scriptApi).setPivot([2, 0.5, 0.5]);
   const blockWorldBefore = entity.getBlockWorldCenter(entity.blocks[0]);
   assert.equal(manager.saveEntitiesToStorage(storage as any), true);
 
@@ -360,7 +361,7 @@ test('refresh applies an explicit root pivot before rebuilding the hierarchy', (
   assert.equal(reloaded.loadEntitiesFromStorage(storage as any), 1);
   const restored = reloaded.contraptions[0];
 
-  assert.deepEqual(restored.scriptApi.getPivot(), [2, 0.5, 0.5]);
+  assert.deepEqual(requireValue(restored.scriptApi).getPivot(), [2, 0.5, 0.5]);
   assert.ok(
     restored.getBlockWorldCenter(restored.blocks[0]).distanceTo(blockWorldBefore) < 1e-12,
     'reload keeps blocks fixed around an explicit pivot'
@@ -375,7 +376,7 @@ test('refresh persistence restores dynamic child body parameters and motion', ()
   const entity = manager.buildFromSlot({
     rootComponentId: 'root',
     mode: ContraptionMode.PROGRAMMABLE,
-    bodyType: 'kinematic',
+    bodyType: 'kinematic' as const,
     blocks: [
       { localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, entityId: 'root' },
       { localX: 2, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, entityId: 'arm' }
@@ -383,10 +384,9 @@ test('refresh persistence restores dynamic child body parameters and motion', ()
     childEntities: [{
       id: 'arm',
       parentId: 'root',
-      kind: 'child',
       pivot: [2.5, 0.5, 0.5],
       blockKeys: [['2', '0', '0']],
-      bodyType: 'dynamic'
+      bodyType: 'dynamic' as const
     }],
     scripts: [],
     enabled: [],
@@ -397,12 +397,12 @@ test('refresh persistence restores dynamic child body parameters and motion', ()
   entity.setNodeBodyMass('arm', 4321);
   entity.setNodeBodyMaterial('arm', { restitution: 0.041, friction: 0.19 });
   const childBody = entity.getRigidBody('arm');
-  childBody.linearDamping = 0.81;
-  childBody.angularDamping = 0.62;
-  childBody.position.set(14, 8, 13);
-  childBody.quaternion.setFromEuler(new THREE.Euler(-0.2, 0.3, 0.4));
-  childBody.velocity.set(3, 2, 1);
-  childBody.angularVelocity.set(0.7, -0.6, 0.5);
+  requireValue(childBody).linearDamping = 0.81;
+  requireValue(childBody).angularDamping = 0.62;
+  requireValue(childBody).position.set(14, 8, 13);
+  requireValue(childBody).quaternion.setFromEuler(new THREE.Euler(-0.2, 0.3, 0.4));
+  requireValue(childBody).velocity.set(3, 2, 1);
+  requireValue(childBody).angularVelocity.set(0.7, -0.6, 0.5);
   entity.syncAllBodyTransforms();
 
   assert.equal(manager.saveEntitiesToStorage(storage as any), true);
@@ -411,17 +411,17 @@ test('refresh persistence restores dynamic child body parameters and motion', ()
   assert.equal(reloaded.loadEntitiesFromStorage(storage as any), 1);
 
   const restoredBody = reloaded.contraptions[0].getRigidBody('arm');
-  assert.equal(restoredBody.type, childBody.type);
-  assert.equal(restoredBody.mass, childBody.mass);
-  assert.equal(restoredBody.inverseInertia, childBody.inverseInertia);
-  assert.equal(restoredBody.restitution, childBody.restitution);
-  assert.equal(restoredBody.friction, childBody.friction);
-  assert.equal(restoredBody.linearDamping, childBody.linearDamping);
-  assert.equal(restoredBody.angularDamping, childBody.angularDamping);
-  assert.deepEqual(restoredBody.position.toArray(), childBody.position.toArray());
-  assert.ok(Math.abs(restoredBody.quaternion.dot(childBody.quaternion)) > 1 - 1e-12);
-  assert.deepEqual(restoredBody.velocity.toArray(), childBody.velocity.toArray());
-  assert.deepEqual(restoredBody.angularVelocity.toArray(), childBody.angularVelocity.toArray());
+  assert.equal(requireValue(restoredBody).type, requireValue(childBody).type);
+  assert.equal(requireValue(restoredBody).mass, requireValue(childBody).mass);
+  assert.equal(requireValue(restoredBody).inverseInertia, requireValue(childBody).inverseInertia);
+  assert.equal(requireValue(restoredBody).restitution, requireValue(childBody).restitution);
+  assert.equal(requireValue(restoredBody).friction, requireValue(childBody).friction);
+  assert.equal(requireValue(restoredBody).linearDamping, requireValue(childBody).linearDamping);
+  assert.equal(requireValue(restoredBody).angularDamping, requireValue(childBody).angularDamping);
+  assert.deepEqual(requireValue(restoredBody).position.toArray(), requireValue(childBody).position.toArray());
+  assert.ok(Math.abs(requireValue(restoredBody).quaternion.dot(requireValue(childBody).quaternion)) > 1 - 1e-12);
+  assert.deepEqual(requireValue(restoredBody).velocity.toArray(), requireValue(childBody).velocity.toArray());
+  assert.deepEqual(requireValue(restoredBody).angularVelocity.toArray(), requireValue(childBody).angularVelocity.toArray());
 });
 
 test('disassembling or removing contraption updates storage so it stays removed after reload', () => {

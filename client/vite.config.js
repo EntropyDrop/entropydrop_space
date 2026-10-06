@@ -38,12 +38,16 @@ export default defineConfig(({ mode }) => {
           if (id.includes('/node_modules/@bufbuild/protobuf/')) return 'protobuf';
           if (id.includes('/node_modules/@msgpack/msgpack/')) return 'realtime-codec';
           if (id.includes('/node_modules/acorn/')) return 'script-runtime';
-          if (/\/bootstrap\/(NetworkSafety|NetworkTraffic|UploadProgress)\.ts$/.test(id)) return 'network-core';
+          if (/\/bootstrap\/(NetworkSafety|NetworkTraffic|UploadProgress|SpaceAuthSession|SpaceSiteLinks)\.ts$/.test(id)) return 'network-core';
           if (id.endsWith('/engine/contraption/AgentConfig.ts')) return 'agent-config';
           if (id.endsWith('/engine/contraption/AgentChat.ts')
             || id.endsWith('/engine/contraption/BehaviorAgent.ts')) return 'agent';
           if (id.endsWith('/engine/contraption/Blueprints.ts')) return 'blueprints';
           if (id.includes('/components/monitoring/')) return 'admin-monitoring';
+          // Both simulation and the script host use this data-only layer.
+          // Keeping it outside either runtime prevents a circular chunk edge.
+          if (id.includes('/engine/src/constants/')
+            || id.endsWith('/engine/src/contraption/Decorations.ts')) return 'entity-data';
           // The contract reads this data at module initialization. Keep it out of
           // the runtime chunk, which imports simulation code and creates a cycle.
           if (id.endsWith('/engine/src/scripting/EntityScriptSDK.generated.ts')) return 'script-sdk';

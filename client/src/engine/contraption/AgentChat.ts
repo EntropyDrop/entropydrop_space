@@ -1,3 +1,4 @@
+import type { AgentConfig } from './AgentConfig.ts';
 import { compileBehaviorPrompt } from './BehaviorAgent.ts';
 import { renderAgentApiReference } from '@entropydrop/space-engine/contraption/ScriptApiContract.ts';
 import {
@@ -52,6 +53,13 @@ const MAX_AGENT_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_AGENT_RESPONSE_CHARS = 2 * 1024 * 1024;
 const MAX_AGENT_MODELS = 1000;
 
+type ChatConfig = Partial<AgentConfig> & { maxTokens?: number; contextLength?: number; timeoutMs?: number };
+export interface ChatTurnResult { ok: boolean; content?: string; reasoning?: string; code?: string | null; error?: string; local?: boolean }
+export interface ChatMessage { role: string; content: string }
+export interface ChatChunk { content: string; reasoning: string; contentDelta: string; reasoningDelta: string; isStreaming: boolean }
+type AgentResponse = Pick<Response, 'ok'> & Partial<Pick<Response, 'status' | 'text' | 'json' | 'body' | 'arrayBuffer' | 'headers'>>;
+type AgentFetch = (url: string, options: RequestInit) => Promise<AgentResponse>;
+
 async function readAgentJson(response: any): Promise<any> {
   if (typeof response?.arrayBuffer === 'function') {
     return readJsonResponse(response, MAX_AGENT_JSON_RESPONSE_BYTES);
@@ -69,7 +77,7 @@ export function estimateTokens(text = ''): number {
   return Math.max(1, Math.ceil(text.length / 3.5));
 }
 
-function resolveAgentEndpoint(baseUrl, path): any {
+function resolveAgentEndpoint(baseUrl: unknown, path: string): { ok: true; url: string } | { ok: false; error: string } {
   const endpoint = `${String(baseUrl || '').trim().replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
   let endpointUrl;
   try {
@@ -92,7 +100,7 @@ function resolveAgentEndpoint(baseUrl, path): any {
  * Besides the canonical `{ data: [{ id }] }` response, accept a raw array and
  * `{ models: [...] }` for small local OpenAI-compatible servers.
  */
-export async function fetchAgentModels(config, fetchImpl = null) {
+export async function fetchAgentModels(config: ChatConfig | null, fetchImpl: AgentFetch | null = null) {
   const resolved = resolveAgentEndpoint(config?.baseUrl, 'models');
   if (!resolved.ok) return resolved;
 
@@ -116,11 +124,11 @@ export async function fetchAgentModels(config, fetchImpl = null) {
     });
     if (!response.ok) {
       const detail = typeof response.text === 'function'
-        ? await response.text().catch(() => '')
+        ? await response.text?.().catch(() => '')
         : '';
       return {
         ok: false,
-        error: `Model list request failed (HTTP ${response.status}): ${detail.slice(0, 200)}`
+        error: `Model list request failed (HTTP ${response.status}): ${(detail || '').slice(0, 200)}`
       };
     }
 
@@ -151,7 +159,7 @@ export async function fetchAgentModels(config, fetchImpl = null) {
       ok: false,
       error: controller.signal.aborted
         ? `Model list request timed out after ${Math.round(timeoutMs / 1000)} seconds.`
-        : `Model list request failed: ${err?.message || String(err)}`
+        : `Model list request failed: ${err instanceof Error ? err.message : String(err)}`
     };
   } finally {
     clearTimeout(timeout);
@@ -162,7 +170,7 @@ export async function fetchAgentModels(config, fetchImpl = null) {
  * Extract the first ```ts / ```assemblyscript code block from a model reply; returns null when no
  * code block is present.
  */
-export function extractCodeBlock(content, options: any = {}) {
+export function extractCodeBlock(content: string, options: { allowUnfenced?: boolean } = {}) {
   if (!content) return null;
   const match = content.match(/```(?:ts|assemblyscript|typescript)?\s*\n([\s\S]*?)\n```/i);
   if (match) return match[1].trim();
@@ -202,15 +210,15 @@ export function parseThoughtAndContent(rawContent = '', explicitReasoning = '') 
  * Call an OpenAI-compatible Chat Completions endpoint with optional SSE streaming.
  * @returns {Promise<{ok: boolean, content?: string, reasoning?: string, error?: string}>}
  */
-export async function callChatAgent(messages, config, fetchImpl = null, onChunk = null) {
+export async function callChatAgent(messages: ChatMessage[], config: ChatConfig, fetchImpl: AgentFetch | null = null, onChunk: ((chunk: ChatChunk) => void) | null = null) {
   const fetcher = fetchImpl || ((url, opts) => fetch(url, opts));
   const resolved = resolveAgentEndpoint(config?.baseUrl, 'chat/completions');
   if (!resolved.ok) return resolved;
   const stream = typeof onChunk === 'function';
-  const maxTokensK = Number.isFinite(config?.maxOutputKTokens) && config.maxOutputKTokens > 0
-    ? config.maxOutputKTokens
-    : (Number.isFinite(config?.maxTokens) && config.maxTokens > 0
-      ? config.maxTokens / 1024
+  const maxTokensK = Number.isFinite(config?.maxOutputKTokens) && Number(config.maxOutputKTokens) > 0
+    ? Number(config.maxOutputKTokens)
+    : (Number.isFinite(config?.maxTokens) && Number(config.maxTokens) > 0
+      ? Number(config.maxTokens) / 1024
       : DEFAULT_AGENT_MAX_OUTPUT_K_TOKENS);
   const maxTokens = Math.max(64, Math.round(maxTokensK * 1024));
   const timeoutMs = Math.max(1000, Math.min(600000,
@@ -238,10 +246,10 @@ export async function callChatAgent(messages, config, fetchImpl = null, onChunk 
       })
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
+      const detail = await response.text?.().catch(() => '');
       return {
         ok: false,
-        error: `API request failed (HTTP ${response.status}): ${detail.slice(0, 200)}`
+        error: `API request failed (HTTP ${response.status}): ${(detail || '').slice(0, 200)}`
       };
     }
 
@@ -332,7 +340,7 @@ export async function callChatAgent(messages, config, fetchImpl = null, onChunk 
       ok: false,
       error: controller.signal.aborted
         ? `Agent request timed out after ${Math.round(timeoutMs / 1000)} seconds.`
-        : `Network request failed: ${err?.message || String(err)}`
+        : `Network request failed: ${err instanceof Error ? err.message : String(err)}`
     };
   } finally {
     clearTimeout(timeout);
@@ -349,13 +357,13 @@ export async function callChatAgent(messages, config, fetchImpl = null, onChunk 
  * @returns {Promise<{ok: boolean, content?: string, reasoning?: string, code?: string|null, error?: string, local?: boolean}>}
  */
 export async function runAgentTurn(
-  userPrompt,
-  config,
-  history = [],
-  fetchImpl = null,
+  userPrompt: string,
+  config: ChatConfig | null,
+  history: ChatMessage[] = [],
+  fetchImpl: AgentFetch | null = null,
   targetContext: any = null,
-  onChunk: any = null
-) {
+  onChunk: ((chunk: ChatChunk) => void) | null = null
+): Promise<ChatTurnResult> {
   const prompt = String(userPrompt || '').trim();
   if (!prompt) return { ok: false, error: 'Please describe the behavior first, e.g. "hover 5 meters above the ground".' };
 
@@ -395,10 +403,10 @@ export async function runAgentTurn(
     targetNote = `\n\nTarget component:\n- id: ${compId}\n- parent: ${parentComp}\n- entity: ${entId}\n- owned blocks: ${compBlocks}\n- entity components: [${compList}]\n- total entity blocks: ${totalBlocks}`;
   }
 
-  const contextK = config && Number.isFinite(config.contextKTokens) && config.contextKTokens > 0
-    ? config.contextKTokens
-    : (config && Number.isFinite(config.contextLength) && config.contextLength > 0
-      ? config.contextLength
+  const contextK = config && Number.isFinite(config.contextKTokens) && Number(config.contextKTokens) > 0
+    ? Number(config.contextKTokens)
+    : (config && Number.isFinite(config.contextLength) && Number(config.contextLength) > 0
+      ? Number(config.contextLength)
       : DEFAULT_AGENT_CONTEXT_K_TOKENS);
   const totalContextTokens = Math.round(contextK * 1024);
   const systemTokens = estimateTokens(AGENT_SYSTEM_PROMPT);
@@ -406,7 +414,7 @@ export async function runAgentTurn(
   const baseOverhead = systemTokens + userPromptTokens + 64;
   const availableHistoryTokens = Math.max(0, totalContextTokens - baseOverhead);
 
-  const historySlice: any[] = [];
+  const historySlice: ChatMessage[] = [];
   let accumulatedTokens = 0;
   for (let i = history.length - 1; i >= 0; i--) {
     const item = history[i];
@@ -432,6 +440,6 @@ export async function runAgentTurn(
     reasoning: response.reasoning || '',
     // Remote prose or unfenced snippets remain visible in chat but are never
     // auto-applied. The local deterministic compiler does not use this path.
-    code: extractCodeBlock(response.content, { allowUnfenced: false })
+    code: extractCodeBlock(response.content || '', { allowUnfenced: false })
   };
 }

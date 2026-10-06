@@ -205,7 +205,7 @@ function createMaterial(handoffTexture: THREE.DataTexture, side = false, coverag
   material.positionNode = flat;
   const handoff = terrainCoverage(handoffTexture, maskPosition);
   discardWhen(material, varying(height).lessThan(.5).or(handoff.g.greaterThan(.5)).or(terrainDither().lessThan(handoff.r)));
-  const pixel = terrainDither(screenCoordinate.xy.add(vec2(37,19))), range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object.userData.terrainCoverage ?? coverage);
+  const pixel = terrainDither(screenCoordinate.xy.add(vec2(37,19))), range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object?.userData.terrainCoverage ?? coverage);
   discardWhen(material, pixel.lessThan(range.x).or(pixel.greaterThanEqual(range.y)));
   material.userData.sharedTerrainMaterial = true;
   handoffTexture.addEventListener('dispose', () => material.dispose());

@@ -97,7 +97,7 @@ class HostingRequest(StrictEntityModel):
 
 
 def authorized_entity(db, world_id, entity_id, creator):
-    world = _require_world_membership(db, world_id, creator.user)
+    world = _require_world_membership(db, world_id, creator.user, for_update=True)
     _lock_entity_quota_scope(db, world, creator.user)
     entity = db.query(models.SpaceWorldEntity).filter_by(world_id=world_id, id=entity_id).with_for_update().first()
     if entity is None:

@@ -18,7 +18,7 @@ function makeController(overrides = {}) {
   controller.activeTool = SpecialTool.BRUSH;
   controller.hoveredContraptionHit = null;
   controller.hoveredContraption = null;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.sound = { playWrenchClick() {}, playBlockPlace() {} };
   controller.particles = { emitBlockBreak() {} };
   controller.ui = { setBuildColor() {}, showToast() {} };
@@ -69,7 +69,7 @@ test('brush left-click cancels pending 2-point selection and does not paint', ()
 
 test('brush right-click ignores non-entity (world terrain) and does not start selection', () => {
   const controller = makeController({
-    currentRaycast: { hit: true, hitPos: { x: 2.3, y: 4.1, z: 6.8 } },
+    currentRaycast: { hit: true as const, hitPos: { x: 2.3, y: 4.1, z: 6.8 } },
     hoveredContraptionHit: null
   });
 
@@ -425,7 +425,7 @@ test('brush aiming at running entity or terrain shows no crosshair guide', () =>
 
   // 2. World terrain
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: true, hitPos: { x: 10, y: 5, z: 20 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 10, y: 5, z: 20 } };
   controller.updateMicroCarvePreview();
   assert.equal(controller.focusBlockPreview, null, 'world terrain must show no guide');
 });

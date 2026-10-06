@@ -21,6 +21,29 @@ import * as THREE from 'three/webgpu';
 import { Fn, uniform, reference, vec3, vec4, mat3, sin, cos, float, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty } from 'three/tsl';
 import { asNodeMaterial } from '../render/NodeMaterials.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
+import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
+
+export interface BentSphereBounds { cx: number; cy: number; cz: number; radius: number }
+
+/** Rendering consumes a view of terrain residency, not a World instance. */
+interface CullingWorld {
+  chunks: ReadonlyMap<string, {
+    cx: number;
+    cz: number;
+    mesh: THREE.Object3D | null;
+    getOccupiedYRange?(): { min: number; max: number } | null;
+  }>;
+  activeChunkKeys?: ReadonlySet<string>;
+  distantSurface?: {
+    updateHandoffs(): void;
+    retainsDetailChunk(cx: number, cz: number): boolean;
+    handoff: { hook(mesh: THREE.Object3D): void };
+  };
+  microVoxels?: {
+    renderMeshes?: ReadonlyMap<string, THREE.Object3D>;
+    meshChunks?: ReadonlyMap<string, THREE.Object3D>;
+  };
+}
 
 export const TORUS_CHUNKS_X = 1024;
 export const TORUS_CHUNKS_Z = 128;
@@ -45,23 +68,23 @@ export function getWorldProjectionRevision(): number {
 // -----------------------------------------------------------------------------
 // Coordinate wrapping into [0, size).
 // -----------------------------------------------------------------------------
-export function wrapX(x) {
+export function wrapX(x: number) {
   return ((x % TORUS_SIZE_X) + TORUS_SIZE_X) % TORUS_SIZE_X;
 }
-export function wrapZ(z) {
+export function wrapZ(z: number) {
   return ((z % TORUS_SIZE_Z) + TORUS_SIZE_Z) % TORUS_SIZE_Z;
 }
-export function wrapChunkX(cx) {
+export function wrapChunkX(cx: number) {
   return ((cx % TORUS_CHUNKS_X) + TORUS_CHUNKS_X) % TORUS_CHUNKS_X;
 }
-export function wrapChunkZ(cz) {
+export function wrapChunkZ(cz: number) {
   return ((cz % TORUS_CHUNKS_Z) + TORUS_CHUNKS_Z) % TORUS_CHUNKS_Z;
 }
-export function wrapMicroX(mx) {
+export function wrapMicroX(mx: number) {
   const m = TORUS_SIZE_X * MICRO_DIVISIONS;
   return ((mx % m) + m) % m;
 }
-export function wrapMicroZ(mz) {
+export function wrapMicroZ(mz: number) {
   const m = TORUS_SIZE_Z * MICRO_DIVISIONS;
   return ((mz % m) + m) % m;
 }
@@ -73,7 +96,7 @@ export function wrapMicroZ(mz) {
  * a torus seam continuous (for example X 16383..16385 instead of 0..16383).
  * Storage and world lookup may still wrap the returned coordinate normally.
  */
-export function unwrapPeriodicNear(value, anchor, period) {
+export function unwrapPeriodicNear(value: number, anchor: number, period: number) {
   if (!Number.isFinite(value) || !Number.isFinite(anchor) || !Number.isFinite(period) || period <= 0) {
     return value;
   }
@@ -114,7 +137,7 @@ let _viewTransitionBoundScale = 1;
 
 function matrixOperatorBound(matrix: THREE.Matrix3, subtractIdentity = false) {
   const e = matrix.elements;
-  const a = e.map((value, index) => value - (subtractIdentity && index % 4 === 0 ? 1 : 0));
+  const a = e.map((value: number, index) => value - (subtractIdentity && index % 4 === 0 ? 1 : 0));
   const row = Math.max(
     Math.abs(a[0]) + Math.abs(a[3]) + Math.abs(a[6]),
     Math.abs(a[1]) + Math.abs(a[4]) + Math.abs(a[7]),
@@ -166,13 +189,13 @@ function bendTorusPoint(x: number, y: number, z: number, out: THREE.Vector3) {
 }
 
 /** Map flat (x,y,z) to bent (bx,by,bz). Reuse out for zero-allocation hot paths. */
-export function bendPoint(x, y, z, out = new THREE.Vector3()) {
+export function bendPoint(x: number, y: number, z: number, out = new THREE.Vector3()) {
   return bendTorusPoint(x, y, z, out);
 }
 
 /** Conservative sphere for every bent vertex/triangle in a flat AABB. The
  * maximum projection derivative bounds curvature between sampled vertices. */
-export function computeBentBoundsSphere(bounds, out = new THREE.Sphere()) {
+export function computeBentBoundsSphere(bounds: CollisionBounds, out = new THREE.Sphere()) {
   bendPoint((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2,
     (bounds.minZ + bounds.maxZ) / 2, out.center);
   const maxHeightOffset = Math.max(
@@ -192,7 +215,7 @@ export function computeBentBoundsSphere(bounds, out = new THREE.Sphere()) {
 }
 
 /** Map bent coordinates back to flat space. The outer solution is unique for ρ ≤ R−1. */
-export function unbendPoint(bx, by, bz, out = new THREE.Vector3()) {
+export function unbendPoint(bx: number, by: number, bz: number, out = new THREE.Vector3()) {
   const rxy = Math.hypot(bx, bz);
   let u = rxy - TORUS_R; // Outer solution for ρ·cosφ = ±rxy − R.
   if (u < -TORUS_MAX_RHO) u = -rxy - TORUS_R; // Hole fallback, outside the world and treated as air.
@@ -214,7 +237,7 @@ export function unbendPoint(bx, by, bz, out = new THREE.Vector3()) {
 }
 
 // Local orthonormal frame: flat basis (X→eθ, Y→eρ, Z→eφ) to the bent tangent basis.
-function torusFrameAxes(x, y, z) {
+function torusFrameAxes(x: number, y: number, z: number) {
   const theta = x * TORUS_K_THETA;
   torusTubeTrig(z, _tubeTrig);
   const ct = Math.cos(theta);
@@ -227,7 +250,7 @@ function torusFrameAxes(x, y, z) {
 }
 
 /** Map a flat direction to a bent direction using local linearization. */
-export function bendDirection(x, y, z, dir, out = new THREE.Vector3()) {
+export function bendDirection(x: number, y: number, z: number, dir: THREE.Vector3Like, out = new THREE.Vector3()) {
   torusFrameAxes(x, y, z);
   const ex = _vA, ey = _vB, ez = _vC;
   return out.set(
@@ -238,7 +261,7 @@ export function bendDirection(x, y, z, dir, out = new THREE.Vector3()) {
 }
 
 /** Map a bent direction to flat space for picking flat meshes. */
-export function unbendDirection(x, y, z, dir, out = new THREE.Vector3()) {
+export function unbendDirection(x: number, y: number, z: number, dir: THREE.Vector3Like, out = new THREE.Vector3()) {
   torusFrameAxes(x, y, z);
   return out.set(
     dir.x * _vA.x + dir.y * _vA.y + dir.z * _vA.z,
@@ -248,7 +271,7 @@ export function unbendDirection(x, y, z, dir, out = new THREE.Vector3()) {
 }
 
 /** Quaternion mapping the flat basis to the bent basis at a flat-space position. */
-export function bendFrameQuaternion(x, y, z, out = _quatA) {
+export function bendFrameQuaternion(x: number, y: number, z: number, out = _quatA) {
   torusFrameAxes(x, y, z);
   _basis.makeBasis(_vA, _vB, _vC);
   return out.setFromRotationMatrix(_basis);
@@ -356,7 +379,7 @@ export function projectBentSphereForView(sphere: THREE.Sphere, out = new THREE.S
 }
 
 /** Bend a flat-space camera position and orientation onto the torus. */
-export function applyCameraBend(camera) {
+export function applyCameraBend(camera: THREE.Camera) {
   const px = camera.position.x;
   const py = camera.position.y;
   const pz = camera.position.z;
@@ -369,9 +392,9 @@ export function applyCameraBend(camera) {
 
 /** Bent-space chunk bounding sphere used for correct frustum culling. */
 export function computeChunkBentSphere(
-  cx,
-  cz,
-  out = null,
+  cx: number,
+  cz: number,
+  out: BentSphereBounds | null = null,
   minY = 0,
   maxY = CHUNK_SIZE_Y,
   span = 16,
@@ -415,7 +438,7 @@ export function computeChunkBentSphere(
       }
     }
   }
-  if (!out) out = {};
+  if (!out) out = { cx: 0, cy: 0, cz: 0, radius: 0 };
   out.cx = cx2;
   out.cy = cy2;
   out.cz = cz2;
@@ -432,7 +455,7 @@ const viewEnabledNode = reference('value', 'float', _viewEnabled);
 const viewOriginNode = uniform(_viewOrigin), viewMatrixNode = uniform(_viewMatrix);
 
 /** Same rational tube mapping as bendPoint(), including camera-local correction. */
-export const torusBendNode = (p: any) => {
+export const torusBendNode = (p: ReturnType<typeof vec3>) => {
   const half = p.z.mul(TORUS_K_PHI * .5), a = sin(half), b = cos(half);
   const denominator = b.mul(b).add(a.mul(a).mul(TORUS_TUBE_ANGLE_FACTOR ** 2));
   const cp = b.mul(b).sub(a.mul(a).mul(TORUS_TUBE_ANGLE_FACTOR ** 2)).div(denominator);
@@ -450,10 +473,10 @@ function hookMaterialForTorus(source: THREE.Material) {
   // must not wrap that deformation again during the periodic scene scan.
   if (hookedMaterials.has(material) || material.userData.torusNode) return material;
   hookedMaterials.add(material);
-  const flatPosition = material.positionNode ?? ((material as any).isSpriteNodeMaterial ? vec3(0) : positionLocal);
+  const flatPosition = material.positionNode ?? (('isSpriteNodeMaterial' in material && material.isSpriteNodeMaterial) ? vec3(0) : positionLocal);
   const flatNormal = material.userData.flatNormalNode ?? normalLocal;
   const bentNormal = varyingProperty('vec3', 'spaceTorusNormal');
-  const usesNormal = material.lights && !(material as any).flatShading;
+  const usesNormal = material.lights && !('flatShading' in material && material.flatShading);
   material.positionNode = Fn(() => {
     // positionLocal already includes instance and skin transforms at this point.
     const world = modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz.toVar();
@@ -471,13 +494,19 @@ function hookMaterialForTorus(source: THREE.Material) {
 }
 
 /** Node position deformation is reused automatically by WebGPU shadow passes. */
-export function hookSceneMaterials(root) {
+export function hookSceneMaterials(root: THREE.Object3D) {
   root.traverse(obj => {
-    if (obj.userData?.torusPreBent || !obj.material) return;
+    if (obj.userData?.torusPreBent || !hasMaterial(obj)) return;
     obj.frustumCulled = false;
     obj.material = Array.isArray(obj.material)
       ? obj.material.map(hookMaterialForTorus) : hookMaterialForTorus(obj.material);
   });
+}
+
+function hasMaterial(object: THREE.Object3D): object is THREE.Object3D & { material: THREE.Material | THREE.Material[] } {
+  if (!('material' in object)) return false;
+  return object.material instanceof THREE.Material
+    || (Array.isArray(object.material) && object.material.every(material => material instanceof THREE.Material));
 }
 
 // -----------------------------------------------------------------------------
@@ -490,7 +519,7 @@ const _cullingViewSphere = new THREE.Sphere();
 const _cullingViewBounds = { cx: 0, cy: 0, cz: 0, radius: 0 };
 const TERRAIN_SHADOW_CASTER_DISTANCE = 64;
 
-function projectedCullingBounds(bs) {
+function projectedCullingBounds(bs: BentSphereBounds) {
   _cullingRawSphere.center.set(bs.cx, bs.cy, bs.cz);
   _cullingRawSphere.radius = bs.radius;
   projectBentSphereForView(_cullingRawSphere, _cullingViewSphere);
@@ -501,7 +530,7 @@ function projectedCullingBounds(bs) {
   return _cullingViewBounds;
 }
 
-function isLocalShadowCaster(camera, bs): boolean {
+function isLocalShadowCaster(camera: THREE.Camera, bs: BentSphereBounds): boolean {
   return Math.hypot(
     camera.position.x - bs.cx,
     camera.position.y - bs.cy,
@@ -509,7 +538,7 @@ function isLocalShadowCaster(camera, bs): boolean {
   ) <= bs.radius + TERRAIN_SHADOW_CASTER_DISTANCE;
 }
 
-function isBentSphereVisible(camera, bs, retainLocalShadowCasters: boolean): boolean {
+function isBentSphereVisible(camera: THREE.Camera, bs: BentSphereBounds, retainLocalShadowCasters: boolean): boolean {
   // Parent visibility also gates the directional-light shadow pass. Keep a
   // compact ring of nearby casters even when they sit just behind the camera.
   const cameraDistance = Math.hypot(
@@ -528,7 +557,7 @@ function isBentSphereVisible(camera, bs, retainLocalShadowCasters: boolean): boo
   return true;
 }
 
-export function cullChunks(camera, world, retainLocalShadowCasters = true) {
+export function cullChunks(camera: THREE.Camera, world: CullingWorld | null | undefined, retainLocalShadowCasters = true) {
   if (!world || !world.chunks) return;
   world.distantSurface?.updateHandoffs();
   _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -559,7 +588,7 @@ export function cullChunks(camera, world, retainLocalShadowCasters = true) {
     mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs), retainLocalShadowCasters);
     const castShadow = mesh.visible && isLocalShadowCaster(camera, bs);
     mesh.traverse((child) => {
-      if (child.isMesh) child.castShadow = castShadow;
+      if (child instanceof THREE.Mesh) child.castShadow = castShadow;
     });
   }
 

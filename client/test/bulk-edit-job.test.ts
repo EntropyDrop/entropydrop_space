@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -37,8 +38,8 @@ function makeController(manager: any, world: any = {}) {
   const toasts: string[] = [];
   const progress: any[] = [];
   controller.ui = {
-    showToast: message => toasts.push(message),
-    setBulkEditProgress: value => progress.push(value),
+    showToast: (message: string) => toasts.push(message),
+    setBulkEditProgress: (value: unknown) => progress.push(value),
     renderInventoryBar() {},
     selectTool() {},
     renderComponentTree() {},
@@ -99,7 +100,7 @@ test('large world block-set copy uses BulkEditJob and remains read-only', () => 
 
 test('large entity Hammer placement prepares blocks in BulkEditJob before atomic registration', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController(manager);
   const total = BULK_EDIT_THRESHOLD + 44;
   const slot = {
@@ -128,7 +129,7 @@ test('large entity Hammer placement prepares blocks in BulkEditJob before atomic
 
 test('large Hammer component installation prepares blocks before one atomic tree merge', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const target = manager.buildFromSlot({
     name: 'Target',
     rootComponentId: 'root',
@@ -208,7 +209,7 @@ test('large entity block selection creates its child through BulkEditJob', () =>
   const total = BULK_EDIT_THRESHOLD + 44;
   const contraption = new Contraption(1, entityBlocks(total + 10), new THREE.Vector3(), scene);
   contraption.stopAllNodeScripts();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   const controller = makeController(manager);
   controller.selectedBlockSelection = {
@@ -232,7 +233,7 @@ test('large entity block selection creates its child through BulkEditJob', () =>
 
 test('processBulkEditFrame default batch size is 1024 operations per frame', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController(manager);
   const total = 2000;
   const slot = {

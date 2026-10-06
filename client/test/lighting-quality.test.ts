@@ -126,7 +126,7 @@ test('slow frames and resolution settings preserve manual lighting, shadows and 
       renderer.setShadowsEnabled(shadows);
       let pixelRatio = 2;
       renderer.renderer.getPixelRatio = () => pixelRatio;
-      renderer.renderer.setPixelRatio = value => { pixelRatio = value; };
+      renderer.renderer.setPixelRatio = value => { pixelRatio = value ?? 1; };
       renderer.adaptiveResolution = new AdaptiveResolutionController();
       renderer.adaptiveResolution.setTargetFps(quality === 'ultra' ? 60 : 120);
       let hdrFrames = 0, directFrames = 0;
@@ -241,7 +241,7 @@ test('Ultra applies distance haze once and restores material fog for other rende
   renderer.scene.fog = fog;
   let hdrFrames = 0;
   renderer.cinematicEffects = {
-    render: (_gpu, scene) => {
+    render: (_gpu: unknown, scene: import('three').Scene) => {
       assert.equal(scene.fog, fog, 'preserve the compiled material fog variant');
       assert.equal(fog.density, 0, 'postprocess haze must not stack with material fog');
       hdrFrames++;

@@ -1,43 +1,45 @@
-// @ts-nocheck
+import type { ScriptCommand, ScriptSnapshot, ScriptComponentSnapshot } from './ScriptProtocol.ts';
+import type { DecorationDefinition } from '../contraption/Decorations.ts';
+import { readRecord } from '../contraption/EntityInput.ts';
 import { normalizeDecorations, patchDecoration } from '../contraption/Decorations.ts';
 import { MAX_ENTITY_DECORATIONS } from '../constants/SpaceConstants.ts';
 // Trusted host API. Guest programs only reach this through the bounded WASM handle bridge.
-export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
-  let states = Object.create(null);
-  let frame = null;
+export function createEntityScriptHost(hostWorldReadCall: (kind: string, position: unknown, offset: unknown) => unknown, hostRaycastCall: (origin: unknown, direction: unknown, options: unknown) => unknown) {
+  let states: Record<string, unknown> = Object.create(null);
+  let frame: ScriptSnapshot = {};
   let rootComponentId = '';
-  let componentMap = new Map();
-  let selfCache = new Map();
-  let commands = [];
+  let componentMap = new Map<string, ScriptComponentSnapshot>();
+  let selfCache = new Map<string, ScriptSelf>();
+  let commands: ScriptCommand[] = [];
   let nextCommandId = 1;
-  let rootMessages = Object.freeze([]);
-  let errors = [];
+  let rootMessages: ReturnType<typeof prepareEntityMessages> = Object.freeze([]);
+  let errors: Array<{ nodeId?: string; error?: string }> = [];
   let stopped = false;
-  let worldVoxelOverlays = new Map();
-  let worldMicroVoxelOverlays = new Map();
-  let decorationOverlays = new Map();
+  let worldVoxelOverlays = new Map<string, Record<string, unknown>>();
+  let worldMicroVoxelOverlays = new Map<string, Record<string, unknown>>();
+  let decorationOverlays = new Map<string, DecorationDefinition[]>();
   const STOP = Object.freeze({ kind: 'space-stop' });
   const MAX_COMMANDS = 256;
   const MAX_BODY_VECTOR_COMPONENT = 1e12;
 
-  const clone = value => {
+  const clone = <T>(value: T): T | null | undefined => {
     if (value === undefined) return undefined;
-    try { return JSON.parse(JSON.stringify(value)); } catch (_) { return null; }
+    try { return JSON.parse(JSON.stringify(value)) as T; } catch (_) { return null; }
   };
-  const harden = value => {
+  const harden = <T>(value: T): T => {
     if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-    for (const key of Object.keys(value)) harden(value[key]);
+    for (const child of Object.values(value)) harden(child);
     return Object.freeze(value);
   };
-  const frozenClone = value => harden(clone(value));
-  const collectFrozenPaths = (value, path = [], result = []) => {
+  const frozenClone = <T>(value: T) => harden(clone(value));
+  const collectFrozenPaths = (value: unknown, path: string[] = [], result: string[][] = []): string[][] => {
     if (!value || typeof value !== 'object') return result;
     if (Object.isFrozen(value)) result.push(path);
-    for (const key of Object.keys(value)) collectFrozenPaths(value[key], [...path, key], result);
+    for (const [key, child] of Object.entries(value)) collectFrozenPaths(child, [...path, key], result);
     return result;
   };
-  const finite = value => Number.isFinite(Number(value)) ? Number(value) : 0;
-  const utf8ByteLength = value => {
+  const finite = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+  const utf8ByteLength = (value: unknown) => {
     const text = String(value);
     let bytes = 0;
     for (let index = 0; index < text.length; index++) {
@@ -53,16 +55,16 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     }
     return bytes;
   };
-  const vector = value => Array.isArray(value)
+  const vector = (value: unknown) => Array.isArray(value)
     ? [finite(value[0]), finite(value[1]), finite(value[2])]
     : [0, 0, 0];
-  const boundedBodyVector = value => {
+  const boundedBodyVector = (value: unknown) => {
     if (!Array.isArray(value) || value.length < 3) return null;
     const result = value.slice(0, 3).map(Number);
     return result.every(component => Number.isFinite(component)
       && Math.abs(component) <= MAX_BODY_VECTOR_COMPONENT) ? result : null;
   };
-  const emit = (scope, nodeId, path, args) => {
+  const emit = (scope: string, nodeId: unknown, path: string, args: unknown[]) => {
     if (commands.length >= MAX_COMMANDS) return null;
     const commandId = 'cmd-' + nextCommandId++;
     commands.push({
@@ -74,25 +76,26 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     });
     return commandId;
   };
-  const queuedEdit = (field, commandId, amount = 1) => Object.freeze({
+  const queuedEdit = (field: string, commandId: string | null, amount: unknown = 1) => Object.freeze({
     ok: !!commandId,
     [field]: commandId ? amount : 0,
     reason: commandId ? 'queued' : 'command_limit',
     commandId: commandId || null
   });
-  const queuedResult = (commandId, values, rejectedValues = {}) => Object.freeze({
+  const queuedResult = <T extends object, R extends object = Record<string, never>>(commandId: string | null, values: T, rejectedValues: R = {} as R) => Object.freeze({
     ok: !!commandId,
     ...(commandId ? values : rejectedValues),
     reason: commandId ? 'queued' : 'command_limit',
     commandId: commandId || null
   });
-  const inputCode = value => {
+  const inputCode = (value: unknown) => {
     if (typeof value !== 'string') return '';
     const clean = value.trim();
-    const alias = { shift: 'Shift', ctrl: 'Control', control: 'Control', alt: 'Alt' }[clean.toLowerCase()];
+    const aliases: Record<string, string> = { shift: 'Shift', ctrl: 'Control', control: 'Control', alt: 'Alt' };
+    const alias = aliases[clean.toLowerCase()];
     return alias || clean;
   };
-  const codeActive = (list, requested) => {
+  const codeActive = (list: readonly string[], requested: unknown) => {
     const code = inputCode(requested);
     if (!code) return false;
     if (code === 'Shift') return list.includes('ShiftLeft') || list.includes('ShiftRight');
@@ -100,7 +103,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     if (code === 'Alt') return list.includes('AltLeft') || list.includes('AltRight');
     return list.includes(code);
   };
-  const rotateVector = (direction, quaternion) => {
+  const rotateVector = (direction: unknown, quaternion: unknown) => {
     const v = vector(direction);
     const q = Array.isArray(quaternion) ? quaternion.map(finite) : [0, 0, 0, 1];
     const x = v[0], y = v[1], z = v[2], qx = q[0], qy = q[1], qz = q[2], qw = q[3];
@@ -115,56 +118,72 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     ]);
   };
 
-  function makeVoxelApi(nodeId, micro) {
+  function makeVoxelApi(nodeId: string, micro: boolean) {
     const prefix = micro ? 'microVoxels.' : 'voxels.';
     const api = {
-      set(...args) { return queuedEdit('placed', emit('component', nodeId, prefix + 'set', args)); },
-      clear(...args) { return queuedEdit('removed', emit('component', nodeId, prefix + 'clear', args)); },
-      paint(...args) {
+      set(...args: unknown[]) { return queuedEdit('placed', emit('component', nodeId, prefix + 'set', args)); },
+      clear(...args: unknown[]) { return queuedEdit('removed', emit('component', nodeId, prefix + 'clear', args)); },
+      paint(...args: unknown[]) {
         return queuedEdit('painted', emit('component', nodeId, prefix + 'paint', args));
       }
     };
-    if (!micro) {
-      api.clearCell = (...args) => queuedEdit('removed', emit('component', nodeId, 'voxels.clearCell', args));
-      api.subdivide = (...args) => {
+    const standard = !micro ? {
+      clearCell: (...args: unknown[]) => queuedEdit('removed', emit('component', nodeId, 'voxels.clearCell', args)),
+      subdivide: (...args: unknown[]) => {
         const accepted = emit('component', nodeId, 'voxels.subdivide', args);
         return queuedResult(accepted, { subdivided: 1, removed: 0 }, { subdivided: 0, removed: 0 });
-      };
-    }
-    return Object.freeze(api);
+      }
+    } : {};
+    return Object.freeze({ ...api, ...standard });
   }
 
-  function getSelf(nodeId) {
+  interface ScriptSelf extends ReturnType<typeof buildSelfSurface> {
+    child(childId: unknown): ScriptSelf | null;
+    children(): readonly ScriptSelf[];
+  }
+  function getSelf(nodeId: unknown): ScriptSelf | null {
     const id = String(nodeId || rootComponentId);
-    if (selfCache.has(id)) return selfCache.get(id);
+    if (selfCache.has(id)) return selfCache.get(id)!;
     const node = componentMap.get(id);
     if (!node) return null;
     if (!states[id] || typeof states[id] !== 'object' || Array.isArray(states[id])) states[id] = {};
+    const api = Object.freeze({
+      ...buildSelfSurface(id, node),
+      child: (childId: unknown) => {
+        const target = String(childId || '');
+        return (node.children || []).includes(target) ? getSelf(target) : null;
+      },
+      children: () => Object.freeze((node.children || []).map(getSelf).filter((child): child is ScriptSelf => child !== null))
+    });
+    selfCache.set(id, api);
+    return api;
+  }
+  function buildSelfSurface(id: string, node: ScriptComponentSnapshot) {
     const isRoot = node.parentId === null || node.parentId === undefined;
     const api = {
       apiVersion: 3,
       id,
       parentId: node.parentId ?? null,
       state: states[id],
-      applyThrust: force => { emit('component', id, 'applyThrust', [force]); },
-      applyLocalThrust: force => { emit('component', id, 'applyLocalThrust', [force]); },
+      applyThrust: (force: unknown) => { emit('component', id, 'applyThrust', [force]); },
+      applyLocalThrust: (force: unknown) => { emit('component', id, 'applyLocalThrust', [force]); },
       getWorldPosition: () => frozenClone(node.worldPosition || [0, 0, 0]),
       getWorldRotation: () => frozenClone(node.worldRotation || [0, 0, 0, 1]),
       getPivot: () => frozenClone(node.pivot || [0, 0, 0]),
-      localToWorldDirection: direction => rotateVector(direction, node.worldRotation),
+      localToWorldDirection: (direction: unknown) => rotateVector(direction, node.worldRotation),
       getBounds: () => frozenClone(node.bounds),
-      setLocalPosition: value => { emit('component', id, 'setLocalPosition', [value]); },
-      setLocalRotation: value => { emit('component', id, 'setLocalRotation', [value]); },
-      setLocalEuler: value => { emit('component', id, 'setLocalEuler', [value]); },
-      setLocalSpin: (axis, rpm) => { emit('component', id, 'setLocalSpin', [axis, rpm]); },
+      setLocalPosition: (value: unknown) => { emit('component', id, 'setLocalPosition', [value]); },
+      setLocalRotation: (value: unknown) => { emit('component', id, 'setLocalRotation', [value]); },
+      setLocalEuler: (value: unknown) => { emit('component', id, 'setLocalEuler', [value]); },
+      setLocalSpin: (axis: unknown, rpm: unknown) => { emit('component', id, 'setLocalSpin', [axis, rpm]); },
       getLocalPosition: () => frozenClone(node.localPosition || [0, 0, 0]),
       getLocalRotation: () => frozenClone(node.localRotation || [0, 0, 0, 1]),
-      setPivot: value => { emit('component', id, 'setPivot', [value]); },
-      applyForce: force => { emit('component', id, 'applyForce', [force]); },
-      applyLocalForce: force => { emit('component', id, 'applyLocalForce', [force]); },
-      applyForceAt: (force, point) => { emit('component', id, 'applyForceAt', [force, point]); },
-      applyTorque: torque => { emit('component', id, 'applyTorque', [torque]); },
-      setSeats: values => { emit('component', id, 'setSeats', [values]); },
+      setPivot: (value: unknown) => { emit('component', id, 'setPivot', [value]); },
+      applyForce: (force: unknown) => { emit('component', id, 'applyForce', [force]); },
+      applyLocalForce: (force: unknown) => { emit('component', id, 'applyLocalForce', [force]); },
+      applyForceAt: (force: unknown, point: unknown) => { emit('component', id, 'applyForceAt', [force, point]); },
+      applyTorque: (torque: unknown) => { emit('component', id, 'applyTorque', [torque]); },
+      setSeats: (values: unknown) => { emit('component', id, 'setSeats', [values]); },
       getSeats: () => frozenClone(node.seats || []),
       stop: () => {
         if (!isRoot) return undefined;
@@ -172,20 +191,16 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         stopped = true;
         throw STOP;
       },
-      child: childId => {
-        const target = String(childId || '');
-        return (node.children || []).includes(target) ? getSelf(target) : null;
-      },
-      children: () => Object.freeze((node.children || []).map(getSelf).filter(Boolean))
+
     };
     let bodyType = node.body?.type || 'dynamic';
     let bodyMass = finite(node.body?.mass);
     let bodyMaterial = frozenClone(node.body?.material || { restitution: 0.1, friction: 0.7 });
     let gravityEnabled = node.body?.useGravity !== false;
     let collisionEnabled = node.body?.collisionEnabled !== false;
-    api.body = Object.freeze({
+    const body = Object.freeze({
       getType: () => bodyType,
-      setType: type => {
+      setType: (type: unknown) => {
         if (type !== 'dynamic' && type !== 'kinematic') {
           return Object.freeze({ ok: false, type: bodyType, reason: 'invalid_body_type' });
         }
@@ -194,7 +209,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         return queuedResult(accepted, { type }, { type: bodyType });
       },
       getMass: () => bodyMass,
-      setMass: mass => {
+      setMass: (mass: unknown) => {
         const requestedMass = Number(mass);
         if (!Number.isFinite(requestedMass) || requestedMass <= 0) {
           return Object.freeze({ ok: false, mass: bodyMass, reason: 'invalid_mass' });
@@ -205,14 +220,14 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         return queuedResult(accepted, { mass: safeMass }, { mass: bodyMass });
       },
       getMaterial: () => bodyMaterial,
-      setMaterial: material => {
+      setMaterial: (material: unknown) => {
         const nextMaterial = frozenClone(material);
         const accepted = emit('component', id, 'body.setMaterial', [material]);
         if (accepted) bodyMaterial = nextMaterial;
         return queuedResult(accepted, { material: nextMaterial }, { material: bodyMaterial });
       },
       getGravityEnabled: () => gravityEnabled,
-      setGravityEnabled: enabled => {
+      setGravityEnabled: (enabled: unknown) => {
         if (typeof enabled !== 'boolean') {
           return Object.freeze({ ok: false, enabled: gravityEnabled, reason: 'invalid_enabled' });
         }
@@ -221,7 +236,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         return queuedResult(accepted, { enabled }, { enabled: gravityEnabled });
       },
       getCollisionEnabled: () => collisionEnabled,
-      setCollisionEnabled: enabled => {
+      setCollisionEnabled: (enabled: unknown) => {
         if (typeof enabled !== 'boolean') {
           return Object.freeze({ ok: false, enabled: collisionEnabled, reason: 'invalid_enabled' });
         }
@@ -231,38 +246,38 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
       },
       getVelocity: () => frozenClone(node.body?.velocity || [0, 0, 0]),
       getAngularVelocity: () => frozenClone(node.body?.angularVelocity || [0, 0, 0]),
-      applyForce: force => {
+      applyForce: (force: unknown) => {
         const safeForce = boundedBodyVector(force);
         return bodyType === 'dynamic' && !!safeForce
           ? !!emit('component', id, 'body.applyForce', [safeForce])
           : false;
       },
-      applyLocalForce: force => {
+      applyLocalForce: (force: unknown) => {
         const safeForce = boundedBodyVector(force);
         return bodyType === 'dynamic' && !!safeForce
           ? !!emit('component', id, 'body.applyLocalForce', [safeForce])
           : false;
       },
-      applyTorque: torque => {
+      applyTorque: (torque: unknown) => {
         const safeTorque = boundedBodyVector(torque);
         return bodyType === 'dynamic' && !!safeTorque
           ? !!emit('component', id, 'body.applyTorque', [safeTorque])
           : false;
       }
     });
-    api.constraints = Object.freeze({
+    const constraints = Object.freeze({
       all: () => frozenClone(node.constraints || []),
-      create: options => {
+      create: (options: unknown) => {
         const accepted = emit('component', id, 'constraints.create', [options]);
         return queuedResult(accepted, { id: null }, { id: null });
       },
-      remove: constraintId => !!emit('component', id, 'constraints.remove', [constraintId])
+      remove: (constraintId: unknown) => !!emit('component', id, 'constraints.remove', [constraintId])
     });
     const decorations = () => decorationOverlays.get(id) || node.decorations || [];
-    api.decorations = Object.freeze({
+    const decorationApi = Object.freeze({
       all: () => frozenClone(decorations()),
-      get: decorationId => frozenClone(decorations().find(value => value.id === decorationId) || null),
-      upsert: (decorationId, patch) => {
+      get: (decorationId: string) => frozenClone(decorations().find(value => value.id === decorationId) || null),
+      upsert: (decorationId: string, patch: unknown) => {
         const values = decorations();
         const previous = values.find(value => value.id === decorationId);
         let next;
@@ -277,7 +292,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         if (accepted) decorationOverlays.set(id, normalizeDecorations([...values.filter(value => value.id !== decorationId), next]));
         return queuedResult(accepted, { id: decorationId });
       },
-      remove: decorationId => {
+      remove: (decorationId: string) => {
         const values = decorations();
         if (!values.some(value => value.id === decorationId)) return Object.freeze({ ok: false, reason: 'decoration_not_found' });
         const accepted = emit('component', id, 'decorations.remove', [decorationId]);
@@ -285,90 +300,88 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         return queuedResult(accepted, { id: decorationId });
       }
     });
-    api.voxels = makeVoxelApi(id, false);
-    api.microVoxels = makeVoxelApi(id, true);
-    Object.freeze(api);
-    selfCache.set(id, api);
-    return api;
+    const voxels = makeVoxelApi(id, false);
+    const microVoxels = makeVoxelApi(id, true);
+    return Object.freeze({ ...api, body, constraints, decorations: decorationApi, voxels, microVoxels });
   }
 
   function makeWorldApi() {
     const nearby = Array.isArray(frame.world?.entities) ? frame.world.entities : [];
-    const positionKey = value => Array.isArray(value) ? value.slice(0, 3).map(v => Math.floor(finite(v))).join(',') : '';
-    const microPositionKey = (cell, offset) => positionKey(cell) + '|' + (Array.isArray(offset)
+    const positionKey = (value: unknown) => Array.isArray(value) ? value.slice(0, 3).map(v => Math.floor(finite(v))).join(',') : '';
+    const microPositionKey = (cell: unknown, offset: unknown) => positionKey(cell) + '|' + (Array.isArray(offset)
       ? offset.slice(0, 3).map(v => Math.round(finite(v))).join(',')
       : '');
-    const hostWorldRead = (kind, position, offset = null) => {
+    const hostWorldRead = (kind: string, position: unknown, offset: unknown = null): Record<string, unknown> => {
       try {
         const encoded = hostWorldReadCall(kind, position, offset);
         return typeof encoded === 'string'
-          ? frozenClone(JSON.parse(encoded))
+          ? readRecord(frozenClone(JSON.parse(encoded) as unknown))
           : Object.freeze({ block: 0, color: 0, materialId: 0 });
       } catch (_) {
         return Object.freeze({ block: 0, color: 0, materialId: 0 });
       }
     };
     const voxels = Object.freeze({
-      get(position) {
+      get(position: unknown) {
         const key = positionKey(position);
         return worldVoxelOverlays.has(key)
-          ? frozenClone(worldVoxelOverlays.get(key))
+          ? frozenClone(worldVoxelOverlays.get(key)) || {}
           : hostWorldRead('standard', position);
       },
-      set(position, options) {
+      set(position: unknown, options: unknown) {
         const accepted = emit('world', null, 'voxels.set', [position, options]);
         if (accepted) worldVoxelOverlays.set(positionKey(position), {
           block: 1,
-          color: finite(options?.color),
-          materialId: finite(options?.materialId) === 1 ? 1 : 0,
+          color: finite(readRecord(options).color),
+          materialId: finite(readRecord(options).materialId) === 1 ? 1 : 0,
         });
         return queuedEdit('placed', accepted);
       },
-      clear(position) {
+      clear(position: unknown) {
         const accepted = emit('world', null, 'voxels.clear', [position]);
         if (accepted) worldVoxelOverlays.set(positionKey(position), { block: 0, color: 0, materialId: 0 });
         return queuedEdit('removed', accepted);
       },
-      paint(position, options) {
+      paint(position: unknown, options: unknown) {
         const accepted = emit('world', null, 'voxels.paint', [position, options]);
         if (accepted) {
           const current = voxels.get(position);
           if (current?.block) worldVoxelOverlays.set(positionKey(position), {
             ...current,
-            color: finite(options?.color),
-            materialId: options?.materialId === undefined
+            color: finite(readRecord(options).color),
+            materialId: readRecord(options).materialId === undefined
               ? finite(current.materialId)
-              : (finite(options.materialId) === 1 ? 1 : 0),
+              : (finite(readRecord(options).materialId) === 1 ? 1 : 0),
           });
         }
         return queuedEdit('painted', accepted);
       },
-      clearCell(position) {
+      clearCell(position: unknown) {
         const accepted = emit('world', null, 'voxels.clearCell', [position]);
         if (accepted) worldVoxelOverlays.set(positionKey(position), { block: 0, color: 0, materialId: 0 });
         return queuedEdit('removed', accepted);
       },
-      subdivide(position, offset) {
+      subdivide(position: unknown, offset: unknown) {
         const accepted = emit('world', null, 'voxels.subdivide', [position, offset]);
         return queuedResult(accepted, { subdivided: 1, removed: 0 }, { subdivided: 0, removed: 0 });
       }
     });
     const microVoxels = Object.freeze({
-      get(cell, offset) {
+      get(cell: unknown, offset: unknown) {
         const key = microPositionKey(cell, offset);
         return worldMicroVoxelOverlays.has(key)
-          ? frozenClone(worldMicroVoxelOverlays.get(key))
+          ? frozenClone(worldMicroVoxelOverlays.get(key)) || {}
           : hostWorldRead('micro', cell, offset);
       },
-      set(cell, offset, options) {
+      set(cell: unknown, offset: unknown, options: unknown) {
         const accepted = emit('world', null, 'microVoxels.set', [cell, offset, options]);
         if (accepted) worldMicroVoxelOverlays.set(
           microPositionKey(cell, offset),
-          { block: 1, color: finite(options?.color), materialId: finite(options?.materialId) === 1 ? 1 : 0 }
+          { block: 1, color: finite(readRecord(options).color), materialId: finite(readRecord(options).materialId) === 1 ? 1 : 0 }
         );
         return queuedEdit('placed', accepted);
       },
-      clear(cell, offset) {
+      clear(cell: unknown, offset: unknown) {
         const accepted = emit('world', null, 'microVoxels.clear', [cell, offset]);
         if (accepted) worldMicroVoxelOverlays.set(
           microPositionKey(cell, offset),
@@ -376,7 +389,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         );
         return queuedEdit('removed', accepted);
       },
-      paint(cell, offset, options) {
+      paint(cell: unknown, offset: unknown, options: unknown) {
         const accepted = emit('world', null, 'microVoxels.paint', [cell, offset, options]);
         if (accepted) {
           const current = microVoxels.get(cell, offset);
@@ -384,10 +397,10 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
             microPositionKey(cell, offset),
             {
               ...current,
-              color: finite(options?.color),
-              materialId: options?.materialId === undefined
+              color: finite(readRecord(options).color),
+              materialId: readRecord(options).materialId === undefined
                 ? finite(current.materialId)
-                : (finite(options.materialId) === 1 ? 1 : 0),
+                : (finite(readRecord(options).materialId) === 1 ? 1 : 0),
             }
           );
         }
@@ -395,21 +408,21 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
       }
     });
     const worldSize = Array.isArray(frame.world?.size) ? frame.world.size : [0, 0];
-    const wrappedDelta = (a, b, period) => {
+    const wrappedDelta = (a: unknown, b: unknown, period: unknown) => {
       const direct = Math.abs(finite(a) - finite(b));
       const size = finite(period);
       if (size <= 0) return direct;
       const normalized = direct % size;
       return Math.min(normalized, size - normalized);
     };
-    const distanceFrom = (item, origin) => {
+    const distanceFrom = (item: Record<string, unknown>, origin: number[]) => {
       const position = Array.isArray(item?.position) ? item.position : [0, 0, 0];
       const dx = wrappedDelta(position[0], origin[0], worldSize[0]);
       const dy = finite(position[1]) - origin[1];
       const dz = wrappedDelta(position[2], origin[2], worldSize[1]);
       return Math.hypot(dx, dy, dz);
     };
-    const entities = (origin, radius = 16) => {
+    const entities = (origin: unknown, radius: number = 16) => {
       const queryOrigin = Array.isArray(origin) ? vector(origin) : vector(frame.position);
       const limit = Math.max(0, finite(radius));
       return Object.freeze(nearby
@@ -418,10 +431,10 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         .sort((a, b) => a.distance - b.distance)
         .map(entry => frozenClone({ ...entry.item, distance: entry.distance })));
     };
-    entities.get = entityId => frozenClone(
+    entities.get = (entityId: unknown) => frozenClone(
       nearby.find(item => item.id === String(entityId) || item.runtimeId === entityId) || null
     );
-    entities.list = chunkId => Object.freeze(nearby.filter(item => item.chunkId === String(chunkId)).map(frozenClone));
+    entities.list = (chunkId: unknown) => Object.freeze(nearby.filter(item => item.chunkId === String(chunkId)).map(frozenClone));
     entities.inChunk = entities.list;
     Object.freeze(entities);
     return Object.freeze({
@@ -430,7 +443,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
       voxels,
       microVoxels,
       entities,
-      raycast: (origin, direction, maxDistanceOrOptions = 24) => {
+      raycast: (origin: unknown, direction: unknown, maxDistanceOrOptions: unknown = 24) => {
         try {
           const encoded = hostRaycastCall(origin, direction, maxDistanceOrOptions);
           return typeof encoded === 'string' ? frozenClone(JSON.parse(encoded)) : null;
@@ -443,7 +456,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
 
   function makeSelectionApi() {
     let current = clone(frame.selection) || { kind: 'none', count: 0 };
-    const run = (path, args, next) => {
+    const run = (path: string, args: unknown[], next?: Record<string, unknown>) => {
       const accepted = emit('selection', null, path, args);
       if (accepted && next) current = next;
       return queuedEdit('selected', accepted, Number(current.count) || 0);
@@ -456,13 +469,13 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
         if (accepted) current = { kind: 'none', count: 0 };
         return queuedEdit('cleared', accepted, count);
       },
-      cornerA: (...args) => run('cornerA', args),
-      cornerB: (...args) => run('cornerB', args),
-      box: (...args) => run('box', args),
-      cells: cells => run('cells', [cells], { kind: 'world-cells', count: Array.isArray(cells) ? cells.length : 0 }),
-      toggle: (...args) => run('toggle', args),
-      entity: (entityId, nodeId = null) => run('entity', [entityId, nodeId], { kind: 'entity-subtree', entityId, nodeId, count: 1 }),
-      entityBox: (...args) => run('entityBox', args),
+      cornerA: (...args: unknown[]) => run('cornerA', args),
+      cornerB: (...args: unknown[]) => run('cornerB', args),
+      box: (...args: unknown[]) => run('box', args),
+      cells: (cells: unknown) => run('cells', [cells], { kind: 'world-cells', count: Array.isArray(cells) ? cells.length : 0 }),
+      toggle: (...args: unknown[]) => run('toggle', args),
+      entity: (entityId: unknown, nodeId: unknown = null) => run('entity', [entityId, nodeId], { kind: 'entity-subtree', entityId, nodeId, count: 1 }),
+      entityBox: (...args: unknown[]) => run('entityBox', args),
       delete: () => {
         const accepted = emit('selection', null, 'delete', []);
         const removed = Number(current.count) || 0;
@@ -472,7 +485,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
           { removed: 0, standard: 0, micro: 0, entities: 0, components: 0, entityId: null, nodeId: null }
         );
       },
-      assemble: (...args) => {
+      assemble: (...args: unknown[]) => {
         const accepted = emit('selection', null, 'assemble', args);
         return queuedResult(
           accepted,
@@ -480,7 +493,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
           { assembled: 0, entityId: null, runtimeId: null }
         );
       },
-      createChild: (...args) => {
+      createChild: (...args: unknown[]) => {
         const accepted = emit('selection', null, 'createChild', args);
         return queuedResult(accepted, { childId: null }, { childId: null });
       }
@@ -490,14 +503,14 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
   function makeCommandResultsApi() {
     const results = Array.isArray(frame.commandResults) ? frame.commandResults : [];
     return Object.freeze({
-      get: commandId => frozenClone(
+      get: (commandId: unknown) => frozenClone(
         results.find(result => result?.commandId === String(commandId)) || null
       ),
       all: () => frozenClone(results)
     });
   }
 
-  function prepareEntityMessages(entries) {
+  function prepareEntityMessages(entries: unknown) {
     if (!Array.isArray(entries)) return Object.freeze([]);
     const messages = [];
     for (const entry of entries) {
@@ -518,11 +531,11 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     return Object.freeze(messages);
   }
 
-  function makeEntityMessagesApi(nodeId) {
-    const reject = reason => Object.freeze({ ok: false, queued: 0, reason, commandId: null });
+  function makeEntityMessagesApi(nodeId: string) {
+    const reject = (reason: unknown) => Object.freeze({ ok: false, queued: 0, reason, commandId: null });
     return Object.freeze({
       received: nodeId === rootComponentId ? rootMessages : Object.freeze([]),
-      send: (targetId, messageType, payload, encoding = 'utf8') => {
+      send: (targetId: unknown, messageType: unknown, payload: unknown, encoding: string = 'utf8') => {
         if (typeof targetId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetId)) {
           return reject('invalid_target_id');
         }
@@ -565,7 +578,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
     });
   }
 
-  const beginTick = snapshot => {
+  const beginTick = (snapshot: ScriptSnapshot) => {
     frame = snapshot;
     states = clone(frame.states) || Object.create(null);
     componentMap = new Map((frame.components || []).map(node => [String(node.id), node]));
@@ -590,7 +603,7 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
   };
 
 
-  const context = nodeId => {
+  const context = (nodeId: string) => {
     const input = frame.input || { down: [], pressed: [], released: [] };
     const blocks = frame.blocks || {};
     const ctx = Object.freeze({
@@ -611,13 +624,13 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
       limits: frozenClone(frame.limits || { maxForce: 0, maxTorque: 0 }),
       root: getSelf(rootComponentId),
       blocks: Object.freeze({
-        pressed: type => !!blocks.changed && (type === undefined || type === null || blocks.event?.type === type),
+        pressed: (type: unknown) => !!blocks.changed && (type === undefined || type === null || blocks.event?.type === type),
         event: () => frozenClone(blocks.event || null)
       }),
       input: Object.freeze({
-        down: code => codeActive(input.down || [], code),
-        pressed: code => codeActive(input.pressed || [], code),
-        released: code => codeActive(input.released || [], code)
+        down: (code: unknown) => codeActive(input.down || [], code),
+        pressed: (code: unknown) => codeActive(input.pressed || [], code),
+        released: (code: unknown) => codeActive(input.released || [], code)
       }),
       players: frozenClone(frame.players || []),
       driver: frozenClone(frame.driver || null),
@@ -626,14 +639,14 @@ export function createEntityScriptHost(hostWorldReadCall, hostRaycastCall) {
       world: makeWorldApi(),
       selection: makeSelectionApi(),
       commands: makeCommandResultsApi(),
-      log: message => { emit('log', nodeId, 'log', [String(message).slice(0, 1000)]); }
+      log: (message: unknown) => { emit('log', nodeId, 'log', [String(message).slice(0, 1000)]); }
     });
     return ctx;
   };
   return {
     beginTick, getSelf, context,
     shouldStop: () => stopped,
-    isStop: error => error === STOP,
+    isStop: (error: unknown) => error === STOP,
     finish: () => ({ ok: true, commands, errors, states: clone(states) || {}, frozenStatePaths: collectFrozenPaths(states), stopped })
   };
 }

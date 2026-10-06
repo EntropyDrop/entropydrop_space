@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSo
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy.orm import Session
 from starlette.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from config import settings
 from rate_limit import get_authenticated_or_remote_address, limiter
@@ -337,6 +338,17 @@ class EntityMessageHub:
 entity_message_hub = EntityMessageHub()
 
 
+def _authorize_message_source(db, world_id, source_id, user, instance_id, epoch):
+    # Read the request-scoped ORM objects only on the worker, and return scalar
+    # identities so streaming the request body cannot keep a transaction open.
+    try:
+        world = space_api._require_world_membership(db, world_id, user)
+        _active_browser_source_or_error(db, str(world.id), source_id, user.id, instance_id, epoch)
+        return str(world.id), user.id
+    finally:
+        db.rollback()
+
+
 @router.post(
     "/space/api/v2/worlds/{world_id}/entities/{source_id}/messages/{target_id}/{message_type}/{encoding}",
     status_code=202,
@@ -352,10 +364,9 @@ async def send_entity_message(
     db: Session = Depends(get_db),
     creator: EntityCreator = Depends(_entity_creator),
 ):
-    world = space_api._require_world_membership(db, str(world_id), creator.user)
     execution_instance_id, execution_epoch = _execution_identity_from_request(request)
-    _active_browser_source_or_error(
-        db, str(world.id), str(source_id), creator.user.id,
+    resolved_world_id, user_id = await run_in_threadpool(
+        _authorize_message_source, db, str(world_id), str(source_id), creator.user,
         execution_instance_id, execution_epoch,
     )
 
@@ -395,7 +406,7 @@ async def send_entity_message(
 
     if not await asyncio.to_thread(
         _browser_source_is_active,
-        str(world.id), str(source_id), creator.user.id,
+        resolved_world_id, str(source_id), user_id,
         execution_instance_id, execution_epoch,
     ):
         raise HTTPException(409, detail={"code": "ENTITY_EXECUTION_NOT_ACTIVE"})
@@ -403,15 +414,15 @@ async def send_entity_message(
     fingerprint = _message_fingerprint(str(target_id), message_type, encoding, payload)
     pending, replay = await asyncio.to_thread(
         _begin_idempotent_send,
-        str(world.id), str(source_id), idempotency_key, fingerprint,
+        resolved_world_id, str(source_id), idempotency_key, fingerprint,
     )
     if replay is not None:
         return JSONResponse(status_code=202 if replay["status"] == "routed" else 200, content=replay)
     try:
         result = await _route_entity_message(
-            str(world.id), str(source_id), str(target_id), message_type, encoding, payload,
+            resolved_world_id, str(source_id), str(target_id), message_type, encoding, payload,
             source_is_active=lambda: _browser_source_is_active(
-                str(world.id), str(source_id), creator.user.id,
+                resolved_world_id, str(source_id), user_id,
                 execution_instance_id, execution_epoch,
             ),
         )
@@ -419,12 +430,12 @@ async def send_entity_message(
         if pending:
             await asyncio.to_thread(
                 _release_idempotent_send,
-                str(world.id), str(source_id), idempotency_key, pending,
+                resolved_world_id, str(source_id), idempotency_key, pending,
             )
         raise
     await asyncio.to_thread(
         _finish_idempotent_send,
-        str(world.id), str(source_id), idempotency_key, fingerprint, pending, result,
+        resolved_world_id, str(source_id), idempotency_key, fingerprint, pending, result,
     )
     return JSONResponse(status_code=202 if result["status"] == "routed" else 200, content=result)
 

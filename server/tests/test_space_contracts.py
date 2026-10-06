@@ -41,8 +41,8 @@ def test_space_contract_covers_persistence_queue_and_browser_only_backpack():
     assert "slot_number BETWEEN 0 AND 31" in SCHEMA
     assert "player_inventories" not in SCHEMA
     assert "spawn_x_cm" not in SCHEMA
-    controller = (ROOT.parent / 'client/src/engine/controls/PlayerController.ts').read_text()
-    storage_key = re.search(r"const INVENTORY_STORAGE_KEY = '([^']+)'", controller).group(1)
+    storage_keys = (ROOT.parent / 'client/src/engine/inventory/InventoryStorageKeys.ts').read_text()
+    storage_key = re.search(r"const INVENTORY_STORAGE_KEY = '([^']+)'", storage_keys).group(1)
     assert storage_key in DESIGN
     assert "QueueStatus queue_status" in PROTOCOL
 

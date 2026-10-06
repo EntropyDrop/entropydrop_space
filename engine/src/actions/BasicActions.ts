@@ -1,12 +1,15 @@
+import type { Contraption } from '../contraption/Contraption.ts';
+import type { RuntimeVoxel } from '../contraption/EntityTypes.ts';
+import { readRecord } from '../contraption/EntityInput.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE, MICRO_CELLS_PER_BLOCK } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
-import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
+import { BlockTypes, DEFAULT_BLOCK_COLOR, normalizeColor } from '../voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId } from '../voxel/VoxelMaterials.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
-import { MAX_ENTITY_BOUNDS } from '../contraption/Contraption.ts';
+import { MAX_ENTITY_BOUNDS } from '../constants/SpaceConstants.ts';
 
 /** True when a size-meter block at entity-local (x,y,z) keeps the entity AABB within MAX_ENTITY_BOUNDS. */
-function entityAABBAllows(contraption, x, y, z, size = 1) {
+function entityAABBAllows(contraption: Contraption, x: number, y: number, z: number, size = 1) {
   const min = contraption.minLocal;
   const max = contraption.maxLocal;
   if (!min || !max) return true;
@@ -43,11 +46,11 @@ function actionResult(action: string, changed: number, reason: string, extra: an
   };
 }
 
-function finiteCell(value: any, boundedY = false) {
+function finiteCell(value: unknown, boundedY = false) {
   const parts = Array.isArray(value)
     ? value
-    : value && [value.x, value.y, value.z];
-  if (!parts || parts.length < 3 || parts.slice(0, 3).some(part => !Number.isFinite(Number(part)))) {
+    : value && [readRecord(value).x, readRecord(value).y, readRecord(value).z];
+  if (!Array.isArray(parts) || parts.length < 3 || parts.slice(0, 3).some(part => !Number.isFinite(Number(part)))) {
     return null;
   }
   const cell = {
@@ -59,11 +62,11 @@ function finiteCell(value: any, boundedY = false) {
   return cell;
 }
 
-function finiteMicro(value: any) {
+function finiteMicro(value: unknown) {
   const parts = Array.isArray(value)
     ? value
-    : value && [value.x ?? value.mx, value.y ?? value.my, value.z ?? value.mz];
-  if (!parts || parts.length < 3 || parts.slice(0, 3).some(part => !Number.isFinite(Number(part)))) {
+    : value && [readRecord(value).x ?? readRecord(value).mx, readRecord(value).y ?? readRecord(value).my, readRecord(value).z ?? readRecord(value).mz];
+  if (!Array.isArray(parts) || parts.length < 3 || parts.slice(0, 3).some(part => !Number.isFinite(Number(part)))) {
     return null;
   }
   return {
@@ -84,7 +87,7 @@ function resolveColor(value: any, fallback = DEFAULT_BLOCK_COLOR) {
   return fallback;
 }
 
-function blockCell(block: any) {
+function blockCell(block: RuntimeVoxel) {
   return {
     x: Math.floor(Number(block.localX) + 1e-6),
     y: Math.floor(Number(block.localY) + 1e-6),
@@ -92,12 +95,12 @@ function blockCell(block: any) {
   };
 }
 
-function blockInCell(block: any, cell: any) {
+function blockInCell(block: RuntimeVoxel, cell: any) {
   const own = blockCell(block);
   return own.x === cell.x && own.y === cell.y && own.z === cell.z;
 }
 
-function entityRootId(contraption: any): string {
+function entityRootId(contraption: Contraption | null): string {
   const explicit = contraption?.rootComponentId;
   if (typeof explicit === 'string' && explicit.length > 0) return explicit;
   const structural = [...(contraption?.entityNodes?.values?.() || [])]
@@ -105,31 +108,31 @@ function entityRootId(contraption: any): string {
   return typeof structural === 'string' ? structural : '';
 }
 
-function blockOwnerId(contraption: any, block: any): string {
+function blockOwnerId(contraption: Contraption, block: RuntimeVoxel): string {
   return String(block?.entityId ?? entityRootId(contraption));
 }
 
-function requestedNodeId(contraption: any, ...values: any[]): string {
+function requestedNodeId(contraption: Contraption | null, ...values: unknown[]): string {
   const selected = values.find(value => value !== undefined && value !== null);
   return String(selected ?? entityRootId(contraption));
 }
 
-function entityNodeColor(contraption: any, nodeId: string, options: any) {
+function entityNodeColor(contraption: Contraption, nodeId: string, options: any) {
   const inherited = contraption.blocks?.find(block => blockOwnerId(contraption, block) === nodeId)?.color
     ?? DEFAULT_BLOCK_COLOR;
-  return resolveColor(options, inherited);
+  return resolveColor(options, normalizeColor(inherited));
 }
 
 function commandMaterialId(options: any) {
   return normalizeVoxelMaterialId(options?.materialId);
 }
 
-function resolveContraption(context: any, target: any) {
+function resolveContraption(context: any, target: any): Contraption | null {
   if (target?.contraption) return target.contraption;
   if (context?.contraption) return context.contraption;
   const id = target?.entityId ?? target?.id;
   if (id === undefined || id === null) return null;
-  return context?.manager?.contraptions?.find(item => (
+  return context?.manager?.contraptions?.find((item: Contraption) => (
     String(item.publicId) === String(id) || String(item.id) === String(id)
   )) || null;
 }
@@ -287,7 +290,7 @@ function executeWorldAction(context: any, command: any) {
       return actionResult(command.action, subdivided, subdivided ? 'subdivided' : 'not_found', { subdivided, removed });
     }
     case 'remove-cells': {
-      const cells = Array.isArray(command.cells) ? command.cells.map(item => finiteCell(item, true)).filter(Boolean) : [];
+      const cells = Array.isArray(command.cells) ? command.cells.map((item: unknown) => finiteCell(item, true)).filter(Boolean) : [];
       let standard = 0;
       let microCount = 0;
       for (const item of cells) {
@@ -303,7 +306,7 @@ function executeWorldAction(context: any, command: any) {
       });
     }
     case 'paint-cells': {
-      const cells = Array.isArray(command.cells) ? command.cells.map(item => finiteCell(item, true)).filter(Boolean) : [];
+      const cells = Array.isArray(command.cells) ? command.cells.map((item: unknown) => finiteCell(item, true)).filter(Boolean) : [];
       const color = resolveColor(command.options ?? command.color);
       const changesMaterial = command.options?.materialId !== undefined;
       const materialId = commandMaterialId(command.options);
@@ -350,7 +353,7 @@ function executeWorldAction(context: any, command: any) {
   }
 }
 
-function executeEntityAction(context: any, command: any) {
+function executeEntityAction(context: any, command: any): ReturnType<typeof actionResult> {
   const contraption = resolveContraption(context, command.target);
   if (!contraption || !Array.isArray(contraption.blocks)) {
     return actionResult(command.action, 0, 'entity_not_found');
@@ -441,7 +444,7 @@ function executeEntityAction(context: any, command: any) {
         && blockInCell(item, cell)
       ));
       if (!block) return actionResult(command.action, 0, 'not_found', { painted: 0 });
-      block.color = resolveColor(command.options ?? command.color, block.color ?? DEFAULT_BLOCK_COLOR);
+      block.color = resolveColor(command.options ?? command.color, normalizeColor(block.color));
       if (command.options?.materialId !== undefined) {
         block.materialId = commandMaterialId(command.options);
       }
@@ -463,7 +466,7 @@ function executeEntityAction(context: any, command: any) {
       const localX = micro.x / MICRO_DIVISIONS;
       const localY = micro.y / MICRO_DIVISIONS;
       const localZ = micro.z / MICRO_DIVISIONS;
-      const parent = finiteCell([localX, localY, localZ]);
+      const parent = finiteCell([localX, localY, localZ])!;
       const standardOccupied = contraption.blocks.some(block => (block.size || 1) >= 1 && blockInCell(block, parent));
       const microOccupied = contraption.blocks.some(block => (
         (block.size || 1) < 1
@@ -526,7 +529,7 @@ function executeEntityAction(context: any, command: any) {
       }
       if (command.action === 'paint-micro') {
         const block = contraption.blocks[index];
-        block.color = resolveColor(command.options ?? command.color, block.color ?? DEFAULT_BLOCK_COLOR);
+        block.color = resolveColor(command.options ?? command.color, normalizeColor(block.color));
         if (command.options?.materialId !== undefined) {
           block.materialId = commandMaterialId(command.options);
         }
@@ -849,7 +852,7 @@ function executeEntityAction(context: any, command: any) {
       if (!removed) return actionResult(command.action, 0, 'not_found', { removed: 0 });
       contraption.blocks = next;
       const empty = finishEntityMutation(context, contraption, 'remove', nodeId, entityMutationEvent(command, {
-        cells: selectedBlocks.slice(0, 64).map(block => [block.localX, block.localY, block.localZ]),
+        cells: selectedBlocks.slice(0, 64).map((block: RuntimeVoxel) => [block.localX, block.localY, block.localZ]),
         truncated: selectedBlocks.length > 64
       }), { added, removed: removedBlocks });
       return actionResult(command.action, removed, 'removed', { removed, empty });
@@ -1054,7 +1057,7 @@ function clearEntitySelection(managerOrOwner: any) {
   managerOrOwner.selectedBlockSelection = null;
 }
 
-function canEditInternalSelection(contraption: any) {
+function canEditInternalSelection(contraption: Contraption) {
   return !!contraption && (typeof contraption.canEditInternalSelection === 'function'
     ? contraption.canEditInternalSelection()
     : contraption.scriptStatus === 'stopped');
@@ -1098,13 +1101,13 @@ function invalidateInternalEntitySelections(context: any, contraption: any) {
   }
 }
 
-function entityBoxMatches(contraption: any, nodeId: string, pointA: any, pointB: any, space = 'node-local', microOnly = false, allComponents = false) {
+function entityBoxMatches(contraption: Contraption, nodeId: string, pointA: any, pointB: any, space = 'node-local', microOnly = false, allComponents = false) {
   const node = contraption?.entityNodes?.get(nodeId);
   const a = toPoint(pointA);
   const b = toPoint(pointB);
   if (!node || !a || !b) return { selected: [], components: [] };
   node.group?.updateWorldMatrix?.(true, false);
-  const isMicroBlock = (block: any) => (block.size || 1) < 1;
+  const isMicroBlock = (block: RuntimeVoxel) => (block.size || 1) < 1;
   const worldA = space === 'world' ? a.clone() : node.group.localToWorld(a.clone());
   const worldB = space === 'world' ? b.clone() : node.group.localToWorld(b.clone());
 
@@ -1304,7 +1307,7 @@ function executeSelectionAction(context: any, command: any) {
     }
     case 'cells': {
       if (!manager) return actionResult(command.action, 0, 'selection_unavailable');
-      const cells = Array.isArray(command.cells) ? command.cells.map(item => finiteCell(item, true)).filter(Boolean) : [];
+      const cells = Array.isArray(command.cells) ? command.cells.map((item: unknown) => finiteCell(item, true)).filter(Boolean) : [];
       clearEntitySelection(owner);
       const accepted = manager.setConnectedSelection?.(cells) !== false;
       if (!accepted) return actionResult(command.action, 0, 'bounds_exceeded', { selected: 0 });
@@ -1582,7 +1585,7 @@ function executeSelectionAction(context: any, command: any) {
           return actionResult(command.action, 0, 'entity_not_stopped', { painted: 0 });
         }
         const nodeIds = selected.contraption.collectSubtreeNodeIds?.(nodeId) || new Set([nodeId]);
-        const blocks = selected.contraption.blocks.filter(block => nodeIds.has(blockOwnerId(selected.contraption, block)));
+        const blocks = selected.contraption.blocks.filter((block: RuntimeVoxel) => nodeIds.has(blockOwnerId(selected.contraption, block)));
         return executeEntityAction(context, {
           action: 'paint-blocks',
           target: { contraption: selected.contraption },

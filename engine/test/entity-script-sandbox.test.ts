@@ -40,9 +40,9 @@ test('typed decoration API provides shared optimistic reads, immutable snapshots
   const result = f.tick();
   assert.deepEqual(result.states.root, { queued: 'queued', color: 123, count: 1, invalid: false });
   assert.deepEqual(result.states.arm, { seen: 123, absent: true });
-  assert.deepEqual(result.commands.map(command => [command.nodeId, command.path]),
+  assert.deepEqual(result.commands.map((command: import('../src/scripting/ScriptProtocol.ts').ScriptCommand) => [command.nodeId, command.path]),
     [['arm', 'decorations.upsert'], ['arm', 'decorations.remove']]);
-  assert.ok(result.commands.every(command => command.commandId));
+  assert.ok(result.commands.every((command: import('../src/scripting/ScriptProtocol.ts').ScriptCommand) => command.commandId));
   await f.set(`self.decorations.upsert("trim", Value.object()); self.decorations.get("trim").setNumber("color", 4);`);
   assert.match(f.tick().errors[0].error, /read-only/);
 });
@@ -83,7 +83,7 @@ test('AssemblyScript executes native WASM with typed state, input and command bu
   assert.equal(first.states.root.count, 1);
   assert.equal(first.states.root.held, true);
   assert.deepEqual(first.states.root.position, [1, 2, 3]);
-  assert.deepEqual(first.commands.map(c => c.path), ['applyForce', 'setLocalSpin']);
+  assert.deepEqual(first.commands.map((c: import('../src/scripting/ScriptProtocol.ts').ScriptCommand) => c.path), ['applyForce', 'setLocalSpin']);
   assert.equal(f.tick({ states: first.states }).states.root.count, 2);
 });
 
@@ -91,7 +91,7 @@ test('host/browser globals, dynamic JS, npm imports and unregistered imports fai
   for (const source of ['window.alert("x");', 'eval("x");', 'self.state.foo = 1;',
     'const x = {foo: 1}; ctx.log(x.foo);', 'import x from "fs";',
     '} @external("evil", "run") declare function attack(): void; export function x(): void { attack();']) {
-    await assert.rejects(compileEntityScript(source), undefined, source);
+    await assert.rejects(compileEntityScript(source), source);
   }
 });
 
@@ -187,7 +187,7 @@ test('component body settings, constraints, voxels, selection and message SDK co
   assert.equal(result.ok, true, result.error);
   assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
   assert.equal(result.states.root.sent, true);
-  assert.ok(result.commands.some(c => c.path === 'constraints.create'));
+  assert.ok(result.commands.some((c: import('../src/scripting/ScriptProtocol.ts').ScriptCommand) => c.path === 'constraints.create'));
 });
 
 test('root stop short-circuits child scripts and preserves its control command', async () => {
@@ -265,8 +265,8 @@ test('imported memory is reused while globals, allocator and every guest byte re
   `)).ok, true);
   const Memory = WebAssembly.Memory, Instance = WebAssembly.Instance;
   let allocations = 0, instances = 0;
-  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
-  t.mock.method(WebAssembly, 'Instance', function (module, imports) { instances++; return new Instance(module, imports); });
+  t.mock.method(WebAssembly, 'Memory', function (descriptor: WebAssembly.MemoryDescriptor) { allocations++; return new Memory(descriptor); });
+  t.mock.method(WebAssembly, 'Instance', function (module: WebAssembly.Module, imports: WebAssembly.Imports | undefined) { instances++; return new Instance(module, imports); });
   try {
     let states = {};
     for (let tick = 0; tick < 20; tick++) {
@@ -289,7 +289,7 @@ test('memory caches are isolated across entities and invalidated on script edits
   await first.set(code); await second.set(code);
   const Memory = WebAssembly.Memory;
   const memories: WebAssembly.Memory[] = [];
-  t.mock.method(WebAssembly, 'Memory', function (descriptor) {
+  t.mock.method(WebAssembly, 'Memory', function (descriptor: WebAssembly.MemoryDescriptor) {
     const memory = new Memory(descriptor); memories.push(memory); return memory;
   });
   try {
@@ -308,7 +308,7 @@ test('grown linear memory is discarded so memory.size starts fresh on the next f
   await f.set('self.state.setNumber("before", memory.size()); memory.grow(1); self.state.setNumber("after", memory.size());');
   const Memory = WebAssembly.Memory;
   let allocations = 0;
-  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
+  t.mock.method(WebAssembly, 'Memory', function (descriptor: WebAssembly.MemoryDescriptor) { allocations++; return new Memory(descriptor); });
   try {
     for (let tick = 0; tick < 3; tick++) {
       const result = f.tick({ tick });
@@ -333,7 +333,7 @@ test('a reentrant host query never clears the active guest memory', async t => {
   await f.set('const array: i32[] = [7,9]; ctx.world.raycast([0,0,0], [0,-1,0]); self.state.setNumber("value", array[1]);');
   const Memory = WebAssembly.Memory;
   let allocations = 0;
-  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
+  t.mock.method(WebAssembly, 'Memory', function (descriptor: WebAssembly.MemoryDescriptor) { allocations++; return new Memory(descriptor); });
   try {
     let nested: any;
     const result = f.tick({}, { worldRaycast: () => { nested = f.tick(); return null; } });
@@ -352,7 +352,7 @@ test('inactive components cannot retain more than the entity memory allowance', 
   for (let i = 0; i <= capacity; i++) await f.set(code, `node${i}`);
   const Memory = WebAssembly.Memory;
   let allocations = 0;
-  t.mock.method(WebAssembly, 'Memory', function (descriptor) { allocations++; return new Memory(descriptor); });
+  t.mock.method(WebAssembly, 'Memory', function (descriptor: WebAssembly.MemoryDescriptor) { allocations++; return new Memory(descriptor); });
   const run = (id: string) => f.tick({ rootComponentId: id, scriptOrder: [id],
     components: [{ id, parentId: null, children: [], body: { type: 'dynamic', mass: 10 } }] });
   try {
@@ -377,7 +377,7 @@ test('50 ms failures identify setup or guest execution and discard the entire ti
     t.mock.method(performance, 'now', () => clock);
     if (phase === 'wasm-instantiation') {
       const Instance = WebAssembly.Instance;
-      t.mock.method(WebAssembly, 'Instance', function (module, imports) {
+      t.mock.method(WebAssembly, 'Instance', function (module: WebAssembly.Module, imports: WebAssembly.Imports | undefined) {
         clock = 75;
         return new Instance(module, imports);
       });

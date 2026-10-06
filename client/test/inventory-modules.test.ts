@@ -9,6 +9,11 @@ test('inventory import, export and preview run without the game or browser runti
     importer: new URL('../src/engine/inventory/InventoryImport.ts', import.meta.url).href,
     serializer: new URL('../src/engine/inventory/InventorySerialization.ts', import.meta.url).href,
     geometry: new URL('../src/engine/inventory/InventoryGeometry.ts', import.meta.url).href,
+    backpack: new URL('../src/engine/inventory/Backpack.ts', import.meta.url).href,
+    persistence: new URL('../src/engine/inventory/BackpackPersistence.ts', import.meta.url).href,
+    rotation: new URL('../src/engine/inventory/InventoryRotation.ts', import.meta.url).href,
+    placement: new URL('../src/engine/inventory/InventoryPlacementGeometry.ts', import.meta.url).href,
+    selection: new URL('../src/engine/controls/SelectionGeometry.ts', import.meta.url).href,
     bindings: new URL('../src/engine/controls/ControlBindings.ts', import.meta.url).href,
     protobuf: new URL('../../engine/src/storage/InventoryProtobuf.ts', import.meta.url).href,
   };
@@ -27,9 +32,18 @@ test('inventory import, export and preview run without the game or browser runti
     const { parseInventoryImport } = await import(modules.importer);
     const { encodeInventoryItem } = await import(modules.serializer);
     const { getInventoryPreviewBlocks } = await import(modules.geometry);
+    const { createEmptyInventories } = await import(modules.backpack);
+    const { loadBackpack } = await import(modules.persistence);
+    const { rotateBlocksY90 } = await import(modules.rotation);
+    const { getEntityPlacementShape } = await import(modules.placement);
+    const { rangePointToLocal } = await import(modules.selection);
+    assert.equal(rangePointToLocal(null, null), null);
     const { SpecialTool } = await import(modules.bindings);
     const { encodeInventoryResource, decodeInventoryResource } = await import(modules.protobuf);
     assert.equal(typeof document, 'undefined');
+    assert.equal(createEmptyInventories().item.items.length, 198);
+    assert.equal(loadBackpack(null).inventories.colorset.items[0].entries.length, 9);
+    assert.deepEqual(rotateBlocksY90([{ dx: 0, dy: 0, dz: 0 }], 4), [{ dx: 0, dy: 0, dz: 0 }]);
     assert.equal(SpecialTool.HAMMER, 'hammer');
 
     const resource = {
@@ -53,6 +67,7 @@ test('inventory import, export and preview run without the game or browser runti
     const parsed = parseInventoryImport(bytes, 'item');
     assert.equal(parsed.ok, true, parsed.error);
     const preview = getInventoryPreviewBlocks(parsed.item);
+    assert.equal(getEntityPlacementShape(parsed.item).entries.length, 2);
     assert.deepEqual(preview.map(block => block.center.toArray()),
       [[0.5, -0.5, 0.5], [2.53, 0.7, 0.531]]);
     assert.deepEqual(decodeInventoryResource(encodeInventoryItem('item', parsed.item)).portable,

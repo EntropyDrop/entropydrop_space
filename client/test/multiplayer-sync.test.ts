@@ -395,13 +395,13 @@ test('off-thread remote snapshots keep published terrain and collision until ato
 
   const requests: any[] = [];
   world.terrainWorker = {
-    postMessage(request) {
+    postMessage(request: unknown) {
       requests.push(request);
     },
   };
   const detailTransitions: boolean[] = [];
   const setDetailChunkReady = world.distantSurface.setDetailChunkReady.bind(world.distantSurface);
-  world.distantSurface.setDetailChunkReady = (cx, cz, ready) => {
+  world.distantSurface.setDetailChunkReady = (cx: number, cz: number, ready: boolean) => {
     if (cx === 0 && cz === 0) detailTransitions.push(ready);
     return setDetailChunkReady(cx, cz, ready);
   };
@@ -462,7 +462,7 @@ test('remote standard-to-micro replacement waits and publishes both layers toget
   world.dirtyChunks.clear();
   const previousMesh = chunk.mesh;
   const requests: any[] = [];
-  world.terrainWorker = { postMessage: request => requests.push(request) };
+  world.terrainWorker = { postMessage: (request: unknown) => requests.push(request) };
   const micro = Array.from({ length: 512 }, (_, index) => {
     const dx = index % 5;
     const dy = Math.floor(index / 5) % 5;
@@ -524,7 +524,7 @@ test('an evicted remote replacement keeps its atomic barrier through the missing
   world.pendingStreamChunks = [];
   world.dirtyChunks.clear();
   const requests: any[] = [];
-  world.terrainWorker = { postMessage: request => requests.push(request) };
+  world.terrainWorker = { postMessage: (request: unknown) => requests.push(request) };
 
   world.queueRemoteChunkUpdates([{
     chunk_x: 0,
@@ -607,7 +607,7 @@ test('a local edit racing a completed remote snapshot is included in its retry',
   world.pendingStreamChunks = [];
   world.dirtyChunks.clear();
   const requests: any[] = [];
-  world.terrainWorker = { postMessage: request => requests.push(request) };
+  world.terrainWorker = { postMessage: (request: unknown) => requests.push(request) };
 
   world.queueRemoteChunkUpdates([{
     chunk_x: 0,
@@ -804,7 +804,7 @@ test('terrain continuations are echoed until the whole event is consumed and res
   const requests: any[] = [];
   const delivered: number[] = [];
   let x = 0;
-  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+  t.mock.method(globalThis, 'fetch', async (_url: string, options: RequestInit) => {
     requests.push(JSON.parse(String(options?.body)));
     const second = requests.length === 2;
     return new Response(JSON.stringify({ players: [], terrain_chunks: [{ chunk_x: requests.length }],

@@ -45,7 +45,7 @@ export class VoxelFaceArena {
     const map = new THREE.StorageBufferAttribute(new Float32Array(capacity / BLOCK * 8), 4);
     const records = storage(data, 'uvec4' as 'vec4', capacity).toReadOnly();
     const remap = storage(map, 'vec4', capacity / BLOCK * 2).toReadOnly();
-    const base = uniform(uint(0)).onObjectUpdate(({ object }) => object.userData.voxelArenaBase ?? 0);
+    const base = uniform(uint(0)).onObjectUpdate(({ object }) => object?.userData.voxelArenaBase ?? 0);
     const blockIndex = instanceIndex.div(uint(BLOCK)).add(base).mul(2);
     const block = remap.element(blockIndex), originZ = remap.element(blockIndex.add(1)).x;
     const local = instanceIndex.mod(uint(BLOCK)), valid = local.lessThan(uint(block.y));

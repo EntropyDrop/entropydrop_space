@@ -31,7 +31,7 @@ function makeContraption() {
 }
 
 // Simulate physics consuming per-frame forces, matching ContraptionPhysics.update.
-function consumeForces(contraption) {
+function consumeForces(contraption: import('../src/contraption/Contraption.ts').Contraption) {
   contraption.appliedForces.set(0, 0, 0);
   contraption.appliedTorques.set(0, 0, 0);
 }

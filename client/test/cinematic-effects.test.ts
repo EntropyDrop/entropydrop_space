@@ -53,7 +53,7 @@ test('all HDR stages render in order at every resolution and restore renderer st
   const sun = new THREE.Vector3(0, 0, -1);
   const up = new THREE.Vector3(0, 1, 0);
   const previousTarget = new THREE.WebGLRenderTarget(1, 1);
-  let currentTarget = previousTarget;
+  let currentTarget: THREE.WebGLRenderTarget | null = previousTarget;
   const stages: string[] = [];
   const renderer: any = {
     autoClear: false,

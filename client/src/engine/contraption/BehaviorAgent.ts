@@ -2,7 +2,7 @@ import { TORUS_SIZE_X, TORUS_SIZE_Z } from '@entropydrop/space-engine/torus/Toru
 
 const NUMBER_PATTERN = /(-?\d+(?:\.\d+)?)/;
 
-function firstNumber(text, fallback, patterns = []) {
+function firstNumber(text: string, fallback: number, patterns: RegExp[] = []) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match) return Number(match[1]);
@@ -12,7 +12,7 @@ function firstNumber(text, fallback, patterns = []) {
   return match ? Number(match[1]) : fallback;
 }
 
-function scriptHeader(prompt, title) {
+function scriptHeader(prompt: string, title: string) {
   return `/**
  * Agent generated controller: ${title}
  * Intent: ${prompt.replace(/\*\//g, '* /')}
@@ -22,7 +22,7 @@ function scriptHeader(prompt, title) {
  */`;
 }
 
-function hoverController(prompt, targetHeight) {
+function hoverController(prompt: string, targetHeight: number) {
   return `${scriptHeader(prompt, 'PD hover')}
 
 const targetHeight = ${targetHeight.toFixed(2)};
@@ -43,7 +43,7 @@ if (ctx.tick % 90 === 0) {
 }`;
 }
 
-function followController(prompt, distance) {
+function followController(prompt: string, distance: number) {
   return `${scriptHeader(prompt, 'follow player')}
 
 function wrappedDelta(from: f64, to: f64, size: f64): f64 {
@@ -80,7 +80,7 @@ for (let axis = 0; axis < 3; axis++) force[axis] = error[axis] * 18.0 - ctx.velo
 }`;
 }
 
-function orbitController(prompt, period) {
+function orbitController(prompt: string, period: number) {
   return `${scriptHeader(prompt, 'orbit')}
 
 function wrappedDelta(from: f64, to: f64, size: f64): f64 {
@@ -113,7 +113,7 @@ self.applyForce(force);
 self.applyTorque([0, 7.0 - ctx.angularVelocity[1] * 2.0, 0]);`;
 }
 
-function rocketController(prompt, duration) {
+function rocketController(prompt: string, duration: number) {
   return `${scriptHeader(prompt, 'timed launch')}
 
 if (self.state.get("ignitionTime").isNull) self.state.setNumber("ignitionTime", ctx.time);
@@ -133,7 +133,7 @@ self.applyTorque([
 ]);`;
 }
 
-function spinController(prompt, rpm) {
+function spinController(prompt: string, rpm: number) {
   const targetAngularSpeed = rpm * Math.PI * 2 / 60;
   return `${scriptHeader(prompt, 'constant spin')}
 
@@ -146,7 +146,7 @@ const lift = ctx.mass * Math.abs(ctx.gravity[1]) - ctx.velocity[1] * 7.0;
 self.applyForce([0, Math.max(0, lift), 0]);`;
 }
 
-function stabilizeController(prompt) {
+function stabilizeController(prompt: string) {
   return `${scriptHeader(prompt, 'attitude stabilization')}
 
 self.applyTorque([
@@ -160,7 +160,7 @@ self.applyTorque([
  * Deterministic local intent compiler used by the prototype. It deliberately
  * keeps the same result contract that a remote LLM agent can implement later.
  */
-export function compileBehaviorPrompt(rawPrompt) {
+export function compileBehaviorPrompt(rawPrompt: unknown) {
   const prompt = String(rawPrompt || '').trim();
   const normalized = prompt.toLowerCase();
 

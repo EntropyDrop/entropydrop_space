@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import { setScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,7 +49,7 @@ function makeSelectorController(overrides: any = {}) {
   controller.keys = {};
   const toasts: string[] = [];
   controller.ui = {
-    showToast: m => toasts.push(m),
+    showToast: (m: string) => toasts.push(m),
     renderInventoryBar() {}
   };
   Object.assign(controller, overrides);
@@ -56,14 +57,14 @@ function makeSelectorController(overrides: any = {}) {
   return controller;
 }
 
-function clickEntity(controller, contraption, entityId, cell, point, e = null) {
+function clickEntity(controller: import('../src/engine/controls/PlayerController.ts').PlayerController, contraption: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, entityId: string, cell: { x: number; y: number; z: number }, point: { x: number; y: number; z: number }, e: Pick<MouseEvent, 'shiftKey'> | null = null) {
   controller.hoveredContraptionHit = { contraption, entityId, cell, point };
-  controller.handleLeftClick(e);
+  controller.handleLeftClick(e as MouseEvent | null);
 }
 
 test('running entity selection immediately stops only, then A/B enable actions', () => {
   const { contraption, scene } = makeEntityWithChildren();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   const controller = makeSelectorController({ manager });
   contraption.scriptStatus = 'running';
@@ -73,7 +74,7 @@ test('running entity selection immediately stops only, then A/B enable actions',
   assert.equal(contraption.isPhysicsSimulationEnabled(), false);
   assert.equal(controller.selectorRange, null, 'running entities do not expose a block box');
   assert.equal(controller.selectedSubtree, null, 'the first attempt cannot select');
-  assert.ok(controller.__toasts.some(m => m === 'Entity #1 stopped'));
+  assert.ok(controller.__toasts.some((m: string) => m === 'Entity #1 stopped'));
 
   const before = contraption.blocks.length;
   controller.deleteSelectionBlocks();
@@ -168,7 +169,7 @@ test('a stopped entity still allows arm-subtree selection and box mode', () => {
 
 test('shared selection API rejects entity internals until stopped but keeps whole-root selection', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const { contraption } = makeEntityWithChildren();
   manager.registerContraption(contraption);
   contraption.scriptStatus = 'running';
@@ -202,7 +203,7 @@ test('shared selection API rejects entity internals until stopped but keeps whol
 
 test('starting an entity invalidates an internal selection and stale destructive calls are gated', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const { contraption } = makeEntityWithChildren();
   manager.registerContraption(contraption);
   await setScript(contraption, 'self.state.setNumber("ticks", (self.state.getNumber("ticks") || 0) + 1);');
@@ -247,7 +248,7 @@ test('starting an entity invalidates an internal selection and stale destructive
 
 test('clicking a running entity during an active world box stops it without selecting an endpoint', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption } = makeEntityWithChildren();
   manager.contraptions.push(contraption);
   const toasts: string[] = [];
@@ -256,7 +257,7 @@ test('clicking a running entity during an active world box stops it without sele
   contraption.scriptStatus = 'running';
 
   // First world click sets cornerA.
-  controller.currentRaycast = { hit: true, hitPos: { x: 0, y: 10, z: 0 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 0, y: 10, z: 0 } };
   controller.handleLeftClick();
   assert.ok(manager.selectionCornerA, 'point 1 should be set');
 
@@ -272,7 +273,7 @@ test('clicking a running entity during an active world box stops it without sele
 test('a stopped entity is still rejected as the endpoint of a world-space selection', () => {
   const { contraption, scene } = makeEntityWithChildren();
   contraption.stopAllNodeScripts();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   const controller = makeSelectorController({ manager });
   manager.setCornerA({ x: 0, y: 10, z: 0 });
@@ -281,13 +282,13 @@ test('a stopped entity is still rejected as the endpoint of a world-space select
   assert.equal(manager.selectionCornerB, null);
   assert.equal(controller.selectedSubtree, null);
   assert.equal(contraption.scriptStatus, 'stopped');
-  assert.ok(controller.__toasts.some(m => m.includes('cannot end on an entity')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('cannot end on an entity')));
   assert.equal(controller.__toasts.includes('Entity #1 stopped'), false, 'a stopped entity is not stopped again');
 });
 
 test('R on a running entity immediately stops it, and copies only after A/B', () => {
   const { contraption, scene } = makeEntityWithChildren();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   const controller = makeSelectorController({ manager });
   contraption.scriptStatus = 'running';
@@ -301,7 +302,7 @@ test('R on a running entity immediately stops it, and copies only after A/B', ()
   assert.equal(controller.inventorySlots[0], null, 'stopping alone is not confirmed A/B');
   assert.equal(controller.selectAllSelectionBlocks(), true);
   controller.copySelectionToInventory();
-  const slot = controller.inventorySlots[0];
+  const slot = controller.inventorySlots[0] as import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput | null;
   assert.ok(slot, 'the whole entity should be copied into the slot');
   assert.equal(slot.blockCount, 1, 'Select All covers only root-owned blocks');
   assert.notEqual(slot.kind, 'blockset', 'R should remain entity copy');

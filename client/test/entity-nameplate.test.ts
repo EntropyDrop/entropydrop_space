@@ -176,7 +176,7 @@ test('moving nested components update the overhead bounds without rescanning eve
   camera.updateMatrixWorld(true);
   let scans = 0;
   const iterate = entity.blocks[Symbol.iterator].bind(entity.blocks);
-  entity.blocks[Symbol.iterator] = function* () { scans++; yield* iterate(); };
+  entity.blocks[Symbol.iterator] = function* () { scans++; yield* iterate(); return undefined; };
   const projector = new EntityNameplateProjector();
   const viewport = { width: 800, height: 600 };
   const before = projector.project(entity, camera, viewport)!;

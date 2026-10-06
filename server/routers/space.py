@@ -239,9 +239,15 @@ def _require_world_membership(
     db: Session,
     world_id: str,
     user: models.User,
+    *,
+    for_update: bool = False,
 ) -> models.SpaceWorld:
-    # Serialize short world transactions with hosted simulation commits.
-    world = db.query(models.SpaceWorld).filter(models.SpaceWorld.id == world_id).with_for_update().first()
+    # Only mutations serialize with hosted simulation commits. Reads must not
+    # queue behind unrelated writes to the world's control-plane row.
+    query = db.query(models.SpaceWorld).filter(models.SpaceWorld.id == world_id)
+    if for_update:
+        query = query.with_for_update()
+    world = query.first()
     if world is None:
         raise HTTPException(status_code=404, detail={"code": "WORLD_NOT_FOUND"})
     membership = db.query(models.SpaceWorldPlayerProfile).filter(
@@ -1343,7 +1349,7 @@ def apply_terrain_mutation_batch(
 def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_user,
                                   *, hosted_chunks=None, external_build=False, commit=True):
     """Shared transaction body; external_build requires a scoped API authorization."""
-    world = _require_world_membership(db, str(world_id), current_user)
+    world = _require_world_membership(db, str(world_id), current_user, for_update=True)
     batch_id = str(batch_request.batch_id)
     now = datetime.datetime.now(datetime.timezone.utc)
     receipt = db.query(models.SpaceTerrainMutationBatch).filter(

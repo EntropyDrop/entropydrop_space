@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -17,7 +18,7 @@ function setup(blocks: any[]) {
   const scene = new THREE.Scene();
   const entity = new Contraption(1, blocks, new THREE.Vector3(), scene, { rootComponentId: 'root' });
   entity.stopAllNodeScripts();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(entity);
   // Real edits follow a raycast/physics query, so exercise already-built indexes.
   (entity as any).queryIndexedVoxels(false, () => true);
@@ -150,7 +151,7 @@ test('standard/micro shared faces are culled across negative chunk boundaries an
 
 test('an oversized micro box never falls back to deleting whole standard blocks', () => {
   const { entity, controller, manager } = setup(Array.from({ length: 130 }, (_, i) => standard(i)));
-  const pivot = entity.entityNodes.get('root').pivotLocal;
+  const pivot = requireValue(entity.entityNodes.get('root')).pivotLocal;
   controller.resolveBlockRangeSelection({
     contraption: entity, nodeId: 'root',
     pointA: new THREE.Vector3(0.01, 0.01, 0.01).sub(pivot),

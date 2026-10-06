@@ -4,7 +4,7 @@ import { Hud } from './components/Hud.tsx';
 import { GlobalSettingsModal, PauseScreen } from './components/SimpleModals.tsx';
 import { MinimapCanvas, NavigationPanel } from './components/WorldWidgets.tsx';
 import { spaceUiStore } from './store/SpaceUiStore.ts';
-import { useSpaceUi } from './store/useSpaceUi.ts';
+import { useSpaceUiFields } from './store/useSpaceUi.ts';
 
 const loadEditorModals = () => import('./components/EditorModal.tsx');
 const InventoryModal = React.lazy(() => import('./components/InventoryModal.tsx')
@@ -23,7 +23,7 @@ function ModalChunkFallback() {
 }
 
 export function SpaceRoot() {
-  const { selectedColor, activeModal, apiDocsOpen } = useSpaceUi(state => state);
+  const { selectedColor, activeModal, apiDocsOpen } = useSpaceUiFields('selectedColor', 'activeModal', 'apiDocsOpen');
 
   useEffect(() => {
     document.documentElement.style.setProperty('--build-color', colorToHex(selectedColor));

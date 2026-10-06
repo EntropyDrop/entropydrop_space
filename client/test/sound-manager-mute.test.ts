@@ -406,7 +406,7 @@ test('music disabled during loading stays silent and reuses the decoded buffer w
   const previousFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
   const sources: any[] = [];
   let fetchCount = 0;
-  let releaseFetch: (() => void) | null = null;
+  let releaseFetch: () => void = () => { throw new Error('No pending fetch'); };
 
   class FakeAudioContext {
     currentTime = 4;

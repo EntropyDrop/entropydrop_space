@@ -67,7 +67,7 @@ export class TerrainGenerator {
     this.permutation = buildPermutationTable(random);
   }
 
-  sampleHeight(wx, wz) {
+  sampleHeight(wx: number, wz: number) {
     // Torus angular coordinates.
     const theta = (wx / TORUS_SIZE_X) * Math.PI * 2;
     const phi = (wz / TORUS_SIZE_Z) * Math.PI * 2;
@@ -109,7 +109,7 @@ export class TerrainGenerator {
     return Math.max(TERRAIN_MIN_HEIGHT, Math.min(TERRAIN_MAX_HEIGHT, height));
   }
 
-  generateChunk(chunk, includeDetails = true) {
+  generateChunk(chunk: Chunk, includeDetails = true) {
     chunk.resetForTerrainGeneration();
     if (this.version === TERRAIN_GENERATOR_MIXED) {
       chunk.terrainDetails = generateMixedChunk(chunk, this.seed, includeDetails);

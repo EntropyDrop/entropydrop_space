@@ -66,7 +66,7 @@ export function installWebGPUMigrationSmoke(game: any) {
       createRoot(skin).render(<CharacterSkinPreview url={DEFAULT_PLAYER_SKIN_URL} model="strong"/>);
       const blocks=[0,1,2].map(x=>({localX:x,localY:0,localZ:0,size:1,block:1,color:x===1?0xff6633:0x40bbff,materialId:x===1?1:0,entityId:'root'}));
       const entity=new Contraption('webgpu-fixture',blocks,sr.camera.position.clone(),sr.scene);
-      const highlight=entity.buildNodeHighlightBox('root');entity.rootGroup.add(highlight.group);
+      const highlight=entity.buildNodeHighlightBox('root');if (highlight) entity.rootGroup.add(highlight.group);
       entity.rootGroup.traverse(object => object.layers.set(ENTITY_PREVIEW_LAYER));
       hookSceneMaterials(entity.rootGroup);
       const canvas=document.createElement('canvas');canvas.style.cssText='width:240px;height:240px';canvas.setAttribute('aria-label','WebGPU entity preview');previews.append(canvas);

@@ -258,6 +258,16 @@ class SpaceChunkSnapshot(Base):
     )
 
 
+class SpaceSurfaceGenerationLease(Base):
+    """A short transaction claims one zone; generation holds no database locks."""
+    __tablename__ = 'space_surface_generation_leases'
+    world_id = Column(Uuid(as_uuid=False), ForeignKey('worlds.id', ondelete='CASCADE'), primary_key=True)
+    zone_x = Column(SmallInteger, primary_key=True)
+    zone_z = Column(SmallInteger, primary_key=True)
+    token = Column(String(36), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+
 class SpaceSurfaceZoneSnapshot(Base):
     """Revisioned far terrain, conservative LOD errors and authored vertical solids."""
     __tablename__ = "space_surface_zone_snapshots"

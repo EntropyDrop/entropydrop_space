@@ -19,7 +19,7 @@ test('the renderer skin fixture is a 64x64 strong model skin', () => {
   assert.equal(skin.width, 64);
   assert.equal(skin.height, 64);
   assert.equal(skin.channels, 4);
-  assert.equal(detectSkinModel(skin), 'strong');
+  assert.equal(detectSkinModel({ ...skin, data: new Uint8ClampedArray(skin.data) }), 'strong');
 });
 
 test('skin model detection recognizes the slim arm metadata pixel', () => {

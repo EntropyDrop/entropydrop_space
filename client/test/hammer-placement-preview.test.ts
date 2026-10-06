@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -6,12 +7,12 @@ import { ContraptionManager } from '@entropydrop/space-engine/contraption/Contra
 import { SceneRenderer, getInventoryPreviewBlocks, buildUnifiedInventoryPreviewMesh } from '../src/engine/render/SceneRenderer.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 
-function makeController(slot) {
+function makeController(slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) {
   const controller = Object.create(PlayerController.prototype);
   controller.activeTool = SpecialTool.HAMMER;
   controller.inventorySlots = [slot];
   controller.selectedInventoryIndex = 0;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.hoveredContraptionHit = null;
   controller.physics = { getEyePosition: () => new THREE.Vector3(1, 2, 3) };
   controller.camera = { quaternion: new THREE.Quaternion() };
@@ -21,15 +22,15 @@ function makeController(slot) {
 
 function flatTerrain(topFor: (x: number, z: number) => number = (_x, _z) => 0) {
   return {
-    raycast(origin, _direction, maxDistance) {
+    raycast(origin: { x: number; y: number; z: number }, _direction: unknown, maxDistance: number) {
       const top = topFor(origin.x, origin.z);
       const distance = origin.y - top;
       return distance >= 0 && distance <= maxDistance
-        ? { hit: true, distance }
-        : { hit: false };
+        ? { hit: true as const, distance }
+        : { hit: false as const };
     },
     raycastMicro() {
-      return { hit: false };
+      return { hit: false as const };
     }
   };
 }
@@ -47,7 +48,7 @@ test('Hammer hover preview uses the same snapped pose as block-set placement', (
     normal: new THREE.Vector3(1, 0, 0)
   };
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 20, y: 20, z: 20 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -72,7 +73,7 @@ test('Hammer aims a micro block set on the adjacent 0.125 m cell of a focused mi
   };
   const controller = makeController(slot);
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'micro',
     microPos: { x: 18, y: 3, z: 10 },
     placeMicroPos: { x: 19, y: 3, z: 10 },
@@ -95,7 +96,7 @@ test('Hammer aims a micro block set at 0.125 m precision across a standard block
   };
   const controller = makeController(slot);
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'standard',
     hitPos: { x: 4, y: 5, z: 7 },
     entry: { x: 4.46, y: 6, z: 7.73 },
@@ -118,7 +119,7 @@ test('Hammer keeps block sets containing standard voxels on the 1 m grid', () =>
   };
   const controller = makeController(slot);
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'micro',
     placeMicroPos: { x: 19, y: 3, z: 10 },
     hitPos: { x: 2.25, y: 0.375, z: 1.25 },
@@ -146,7 +147,7 @@ test('Hammer centres entity geometry on the hit and settles its bottom onto terr
     maxX: -99, maxY: 2, maxZ: -99
   });
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'standard',
     hitPos: { x: 9, y: 8, z: 19 },
     entry: { x: 10, y: 9, z: 20 },
@@ -216,7 +217,7 @@ test('Hammer keeps an entity outside a side face while centring it along the tan
   const controller = makeController(slot);
   controller.world = flatTerrain(() => 0);
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'standard',
     hitPos: { x: 9, y: 2, z: 19 },
     entry: { x: 10, y: 2.5, z: 20 },
@@ -240,19 +241,19 @@ test('Hammer drops a ceiling placement without treating the hit ceiling as floor
   };
   const controller = makeController(slot);
   controller.world = {
-    raycast(origin) {
+    raycast(origin: { x: number; y: number; z: number }) {
       // A ray starting above the underside at Y=5 would still be inside the
       // ceiling. A correct downward-face probe begins below it and reaches Y=0.
       return origin.y > 5
-        ? { hit: true, distance: 0 }
-        : { hit: true, distance: origin.y };
+        ? { hit: true as const, distance: 0 }
+        : { hit: true as const, distance: origin.y };
     },
     raycastMicro() {
-      return { hit: false };
+      return { hit: false as const };
     }
   };
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'standard',
     hitPos: { x: 0, y: 5, z: 0 },
     entry: { x: 0.5, y: 5, z: 0.5 },
@@ -276,7 +277,7 @@ test('Hammer uses the highest sampled terrain support instead of embedding a wid
   const controller = makeController(slot);
   controller.world = flatTerrain(x => x > 10 ? 4 : 2);
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'standard',
     hitPos: { x: 9, y: 7, z: 19 },
     entry: { x: 10, y: 8, z: 20 },
@@ -300,7 +301,7 @@ test('Hammer keeps terrain placement centred even when it overlaps the player', 
   const player = { minX: 0.2, minY: 0, minZ: 0.2, maxX: 0.8, maxY: 1.8, maxZ: 0.8 };
   controller.physics.getAABB = () => player;
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     kind: 'standard',
     hitPos: { x: 0, y: -1, z: 0 },
     entry: { x: 0.5, y: 0, z: 0.5 },
@@ -361,10 +362,10 @@ test('entity-on-entity placement snaps to the targeted component micro grid with
   );
   const inverseTargetRotation = targetRotation.clone().invert();
   const target = {
-    worldToEntityLocal(_nodeId, point) {
+    worldToEntityLocal(_nodeId: string, point: import('three').Vector3) {
       return point.clone().sub(targetOrigin).applyQuaternion(inverseTargetRotation);
     },
-    entityLocalToWorld(_nodeId, point) {
+    entityLocalToWorld(_nodeId: string, point: import('three').Vector3) {
       return point.clone().applyQuaternion(targetRotation).add(targetOrigin);
     },
     getEntityNodeWorldQuaternion() {
@@ -416,8 +417,8 @@ test('entity side placement rotates its authored up axis outward and stays tange
     collisionPoseVersion: 1,
     collisionEntries: [],
     blocks: [],
-    worldToEntityLocal(_nodeId, point) { return point.clone(); },
-    entityLocalToWorld(_nodeId, point) { return point.clone(); },
+    worldToEntityLocal(_nodeId: string, point: import('three').Vector3) { return point.clone(); },
+    entityLocalToWorld(_nodeId: string, point: import('three').Vector3) { return point.clone(); },
     getEntityNodeWorldQuaternion() { return new THREE.Quaternion(); }
   };
   const surface = new THREE.Vector3(1, 2.4, 3.6);
@@ -453,7 +454,7 @@ test('entity-on-entity placement moves outward on the micro grid until target vo
     blocks: [{ localX: 0, localY: 0, localZ: 0, size: 1, entityId: 'root' }]
   };
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const target = manager.buildFromSlot({
     kind: 'entity',
     rootComponentId: 'root',
@@ -490,7 +491,7 @@ test('Hammer ghost hides without a hovered surface, on an empty slot, or in anot
   assert.equal(controller.inventoryPlacementPreview, null, 'air is not a hover target');
 
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 2, y: 3, z: 4 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -526,13 +527,13 @@ test('entity preview blocks reproduce the hierarchy pose built from the same slo
     enabled: []
   };
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = manager.buildFromSlot(slot, new THREE.Vector3());
   const previewBlocks = getInventoryPreviewBlocks(slot);
 
-  assert.equal(previewBlocks.length, entity.blocks.length);
-  for (let index = 0; index < entity.blocks.length; index++) {
-    const builtCenter = entity.getBlockWorldCenter(entity.blocks[index]);
+  assert.equal(previewBlocks.length, requireValue(entity).blocks.length);
+  for (let index = 0; index < requireValue(entity).blocks.length; index++) {
+    const builtCenter = requireValue(entity).getBlockWorldCenter(requireValue(entity).blocks[index]);
     assert.ok(
       previewBlocks[index].center.distanceTo(builtCenter) < 1e-8,
       `preview block ${index} must match the built hierarchy pose`

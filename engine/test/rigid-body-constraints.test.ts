@@ -6,7 +6,7 @@ import { BodyType, Contraption } from '../src/contraption/Contraption.ts';
 import { ContraptionPhysics } from '../src/physics/ContraptionPhysics.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 
-const block = (x) => ({
+const block = (x: number) => ({
   localX: x,
   localY: 0,
   localZ: 0,
@@ -18,8 +18,8 @@ const block = (x) => ({
 
 function makePhysics() {
   return new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: () => BlockTypes.AIR
   });
 }
@@ -90,9 +90,9 @@ test('body defaults persist while script body mutations remain runtime-only unti
   assert.equal('fixed' in slot, false, 'new serialization must not write the removed fixed flag');
   assert.equal(slot.bodyType, BodyType.KINEMATIC);
   assert.equal('mass' in slot, false, 'runtime root mass must not overwrite the PB default');
-  assert.equal(slot.childEntities.find(def => def.id === 'payload').bodyType, BodyType.KINEMATIC,
+  assert.equal(slot.childEntities.find((def: import('../src/storage/InventoryTypes.ts').InventoryChild) => def.id === 'payload').bodyType, BodyType.KINEMATIC,
     'the editor/shared action default survives a later runtime type change');
-  assert.equal('mass' in slot.childEntities.find(def => def.id === 'payload'), false,
+  assert.equal('mass' in slot.childEntities.find((def: import('../src/storage/InventoryTypes.ts').InventoryChild) => def.id === 'payload'), false,
     'runtime child mass must not overwrite the PB default');
 
   contraption.stopAllNodeScripts();
@@ -168,7 +168,7 @@ test('removed fixed input has no runtime meaning', () => {
     [block(0)],
     new THREE.Vector3(),
     new THREE.Scene(),
-    { fixed: true }
+    { fixed: true } as unknown as import('../src/contraption/EntityTypes.ts').ContraptionOptions
   ) as any;
   assert.equal(entity.bodyType, BodyType.DYNAMIC);
   assert.equal(entity.fixed, undefined);

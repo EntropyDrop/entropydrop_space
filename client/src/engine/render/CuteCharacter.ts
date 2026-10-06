@@ -794,7 +794,7 @@ export class CuteCharacter {
   update(deltaSeconds: number, motion: CuteCharacterMotion = {}) {
     const dt = THREE.MathUtils.clamp(Number(deltaSeconds) || 0, 0, 0.1);
     this.animationTime += dt;
-    if (Number.isFinite(motion.toolUseSequence)) {
+    if (typeof motion.toolUseSequence === 'number' && Number.isFinite(motion.toolUseSequence)) {
       if (this.lastToolUseSequence !== null && motion.toolUseSequence !== this.lastToolUseSequence) {
         this.playToolUseAnimation();
       }

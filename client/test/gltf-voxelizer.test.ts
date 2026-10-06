@@ -32,7 +32,7 @@ function makeController(overrides: any = {}) {
   controller.keys = {};
   const toasts: string[] = [];
   controller.ui = {
-    showToast: m => toasts.push(m),
+    showToast: (m: string) => toasts.push(m),
     renderInventoryBar() {}
   };
   Object.assign(controller, overrides);

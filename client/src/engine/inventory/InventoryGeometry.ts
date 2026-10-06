@@ -1,6 +1,7 @@
-import * as THREE from 'three';
-import { MICRO_DIVISIONS } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import { MAX_ENTITY_BOUNDS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import type { InventoryInput, InventoryVoxel } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
+import { MICRO_DIVISIONS } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+import * as THREE from 'three';
 
 // Geometry only: this module must not depend on a renderer, controller or DOM.
 export const STOPPED_GRID_EPSILON = 1e-6;
@@ -15,16 +16,16 @@ export interface InventoryPreviewBlock {
   quaternion?: THREE.Quaternion;
 }
 
-export function previewVector3(value, fallback = new THREE.Vector3()): THREE.Vector3 {
-  if (value?.isVector3) return value.clone();
+export function previewVector3(value: unknown, fallback = new THREE.Vector3()): THREE.Vector3 {
+  if (value instanceof THREE.Vector3) return value.clone();
   if (Array.isArray(value)) {
     return new THREE.Vector3(Number(value[0]) || 0, Number(value[1]) || 0, Number(value[2]) || 0);
   }
   return fallback.clone();
 }
 
-function previewQuaternion(value): THREE.Quaternion {
-  if (value?.isQuaternion) return value.clone().normalize();
+function previewQuaternion(value: unknown): THREE.Quaternion {
+  if (value instanceof THREE.Quaternion) return value.clone().normalize();
   if (Array.isArray(value) && value.length >= 4) {
     const components = value.slice(0, 4).map(Number);
     if (components.every(Number.isFinite)) {
@@ -51,7 +52,7 @@ function previewQuaternion(value): THREE.Quaternion {
  * placement origin. Entity component transforms mirror Contraption's initial
  * hierarchy, so articulated copies preview in the same pose they build in.
  */
-export function getInventoryPreviewBlocks(slot, includeDecorations = false): InventoryPreviewBlock[] {
+export function getInventoryPreviewBlocks(slot: InventoryInput | null | undefined, includeDecorations = false): InventoryPreviewBlock[] {
   if (slot?.kind === 'item') {
     return [
       ...getInventoryPreviewBlocks(slot.blockSet, includeDecorations),
@@ -164,7 +165,7 @@ export function getInventoryPreviewBlocks(slot, includeDecorations = false): Inv
     return [{ center, size, color: block.color, materialId: block.materialId }];
   });
   if (!includeDecorations) return result;
-  const decorations: any[] = [];
+  const decorations: InventoryPreviewBlock[] = [];
   for (const definition of [{ id: rootComponentId, decorations: slot.decorations }, ...definitions]) {
     const node = nodes.get(definition.id);
     if (!node) continue;
@@ -182,12 +183,12 @@ export function getInventoryPreviewBlocks(slot, includeDecorations = false): Inv
 }
 
 /** True when voxels along any axis do not exceed MAX_ENTITY_BOUNDS (256). */
-export function withinEntityBounds(blocks: any[], keys: string[], ownerKey: string | null = null): boolean {
-  const groups = new Map();
+export function withinEntityBounds(blocks: InventoryVoxel[], keys: Array<keyof InventoryVoxel>, ownerKey: keyof InventoryVoxel | null = null): boolean {
+  const groups = new Map<string, InventoryVoxel[]>();
   for (const block of blocks) {
     const owner = ownerKey ? String(block[ownerKey] ?? '') : 'resource';
     if (!groups.has(owner)) groups.set(owner, []);
-    groups.get(owner).push(block);
+    groups.get(owner)!.push(block);
   }
   for (const group of groups.values()) {
     for (let axis = 0; axis < 3; axis++) {
@@ -205,7 +206,7 @@ export function withinEntityBounds(blocks: any[], keys: string[], ownerKey: stri
 }
 
 /** True when no duplicate voxels exist and standard and micro voxels do not share cells. */
-export function validateVoxelOccupancy(blocks: any[], coordinateKeys: string[], ownerKey: string | null = null): boolean {
+export function validateVoxelOccupancy(blocks: InventoryVoxel[], coordinateKeys: Array<keyof InventoryVoxel>, ownerKey: keyof InventoryVoxel | null = null): boolean {
   const standardCells = new Set();
   const microCells = new Set();
   const microParents = new Set();
@@ -229,7 +230,7 @@ export function validateVoxelOccupancy(blocks: any[], coordinateKeys: string[], 
   return true;
 }
 
-export function isStoppedGridQuaternion(value): boolean {
+export function isStoppedGridQuaternion(value: unknown): boolean {
   if (value === undefined) return true;
   if (!Array.isArray(value) || value.length !== 4) return false;
   const components = value.map(Number);
@@ -249,7 +250,7 @@ export function isStoppedGridQuaternion(value): boolean {
   )));
 }
 
-export function validateStoppedEntityGrid(slot): string | null {
+export function validateStoppedEntityGrid(slot: InventoryInput): string | null {
   if (!isStoppedGridQuaternion(slot?.anchorRotation)) {
     return 'Root anchor rotation must be one of the 24 axis-aligned 90-degree rotations';
   }

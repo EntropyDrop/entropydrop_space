@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -12,16 +13,16 @@ import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 
 function makeShovelController(overrides = {}) {
   const controller = Object.create(PlayerController.prototype);
-  const breakSounds = [];
+  const breakSounds: unknown[] = [];
   controller.activeTool = SpecialTool.SHOVEL;
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.canPlaceStandardAt = () => true;
   controller.selectedColor = 0xff0000;
   controller.particles = { emitBlockBreak() {} };
   controller.sound = {
     playBlockPlace() {},
-    playBlockBreak(options) { breakSounds.push(options); }
+    playBlockBreak(options: Record<string, unknown>) { breakSounds.push(options); }
   };
   controller.ui = { showToast() {}, notifyContraptionStructureChanged() {} };
   Object.assign(controller, overrides);
@@ -30,17 +31,17 @@ function makeShovelController(overrides = {}) {
 }
 
 test('world shovel break plays one standard fracture only after a successful removal', () => {
-  const writes = [];
+  const writes: unknown[][] = [];
   const controller = makeShovelController({
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'standard',
       hitPos: { x: 2, y: 3, z: 4 },
       color: 0x123456
     },
     world: {
       getBlock: () => BlockTypes.COLOR_BLOCK,
-      setBlock: (...args) => {
+      setBlock: (...args: unknown[]) => {
         writes.push(args);
         return true;
       }
@@ -57,7 +58,7 @@ test('world shovel break plays one standard fracture only after a successful rem
 test('world shovel break stays silent when a stale hit removes nothing', () => {
   const controller = makeShovelController({
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'standard',
       hitPos: { x: 2, y: 3, z: 4 },
       color: 0x123456
@@ -76,16 +77,16 @@ test('world shovel break stays silent when a stale hit removes nothing', () => {
 });
 
 test('world shovel micro-cell clear reports its debris count as one standard fracture', () => {
-  const cleared = [];
+  const cleared: unknown[][] = [];
   const controller = makeShovelController({
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'micro',
       microPos: { x: 18, y: 25, z: 36 },
       color: 0x123456
     },
     world: {
-      clearMicroStandardCell: (...args) => {
+      clearMicroStandardCell: (...args: unknown[]) => {
         cleared.push(args);
         return 3;
       }
@@ -210,18 +211,18 @@ test('the first shovel placement or removal attempt stops the entity without edi
 });
 
 test('world placement beside a focused microblock targets the adjacent standard cell', () => {
-  let placed = null;
+  let placed = null as { wx: number; wy: number; wz: number; blockType?: number; color?: number } | null;
   const controller = makeShovelController({
     // Focused microcell (18,3,10) belongs to standard cell (2,0,1), hit on +X.
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'micro',
       microPos: { x: 18, y: 3, z: 10 },
       normal: { x: 1, y: 0, z: 0 }
     },
     world: {
       hasMicroInStandardCell: () => false,
-      setBlock: (wx, wy, wz, blockType, updateMesh, color) => {
+      setBlock: (wx: number, wy: number, wz: number, blockType: number, updateMesh: boolean, color: number) => {
         placed = { wx, wy, wz, blockType, color };
       }
     }
@@ -237,7 +238,7 @@ test('world placement rejects a subdivided target cell', () => {
   let placed = false;
   const controller = makeShovelController({
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'micro',
       microPos: { x: 18, y: 3, z: 10 },
       normal: { x: 0, y: 1, z: 0 }
@@ -252,16 +253,16 @@ test('world placement rejects a subdivided target cell', () => {
 });
 
 test('world placement beside a standard block still targets the adjacent cell', () => {
-  let placed = null;
+  let placed = null as { wx: number; wy: number; wz: number; blockType?: number; color?: number } | null;
   const controller = makeShovelController({
-    currentRaycast: { hit: true, kind: 'standard', placePos: { x: 5, y: 6, z: 7 } },
+    currentRaycast: { hit: true as const, kind: 'standard', placePos: { x: 5, y: 6, z: 7 } },
     world: {
       hasMicroInStandardCell: () => false,
-      setBlock: (wx, wy, wz) => { placed = { wx, wy, wz }; }
+      setBlock: (wx: number, wy: number, wz: number) => { placed = { wx, wy, wz }; }
     }
   });
   controller.handleRightClick(null);
-  assert.deepEqual([placed.wx, placed.wy, placed.wz], [5, 6, 7]);
+  assert.deepEqual([requireValue(placed).wx, requireValue(placed).wy, requireValue(placed).wz], [5, 6, 7]);
 });
 
 test('entity placement beside a focused microblock preserves the subdivided cell', () => {
@@ -310,7 +311,7 @@ test('entity placement rejects a subdivided target cell', () => {
 });
 
 test('entity placement beside a standard block still targets the adjacent cell', () => {
-  const contraption = { scriptStatus: 'stopped', blocks: [], rebuildAfterBlockChange() {} };
+  const contraption = { scriptStatus: 'stopped', blocks: [] as import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel[], rebuildAfterBlockChange() {} };
   const controller = makeShovelController({
     hoveredContraptionHit: {
       contraption,

@@ -179,7 +179,7 @@ test('terrain worker completion starts bounded lookahead without waiting for an 
   const world = new World(new THREE.Scene()) as any;
   world.setRenderDistance(3); world.updateChunksAround(0, 0, false);
   const requests: any[] = [];
-  const worker: any = { postMessage: request => requests.push(request) };
+  const worker: any = { postMessage: (request: import('../src/voxel/TerrainStreamProtocol.ts').TerrainWorkerRequest) => requests.push(request) };
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
   Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
   t.after(() => {
@@ -208,7 +208,7 @@ test('one standard/micro barrier cannot block independent terrain results or gen
   const world = new World(new THREE.Scene()) as any;
   world.setRenderDistance(3); world.updateChunksAround(0, 0, false);
   const requests: any[] = [];
-  world.terrainWorker = { postMessage: request => requests.push(request) };
+  world.terrainWorker = { postMessage: (request: import('../src/voxel/TerrainStreamProtocol.ts').TerrainWorkerRequest) => requests.push(request) };
   const chunk = world.getOrCreateChunk(0, 0);
   world.microVoxels.set(1, 200, 1, 1);
   world.crossLayerPublicationChunks.add('0,0');

@@ -109,7 +109,7 @@ function unpackMicroY(value: number): number {
   return Math.floor(value / MICRO_WORLD_SIZE_X / MICRO_WORLD_SIZE_Z);
 }
 
-function key(mx, my, mz) {
+function key(mx: number, my: number, mz: number) {
   return `${wrapMicroX(mx)},${my},${wrapMicroZ(mz)}`;
 }
 
@@ -124,12 +124,12 @@ function standardChunkKeyForMeshChunk(meshKey: string): string {
 
 export class MicroVoxelLayer {
   cells: Map<string, number>;
-  parts: Map<string, any>;
+  parts: Map<string, string>;
   materials: Map<string, number>;
   dirty: boolean;
   group: THREE.Group;
   /** Compatibility alias for callers that only need to know whether a mesh exists. */
-  mesh: any;
+  mesh: THREE.Mesh | null;
   meshChunks: Map<string, THREE.Mesh>;
   private chunkCells: Map<string, Set<number>>;
   private packedColors: Map<number, number>;
@@ -205,15 +205,15 @@ export class MicroVoxelLayer {
     this.renderBatches = new MicroRenderBatches(this.group, this.renderMaterials);
   }
 
-  get(mx, my, mz) {
+  get(mx: number, my: number, mz: number) {
     return this.cells.get(key(mx, my, mz)) ?? null;
   }
 
-  getMaterial(mx, my, mz) {
+  getMaterial(mx: number, my: number, mz: number) {
     return this.materials.get(key(mx, my, mz)) ?? VoxelMaterialIds.DEFAULT;
   }
 
-  has(mx, my, mz) {
+  has(mx: number, my: number, mz: number) {
     return this.cells.has(key(mx, my, mz));
   }
 
@@ -342,7 +342,7 @@ export class MicroVoxelLayer {
     }
   }
 
-  private addChunkCell(packedKey: number, mx, my, mz) {
+  private addChunkCell(packedKey: number, mx: number, my: number, mz: number) {
     const chunkKey = meshChunkKey(mx, my, mz);
     let cells = this.chunkCells.get(chunkKey);
     if (!cells) {
@@ -353,7 +353,7 @@ export class MicroVoxelLayer {
     cells.add(packedKey);
   }
 
-  private removeChunkCell(packedKey: number, mx, my, mz) {
+  private removeChunkCell(packedKey: number, mx: number, my: number, mz: number) {
     const chunkKey = meshChunkKey(mx, my, mz);
     const cells = this.chunkCells.get(chunkKey);
     cells?.delete(packedKey);
@@ -378,7 +378,7 @@ export class MicroVoxelLayer {
     }
   }
 
-  set(mx, my, mz, color = DEFAULT_BLOCK_COLOR, part = null, materialId = 0) {
+  set(mx: number, my: number, mz: number, color: number | string = DEFAULT_BLOCK_COLOR, part: string | null = null, materialId = 0) {
     mx = wrapMicroX(mx);
     mz = wrapMicroZ(mz);
     const normalized = normalizeColor(color);
@@ -468,7 +468,7 @@ export class MicroVoxelLayer {
     return changed;
   }
 
-  delete(mx, my, mz) {
+  delete(mx: number, my: number, mz: number) {
     mx = wrapMicroX(mx);
     mz = wrapMicroZ(mz);
     const cellKey = key(mx, my, mz);
@@ -487,7 +487,7 @@ export class MicroVoxelLayer {
     return removed;
   }
 
-  subdivide(wx, wy, wz, color = DEFAULT_BLOCK_COLOR, materialId = 0) {
+  subdivide(wx: number, wy: number, wz: number, color = DEFAULT_BLOCK_COLOR, materialId = 0) {
     const baseX = wx * MICRO_DIVISIONS;
     const baseY = wy * MICRO_DIVISIONS;
     const baseZ = wz * MICRO_DIVISIONS;
@@ -505,7 +505,7 @@ export class MicroVoxelLayer {
     return MICRO_DIVISIONS ** 3;
   }
 
-  clearStandardCell(wx, wy, wz) {
+  clearStandardCell(wx: number, wy: number, wz: number) {
     const baseX = wx * MICRO_DIVISIONS;
     const baseY = wy * MICRO_DIVISIONS;
     const baseZ = wz * MICRO_DIVISIONS;
@@ -520,7 +520,7 @@ export class MicroVoxelLayer {
     return removed;
   }
 
-  hasAnyInStandardCell(wx, wy, wz) {
+  hasAnyInStandardCell(wx: number, wy: number, wz: number) {
     const baseX = wx * MICRO_DIVISIONS;
     const baseY = wy * MICRO_DIVISIONS;
     const baseZ = wz * MICRO_DIVISIONS;
@@ -535,7 +535,7 @@ export class MicroVoxelLayer {
   }
 
   /** Clear one horizontal 16x16 standard chunk without scanning all microcells. */
-  clearChunk(chunkX, chunkZ) {
+  clearChunk(chunkX: number, chunkZ: number) {
     const cursor = this.beginClearChunk(chunkX, chunkZ);
     this.continueClearChunk(cursor);
     return cursor.removed;
@@ -623,7 +623,7 @@ export class MicroVoxelLayer {
     return true;
   }
 
-  extractRegion(minX, minY, minZ, maxX, maxY, maxZ) {
+  extractRegion(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number) {
     const extracted = [];
     const minMx = minX * MICRO_DIVISIONS;
     const minMy = minY * MICRO_DIVISIONS;
@@ -660,8 +660,8 @@ export class MicroVoxelLayer {
    * the inclusive [min..max] range. Micro indices are absolute (0.125 m grid),
    * so callers can target a single cell by passing equal min/max values.
    */
-  extractCellsInBox(minMx, minMy, minMz, maxMx, maxMy, maxMz) {
-    const extracted = [];
+  extractCellsInBox(minMx: number, minMy: number, minMz: number, maxMx: number, maxMy: number, maxMz: number) {
+    const extracted: Array<{ mx: number; my: number; mz: number; color: number; part: string | null; materialId: number }> = [];
     if (!Number.isFinite(minMx) || !Number.isFinite(minMy) || !Number.isFinite(minMz)
       || !Number.isFinite(maxMx) || !Number.isFinite(maxMy) || !Number.isFinite(maxMz)) {
       return extracted;
@@ -688,7 +688,7 @@ export class MicroVoxelLayer {
     return extracted;
   }
 
-  getCellsInAABB(aabb) {
+  getCellsInAABB(aabb: CollisionBounds) {
     const cells = [];
     const minX = Math.floor(aabb.minX * MICRO_DIVISIONS);
     const maxX = Math.floor(aabb.maxX * MICRO_DIVISIONS);
@@ -719,7 +719,7 @@ export class MicroVoxelLayer {
   }
 
   /** Collision cells matching the mesh currently published to the scene. */
-  getPublishedCollisionCellsInAABB(aabb) {
+  getPublishedCollisionCellsInAABB(aabb: CollisionBounds) {
     const cells = [];
     const minX = Math.floor(aabb.minX * MICRO_DIVISIONS);
     const maxX = Math.floor(aabb.maxX * MICRO_DIVISIONS);
@@ -866,8 +866,8 @@ export class MicroVoxelLayer {
   }
 
   raycast(
-    origin,
-    direction,
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
     maxDistance = 10,
     isCellReady: ((mx: number, mz: number) => boolean) | null = null,
     usePublishedCollision = false,
@@ -907,7 +907,7 @@ export class MicroVoxelLayer {
         : this.get(mx, my, mz);
       if (color !== null && (!isCellReady || isCellReady(mx, mz))) {
         return {
-          hit: true,
+          hit: true as const,
           kind: 'micro',
           microPos: { x: mx, y: my, z: mz },
           hitPos: { x: mx * MICRO_SIZE, y: my * MICRO_SIZE, z: mz * MICRO_SIZE },
@@ -944,7 +944,7 @@ export class MicroVoxelLayer {
         normal = { x: 0, y: 0, z: -stepZ };
       }
     }
-    return { hit: false };
+    return { hit: false as const };
   }
 
   private initializeMeshWorker() {

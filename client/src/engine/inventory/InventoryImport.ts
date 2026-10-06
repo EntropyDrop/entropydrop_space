@@ -1,41 +1,79 @@
-import * as THREE from 'three';
-import { MICRO_DIVISIONS } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
-import { normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
+import {
+  MAX_ENTITY_BOUNDS,
+  MAX_ENTITY_COMPONENTS,
+  MAX_ENTITY_DECORATIONS,
+  MAX_IMPORT_COORDINATE,
+  MAX_INVENTORY_BLOCKS,
+  MAX_INVENTORY_CONSTRAINTS,
+  MAX_INVENTORY_IMPORT_BYTES,
+  MAX_INVENTORY_SCRIPT_BYTES,
+  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
+  MAX_PORTABLE_BODY_MASS,
+  MAX_PORTABLE_CONSTRAINT_VALUE,
+  MAX_PORTABLE_VECTOR_COMPONENT,
+} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import { normalizeDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { isValidComponentId, isValidConstraintId } from '@entropydrop/space-engine/contraption/PortableIds.ts';
 import {
-  MAX_INVENTORY_NAME_LENGTH, trimInventoryName, inventoryNameLength, truncateInventoryName,
+  inventoryNameLength,
+  MAX_INVENTORY_NAME_LENGTH,
+  trimInventoryName,
+  truncateInventoryName,
 } from '@entropydrop/space-engine/storage/InventoryName.ts';
 import {
-  MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_ENTITY_DECORATIONS,
-  MAX_IMPORT_COORDINATE, MAX_PORTABLE_VECTOR_COMPONENT, MAX_INVENTORY_BLOCKS,
-  MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
-  MAX_INVENTORY_CONSTRAINTS, MAX_PORTABLE_BODY_MASS, MAX_PORTABLE_CONSTRAINT_VALUE,
-} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
-import {
-  decodeInventoryResource, encodeInventoryResource, wrapLegacyInventoryResource,
-  INVENTORY_PROTOBUF_SCHEMA_VERSION, portableEntityToRuntime,
+  decodeInventoryResource,
+  encodeInventoryResource,
+  INVENTORY_PROTOBUF_SCHEMA_VERSION,
+  portableEntityToRuntime,
+  wrapLegacyInventoryResource,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
+import type {
+  BlockSetVoxel,
+  EntityVoxel,
+  FlatPortableEntity,
+  InventoryBlockSet,
+  InventoryColorSet,
+  InventoryConstraint,
+  InventoryEntity,
+  InventoryItem,
+  InventoryKind,
+  InventoryResource,
+  InventoryResourceMap,
+  PortableBlockSet,
+  PortableColorSet,
+  PortableComponent,
+  PortableEntity,
+  PortableItem,
+  PortableResource,
+  PortableVoxel,
+} from '@entropydrop/space-engine/storage/InventoryTypes.ts';
+import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { MICRO_DIVISIONS } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+import { normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
+import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import * as THREE from 'three';
 import {
-  getInventoryPreviewBlocks, withinEntityBounds, validateVoxelOccupancy,
-  isStoppedGridQuaternion, validateStoppedEntityGrid, validateInventoryVoxelBounds,
+  getInventoryPreviewBlocks,
+  isStoppedGridQuaternion,
   STOPPED_GRID_EPSILON,
+  validateInventoryVoxelBounds,
+  validateStoppedEntityGrid,
+  validateVoxelOccupancy,
+  withinEntityBounds,
 } from './InventoryGeometry.ts';
 
 const HEX_COLOR = /^#?[0-9a-f]{6}$/i;
 
-export type InventoryImportResult =
-  | { ok: true; item: any; error?: never }
+export type InventoryImportResult<T = InventoryResource> =
+  | { ok: true; item: T; error?: never }
   | { ok: false; error: string; item?: never };
 
-const fail = (error: string): InventoryImportResult => ({ ok: false, error });
+const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
-const validBaseCoordinates = values => values.every(value => (
+const validBaseCoordinates = (values: number[]) => values.every(value => (
   Number.isSafeInteger(value) && Math.abs(value) <= MAX_IMPORT_COORDINATE
 ));
-const portableVector = (value, maxAbs = MAX_PORTABLE_VECTOR_COMPONENT) => {
+const portableVector = (value: unknown, maxAbs = MAX_PORTABLE_VECTOR_COMPONENT) => {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length !== 3) return null;
   const vector = value.map(Number);
@@ -45,7 +83,7 @@ const portableVector = (value, maxAbs = MAX_PORTABLE_VECTOR_COMPONENT) => {
 };
 // Unit-quaternion shape check without the stopped-grid restriction, which
 // applies only to authored component local/anchor rotations.
-const portableUnitQuaternion = value => {
+const portableUnitQuaternion = (value: unknown) => {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length !== 4) return null;
   const components = value.map(Number);
@@ -58,7 +96,7 @@ const portableUnitQuaternion = value => {
     components[0], components[1], components[2], components[3]
   ).normalize().toArray();
 };
-const portableQuaternion = value => {
+const portableQuaternion = (value: unknown) => {
   if (value === undefined) return undefined;
   // The backend rejects components outside -1..1 before it even checks the
   // norm, so an unnormalized rotation is mirrored here.
@@ -70,7 +108,9 @@ const portableQuaternion = value => {
     ? null
     : (isStoppedGridQuaternion(normalized) ? normalized : null);
 };
-const runtimeVoxel = (block, ownerId = null) => {
+function runtimeVoxel(block: PortableVoxel): BlockSetVoxel;
+function runtimeVoxel(block: PortableVoxel, ownerId: string): EntityVoxel;
+function runtimeVoxel(block: PortableVoxel, ownerId: string | null = null): BlockSetVoxel | EntityVoxel {
   if (block?.block !== undefined && block.block !== BlockTypes.COLOR_BLOCK) {
     throw new Error(`Inventory v${INVENTORY_PROTOBUF_SCHEMA_VERSION} supports only color block id 1`);
   }
@@ -110,18 +150,18 @@ const runtimeVoxel = (block, ownerId = null) => {
   return { ...result, dx: coordinates[0], dy: coordinates[1], dz: coordinates[2] };
 };
 
-function parseItem(data: any): InventoryImportResult {
+function parseItem(data: PortableItem): InventoryImportResult<InventoryItem> {
   if (typeof data.id !== 'string' || !data.id.trim() || Array.from(data.id).length > 128) return fail('Item template id is invalid');
   if (typeof data.name !== 'string' || inventoryNameLength(data.name) > MAX_INVENTORY_NAME_LENGTH) return fail('Item name is invalid');
-  const entityList = [];
-  let blockSet;
+  const entityList: InventoryEntity[] = [];
+  let blockSet: InventoryBlockSet | undefined;
   if (data.blockSet) {
     const parsed = parseInventoryImport(encodeInventoryResource('blockset', data.blockSet), 'blockset');
-    if (!parsed.ok) return parsed;
+    if (parsed.ok === false) return parsed;
     blockSet = parsed.item;
   }
   let components = 0, constraints = 0, seats = 0, scriptBytes = 0, decorations = 0;
-  const count = component => {
+  const count = (component: PortableComponent): void => {
     components++;
     seats += (component.seats || []).length;
     decorations += (component.decorations || []).length;
@@ -137,7 +177,7 @@ function parseItem(data: any): InventoryImportResult {
     delete definition.root.localPosition;
     delete definition.root.localRotation;
     const parsed = parseInventoryImport(encodeInventoryResource('entity', definition), 'entity');
-    if (!parsed.ok) return parsed;
+    if (parsed.ok === false) return parsed;
     count(definition.root);
     constraints += definition.constraints.length;
     entityList.push({ ...parsed.item, itemPosition: position, itemRotation: rotation, itemWorldConstraints: true });
@@ -145,14 +185,14 @@ function parseItem(data: any): InventoryImportResult {
   const blocks = [...(blockSet?.blocks || []), ...entityList.flatMap(entity => entity.blocks)];
   if (!blocks.length || blocks.length > MAX_INVENTORY_BLOCKS) return fail('Item must contain between 1 and 65536 voxels');
   if (components > MAX_ENTITY_COMPONENTS || constraints > MAX_INVENTORY_CONSTRAINTS || seats > 256 || scriptBytes > MAX_INVENTORY_TOTAL_SCRIPT_BYTES || decorations > MAX_ENTITY_DECORATIONS) return fail('Item exceeds aggregate component, constraint, seat, decoration or script limits');
-  const item = {
+  const item: InventoryItem = {
     kind: 'item', id: data.id, name: trimInventoryName(data.name),
     blockSet, entityList, blocks, blockCount: blocks.length, nodeCount: components,
   };
   const geometry = getInventoryPreviewBlocks(item);
   const geometryError = validateInventoryVoxelBounds(geometry, false);
   if (geometryError) return fail(geometryError);
-  for (const axis of ['x', 'y', 'z']) {
+  for (const axis of ['x', 'y', 'z'] as const) {
     let minimum = Infinity, maximum = -Infinity;
     for (const entry of geometry) {
       minimum = Math.min(minimum, entry.center[axis] - entry.size / 2);
@@ -165,7 +205,7 @@ function parseItem(data: any): InventoryImportResult {
   return { ok: true, item };
 }
 
-function parseBlockset(data: any): InventoryImportResult {
+function parseBlockset(data: PortableBlockSet): InventoryImportResult<InventoryBlockSet> {
   if (data?.type !== 'space-blockset' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
     return fail(`Expected a space-blockset v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
   }
@@ -200,7 +240,7 @@ function parseBlockset(data: any): InventoryImportResult {
   };
 }
 
-function parseEntity(data: any): InventoryImportResult {
+function parseEntity(data: PortableEntity): InventoryImportResult<InventoryEntity> {
   if (data?.type !== 'space-entity' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION || !data.root) {
     return fail(`Expected a recursive space-entity v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
   }
@@ -212,7 +252,7 @@ function parseEntity(data: any): InventoryImportResult {
   let seatCount = 0;
   let decorationCount = 0;
   let totalScriptBytes = 0;
-  const validateBody = (body, id) => {
+  const validateBody = (body: PortableComponent['body'], id: string) => {
     if (!body || (body.type !== 'dynamic' && body.type !== 'kinematic')) {
       throw new Error(`Component ${id} must have a valid body config`);
     }
@@ -222,20 +262,20 @@ function parseEntity(data: any): InventoryImportResult {
         throw new Error(`Component ${id} has invalid mass`);
       }
     }
-    for (const field of ['restitution', 'friction']) {
+    for (const field of ['restitution', 'friction'] as const) {
       if (body[field] === undefined) continue;
       const value = Number(body[field]);
       if (!Number.isFinite(value) || value < 0 || value > 1) {
         throw new Error(`Component ${id} has invalid ${field}`);
       }
     }
-    for (const field of ['useGravity', 'collisionEnabled']) {
+    for (const field of ['useGravity', 'collisionEnabled'] as const) {
       if (body[field] !== undefined && typeof body[field] !== 'boolean') {
         throw new Error(`Component ${id} has invalid ${field}`);
       }
     }
   };
-  const validateComponent = (component, parentId, depth) => {
+  const validateComponent = (component: PortableComponent, parentId: string | null, depth: number): void => {
     if (!component || typeof component !== 'object' || depth > 16) {
       throw new Error('Component hierarchy is malformed or exceeds depth 16');
     }
@@ -315,10 +355,11 @@ function parseEntity(data: any): InventoryImportResult {
   }
   if (blockCount === 0) return fail('An entity must contain at least one voxel');
 
-  let runtime;
+  let flat: FlatPortableEntity;
+  let runtime: InventoryEntity;
   try {
-    runtime = portableEntityToRuntime(data);
-    runtime.blocks = runtime.blocks.map(block => runtimeVoxel(block, block.entityId));
+    flat = portableEntityToRuntime(data);
+    runtime = { ...flat, kind: 'entity', blocks: flat.blocks.map(block => runtimeVoxel(block, block.entityId)) };
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'Invalid recursive entity');
   }
@@ -335,7 +376,7 @@ function parseEntity(data: any): InventoryImportResult {
     return fail(`An entity may contain at most ${MAX_INVENTORY_CONSTRAINTS} constraints`);
   }
   const constraintIds = new Set();
-  const constraints = [];
+  const constraints: InventoryConstraint[] = [];
   for (const constraint of data.constraints) {
     const id = constraint?.id;
     const bodyA = constraint?.bodyA === null ? null : String(constraint?.bodyA ?? '');
@@ -346,8 +387,8 @@ function parseEntity(data: any): InventoryImportResult {
     if ((bodyA !== null && !ids.has(bodyA)) || !ids.has(bodyB) || bodyA === bodyB) {
       return fail(`Constraint ${id} references an invalid component`);
     }
-    const vectors = {};
-    for (const field of ['anchorA', 'anchorB', 'axisA', 'axisB', 'referenceA', 'referenceB']) {
+    const vectors: Partial<InventoryConstraint> = {};
+    for (const field of ['anchorA', 'anchorB', 'axisA', 'axisB', 'referenceA', 'referenceB'] as const) {
       if (constraint[field] === undefined) continue;
       const vector = portableVector(constraint[field]);
       if (vector === null) return fail(`Constraint ${id} has an invalid ${field}`);
@@ -387,7 +428,7 @@ function parseEntity(data: any): InventoryImportResult {
   return { ok: true, item: runtime };
 }
 
-function parseColorset(data: any): InventoryImportResult {
+function parseColorset(data: PortableColorSet): InventoryImportResult<InventoryColorSet> {
   if (data?.type !== 'space-colorset' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
     return fail(`Expected a space-colorset v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
   }
@@ -410,6 +451,8 @@ function parseColorset(data: any): InventoryImportResult {
 }
 
 /** Parse and validate an untrusted Protobuf resource without accessing player or UI state. */
+export function parseInventoryImport<K extends InventoryKind>(input: unknown, category: K): InventoryImportResult<InventoryResourceMap[K]>;
+export function parseInventoryImport(input: unknown, category: string): InventoryImportResult;
 export function parseInventoryImport(input: unknown, category: string): InventoryImportResult {
   const encoded = input instanceof Uint8Array
     ? input
@@ -421,7 +464,7 @@ export function parseInventoryImport(input: unknown, category: string): Inventor
     return fail(`File exceeds ${MAX_INVENTORY_IMPORT_BYTES / (1024 * 1024)} MiB`);
   }
 
-  let data;
+  let data: PortableResource;
   try {
     const decoded = decodeInventoryResource(encoded);
     if (category === 'item') {
@@ -435,11 +478,11 @@ export function parseInventoryImport(input: unknown, category: string): Inventor
   } catch (err) {
     return fail(err instanceof Error ? err.message : 'Not valid inventory Protobuf');
   }
-  switch (category) {
-    case 'item': return parseItem(data);
-    case 'blockset': return parseBlockset(data);
-    case 'entity': return parseEntity(data);
-    case 'colorset': return parseColorset(data);
+  switch (data.type) {
+    case 'space-item': return parseItem(data);
+    case 'space-blockset': return parseBlockset(data);
+    case 'space-entity': return parseEntity(data);
+    case 'space-colorset': return parseColorset(data);
     default: return fail('Unknown inventory category');
   }
 }

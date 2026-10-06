@@ -27,7 +27,7 @@ import { SpecialTool } from '../../../engine/controls/ControlBindings.ts';
 import type { SelectorShape } from '../../../engine/controls/SelectorShapes.ts';
 import { InventoryThumbnailRenderer } from '../../../engine/render/InventoryThumbnailRenderer.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
-import { useSpaceUi } from '../store/useSpaceUi.ts';
+import { useSpaceUi, useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 import { SiDiscord } from 'react-icons/si';
@@ -448,7 +448,9 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
 }
 
 function InventoryBar() {
-  const { controller, activeInventoryCategory, selectedInventoryIndex } = useSpaceUi(state => state);
+  const { controller, activeInventoryCategory, selectedInventoryIndex, inventoryRevision } = useSpaceUiFields(
+    'controller', 'activeInventoryCategory', 'selectedInventoryIndex', 'inventoryRevision',
+  );
   const category = 'item';
   const items = controller?.inventories?.[category]?.items || [];
   const renderer = InventoryThumbnailRenderer.getInstance();
@@ -471,7 +473,7 @@ function InventoryBar() {
           const item = items[index];
           const count = item?.blockCount || item?.blocks?.length || 0;
           const name = item ? controller?.inventoryItemName?.(category, item, index) || item.name || `Slot ${index + 1}` : '';
-          const thumbnail = item ? renderer.getThumbnail(item, 64) : null;
+          const thumbnail = item ? renderer.getThumbnail(item, 64, inventoryRevision) : null;
           return (
             <button
               type="button"
@@ -808,12 +810,42 @@ function BulkEditProgressPanel() {
   );
 }
 
-export function Hud() {
-  const state = useSpaceUi(snapshot => snapshot);
-  const activeTool = state.hotbarSlots[state.selectedHotbarIndex]?.value;
+function HudMetrics() {
+  const state = useSpaceUiFields('fpsText', 'pingClass', 'pingText', 'positionText', 'terrainLoadProgress', 'networkRates');
   const terrain = state.terrainLoadProgress;
   const terrainPercent = terrain.totalChunks > 0
     ? Math.floor(terrain.readyChunks / terrain.totalChunks * 100) : 0;
+  return <>
+    <div className="hud-metrics-row"><span id="fps-val">{state.fpsText}</span><span className="hud-metric-sep">·</span><span id="ping-val" className={state.pingClass}>{state.pingText}</span></div>
+    <div id="pos-val">{state.positionText}</div>
+    <div className={`hud-terrain ${terrain.ready ? 'is-ready' : ''}`}>
+      <div className="hud-terrain-label">
+        <span>{terrain.ready ? 'Chunks ready' : 'Loading chunks'}</span>
+        <span>{terrain.readyChunks}/{terrain.totalChunks} · {terrainPercent}%</span>
+      </div>
+      <div id="terrain-load-progress" className="hud-terrain-track" role="progressbar"
+        aria-label="Nearby chunks loaded" aria-valuemin={0} aria-valuemax={100}
+        aria-valuenow={terrainPercent}
+        aria-valuetext={`${terrain.readyChunks} of ${terrain.totalChunks} chunks ready, including micro blocks`}
+        title="Nearby chunks, including standard and micro blocks">
+        <div className="hud-terrain-fill" style={{ width: `${terrainPercent}%` }} />
+      </div>
+    </div>
+    <div id="network-bandwidth" className="hud-bandwidth"
+      title="Live application data over the last second. Downloads count response-body bytes after decompression; uploads count transfer progress and drained realtime messages. Excludes protocol overhead and browser-cache hits when timing is available.">
+      <span aria-label={`Download ${formatByteRate(state.networkRates.downloadBytesPerSecond)}`}>
+        <span className="hud-bandwidth-arrow" aria-hidden="true">↓</span> {formatByteRate(state.networkRates.downloadBytesPerSecond)}
+      </span>
+      <span aria-label={`Upload ${formatByteRate(state.networkRates.uploadBytesPerSecond)}`}>
+        <span className="hud-bandwidth-arrow" aria-hidden="true">↑</span> {formatByteRate(state.networkRates.uploadBytesPerSecond)}
+      </span>
+    </div>
+  </>;
+}
+
+export function Hud() {
+  const state = useSpaceUiFields('hotbarSlots', 'selectedHotbarIndex', 'toast');
+  const activeTool = state.hotbarSlots[state.selectedHotbarIndex]?.value;
   return (
     <>
       <div id="crosshair" />
@@ -821,30 +853,7 @@ export function Hud() {
         <div className="hud-top">
           <div className="hud-card">
             <div className="hud-badge"><span className="hud-badge-dot" />EntropyDrop · Space <span className="hud-beta-badge">BETA</span></div>
-            <div className="hud-metrics-row"><span id="fps-val">{state.fpsText}</span><span className="hud-metric-sep">·</span><span id="ping-val" className={state.pingClass}>{state.pingText}</span></div>
-            <div id="pos-val">{state.positionText}</div>
-            <div className={`hud-terrain ${terrain.ready ? 'is-ready' : ''}`}>
-              <div className="hud-terrain-label">
-                <span>{terrain.ready ? 'Chunks ready' : 'Loading chunks'}</span>
-                <span>{terrain.readyChunks}/{terrain.totalChunks} · {terrainPercent}%</span>
-              </div>
-              <div id="terrain-load-progress" className="hud-terrain-track" role="progressbar"
-                aria-label="Nearby chunks loaded" aria-valuemin={0} aria-valuemax={100}
-                aria-valuenow={terrainPercent}
-                aria-valuetext={`${terrain.readyChunks} of ${terrain.totalChunks} chunks ready, including micro blocks`}
-                title="Nearby chunks, including standard and micro blocks">
-                <div className="hud-terrain-fill" style={{ width: `${terrainPercent}%` }} />
-              </div>
-            </div>
-            <div id="network-bandwidth" className="hud-bandwidth"
-              title="Live application data over the last second. Downloads count response-body bytes after decompression; uploads count transfer progress and drained realtime messages. Excludes protocol overhead and browser-cache hits when timing is available.">
-              <span aria-label={`Download ${formatByteRate(state.networkRates.downloadBytesPerSecond)}`}>
-                <span className="hud-bandwidth-arrow" aria-hidden="true">↓</span> {formatByteRate(state.networkRates.downloadBytesPerSecond)}
-              </span>
-              <span aria-label={`Upload ${formatByteRate(state.networkRates.uploadBytesPerSecond)}`}>
-                <span className="hud-bandwidth-arrow" aria-hidden="true">↑</span> {formatByteRate(state.networkRates.uploadBytesPerSecond)}
-              </span>
-            </div>
+            <HudMetrics />
             <NearbyEntities />
             <HostedEntities />
           </div>

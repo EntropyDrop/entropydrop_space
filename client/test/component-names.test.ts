@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -25,11 +26,11 @@ test('component names survive subtree export, attachment, independent build and 
   const source = sourceEntity();
   const controller = Object.create(PlayerController.prototype);
   const storage = new Map<string, string>();
-  const backend = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
+  const backend = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) };
   const manager = new ContraptionManager(new THREE.Scene(), null, null, null, backend);
   manager.setWorldId('named-world');
 
-  const portable = decodeInventoryResource(controller.encodeInventoryItem('entity', source.serializeSubtree())).portable;
+  const portable = decodeInventoryResource(controller.encodeInventoryItem('entity', source.serializeSubtree()), 'entity').portable;
   assert.equal('name' in portable, false);
   assert.equal(portable.root.name, 'Robot');
   assert.deepEqual(portable.root.children.map(child => [child.id, child.name]), [
@@ -38,8 +39,8 @@ test('component names survive subtree export, attachment, independent build and 
   const imported = controller.parseInventoryImport(controller.encodeInventoryItem('entity', source.serializeSubtree()), 'entity');
   assert.equal(imported.ok, true, imported.error);
   const built = manager.buildFromSlot(imported.item, new THREE.Vector3(0, 8, 0));
-  assert.equal(built.getComponentName(), 'Robot');
-  assert.equal(built.getComponentName('root'), 'Shared module');
+  assert.equal(requireValue(built).getComponentName(), 'Robot');
+  assert.equal(requireValue(built).getComponentName('root'), 'Shared module');
   assert.equal(manager.saveEntitiesToStorage(), true);
   const restoredManager = new ContraptionManager(new THREE.Scene(), null, null, null, backend);
   restoredManager.setWorldId('named-world');
@@ -47,17 +48,17 @@ test('component names survive subtree export, attachment, independent build and 
   assert.equal(restoredManager.contraptions[0].getComponentName('root'), 'Shared module');
 
   const extracted = source.serializeSubtree('root');
-  assert.equal(extracted.name, 'Shared module');
+  assert.equal(requireValue(extracted).name, 'Shared module');
   const standalone = manager.buildFromSlot(extracted, new THREE.Vector3(10, 8, 0));
-  assert.equal(standalone.rootComponentId, 'root');
-  assert.equal(standalone.getComponentName(), 'Shared module');
+  assert.equal(requireValue(standalone).rootComponentId, 'root');
+  assert.equal(requireValue(standalone).getComponentName(), 'Shared module');
   const host = sourceEntity();
   host.setPhysicsSimulationEnabled(false);
   const installed = host.installEntitySlot(extracted, 'world', new THREE.Vector3(5, 0, 0));
   assert.equal(installed.ok, true);
   assert.notEqual(installed.rootId, 'root', 'collision remaps identity without changing display name');
   assert.equal(host.getComponentName(installed.rootId), 'Shared module');
-  assert.equal(host.serializeSubtree(installed.rootId).name, 'Shared module');
+  assert.equal(requireValue(host.serializeSubtree(installed.rootId)).name, 'Shared module');
 });
 
 test('renaming components changes only display names, including duplicate and unnamed roots', () => {
@@ -66,15 +67,15 @@ test('renaming components changes only display names, including duplicate and un
   assert.equal(source.setComponentName('world', ' Shared module '), true);
   assert.equal(source.setComponentName('B', 'ZZZ'), true);
   assert.equal(source.setComponentName('root', 'AAA'), true);
-  assert.deepEqual(source.getHierarchyTree().children.map(child => child.id), ['B', 'root']);
+  assert.deepEqual(requireValue(source.getHierarchyTree()).children.map(child => child.id), ['B', 'root']);
   const after = source.serializeSubtree();
-  assert.equal(after.name, 'Shared module');
-  assert.deepEqual(after.blocks, before.blocks);
-  assert.deepEqual(after.constraints, before.constraints);
-  assert.deepEqual(after.scripts, before.scripts);
+  assert.equal(requireValue(after).name, 'Shared module');
+  assert.deepEqual(requireValue(after).blocks, requireValue(before).blocks);
+  assert.deepEqual(requireValue(after).constraints, requireValue(before).constraints);
+  assert.deepEqual(requireValue(after).scripts, requireValue(before).scripts);
   assert.equal(source.setComponentName('root', ''), true);
   const slot = source.serializeSubtree('root');
-  assert.equal(slot.name, '');
+  assert.equal(requireValue(slot).name, '');
   const controller = Object.create(PlayerController.prototype);
   assert.equal(controller.inventoryItemName('entity', slot), 'root');
   const roundTrip = controller.parseInventoryImport(controller.encodeInventoryItem('entity', slot), 'entity');

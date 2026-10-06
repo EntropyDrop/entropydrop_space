@@ -351,11 +351,11 @@ test('torus rendering starts with no synthetic far terrain and preserves near-fi
     const maskIndex = chunk.cz * (TORUS_SIZE_X / 16) + chunk.cx;
     assert.equal(detailMask[maskIndex], 255,
       'far terrain must be hidden only after the detailed chunk mesh is ready');
-    chunk.mesh.traverse((child) => {
-      if (!child.isMesh) return;
+    chunk.mesh.traverse((child: import('three').Object3D) => {
+      if (!(child instanceof THREE.Mesh)) return;
       assert.equal(child.frustumCulled, false, 'child meshes must not be culled again by flat bounding spheres');
       if (child.castShadow) {
-        assert.ok((Array.isArray(child.material) ? child.material : [child.material]).every(mat => mat.positionNode?.isNode), 'shadow passes reuse the terrain position node immediately');
+        assert.ok((Array.isArray(child.material) ? child.material : [child.material]).every((mat: import('three/webgpu').MeshStandardNodeMaterial) => mat.positionNode?.isNode), 'shadow passes reuse the terrain position node immediately');
       }
     });
   }
@@ -364,7 +364,7 @@ test('torus rendering starts with no synthetic far terrain and preserves near-fi
   world.updateChunksAround(TORUS_SPAWN_X, TORUS_SPAWN_Z);
   assert.ok(world.microVoxels.mesh, 'microvoxel mesh should rebuild in the edit frame');
   assert.equal(world.microVoxels.mesh.frustumCulled, false, 'new microvoxel mesh should use torus culling immediately');
-  assert.ok(world.microVoxels.mesh.material.every(mat => mat.positionNode?.isNode), 'micro shadow passes reuse the bent position node');
+  assert.ok(world.microVoxels.mesh.material.every((mat: import('three/webgpu').MeshStandardNodeMaterial) => mat.positionNode?.isNode), 'micro shadow passes reuse the bent position node');
 });
 
 test('simulation refreshes the active window without spending another mesh budget', () => {
@@ -565,7 +565,7 @@ test('a standard remesh swaps detailed geometry without clearing its ownership m
   const previousMesh = chunk.mesh;
   const transitions: boolean[] = [];
   const setDetailChunkReady = world.distantSurface.setDetailChunkReady.bind(world.distantSurface);
-  world.distantSurface.setDetailChunkReady = (cx, cz, ready) => {
+  world.distantSurface.setDetailChunkReady = (cx: number, cz: number, ready: boolean) => {
     if (cx === 0 && cz === 0) transitions.push(ready);
     return setDetailChunkReady(cx, cz, ready);
   };

@@ -86,7 +86,7 @@ export class LowPolyMesher {
    * CPU-only mesh construction. Keeping this separate from the Three.js scene
    * objects lets streamed chunks run the expensive voxel scan in a Web Worker.
    */
-  buildChunkMeshData(chunk): ChunkMeshData {
+  buildChunkMeshData(chunk: Chunk): ChunkMeshData {
     const origin = chunk.getWorldOrigin();
     const occupiedRange = chunk.getOccupiedYRange?.() ?? null;
     const minOccupiedY = occupiedRange?.min ?? 0;
@@ -107,7 +107,7 @@ export class LowPolyMesher {
     // repeated wrapped world-coordinate conversion and map lookup for every
     // boundary voxel face (up to thousands of times per rebuild).
     const world = chunk.world;
-    const neighborChunks = new Map<number, any>();
+    const neighborChunks = new Map<number, Chunk | null | undefined>();
     if (world) {
       const resolve = (faceIndex: number, wx: number, wz: number) => {
         const { cx, cz } = world.worldToChunkCoords(wx, wz);
@@ -211,7 +211,7 @@ export class LowPolyMesher {
     // second time after allocating its typed buffers.
     const visibleFaces: number[] = [];
     const cutFaceRuns = new Map<number, number>();
-    visitVisibleFaces((lx, ly, lz, faceIndex, face, cutEdge, color, materialId) => {
+    visitVisibleFaces((lx: number, ly: number, lz: number, faceIndex, face, cutEdge, color, materialId) => {
       // Streaming cut faces can span the whole solid depth of a terrain
       // column. Merge vertically adjacent faces with the same color so fixing
       // the hole does not add one quad per voxel layer.
@@ -340,7 +340,7 @@ export class LowPolyMesher {
 
   /** Fast main-thread publication of mesh buffers already built elsewhere. */
   createChunkMeshFromData(
-    chunk,
+    chunk: Chunk,
     data: ChunkMeshData,
   ) {
     const origin = chunk.getWorldOrigin();
@@ -372,7 +372,7 @@ export class LowPolyMesher {
     return group;
   }
 
-  buildChunkMesh(chunk) {
+  buildChunkMesh(chunk: Chunk) {
     return this.createChunkMeshFromData(chunk, this.buildChunkMeshData(chunk));
   }
 }

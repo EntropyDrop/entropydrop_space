@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -45,12 +46,12 @@ test('runAgentTurn falls back to the local compiler without an API key', async (
 test('runAgentTurn returns an error when the local compiler cannot recognize a prompt', async () => {
   const result = await runAgentTurn('perform a tap dance', { baseUrl: '', apiKey: '', model: '' });
   assert.equal(result.ok, false);
-  assert.ok(result.error.length > 0);
+  assert.ok(requireValue(result.error).length > 0);
 });
 
 test('runAgentTurn calls the remote model and extracts code when configured', async () => {
-  const calls = [];
-  const fakeFetch = async (url, options) => {
+  const calls: Array<{ url: string; options: RequestInit }> = [];
+  const fakeFetch = async (url: string, options: RequestInit) => {
     calls.push({ url, options });
     return {
       ok: true,
@@ -66,8 +67,8 @@ test('runAgentTurn calls the remote model and extracts code when configured', as
   assert.equal(result.code, 'self.applyForce([0, 42, 0]);');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://api.example.com/v1/chat/completions');
-  assert.equal(calls[0].options.headers.Authorization, 'Bearer sk-test');
-  const body = JSON.parse(calls[0].options.body);
+  assert.equal(new Headers(calls[0].options.headers).get('Authorization'), 'Bearer sk-test');
+  const body = JSON.parse(String(calls[0].options.body));
   assert.equal(body.model, 'test-model');
   assert.equal(body.max_tokens, DEFAULT_AGENT_MAX_OUTPUT_K_TOKENS * 1024);
   assert.equal(body.messages[0].role, 'system');
@@ -77,8 +78,8 @@ test('runAgentTurn calls the remote model and extracts code when configured', as
 
 test('remote Agent receives target component metadata', async () => {
   let requestBody: any = null;
-  const fakeFetch = async (_url, options) => {
-    requestBody = JSON.parse(options.body);
+  const fakeFetch = async (_url: string, options: RequestInit) => {
+    requestBody = JSON.parse(String(options.body));
     return {
       ok: true,
       json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: 'No code needed.' } }] })
@@ -151,14 +152,14 @@ test('callChatAgent handles HTTP errors', async () => {
   const fakeFetch = async () => ({ ok: false, status: 401, text: async () => 'invalid key' });
   const result = await callChatAgent([], { baseUrl: 'https://x/v1', apiKey: 'bad', model: 'm' }, fakeFetch);
   assert.equal(result.ok, false);
-  assert.ok(result.error.includes('401'));
+  assert.ok(requireValue(result.error).includes('401'));
 });
 
 test('callChatAgent handles network failures', async () => {
   const fakeFetch = async () => { throw new Error('network down'); };
   const result = await callChatAgent([], { baseUrl: 'https://x/v1', apiKey: 'k', model: 'm' }, fakeFetch);
   assert.equal(result.ok, false);
-  assert.ok(result.error.includes('network down'));
+  assert.ok(requireValue(result.error).includes('network down'));
 });
 
 test('callChatAgent refuses to send credentials over non-local HTTP', async () => {
@@ -173,13 +174,13 @@ test('callChatAgent refuses to send credentials over non-local HTTP', async () =
     fakeFetch
   );
   assert.equal(result.ok, false);
-  assert.match(result.error, /HTTPS/);
+  assert.match(requireValue(result.error), /HTTPS/);
   assert.equal(called, false);
 });
 
 test('fetchAgentModels loads and deduplicates an OpenAI-compatible model list', async () => {
   let request: any = null;
-  const fakeFetch = async (url, options) => {
+  const fakeFetch = async (url: string, options: RequestInit) => {
     request = { url, options };
     return {
       ok: true,
@@ -199,8 +200,8 @@ test('fetchAgentModels loads and deduplicates an OpenAI-compatible model list', 
 });
 
 test('fetchAgentModels accepts local model response variants without requiring a key', async () => {
-  const fakeFetch = async (_url, options) => {
-    assert.equal(options.headers.Authorization, undefined);
+  const fakeFetch = async (_url: string, options: RequestInit) => {
+    assert.equal(new Headers(options.headers).get('Authorization'), null);
     return {
       ok: true,
       json: async () => ({ models: ['qwen-local', { name: 'llama-local' }] })
@@ -217,7 +218,7 @@ test('fetchAgentModels rejects non-local HTTP before sending credentials', async
   let called = false;
   const result: any = await fetchAgentModels(
     { baseUrl: 'http://api.example.com/v1', apiKey: 'secret' },
-    async () => { called = true; }
+    async () => { called = true; throw new Error('Unexpected network request'); }
   );
   assert.equal(result.ok, false);
   assert.match(result.error, /HTTPS/);
@@ -226,7 +227,7 @@ test('fetchAgentModels rejects non-local HTTP before sending credentials', async
 
 test('loadAgentConfig returns defaults when nothing is saved', () => {
   // Simulate localStorage because the Node test environment has none.
-  globalThis.localStorage = undefined;
+  Reflect.deleteProperty(globalThis, 'localStorage');
   const config = loadAgentConfig();
   assert.equal(config.baseUrl, 'https://api.openai.com/v1');
   assert.equal(config.apiKey, '');
@@ -240,18 +241,18 @@ test('saveAgentConfig keeps keys session-only unless persistent storage is expli
   const store = new Map<string, string>();
   const sessionStore = new Map<string, string>();
   globalThis.localStorage = {
-    getItem: key => store.get(key) ?? null,
-    setItem: (key, value) => store.set(key, String(value)),
-    removeItem: key => store.delete(key)
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: unknown) => store.set(key, String(value)),
+    removeItem: (key: string) => store.delete(key)
   } as any;
   globalThis.sessionStorage = {
-    getItem: key => sessionStore.get(key) ?? null,
-    setItem: (key, value) => sessionStore.set(key, String(value)),
-    removeItem: key => sessionStore.delete(key)
+    getItem: (key: string) => sessionStore.get(key) ?? null,
+    setItem: (key: string, value: unknown) => sessionStore.set(key, String(value)),
+    removeItem: (key: string) => sessionStore.delete(key)
   } as any;
   t.after(() => {
-    globalThis.localStorage = undefined;
-    globalThis.sessionStorage = undefined;
+    Reflect.deleteProperty(globalThis, 'localStorage');
+    Reflect.deleteProperty(globalThis, 'sessionStorage');
   });
 
   const saved = saveAgentConfig({ baseUrl: 'https://a/v1', apiKey: 'sk-1', model: 'm1' });
@@ -287,18 +288,18 @@ test('loadAgentConfig migrates legacy unconfirmed localStorage keys into this ta
   ]]);
   const sessionStore = new Map<string, string>();
   globalThis.localStorage = {
-    getItem: key => store.get(key) ?? null,
-    setItem: (key, value) => store.set(key, String(value)),
-    removeItem: key => store.delete(key)
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: unknown) => store.set(key, String(value)),
+    removeItem: (key: string) => store.delete(key)
   } as any;
   globalThis.sessionStorage = {
-    getItem: key => sessionStore.get(key) ?? null,
-    setItem: (key, value) => sessionStore.set(key, String(value)),
-    removeItem: key => sessionStore.delete(key)
+    getItem: (key: string) => sessionStore.get(key) ?? null,
+    setItem: (key: string, value: unknown) => sessionStore.set(key, String(value)),
+    removeItem: (key: string) => sessionStore.delete(key)
   } as any;
   t.after(() => {
-    globalThis.localStorage = undefined;
-    globalThis.sessionStorage = undefined;
+    Reflect.deleteProperty(globalThis, 'localStorage');
+    Reflect.deleteProperty(globalThis, 'sessionStorage');
   });
 
   const loaded = loadAgentConfig();
@@ -349,22 +350,16 @@ test('callChatAgent and runAgentTurn stream SSE response chunks with reasoning',
   ];
 
   const chunksReceived: any[] = [];
-  const fakeStreamFetch = async (url, options) => {
-    assert.equal(JSON.parse(options.body).stream, true, 'streaming should be enabled when onChunk is provided');
+  const fakeStreamFetch = async (url: string, options: RequestInit) => {
+    assert.equal(JSON.parse(String(options.body)).stream, true, 'streaming should be enabled when onChunk is provided');
     let idx = 0;
     const encoder = new TextEncoder();
-    return {
-      ok: true,
-      body: {
-        getReader: () => ({
-          read: async () => {
-            if (idx >= ssePayload.length) return { done: true, value: undefined };
-            const value = encoder.encode(ssePayload[idx++]);
-            return { done: false, value };
-          }
-        })
+    return new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (idx >= ssePayload.length) controller.close();
+        else controller.enqueue(encoder.encode(ssePayload[idx++]));
       }
-    };
+    }));
   };
 
   const result = (await runAgentTurn(
@@ -373,7 +368,7 @@ test('callChatAgent and runAgentTurn stream SSE response chunks with reasoning',
     [],
     fakeStreamFetch,
     { id: 'arm_1', parentId: 'root', entityId: 'ent_jet_01', runtimeId: 42, allComponents: ['root', 'arm_1'], blockCount: 5, totalBlockCount: 20 },
-    (chunk) => chunksReceived.push(chunk)
+    (chunk: import('../src/engine/contraption/AgentChat.ts').ChatChunk) => chunksReceived.push(chunk)
   )) as any;
 
   assert.equal(result.ok, true);
@@ -386,8 +381,8 @@ test('callChatAgent and runAgentTurn stream SSE response chunks with reasoning',
 
 test('runAgentTurn prompt includes rich context with entity ID, components and block counts', async () => {
   let userMessage = '';
-  const fakeFetch = async (_url, options) => {
-    const body = JSON.parse(options.body);
+  const fakeFetch = async (_url: string, options: RequestInit) => {
+    const body = JSON.parse(String(options.body));
     userMessage = body.messages.at(-1).content;
     return {
       ok: true,
@@ -423,9 +418,9 @@ test('runAgentTurn prompt includes rich context with entity ID, components and b
 test('config respects custom contextKTokens and maxOutputKTokens in K units', async () => {
   const store = new Map();
   globalThis.localStorage = {
-    getItem: key => store.get(key) ?? null,
-    setItem: (key, value) => store.set(key, String(value)),
-    removeItem: key => store.delete(key)
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: unknown) => store.set(key, String(value)),
+    removeItem: (key: string) => store.delete(key)
   } as any;
 
   saveAgentConfig({
@@ -444,8 +439,8 @@ test('config respects custom contextKTokens and maxOutputKTokens in K units', as
   assert.equal(loaded.apiKey, 'sk-custom');
 
   let capturedBody: any = null;
-  const fakeFetch = async (_url, options) => {
-    capturedBody = JSON.parse(options.body);
+  const fakeFetch = async (_url: string, options: RequestInit) => {
+    capturedBody = JSON.parse(String(options.body));
     return {
       ok: true,
       json: async () => ({ choices: [{ message: { content: 'ok' } }] })
@@ -485,5 +480,5 @@ test('config respects custom contextKTokens and maxOutputKTokens in K units', as
   assert.ok(capturedBody.messages.length < hugeHistory.length + 2, 'oversized history should be truncated to fit contextKTokens window');
   assert.equal(capturedBody.messages.at(-1).content.startsWith('latest request'), true);
 
-  globalThis.localStorage = undefined;
+  Reflect.deleteProperty(globalThis, 'localStorage');
 });

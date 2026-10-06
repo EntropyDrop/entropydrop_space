@@ -89,6 +89,10 @@ See [protocol rules](proto/README.md), [client guide](client/README.md),
 ## Server and development deployment
 
 See [server setup](server/README.md) and [DS development deployment](deploy/README.md).
+`npm run check` runs the client/engine gates, builds and tests the hosted runtime,
+checks Python contracts, and runs the Python suite. Install the server development
+dependencies in `server/.venv`, or set `SPACE_PYTHON` to another Python interpreter.
+Use `npm run check:client` or `npm run check:server` for a focused run.
 Build the shared runtime with `npm run build:server-runtime`; run server checks from
 `server/` with `python -m pytest`. Verify Python bindings and public Agent references:
 

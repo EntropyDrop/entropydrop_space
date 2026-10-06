@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -31,10 +32,10 @@ function makeController(overrides: any = {}) {
   controller.contraptions = overrides.manager || null;
   controller.world = overrides.world || null;
   controller.keys = {};
-  controller.sound = { playBlockBreak(options) { breakSounds.push(options); } };
+  controller.sound = { playBlockBreak(options: Record<string, unknown>) { breakSounds.push(options); } };
   const toasts: string[] = [];
   controller.ui = {
-    showToast: m => toasts.push(m),
+    showToast: (m: string) => toasts.push(m),
     renderInventoryBar() {},
     notifyContraptionStructureChanged() {}
   };
@@ -63,7 +64,7 @@ test('Delete removes blocks inside a world box, preserves outside blocks, and re
   world.setBlock(2, 1, 1, BlockTypes.COLOR_BLOCK, false, 0x00ff00);
   world.setBlock(1, 2, 1, BlockTypes.COLOR_BLOCK, false, 0x0000ff);
   world.setBlock(5, 5, 5, BlockTypes.COLOR_BLOCK, false, 0xaaaaaa); // Outside the box.
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.setCornerA({ x: 1, y: 1, z: 1 });
@@ -76,7 +77,7 @@ test('Delete removes blocks inside a world box, preserves outside blocks, and re
   assert.equal(world.getBlock(5, 5, 5), BlockTypes.COLOR_BLOCK, 'the outside block should remain');
   assert.equal(manager.selectionCornerA, null, 'selection should reset');
   assert.equal(manager.selectionCornerB, null);
-  assert.ok(controller.__toasts.some(m => m.includes('Deleted 3 blocks')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Deleted 3 blocks')));
   assert.deepEqual(controller.__breakSounds, [{ kind: 'bulk', count: 3 }]);
 });
 
@@ -86,7 +87,7 @@ test('Delete also removes 8x8x8 microblocks inside a world box', () => {
   clearRegion(world, 4, 10, 4, 4, 10, 5);
   world.setBlock(4, 10, 4, BlockTypes.COLOR_BLOCK, false, 0xaaaaaa);
   assert.equal(world.setMicroBlock(34, 80, 42, 0x123456), true, 'place a microblock in the adjacent cell');
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.setCornerA({ x: 4, y: 10, z: 4 });
@@ -95,7 +96,7 @@ test('Delete also removes 8x8x8 microblocks inside a world box', () => {
 
   assert.equal(world.getBlock(4, 10, 4), BlockTypes.AIR);
   assert.equal(world.getMicroBlock(34, 80, 42), null, 'the microblock should be deleted');
-  assert.ok(controller.__toasts.some(m => m.includes('1 blocks + 1 micro voxels')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('1 blocks + 1 micro voxels')));
   assert.deepEqual(controller.__breakSounds, [{ kind: 'bulk', count: 2 }]);
 });
 
@@ -106,7 +107,7 @@ test('Delete rejects Shift single-cell selection without clearing it or removing
   clearRegion(world, 9, 9, 9, 9, 9, 9);
   world.setBlock(1, 1, 1, BlockTypes.COLOR_BLOCK, false, 0xabcdef);
   world.setBlock(9, 9, 9, BlockTypes.COLOR_BLOCK, false, 0x111111);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.toggleWorldGlueCell({ x: 1, y: 1, z: 1 });
@@ -115,8 +116,8 @@ test('Delete rejects Shift single-cell selection without clearing it or removing
 
   assert.equal(world.getBlock(1, 1, 1), BlockTypes.COLOR_BLOCK, 'Shift selection is not a confirmed A/B box');
   assert.equal(world.getBlock(9, 9, 9), BlockTypes.COLOR_BLOCK, 'the unselected cell should remain');
-  assert.equal(manager.connectedSelection.length, 1, 'rejected deletion preserves the selection');
-  assert.ok(controller.__toasts.some(message => message.includes('A and B')));
+  assert.equal(requireValue(manager.connectedSelection).length, 1, 'rejected deletion preserves the selection');
+  assert.ok(controller.__toasts.some((message: string) => message.includes('A and B')));
   assert.deepEqual(controller.__breakSounds, []);
 
   controller.setSelectorShape('sphere');
@@ -139,7 +140,7 @@ test('Delete rejects a world selection with only A and keeps it ready for B', ()
   assert.deepEqual(manager.selectionCornerA, { x: 1, y: 80, z: 1 });
   assert.equal(manager.selectionCornerB, null);
   assert.equal(controller.canDeleteSelection(), false);
-  assert.ok(controller.__toasts.some(message => message.includes('A and B')));
+  assert.ok(controller.__toasts.some((message: string) => message.includes('A and B')));
   assert.deepEqual(controller.__breakSounds, []);
 });
 
@@ -155,14 +156,14 @@ test('Delete removes selected entity-component blocks and preserves the rest', (
     new THREE.Vector3(0, 10, 0),
     scene
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.contraptions.push(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeController({ manager });
 
   const target = contraption.blocks.find(b => b.localX === 1);
   const node = contraption.entityNodes.get('root');
-  const hit = point => ({ contraption, entityId: 'root', block: target, point: node.group.localToWorld(point.clone().sub(node.pivotLocal)) });
+  const hit = (point: import('three').Vector3) => ({ contraption, entityId: 'root', block: target, point: requireValue(node).group.localToWorld(point.clone().sub(requireValue(node).pivotLocal)) });
   controller.selectorOnEntityClick(hit(new THREE.Vector3(1.1, 0.1, 0.1)));
   assert.equal(controller.canDeleteSelection(), false, 'A alone cannot enable deletion');
   controller.deleteSelectionBlocks();
@@ -179,7 +180,7 @@ test('Delete removes selected entity-component blocks and preserves the rest', (
   assert.equal(controller.selectedBlockSelection, null, 'block selection should reset');
   assert.equal(controller.selectorLevel, null);
   assert.equal(contraption.subtreeHighlightBoxes.length, 0, 'selection highlights should clear');
-  assert.ok(controller.__toasts.some(m => m.includes('Deleted 1 blocks from [root]')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Deleted 1 blocks from [root]')));
   assert.deepEqual(controller.__breakSounds, [{ kind: 'standard', count: 1 }]);
 });
 
@@ -191,7 +192,7 @@ test('deleting every selected component block removes the empty component', () =
     new THREE.Vector3(0, 10, 0),
     scene
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.contraptions.push(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeController({ manager });
@@ -207,7 +208,7 @@ test('deleting every selected component block removes the empty component', () =
 
 test('deleting an empty entity component stays silent', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager });
   const contraption = {
     id: 9,
@@ -234,7 +235,7 @@ test('deleting an empty entity component stays silent', () => {
 
 test('Select All confirms A/B before deleting all root blocks through the shared selection API', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const contraption = manager.registerContraption(new Contraption(
     41,
     [
@@ -248,7 +249,7 @@ test('Select All confirms A/B before deleting all root blocks through the shared
   const controller = makeController({ manager });
   let dispatched = 0;
   const baseDispatch = controller.performBasicAction.bind(controller);
-  controller.performBasicAction = command => {
+  controller.performBasicAction = (command: { domain: string; action: string }) => {
     if (command.domain === 'selection' && command.action === 'delete') dispatched++;
     return baseDispatch(command);
   };
@@ -267,7 +268,7 @@ test('Select All confirms A/B before deleting all root blocks through the shared
   assert.equal(controller.selectedSubtree, null);
   assert.equal(controller.selectorLevel, null);
   assert.equal(controller.selectorRange, null);
-  assert.ok(controller.__toasts.some(message => message.includes('fully dismantled')));
+  assert.ok(controller.__toasts.some((message: string) => message.includes('fully dismantled')));
   assert.deepEqual(controller.__breakSounds, [{ kind: 'bulk', count: 2 }]);
 });
 
@@ -279,7 +280,7 @@ test('Select All selects only current component blocks, even when child blocks l
     childEntities: [{ id: 'child', parentId: 'root', kind: 'child', pivot: [1.5, 0.5, 0.5], blockKeys: [['1', '0', '0']] }]
   });
   contraption.stopAllNodeScripts();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   const controller = makeController({ manager });
   controller.startSubtreeSelection(contraption, 'root');
@@ -288,7 +289,7 @@ test('Select All selects only current component blocks, even when child blocks l
   assert.equal(controller.selectAllSelectionBlocks(), true);
   assert.equal(controller.selectorShape, 'box', 'Select All must not filter by the previous shape');
   assert.equal(controller.selectedBlockSelection.blocks.length, 2);
-  assert.ok(controller.selectedBlockSelection.blocks.every(block => block.entityId === 'root'));
+  assert.ok(controller.selectedBlockSelection.blocks.every((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.entityId === 'root'));
   assert.equal(controller.canDeleteSelection(), true);
 
   controller.hoveredContraptionHit = { contraption, entityId: 'child' };
@@ -302,7 +303,7 @@ test('Select All in micro mode stays virtual and confirms every micro cell of th
   const scene = new THREE.Scene();
   const contraption = new Contraption(61, [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }], new THREE.Vector3(), scene);
   contraption.stopAllNodeScripts();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   const controller = makeController({ manager });
   controller.selectorMicroMode = true;
@@ -319,10 +320,10 @@ test('Select All in micro mode stays virtual and confirms every micro cell of th
 
 test('Delete with no selection reports a message without crashing', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager });
   controller.deleteSelectionBlocks();
-  assert.ok(controller.__toasts.some(m => m.includes('Nothing selected')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Nothing selected')));
   assert.deepEqual(controller.__breakSounds, []);
 });
 
@@ -330,13 +331,13 @@ test('Delete reports an empty world-box selection', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 0, 0, 0, 3, 3, 3);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.setCornerA({ x: 0, y: 0, z: 0 });
   manager.setCornerB({ x: 3, y: 3, z: 3 });
   controller.deleteSelectionBlocks();
-  assert.ok(controller.__toasts.some(m => m.includes('empty')), 'the toast should report no blocks');
+  assert.ok(controller.__toasts.some((m: string) => m.includes('empty')), 'the toast should report no blocks');
   assert.equal(manager.selectionCornerA, null, 'selection should still reset');
   assert.deepEqual(controller.__breakSounds, []);
 });
@@ -348,7 +349,7 @@ test('large Selector boxes delete incrementally and clear the captured selection
   const controller = makeController({ manager, world });
   controller.bulkEditJob = null;
   const progress: any[] = [];
-  controller.ui.setBulkEditProgress = value => progress.push(value);
+  controller.ui.setBulkEditProgress = (value: unknown) => progress.push(value);
 
   const sizeX = 8;
   const sizeY = 8;
@@ -375,6 +376,6 @@ test('large Selector boxes delete incrementally and clear the captured selection
   while (controller.bulkEditJob) controller.processBulkEditFrame(128, Infinity);
   assert.equal(world.getBlock(27, 87, 24), BlockTypes.AIR);
   assert.equal(progress.at(-1).phase, 'complete');
-  assert.ok(controller.__toasts.some(message => message.includes('Deleted 2 blocks')));
+  assert.ok(controller.__toasts.some((message: string) => message.includes('Deleted 2 blocks')));
   assert.deepEqual(controller.__breakSounds, [{ kind: 'bulk', count: 2 }]);
 });

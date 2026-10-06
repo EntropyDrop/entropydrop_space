@@ -71,10 +71,10 @@ test('client frames carry only the documented space-relay-v1 fields', () => {
     pitch_q15: pose.pitch_q15,
   });
   assert.ok(Number.isSafeInteger(pose.sequence));
-  for (const field of ['x_cm', 'y_cm', 'z_cm']) {
+  for (const field of ['x_cm', 'y_cm', 'z_cm'] as const) {
     assert.ok(Number.isInteger(pose[field]), `${field} must be integer centimetres`);
   }
-  for (const field of ['yaw_q15', 'pitch_q15']) {
+  for (const field of ['yaw_q15', 'pitch_q15'] as const) {
     const value = Number(pose[field]);
     assert.ok(Number.isInteger(value) && Math.abs(value) <= Q15_RANGE, `${field} must be Q15`);
   }
@@ -117,7 +117,7 @@ test('server frames carry only the documented space-relay-v1 fields', () => {
     assert.equal(typeof player.player_entity_id, 'string');
     assert.equal(typeof player.skin_url, 'string');
     assert.ok(['strong', 'slim'].includes(String(player.skin_type)));
-    for (const field of ['x_cm', 'y_cm', 'z_cm']) {
+    for (const field of ['x_cm', 'y_cm', 'z_cm'] as const) {
       assert.ok(Number.isInteger(player[field]), `${field} must be integer centimetres`);
     }
     assert.equal(typeof player.is_self, 'boolean');

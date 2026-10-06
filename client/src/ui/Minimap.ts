@@ -1,7 +1,19 @@
+import type { Chunk } from '@entropydrop/space-engine/voxel/Chunk.ts';
+import type { MicroVoxelLayer } from '@entropydrop/space-engine/voxel/MicroVoxelLayer.ts';
+
+import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { MICRO_DIVISIONS } from '@entropydrop/space-engine/voxel/MicroVoxelLayer.ts';
 import { TORUS_SIZE_X, TORUS_SIZE_Z, wrapX, wrapZ, wrapChunkX, wrapChunkZ } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
+type MinimapChunk = Pick<Chunk, 'getLocalBlock' | 'getLocalColor'> & Partial<Pick<Chunk, 'dataVersion' | 'getOccupiedYRange' | 'blocks' | 'colors'>>;
+interface MinimapWorld {
+  chunks?: Map<string, MinimapChunk>;
+  getChunk?(cx: number, cz: number): MinimapChunk | null;
+  terrainVersion?: number;
+  microVoxels?: Pick<MicroVoxelLayer, 'cells'> & Partial<MicroVoxelLayer>;
+}
+interface MinimapEntities { contraptions: Array<{ position: { x: number; y: number; z: number } }> }
 type CachedChunkSurface = {
   dataVersion: number | null;
   heights: Int16Array;
@@ -26,8 +38,8 @@ type CachedMicroChunkSurface = {
 export class Minimap {
   canvas: HTMLCanvasElement | null = null;
   ctx: CanvasRenderingContext2D | null = null;
-  world: any;
-  contraptionManager: any;
+  world: MinimapWorld;
+  contraptionManager: MinimapEntities | null;
 
   static SIZE = 192; // CSS px
   static RANGE = 96; // Covers ±96 cells, matching the guaranteed six-chunk render radius.
@@ -55,7 +67,7 @@ export class Minimap {
 
   private readonly resizeHandler = () => this.applySize();
 
-  constructor(world, contraptionManager) {
+  constructor(world: MinimapWorld, contraptionManager: MinimapEntities | null) {
     this.world = world;
     this.contraptionManager = contraptionManager;
 
@@ -116,7 +128,7 @@ export class Minimap {
    * @param isDriving Whether the player is driving.
    * @param drivenContraption The driven entity, or null.
    */
-  update(playerPos, yaw, isDriving, drivenContraption) {
+  update(playerPos: { x: number; z: number }, yaw: number, isDriving: boolean, drivenContraption: Contraption | null) {
     if (!this.enabled || !this.canvas || !this.ctx) return;
     const px = playerPos.x;
     const pz = playerPos.z;
@@ -307,7 +319,7 @@ export class Minimap {
   }
 
   /** Rebuild the terrain layer on an offscreen canvas with toroidal wrap around integer world coordinates. */
-  recomputeTerrain(centerX, centerZ) {
+  recomputeTerrain(centerX: number, centerZ: number) {
     const C = Minimap.CELLS;
     const halfRange = Minimap.RANGE;
     this.gridCenterX = centerX;

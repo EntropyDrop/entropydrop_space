@@ -10,9 +10,9 @@ import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 function setup(floor = false) {
   const world = {
     terrainVersion: 0, floor,
-    getBlock: (_x, y, _z) => world.floor && y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    getBlock: (_x: number, y: number, _z: number) => world.floor && y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
     getMicroBlocksInAABB: () => [],
-    raycast: () => ({ hit: false }), raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }), raycastMicro: () => ({ hit: false as const }),
   };
   const scene = new THREE.Scene();
   const physics = new ContraptionPhysics(world as any) as any;
@@ -37,7 +37,7 @@ test('settled bodies sleep, skip terrain and pair work, and retain their collisi
   const position = entity.position.clone();
   let terrainPasses = 0;
   const original = physics.resolveTerrainCollisionBody.bind(physics);
-  physics.resolveTerrainCollisionBody = (...args) => { terrainPasses++; return original(...args); };
+  physics.resolveTerrainCollisionBody = (...args: Parameters<import('../src/physics/ContraptionPhysics.ts').ContraptionPhysics['resolveTerrainCollisionBody']>) => { terrainPasses++; return original(...args); };
   tick(20);
   assert.equal(terrainPasses, 0);
   assert.deepEqual(entity.position, position);
@@ -48,14 +48,14 @@ test('settled bodies sleep, skip terrain and pair work, and retain their collisi
 
 test('forces, impulses, pose edits, gravity changes and Stop/Play wake sleeping bodies', () => {
   for (const mutation of [
-    (entity, physics) => entity.appliedForces.set(100, 0, 0),
-    (entity, physics) => physics.applyImpulse(entity, new THREE.Vector3(5, 0, 0)),
-    entity => { entity.position.x += 1; entity.updateTransform(); },
-    entity => { entity.useGravity = true; },
-    entity => { entity.setPhysicsSimulationEnabled(false); entity.setPhysicsSimulationEnabled(true); },
-    entity => { entity.setNodeBodyMass('root', 25); },
-    entity => { entity.setBodyType('kinematic'); },
-    entity => { entity.setNodeCollisionEnabled('root', false); },
+    (entity: import('../src/contraption/Contraption.ts').Contraption, physics: import('../src/physics/ContraptionPhysics.ts').ContraptionPhysics) => entity.appliedForces.set(100, 0, 0),
+    (entity: import('../src/contraption/Contraption.ts').Contraption, physics: import('../src/physics/ContraptionPhysics.ts').ContraptionPhysics) => physics.applyImpulse(entity, new THREE.Vector3(5, 0, 0)),
+    (entity: import('../src/contraption/Contraption.ts').Contraption) => { entity.position.x += 1; entity.updateTransform(); },
+    (entity: import('../src/contraption/Contraption.ts').Contraption) => { entity.useGravity = true; },
+    (entity: import('../src/contraption/Contraption.ts').Contraption) => { entity.setPhysicsSimulationEnabled(false); entity.setPhysicsSimulationEnabled(true); },
+    (entity: import('../src/contraption/Contraption.ts').Contraption) => { entity.setNodeBodyMass('root', 25); },
+    (entity: import('../src/contraption/Contraption.ts').Contraption) => { entity.setBodyType('kinematic'); },
+    (entity: import('../src/contraption/Contraption.ts').Contraption) => { entity.setNodeCollisionEnabled('root', false); },
   ]) {
     const { physics, add, tick } = setup();
     const entity = add();
@@ -154,8 +154,8 @@ if (self.state.getBoolean("kick")) self.applyForce([1000, 0, 0]);
   assert.equal(state.ticks, before + 10);
   assert.equal(state.grounded, true);
   assert.ok(state.contacts.length > 0);
-  assert.ok(state.contacts.every(contact => contact.kind === 'terrain' && contact.sleeping
-    && contact.impulse === 0 && contact.relativeVelocity.every(value => value === 0)));
+  assert.ok(state.contacts.every((contact: import('../src/scripting/ScriptProtocol.ts').ScriptContact) => contact.kind === 'terrain' && contact.sleeping
+    && contact.impulse === 0 && contact.relativeVelocity?.every((value: number) => value === 0)));
   state.kick = true;
   tick();
   assert.equal(physics.isSleeping(entity), false);
@@ -166,7 +166,7 @@ test('only a local terrain stamp or local streaming change wakes a sleeping body
   const { world, physics, add, tick } = setup(true);
   const revisions = new Map([[0, 0], [2, 0]]);
   const loaded = new Set([0, 2]);
-  (world as any).getTerrainCollisionStamp = bounds => {
+  (world as any).getTerrainCollisionStamp = (bounds: import('../src/physics/CollisionGeometry.ts').CollisionBounds) => {
     const chunk = Math.floor((bounds.minX + bounds.maxX) / 2 / 16);
     return [revisions.get(chunk) || 0, loaded.has(chunk)];
   };

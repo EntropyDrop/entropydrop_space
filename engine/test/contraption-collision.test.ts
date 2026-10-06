@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import { setNodeScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,16 +16,16 @@ import { TORUS_SIZE_X, wrapChunkX, wrapChunkZ } from '../src/torus/TorusWorld.ts
 
 function makePhysics() {
   return new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: () => BlockTypes.AIR
   });
 }
 
 function makeFloorPhysics() {
   return new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: (_x, y, _z) => y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
     microVoxels: { get: () => null }
   });
@@ -32,8 +33,8 @@ function makeFloorPhysics() {
 
 function makeRaisedTerrainBlockPhysics() {
   return new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: (x, y, z) => (
       y <= 0 || (x === 0 && y === 1 && z === 0)
         ? BlockTypes.COLOR_BLOCK
@@ -43,7 +44,7 @@ function makeRaisedTerrainBlockPhysics() {
   });
 }
 
-function makeEntity(id, position, options = {}) {
+function makeEntity(id: string | number, position: { x: number; y: number; z: number }, options = {}) {
   return new Contraption(
     id,
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
@@ -125,7 +126,7 @@ test('Stop freezes gravity and Play resumes it from the same pose', () => {
 
 test('restitution controls the rebound speed of a dynamic body', () => {
   const physics = makePhysics();
-  const collideAt = (restitution) => {
+  const collideAt = (restitution: number) => {
     const mover = makeEntity(`mover_${restitution}`, { x: 0, y: 10, z: 0 }, { restitution });
     const wall = makeEntity(`wall_${restitution}`, { x: 0.8, y: 10, z: 0 }, {
       bodyType: BodyType.KINEMATIC,
@@ -143,7 +144,7 @@ test('restitution controls the rebound speed of a dynamic body', () => {
 });
 
 test('entity contact friction damps tangential motion like terrain contact', () => {
-  const collideAt = friction => {
+  const collideAt = (friction: number) => {
     const physics = makePhysics();
     const support = makeEntity(`friction_support_${friction}`, { x: 0, y: 0, z: 0 }, {
       bodyType: BodyType.KINEMATIC,
@@ -547,11 +548,11 @@ test('an off-center block follows the same fall path from terrain and entity sup
   assert.notEqual(terrainFallFrame, null, 'terrain reference must fall');
   assert.notEqual(entityFallFrame, null, 'entity-supported block must fall');
   assert.ok(
-    Math.abs(entityToppleFrame - terrainToppleFrame) <= 90,
+    Math.abs(requireValue(entityToppleFrame) - requireValue(terrainToppleFrame)) <= 90,
     `topple timing should stay comparable, terrain=${terrainToppleFrame}, entity=${entityToppleFrame}`
   );
   assert.ok(
-    Math.abs(entityFallFrame - terrainFallFrame) <= 90,
+    Math.abs(requireValue(entityFallFrame) - requireValue(terrainFallFrame)) <= 90,
     `fall timing should stay comparable, terrain=${terrainFallFrame}, entity=${entityFallFrame}`
   );
 });
@@ -683,7 +684,7 @@ test('entity contacts resolve at terrain substep cadence and hold a stable rest'
  * feature and the same toppling response terrain gets.
  */
 test('a corner-down block dropped onto another entity escapes the corner interlock and settles flat', () => {
-  const settle = (seed, euler, startCornerX) => {
+  const settle = (seed: number, euler: import('three').Euler, startCornerX: number) => {
     const physics = makeFloorPhysics();
     // Support rests exactly on the floor: bottom face y=1, top face y=2.
     const support = makeEntity(seed, { x: 0, y: 1, z: 0 }, {
@@ -704,10 +705,10 @@ test('a corner-down block dropped onto another entity escapes the corner interlo
         physics.prepareContraptionFrame(falling, 1 / 60)
       ].filter(Boolean);
       let substeps = 1;
-      for (const state of frames) substeps = Math.max(substeps, state.subSteps);
+      for (const state of frames) substeps = Math.max(substeps, requireValue(state).subSteps);
       for (let step = 0; step < substeps; step++) {
         for (const state of frames) {
-          if (step < state.subSteps) physics.stepContraptionFrame(state);
+          if (step < requireValue(state).subSteps) physics.stepContraptionFrame(state);
         }
         physics.resolveContraptionPairs([support, falling], 1 / 60 / substeps);
       }
@@ -798,10 +799,10 @@ test('a face-down block dropped onto another entity still rests without rocking'
       physics.prepareContraptionFrame(falling, 1 / 60)
     ].filter(Boolean);
     let substeps = 1;
-    for (const state of frames) substeps = Math.max(substeps, state.subSteps);
+    for (const state of frames) substeps = Math.max(substeps, requireValue(state).subSteps);
     for (let step = 0; step < substeps; step++) {
       for (const state of frames) {
-        if (step < state.subSteps) physics.stepContraptionFrame(state);
+        if (step < requireValue(state).subSteps) physics.stepContraptionFrame(state);
       }
       physics.resolveContraptionPairs([support, falling], 1 / 60 / substeps);
     }
@@ -837,11 +838,11 @@ test('the manager resolves entity collisions at substep cadence end to end', () 
   const scene = new THREE.Scene();
   const world = {
     activeChunkKeys: new Set(['0,0']),
-    worldToChunkCoords: (x, z) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
-    getBlock: (_x, y, _z) => (y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR),
+    worldToChunkCoords: (x: number, z: number) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
+    getBlock: (_x: number, y: number, _z: number) => (y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR),
     microVoxels: { get: () => null },
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any;
   const manager = new ContraptionManager(scene, world, null, null) as any;
   manager.setPhysics(new ContraptionPhysics(world));
@@ -892,7 +893,7 @@ test('the manager resolves entity collisions at substep cadence end to end', () 
  * the entity-level candidate filter (each has a dynamic root) but every box
  * pair was rejected because both box owners were kinematic.
  */
-function makeReacher(id, rootX, childX, childId, scene) {
+function makeReacher(id: string | number, rootX: number, childX: number, childId: string, scene: import('three').Scene) {
   const contraption = new Contraption(
     id,
     [
@@ -932,7 +933,7 @@ test('kinematic components of two dynamic entities collide instead of passing th
 
   const armA = a.getCollisionWorldAABBs().find(box => box.entityId === 'armA');
   const armB = b.getCollisionWorldAABBs().find(box => box.entityId === 'armB');
-  const gap = armB.currentMinX - armA.currentMaxX;
+  const gap = requireValue(armB).currentMinX - requireValue(armA).currentMaxX;
   assert.ok(
     gap > -0.02,
     `the kinematic arm boxes must not pass through each other, gap=${gap}`
@@ -987,18 +988,18 @@ test('kinematic child bodies without a dynamic ancestor are clipped and synced b
     { mode: ContraptionMode.PROGRAMMABLE, bodyType: BodyType.KINEMATIC }
   );
   const rootStart = reacher.position.clone();
-  const childStart = reacher.getEntityNode('arm').localPosition.clone();
+  const childStart = requireValue(reacher.getEntityNode('arm')).localPosition.clone();
 
   physics.resolveContraptionPairs([reacher, obstacle]);
 
   const arm = reacher.getCollisionWorldAABBs().find(box => box.entityId === 'arm');
   const obstacleBox = obstacle.getCollisionWorldAABBs()[0];
   assert.ok(
-    obstacleBox.currentMinX - arm.currentMaxX > -0.02,
+    obstacleBox.currentMinX - requireValue(arm).currentMaxX > -0.02,
     'the kinematic child and obstacle must no longer overlap'
   );
   assert.ok(
-    reacher.getEntityNode('arm').localPosition.distanceTo(childStart) > 1e-6,
+    requireValue(reacher.getEntityNode('arm')).localPosition.distanceTo(childStart) > 1e-6,
     'the clipped kinematic body pose must be written back to its scene node'
   );
   assert.ok(
@@ -1023,8 +1024,8 @@ test('a moving kinematic component keeps its scripted contact velocity when resp
 
   // syncKinematicBodies normally calculates this from the scripted pose. Set
   // it directly here to isolate the contact-owner/response-body boundary.
-  reacher.getRigidBody('arm').velocity.set(4, 0, 0);
-  reacher.getRigidBody('root').velocity.set(0, 0, 0);
+  requireValue(reacher.getRigidBody('arm')).velocity.set(4, 0, 0);
+  requireValue(reacher.getRigidBody('root')).velocity.set(0, 0, 0);
   plain.velocity.set(0, 0, 0);
 
   physics.resolveContraptionPairs([reacher, plain]);
@@ -1043,11 +1044,11 @@ test('the manager blocks a script-driven kinematic component against another ent
   const scene = new THREE.Scene();
   const world = {
     activeChunkKeys: new Set(['0,0']),
-    worldToChunkCoords: (x, z) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
+    worldToChunkCoords: (x: number, z: number) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
     getBlock: () => BlockTypes.AIR,
     microVoxels: { get: () => null },
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any;
   const manager = new ContraptionManager(scene, world, null, null) as any;
   manager.setPhysics(new ContraptionPhysics(world));
@@ -1055,7 +1056,7 @@ test('the manager blocks a script-driven kinematic component against another ent
   const armNode = reacher.getEntityNode('arm');
   await setNodeScript(reacher,
     'arm',
-    `self.setLocalPosition([${armNode.localPosition.x + 0.6}, ${armNode.localPosition.y}, ${armNode.localPosition.z}]);`
+    `self.setLocalPosition([${requireValue(armNode).localPosition.x + 0.6}, ${requireValue(armNode).localPosition.y}, ${requireValue(armNode).localPosition.z}]);`
   );
 
   const armBefore = reacher.getCollisionWorldAABBs().find(box => box.entityId === 'arm');
@@ -1068,7 +1069,7 @@ test('the manager blocks a script-driven kinematic component against another ent
   );
   obstacle.useGravity = false;
   const obstacleBefore = obstacle.getCollisionWorldAABBs()[0];
-  obstacle.position.x += armBefore.currentMaxX + 0.2 - obstacleBefore.currentMinX;
+  obstacle.position.x += requireValue(armBefore).currentMaxX + 0.2 - obstacleBefore.currentMinX;
   obstacle.updateTransform();
 
   manager.registerContraption(reacher);
@@ -1080,7 +1081,7 @@ test('the manager blocks a script-driven kinematic component against another ent
   const armAfter = reacher.getCollisionWorldAABBs().find(box => box.entityId === 'arm');
   const obstacleAfter = obstacle.getCollisionWorldAABBs()[0];
   assert.ok(
-    obstacleAfter.currentMinX - armAfter.currentMaxX > -0.002,
+    obstacleAfter.currentMinX - requireValue(armAfter).currentMaxX > -0.002,
     'the manager path must clip the scripted component at the other entity'
   );
   assert.ok(
@@ -1093,11 +1094,11 @@ test('a fast script-driven kinematic root cannot sweep through another kinematic
   const scene = new THREE.Scene();
   const world = {
     activeChunkKeys: new Set(['0,0']),
-    worldToChunkCoords: (x, z) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
+    worldToChunkCoords: (x: number, z: number) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
     getBlock: () => BlockTypes.AIR,
     microVoxels: { get: () => null },
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any;
   const manager = new ContraptionManager(scene, world, null, null) as any;
   manager.setPhysics(new ContraptionPhysics(world));
@@ -1128,11 +1129,11 @@ test('a 10m x 1m assembled entity still blocks another entity at its tip', () =>
   const scene = new THREE.Scene();
   const world = {
     activeChunkKeys: new Set(['0,0']),
-    worldToChunkCoords: (x, z) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
-    getBlock: (_x, y, _z) => (y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR),
+    worldToChunkCoords: (x: number, z: number) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) }),
+    getBlock: (_x: number, y: number, _z: number) => (y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR),
     microVoxels: { get: () => null },
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any;
   const manager = new ContraptionManager(scene, world, null, null) as any;
   manager.setPhysics(new ContraptionPhysics(world));
@@ -1189,12 +1190,12 @@ test('an entity assembled across the torus seam still collides with the vehicle'
   }
   const world = {
     activeChunkKeys,
-    worldToChunkCoords: (x, z) => ({ cx: wrapChunkX(Math.floor(x / 16)), cz: wrapChunkZ(Math.floor(z / 16)) }),
+    worldToChunkCoords: (x: number, z: number) => ({ cx: wrapChunkX(Math.floor(x / 16)), cz: wrapChunkZ(Math.floor(z / 16)) }),
     getBlock: () => BlockTypes.AIR,
     microVoxels: { get: () => null },
     getMicroBlocksInAABB: () => [],
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any;
   const manager = new ContraptionManager(scene, world, null, null) as any;
   manager.setPhysics(new ContraptionPhysics(world));
@@ -1211,8 +1212,8 @@ test('an entity assembled across the torus seam still collides with the vehicle'
     { mode: ContraptionMode.FREE_PHYSICS, bodyType: BodyType.DYNAMIC, mass: 400, restitution: 0, friction: 0.5 }
   );
   vehicle.useGravity = false;
-  vehicle.getRigidBody(vehicle.rootComponentId).linearDamping = 1;
-  vehicle.getRigidBody(vehicle.rootComponentId).angularDamping = 1;
+  requireValue(vehicle.getRigidBody(vehicle.rootComponentId)).linearDamping = 1;
+  requireValue(vehicle.getRigidBody(vehicle.rootComponentId)).angularDamping = 1;
 
   // The freshly assembled block is on the OTHER side of the seam (flat 2),
   // torus-adjacent to the vehicle but a full period away in flat space.
@@ -1224,8 +1225,8 @@ test('an entity assembled across the torus seam still collides with the vehicle'
     { mode: ContraptionMode.FREE_PHYSICS, bodyType: BodyType.DYNAMIC, restitution: 0, friction: 0.4 }
   );
   block.useGravity = false;
-  block.getRigidBody(block.rootComponentId).linearDamping = 1;
-  block.getRigidBody(block.rootComponentId).angularDamping = 1;
+  requireValue(block.getRigidBody(block.rootComponentId)).linearDamping = 1;
+  requireValue(block.getRigidBody(block.rootComponentId)).angularDamping = 1;
   block.velocity.set(-4, 0, 0); // moving -x, i.e. toward the vehicle across the seam
 
   manager.registerContraption(vehicle);

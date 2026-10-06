@@ -1,3 +1,25 @@
+import type { World } from '../voxel/World.ts';
+import type { Chunk } from '../voxel/Chunk.ts';
+import type { ContraptionPhysics } from '../physics/ContraptionPhysics.ts';
+import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
+import type { ContraptionScene, ContraptionOptions, RuntimeVoxel } from './EntityTypes.ts';
+import type { InventoryInput } from '../storage/InventoryTypes.ts';
+import type { ScriptInputState, ScriptRuntimeContext, ScriptPlayer } from '../scripting/ScriptProtocol.ts';
+
+interface SelectionPoint { x: number; y: number; z: number; micro?: boolean }
+interface EntityChunk { id: string; cx: number; cz: number }
+interface ChildSelection { contraption: Contraption; parentId: string; mode: string; cells: Set<string> }
+interface EntitySound {
+  playAssemblyClack(): unknown; playDisassemblySound(): unknown; playGlueApply(): unknown;
+  playSteamHiss(): unknown; playWrenchClick(): unknown;
+}
+interface EntityParticles { emitSteamPuff(position: THREE.Vector3, count: number): unknown }
+interface EntityPersistence { save?(record: EntityStreamState, options: { definitionChanged: boolean }): unknown; remove?(publicId: string): unknown }
+type RuntimeContextProvider = () => ScriptRuntimeContext;
+
+import { createWorldScriptCapabilities } from './WorldScriptApi.ts';
+import { captureEntityStreamState, restoreEntityStreamState, type EntityStreamState } from './EntityStreaming.ts';
+import { readRecord } from './EntityInput.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import {
@@ -31,66 +53,30 @@ export function worldEntitiesStorageKey(worldId: string) {
   return `${ENTITY_STORAGE_PREFIX}.${encodeURIComponent(worldId || 'default')}`;
 }
 
-function isFiniteVector3Array(value: any): boolean {
-  return Array.isArray(value)
-    && value.length >= 3
-    && Number.isFinite(Number(value[0]))
-    && Number.isFinite(Number(value[1]))
-    && Number.isFinite(Number(value[2]));
-}
-
-function isMicroOffset(value: any): boolean {
-  return isFiniteVector3Array(value)
-    && value.slice(0, 3).every(part => Number.isInteger(Number(part))
-      && Number(part) >= 0 && Number(part) < MICRO_DIVISIONS);
-}
-
-function scriptEditResult(field: 'placed' | 'removed', count: number, reason: string) {
-  return Object.freeze({ ok: count > 0, [field]: count, reason });
-}
-
-function cloneEntityStreamData(value: any, fallback: any = null) {
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_) {
-    return fallback;
-  }
-}
-
-function getWorldVoxelCell(location: any) {
-  if (!isFiniteVector3Array(location)) return null;
-  const cell = {
-    x: Math.floor(Number(location[0])),
-    y: Math.floor(Number(location[1])),
-    z: Math.floor(Number(location[2]))
-  };
-  return cell.y >= 0 && cell.y < CHUNK_SIZE_Y ? cell : null;
-}
-
 export class ContraptionManager {
-  declare scene: any;
-  declare world: any;
-  declare sound: any;
-  declare particles: any;
-  declare contraptions: any[];
+  declare scene: ContraptionScene;
+  declare world: World | null;
+  declare sound: EntitySound | null;
+  declare particles: EntityParticles | null;
+  declare contraptions: Contraption[];
   /** Serialized, non-running entities grouped by their wrapped chunk id. */
-  declare dormantContraptions: Map<string, Map<string, any>>;
+  declare dormantContraptions: Map<string, Map<string, EntityStreamState>>;
   declare lastEntityChunkWindow: Set<string> | null;
   declare nextId: number;
-  declare selectionCornerA: any;
-  declare selectionCornerB: any;
+  declare selectionCornerA: SelectionPoint | null;
+  declare selectionCornerB: SelectionPoint | null;
   declare selectionBoxConfirmed: boolean;
-  declare gluePoints: any[];
-  declare connectedSelection: any;
-  declare microSelection: any;
-  declare microBounds: any;
-  declare childSelection: any;
-  declare activeDrivable: any;
-  declare activeProgrammingContraption: any;
-  declare physics: any;
-  declare runtimeContextProvider: any;
-  declare scriptWorldApi: any;
-  declare scriptSelectionApi: any;
+  declare gluePoints: SelectionPoint[];
+  declare connectedSelection: SelectionPoint[] | null;
+  declare microSelection: SelectionPoint[] | null;
+  declare microBounds: CollisionBounds | null;
+  declare childSelection: ChildSelection | null;
+  declare activeDrivable: Contraption | null;
+  declare activeProgrammingContraption: Contraption | null;
+  declare physics: ContraptionPhysics | null;
+  declare runtimeContextProvider: RuntimeContextProvider | null;
+  declare scriptWorldApi: ReturnType<typeof createWorldScriptCapabilities>['world'];
+  declare scriptSelectionApi: Partial<ReturnType<typeof createWorldScriptCapabilities>['selection']>;
   declare entitySelection: any;
   declare selectionHost: any;
   declare worldId: string;
@@ -99,9 +85,9 @@ export class ContraptionManager {
   declare lastEntitySaveTime: number;
   declare persistentStorage: SpaceStorage | null;
   declare entityPersistenceMode: 'browser' | 'remote' | 'none';
-  declare remoteEntityPersistence: any;
+  declare remoteEntityPersistence: EntityPersistence | null;
 
-  constructor(scene, world, soundManager, particleSystem, persistentStorage: SpaceStorage | null = null) {
+  constructor(scene: ContraptionScene, world: World | null, soundManager: EntitySound | null, particleSystem: EntityParticles | null, persistentStorage: SpaceStorage | null = null) {
     this.scene = scene;
     this.world = world;
     this.sound = soundManager;
@@ -139,342 +125,13 @@ export class ContraptionManager {
     this.physics = null;
     this.runtimeContextProvider = null;
 
-    // World capability exposed to entity programs. V2 separates standard and
-    // micro voxels so one namespace never implicitly overwrites the other.
-    const worldVoxels = Object.freeze({
-      get: location => {
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'get-standard',
-          cell: location,
-          actor: { source: 'script' }
-        });
-        return Object.freeze(result);
-      },
-      set: (location, options = null) => {
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'place-standard',
-          cell: location,
-          options,
-          actor: { source: 'script' }
-        });
-        return scriptEditResult('placed', result.placed || 0, result.reason);
-      },
-      clear: location => {
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'remove-standard',
-          cell: location,
-          actor: { source: 'script' }
-        });
-        return scriptEditResult('removed', result.removed || 0, result.reason);
-      },
-      paint: (location, options = null) => {
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'paint-standard',
-          cell: location,
-          options,
-          actor: { source: 'script' }
-        });
-        return Object.freeze({ ok: result.ok, painted: result.painted || 0, reason: result.reason });
-      },
-      clearCell: location => {
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'clear-cell',
-          cell: location,
-          actor: { source: 'script' }
-        });
-        return scriptEditResult('removed', result.removed || 0, result.reason);
-      },
-      subdivide: (location, clearOffset = null) => {
-        const cell = getWorldVoxelCell(location);
-        if (!cell || (clearOffset !== null && !isMicroOffset(clearOffset))) {
-          return Object.freeze({ ok: false, subdivided: 0, removed: 0, reason: 'invalid_position' });
-        }
-        const micro = clearOffset === null ? null : [
-          cell.x * MICRO_DIVISIONS + Number(clearOffset[0]),
-          cell.y * MICRO_DIVISIONS + Number(clearOffset[1]),
-          cell.z * MICRO_DIVISIONS + Number(clearOffset[2])
-        ];
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'subdivide-standard',
-          cell,
-          micro,
-          actor: { source: 'script' }
-        });
-        return Object.freeze({
-          ok: result.ok,
-          subdivided: result.subdivided || 0,
-          removed: result.removed || 0,
-          reason: result.reason
-        });
-      }
-    });
-    const worldMicroVoxels = Object.freeze({
-      get: (location, microOffset) => {
-        const cell = getWorldVoxelCell(location);
-        if (!cell || !isMicroOffset(microOffset)) {
-          return Object.freeze({ block: BlockTypes.AIR, color: 0x000000 });
-        }
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'get-micro',
-          micro: [
-            cell.x * MICRO_DIVISIONS + Number(microOffset[0]),
-            cell.y * MICRO_DIVISIONS + Number(microOffset[1]),
-            cell.z * MICRO_DIVISIONS + Number(microOffset[2])
-          ],
-          actor: { source: 'script' }
-        });
-        return Object.freeze(result);
-      },
-      set: (location, microOffset, options = null) => {
-        const cell = getWorldVoxelCell(location);
-        if (!cell || !isMicroOffset(microOffset)) {
-          return scriptEditResult('placed', 0, 'invalid_position');
-        }
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'place-micro',
-          micro: [
-            cell.x * MICRO_DIVISIONS + Number(microOffset[0]),
-            cell.y * MICRO_DIVISIONS + Number(microOffset[1]),
-            cell.z * MICRO_DIVISIONS + Number(microOffset[2])
-          ],
-          options,
-          actor: { source: 'script' }
-        });
-        return scriptEditResult('placed', result.placed || 0, result.reason);
-      },
-      clear: (location, microOffset) => {
-        const cell = getWorldVoxelCell(location);
-        if (!cell || !isMicroOffset(microOffset)) {
-          return scriptEditResult('removed', 0, 'invalid_position');
-        }
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'remove-micro',
-          micro: [
-            cell.x * MICRO_DIVISIONS + Number(microOffset[0]),
-            cell.y * MICRO_DIVISIONS + Number(microOffset[1]),
-            cell.z * MICRO_DIVISIONS + Number(microOffset[2])
-          ],
-          actor: { source: 'script' }
-        });
-        return scriptEditResult('removed', result.removed || 0, result.reason);
-      },
-      paint: (location, microOffset, options = null) => {
-        const cell = getWorldVoxelCell(location);
-        if (!cell || !isMicroOffset(microOffset)) {
-          return Object.freeze({ ok: false, painted: 0, reason: 'invalid_position' });
-        }
-        const result = executeBasicAction({ manager: this, world: this.world }, {
-          domain: ActionDomain.WORLD,
-          action: 'paint-micro',
-          micro: [
-            cell.x * MICRO_DIVISIONS + Number(microOffset[0]),
-            cell.y * MICRO_DIVISIONS + Number(microOffset[1]),
-            cell.z * MICRO_DIVISIONS + Number(microOffset[2])
-          ],
-          options,
-          actor: { source: 'script' }
-        });
-        return Object.freeze({ ok: result.ok, painted: result.painted || 0, reason: result.reason });
-      }
-    });
-
-    // Backward-compatible callable nearby query plus explicit random-id/chunk methods.
-    const worldEntities = ((origin, radius = 16) => this.getNearbyEntityDescriptors(origin, radius)) as any;
-    worldEntities.get = (entityId, chunkId = null) => this.getEntityDescriptorById(entityId, chunkId);
-    worldEntities.list = chunkId => this.getEntityDescriptorsInChunk(chunkId);
-    worldEntities.inChunk = worldEntities.list;
-    Object.freeze(worldEntities);
-
-    this.scriptWorldApi = Object.freeze({
-      apiVersion: 3,
-      getInfo: () => this.getWorldInfo(),
-      voxels: worldVoxels,
-      microVoxels: worldMicroVoxels,
-      entities: worldEntities,
-      raycast: (origin, direction, maxDistanceOrOptions: any = 24) => {
-        if (!Array.isArray(origin) || !Array.isArray(direction)) return null;
-        const options = maxDistanceOrOptions && typeof maxDistanceOrOptions === 'object'
-          ? maxDistanceOrOptions
-          : null;
-        const maxDistance = options ? options.maxDistance : maxDistanceOrOptions;
-        const include = options?.include === 'all' || options?.include === 'entities'
-          ? options.include
-          : 'world';
-        const voxelKinds = Array.isArray(options?.voxelKinds)
-          ? options.voxelKinds.filter(kind => kind === 'standard' || kind === 'micro')
-          : ['standard'];
-        const space = options?.space === 'bent' ? 'bent' : 'world';
-        const query = this.performBasicAction({
-          domain: ActionDomain.QUERY,
-          action: 'raycast',
-          origin,
-          direction,
-          maxDistance,
-          space,
-          include,
-          voxelKinds: voxelKinds.length > 0 ? voxelKinds : ['standard'],
-          actor: { source: 'script' }
-        });
-        if (!query?.hit) return null;
-        if (query.kind === 'entity') {
-          const hit = query.entityHit;
-          const point = hit?.point;
-          const normal = hit?.worldNormal || hit?.normal;
-          return Object.freeze({
-            kind: 'entity',
-            voxelKind: hit?.kind || null,
-            entityId: hit?.contraption?.publicId ?? null,
-            runtimeId: hit?.contraption?.id ?? null,
-            nodeId: hit?.entityId ?? hit?.entityNode?.id ?? hit?.contraption?.rootComponentId ?? null,
-            block: hit?.block?.block ?? BlockTypes.COLOR_BLOCK,
-            color: Number(hit?.color) || 0,
-            normal: Object.freeze([
-              Number(normal?.x) || 0,
-              Number(normal?.y) || 0,
-              Number(normal?.z) || 0
-            ]),
-            position: Object.freeze([
-              Number(point?.x) || 0,
-              Number(point?.y) || 0,
-              Number(point?.z) || 0
-            ]),
-            distance: Number(hit?.distance) || 0
-          });
-        }
-        const hit = query.worldHit;
-        if (!hit?.hit) return null;
-        return Object.freeze({
-          kind: 'world',
-          voxelKind: hit.kind || 'standard',
-          entityId: null,
-          runtimeId: null,
-          nodeId: null,
-          block: hit.block ?? BlockTypes.COLOR_BLOCK,
-          color: Number(hit.color) || 0,
-          normal: Object.freeze([hit.normal.x, hit.normal.y, hit.normal.z]),
-          position: Object.freeze([hit.hitPos.x, hit.hitPos.y, hit.hitPos.z]),
-          distance: hit.distance
-        });
-      }
-    });
-
-    const runSelection = (action, extra: any = {}) => this.performBasicAction({
-      domain: ActionDomain.SELECTION,
-      action,
-      actor: { source: 'script' },
-      ...extra
-    });
-    this.scriptSelectionApi = Object.freeze({
-      get: () => Object.freeze(runSelection('get')),
-      clear: () => {
-        const result = runSelection('clear');
-        return Object.freeze({ ok: result.ok, cleared: result.cleared || 0, reason: result.reason });
-      },
-      cornerA: (point, options: any = {}) => {
-        const result = runSelection('corner-a', { point, micro: options?.micro === true });
-        return Object.freeze({ ok: result.ok, selected: result.selected || 0, reason: result.reason });
-      },
-      cornerB: (point, options: any = {}) => {
-        const result = runSelection('corner-b', { point, micro: options?.micro === true });
-        return Object.freeze({ ok: result.ok, selected: result.selected || 0, clamped: !!result.clamped, reason: result.reason });
-      },
-      box: (cornerA, cornerB, options: any = {}) => {
-        const result = runSelection('box', { cornerA, cornerB, micro: options?.micro === true });
-        return Object.freeze({ ok: result.ok, selected: result.selected || 0, clamped: !!result.clamped, reason: result.reason });
-      },
-      cells: cells => {
-        const result = runSelection('cells', { cells });
-        return Object.freeze({ ok: result.ok, selected: result.selected || 0, reason: result.reason });
-      },
-      toggle: (point, options: any = {}) => {
-        const result = runSelection('toggle-cell', { point, micro: options?.micro === true });
-        return Object.freeze({
-          ok: result.ok,
-          selected: result.selection?.count || 0,
-          reason: result.reason
-        });
-      },
-      entity: (entityId, nodeId = null) => {
-        const result = runSelection('entity-subtree', { entityId, nodeId });
-        return Object.freeze({ ok: result.ok, selected: result.selected || 0, reason: result.reason });
-      },
-      entityBox: (entityId, nodeId, cornerA, cornerB, space = 'node-local', options: any = {}) => {
-        const result = runSelection('entity-box', {
-          entityId,
-          nodeId,
-          a: cornerA,
-          b: cornerB,
-          space,
-          micro: options?.micro === true
-        });
-        return Object.freeze({
-          ok: result.ok,
-          selected: result.selected || 0,
-          components: Object.freeze([...(result.components || [])]),
-          reason: result.reason
-        });
-      },
-      delete: () => {
-        const result = runSelection('delete');
-        return Object.freeze({
-          ok: result.ok,
-          removed: result.removed || 0,
-          standard: result.standard || 0,
-          micro: result.micro || 0,
-          entities: result.entities || 0,
-          components: result.components || 0,
-          entityId: result.entityId ?? null,
-          nodeId: result.nodeId ?? null,
-          reason: result.reason
-        });
-      },
-      paint: (options: any = null) => {
-        const result = runSelection('paint', { options });
-        return Object.freeze({
-          ok: result.ok,
-          painted: result.painted || 0,
-          standard: result.standard || 0,
-          micro: result.micro || 0,
-          reason: result.reason
-        });
-      },
-      fill: (options: any = null) => {
-        const result = runSelection('fill', { options });
-        return Object.freeze({
-          ok: result.ok,
-          placed: result.placed || 0,
-          standard: result.standard || 0,
-          micro: result.micro || 0,
-          reason: result.reason
-        });
-      },
-      assemble: (mode = ContraptionMode.PROGRAMMABLE, options = {}) => {
-        const result = runSelection('assemble', { mode, options });
-        return Object.freeze({
-          ok: result.ok,
-          assembled: result.assembled || 0,
-          entityId: result.entityId ?? null,
-          runtimeId: result.runtimeId ?? null,
-          reason: result.reason
-        });
-      },
-      createChild: (id = null) => {
-        const result = runSelection('create-child', { id });
-        return Object.freeze({ ok: result.ok, childId: result.childId ?? null, reason: result.reason });
-      }
-    });
+    const capabilities = createWorldScriptCapabilities(this);
+    this.scriptWorldApi = capabilities.world;
+    this.scriptSelectionApi = capabilities.selection;
   }
 
-  normalizeChunkId(value) {
+  normalizeChunkId(input: unknown): EntityChunk | null {
+    const value = input;
     let cx;
     let cz;
     if (typeof value === 'string') {
@@ -486,11 +143,12 @@ export class ContraptionManager {
       cx = Number(value[0]);
       cz = Number(value[1]);
     } else if (value && typeof value === 'object') {
-      if (value.id !== undefined && (value.cx === undefined || value.cz === undefined)) {
-        return this.normalizeChunkId(value.id);
+      const record = readRecord(value);
+      if (record.id !== undefined && (record.cx === undefined || record.cz === undefined)) {
+        return this.normalizeChunkId(record.id);
       }
-      cx = Number(value.cx);
-      cz = Number(value.cz);
+      cx = Number(record.cx);
+      cz = Number(record.cz);
     } else {
       return null;
     }
@@ -500,7 +158,7 @@ export class ContraptionManager {
     return Object.freeze({ id: `${wrappedCx},${wrappedCz}`, cx: wrappedCx, cz: wrappedCz });
   }
 
-  getContraptionChunk(contraption) {
+  getContraptionChunk(contraption: Contraption) {
     if (!contraption?.position) return null;
     const worldCoords = this.world?.worldToChunkCoords?.(contraption.position.x, contraption.position.z);
     return this.normalizeChunkId(worldCoords
@@ -515,10 +173,10 @@ export class ContraptionManager {
     return this.world?.activeChunkKeys instanceof Set && this.world.activeChunkKeys.size > 0;
   }
 
-  isEntityChunkLoaded(chunkId) {
+  isEntityChunkLoaded(chunkId: unknown) {
     if (!this.hasEntityStreamingWindow()) return true;
     const normalized = this.normalizeChunkId(chunkId);
-    return !!normalized && this.world.activeChunkKeys.has(normalized.id);
+    return !!normalized && !!this.world?.activeChunkKeys.has(normalized.id);
   }
 
   getDormantContraptionCount() {
@@ -527,19 +185,19 @@ export class ContraptionManager {
     return count;
   }
 
-  hasDormantPublicId(publicId) {
+  hasDormantPublicId(publicId: unknown) {
     for (const records of this.dormantContraptions.values()) {
       if (records.has(String(publicId))) return true;
     }
     return false;
   }
 
-  findActiveContraptionByPublicId(publicId) {
+  findActiveContraptionByPublicId(publicId: unknown) {
     const id = String(publicId || '');
     return this.contraptions.find(contraption => String(contraption.publicId) === id) || null;
   }
 
-  updateDormantServerEntity(publicId, metadata) {
+  updateDormantServerEntity(publicId: unknown, metadata: EntityStreamState) {
     const id = String(publicId || '');
     for (const [chunkId, records] of this.dormantContraptions) {
       const record = records.get(id);
@@ -560,111 +218,11 @@ export class ContraptionManager {
     return false;
   }
 
-  captureContraptionForStreaming(contraption, chunk) {
-    // The point-grab servo temporarily enables physics so the wrench can move
-    // a stopped entity. That is an editor implementation detail, not durable
-    // playback state. A periodic/pagehide save can run while the mouse is
-    // still held, so serialize the current pose as a fully stopped checkpoint
-    // rather than restoring servo velocity as live physics after a refresh.
-    const wrenchStopped = contraption.isWrenchGrabbed === true;
-    const states = contraption.getSerializableComponentStates?.()
-      || Object.fromEntries([...(contraption.componentVariables || [])]);
-    const nodes = [...(contraption.entityNodes?.values?.() || [])].map(node => ({
-      id: node.id,
-      localPosition: node.localPosition?.toArray?.() || [0, 0, 0],
-      localRotation: node.localQuaternion?.toArray?.() || [0, 0, 0, 1],
-      localAngularVelocity: wrenchStopped
-        ? [0, 0, 0]
-        : node.localAngularVelocity?.toArray?.() || [0, 0, 0]
-    }));
-    const bodies = (contraption.getRigidBodies?.() || []).map(body => ({
-      id: body.id,
-      type: body.type,
-      position: body.position?.toArray?.() || [0, 0, 0],
-      quaternion: body.quaternion?.toArray?.() || [0, 0, 0, 1],
-      velocity: wrenchStopped ? [0, 0, 0] : body.velocity?.toArray?.() || [0, 0, 0],
-      angularVelocity: wrenchStopped ? [0, 0, 0] : body.angularVelocity?.toArray?.() || [0, 0, 0],
-      mass: body.mass,
-      inverseInertia: body.inverseInertia,
-      restitution: body.restitution,
-      friction: body.friction,
-      useGravity: contraption.getNodeGravityEnabled?.(body.id) ?? true,
-      collisionEnabled: contraption.getNodeCollisionEnabled?.(body.id) ?? true,
-      linearDamping: body.linearDamping,
-      angularDamping: body.angularDamping,
-      centerOfMassLocal: body.centerOfMassLocal?.toArray?.() || [0, 0, 0],
-      previousKinematicPosition: wrenchStopped
-        ? body.position?.toArray?.() || [0, 0, 0]
-        : body.previousKinematicPosition?.toArray?.() || [0, 0, 0],
-      previousKinematicQuaternion: wrenchStopped
-        ? body.quaternion?.toArray?.() || [0, 0, 0, 1]
-        : body.previousKinematicQuaternion?.toArray?.() || [0, 0, 0, 1],
-      isOnGround: !!body.isOnGround
-    }));
-    const centerOffset = (contraption.localCenter || new THREE.Vector3())
-      .clone()
-      .applyQuaternion(contraption.quaternion);
-    const constructorOrigin = contraption.position.clone().sub(centerOffset);
-    return {
-      id: contraption.id,
-      publicId: contraption.publicId,
-      chunkId: chunk.id,
-      slot: contraption.serializeSubtree(contraption.rootComponentId),
-      constructorOrigin: constructorOrigin.toArray(),
-      position: contraption.position.toArray(),
-      quaternion: contraption.quaternion.toArray(),
-      velocity: wrenchStopped ? [0, 0, 0] : contraption.velocity.toArray(),
-      angularVelocity: wrenchStopped ? [0, 0, 0] : contraption.angularVelocity.toArray(),
-      // localCenter is the root's original coordinate anchor. It intentionally
-      // stays fixed while live block edits change the bounds, so it must be
-      // persisted separately from the final voxel layout.
-      localCenter: contraption.localCenter?.toArray?.() || null,
-      nodes,
-      bodies,
-      states,
-      runtimeDecorations: wrenchStopped ? [] : contraption.captureRuntimeDecorations(),
-      scriptStatus: wrenchStopped ? 'stopped' : contraption.scriptStatus,
-      physicsSimulationEnabled: wrenchStopped
-        ? false
-        : contraption.isPhysicsSimulationEnabled?.() !== false,
-      scriptError: contraption.scriptError,
-      nodeScriptErrors: [...contraption.nodeScriptErrors.entries()],
-      scriptRuntime: contraption.scriptRuntime,
-      tickCount: contraption.tickCount,
-      scriptCommandSequence: contraption.scriptCommandSequence,
-      totalRuntime: contraption.totalRuntime,
-      lastExecutionTimeMs: contraption.lastExecutionTimeMs,
-      scriptLogs: contraption.scriptLogs.slice(-100),
-      rootPivotOverride: contraption.rootPivotOverride?.toArray?.() || null,
-      useGravity: contraption.useGravity,
-      isOnGround: contraption.isOnGround,
-      groundDistance: contraption.groundDistance,
-      behaviorPrompt: contraption.behaviorPrompt,
-      agentInterpretation: contraption.agentInterpretation,
-      serverManaged: contraption.serverManaged === true,
-      serverExecutionMode: contraption.serverExecutionMode || 'browser',
-      serverHostingEnabled: contraption.serverHostingEnabled === true,
-      serverOwnerUserId: contraption.serverOwnerUserId || null,
-      serverOwnerName: contraption.serverOwnerName || null,
-      serverExecutorName: contraption.serverExecutorName || null,
-      serverExecutionLeaseExpiresAt: contraption.serverExecutionLeaseExpiresAt || null,
-      serverCanControl: contraption.serverCanControl === true,
-      serverCanEdit: contraption.serverCanEdit === true,
-      serverExecutesLocally: contraption.serverExecutesLocally === true,
-      serverExecutionEpoch: Number(contraption.serverExecutionEpoch) || 0,
-      serverRevision: Number(contraption.serverRevision) || 0,
-      serverPlaybackRevision: Number(contraption.serverPlaybackRevision) || 0,
-      serverDesiredRunState: contraption.serverDesiredRunState || null,
-      serverDefinitionDigest: contraption.serverDefinitionDigest || null,
-      serverSnapshotDigest: contraption.serverSnapshotDigest || null,
-      bearingAngle: contraption.bearingAngle,
-      pistonProgress: contraption.pistonProgress,
-      pistonDirection: contraption.pistonDirection,
-      pistonBasePos: contraption.pistonBasePos?.toArray?.() || null
-    };
+  captureContraptionForStreaming(contraption: Contraption, chunk: { id: string }) {
+    return captureEntityStreamState(contraption, chunk);
   }
 
-  storeDormantContraption(record) {
+  storeDormantContraption(record: EntityStreamState) {
     if (!record?.chunkId || !record?.publicId) return;
     let records = this.dormantContraptions.get(record.chunkId);
     if (!records) {
@@ -674,7 +232,7 @@ export class ContraptionManager {
     records.set(String(record.publicId), record);
   }
 
-  deleteDormantContraption(publicId) {
+  deleteDormantContraption(publicId: unknown) {
     const id = String(publicId || '');
     for (const [chunkId, records] of this.dormantContraptions) {
       if (!records.delete(id)) continue;
@@ -684,7 +242,7 @@ export class ContraptionManager {
     return false;
   }
 
-  unloadContraption(contraption) {
+  unloadContraption(contraption: Contraption) {
     const chunk = this.getContraptionChunk(contraption);
     if (!chunk) return false;
     const record = this.captureContraptionForStreaming(contraption, chunk);
@@ -694,145 +252,11 @@ export class ContraptionManager {
     return true;
   }
 
-  restoreContraptionStreamingState(contraption, record) {
-    contraption.position.fromArray(record.position || [0, 0, 0]);
-    contraption.quaternion.fromArray(record.quaternion || [0, 0, 0, 1]).normalize();
-    contraption.velocity.fromArray(record.velocity || [0, 0, 0]);
-    contraption.angularVelocity.fromArray(record.angularVelocity || [0, 0, 0]);
-    contraption.isOnGround = !!record.isOnGround;
-    contraption.groundDistance = Number(record.groundDistance) || 0;
-    contraption.rootPivotOverride = Array.isArray(record.rootPivotOverride)
-      ? new THREE.Vector3().fromArray(record.rootPivotOverride)
-      : null;
-
-    for (const saved of record.nodes || []) {
-      const node = contraption.entityNodes.get(String(saved.id));
-      if (!node) continue;
-      node.localPosition.fromArray(saved.localPosition || [0, 0, 0]);
-      node.localQuaternion.fromArray(saved.localRotation || [0, 0, 0, 1]).normalize();
-      node.localAngularVelocity.fromArray(saved.localAngularVelocity || [0, 0, 0]);
-      node.group.position.copy(node.localPosition);
-      node.group.quaternion.copy(node.localQuaternion);
-    }
-
-    for (const saved of record.bodies || []) {
-      const body = contraption.getRigidBody(saved.id);
-      if (!body) continue;
-      const savedUseGravity = typeof saved.useGravity === 'boolean'
-        ? saved.useGravity
-        : (body.id === contraption.rootComponentId && typeof record.useGravity === 'boolean'
-            ? record.useGravity
-            : undefined);
-      const restoresRuntimeMass = Number.isFinite(Number(saved.mass)) && Number(saved.mass) !== body.mass;
-      const restoresRuntimeOverride = saved.type !== body.type
-        || restoresRuntimeMass
-        || (Number.isFinite(Number(saved.restitution)) && Number(saved.restitution) !== body.restitution)
-        || (Number.isFinite(Number(saved.friction)) && Number(saved.friction) !== body.friction)
-        || (typeof savedUseGravity === 'boolean'
-          && savedUseGravity !== contraption.getNodeGravityEnabled?.(body.id))
-        || (typeof saved.collisionEnabled === 'boolean'
-          && saved.collisionEnabled !== contraption.getNodeCollisionEnabled?.(body.id));
-      if (restoresRuntimeOverride) contraption.captureRuntimeBodyConfigDefault?.(body.id);
-      if (saved.type === BodyType.DYNAMIC || saved.type === BodyType.KINEMATIC) {
-        body.type = saved.type;
-        const node = contraption.entityNodes.get(String(saved.id));
-        if (node) node.bodyType = saved.type;
-      }
-      if (Number.isFinite(Number(saved.mass)) && Number(saved.mass) > 0) body.mass = Number(saved.mass);
-      if (Number.isFinite(Number(saved.inverseInertia)) && Number(saved.inverseInertia) >= 0) {
-        body.inverseInertia = Number(saved.inverseInertia);
-      }
-      if (Number.isFinite(Number(saved.restitution))) {
-        body.restitution = Math.max(0, Math.min(1, Number(saved.restitution)));
-      }
-      if (Number.isFinite(Number(saved.friction))) {
-        body.friction = Math.max(0, Math.min(1, Number(saved.friction)));
-      }
-      if (Number.isFinite(Number(saved.linearDamping))) {
-        body.linearDamping = Math.max(0, Math.min(1, Number(saved.linearDamping)));
-      }
-      if (Number.isFinite(Number(saved.angularDamping))) {
-        body.angularDamping = Math.max(0, Math.min(1, Number(saved.angularDamping)));
-      }
-      if (isFiniteVector3Array(saved.centerOfMassLocal)) {
-        body.centerOfMassLocal.fromArray(saved.centerOfMassLocal);
-      }
-      body.position.fromArray(saved.position || [0, 0, 0]);
-      body.quaternion.fromArray(saved.quaternion || [0, 0, 0, 1]).normalize();
-      body.velocity.fromArray(saved.velocity || [0, 0, 0]);
-      body.angularVelocity.fromArray(saved.angularVelocity || [0, 0, 0]);
-      body.previousKinematicPosition.fromArray(saved.previousKinematicPosition || saved.position || [0, 0, 0]);
-      body.previousKinematicQuaternion.fromArray(saved.previousKinematicQuaternion || saved.quaternion || [0, 0, 0, 1]).normalize();
-      body.appliedForces.set(0, 0, 0);
-      body.appliedTorques.set(0, 0, 0);
-      body.isOnGround = !!saved.isOnGround;
-
-      if (body.id === contraption.rootComponentId) {
-        contraption.bodyType = body.type;
-        if (restoresRuntimeMass) contraption.massOverride = body.mass;
-        contraption.mass = body.mass;
-        contraption.restitution = body.restitution;
-        contraption.friction = body.friction;
-        contraption.linearDamping = body.linearDamping;
-        contraption.angularDamping = body.angularDamping;
-      } else {
-        const definition = contraption.childDefinitions.get(body.id);
-        if (definition) {
-          definition.bodyType = body.type;
-          if (restoresRuntimeMass) definition.mass = body.mass;
-          definition.restitution = body.restitution;
-          definition.friction = body.friction;
-        }
-      }
-      if (typeof savedUseGravity === 'boolean'
-        && savedUseGravity !== contraption.getNodeGravityEnabled?.(body.id)) {
-        contraption.setNodeGravityEnabled?.(body.id, savedUseGravity, { runtimeOnly: true });
-      }
-      if (typeof saved.collisionEnabled === 'boolean'
-        && saved.collisionEnabled !== contraption.getNodeCollisionEnabled?.(body.id)) {
-        contraption.setNodeCollisionEnabled?.(body.id, saved.collisionEnabled, { runtimeOnly: true });
-      }
-    }
-    contraption.syncAllBodyTransforms?.();
-
-    for (const nodeId of contraption.entityNodes.keys()) {
-      const target = contraption.getComponentState(nodeId);
-      for (const key of Object.keys(target)) delete target[key];
-      const saved = cloneEntityStreamData(record.states?.[nodeId], {});
-      if (saved && typeof saved === 'object' && !Array.isArray(saved)) Object.assign(target, saved);
-    }
-    contraption.scriptRuntimeClient.reset(contraption.getSerializableComponentStates());
-    contraption.scriptStatus = record.scriptStatus || 'stopped';
-    contraption.restoreRuntimeDecorations(contraption.scriptStatus === 'stopped' ? [] : record.runtimeDecorations ?? []);
-    const physicsEnabled = record.physicsSimulationEnabled !== false;
-    contraption.setPhysicsSimulationEnabled?.(physicsEnabled, {
-      // A stopped snapshot has no trajectory to preserve. Pin both render and
-      // collision history to its restored pose; otherwise a remote stopped
-      // replica interpolates from its constructor origin on every frame and
-      // visibly twitches after refresh.
-      resetHistory: !physicsEnabled
-    });
-    contraption.scriptError = record.scriptError || null;
-    contraption.nodeScriptErrors = new Map(record.nodeScriptErrors || []);
-    contraption.scriptRuntime = Number(record.scriptRuntime) || 0;
-    contraption.tickCount = Number(record.tickCount) || 0;
-    contraption.scriptCommandSequence = Number.isSafeInteger(record.scriptCommandSequence)
-      && record.scriptCommandSequence >= 0
-      ? record.scriptCommandSequence
-      : contraption.tickCount * 256;
-    contraption.totalRuntime = Number(record.totalRuntime) || 0;
-    contraption.lastExecutionTimeMs = Number(record.lastExecutionTimeMs) || 0;
-    contraption.scriptLogs = Array.isArray(record.scriptLogs) ? [...record.scriptLogs] : [];
-    contraption.bearingAngle = Number(record.bearingAngle) || 0;
-    contraption.pistonProgress = Number(record.pistonProgress) || 0;
-    contraption.pistonDirection = Number(record.pistonDirection) || 1;
-    if (Array.isArray(record.pistonBasePos)) contraption.pistonBasePos.fromArray(record.pistonBasePos);
-    contraption.updateTransform();
-    // spaceAPI Stop/configuration saves placement while discarding runtime state.
-    if (record.resetRuntime === true) contraption.stopAllNodeScripts();
+  restoreContraptionStreamingState(contraption: Contraption, record: EntityStreamState) {
+    restoreEntityStreamState(contraption, record);
   }
 
-  restoreDormantContraption(record) {
+  restoreDormantContraption(record: EntityStreamState) {
     const origin = new THREE.Vector3().fromArray(record.constructorOrigin || [0, 0, 0]);
     return this.buildFromSlot(record.slot, origin, record);
   }
@@ -843,7 +267,8 @@ export class ContraptionManager {
       return;
     }
 
-    const activeWindow = this.world.activeChunkKeys;
+    const activeWindow = this.world?.activeChunkKeys;
+    if (!activeWindow) return;
     if (activeWindow !== this.lastEntityChunkWindow) {
       this.lastEntityChunkWindow = activeWindow;
       for (const chunkId of activeWindow) {
@@ -869,10 +294,10 @@ export class ContraptionManager {
     }
   }
 
-  describeContraption(contraption, distance = null) {
-    if (!contraption) return null;
+  describeContraption(contraption: Contraption, distance: number | null = null) {
     const chunk = this.getContraptionChunk(contraption);
-    const descriptor: any = {
+    const descriptor = {
+      ...(distance === null ? {} : { distance }),
       id: contraption.publicId,
       runtimeId: contraption.id,
       chunkId: chunk?.id || null,
@@ -900,11 +325,10 @@ export class ContraptionManager {
       scriptStatus: contraption.scriptStatus,
       componentCount: contraption.entityNodes?.size || 0
     };
-    if (distance !== null) descriptor.distance = distance;
     return Object.freeze(descriptor);
   }
 
-  getNearbyEntityDescriptors(origin, radius = 16) {
+  getNearbyEntityDescriptors(origin: unknown, radius = 16) {
     if (!Array.isArray(origin) || origin.length < 3) return Object.freeze([]);
     const ox = Number(origin[0]) || 0;
     const oy = Number(origin[1]) || 0;
@@ -920,11 +344,11 @@ export class ContraptionManager {
       const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (distance <= r) result.push(this.describeContraption(contraption, distance));
     }
-    result.sort((a, b) => a.distance - b.distance);
+    result.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
     return Object.freeze(result);
   }
 
-  getEntityDescriptorById(entityId, chunkId = null) {
+  getEntityDescriptorById(entityId: unknown, chunkId: unknown = null) {
     if (entityId === undefined || entityId === null) return null;
     const contraption = this.contraptions.find(item => (
       String(item.publicId) === String(entityId) || String(item.id) === String(entityId)
@@ -937,7 +361,7 @@ export class ContraptionManager {
     return this.describeContraption(contraption);
   }
 
-  getEntityDescriptorsInChunk(chunkId) {
+  getEntityDescriptorsInChunk(chunkId: unknown) {
     const target = this.normalizeChunkId(chunkId);
     if (!target) return Object.freeze([]);
     const result = this.contraptions
@@ -948,12 +372,12 @@ export class ContraptionManager {
   }
 
   /** Dispatch a canonical engine action from UI, mouse input, scripts or systems. */
-  performBasicAction(command) {
+  performBasicAction(command: Parameters<typeof executeBasicAction>[1]) {
     return executeBasicAction({ manager: this, world: this.world, selectionHost: this.selectionHost }, command);
   }
 
   /** Register an entity and bind its self.* API to this same command context. */
-  registerContraption(contraption) {
+  registerContraption(contraption: Contraption) {
     if (!contraption) return null;
     const runtimeId = Number(contraption.id);
     if (Number.isFinite(runtimeId)) this.nextId = Math.max(this.nextId, runtimeId + 1);
@@ -967,11 +391,11 @@ export class ContraptionManager {
     return contraption;
   }
 
-  setPhysics(physics) {
+  setPhysics(physics: ContraptionPhysics | null) {
     this.physics = physics;
   }
 
-  setRuntimeContextProvider(provider) {
+  setRuntimeContextProvider(provider: RuntimeContextProvider | null) {
     this.runtimeContextProvider = typeof provider === 'function' ? provider : null;
   }
 
@@ -999,7 +423,7 @@ export class ContraptionManager {
   }
 
   /** Select browser persistence for offline worlds, backend persistence online, or none to disable persistence. */
-  setEntityPersistenceMode(mode: 'browser' | 'remote' | 'none', adapter: any = null) {
+  setEntityPersistenceMode(mode: 'browser' | 'remote' | 'none', adapter: EntityPersistence | null = null) {
     this.entityPersistenceMode = mode === 'remote' ? 'remote' : (mode === 'none' ? 'none' : 'browser');
     this.remoteEntityPersistence = this.entityPersistenceMode === 'remote' ? adapter : null;
     if (this.entityPersistenceMode === 'remote' || this.entityPersistenceMode === 'none') {
@@ -1007,7 +431,7 @@ export class ContraptionManager {
     }
   }
 
-  setRemoteEntityPersistence(adapter: any) {
+  setRemoteEntityPersistence(adapter: EntityPersistence | null) {
     this.entityPersistenceMode = 'remote';
     this.remoteEntityPersistence = adapter || null;
     this.purgeBrowserEntityStorage();
@@ -1040,7 +464,7 @@ export class ContraptionManager {
     if (this.entityPersistenceMode === 'none') return false;
     if (this.entityPersistenceMode === 'remote') {
       const seenPublicIds = new Set<string>();
-      const queue = (record: any) => {
+      const queue = (record: EntityStreamState) => {
         if (!record?.publicId || seenPublicIds.has(String(record.publicId))) return;
         if (record.serverManaged === true && record.serverCanEdit !== true) return;
         seenPublicIds.add(String(record.publicId));
@@ -1058,7 +482,7 @@ export class ContraptionManager {
     }
     if (!storage) return false;
     try {
-      const entityRecords: any[] = [];
+      const entityRecords: EntityStreamState[] = [];
       const seenPublicIds = new Set<string>();
 
       // 1. Active contraptions
@@ -1140,7 +564,7 @@ export class ContraptionManager {
   // 1. SELECTION LOGIC
   // =========================================================================
 
-  setCornerA(pos, opts: any = {}) {
+  setCornerA(pos: SelectionPoint | null, opts: { micro?: boolean } = {}) {
     this.clearChildSelection();
     this.selectionBoxConfirmed = false;
     if (pos) {
@@ -1159,7 +583,7 @@ export class ContraptionManager {
   }
 
   /** Convert a world point to the inclusive micro cell (0.125 m grid) under it. */
-  microCellFromPoint(pos) {
+  microCellFromPoint(pos: SelectionPoint) {
     return {
       x: wrapMicroX(Math.floor(pos.x * MICRO_DIVISIONS + 1e-6)),
       y: Math.max(0, Math.min(CHUNK_SIZE_Y * MICRO_DIVISIONS - 1, Math.floor(pos.y * MICRO_DIVISIONS + 1e-6))),
@@ -1169,14 +593,14 @@ export class ContraptionManager {
   }
 
   /** Clamp a raw corner against the anchor corner so the box stays within MAX_ENTITY_BOUNDS cells per axis. */
-  clampSelectionCorner(raw, anchor) {
+  clampSelectionCorner(raw: SelectionPoint, anchor: SelectionPoint) {
     const pos = {
       x: unwrapPeriodicNear(Math.floor(raw.x), anchor.x, TORUS_SIZE_X),
       y: Math.floor(raw.y),
       z: unwrapPeriodicNear(Math.floor(raw.z), anchor.z, TORUS_SIZE_Z)
     };
     let clamped = false;
-    for (const axis of ['x', 'y', 'z']) {
+    for (const axis of ['x', 'y', 'z'] as const) {
       if (pos[axis] - anchor[axis] > MAX_ENTITY_BOUNDS - 1) {
         pos[axis] = anchor[axis] + MAX_ENTITY_BOUNDS - 1;
         clamped = true;
@@ -1189,7 +613,7 @@ export class ContraptionManager {
   }
 
   /** Clamp a raw micro corner against the anchor so the box stays within MAX_ENTITY_BOUNDS standard cells per axis. */
-  clampMicroSelectionCorner(raw, anchor) {
+  clampMicroSelectionCorner(raw: SelectionPoint, anchor: SelectionPoint) {
     const pos = {
       x: unwrapPeriodicNear(raw.x, anchor.x, TORUS_SIZE_X * MICRO_DIVISIONS),
       y: raw.y,
@@ -1198,7 +622,7 @@ export class ContraptionManager {
     };
     let clamped = false;
     const limit = MAX_ENTITY_BOUNDS * MICRO_DIVISIONS - 1;
-    for (const axis of ['x', 'y', 'z']) {
+    for (const axis of ['x', 'y', 'z'] as const) {
       if (pos[axis] - anchor[axis] > limit) {
         pos[axis] = anchor[axis] + limit;
         clamped = true;
@@ -1216,7 +640,7 @@ export class ContraptionManager {
   }
 
   /** True when the point AABB would exceed MAX_ENTITY_BOUNDS on any axis. */
-  boundsExceedEntityLimit(bounds) {
+  boundsExceedEntityLimit(bounds: CollisionBounds | null) {
     if (!bounds) return false;
     return (
       bounds.maxX - bounds.minX + 1 > MAX_ENTITY_BOUNDS
@@ -1225,7 +649,7 @@ export class ContraptionManager {
     );
   }
 
-  setCornerB(pos, opts: any = {}) {
+  setCornerB(pos: SelectionPoint | null, opts: { micro?: boolean } = {}) {
     this.clearChildSelection();
     this.selectionBoxConfirmed = !!(this.selectionCornerA && pos);
     const micro = opts.micro === true || !!this.selectionCornerA?.micro;
@@ -1282,8 +706,8 @@ export class ContraptionManager {
   }
 
   /** Collect the existing micro voxels and non-air standard blocks inside an inclusive micro-index box. */
-  materializeMicroBox(minMx, minMy, minMz, maxMx, maxMy, maxMz) {
-    const found = [];
+  materializeMicroBox(minMx: number, minMy: number, minMz: number, maxMx: number, maxMy: number, maxMz: number) {
+    const found: SelectionPoint[] = [];
     const loY = Math.max(0, minMy);
     const hiY = Math.min(CHUNK_SIZE_Y * MICRO_DIVISIONS - 1, maxMy);
     if (loY > hiY) return found;
@@ -1348,7 +772,7 @@ export class ContraptionManager {
     return found;
   }
 
-  setConnectedSelection(blocks) {
+  setConnectedSelection(blocks: SelectionPoint[]) {
     this.clearChildSelection();
     const anchor = blocks?.[0]
       ? { x: wrapX(Math.floor(blocks[0].x)), y: Math.floor(blocks[0].y), z: wrapZ(Math.floor(blocks[0].z)) }
@@ -1373,7 +797,7 @@ export class ContraptionManager {
     return true;
   }
 
-  addGluePoint(pos) {
+  addGluePoint(pos: SelectionPoint) {
     if (!pos) return 0;
     this.clearChildSelection();
     this.selectionBoxConfirmed = false;
@@ -1395,10 +819,10 @@ export class ContraptionManager {
     };
     if (this.gluePoints.length > 0) {
       // Keep the completed three-point box within MAX_ENTITY_BOUNDS per axis.
-      const bounds = this.getBoundsFromPoints(this.gluePoints);
-      for (const axis of ['x', 'y', 'z']) {
-        const min = bounds[`min${axis.toUpperCase()}`];
-        const max = bounds[`max${axis.toUpperCase()}`];
+      const bounds = this.getBoundsFromPoints(this.gluePoints)!;
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const min = bounds[`min${({ x: 'X', y: 'Y', z: 'Z' } as const)[axis]}`];
+        const max = bounds[`max${({ x: 'X', y: 'Y', z: 'Z' } as const)[axis]}`];
         if (pt[axis] - min > MAX_ENTITY_BOUNDS - 1) pt[axis] = min + MAX_ENTITY_BOUNDS - 1;
         else if (max - pt[axis] > MAX_ENTITY_BOUNDS - 1) pt[axis] = max - (MAX_ENTITY_BOUNDS - 1);
       }
@@ -1411,7 +835,7 @@ export class ContraptionManager {
     return this.gluePoints.length;
   }
 
-  addSelectionPoint(pos, singleMode = false) {
+  addSelectionPoint(pos: SelectionPoint, singleMode = false) {
     if (singleMode) {
       const info = this.toggleWorldGlueCell(pos);
       return info?.count || 0;
@@ -1419,7 +843,7 @@ export class ContraptionManager {
     return this.addGluePoint(pos);
   }
 
-  toggleWorldGlueCell(pos) {
+  toggleWorldGlueCell(pos: SelectionPoint) {
     if (!pos) return null;
     this.clearChildSelection();
     this.selectionBoxConfirmed = false;
@@ -1473,7 +897,7 @@ export class ContraptionManager {
    * tool's Tab-toggled micro mode). Mirrors toggleWorldGlueCell: shift always
    * enters single mode, and any unfinished or completed box is discarded.
    */
-  toggleMicroCell(pos) {
+  toggleMicroCell(pos: SelectionPoint) {
     if (!pos) return null;
     this.clearChildSelection();
     this.selectionBoxConfirmed = false;
@@ -1637,12 +1061,14 @@ export class ContraptionManager {
     pointCount: number;
     count: number;
     ready: boolean;
-    cells: any;
+    cells: SelectionPoint[] | null;
     rejected?: boolean;
   } {
-    const microMode = this.microSelection !== null;
-    const singleMode = this.connectedSelection !== null;
-    const count = microMode ? this.microSelection.length : singleMode ? this.connectedSelection.length : this.getSelectionBlockCount();
+    const microCells = this.microSelection;
+    const microMode = microCells !== null;
+    const standardCells = this.connectedSelection;
+    const singleMode = standardCells !== null;
+    const count = microMode ? microCells!.length : singleMode ? standardCells!.length : this.getSelectionBlockCount();
     // Prefer the two-point cornerA/B selection; retain legacy three-point gluePoints compatibility.
     const cornerA = this.selectionCornerA;
     const cornerB = this.selectionCornerB;
@@ -1663,8 +1089,8 @@ export class ContraptionManager {
       count,
       ready: (microMode || singleMode) ? count > 0 : cornerA !== null ? cornerB !== null : this.gluePoints.length === 3,
       cells: microMode
-        ? this.microSelection.map(cell => ({ ...cell }))
-        : singleMode ? this.connectedSelection.map(cell => ({ ...cell })) : null
+        ? microCells!.map(cell => ({ ...cell }))
+        : singleMode ? standardCells!.map(cell => ({ ...cell })) : null
     };
   }
 
@@ -1696,7 +1122,7 @@ export class ContraptionManager {
     this.childSelection = null;
   }
 
-  selectChildEntityCell(hit, isMultiSelect = false) {
+  selectChildEntityCell(hit: NonNullable<ReturnType<ContraptionManager['raycastContraptionHit']>>, isMultiSelect = false) {
     if (!hit?.contraption || !hit.cell) return null;
     if (!hit.contraption.canEditInternalSelection?.()) {
       if (this.childSelection?.contraption === hit.contraption) this.clearChildSelection();
@@ -1708,7 +1134,7 @@ export class ContraptionManager {
     if (!selectableKeys.has(key)) return null;
 
     const sameParent = this.childSelection
-      && this.childSelection.contraption === hit.contraption
+      && this.childSelection!.contraption === hit.contraption
       && this.childSelection.parentId === parentId;
 
     if (!sameParent) {
@@ -1720,20 +1146,20 @@ export class ContraptionManager {
         cells: new Set([key])
       };
     } else if (isMultiSelect) {
-      if (this.childSelection.cells.has(key)) {
-        this.childSelection.cells.delete(key);
+      if (this.childSelection!.cells.has(key)) {
+        this.childSelection!.cells.delete(key);
       } else {
-        this.childSelection.cells.add(key);
+        this.childSelection!.cells.add(key);
       }
     } else {
-      this.childSelection.cells = new Set([key]);
+      this.childSelection!.cells = new Set([key]);
     }
 
-    if (this.childSelection.cells.size === 0) {
-      this.childSelection.contraption.clearGlueSelection();
-      this.childSelection.contraption.setFocusHighlight(parentId);
+    if (this.childSelection!.cells.size === 0) {
+      this.childSelection!.contraption.clearGlueSelection();
+      this.childSelection!.contraption.setFocusHighlight(parentId);
     } else {
-      this.childSelection.contraption.setGlueSelection(parentId, this.childSelection.cells);
+      this.childSelection!.contraption.setGlueSelection(parentId, this.childSelection!.cells);
     }
 
     if (this.sound) this.sound.playGlueApply();
@@ -1760,7 +1186,7 @@ export class ContraptionManager {
     }
     const contraption = this.childSelection.contraption;
     const descendantCount = [...contraption.entityNodes.keys()]
-      .filter(nodeId => contraption.isEntityDescendantOf(nodeId, this.childSelection.parentId))
+      .filter(nodeId => contraption.isEntityDescendantOf(nodeId, this.childSelection!.parentId))
       .length;
     return {
       contraption,
@@ -1774,8 +1200,8 @@ export class ContraptionManager {
     };
   }
 
-  createChildFromSelection(requestedId = null) {
-    if (!this.hasReadyChildSelection()) return null;
+  createChildFromSelection(requestedId: string | null = null) {
+    if (!this.childSelection || !this.hasReadyChildSelection()) return null;
     const { contraption, parentId, cells } = this.childSelection;
     if (!contraption.canEditInternalSelection?.()) {
       this.clearChildSelection();
@@ -1971,7 +1397,7 @@ export class ContraptionManager {
     };
   }
 
-  getBoundsFromPoints(points) {
+  getBoundsFromPoints(points: readonly SelectionPoint[] | null) {
     if (!points || points.length === 0) return null;
     return {
       minX: Math.min(...points.map(point => point.x)),
@@ -1992,14 +1418,14 @@ export class ContraptionManager {
     return Object.values(ContraptionMode).includes(mode) ? mode : null;
   }
 
-  assembleSelection(mode = ContraptionMode.PROGRAMMABLE, customOptions = {}) {
+  assembleSelection(mode = ContraptionMode.PROGRAMMABLE, customOptions: ContraptionOptions = {}) {
     const finalMode = this.normalizeAssemblyMode(mode);
     // Validate before extracting any selected world voxels. Invalid modes must
     // never mutate the world or consume the current selection.
     if (!finalMode) return null;
-    if (!this.hasValidSelection()) return null;
+    if (!this.world || !this.hasValidSelection()) return null;
 
-    let rawBlocks = [];
+    let rawBlocks: RuntimeVoxel[] = [];
     let originPos = new THREE.Vector3(0, 0, 0);
 
     if (this.microSelection !== null) {
@@ -2037,7 +1463,7 @@ export class ContraptionManager {
         }
       }
 
-      const affectedChunks = new Set<any>();
+      const affectedChunks = new Set<Chunk>();
       for (const c of cells) {
         const extracted = this.world.extractMicroCellRegion?.(c.x, c.y, c.z, c.x, c.y, c.z) || [];
         for (const micro of extracted) {
@@ -2065,9 +1491,10 @@ export class ContraptionManager {
       }
     } else if (this.connectedSelection !== null) {
       const bounds = this.getSelectionBounds();
+      if (!bounds) return null;
       originPos.set(bounds.minX, bounds.minY, bounds.minZ);
 
-      const affectedChunks = new Set<any>();
+      const affectedChunks = new Set<Chunk>();
       for (const b of this.connectedSelection) {
         const block = this.world.getBlock(b.x, b.y, b.z);
         if (block !== BlockTypes.AIR) {
@@ -2107,6 +1534,7 @@ export class ContraptionManager {
       }
     } else {
       const bounds = this.getSelectionBounds();
+      if (!bounds) return null;
       originPos.set(bounds.minX, bounds.minY, bounds.minZ);
 
       const extracted = this.world.extractRegion(
@@ -2155,7 +1583,7 @@ export class ContraptionManager {
    * prepare/extract their blocks through BulkEditJob, then use this same commit
    * path so no partially constructed entity is ever registered.
    */
-  commitPreparedAssembly(rawBlocks, originPos, mode = ContraptionMode.PROGRAMMABLE, customOptions = {}) {
+  commitPreparedAssembly(rawBlocks: RuntimeVoxel[], originPos: THREE.Vector3 | SelectionPoint, mode = ContraptionMode.PROGRAMMABLE, customOptions: ContraptionOptions = {}) {
     const finalMode = this.normalizeAssemblyMode(mode);
     if (!finalMode || !Array.isArray(rawBlocks) || rawBlocks.length === 0) {
       this.clearSelection();
@@ -2167,7 +1595,7 @@ export class ContraptionManager {
       mode: finalMode,
       particleSystem: this.particles
     };
-    const origin = originPos?.isVector3
+    const origin = originPos instanceof THREE.Vector3
       ? originPos.clone()
       : new THREE.Vector3(Number(originPos?.x) || 0, Number(originPos?.y) || 0, Number(originPos?.z) || 0);
     const contraption = new Contraption(
@@ -2193,7 +1621,7 @@ export class ContraptionManager {
    * Inventory slots already contain one explicit root and need no identity remapping.
    * @returns The registered entity, or null for an empty slot.
    */
-  buildFromSlot(slot, position, restoreState = null, autoSave = true, preparedBlocks = null) {
+  buildFromSlot(slot: InventoryInput | null | undefined, position: THREE.Vector3, restoreState: EntityStreamState | null = null, autoSave = true, preparedBlocks: RuntimeVoxel[] | null = null) {
     if (!slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return null;
 
     const rootComponentId = String(slot.rootComponentId || '');
@@ -2202,9 +1630,9 @@ export class ContraptionManager {
     if (subtreeChildIds.has(rootComponentId)) return null;
 
     const blocks = Array.isArray(preparedBlocks) ? preparedBlocks : slot.blocks.map(b => ({
-      localX: b.localX,
-      localY: b.localY,
-      localZ: b.localZ,
+      localX: Number(b.localX) || 0,
+      localY: Number(b.localY) || 0,
+      localZ: Number(b.localZ) || 0,
       size: b.size || 1,
       color: b.color,
       materialId: b.materialId,
@@ -2302,13 +1730,13 @@ export class ContraptionManager {
 
   /** Merge an inventory entity into an existing stopped entity as a component subtree. */
   installSlotAsComponent(
-    contraption,
-    slot,
-    parentNodeId,
-    placementOrigin,
+    contraption: Contraption,
+    slot: InventoryInput | null,
+    parentNodeId: string,
+    placementOrigin: THREE.Vector3,
     autoSave = true,
-    preparedBlocks = null,
-    placementRotation = null
+    preparedBlocks: RuntimeVoxel[] | null = null,
+    placementRotation: THREE.Quaternion | number[] | null = null
   ) {
     if (!contraption || !this.contraptions.includes(contraption)) {
       return Object.freeze({ ok: false, reason: 'target_entity_missing' });
@@ -2328,15 +1756,15 @@ export class ContraptionManager {
   // 3. CONTRAPTION DISASSEMBLY / SOLIDIFY (restore to static voxels)
   // =========================================================================
 
-  disassembleContraption(contraption, options: any = {}) {
-    if (!contraption) return false;
+  disassembleContraption(contraption: Contraption, options: { skipRemoteDelete?: boolean } = {}) {
+    if (!contraption || !this.world) return false;
 
     // Ensure running entities are stopped and reset to base rest pose before converting to voxels
     if (contraption.scriptStatus !== 'stopped') {
       contraption.stopAllNodeScripts?.();
     }
 
-    const affectedChunks = new Set<any>();
+    const affectedChunks = new Set<Chunk>();
 
     for (const b of contraption.blocks) {
       const blockSize = b.size || 1;
@@ -2382,7 +1810,7 @@ export class ContraptionManager {
     return true;
   }
 
-  removeContraption(contraption, options: any = {}) {
+  removeContraption(contraption: Contraption, options: { preserveDormant?: boolean; skipSave?: boolean; skipRemoteDelete?: boolean } = {}) {
     if (this.childSelection?.contraption === contraption) this.clearChildSelection();
     if (this.entitySelection?.contraption === contraption) {
       this.entitySelection.contraption.clearSubtreeHighlight?.();
@@ -2419,7 +1847,7 @@ export class ContraptionManager {
   // 4. RAYCAST CONTRAPTIONS
   // =========================================================================
 
-  raycastContraptionHit(rayOrigin, rayDir, maxDistance = 30) {
+  raycastContraptionHit(rayOrigin: THREE.Vector3, rayDir: THREE.Vector3, maxDistance = 30) {
     let closestHit = null;
     let closestDist = maxDistance;
 
@@ -2435,7 +1863,7 @@ export class ContraptionManager {
 
   /** Entity picking counterpart to World.raycastBent: both inputs are in the
    * visible torus space and returned distances can be compared directly. */
-  raycastContraptionHitBent(rayOriginBent, rayDirBent, maxDistance = 30) {
+  raycastContraptionHitBent(rayOriginBent: THREE.Vector3, rayDirBent: THREE.Vector3, maxDistance = 30) {
     let closestHit = null;
     let closestDist = maxDistance;
 
@@ -2449,11 +1877,11 @@ export class ContraptionManager {
     return closestHit;
   }
 
-  raycastContraption(rayOrigin, rayDir, maxDistance = 30) {
+  raycastContraption(rayOrigin: THREE.Vector3, rayDir: THREE.Vector3, maxDistance = 30) {
     return this.raycastContraptionHit(rayOrigin, rayDir, maxDistance)?.contraption || null;
   }
 
-  beginRenderInterpolation(alpha) {
+  beginRenderInterpolation(alpha: number) {
     for (const contraption of this.contraptions) {
       contraption.beginRenderInterpolation?.(alpha);
     }
@@ -2480,7 +1908,7 @@ export class ContraptionManager {
    * the shift is an integer multiple of the period and is invisible to bent
    * rendering, wrapped chunk ids, and wrapped terrain queries.
    */
-  reanchorEntitiesToPlayer(players = null) {
+  reanchorEntitiesToPlayer(players: ScriptPlayer[] | null | undefined = null) {
     const local = Array.isArray(players)
       ? (players.find(player => player && player.id === 'local') || players[0])
       : null;
@@ -2494,7 +1922,7 @@ export class ContraptionManager {
     }
   }
 
-  update(dt, inputState) {
+  update(dt: number, inputState: ScriptInputState | null) {
     this.syncContraptionsToLoadedChunks();
     this.physics?.beginEntityUpdate?.(this.contraptions);
     const providedContext = this.runtimeContextProvider?.() || {};
@@ -2550,7 +1978,7 @@ export class ContraptionManager {
         let maxSubSteps = 0;
         for (const frame of frames) maxSubSteps = Math.max(maxSubSteps, frame.subSteps);
         const substepCount = Math.max(1, maxSubSteps);
-        const broadphaseBounds = this.physics.frameBroadphaseBounds ? new Map() : null;
+        const broadphaseBounds = new Map<Contraption, ReturnType<ContraptionPhysics['frameBroadphaseBounds']>>();
         if (broadphaseBounds) {
           for (const c of this.contraptions) {
             if (!c?.getRigidBodies?.().length) continue;
@@ -2589,7 +2017,7 @@ export class ContraptionManager {
     for (let i = this.contraptions.length - 1; i >= 0; i--) {
       const c = this.contraptions[i];
       const chunk = this.getContraptionChunk(c);
-      if (this.hasEntityStreamingWindow() && chunk && !this.world.activeChunkKeys.has(chunk.id)) {
+      if (this.hasEntityStreamingWindow() && chunk && !this.world?.activeChunkKeys.has(chunk.id)) {
         this.unloadContraption(c);
         continue;
       }

@@ -1,16 +1,27 @@
-import * as THREE from 'three';
-import { MICRO_DIVISIONS } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-import { BlockTypes, normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
-import { normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { normalizeDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { trimInventoryName, truncateInventoryName } from '@entropydrop/space-engine/storage/InventoryName.ts';
 import {
-  encodeInventoryResource, inventoryKindForPortable, newItemTemplateId,
-  INVENTORY_PROTOBUF_SCHEMA_VERSION, runtimeEntityToPortable,
+  encodeInventoryResource,
+  INVENTORY_PROTOBUF_SCHEMA_VERSION,
+  inventoryKindForPortable,
+  newItemTemplateId,
+  runtimeEntityToPortable,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
+import type {
+  InventoryInput,
+  InventorySeat,
+  PortableBlockSet,
+  PortableColorSet,
+  PortableEntity,
+  PortableResource,
+} from '@entropydrop/space-engine/storage/InventoryTypes.ts';
+import { BlockTypes, normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { MICRO_DIVISIONS } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+import { normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
+import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import * as THREE from 'three';
 
-export function inventoryEntityRootId(item: any): string {
+export function inventoryEntityRootId(item: InventoryInput | null | undefined): string {
   if (typeof item?.rootComponentId === 'string' && item.rootComponentId) return item.rootComponentId;
   const definitions = Array.isArray(item?.childEntities) ? item.childEntities : [];
   const childIds = new Set(definitions.map(definition => String(definition?.id ?? '')));
@@ -27,7 +38,7 @@ export function inventoryEntityRootId(item: any): string {
 }
 
 /** Display name for a backpack item. Names are intentionally not unique. */
-export function inventoryItemName(category: string, item: any, index = 0): string {
+export function inventoryItemName(category: string, item: InventoryInput | null | undefined, index = 0): string {
   const explicitName = typeof item?.name === 'string' ? trimInventoryName(item.name) : '';
   if (explicitName) return truncateInventoryName(explicitName);
   if (category === 'item') return `Item ${index + 1}`;
@@ -41,7 +52,11 @@ export function inventoryItemName(category: string, item: any, index = 0): strin
 }
 
 /** Build the portable object used by Protobuf storage and transfer. */
-export function serializeInventoryItem(category: string, item: any) {
+export function serializeInventoryItem(category: 'entity', item: InventoryInput): PortableEntity;
+export function serializeInventoryItem(category: 'blockset', item: InventoryInput): PortableBlockSet;
+export function serializeInventoryItem(category: 'colorset', item: InventoryInput): PortableColorSet;
+export function serializeInventoryItem(category: string, item: InventoryInput | null | undefined): PortableResource | null;
+export function serializeInventoryItem(category: string, item: InventoryInput | null | undefined): PortableResource | null {
   if (!item) return null;
   if (category === 'item') {
     if (item.kind !== 'item') return serializeInventoryItem(item.kind || 'entity', item);
@@ -98,22 +113,22 @@ export function serializeInventoryItem(category: string, item: any) {
   }
   if (category === 'entity') {
     const rootComponentId = inventoryEntityRootId(item);
-    const vector3 = value => Array.isArray(value) && value.length >= 3
+    const vector3 = (value: unknown) => Array.isArray(value) && value.length >= 3
       && value.slice(0, 3).every(component => Number.isFinite(Number(component)))
       ? value.slice(0, 3).map(Number)
       : undefined;
-    const quaternion4 = value => Array.isArray(value) && value.length >= 4
+    const quaternion4 = (value: unknown) => Array.isArray(value) && value.length >= 4
       && value.slice(0, 4).every(component => Number.isFinite(Number(component)))
       && value.slice(0, 4).reduce((sum, component) => sum + Number(component) ** 2, 0) > 1e-12
       ? new THREE.Quaternion(...value.slice(0, 4).map(Number) as [number, number, number, number]).normalize().toArray()
       : undefined;
-    const optionalNumber = value => value !== null && value !== undefined && Number.isFinite(Number(value))
+    const optionalNumber = (value: unknown) => value !== null && value !== undefined && Number.isFinite(Number(value))
       ? Number(value)
       : undefined;
     // Seats accept the legacy `[x,y,z]` shorthand and the current object form.
     // A missing rotation stays implicit so plain seats round trip unchanged;
     // an unusable one drops the seat exactly like an unusable position.
-    const portableSeat = seat => {
+    const portableSeat = (seat: InventorySeat | number[]) => {
       const position = vector3(Array.isArray(seat) ? seat : seat?.position);
       if (!position) return null;
       if (Array.isArray(seat)) return { position };
@@ -125,7 +140,7 @@ export function serializeInventoryItem(category: string, item: any) {
         ...(seat.fixedOrientation === true ? { fixedOrientation: true } : {})
       };
     };
-    const portableSeats = seats => (seats || []).flatMap(seat => {
+    const portableSeats = (seats: Array<InventorySeat | number[]> | undefined) => (seats || []).flatMap(seat => {
       const parsed = portableSeat(seat);
       return parsed ? [parsed] : [];
     });
@@ -139,7 +154,7 @@ export function serializeInventoryItem(category: string, item: any) {
       ...(vector3(definition.localPosition) ? { localPosition: vector3(definition.localPosition) } : {}),
       ...(quaternion4(definition.localRotation) ? { localRotation: quaternion4(definition.localRotation) } : {}),
       ...(quaternion4(definition.anchorRotation) ? { anchorRotation: quaternion4(definition.anchorRotation) } : {}),
-      ...(['dynamic', 'kinematic'].includes(definition.bodyType) ? { bodyType: definition.bodyType } : {}),
+      ...((definition.bodyType === 'dynamic' || definition.bodyType === 'kinematic') ? { bodyType: definition.bodyType } : {}),
       ...(optionalNumber(definition.mass) !== undefined ? { mass: optionalNumber(definition.mass) } : {}),
       ...(optionalNumber(definition.restitution) !== undefined ? { restitution: optionalNumber(definition.restitution) } : {}),
       ...(optionalNumber(definition.friction) !== undefined ? { friction: optionalNumber(definition.friction) } : {}),
@@ -232,7 +247,7 @@ export function serializeInventoryItem(category: string, item: any) {
   return null;
 }
 
-export function encodeInventoryItem(category: string, item: any): Uint8Array | null {
+export function encodeInventoryItem(category: string, item: InventoryInput | null | undefined): Uint8Array | null {
   const portable = serializeInventoryItem(category, item);
   if (!portable) return null;
   return encodeInventoryResource(inventoryKindForPortable(portable), portable);

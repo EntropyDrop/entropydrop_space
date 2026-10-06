@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -15,8 +16,8 @@ function makeWorld() {
   return {
     getBlock: () => BlockTypes.AIR,
     getMicroBlocksInAABB: () => [],
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any;
 }
 
@@ -93,7 +94,7 @@ test('a landing player does not transfer downward momentum to a dynamic entity',
 
   assert.equal(player.position.y, 1);
   assert.equal(player.isOnGround, true);
-  assert.equal(body.velocity.y, 0, 'one-way character collision must not change entity velocity');
+  assert.equal(requireValue(body).velocity.y, 0, 'one-way character collision must not change entity velocity');
 });
 
 test('horizontal character collision stops the player without moving the entity', () => {
@@ -104,7 +105,7 @@ test('horizontal character collision stops the player without moving the entity'
   player.moveWithCollision(0.1);
 
   assert.equal(player.velocity.x, 0, 'the authoritative character controller still stops at the solid face');
-  assert.equal(body.velocity.x, 0, 'the entity must remain under its single physics authority');
+  assert.equal(requireValue(body).velocity.x, 0, 'the entity must remain under its single physics authority');
 });
 
 test('a standing player does not physically load a dynamic platform', () => {
@@ -125,7 +126,7 @@ test('a standing player does not physically load a dynamic platform', () => {
     sprint: false
   }, 0);
 
-  assert.equal(body.velocity.y, 0, 'standing weight must not mutate entity dynamics');
+  assert.equal(requireValue(body).velocity.y, 0, 'standing weight must not mutate entity dynamics');
 });
 
 test('jumping from a platform does not apply a launch reaction to the platform', () => {
@@ -147,5 +148,5 @@ test('jumping from a platform does not apply a launch reaction to the platform',
   }, 0);
 
   assert.equal(player.velocity.y, player.jumpForce);
-  assert.equal(body.velocity.y, 0, 'jumping must not mutate entity dynamics');
+  assert.equal(requireValue(body).velocity.y, 0, 'jumping must not mutate entity dynamics');
 });

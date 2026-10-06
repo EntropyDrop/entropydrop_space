@@ -18,7 +18,7 @@ for (const colorManagement of [true, false]) test(`standard WASM mesh preserves 
     }
     chunk.setLocalBlock(0, 255, 0, 1, 0xff00aa, 1);
     const neighbor = new Chunk(0, 0, null); neighbor.blocks.fill(1);
-    const world = { worldToChunkCoords: (x: number, z: number) => ({ cx: ((Math.floor(x / 16) % 1024) + 1024) % 1024,
+    const world = { markChunkDirty() {}, worldToChunkCoords: (x: number, z: number) => ({ cx: ((Math.floor(x / 16) % 1024) + 1024) % 1024,
       cz: ((Math.floor(z / 16) % 128) + 128) % 128 }), getChunk: () => neighbor };
     for (const state of ['isolated', 'predicted', 'generated', 'missing']) {
       chunk.world = state === 'isolated' ? null : state === 'missing' ? { ...world, getChunk: () => null } : world;
@@ -98,7 +98,7 @@ test('WASM collision probes and empty broadphase preserve full falling-body traj
     const c = entity(true), history = [];
     const physics = new ContraptionPhysics({ getBlock: (_x: number, y: number) => y < 1 ? 1 : 0,
       getMicroCollisionBoxesInAABB: () => [], getMicroCollisionBlock: () => null,
-      raycast: () => ({ hit: false }), raycastMicro: () => ({ hit: false }) } as any);
+      raycast: () => ({ hit: false as const }), raycastMicro: () => ({ hit: false as const }) } as any);
     if (!wasm) (physics as any).canSkipEmptyTerrainSamples = () => false;
     c.quaternion.setFromEuler(new THREE.Euler(.2, .1, .3)); c.updateTransform();
     try {

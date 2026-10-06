@@ -8,7 +8,7 @@ import { TerrainHandoff, TERRAIN_FADE_MS } from '../src/render/TerrainHandoff.ts
 import { SurfaceBatch } from '../src/render/SurfaceBatch.ts';
 import { bendPoint } from '../src/torus/TorusWorld.ts';
 import type { SurfaceZoneSnapshot } from '../src/voxel/SurfaceZoneSnapshot.ts';
-import { createCooperativeVoxelLodPort, type VoxelLodPort, type VoxelLodCommand } from '../src/render/VoxelLodService.ts';
+import { createCooperativeVoxelLodPort, createWorkerVoxelLodPort, type VoxelLodPort, type VoxelLodCommand, type VoxelLodResponse } from '../src/render/VoxelLodService.ts';
 import { NodeVoxelLodWorker } from './helpers/voxel-lod-worker.ts';
 import type { VoxelLodTile } from '../src/render/VoxelLodPlanner.ts';
 
@@ -277,4 +277,36 @@ test('movement coalesces behind an in-flight build and settles at the latest vie
     assert.equal(layer.hasPendingWork, false);
     assert.equal(geometryDigest(layer), geometryDigest(reference));
   } finally { layer.dispose(); reference.dispose(); handoff.texture.dispose(); }
+});
+
+
+test('browser worker port forwards transfers and events and detaches handlers on termination', () => {
+  const sent: Array<{ command: unknown; transfer: Transferable[] | StructuredSerializeOptions | undefined }> = [];
+  let terminated = false;
+  const worker = {
+    onmessage: null as ((event: MessageEvent<VoxelLodResponse>) => void) | null,
+    onerror: null as ((event: ErrorEvent) => void) | null,
+    postMessage(command: unknown, transfer?: Transferable[] | StructuredSerializeOptions) {
+      sent.push({ command, transfer });
+    },
+    terminate() { terminated = true; },
+  } satisfies Pick<Worker, 'onmessage' | 'onerror' | 'postMessage' | 'terminate'>;
+  const port = createWorkerVoxelLodPort(worker);
+  const replies: VoxelLodResponse[] = [], errors: string[] = [];
+  port.onmessage = event => replies.push(event.data);
+  port.onerror = event => errors.push(event.message);
+  const bytes = new Uint8Array([1, 2, 3]);
+  const command: VoxelLodCommand = { type: 'part', key: 'zone', token: 1, level: 0, offset: 0, bytes };
+  port.postMessage(command, [bytes.buffer]);
+  assert.deepEqual(sent, [{ command, transfer: [bytes.buffer] }]);
+  worker.onmessage?.(new MessageEvent('message', { data: { type: 'tiles', id: 1, tiles: [] } }));
+  // Node lacks ErrorEvent; the adapter reads only the browser event's message.
+  const failure = Object.assign(new Event('error'), { message: 'worker failed', filename: '', lineno: 0, colno: 0, error: null });
+  worker.onerror?.(failure);
+  assert.deepEqual(replies, [{ type: 'tiles', id: 1, tiles: [] }]);
+  assert.deepEqual(errors, ['worker failed']);
+  port.terminate();
+  assert.equal(terminated, true);
+  assert.equal(worker.onmessage, null);
+  assert.equal(worker.onerror, null);
 });

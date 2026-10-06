@@ -87,7 +87,7 @@ export class DistantChunkLayer {
     this.group.name = 'DistantAuthoredChunks';
     this.material = new THREE.MeshStandardNodeMaterial({ vertexColors: false, roughness: 0.65,
       metalness: 0.15, flatShading: true });
-    const chunk = uniform(new THREE.Vector2()).onObjectUpdate(({ object }) => object.userData.distantChunkOrigin);
+    const chunk = uniform(new THREE.Vector2()).onObjectUpdate(({ object }) => object?.userData.distantChunkOrigin);
     discardWhen(this.material, terrainDither().lessThan(terrainCoverage(mask, chunk).r));
   }
   install(chunk: DistantChunkSnapshot, local = false) {

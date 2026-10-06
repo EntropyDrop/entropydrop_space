@@ -45,11 +45,11 @@ test('private model arenas survive interleaved imports and reject oversized layo
     const a = first.hollow(true), b = second.hollow(true);
     assert.deepEqual(a, b); assert.notEqual(a.buffer, b.buffer);
     const firstHits: number[][] = [], secondHits: number[][] = [];
-    first.sampleSurface((...record) => firstHits.push(record));
-    second.sampleSurface((...record) => secondHits.push(record));
+    first.sampleSurface((...record: number[]) => firstHits.push(record));
+    second.sampleSurface((...record: number[]) => secondHits.push(record));
     assert.deepEqual(firstHits, secondHits);
     const repeated: number[][] = [];
-    first.sampleSurface((...record) => repeated.push(record));
+    first.sampleSurface((...record: number[]) => repeated.push(record));
     assert.deepEqual(repeated, firstHits);
     assert.equal(ModelVoxelKernels.create(triangles, buckets, 2, { ...dimensions, sx: 32768, sy: 1024, sz: 1 }), null);
     assert.equal(ModelVoxelKernels.create(triangles, buckets, 2, { ...dimensions, minX: 1e20 }), null);

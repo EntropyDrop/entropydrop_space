@@ -100,7 +100,7 @@ test('direct edits dispatch before unrelated snapshot backlog but wait for their
   world.activeChunkKeys.add('1,0');
   world.pendingTerrainSnapshots.set('1,0', { key: '1,0', cx: 1, cz: 0, revision: 1, standardEdits: [] });
   const requests: any[] = [];
-  world.terrainWorker = { postMessage: request => requests.push(request) };
+  world.terrainWorker = { postMessage: (request: import('../src/voxel/TerrainStreamProtocol.ts').TerrainWorkerRequest) => requests.push(request) };
   world.setBlock(1, 100, 1, 1);
   world.dispatchTerrainWorkerJob();
   assert.equal(requests[0].type, 'remesh');

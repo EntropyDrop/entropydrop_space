@@ -7,7 +7,7 @@ import { createVoxelEmissionMaskUniform, voxelEmissionColor } from './VoxelEmiss
 import { computeBentBoundsSphere, hookSceneMaterials, projectBentSphereForView } from '../torus/TorusWorld.ts';
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { VoxelLodPlanner, type VoxelLodTile, type VoxelLodView } from './VoxelLodPlanner.ts';
-import { createCooperativeVoxelLodPort, type VoxelLodPort, type VoxelLodResponse } from './VoxelLodService.ts';
+import { createCooperativeVoxelLodPort, createWorkerVoxelLodPort, type VoxelLodPort, type VoxelLodResponse } from './VoxelLodService.ts';
 import type { SurfaceZoneSnapshot, VoxelSurfaceMip } from '../voxel/SurfaceZoneSnapshot.ts';
 
 type FaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
@@ -40,7 +40,7 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THRE
     const uv = positionGeometry.xy.toVar();
     uv.x.assign(dir.mod(2).lessThan(.5).select(uv.x.oneMinus(), uv.x));
     const p = uv.mul(arena?.span ?? attribute<'vec2'>('voxelSpan', 'vec2')).mul(.125);
-    return (arena?.origin ?? uniform(new THREE.Vector3()).onObjectUpdate(({object}) => object.userData.voxelOrigin ?? origin)).add((arena?.offset ?? attribute<'vec3'>('voxelOffset', 'vec3')).mul(.125)).add(
+    return (arena?.origin ?? uniform(new THREE.Vector3()).onObjectUpdate(({object}) => object?.userData.voxelOrigin ?? origin)).add((arena?.offset ?? attribute<'vec3'>('voxelOffset', 'vec3')).mul(.125)).add(
       dir.lessThan(2).select(vec3(0,p.x,p.y), dir.lessThan(4).select(vec3(p.y,0,p.x), vec3(p.x,p.y,0))));
   })();
   result.positionNode = arena ? arena.valid.select(flat, vec3(0)) : flat;
@@ -52,11 +52,11 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THRE
   if (!solid) {
     const handoff = terrainCoverage(mask, flat.xz.sub(normal.xz.mul(.01)));
     const unoptimized = reference('value', 'bool', optimized).not();
-    const mode = uniform(1).onObjectUpdate(({object}) => object.userData.voxelHandoffMode?.value ?? 1);
+    const mode = uniform(1).onObjectUpdate(({object}) => object?.userData.voxelHandoffMode?.value ?? 1);
     discardWhen(result, unoptimized.or(mode.greaterThan(.5))
       .and(handoff.g.greaterThan(.5).or(terrainDither().lessThan(handoff.r))));
     const transition = terrainDither(screenCoordinate.xy.add(vec2(37,19)));
-    const range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object.userData.terrainCoverage ?? coverage);
+    const range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object?.userData.terrainCoverage ?? coverage);
     discardWhen(result, transition.lessThan(range.x).or(transition.greaterThanEqual(range.y)));
   }
   const emission = varying(float(arena?.emission ?? attribute<'float'>('voxelEmission', 'float'))).greaterThan(.5);
@@ -245,7 +245,7 @@ export class DistantVoxelLayer {
     try {
       this.port = this.fallback ? createCooperativeVoxelLodPort()
         : this.options.workerFactory ? this.options.workerFactory()
-        : new Worker(new URL('./VoxelLodWorker.ts', import.meta.url), { type: 'module', name: 'voxel-lod' });
+        : createWorkerVoxelLodPort(new Worker(new URL('./VoxelLodWorker.ts', import.meta.url), { type: 'module', name: 'voxel-lod' }));
     } catch (error) { this.fallback = true; this.port = createCooperativeVoxelLodPort(); }
     const port = this.port;
     this.group.userData.voxelLodWorkStats.backend = this.fallback ? 'cooperative' : 'worker';
@@ -332,7 +332,8 @@ export class DistantVoxelLayer {
     // hidden tiles too so the entry gate can finish their arena migration;
     // turning must not retire attributes or create new storage pages/shaders.
     if (state.maskVersion !== this.mask.version || transitionChanged) {
-      state.handoffMode.value = voxelHandoffMode(this.mask.image.data,
+      // The owned DataTexture always retains the CPU mask allocated at construction.
+      state.handoffMode.value = voxelHandoffMode(this.mask.image.data!,
         batch.transitioning ? state.looseFlatBounds : state.flatBounds);
       state.maskVersion = this.mask.version;
     }

@@ -1,3 +1,5 @@
+import { worldStub } from './fixtures.ts';
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
@@ -5,7 +7,7 @@ import { Contraption } from '../src/contraption/Contraption.ts';
 import { ContraptionManager } from '../src/contraption/ContraptionManager.ts';
 import { setScript } from './script-helpers.ts';
 
-const trim = { id: 'trim', color: 0xff0000, position: [2, 0, 0], scale: [2, 0.1, 1] };
+const trim: import('../src/contraption/Decorations.ts').DecorationDefinition = { id: 'trim', color: 0xff0000, position: [2, 0, 0], scale: [2, 0.1, 1] };
 const block = (x: number, entityId: string) => ({ localX: x, localY: 0, localZ: 0, size: 1, color: 1, block: 1, entityId });
 function fixture() {
   return new Contraption(1, [block(0, 'base'), block(2, 'arm')], new THREE.Vector3(), new THREE.Scene(), {
@@ -44,8 +46,8 @@ test('compiled decoration commands animate both component types without changing
     assert.equal((material as THREE.MeshStandardNodeMaterial).color.getHex(), 0x00ff00);
     assert.equal(entity.collisionCells, collision);
     assert.deepEqual(entity.getRigidBodies().map(body => [body, body.mass, body.inverseInertia]), bodies);
-    assert.deepEqual(entity.serializeSubtree().decorations, original.decorations);
-    assert.deepEqual(entity.serializeSubtree().childEntities[0].decorations, original.childEntities[0].decorations);
+    assert.deepEqual(requireValue(entity.serializeSubtree()).decorations, requireValue(original).decorations);
+    assert.deepEqual(requireValue(entity.serializeSubtree()).childEntities[0].decorations, requireValue(original).childEntities[0].decorations);
     const command = entity.getComponentState('base').command;
     assert.equal(entity.pendingScriptCommandResults.find(result => result.commandId === command)?.reason, 'applied');
     entity.stopAllNodeScripts();
@@ -57,16 +59,16 @@ test('compiled decoration commands animate both component types without changing
 
 test('runtime overrides survive checkpoint restore while inventory export retains authored decorations', () => {
   const entity = fixture();
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub(), null, null);
   let restored: any;
   try {
     entity.scriptStatus = 'running';
-    const api = entity.getChildScriptApi('base').decorations;
+    const api = requireValue(entity.getChildScriptApi('base')).decorations;
     assert.equal(api.remove('trim').ok, true);
-    assert.equal(entity.getChildScriptApi('arm').decorations.upsert('extra', { position: [5, 2, 1] }).ok, true);
+    assert.equal(requireValue(entity.getChildScriptApi('arm')).decorations.upsert('extra', { position: [5, 2, 1] }).ok, true);
     const record = manager.captureContraptionForStreaming(entity, { id: '0,0' });
-    assert.deepEqual(record.slot.decorations, [trim]);
-    assert.deepEqual(record.runtimeDecorations.find(value => value.id === 'base').decorations, []);
+    assert.deepEqual(requireValue(record.slot).decorations, [trim]);
+    assert.deepEqual(requireValue(record.runtimeDecorations.find(value => value.id === 'base')).decorations, []);
     restored = manager.buildFromSlot(record.slot, new THREE.Vector3().fromArray(record.constructorOrigin), record, false);
     assert.deepEqual(restored.captureRuntimeDecorations(), record.runtimeDecorations);
     assert.equal(restored.decorationGroups.get('base').children.length, 0);
@@ -83,13 +85,13 @@ test('runtime overrides survive checkpoint restore while inventory export retain
 test('runtime validates updates atomically, limits across components, and immutable reads', () => {
   const entity = fixture();
   try {
-    const api = entity.getChildScriptApi('arm').decorations;
+    const api = requireValue(entity.getChildScriptApi('arm')).decorations;
     for (const patch of [{ color: null }, { scale: [0, 1, 1] }, { rotation: [0, 0, 0, 0] },
       { color: true }, { position: [Infinity, 0, 0] }, { id: 'oops' }, { unknown: 1 }]) {
       assert.equal(api.upsert('trim', patch).reason, 'invalid_decoration');
     }
     assert.deepEqual(api.get('trim'), trim);
-    assert.throws(() => { api.get('trim').position[0] = 100; });
+    assert.throws(() => { requireValue(requireValue(api.get('trim')).position)[0] = 100; });
     assert.equal(api.remove('missing').reason, 'decoration_not_found');
     assert.equal(api.upsert('bad space', {}).reason, 'invalid_decoration');
     entity.setComponentDecorations('base', Array.from({ length: 1023 }, (_, i) => ({ id: `d${i}`, color: 1 })));

@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import { setScript, setNodeScript } from './script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 import { VoxelMaterialIds } from '../src/voxel/VoxelMaterials.ts';
 import { World } from '../src/voxel/World.ts';
 
-function standardBlock(x, y = 0, z = 0) {
+function standardBlock(x: number, y = 0, z = 0) {
   return {
     localX: x,
     localY: y,
@@ -44,7 +45,7 @@ test('entity voxel meshes keep default and emissive materials independently edit
   assert.equal((meshes[0].material[1] as THREE.MeshBasicNodeMaterial).color.r, 1);
 
   const slot = contraption.serializeSubtree('root');
-  assert.deepEqual(slot.blocks.map(block => block.materialId), [0, 1]);
+  assert.deepEqual(slot.blocks.map((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => block.materialId), [0, 1]);
   contraption.dispose();
 });
 
@@ -62,7 +63,7 @@ test('root and world are ordinary component IDs', () => {
         kind: 'child',
         index: 17,
         obsoleteMetadata: { shouldNotEscape: true }
-      }]
+      } as import('../src/contraption/EntityTypes.ts').ChildDefinitionInput & { obsoleteMetadata: { shouldNotEscape: boolean } }]
     }
   ) as any;
 
@@ -70,8 +71,8 @@ test('root and world are ordinary component IDs', () => {
   assert.equal(world.id, 'world');
 
   const serialized = contraption.serializeSubtree('root');
-  assert.ok(serialized.childEntities.some(component => component.id === 'world'));
-  const serializedArm = serialized.childEntities.find(component => component.id === 'arm');
+  assert.ok(serialized.childEntities.some((component: import('../src/storage/InventoryTypes.ts').InventoryChild) => component.id === 'world'));
+  const serializedArm = serialized.childEntities.find((component: import('../src/storage/InventoryTypes.ts').InventoryChild) => component.id === 'arm');
   assert.ok(serializedArm);
   assert.equal('kind' in serializedArm, false);
   assert.equal('index' in serializedArm, false);
@@ -139,8 +140,8 @@ self.state.setBoolean("sameNamedChild", self.child('root') !== null);
   });
 
   const physics = new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: () => BlockTypes.AIR
   });
   physics.update(entity, 0.05);
@@ -149,9 +150,9 @@ self.state.setBoolean("sameNamedChild", self.child('root') !== null);
 
   const slot = entity.serializeSubtree('world');
   assert.equal(slot.rootComponentId, 'world');
-  assert.deepEqual(new Set(slot.blocks.map(block => block.entityId)), new Set(['world', 'root']));
-  assert.equal(slot.constraints.find(constraint => constraint.id === 'internal').bodyA, 'world');
-  assert.equal(slot.constraints.find(constraint => constraint.id === 'external').bodyA, null);
+  assert.deepEqual(new Set(slot.blocks.map((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => block.entityId)), new Set(['world', 'root']));
+  assert.equal(slot.constraints.find((constraint: import('../src/contraption/EntityTypes.ts').RuntimeConstraint) => constraint.id === 'internal').bodyA, 'world');
+  assert.equal(slot.constraints.find((constraint: import('../src/contraption/EntityTypes.ts').RuntimeConstraint) => constraint.id === 'external').bodyA, null);
   assert.equal(entity.serializeSubtree('root').rootComponentId, 'root');
 
   const host = new Contraption(
@@ -183,7 +184,7 @@ test('child entities can recursively own blocks and move relative to their paren
 
   assert.equal(link1.parentId, 'root');
   assert.equal(link2.parentId, 'link_1');
-  assert.equal(contraption.blocks.find(block => block.localX === 2).entityId, 'link_2');
+  assert.equal(contraption.blocks.find((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => block.localX === 2).entityId, 'link_2');
 
   const before = link2.group.getWorldPosition(new THREE.Vector3());
   contraption.getChildScriptApi('link_1').setLocalSpin([0, 0, 1], 60);
@@ -212,8 +213,8 @@ self.applyForce([100000, 0, 0]);
     }
   ) as any;
   const physics = new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: () => BlockTypes.AIR
   });
   const startPosition = contraption.position.clone();
@@ -238,9 +239,9 @@ test('Selector child selection uses single-click and Shift multi-select, with gr
   ) as any;
   contraption.createChildEntity('root', new Set(['3,0,0', '4,0,0']), 'arm');
   contraption.stopAllNodeScripts();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub(), null, null) as any;
   manager.contraptions.push(contraption);
-  const hit = (x, entityId = 'root') => ({
+  const hit = (x: number, entityId = 'root') => ({
     contraption,
     entityId,
     entityNode: contraption.getEntityNode(entityId),
@@ -289,7 +290,7 @@ test('Selector child selection uses single-click and Shift multi-select, with gr
   const result = manager.createChildFromSelection('claw');
   assert.equal(result.child.id, 'claw');
   assert.equal(result.child.parentId, 'arm');
-  assert.equal(contraption.blocks.find(block => block.localX === 3).entityId, 'claw');
+  assert.equal(contraption.blocks.find((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => block.localX === 3).entityId, 'claw');
   assert.equal(manager.hasChildSelection(), false);
 });
 
@@ -547,7 +548,7 @@ test('shovel and spoon can directly modify running entities and append blocks to
   assert.equal(contraption.getNodeProperties('root').blockCount, 2);
 
   // 3. Subdivide block on child component (Spoon left-click simulation)
-  const blockIdx = contraption.blocks.findIndex(b => b.localX === 2 && b.localY === 0 && b.localZ === 1);
+  const blockIdx = contraption.blocks.findIndex((b: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => b.localX === 2 && b.localY === 0 && b.localZ === 1);
   const oldBlock = contraption.blocks[blockIdx];
   contraption.blocks.splice(blockIdx, 1);
   for (let ix = 0; ix < 8; ix++) {
@@ -568,7 +569,7 @@ test('shovel and spoon can directly modify running entities and append blocks to
   contraption.rebuildAfterBlockChange();
 
   // Verify all 512 micro blocks belong to spinner
-  const spinnerBlocks = contraption.blocks.filter(b => b.entityId === 'spinner');
+  const spinnerBlocks = contraption.blocks.filter((b: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => b.entityId === 'spinner');
   assert.equal(spinnerBlocks.length, 513); // 1 standard + 512 micro
 
   // 4. Raycast micro block on child component
@@ -736,7 +737,7 @@ test('a live block rebuild preserves runtime motion but Stop restores the borrow
   const stoppedArm = contraption.getEntityNode('arm');
   assert.ok(stoppedArm.localQuaternion.angleTo(new THREE.Quaternion()) < 1e-9);
   assert.ok(stoppedArm.localPosition.distanceTo(authoredPosition) < 1e-9);
-  const centers = contraption.blocks.map(block => contraption.getBlockWorldCenter(block).x).sort((a, b) => a - b);
+  const centers = contraption.blocks.map((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => contraption.getBlockWorldCenter(block).x).sort((a: number, b: number) => a - b);
   assert.deepEqual(centers, [0.5, 1.5, 2.5], 'borrowed blocks return to distinct construction cells');
 });
 
@@ -775,11 +776,11 @@ self.state.setBoolean("rootIsSelf", ctx.root.id == self.id);
   assert.equal(state.rootIsSelf, true, 'ctx.root should equal self in a root script');
   assert.equal(state.legacyChildren, undefined, 'ctx.children should be removed');
   assert.deepEqual(
-    state.nodes.map(node => node.id),
+    state.nodes.map((node: { id: string; parentId: string }) => node.id),
     ['root', 'arm', 'blade', 'tip'],
     'component traversal should use stable id order rather than authored sibling order'
   );
-  assert.deepEqual(Object.fromEntries(state.nodes.map(node => [node.id, node.parentId])), {
+  assert.deepEqual(Object.fromEntries(state.nodes.map((node: { id: string; parentId: string }) => [node.id, node.parentId])), {
     root: '',
     blade: 'root',
     tip: 'blade',
@@ -928,7 +929,7 @@ test('getBounds and setPivot update rotation center while blocks stay in place',
   assert.deepEqual(contraption.getNodeBlocksBounds('root').size, [4, 1, 1], 'root owns endpoint blocks at 0 and 3');
 
   // Capture block world position before the change.
-  const block1 = contraption.blocks.find(b => b.localX === 1);
+  const block1 = contraption.blocks.find((b: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => b.localX === 1);
   const before = contraption.getBlockWorldCenter(block1);
 
   // Move pivot to (1.5,0.5,0.5); blocks should keep their world positions.
@@ -945,7 +946,7 @@ test('getBounds and setPivot update rotation center while blocks stay in place',
   const apiAfterPivot = contraption.getChildScriptApi('arm');
   apiAfterPivot.setLocalSpin([0, 1, 0], 60);
   contraption.update(1 / 60, null, null);
-  const outerBlock = contraption.blocks.find(b => b.localX === 2);
+  const outerBlock = contraption.blocks.find((b: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => b.localX === 2);
   const rotatedCenter = contraption.getBlockWorldCenter(outerBlock);
   const pivotWorld = contraption.entityLocalToWorld('arm', new THREE.Vector3(1.5, 0.5, 0.5));
   assert.ok(Math.abs(rotatedCenter.distanceTo(pivotWorld) - 1.0) < 0.01, 'block should rotate one unit from the new pivot');
@@ -1045,7 +1046,7 @@ test('V2 component voxel namespaces separate standard/micro edits and return str
     materialId: VoxelMaterialIds.EMISSIVE,
   });
   assert.deepEqual(standardPlaced, { ok: true, placed: 1, reason: 'placed' });
-  assert.ok(contraption.blocks.some(block =>
+  assert.ok(contraption.blocks.some((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) =>
     block.entityId === 'arm' && (block.size || 1) === 1
     && block.localX === 3 && block.color === 0xff3300
     && block.materialId === VoxelMaterialIds.EMISSIVE
@@ -1066,7 +1067,7 @@ test('V2 component voxel namespaces separate standard/micro edits and return str
     materialId: VoxelMaterialIds.EMISSIVE,
   });
   assert.deepEqual(microPlaced, { ok: true, placed: 1, reason: 'placed' });
-  assert.ok(contraption.blocks.some(block =>
+  assert.ok(contraption.blocks.some((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) =>
     block.entityId === 'arm' && (block.size || 1) === 0.125
     && block.localX === 4.125 && block.localY === 0.125 && block.localZ === 0.125
     && block.color === 0x00ff00 && block.materialId === VoxelMaterialIds.EMISSIVE
@@ -1077,7 +1078,7 @@ test('V2 component voxel namespaces separate standard/micro edits and return str
     color: 0x123456,
     materialId: VoxelMaterialIds.DEFAULT,
   }), { ok: true, painted: 1, reason: 'painted' });
-  assert.ok(contraption.blocks.some(block =>
+  assert.ok(contraption.blocks.some((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) =>
     block.entityId === 'arm' && (block.size || 1) === 0.125
     && block.localX === 4.125 && block.color === 0x123456
     && block.materialId === VoxelMaterialIds.DEFAULT
@@ -1398,7 +1399,7 @@ test('world API supports color reads, raycast metadata, nearby entities, and bui
   assert.equal(api.entities.get(c1.publicId, '2,0'), null, 'optional chunk guard should reject a mismatch');
   assert.equal(api.entities.get(c3.publicId, '2,0').chunkId, '2,0');
   const chunkZero = api.entities.list('0,0');
-  assert.deepEqual(new Set(chunkZero.map(entity => entity.id)), new Set([c1.publicId, c2.publicId]));
+  assert.deepEqual(new Set(chunkZero.map((entity: import('../src/contraption/Contraption.ts').Contraption) => entity.id)), new Set([c1.publicId, c2.publicId]));
   assert.equal(api.entities.inChunk, api.entities.list, 'inChunk should alias list');
   assert.equal(api.entities.list([2, 0])[0].id, c3.publicId);
   assert.deepEqual(api.entities.list('invalid'), []);

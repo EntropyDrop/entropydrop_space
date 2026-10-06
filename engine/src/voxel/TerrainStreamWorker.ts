@@ -1,43 +1,11 @@
 /// <reference lib="webworker" />
 
-import { LowPolyMesher } from '../mesher/LowPolyMesher.ts';
+import { LowPolyMesher, type ChunkMeshData } from '../mesher/LowPolyMesher.ts';
 import { TerrainGenerator } from '../worldgen/TerrainGenerator.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Z } from './Chunk.ts';
 import { wrapChunkX, wrapChunkZ, wrapX, wrapZ } from '../torus/TorusWorld.ts';
 
-type PackedStandardEdit =
-  | [number, number, number, number, number]
-  | [number, number, number, number, number, number];
-
-type GenerateRequest = {
-  type: 'generate';
-  requestId: number;
-  seed: number;
-  terrainGeneratorVersion: number;
-  cx: number;
-  cz: number;
-  standardEdits: PackedStandardEdit[];
-  blocksBuffer?: ArrayBuffer;
-  colorsBuffer?: ArrayBuffer;
-  materialsBuffer?: ArrayBuffer;
-};
-
-type RemeshRequest = {
-  type: 'remesh';
-  requestId: number;
-  seed: number;
-  terrainGeneratorVersion: number;
-  cx: number;
-  cz: number;
-  dataVersion: number;
-  minOccupiedY: number;
-  maxOccupiedY: number;
-  blocksBuffer: ArrayBuffer;
-  colorsBuffer: ArrayBuffer;
-  materialsBuffer: ArrayBuffer;
-};
-
-type TerrainWorkerRequest = GenerateRequest | RemeshRequest;
+import type { TerrainWorkerRequest, TerrainWorkerResult } from './TerrainStreamProtocol.ts';
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const meshers = new Map<number, LowPolyMesher>();
@@ -78,7 +46,7 @@ function makeWorkerWorld(terrainGen: TerrainGenerator) {
   };
 }
 
-function transferableMeshBuffers(mesh) {
+function transferableMeshBuffers(mesh: ChunkMeshData) {
   const buffers: ArrayBuffer[] = [];
   for (const array of [mesh.positions, mesh.normals, mesh.colors, mesh.indices]) {
     if (array?.buffer instanceof ArrayBuffer) buffers.push(array.buffer);
@@ -107,7 +75,7 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
         chunk.setLocalBlock(x - chunk.cx * CHUNK_SIZE_X, y, z - chunk.cz * CHUNK_SIZE_Z, block, color, materialId);
       }
       const mesh = mesher.buildChunkMeshData(chunk);
-      const response = {
+      const response: TerrainWorkerResult = {
         ok: true,
         type: request.type,
         requestId: request.requestId,
@@ -144,7 +112,7 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
       cz: chunk.cz,
       dataVersion: request.dataVersion,
       mesh,
-    }, [
+    } satisfies TerrainWorkerResult, [
       ...transferableMeshBuffers(mesh),
     ]);
   } catch (error) {
@@ -153,7 +121,7 @@ workerScope.onmessage = (event: MessageEvent<TerrainWorkerRequest>) => {
       type: request.type,
       requestId: request.requestId,
       error: error instanceof Error ? error.message : String(error),
-    });
+    } satisfies TerrainWorkerResult);
   }
 };
 

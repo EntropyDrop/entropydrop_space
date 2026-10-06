@@ -45,7 +45,7 @@ test('entity contact collection preserves ordering across candidate batches', ()
     setGeometryKernelMode(mode);
     const blocks = [];
     for (let x = 0; x < 33; x++) for (let z = 0; z < 33; z++) if ((x + z) % 2 === 0) blocks.push({ localX: x, localY: 0, localZ: z, block: 1 });
-    const scene = new THREE.Scene(), physics = new ContraptionPhysics({ getBlock: () => 0, raycast: () => ({ hit: false }), raycastMicro: () => ({ hit: false }) } as any);
+    const scene = new THREE.Scene(), physics = new ContraptionPhysics({ getBlock: () => 0, raycast: () => ({ hit: false as const }), raycastMicro: () => ({ hit: false as const }) } as any);
     const a = new Contraption('batch_a', blocks, new THREE.Vector3(0, 10, 0), scene);
     const b = new Contraption('batch_b', blocks, new THREE.Vector3(.5, 10.5, .5), scene);
     try {
@@ -117,7 +117,7 @@ test('continuous contact, hinge motion, impulses and terrain edits preserve traj
     const scene = new THREE.Scene(), world = { terrainVersion: 0,
       getBlock: (_x: number, y: number) => y < floor ? 1 : 0,
       getMicroCollisionBoxesInAABB: () => [], getMicroBlocksInAABB: () => [],
-      raycast: () => ({ hit: false }), raycastMicro: () => ({ hit: false }) };
+      raycast: () => ({ hit: false as const }), raycastMicro: () => ({ hit: false as const }) };
     const physics = new ContraptionPhysics(world as any), manager = new ContraptionManager(scene, world as any, null, null);
     manager.setPhysics(physics);
     for (let i = 0; i < 3; i++) {

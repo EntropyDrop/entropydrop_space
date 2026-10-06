@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import { setScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,8 +18,8 @@ function inputProbe() {
   return {
     mode: ContraptionMode.PROGRAMMABLE,
     position: new THREE.Vector3(0, 5, 0),
-    receivedInput: undefined,
-    update(dt, input) {
+    receivedInput: undefined as unknown,
+    update(dt: number, input: unknown) {
       this.receivedInput = input;
     }
   };
@@ -27,9 +28,9 @@ function inputProbe() {
 test('keyboard snapshot is routed only to the currently mounted contraption', () => {
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false })
+    raycast: () => ({ hit: false as const })
   };
-  const manager = new ContraptionManager(new THREE.Scene(), world, null, null) as any;
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub(world), null, null) as any;
   const mounted = inputProbe();
   const unmounted = inputProbe();
   manager.contraptions.push(mounted, unmounted);
@@ -128,7 +129,7 @@ test('mounted camera re-seats from the vehicle pose solved later in the frame', 
   controller.isDriving = true;
   controller.drivenSeat = { componentId: 'arm', seatIndex: 1 };
   controller.drivenContraption = {
-    getSeatWorldPosition: (componentId, seatIndex) => {
+    getSeatWorldPosition: (componentId: string, seatIndex: number) => {
       assert.equal(componentId, 'arm');
       assert.equal(seatIndex, 1);
       return seat.clone();
@@ -163,7 +164,7 @@ test('a fixed-orientation seat rotates the body without rotating or clamping the
   controller.physics = { position: new THREE.Vector3(), velocity: new THREE.Vector3() };
   controller.drivenContraption = {
     getSeatWorldPosition: () => new THREE.Vector3(1, 2, 3),
-    getSeatWorldQuaternion: (componentId, seatIndex) => {
+    getSeatWorldQuaternion: (componentId: string, seatIndex: number) => {
       assert.equal(componentId, 'arm');
       assert.equal(seatIndex, 1);
       return seatWorldRotation.clone();
@@ -268,21 +269,21 @@ test('self.setSeats refreshes fixed orientation and rotation in both directions 
   assert.equal(controller.bodyQuaternion, null);
   const api = entity.getComponentApi(entity.rootComponentId);
   const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.1, 1.2, -0.3, 'YXZ'));
-  api.setSeats([{ position: [0, 1, 0], rotation: rotation.toArray(), fixedOrientation: true }]);
+  requireValue(api).setSeats([{ position: [0, 1, 0], rotation: rotation.toArray(), fixedOrientation: true }]);
   controller.syncDrivenVehiclePose();
   assert.equal(controller.drivenSeatFixedOrientation, true);
   assert.ok(controller.bodyQuaternion.angleTo(rotation) < 1e-7);
 
   // Refresh also applies during rendering, before another simulation tick.
-  api.setSeats([{ position: [0, 1, 0], fixedOrientation: false }]);
+  requireValue(api).setSeats([{ position: [0, 1, 0], fixedOrientation: false }]);
   assert.equal(controller.bodyQuaternion, null);
   assert.equal(controller.bodyYaw, -0.3);
-  api.setSeats([{ position: [0, 1, 0], fixedOrientation: true }]);
+  requireValue(api).setSeats([{ position: [0, 1, 0], fixedOrientation: true }]);
   assert.ok(controller.bodyQuaternion.angleTo(entity.getSeatWorldQuaternion()) < 1e-7);
   assert.equal(controller.viewYaw, -0.3);
   assert.equal(controller.pitch, 0.2);
 
-  api.setSeats([]);
+  requireValue(api).setSeats([]);
   assert.equal(controller.syncDrivenVehiclePose(), false);
   assert.equal(controller.isDriving, false);
   assert.equal(controller.contraptions.activeDrivable, null);
@@ -301,8 +302,8 @@ test('the local avatar uses seat body rotation while first-person projection use
   const renderer: any = Object.assign(Object.create(SceneRenderer.prototype), {
     camera, playerAvatar: new THREE.Group(),
     playerAvatarCharacter: {
-      setHeldTool() { return false; }, update(_dt, motion) { characterMotion = motion; },
-      updateFirstPersonProjection(value) { projectedCamera = value; }
+      setHeldTool() { return false; }, update(_dt: number, motion: unknown) { characterMotion = motion; },
+      updateFirstPersonProjection(value: unknown) { projectedCamera = value; }
     }
   });
   renderer.updatePlayerAvatar(new THREE.Vector3(1, 2, 3), 1.4, 1 / 60, { bodyQuaternion: body, seated: true });
@@ -324,11 +325,11 @@ test('V mounts the seat nearest the aimed entity block', () => {
   const focus = new THREE.Vector3(4, 5, 6);
   const focusedBlock = { id: 'focused-block' };
   const target = {
-    getBlockWorldCenter(block) {
+    getBlockWorldCenter(block: unknown) {
       assert.equal(block, focusedBlock);
       return focus;
     },
-    getNearestSeat(point) {
+    getNearestSeat(point: { x: number; y: number; z: number }) {
       assert.equal(point, focus);
       return { componentId: 'cab', seatIndex: 2, worldPosition: new THREE.Vector3(), distanceSq: 0.25 };
     }

@@ -39,7 +39,7 @@ test('Wrench asks the backend before changing a locally held server entity', asy
   controller.hoveredContraptionHit = null;
   controller.ui = { showToast(message: string) { calls.push(`toast:${message}`); } };
   controller.sound = { playWrenchClick() { calls.push('sound'); } };
-  controller.serverEntityRunStateHandler = async (target, state) => {
+  controller.serverEntityRunStateHandler = async (target: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, state: 'running' | 'stopped') => {
     assert.equal(target, contraption);
     calls.push(`remote:${state}`);
   };

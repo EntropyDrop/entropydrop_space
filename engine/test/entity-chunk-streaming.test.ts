@@ -9,7 +9,7 @@ import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 function streamingWorld(active = ['0,0']) {
   return {
     activeChunkKeys: new Set(active),
-    worldToChunkCoords(x, z) {
+    worldToChunkCoords(x: number, z: number) {
       return { cx: Math.floor(Number(x) / 16), cz: Math.floor(Number(z) / 16) };
     }
   } as any;

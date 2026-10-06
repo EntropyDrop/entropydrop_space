@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -22,8 +23,8 @@ import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 function cubeTriangles(min: number[], max: number[]): number[][][] {
   const [x0, y0, z0] = min;
   const [x1, y1, z1] = max;
-  const v = (x, y, z) => [x, y, z];
-  const quad = (a, b, c, d) => [[a, b, c], [a, c, d]];
+  const v = (x: number, y: number, z: number) => [x, y, z];
+  const quad = (a: number[], b: number[], c: number[], d: number[]) => [[a, b, c], [a, c, d]];
   return [
     ...quad(v(x0, y0, z0), v(x1, y0, z0), v(x1, y1, z0), v(x0, y1, z0)),
     ...quad(v(x0, y0, z1), v(x0, y1, z1), v(x1, y1, z1), v(x1, y0, z1)),
@@ -65,7 +66,7 @@ function makeController(overrides: any = {}) {
   controller.keys = {};
   const toasts: string[] = [];
   controller.ui = {
-    showToast: m => toasts.push(m),
+    showToast: (m: string) => toasts.push(m),
     renderInventoryBar() {}
   };
   Object.assign(controller, overrides);
@@ -272,12 +273,12 @@ test('importBlockSetToInventory fills shared Item slots and rejects a full backp
   const rejected = controller.importBlockSetToInventory(blocks, 'overwrite');
   assert.equal(rejected, null, 'a full Item backpack must reject the import');
   assert.equal(controller.inventorySlots[3].name, 'full', 'the selected slot must not be overwritten');
-  assert.ok(controller.__toasts.some(m => m.includes('full (198)')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('full (198)')));
 });
 
 test('successful T block-set copy resets world cornerA and cornerB', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const fakeWorld = {
     getBlock: () => BlockTypes.COLOR_BLOCK,
     getBlockColor: () => 0xff00aa,

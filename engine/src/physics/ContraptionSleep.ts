@@ -1,20 +1,32 @@
+import type { Vector3 } from 'three';
+import type { Contraption } from '../contraption/Contraption.ts';
+import type { World } from '../voxel/World.ts';
+import type { ScriptContact } from '../scripting/ScriptProtocol.ts';
+
+type SleepEntity = Pick<Contraption, 'position'> & Partial<Pick<Contraption,
+  'publicId' | 'isPhysicsSimulationEnabled' | 'physicsWakeVersion' | 'constraintDefinitions' |
+  'getRigidBodies' | 'getNodeGravityEnabled' | 'getNodeCollisionEnabled' | 'entityNodes' |
+  'collisionEntries' | 'getPhysicsCollisionWorldAABBs' | 'getCollisionWorldAABBs' |
+  'recordScriptContact' | 'pendingScriptContacts'>>;
+type SleepWorld = Partial<Pick<World, 'terrainVersion' | 'activeChunkKeys' | 'getTerrainCollisionStamp'>>;
+
 const SETTLE_SECONDS = 1;
 const MAX_SPEED_SQ = 0.02 ** 2;
 const MAX_POSE_DRIFT = 0.002;
 
-type Pose = { shape: any; values: any[] };
+type Pose = { shape: unknown; values: unknown[] };
 type SleepState = {
   sleeping: boolean;
   quietTime: number;
   epoch: number;
   pose: Pose | null;
   startPose: Pose | null;
-  terrainVersion: number;
-  terrainStamp: any[] | null;
-  restingContacts: any[];
-  chunkWindow: any;
-  supports: Map<any, { pose: Pose; epoch: number }>;
-  pendingSupports: Set<any>;
+  terrainVersion: number | undefined;
+  terrainStamp: unknown[] | null;
+  restingContacts: ScriptContact[];
+  chunkWindow: unknown;
+  supports: Map<SleepEntity, { pose: Pose; epoch: number }>;
+  pendingSupports: Set<SleepEntity>;
 };
 
 /** Whole contraptions sleep together, including their constrained bodies.
@@ -22,17 +34,17 @@ type SleepState = {
  * observations with zero impact impulse, and script forces wake them immediately. */
 export class ContraptionSleep {
   private states = new WeakMap<object, SleepState>();
-  private activeEntities: Set<any> | null = null;
+  private activeEntities: Set<SleepEntity> | null = null;
   private stoppedPoses = new WeakMap<object, Pose>();
-  private world: any;
+  private world: SleepWorld;
 
-  constructor(world: any) { this.world = world; }
+  constructor(world: SleepWorld) { this.world = world; }
 
-  setActiveEntities(entities: any[]) {
+  setActiveEntities(entities: SleepEntity[]) {
     this.activeEntities = new Set(entities);
   }
 
-  private state(entity): SleepState {
+  private state(entity: SleepEntity): SleepState {
     let state = this.states.get(entity);
     if (!state) {
       state = { sleeping: false, quietTime: 0, epoch: 0, pose: null, startPose: null,
@@ -42,9 +54,9 @@ export class ContraptionSleep {
     return state;
   }
 
-  isSleeping(entity): boolean { return this.states.get(entity)?.sleeping === true; }
+  isSleeping(entity: SleepEntity): boolean { return this.states.get(entity)?.sleeping === true; }
 
-  wake(entity) {
+  wake(entity: SleepEntity) {
     const state = this.states.get(entity);
     if (!state) return;
     state.sleeping = false;
@@ -54,13 +66,13 @@ export class ContraptionSleep {
     state.restingContacts = [];
   }
 
-  suspend(entity) {
+  suspend(entity: SleepEntity) {
     const state = this.states.get(entity);
     if (state && (state.sleeping || state.quietTime > 0)) this.wake(entity);
   }
 
-  private pose(entity): Pose {
-    const values: any[] = [entity.isPhysicsSimulationEnabled?.(), entity.physicsWakeVersion,
+  private pose(entity: SleepEntity): Pose {
+    const values: unknown[] = [entity.isPhysicsSimulationEnabled?.(), entity.physicsWakeVersion,
       JSON.stringify([...(entity.constraintDefinitions?.values?.() || [])])];
     for (const body of entity.getRigidBodies?.() || []) {
       values.push(body, body.type, body.simulationEnabled, body.mass, body.inverseInertia,
@@ -80,10 +92,10 @@ export class ContraptionSleep {
     return !!a && a.shape === b.shape && a.values.length === b.values.length
       && a.values.every((value, index) => value === b.values[index]
         || (tolerance > 0 && typeof value === 'number' && typeof b.values[index] === 'number'
-          && Math.abs(value - b.values[index]) <= tolerance));
+          && Math.abs(value - (b.values[index] as number)) <= tolerance));
   }
 
-  private eligible(entity): boolean {
+  private eligible(entity: SleepEntity): boolean {
     // A host without terrain revision notifications must keep polling physics:
     // sleeping there could miss a removed floor or a newly loaded collision chunk.
     if (!Number.isFinite(this.world.terrainVersion)) return false;
@@ -91,7 +103,7 @@ export class ContraptionSleep {
     return true;
   }
 
-  private terrainStamp(entity): any[] | null {
+  private terrainStamp(entity: SleepEntity): unknown[] | null {
     if (typeof this.world.getTerrainCollisionStamp !== 'function') return null;
     const boxes = entity.getPhysicsCollisionWorldAABBs?.() || entity.getCollisionWorldAABBs?.() || [];
     if (!boxes.length) return this.world.getTerrainCollisionStamp({
@@ -107,7 +119,7 @@ export class ContraptionSleep {
       minZ: minZ - 0.1, maxZ: maxZ + 0.1 });
   }
 
-  private terrainChanged(entity, state: SleepState): boolean {
+  private terrainChanged(entity: SleepEntity, state: SleepState): boolean {
     const current = this.terrainStamp(entity);
     if (current === null || state.terrainStamp === null) {
       return state.terrainVersion !== this.world.terrainVersion
@@ -117,7 +129,7 @@ export class ContraptionSleep {
       || current.some((value, index) => value !== state.terrainStamp![index]);
   }
 
-  begin(entity) {
+  begin(entity: SleepEntity) {
     const state = this.state(entity);
     if (!this.eligible(entity)) {
       if (state.sleeping || state.quietTime > 0) this.wake(entity);
@@ -148,18 +160,18 @@ export class ContraptionSleep {
     return state.sleeping;
   }
 
-  stoppedColliderChanged(entity): boolean {
+  stoppedColliderChanged(entity: SleepEntity): boolean {
     const pose = this.pose(entity);
     const previous = this.stoppedPoses.get(entity);
     this.stoppedPoses.set(entity, pose);
     return !this.samePose(previous || null, pose);
   }
 
-  recordSupport(entity, support) {
+  recordSupport(entity: SleepEntity, support: SleepEntity) {
     this.state(entity).pendingSupports.add(support);
   }
 
-  finish(entity, dt, frameInputs) {
+  finish(entity: SleepEntity, dt: number, frameInputs: ReadonlyMap<unknown, { force: Vector3; torque: Vector3 }>) {
     const state = this.state(entity);
     if (state.sleeping || !this.eligible(entity)) return;
     const bodies = entity.getRigidBodies?.() || [];
@@ -187,7 +199,7 @@ export class ContraptionSleep {
     const supports = new Set([...state.pendingSupports].map(support => support.publicId));
     state.restingContacts = (entity.pendingScriptContacts || [])
       .filter(contact => contact.kind === 'terrain'
-        || (contact.kind === 'entity' && supports.has(contact.otherEntityId)))
+        || (contact.kind === 'entity' && contact.otherEntityId != null && supports.has(contact.otherEntityId)))
       .map(contact => ({ ...contact, relativeVelocity: [0, 0, 0], impulse: 0,
         penetration: 0, sleeping: true }));
     state.chunkWindow = this.world.activeChunkKeys;

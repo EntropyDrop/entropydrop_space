@@ -1,3 +1,4 @@
+import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import * as THREE from 'three';
 import { decode as decodeMessagePack, encode as encodeMessagePack } from '@msgpack/msgpack';
 import {
@@ -127,13 +128,13 @@ export class SpaceEntitySync {
     if (this.timer) return;
     this.stopped = false;
     this.contraptions?.setRemoteEntityPersistence?.({
-      save: (record, options) => this.queueSave(record, options),
-      remove: publicId => this.queueDelete(publicId),
+      save: (record: Parameters<SpaceEntitySync['queueSave']>[0], options: { definitionChanged?: boolean }) => this.queueSave(record, options),
+      remove: (publicId: string) => this.queueDelete(publicId),
     });
-    this.controller?.setServerEntityRunStateHandler?.((contraption, desiredState) => (
+    this.controller?.setServerEntityRunStateHandler?.((contraption: Contraption, desiredState: 'running' | 'stopped') => (
       this.setRunState(contraption, desiredState)
     ));
-    this.controller?.setServerEntityDeleteHandler?.(contraption => this.queueDelete(String(contraption.publicId), true));
+    this.controller?.setServerEntityDeleteHandler?.((contraption: Contraption) => this.queueDelete(String(contraption.publicId), true));
     void this.poll();
     if (this.onHostingUpdate) {
       void this.pollHosting().catch(() => { });
@@ -593,7 +594,7 @@ export class SpaceEntitySync {
     if (this.deletedEntityIds.has(entity.id)) return true;
     if (entity.execution_epoch !== undefined && entity.execution_epoch < (this.latestEpochs.get(entity.id) || 0)) return true;
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
-      || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
+      || this.contraptions.contraptions?.find((item: Contraption) => String(item.publicId) === entity.id);
     return Math.max(this.latestRevisions.get(entity.id) || 0, Number(active?.serverRevision) || 0) > entity.revision;
   }
 
@@ -707,7 +708,7 @@ export class SpaceEntitySync {
     if (entity.execution_epoch !== undefined) this.latestEpochs.set(entity.id, entity.execution_epoch);
     this.latestRevisions.set(entity.id, entity.revision);
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
-      || this.contraptions.contraptions?.find(item => String(item.publicId) === entity.id);
+      || this.contraptions.contraptions?.find((item: Contraption) => String(item.publicId) === entity.id);
     const manipulationRevision = active?.wrenchManipulationRevision || 0;
     if (active) {
       const remoteSnapshotChanged = active.serverSnapshotDigest !== entity.snapshot_digest;

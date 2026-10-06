@@ -1,3 +1,4 @@
+import { captureEntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
 import { setNodeScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,7 +32,7 @@ test('editor start/stop waits for the server and does not apply a local-only cha
   const target = { serverManaged: true, serverDesiredRunState: 'stopped', serverExecutesLocally: false };
   store.snapshot.editingContraption = target;
   const requests: string[] = [];
-  store.snapshot.controller = { async requestServerEntityRunState(entity, state) {
+  store.snapshot.controller = { async requestServerEntityRunState(entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, state: 'running' | 'stopped') {
     assert.equal(entity, target);
     requests.push(state);
     target.serverDesiredRunState = state;
@@ -63,11 +64,12 @@ test('spaceAPI reset snapshot restores child construction poses and defaults at 
   await setNodeScript(entity, 'root', 'self.state.setBoolean("old", true);');
   const mass = entity.getNodeBodyMass('root');
   entity.setNodeBodyMass('root', 999, { runtimeOnly: true });
-  const position = [10, 40, 20];
-  const quaternion = [0, 0.6, 0, 0.8];
+  const position: [number, number, number] = [10, 40, 20];
+  const quaternion: [number, number, number, number] = [0, 0.6, 0, 0.8];
+  const captured = captureEntityStreamState(entity, { id: 'reset-test' });
   const snapshot = {
-    position, quaternion, constructorOrigin: [9.5, 39.5, 19.5],
-    bodies: [{ id: 'root', position, quaternion }], nodes: [], states: {},
+    position, quaternion, constructorOrigin: [9.5, 39.5, 19.5] as [number, number, number],
+    bodies: [{ ...captured.bodies[0], position, quaternion }], nodes: [], states: {},
     scriptStatus: 'stopped', physicsSimulationEnabled: false, resetRuntime: true,
   };
   ContraptionManager.prototype.restoreContraptionStreamingState.call({}, entity, snapshot);

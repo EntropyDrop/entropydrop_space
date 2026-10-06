@@ -57,7 +57,7 @@ class EnumerableMemoryStorage {
 }
 
 test('large game payloads are selected for IndexedDB while synchronous preferences stay local', () => {
-  assert.equal(isLargeSpaceStorageKey('space.backpack.v8.pb'), true);
+  for (const version of [8, 9, 10]) assert.equal(isLargeSpaceStorageKey(`space.backpack.v${version}.pb`), true);
   assert.equal(isLargeSpaceStorageKey('space.backpack.v5.pb'), false);
   assert.equal(isLargeSpaceStorageKey('space.backpack.v3.pb'), false);
   assert.equal(isLargeSpaceStorageKey('space.backpack.v2'), false);
@@ -75,19 +75,19 @@ test('IndexedDB hydration migrates legacy large payloads and preserves fallback-
   legacy.setItem('space_setting_fov', '80');
   legacy.setItem('space.world-edits.v3.world-a', 'legacy-terrain');
   legacy.setItem('entropydrop_space_entities.world-a', 'legacy-entities');
-  legacy.setItem('space.backpack.v8.pb', 'fallback-session-backpack');
-  const backend = new MemoryBackend([['space.backpack.v8.pb', 'older-indexeddb-backpack']]);
+  legacy.setItem('space.backpack.v10.pb', 'fallback-session-backpack');
+  const backend = new MemoryBackend([['space.backpack.v10.pb', 'older-indexeddb-backpack']]);
 
   const storage = await BufferedIndexedDbStorage.hydrate(backend, legacy);
 
   assert.equal(storage.getItem('space.world-edits.v3.world-a'), 'legacy-terrain');
   assert.equal(storage.getItem('entropydrop_space_entities.world-a'), 'legacy-entities');
-  assert.equal(storage.getItem('space.backpack.v8.pb'), 'fallback-session-backpack');
-  assert.equal(backend.values.get('space.backpack.v8.pb'), 'fallback-session-backpack');
+  assert.equal(storage.getItem('space.backpack.v10.pb'), 'fallback-session-backpack');
+  assert.equal(backend.values.get('space.backpack.v10.pb'), 'fallback-session-backpack');
   assert.equal(backend.values.get('space.world-edits.v3.world-a'), 'legacy-terrain');
   assert.equal(legacy.getItem('space.world-edits.v3.world-a'), null);
   assert.equal(legacy.getItem('entropydrop_space_entities.world-a'), null);
-  assert.equal(legacy.getItem('space.backpack.v8.pb'), null);
+  assert.equal(legacy.getItem('space.backpack.v10.pb'), null);
   assert.equal(legacy.getItem('token'), 'keep-synchronous');
   assert.equal(legacy.getItem('space_setting_fov'), '80');
 });

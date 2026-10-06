@@ -110,7 +110,7 @@ test('shadow-free views cull nearby terrain behind the camera and restore it for
     return mesh;
   };
   const front = make(-30), back = make(30), micro = make(30);
-  const world = { chunks: new Map([['0,0', { mesh: front }], ['1,0', { mesh: back }]]),
+  const world = { chunks: new Map([['0,0', { cx: 0, cz: 0, mesh: front }], ['1,0', { cx: 1, cz: 0, mesh: back }]]),
     microVoxels: { renderMeshes: new Map([['0,0', micro]]) } };
   cullChunks(camera, world, false);
   assert.equal(front.visible, true); assert.equal(back.visible, false); assert.equal(micro.visible, false);

@@ -20,6 +20,23 @@ export interface VoxelLodPort {
   terminate(): unknown;
 }
 
+/** Adapt browser events to the same small protocol as the cooperative backend. */
+export function createWorkerVoxelLodPort(worker: Pick<Worker, 'postMessage' | 'terminate' | 'onmessage' | 'onerror'>): VoxelLodPort {
+  const port: VoxelLodPort = {
+    onmessage: null,
+    onerror: null,
+    postMessage(command, transfer = []) { worker.postMessage(command, transfer); },
+    terminate() {
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.terminate();
+    },
+  };
+  worker.onmessage = (event: MessageEvent<VoxelLodResponse>) => port.onmessage?.({ data: event.data });
+  worker.onerror = event => port.onerror?.({ message: event.message });
+  return port;
+}
+
 /** One outstanding packet bounds unpublished geometry and message traffic.
  * Input sources and the latest camera can queue while a build is in progress. */
 export function createVoxelLodService(post: (response: VoxelLodResponse, transfer: ArrayBuffer[]) => void, sliceMs = 4) {

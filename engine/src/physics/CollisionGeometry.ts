@@ -1,3 +1,4 @@
+import type { CollisionEntry } from '../contraption/EntityTypes.ts';
 /** Integer micro-grid boxes; authored voxels remain separate for editing/picking. */
 export type CollisionBox = {
   x: number; y: number; z: number;
@@ -122,4 +123,9 @@ export class CollisionBoxIndex<T extends CollisionBounds> {
     // Preserve solver contact order independently of tree partitioning.
     return matches.sort((a, b) => a - b).map(index => this.boxes[index]);
   }
+}
+
+/** Both individual and merged cells report dimensions in micro-grid units. */
+export function collisionShapeSpans(cell: CollisionEntry | CollisionBox): [number, number, number] {
+  return 'span' in cell ? [cell.span, cell.span, cell.span] : [cell.spanX, cell.spanY, cell.spanZ];
 }

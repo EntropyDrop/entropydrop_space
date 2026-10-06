@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -199,7 +200,7 @@ test('cylinder shape applies to the root of an entity that has child components'
 
 test('re-boxing a new region does not reuse shape corners from the previous region', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const blocks = [
     { localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK },
     { localX: 0, localY: 1, localZ: 0, block: BlockTypes.COLOR_BLOCK },
@@ -259,7 +260,7 @@ test('re-boxing a new region does not reuse shape corners from the previous regi
 
 test('a plain click dismisses an editable subtree-only selection', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const contraption = new Contraption(
     5,
     [
@@ -294,7 +295,7 @@ test('a plain click dismisses an editable subtree-only selection', () => {
 
 test('F requires A/B, then Select All allows filling component holes', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const contraption = new Contraption(
     7,
     [
@@ -312,7 +313,7 @@ test('F requires A/B, then Select All allows filling component holes', () => {
   controller.selectedSubtree = { contraption, rootId, nodeIds: new Set([rootId]) };
   controller.fillSelectionBlocks(0x00ff00);
   assert.equal(contraption.blocks.length, 2, 'subtree selection alone cannot fill');
-  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('A and B')));
   assert.equal(controller.selectAllSelectionBlocks(), true);
   controller.fillSelectionBlocks(0x00ff00);
 
@@ -395,17 +396,17 @@ test('focus highlight encloses blocks and keeps its fill occluded by the model',
   contraption.setFocusHighlight('root');
   const materials = contraption.focusHighlightMaterials;
   // Outline stays visible through parent geometry...
-  assert.equal(materials.focusedLine.depthTest, false, 'the focused outline must remain an X-ray overlay');
-  assert.equal(materials.childLine.depthTest, false, 'descendant outlines must remain X-ray overlays');
+  assert.equal(requireValue(materials).focusedLine.depthTest, false, 'the focused outline must remain an X-ray overlay');
+  assert.equal(requireValue(materials).childLine.depthTest, false, 'descendant outlines must remain X-ray overlays');
   // ...but the translucent fill must be occluded, otherwise it blends through the
   // component and reads as the highlight clipping into the model.
-  assert.equal(materials.focusedFill.depthTest, true, 'the focused fill must be occluded by the model');
-  assert.equal(materials.childFill.depthTest, true, 'the descendant fill must be occluded by the model');
-  assert.equal(materials.focusedFill.depthWrite, false);
+  assert.equal(requireValue(materials).focusedFill.depthTest, true, 'the focused fill must be occluded by the model');
+  assert.equal(requireValue(materials).childFill.depthTest, true, 'the descendant fill must be occluded by the model');
+  assert.equal(requireValue(materials).focusedFill.depthWrite, false);
   // The box matches the blocks exactly (no inflation) and uses a polygon offset
   // so the coincident faces do not z-fight the voxels.
-  assert.equal(materials.focusedFill.polygonOffset, true, 'the fill needs a polygon offset to avoid z-fighting');
-  assert.ok(materials.focusedFill.polygonOffsetFactor > 0);
+  assert.equal(requireValue(materials).focusedFill.polygonOffset, true, 'the fill needs a polygon offset to avoid z-fighting');
+  assert.ok(requireValue(materials).focusedFill.polygonOffsetFactor > 0);
 
   const boxGeo: any = contraption.focusHighlightGeometries[0];
   assert.ok(boxGeo?.parameters, 'the focused box geometry is registered');

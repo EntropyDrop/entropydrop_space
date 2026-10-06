@@ -1,3 +1,5 @@
+import { worldStub } from './fixtures.ts';
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
@@ -18,10 +20,10 @@ test('decoration defaults, quaternion signs and sorting have one canonical wire 
   const portable = runtimeEntityToPortable(source);
   const encoded = encodeInventoryResource('entity', portable);
   const decoded = decodeInventoryResource(encoded, 'entity').portable;
-  assert.deepEqual(decoded.root.decorations.map(value => value.id), ['trim', 'z']);
-  assert.deepEqual(decoded.root.decorations[1], { id: 'z', color: 0 });
+  assert.deepEqual(requireValue(decoded.root.decorations).map(value => value.id), ['trim', 'z']);
+  assert.deepEqual(requireValue(decoded.root.decorations)[1], { id: 'z', color: 0 });
   assert.deepEqual(encodeInventoryResource('entity', decoded), encoded);
-  source.decorations[1].rotation = source.decorations[1].rotation.map(value => -value);
+  source.decorations[1].rotation = source.decorations[1].rotation.map((value: number) => -value);
   assert.deepEqual(encodeInventoryResource('entity', runtimeEntityToPortable(source)), encoded);
   assert.deepEqual(portableEntityToRuntime(decoded).decorations, decoded.root.decorations);
   const legacy = runtimeEntityToPortable({ rootComponentId: 'base', blocks: [{ dx: 0, dy: 0, dz: 0, color: 1, entityId: 'base' }] });
@@ -41,11 +43,11 @@ test('visual edits preserve every physical body and collision index, while picki
   try {
     const body = entity.getRigidBody('base');
     const collision = entity.collisionCells;
-    const physical = [entity.mass, entity.boundingRadius, entity.voxelVolume, body.mass, body.inverseInertia, entity.collisionPoseVersion];
+    const physical = [entity.mass, entity.boundingRadius, entity.voxelVolume, requireValue(body).mass, requireValue(body).inverseInertia, entity.collisionPoseVersion];
     assert.equal(entity.setComponentDecorations('base', [decoration]), true);
     assert.equal(entity.getRigidBody('base'), body);
     assert.equal(entity.collisionCells, collision);
-    assert.deepEqual([entity.mass, entity.boundingRadius, entity.voxelVolume, body.mass, body.inverseInertia, entity.collisionPoseVersion], physical);
+    assert.deepEqual([entity.mass, entity.boundingRadius, entity.voxelVolume, requireValue(body).mass, requireValue(body).inverseInertia, entity.collisionPoseVersion], physical);
     const origin = new THREE.Vector3(4, 1, 4), direction = new THREE.Vector3(0, 0, -1);
     assert.equal(entity.raycastCollisionCells(origin, direction, 8), null);
     assert.equal(entity.raycastDecorations(origin, direction, 8, false)?.decorationId, 'trim');
@@ -64,36 +66,36 @@ test('child decorations follow their owning frame and survive hierarchy rebuilds
   });
   try {
     const node = entity.getEntityNode('arm');
-    node.group.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7);
+    requireValue(node).group.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7);
     const expected = entity.entityLocalToWorld('arm', new THREE.Vector3().fromArray(decoration.position));
     const mesh = entity.decorationGroups.get('arm')!.children[0];
     assert.ok(mesh.getWorldPosition(new THREE.Vector3()).distanceTo(expected) < 1e-9);
     entity.rebuildEntityHierarchy();
     assert.deepEqual(entity.getComponentDecorations('arm'), [decoration]);
     const slot = entity.serializeSubtree('arm');
-    assert.deepEqual(slot.decorations, [decoration]);
+    assert.deepEqual(requireValue(slot).decorations, [decoration]);
     assert.deepEqual(portableEntityToRuntime(runtimeEntityToPortable(entity.serializeSubtree('base'))).childEntities[0].decorations, [decoration]);
   } finally { entity.dispose(); }
 });
 
 test('component installation rebases decoration positions together with voxels and pivots', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub(), null, null);
   const source: any = { rootComponentId: 'source', blocks: [block(0, 'source'), block(2, 'arm')], decorations: [decoration],
     childEntities: [{ id: 'arm', parentId: 'source', pivot: [2.5, 0.5, 0.5], decorations: [decoration] }] };
   const target = manager.buildFromSlot({ rootComponentId: 'base', blocks: [block(0)] }, new THREE.Vector3(), null, false);
-  target.stopAllNodeScripts();
-  target.setPhysicsSimulationEnabled(false);
+  requireValue(target).stopAllNodeScripts();
+  requireValue(target).setPhysicsSimulationEnabled(false);
   try {
-    const result = target.installEntitySlot(source, 'base', new THREE.Vector3(8, 2, 0), null, new THREE.Quaternion());
+    const result = requireValue(target).installEntitySlot(source, 'base', new THREE.Vector3(8, 2, 0), null, new THREE.Quaternion());
     assert.equal(result.ok, true, JSON.stringify(result));
-    const root = [...target.childDefinitions.values()].find(value => value.parentId === 'base');
+    const root = [...requireValue(target).childDefinitions.values()].find(value => value.parentId === 'base');
     assert.ok(root);
     const expected = new THREE.Vector3(12, 3, 0);
-    const actual = target.entityLocalToWorld(root.id, new THREE.Vector3().fromArray(root.decorations[0].position));
+    const actual = requireValue(target).entityLocalToWorld(root.id, new THREE.Vector3().fromArray(requireValue(requireValue(root.decorations)[0].position)));
     assert.ok(actual.distanceTo(expected) < 1e-9, `${actual.toArray()} vs ${expected.toArray()}`);
-    const installedArm = [...target.childDefinitions.values()].find(value => value.parentId === root.id);
-    assert.deepEqual(installedArm.decorations, root.decorations);
-    assert.equal(target.getDecorationCount(), 2);
-  } finally { target.dispose(); }
+    const installedArm = [...requireValue(target).childDefinitions.values()].find(value => value.parentId === root.id);
+    assert.deepEqual(requireValue(installedArm).decorations, root.decorations);
+    assert.equal(requireValue(target).getDecorationCount(), 2);
+  } finally { requireValue(target).dispose(); }
 });

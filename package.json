@@ -16,7 +16,9 @@
   "scripts": {
     "dev": "npm run dev --workspace @entropydrop/space",
     "build": "npm run build --workspace @entropydrop/space",
-    "check": "npm run check --workspace @entropydrop/space",
+    "check": "npm run check:client && npm run check:server",
+    "check:client": "npm run check --workspace @entropydrop/space",
+    "check:server": "npm run build:server-runtime && npm test --workspace @entropydrop/space-hosting-runtime && node tools/check-server.mjs",
     "check:english": "node tools/check-english-only.mjs",
     "build:terrain-wasm": "node tools/build-terrain-wasm.mjs",
     "check:terrain-wasm": "node tools/build-terrain-wasm.mjs --check",

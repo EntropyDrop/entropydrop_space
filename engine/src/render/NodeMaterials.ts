@@ -14,10 +14,10 @@ export function asNodeMaterial(material: THREE.Material): THREE.NodeMaterial {
     LineDashedMaterial: THREE.LineDashedNodeMaterial, PointsMaterial: THREE.PointsNodeMaterial,
     SpriteMaterial: THREE.SpriteNodeMaterial,
   };
-  const Type = types[material.type];
+  const Type = Object.hasOwn(types, material.type) ? types[material.type as keyof typeof types] : undefined;
   if (!Type) throw new Error(`Unsupported world material: ${material.type}`);
   const node = new Type();
-  for (const key of Object.keys(material)) if (!['id', 'uuid', 'type', 'version', '_listeners'].includes(key)) node[key] = material[key];
+  Object.assign(node, Object.fromEntries(Object.entries(material).filter(([key]) => !['id', 'uuid', 'type', 'version', '_listeners'].includes(key))));
   material.addEventListener('dispose', () => node.dispose());
   converted.set(material, node);
   return node;
@@ -26,13 +26,13 @@ export function asNodeMaterial(material: THREE.Material): THREE.NodeMaterial {
 export const terrainDither = (pixel = screenCoordinate.xy) =>
   fract(fract(dot(floor(pixel), vec2(.06711056, .00583715))).mul(52.9829189));
 
-export function terrainCoverage(mask: THREE.DataTexture, flat: any) {
+export function terrainCoverage(mask: THREE.DataTexture, flat: ReturnType<typeof vec2>) {
   const chunk = varying(floor(flat.mod(vec2(16384, 2048)).add(vec2(16384, 2048)).mod(vec2(16384, 2048)).div(16)));
   return texture(mask, chunk.add(.5).div(vec2(1024, 128))).rg;
 }
 
 /** Mask nodes compose with lit/emissive color and execute in shadow passes too. */
-export function discardWhen(material: THREE.NodeMaterial, rejected: any) {
+export function discardWhen(material: THREE.NodeMaterial, rejected: ReturnType<typeof bool>) {
   const previous = material.maskNode;
   material.maskNode = previous ? bool(previous).and(rejected.not()) : rejected.not();
 }

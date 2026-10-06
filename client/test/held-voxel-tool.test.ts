@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -153,7 +154,7 @@ test('only accepted, pointer-locked left clicks request a hand stroke, including
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   const listeners = new Map<string, (event: any) => void>();
-  globalThis.document = { addEventListener: (name, callback) => listeners.set(name, callback) } as any;
+  globalThis.document = { addEventListener: (name: string, callback: EventListener) => listeners.set(name, callback) } as any;
   globalThis.window = { addEventListener() {} } as any;
   t.after(() => {
     globalThis.document = originalDocument;
@@ -161,7 +162,7 @@ test('only accepted, pointer-locked left clicks request a hand stroke, including
   });
   const controller = Object.assign(Object.create(PlayerController.prototype), {
     _activeTool: 'shovel', toolUseSequence: 0, isLocked: false,
-    currentRaycast: { hit: false }, updateAimRaycast() {},
+    currentRaycast: { hit: false as const }, updateAimRaycast() {},
     refreshAimAfterPointerAction() {}, handleRightClick() {},
     ui: { showToast() {} }
   });
@@ -346,9 +347,9 @@ test('the world tool follows the right arm and cached resources are released onc
     if (!object.name.startsWith('HeldVoxelTool:')) return;
     const tool = object as ToolMesh;
     for (const resource of [tool.geometry, ...tool.material, ...tool.material.map(material => material.envMap).filter(Boolean)]) {
-      if (resources.has(resource)) continue;
-      resources.set(resource, 0);
-      resource.addEventListener('dispose', () => resources.set(resource, resources.get(resource)! + 1));
+      if (resources.has(requireValue(resource))) continue;
+      resources.set(requireValue(resource), 0);
+      requireValue(resource).addEventListener('dispose', () => resources.set(requireValue(resource), resources.get(requireValue(resource))! + 1));
     }
   });
   rig.dispose();

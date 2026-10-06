@@ -22,7 +22,7 @@ function createSingleCellContraption() {
   );
 }
 
-function createPlayer(contraption) {
+function createPlayer(contraption: import('../src/contraption/Contraption.ts').Contraption) {
   const world = {
     getBlock: () => BlockTypes.AIR,
     getMicroBlocksInAABB: () => []
@@ -73,7 +73,7 @@ test('touching an adjacent one-block step never lifts the player onto it', () =>
     '0,1,0'   // one-block-high step touching the player's right side
   ]);
   const world = {
-    getBlock: (x, y, z) => solids.has(`${x},${y},${z}`)
+    getBlock: (x: number, y: number, z: number) => solids.has(`${x},${y},${z}`)
       ? BlockTypes.COLOR_BLOCK
       : BlockTypes.AIR,
     getMicroBlocksInAABB: () => []
@@ -102,10 +102,10 @@ test('restoring inside terrain raises the player to the first free spawn height'
   ]);
   let prepared = null;
   const world = {
-    preparePlayerSpawnArea(x, z, halfWidth) {
+    preparePlayerSpawnArea(x: number, z: number, halfWidth: number) {
       prepared = { x, z, halfWidth };
     },
-    getBlock: (x, y, z) => solids.has(`${x},${y},${z}`)
+    getBlock: (x: number, y: number, z: number) => solids.has(`${x},${y},${z}`)
       ? BlockTypes.COLOR_BLOCK
       : BlockTypes.AIR,
     getMicroBlocksInAABB: () => []
@@ -157,7 +157,7 @@ test('a downward face crossing still lands on top of an entity cell', () => {
 // A standing player should not be pushed off by an entity's instantaneous collision correction.
 // ===========================================================================
 
-function standingPlayerOn(contraption) {
+function standingPlayerOn(contraption: import('../src/contraption/Contraption.ts').Contraption) {
   const player = createPlayer(contraption);
   player.ridingContraption = contraption;
   player.isOnGround = true;

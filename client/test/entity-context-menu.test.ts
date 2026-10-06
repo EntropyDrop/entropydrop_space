@@ -11,13 +11,13 @@ function harness() {
   const other: any = { id: 'two' };
   const controller: any = Object.create(PlayerController.prototype);
   controller.hoveredContraption = other;
-  controller.contraptions = { contraptions: [target, other], removeContraption(entity, options) { calls.push(['remove', entity, options]); } };
-  controller.performBasicAction = command => { calls.push(['action', command]); return { ok: true }; };
-  controller.ui = { showToast: message => calls.push(['toast', message]), openCodeEditor: entity => calls.push(['program', entity]),
-    notifyContraptionRemoved: entity => calls.push(['notify', entity]) };
-  controller.addInventoryItem = (category, slot) => { calls.push(['inventory', category, slot]); return 0; };
-  controller.activateTool = tool => calls.push(['tool', tool]);
-  controller.setActiveInventoryCategory = category => calls.push(['category', category]);
+  controller.contraptions = { contraptions: [target, other], removeContraption(entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, options: Record<string, unknown>) { calls.push(['remove', entity, options]); } };
+  controller.performBasicAction = (command: { domain: string; action: string }) => { calls.push(['action', command]); return { ok: true }; };
+  controller.ui = { showToast: (message: string) => calls.push(['toast', message]), openCodeEditor: (entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) => calls.push(['program', entity]),
+    notifyContraptionRemoved: (entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) => calls.push(['notify', entity]) };
+  controller.addInventoryItem = (category: string, slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) => { calls.push(['inventory', category, slot]); return 0; };
+  controller.activateTool = (tool: string) => calls.push(['tool', tool]);
+  controller.setActiveInventoryCategory = (category: string) => calls.push(['category', category]);
   controller.clearSelection = () => calls.push(['clear']);
   return { calls, target, other, controller };
 }
@@ -91,7 +91,7 @@ test('online control permissions are checked at action time, including hosted de
   for (const action of ['start', 'stop', 'delete', 'disassemble', 'program']) assert.equal(await controller.performEntityMenuAction(target, action), false);
   assert.equal(calls.some(call => call[0] === 'remove' || call[0] === 'action'), false);
   target.serverCanControl = true;
-  controller.serverEntityDeleteHandler = async entity => { assert.equal(entity, target); calls.push(['remote-delete']); };
+  controller.serverEntityDeleteHandler = async (entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) => { assert.equal(entity, target); calls.push(['remote-delete']); };
   assert.equal(await controller.performEntityMenuAction(target, 'delete'), true);
   assert.ok(calls.findIndex(call => call[0] === 'remote-delete') < calls.findIndex(call => call[0] === 'remove'));
   assert.deepEqual(calls.find(call => call[0] === 'remove')[2], { skipRemoteDelete: true });
@@ -127,7 +127,7 @@ test('opening a menu during bulk editing is allowed but commands cannot race its
 
 test('menu Select All uses explicit root target, while confirmed A/B selection gating remains in the canonical action', async () => {
   const { controller, target } = harness();
-  controller.selectAllSelectionBlocks = selection => { assert.equal(selection.contraption, target); assert.equal(selection.nodeId, 'root'); return true; };
+  controller.selectAllSelectionBlocks = (selection: { contraption: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption; nodeId: string }) => { assert.equal(selection.contraption, target); assert.equal(selection.nodeId, 'root'); return true; };
   assert.equal(await controller.performEntityMenuAction(target, 'select-all'), true);
 });
 
@@ -151,13 +151,13 @@ test('nearest grid orientation chooses the closest proper 90-degree 3D rotation'
 
 test('menu disassembly aligns first, then uses the canonical manager conversion and removes the menu target', async () => {
   const { controller, target, calls } = harness();
-  controller.snapEntityRotationToGrid = async (entity, options) => {
+  controller.snapEntityRotationToGrid = async (entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, options: Record<string, unknown>) => {
     assert.equal(entity, target);
     assert.deepEqual(options, { save: false, refresh: false });
     calls.push(['align']);
     return true;
   };
-  controller.contraptions.disassembleContraption = (entity, options) => {
+  controller.contraptions.disassembleContraption = (entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, options: Record<string, unknown>) => {
     calls.push(['disassemble', entity, options]);
     return true;
   };
@@ -184,11 +184,11 @@ test('menu disassembly applies the nearest grid rotation to the full rigid-body 
     id: 'rotated', rootComponentId: 'root', scriptStatus: 'stopped',
     position: rootPosition.clone(), quaternion: startRotation.clone(),
     rigidBodies: new Map([['root', rootBody], ['child', childBody]]),
-    getRigidBody(id) { return this.rigidBodies.get(id); },
+    getRigidBody(id: string) { return this.rigidBodies.get(id); },
     syncAllBodyTransforms() {}, updateTransform() {}, capturePreviousEntityTransforms() {},
     setCollisionSimulationEnabled() {}
   };
-  let convertedRotation: THREE.Quaternion | null = null;
+  let convertedRotation = null as THREE.Quaternion | null;
   const controller: any = Object.create(PlayerController.prototype);
   controller.contraptions = {
     contraptions: [entity],
@@ -225,7 +225,7 @@ test('pointer-lock menu hit-test uses crosshair rather than stale cursor coordin
   let button: any = { dataset: { entityMenuId: 'target' } };
   try {
     (globalThis as any).window = { innerWidth: 1000, innerHeight: 600 };
-    (globalThis as any).document = { elementFromPoint(x, y) { hits.push([x, y]); return { closest: () => button }; } };
+    (globalThis as any).document = { elementFromPoint(x: number, y: number) { hits.push([x, y]); return { closest: () => button }; } };
     const controller = { isLocked: true, unlock() { this.isLocked = false; } };
     (store as any).patch({ controller, hasStarted: true, contraptions: { contraptions: [target] } });
     assert.equal(store.tryOpenEntityContextMenuAtPointer({ clientX: 7, clientY: 9 }), true);

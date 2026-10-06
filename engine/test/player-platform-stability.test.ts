@@ -13,16 +13,16 @@ const idle = { forward: false, backward: false, left: false, right: false,
 function platformFixture(yaw = 0, restitution = 0.1, axis: 'x' | 'y' | 'z' = 'x') {
   const world: any = {
     terrainVersion: 0,
-    getBlock: (_x, y, _z) => y === 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    getBlock: (_x: number, y: number, _z: number) => y === 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
     getMicroBlocksInAABB: () => [],
-    raycast: (origin, direction, maxDistance) => {
+    raycast: (origin: import('three').Vector3, direction: import('three').Vector3, maxDistance: number) => {
       const distance = (1 - origin.y) / direction.y;
       return direction.y < 0 && distance >= 0 && distance <= maxDistance
-        ? { hit: true, distance, normal: { x: 0, y: 1, z: 0 } } : { hit: false };
+        ? { hit: true as const, distance, normal: { x: 0, y: 1, z: 0 } } : { hit: false as const };
     },
-    raycastMicro: () => ({ hit: false }),
+    raycastMicro: () => ({ hit: false as const }),
     activeChunkKeys: new Set(['0,0', '-1,0', '0,-1', '-1,-1']),
-    worldToChunkCoords: (x, z) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) })
+    worldToChunkCoords: (x: number, z: number) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) })
   };
   const manager = new ContraptionManager(new THREE.Scene(), world, null, null);
   const physics = new ContraptionPhysics(world);
@@ -156,7 +156,7 @@ test('platform carriage respects a swept terrain wall and ceiling', () => {
     platform.setBodyType(BodyType.KINEMATIC);
     landOn(player, platform);
     const getBlock = world.getBlock;
-    world.getBlock = (x, y, z) => (axis === 'x' ? x === 3 : y === 4)
+    world.getBlock = (x: number, y: number, z: number) => (axis === 'x' ? x === 3 : y === 4)
       ? BlockTypes.COLOR_BLOCK : getBlock(x, y, z);
     platform.capturePreviousEntityTransforms();
     platform.position[axis] += 4;

@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -33,7 +34,7 @@ function createMockRenderer() {
 function makeControllerWithWorld(overrides: any = {}) {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const renderer = createMockRenderer();
   const controller: any = Object.create(PlayerController.prototype);
   controller._activeTool = SpecialTool.SELECTOR;

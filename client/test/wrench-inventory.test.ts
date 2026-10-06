@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import { setNodeScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,21 +58,21 @@ async function makeContraptionWithChildren() {
 
 test('serializing the root subtree rebuilds identical structure, scripts, and toggles', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const original = await makeContraptionWithChildren();
 
   const slot = original.serializeSubtree('root');
-  assert.equal(slot.blockCount, 3);
-  assert.equal(slot.nodeCount, 3);
-  assert.equal(slot.scripts.length, 2);
-  assert.equal(slot.enabled.length, 3);
+  assert.equal(requireValue(slot).blockCount, 3);
+  assert.equal(requireValue(slot).nodeCount, 3);
+  assert.equal(requireValue(slot).scripts.length, 2);
+  assert.equal(requireValue(slot).enabled.length, 3);
 
   const copy = manager.buildFromSlot(slot, new THREE.Vector3(30, 40, 30));
   assert.ok(copy);
   assert.notEqual(copy.publicId, original.publicId, 'an inventory-built entity must receive a fresh random id');
   assert.equal(copy.blocks.length, 3, 'block count should match');
-  assert.equal(copy.getEntityNode('arm').parentId, 'root');
-  assert.equal(copy.getEntityNode('hand').parentId, 'arm', 'component hierarchy should remain');
+  assert.equal(requireValue(copy.getEntityNode('arm')).parentId, 'root');
+  assert.equal(requireValue(copy.getEntityNode('hand')).parentId, 'arm', 'component hierarchy should remain');
   assert.equal(copy.getNodeScript('arm'), 'self.setLocalSpin([0, 1, 0], 60);', 'script code should match');
   assert.equal(copy.isNodeScriptEnabled('arm'), false, 'enabled state should match');
   assert.equal(copy.isNodeScriptEnabled('hand'), true);
@@ -82,14 +83,14 @@ test('serializing the root subtree rebuilds identical structure, scripts, and to
 
 test('rebuilding a serialized child subtree preserves its component id as the new root', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const original = await makeContraptionWithChildren();
 
   const slot = original.serializeSubtree('arm');
-  assert.equal(slot.blockCount, 2, 'arm and hand should contribute two blocks');
-  assert.equal(slot.nodeCount, 2);
-  assert.equal(slot.rootComponentId, 'arm', 'the independent subtree keeps its original root id');
-  assert.deepEqual(slot.childEntities.map(child => child.id), ['hand']);
+  assert.equal(requireValue(slot).blockCount, 2, 'arm and hand should contribute two blocks');
+  assert.equal(requireValue(slot).nodeCount, 2);
+  assert.equal(requireValue(slot).rootComponentId, 'arm', 'the independent subtree keeps its original root id');
+  assert.deepEqual(requireValue(slot).childEntities.map(child => child.id), ['hand']);
 
   const copy = manager.buildFromSlot(slot, new THREE.Vector3(0, 0, 0));
   assert.ok(copy);
@@ -98,14 +99,14 @@ test('rebuilding a serialized child subtree preserves its component id as the ne
   assert.equal(armBlocks.length, 1, 'the original arm block should remain owned by arm');
   const handBlocks = copy.blocks.filter(b => b.entityId === 'hand');
   assert.equal(handBlocks.length, 1, 'the hand component should remain');
-  assert.equal(copy.getEntityNode('hand').parentId, 'arm', 'hand should attach to the preserved subtree root');
+  assert.equal(requireValue(copy.getEntityNode('hand')).parentId, 'arm', 'hand should attach to the preserved subtree root');
   assert.equal(copy.getNodeScript('arm'), 'self.setLocalSpin([0, 1, 0], 60);', 'arm script should keep its id');
   assert.equal(copy.isNodeScriptEnabled('arm'), false, 'arm enabled state should keep its id');
 });
 
 test('serializing several subtrees attaches them below one explicit root', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const original = new Contraption(
     2,
     [
@@ -125,16 +126,16 @@ test('serializing several subtrees attaches them below one explicit root', () =>
 
   const slot = original.serializeSubtrees(['arm', 'wing']);
 
-  assert.equal(slot.rootComponentId, 'selection', 'the merged selection has one explicit synthetic root');
-  assert.equal(slot.nodeCount, 3);
-  assert.deepEqual(slot.childEntities.map(child => [child.id, child.parentId]), [
+  assert.equal(requireValue(slot).rootComponentId, 'selection', 'the merged selection has one explicit synthetic root');
+  assert.equal(requireValue(slot).nodeCount, 3);
+  assert.deepEqual(requireValue(slot).childEntities.map(child => [child.id, child.parentId]), [
     ['arm', 'selection'],
     ['wing', 'selection']
   ]);
   const copy = manager.buildFromSlot(slot, new THREE.Vector3());
   assert.ok(copy);
-  assert.equal(copy.getEntityNode('arm').parentId, 'selection');
-  assert.equal(copy.getEntityNode('wing').parentId, 'selection');
+  assert.equal(requireValue(copy.getEntityNode('arm')).parentId, 'selection');
+  assert.equal(requireValue(copy.getEntityNode('wing')).parentId, 'selection');
   assert.equal(copy.isNodeCollisionEnabled('arm'), false);
 });
 
@@ -151,7 +152,7 @@ test('recursive selection collects a component and all descendants', async () =>
 
 test('selector copy switches to Hammer and Hammer left-click builds a new entity', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const original = await makeContraptionWithChildren();
   manager.contraptions.push(original);
   // Running entities allow only whole selection; stop scripts before selecting a subregion.
@@ -187,7 +188,7 @@ test('selector copy switches to Hammer and Hammer left-click builds a new entity
 
   // 3. Build with Hammer left-click.
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 5, y: 6, z: 7 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -203,15 +204,15 @@ test('selector copy switches to Hammer and Hammer left-click builds a new entity
 
 test('pasting an empty slot reports a message and creates no entity', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = Object.create(PlayerController.prototype);
   controller.activeTool = SpecialTool.HAMMER;
   controller.contraptions = manager;
   controller.inventorySlots = new Array(8).fill(null);
   controller.selectedInventoryIndex = 0;
-  const toasts = [];
-  controller.ui = { showToast: m => toasts.push(m) };
-  controller.currentRaycast = { hit: true, hitPos: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 } };
+  const toasts: string[] = [];
+  controller.ui = { showToast: (m: string) => toasts.push(m) };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 } };
 
   controller.handleLeftClick();
   assert.equal(manager.contraptions.length, 0);
@@ -231,7 +232,7 @@ test('Selector right-click never builds inventory contents', () => {
 
 test('Wrench right-click starts pointed entity, left-click stops and lifts it', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   manager.registerContraption(entity);
   assert.equal(entity.scriptStatus, 'running');
@@ -291,7 +292,7 @@ test('Wrench right-click starts pointed entity, left-click stops and lifts it', 
 
 test('Wrench hold grabs the exact dynamic-body point and releases cleanly', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   manager.registerContraption(entity);
 
@@ -333,7 +334,7 @@ test('Wrench hold grabs the exact dynamic-body point and releases cleanly', asyn
 
 test('Wrench left-click stops and lifts entity even if previously stopped', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   manager.registerContraption(entity);
   entity.stopAllNodeScripts();
@@ -362,7 +363,7 @@ test('Wrench left-click stops and lifts entity even if previously stopped', asyn
 
 test('Wrench drag on running entity triggers stop and click sound exactly once', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   entity.serverManaged = true;
   entity.serverCanControl = true;
@@ -434,7 +435,7 @@ test('Wrench drag on running entity triggers stop and click sound exactly once',
 
 test('Wrench left-click grab never starts an entity or triggers scripts under any condition', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   entity.serverManaged = true;
   entity.serverCanControl = true;
@@ -490,8 +491,8 @@ test('component pivot updates preserve rotated component and descendant voxel po
   entity.stopAllNodeScripts();
   entity.quaternion.setFromEuler(new THREE.Euler(0.15, 0.6, -0.1));
   const arm = entity.getEntityNode('arm');
-  arm.localQuaternion.setFromEuler(new THREE.Euler(0.2, -0.35, 0.1));
-  arm.group.quaternion.copy(arm.localQuaternion);
+  requireValue(arm).localQuaternion.setFromEuler(new THREE.Euler(0.2, -0.35, 0.1));
+  requireValue(arm).group.quaternion.copy(requireValue(arm).localQuaternion);
   entity.updateTransform();
 
   const before = entity.blocks.map(block => entity.getBlockWorldCenter(block));
@@ -501,7 +502,7 @@ test('component pivot updates preserve rotated component and descendant voxel po
   });
 
   assert.equal(result.ok, true);
-  assert.deepEqual(entity.getEntityNode('arm').pivotLocal.toArray(), [1.35, 0.8, -0.25]);
+  assert.deepEqual(requireValue(entity.getEntityNode('arm')).pivotLocal.toArray(), [1.35, 0.8, -0.25]);
   for (let index = 0; index < entity.blocks.length; index++) {
     assert.ok(
       entity.getBlockWorldCenter(entity.blocks[index]).distanceTo(before[index]) < 1e-7,
@@ -516,7 +517,7 @@ test('a stopped dynamic root pivot can move without moving its subtree', async (
   entity.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 3);
   entity.updateTransform();
   const before = entity.blocks.map(block => entity.getBlockWorldCenter(block));
-  const oldPivot = entity.getEntityNode('root').pivotLocal.clone();
+  const oldPivot = requireValue(entity.getEntityNode('root')).pivotLocal.clone();
   const nextPivot = oldPivot.clone().add(new THREE.Vector3(0.75, -0.2, 0.4));
 
   const result = entity.setComponentPivot('root', nextPivot, {
@@ -525,7 +526,7 @@ test('a stopped dynamic root pivot can move without moving its subtree', async (
   });
 
   assert.equal(result.ok, true);
-  assert.ok(entity.getEntityNode('root').pivotLocal.distanceTo(nextPivot) < 1e-9);
+  assert.ok(requireValue(entity.getEntityNode('root')).pivotLocal.distanceTo(nextPivot) < 1e-9);
   for (let index = 0; index < entity.blocks.length; index++) {
     assert.ok(
       entity.getBlockWorldCenter(entity.blocks[index]).distanceTo(before[index]) < 1e-7,
@@ -561,9 +562,9 @@ test('pivot reset returns root and child pivots to their default centers without
 
   assert.equal(rootResult.ok, true);
   assert.equal(armResult.ok, true);
-  assert.ok(entity.getEntityNode('root').pivotLocal.distanceTo(entity.localCenter) < 1e-9);
+  assert.ok(requireValue(entity.getEntityNode('root')).pivotLocal.distanceTo(entity.localCenter) < 1e-9);
   assert.equal(entity.rootPivotOverride, null, 'root reset should restore automatic/default pivot semantics');
-  assert.deepEqual(entity.getEntityNode('arm').pivotLocal.toArray(), [0.5, 1.5, 0.5]);
+  assert.deepEqual(requireValue(entity.getEntityNode('arm')).pivotLocal.toArray(), [0.5, 1.5, 0.5]);
   for (let index = 0; index < entity.blocks.length; index++) {
     assert.ok(
       entity.getBlockWorldCenter(entity.blocks[index]).distanceTo(before[index]) < 1e-7,
@@ -579,10 +580,10 @@ test('Wrench uses Modeling arrows and rotation arcs with no scale geometry or sc
   const modeling = new TransformGizmo();
   try {
     const objects = renderer.wrenchPivotGizmo.children;
-    assert.deepEqual([...new Set(objects.map(object => object.userData.transformHandle))].sort(), [
+    assert.deepEqual([...new Set(objects.map((object: import('three').Object3D) => object.userData.transformHandle))].sort(), [
       'move-x', 'move-y', 'move-z', 'rotate-x', 'rotate-y', 'rotate-z'
     ]);
-    assert.equal(objects.some(object => object.geometry.type === 'BoxGeometry'), false);
+    assert.equal(objects.some((object: import('three').Mesh) => object.geometry.type === 'BoxGeometry'), false);
     for (const object of objects) {
       const reference: any = modeling.group.children.find((candidate: any) =>
         candidate.userData.transformHandle === object.userData.transformHandle && candidate.geometry.type === object.geometry.type);
@@ -595,7 +596,7 @@ test('Wrench uses Modeling arrows and rotation arcs with no scale geometry or sc
     const position = new THREE.Vector3(1, 2, 3);
     const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.4);
     renderer.setWrenchPivotGizmo(position, rotation, 2, 'move-x');
-    const material = (key: string) => objects.find(object => object.userData.transformHandle === key).material;
+    const material = (key: string) => objects.find((object: import('three').Object3D) => object.userData.transformHandle === key).material;
     assert.equal(renderer.wrenchPivotGizmo.visible, true);
     assert.deepEqual(renderer.wrenchPivotGizmo.position.toArray(), position.toArray());
     assert.deepEqual(renderer.wrenchPivotGizmo.quaternion.toArray(), rotation.toArray());
@@ -678,7 +679,7 @@ test('Wrench displays the entity COM even when pointing at a child, while body c
     allowDynamic: true
   });
   const node = entity.getEntityNode('arm');
-  const originalPivot = node.pivotLocal.clone();
+  const originalPivot = requireValue(node).pivotLocal.clone();
   const pivotWorld = entity.getEntityNodeWorldPosition('arm');
   const gizmoCalls: any[][] = [];
   let grabs = 0;
@@ -688,7 +689,7 @@ test('Wrench displays the entity COM even when pointing at a child, while body c
     contraptions: { contraptions: [entity] },
     physics: { getEyePosition: () => pivotWorld.clone().add(new THREE.Vector3(0, 0, 4)) },
     sceneRenderer: {
-      setWrenchPivotGizmo(...args) { gizmoCalls.push(args); },
+      setWrenchPivotGizmo(...args: unknown[]) { gizmoCalls.push(args); },
       setWrenchTether() { }
     },
     wrenchGrab: null,
@@ -704,10 +705,10 @@ test('Wrench displays the entity COM even when pointing at a child, while body c
   controller.handleLeftClick();
 
   assert.equal(grabs, 1);
-  assert.ok(node.pivotLocal.distanceTo(originalPivot) < 1e-9);
+  assert.ok(requireValue(node).pivotLocal.distanceTo(originalPivot) < 1e-9);
 });
 
-function makeWrenchGizmoController(entity, manager, camera) {
+function makeWrenchGizmoController(entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, manager: Pick<import('@entropydrop/space-engine/contraption/ContraptionManager.ts').ContraptionManager, 'contraptions'>, camera: import('three').PerspectiveCamera) {
   const controller: any = Object.create(PlayerController.prototype);
   Object.assign(controller, {
     _activeTool: SpecialTool.WRENCH,
@@ -748,7 +749,7 @@ test('Wrench retains handles while aiming across the gap to an arrow, and clears
 
 for (const serverManaged of [false, true]) {
   test(`Wrench gizmo poses stay fixed across render phases (${serverManaged ? 'network' : 'local'})`, async () => {
-    const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+    const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
     const entity = await makeContraptionWithChildren();
     manager.registerContraption(entity);
     entity.serverManaged = serverManaged;
@@ -791,11 +792,11 @@ test('a locally grabbed network replica renders consecutive physics ticks withou
   const scene = new THREE.Scene();
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   manager.setPhysics(new ContraptionPhysics(world as any));
   const entity = new Contraption(2,
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
@@ -847,7 +848,7 @@ test('a locally grabbed network replica renders consecutive physics ticks withou
 
 test('Wrench COM translation handle drags the whole stopped entity on its local axis', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   manager.registerContraption(entity);
   entity.stopAllNodeScripts();
@@ -886,7 +887,7 @@ test('Wrench COM translation handle drags the whole stopped entity on its local 
 
 test('Wrench COM rotation arrow rotates the whole stopped entity around its local axis', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   manager.registerContraption(entity);
   entity.stopAllNodeScripts();
@@ -924,7 +925,7 @@ test('Wrench COM rotation arrow rotates the whole stopped entity around its loca
 
 test('Wrench grab does not push a target that is closer than 1.5 metres', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   manager.registerContraption(entity);
 
@@ -959,7 +960,7 @@ test('Wrench grab does not push a target that is closer than 1.5 metres', async 
 
 test('Wrench grab follows the bent aiming ray without an initial sideways push', async () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   manager.registerContraption(entity);
 
@@ -1013,11 +1014,11 @@ test('Wrench grab holds a stationary target without pushing and follows player m
   const scene = new THREE.Scene();
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const entityPhysics = new ContraptionPhysics(world as any);
   manager.setPhysics(entityPhysics);
   const entity = new Contraption(
@@ -1075,11 +1076,11 @@ test('Wrench grab approaches a moved target without rapid overshoot oscillation'
   const scene = new THREE.Scene();
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const entityPhysics = new ContraptionPhysics(world as any);
   manager.setPhysics(entityPhysics);
   const entity = new Contraption(
@@ -1147,11 +1148,11 @@ test('Wrench grab compensates entity gravity without vertical snapping', () => {
   const scene = new THREE.Scene();
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const entityPhysics = new ContraptionPhysics(world as any);
   manager.setPhysics(entityPhysics);
   const entity = new Contraption(
@@ -1211,11 +1212,11 @@ test('Wrench grab is mass independent for extremely heavy entities', () => {
   const scene = new THREE.Scene();
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const entityPhysics = new ContraptionPhysics(world as any);
   manager.setPhysics(entityPhysics);
   const entity = new Contraption(
@@ -1267,19 +1268,19 @@ test('Wrench grab is mass independent for extremely heavy entities', () => {
 test('Wrench grab disables collision allowing smooth transport through terrain', () => {
   const wallX = 3;
   const world = {
-    getBlock: (x) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
-    raycast: (origin, direction, maxDistance) => {
-      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false };
+    getBlock: (x: number) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    raycast: (origin: { x: number; y: number; z: number }, direction: { x: number; y: number; z: number }, maxDistance = 100) => {
+      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false as const };
       const distance = (wallX - origin.x) / direction.x;
       return distance <= maxDistance
-        ? { hit: true, distance, normal: { x: -1, y: 0, z: 0 } }
-        : { hit: false };
+        ? { hit: true as const, distance, normal: { x: -1, y: 0, z: 0 } }
+        : { hit: false as const };
     },
-    raycastMicro: () => ({ hit: false }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const entityPhysics = new ContraptionPhysics(world as any);
   manager.setPhysics(entityPhysics);
   const entity = new Contraption(
@@ -1333,19 +1334,19 @@ test('Wrench grab disables collision allowing smooth transport through terrain',
 test('ContraptionPhysics constrainWrenchVelocity constrains velocity when collision is enabled', () => {
   const wallX = 3;
   const world = {
-    getBlock: (x) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
-    raycast: (origin, direction, maxDistance) => {
-      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false };
+    getBlock: (x: number) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    raycast: (origin: { x: number; y: number; z: number }, direction: { x: number; y: number; z: number }, maxDistance = 100) => {
+      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false as const };
       const distance = (wallX - origin.x) / direction.x;
       return distance <= maxDistance
-        ? { hit: true, distance, normal: { x: -1, y: 0, z: 0 } }
-        : { hit: false };
+        ? { hit: true as const, distance, normal: { x: -1, y: 0, z: 0 } }
+        : { hit: false as const };
     },
-    raycastMicro: () => ({ hit: false }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const entityPhysics = new ContraptionPhysics(world as any);
   manager.setPhysics(entityPhysics);
   const entity = new Contraption(
@@ -1360,7 +1361,7 @@ test('ContraptionPhysics constrainWrenchVelocity constrains velocity when collis
   const body = entity.getRigidBody('root');
   const constrained = entityPhysics.constrainWrenchVelocity(
     entity,
-    body,
+    requireValue(body),
     new THREE.Vector3(5, 0, 0),
     1 / 60
   );
@@ -1371,12 +1372,12 @@ test('ContraptionPhysics constrainWrenchVelocity constrains velocity when collis
 test('Wrench grab disables collision allowing smooth transport through another entity', () => {
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const entityPhysics = new ContraptionPhysics(world as any);
   manager.setPhysics(entityPhysics);
   const grabbed = new Contraption(
@@ -1439,8 +1440,8 @@ test('Wrench grab disables collision allowing smooth transport through another e
 test('Wrench can pull apart rotated entity boxes whose broadphase bounds overlap', () => {
   const world = {
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
   const physics = new ContraptionPhysics(world as any);
@@ -1472,7 +1473,7 @@ test('Wrench can pull apart rotated entity boxes whose broadphase bounds overlap
     .multiplyScalar(10);
   const constrained = physics.constrainWrenchVelocity(
     grabbed,
-    grabbed.getRigidBody('root'),
+    requireValue(grabbed.getRigidBody('root')),
     outwardVelocity,
     1 / 60,
     [grabbed, obstacle]
@@ -1517,9 +1518,9 @@ test('Shift+click on entity micro-blocks toggles and multi-selects without selec
     setMicroBlock() { },
     worldToChunkCoords() { return { cx: 0, cz: 0 }; },
     getChunk() { return { isDirty: false }; },
-    dirtyChunks: new Set()
+    dirtyChunks: new Set<import('@entropydrop/space-engine/voxel/Chunk.ts').Chunk>()
   };
-  const manager = new ContraptionManager(scene, worldMock, {}, null);
+  const manager = new ContraptionManager(scene, worldStub(worldMock), null, null);
   const entity = await makeContraptionWithChildren();
   entity.stopAllNodeScripts(); // stopped state
   manager.registerContraption(entity);

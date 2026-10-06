@@ -384,7 +384,7 @@ function assertGLTFColorTexturesLoaded(gltf: any, json: any) {
   const missing = usedColorTextureMaterialIndices(json);
   if (missing.size === 0) return;
   let sawAssociatedMaterial = false;
-  gltf.scene?.traverse?.(child => {
+  gltf.scene?.traverse?.((child: THREE.Object3D) => {
     if (!(child instanceof THREE.Mesh)) return;
     const materials = Array.isArray(child.material) ? child.material : [child.material];
     for (const material of materials) {
@@ -399,7 +399,7 @@ function assertGLTFColorTexturesLoaded(gltf: any, json: any) {
   // omits them, only fail when no color texture survived anywhere in the scene.
   if (!sawAssociatedMaterial) {
     let anyColorMap = false;
-    gltf.scene?.traverse?.(child => {
+    gltf.scene?.traverse?.((child: THREE.Object3D) => {
       if (!(child instanceof THREE.Mesh)) return;
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       anyColorMap ||= materials.some(material => !!((material as any)?.map || (material as any)?.emissiveMap));
@@ -499,7 +499,7 @@ export function extractTrianglesFromObject3D(
   const normA = new THREE.Vector3();
   const transformedUv = new THREE.Vector2();
 
-  root.traverse(child => {
+  root.traverse((child: THREE.Object3D) => {
     if (!(child instanceof THREE.Mesh) || !child.geometry) return;
     const geom = child.geometry;
     const posAttr = geom.getAttribute('position');

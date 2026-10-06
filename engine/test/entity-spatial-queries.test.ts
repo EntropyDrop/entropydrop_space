@@ -6,14 +6,14 @@ import { collisionBoundsOverlap } from '../src/physics/CollisionGeometry.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 import { bendPoint, computeBentBoundsSphere } from '../src/torus/TorusWorld.ts';
 
-const block = (x, y = 0, z = 0, size = 1, entityId = 'root') => ({
+const block = (x: number, y = 0, z = 0, size = 1, entityId = 'root') => ({
   localX: x, localY: y, localZ: z, size, entityId,
   block: BlockTypes.COLOR_BLOCK, color: 0xffffff,
 });
-const bounds = (x, y, z, width = 0.6) => ({
+const bounds = (x: number, y: number, z: number, width = 0.6) => ({
   minX: x, minY: y, minZ: z, maxX: x + width, maxY: y + 1.8, maxZ: z + width,
 });
-const create = (blocks, position = new THREE.Vector3(), options = {}) => (
+const create = (blocks: import('../src/contraption/EntityTypes.ts').RuntimeVoxel[], position = new THREE.Vector3(), options = {}) => (
   new Contraption(1, blocks, position, new THREE.Scene(), options) as any
 );
 
@@ -38,8 +38,8 @@ test('local voxel queries preserve exhaustive swept bounds across parent and chi
       const all = c.getCollisionWorldAABBs();
       for (let i = 0; i < 80; i++) {
         const query = bounds(7 + (i * 7 % 25), 1 + (i * 3 % 8), 15 + (i * 11 % 14));
-        const expected = all.filter(box => collisionBoundsOverlap(box, query));
-        const actual = c.queryCollisionWorldAABBs(query).filter(box => collisionBoundsOverlap(box, query));
+        const expected = all.filter((box: import('../src/contraption/Contraption.ts').EntityCollisionBounds) => collisionBoundsOverlap(box, query));
+        const actual = c.queryCollisionWorldAABBs(query).filter((box: import('../src/contraption/Contraption.ts').EntityCollisionBounds) => collisionBoundsOverlap(box, query));
         assert.deepEqual(actual, expected, `pose ${pose}, query ${i}`);
       }
       if (cached) assert.equal(c.collisionVoxelIndexes, cached, 'pose changes must retain the geometry index');
@@ -49,7 +49,7 @@ test('local voxel queries preserve exhaustive swept bounds across parent and chi
     const query = bounds(-100, -100, -100, 300);
     query.maxY = 200;
     assert.deepEqual(c.queryCollisionWorldAABBs(query), c.getCollisionWorldAABBs());
-    assert.ok(c.queryCollisionWorldAABBs(query).every(box => box.entityId === 'root'));
+    assert.ok(c.queryCollisionWorldAABBs(query).every((box: import('../src/contraption/Contraption.ts').EntityCollisionBounds) => box.entityId === 'root'));
   } finally { c.dispose(); }
 });
 
@@ -77,7 +77,7 @@ test('a local player query does not expand a large building after every pose upd
   try {
     const original = c.buildCollisionWorldAABBs.bind(c);
     let expanded = 0;
-    c.buildCollisionWorldAABBs = entries => { expanded += entries.length; return original(entries); };
+    c.buildCollisionWorldAABBs = (entries: Parameters<import('../src/contraption/Contraption.ts').Contraption['buildCollisionWorldAABBs']>[0]) => { expanded += entries.length; return original(entries); };
     for (let frame = 0; frame < 20; frame++) {
       c.capturePreviousEntityTransforms();
       c.updateTransform();
@@ -87,15 +87,15 @@ test('a local player query does not expand a large building after every pose upd
   } finally { c.dispose(); }
 });
 
-function comparePick(c, origin, direction, bent, distance = 30) {
+function comparePick(c: import('../src/contraption/Contraption.ts').Contraption, origin: import('three').Vector3, direction: import('three').Vector3, bent: boolean, distance = 30) {
   const method = bent ? 'raycastBentCollisionCells' : 'raycastCollisionCells';
   const actual = c[method](origin, direction, distance);
-  const indexed = c.raycastCandidateBlocks;
+  const indexed = c['raycastCandidateBlocks'];
   let expected;
   try {
-    c.raycastCandidateBlocks = () => c.blocks;
+    c['raycastCandidateBlocks'] = () => c.blocks;
     expected = c[method](origin, direction, distance);
-  } finally { c.raycastCandidateBlocks = indexed; }
+  } finally { c['raycastCandidateBlocks'] = indexed; }
   assert.deepEqual(actual, expected);
   return actual;
 }

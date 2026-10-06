@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -13,7 +14,7 @@ test('Selector right-click delegates to the UI context menu with the pointer pos
   controller._activeTool = SpecialTool.SELECTOR;
   controller.bulkEditJob = null;
   controller.ui = {
-    showSelectorContextMenu(position) { calls.push(position); }
+    showSelectorContextMenu(position: { x: number; y: number; z: number }) { calls.push(position); }
   };
 
   const handled = controller.handleRightClick({ clientX: 321, clientY: 123 });
@@ -120,7 +121,7 @@ function pointerFixture(t: any) {
     body,
     get pointerLockElement() { return pointerLockElement; },
     exitPointerLock() { exits++; }, // Deliberately defer the browser's state-change notification.
-    addEventListener(name, listener) { listeners.set(name, listener); }
+    addEventListener(name: string, listener: EventListener) { listeners.set(name, listener); }
   } as any;
   globalThis.window = { addEventListener() {} } as any;
   t.after(() => { globalThis.document = originalDocument; globalThis.window = originalWindow; });
@@ -249,7 +250,7 @@ test('Selector context menu exposes mode, every shape, rotation, and all selecti
 });
 
 test('Selector UI enables every selection action only for confirmed A/B', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
   const controller: any = {
     activeTool: SpecialTool.SHOVEL,
     contraptions: manager,

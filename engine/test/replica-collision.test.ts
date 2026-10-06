@@ -36,7 +36,7 @@ test('replica pose preserves authored dynamic bodies, never simulates code/force
   assert.equal(c.getComponentState('root').ran, undefined);
   assert.equal(c.appliedForces.lengthSq(), 0);
   const current = c.position.clone();
-  new ContraptionPhysics(world).update(c, 0.05);
+  new ContraptionPhysics({ ...world, raycast: () => ({ hit: false }), raycastMicro: () => ({ hit: false }) }).update(c, 0.05);
   assert.ok(c.position.equals(current));
   c.applyReplicaBodyPoses(pose(current.x), 0.05);
   assert.equal(c.velocity.lengthSq(), 0, 'stalled stream stops contact motion');

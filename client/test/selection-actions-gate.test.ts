@@ -27,7 +27,7 @@ function fixture() {
     inventorySlots: new Array(8).fill(null), selectedInventoryIndex: 0
   });
   const toasts: string[] = [];
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {}, notifyContraptionStructureChanged() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {}, notifyContraptionStructureChanged() {} };
   manager.selectionHost = controller;
   return { controller, manager, entity, world, toasts };
 }
@@ -60,7 +60,7 @@ for (const selection of ['world-A', 'world-Shift', 'entity-A', 'entity-Shift']) 
       assert.equal(entity.blocks[0].color, 0xff0000);
       assert.equal(entity.childDefinitions.size, 0);
       assert.equal(world.getBlockColor(10, 50, 10), 0xff0000);
-      assert.equal(controller.inventorySlots.every(slot => slot === null), true);
+      assert.equal(controller.inventorySlots.every((slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) => slot === null), true);
       assert.equal(controller.canUseSelectionActions(), false);
       assert.ok(toasts.some(m => m.includes('A and B')));
     });
@@ -125,7 +125,7 @@ for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON]) {
             point: new THREE.Vector3(0.5, 50.5, 0.5) };
           const dispatch = controller.performBasicAction.bind(controller);
           let stopCommands = 0;
-          controller.performBasicAction = command => {
+          controller.performBasicAction = (command: { domain: string; action: string }) => {
             if (command.domain === ActionDomain.SELECTION) {
               assert.equal(command.action, 'clear', 'only selection cleanup is allowed');
             } else {
@@ -157,7 +157,7 @@ for (const operation of operations) {
     assert.equal(entity.blocks.length, 2);
     assert.equal(entity.blocks.every(block => block.color === 0xff0000), true);
     assert.equal(entity.childDefinitions.size, 0);
-    assert.equal(controller.inventorySlots.every(slot => slot === null), true);
+    assert.equal(controller.inventorySlots.every((slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) => slot === null), true);
     assert.equal(controller.selectedBlockSelection, null);
     assert.deepEqual(toasts, ['Entity #1 stopped']);
   });
@@ -200,7 +200,7 @@ test('server stop waits for acknowledgement and consumes all attempts while pend
   let acknowledge!: () => void;
   let requests = 0;
   const acknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
-  controller.serverEntityRunStateHandler = async (_, state) => { requests++; assert.equal(state, 'stopped'); await acknowledgement; };
+  controller.serverEntityRunStateHandler = async (_: unknown, state: 'running' | 'stopped') => { requests++; assert.equal(state, 'stopped'); await acknowledgement; };
   controller.handleRunningEntityInteraction(entity);
   assert.equal(requests, 1, 'the first operation must send Stop immediately');
   assert.equal(controller.canEditEntityInternals(entity), false);

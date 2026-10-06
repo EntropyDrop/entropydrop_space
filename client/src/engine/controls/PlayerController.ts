@@ -1,107 +1,155 @@
+import { contraptionRootId, contraptionBlockOwnerId } from './SelectionGeometry.ts';
+import * as selectionGeometry from './SelectionGeometry.ts';
+import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import type { RuntimeVoxel, EntityNode, ContraptionOptions } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
+import type { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
+import type { World } from '@entropydrop/space-engine/voxel/World.ts';
+import type { PlayerPhysics } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
+import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
+import type { SoundManager } from '../audio/SoundManager.ts';
+import type { ParticleSystem } from '../render/ParticleSystem.ts';
+import type { SceneRenderer } from '../render/SceneRenderer.ts';
+import type { SpaceUiStore } from '../../ui/react/store/SpaceUiStore.ts';
+import type { NavigationSystem } from '../../ui/NavigationSystem.ts';
+import type { Point3, SelectionFrame } from '../render/PreviewTypes.ts';
+import type { ComponentSelection, ComponentRange, ComponentBlockSelection, SubtreeSelection, SelectedVoxel } from './SelectionTypes.ts';
+
+interface PlacementHit {
+  kind?: string; hitPos?: Point3; entry?: Point3; normal?: Point3; microNormal?: Point3;
+  placeMicroPos?: Point3; targetContraption?: Contraption | null; targetNodeId?: string; targetLocalNormal?: Point3;
+}
+type PlacementSlot = InventoryInput & { placementRotation?: number[]; itemName?: string };
+type SelectionGradient = { stops: GradientStop[]; start: Point3; end: Point3 };
+interface WorldCopyVoxel extends Point3 { size: number; block: number; color: number; part?: string | null; materialId: number }
+interface PlacementPose {
+  position: THREE.Vector3; quaternion?: THREE.Quaternion;
+  targetContraption?: Contraption | null; targetNodeId?: string;
+  itemWorldPose?: { position: THREE.Vector3; quaternion: THREE.Quaternion }; deferStart?: boolean;
+}
+type WorldSelectionCapture = NonNullable<ReturnType<PlayerController['captureWorldSelectionEntities']>>;
+
+type EntityHit = NonNullable<ReturnType<ContraptionManager['raycastContraptionHit']>>;
+
+import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import {
-  SpecialTool, RESERVED_ENTITY_INPUT_CODES, isPerspectiveToggleCode, type PlayerPerspective,
-} from './ControlBindings.ts';
+  BULK_EDIT_MAX_OPERATIONS_PER_FRAME,
+  BULK_EDIT_THRESHOLD,
+  MAX_ENTITY_BOUNDS,
+  MAX_ENTITY_COMPONENTS,
+  MAX_INVENTORY_BLOCKS,
+  MAX_INVENTORY_IMPORT_BYTES,
+  MAX_INVENTORY_SCRIPT_BYTES,
+  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
+  MAX_MICRO_MATERIALIZE_BLOCKS,
+  MAX_MICRO_SELECTION_CELLS,
+  MAX_SELECTION_BOUNDS,
+} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { BodyType, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { offsetDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
+import { PLAYER_GRAVITY_MPS2, PLAYER_MASS_KG } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
 import {
-  getInventoryPreviewBlocks, withinEntityBounds, validateVoxelOccupancy, STOPPED_GRID_EPSILON,
-} from '../inventory/InventoryGeometry.ts';
+  encodeInventoryResource,
+  INVENTORY_PROTOBUF_SCHEMA_VERSION,
+  MAX_BACKPACK_ITEM_SLOTS,
+  MAX_BACKPACK_SLOTS_PER_CATEGORY,
+  newItemTemplateId,
+  type InventoryKind,
+} from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import {
-  inventoryEntityRootId, inventoryItemName, serializeInventoryItem, encodeInventoryItem,
-} from '../inventory/InventorySerialization.ts';
-import { parseInventoryImport } from '../inventory/InventoryImport.ts';
-// Keep existing imports working while new consumers use the owning modules directly.
-export { SpecialTool, RESERVED_ENTITY_INPUT_CODES, isPerspectiveToggleCode, type PlayerPerspective } from './ControlBindings.ts';
-export { withinEntityBounds, validateVoxelOccupancy } from '../inventory/InventoryGeometry.ts';
-import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-import * as THREE from 'three';
-import { ModelingTool } from './ModelingTool.ts';
-import { normalizeDecorations, offsetDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
-import { trimInventoryName, truncateInventoryName } from '@entropydrop/space-engine/storage/InventoryName.ts';
+  bendDirection,
+  bendPointForView,
+  TORUS_SIZE_X,
+  TORUS_SIZE_Z,
+  unbendPointForView,
+  unwrapPeriodicNear,
+  wrapMicroX,
+  wrapMicroZ,
+} from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { BlockTypes, colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import {
-  normalizeVoxelMaterialId,
-  VoxelMaterialIds,
-} from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
+import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import {
   normalizeGradientStops,
-  normalizePaletteEntry,
   sampleGradientColor,
   type GradientStop,
 } from '@entropydrop/space-engine/voxel/Palette.ts';
+import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import * as THREE from 'three';
+import { STOPPED_GRID_EPSILON, validateVoxelOccupancy, withinEntityBounds } from '../inventory/InventoryGeometry.ts';
+import { parseInventoryImport } from '../inventory/InventoryImport.ts';
 import {
-  BodyType,
-  ContraptionMode
-} from '@entropydrop/space-engine/contraption/Contraption.ts';
+  createEntityPlacementObb,
+  ENTITY_PLACEMENT_EPSILON,
+  entityPlacementObbsOverlap,
+  getEntityPlacementShape,
+  getRotatedEntityPlacementBounds,
+  getRotatedEntityTerrainShape,
+  type EntityPlacementObb,
+  type EntityPlacementShape,
+} from '../inventory/InventoryPlacementGeometry.ts';
 import {
-  MAX_ENTITY_BOUNDS,
-  MAX_ENTITY_COMPONENTS,
-  MAX_SELECTION_BOUNDS,
-  MAX_ENTITY_BLOCKS,
-  MAX_INVENTORY_BLOCKS,
-  MAX_SELECTION_BLOCKS,
-  MAX_MICRO_SELECTION_CELLS,
-  MAX_MICRO_MATERIALIZE_BLOCKS,
-  MAX_INVENTORY_IMPORT_BYTES,
-  MAX_INVENTORY_SCRIPT_BYTES,
-  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
-  MAX_ENTITY_TOTAL_SCRIPT_BYTES,
-  BULK_EDIT_THRESHOLD,
-  BULK_EDIT_MAX_OPERATIONS_PER_FRAME
-} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
-export {
-  MAX_INVENTORY_IMPORT_BYTES,
-  MAX_INVENTORY_BLOCKS,
-  MAX_INVENTORY_SCRIPT_BYTES,
-  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
-  BULK_EDIT_THRESHOLD,
-  BULK_EDIT_MAX_OPERATIONS_PER_FRAME,
-  MAX_MICRO_SELECTION_CELLS,
-  MAX_MICRO_MATERIALIZE_BLOCKS
-};
-import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
+  normalizeQuarterTurns,
+  rotateBlocksX90,
+  rotateBlocksY90,
+  rotateChildDefinitionsX90,
+  rotateChildDefinitionsY90,
+} from '../inventory/InventoryRotation.ts';
 import {
-  bendPointForView, bendDirection, unbendPointForView, unwrapPeriodicNear,
-  TORUS_GREF, TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z,
-  wrapMicroX, wrapMicroZ
-} from '@entropydrop/space-engine/torus/TorusWorld.ts';
-import { calculatePreviewDragForce } from './PreviewDragForce.ts';
-import {
-  TRANSFORM_GIZMO_ROTATION_RADIUS as WRENCH_GIZMO_ROTATION_RADIUS,
-  transformViewCamera, transformScreenPoint, transformGizmoSize,
-} from '../render/TransformGizmo.ts';
+  encodeInventoryItem,
+  inventoryEntityRootId,
+  inventoryItemName,
+  serializeInventoryItem,
+} from '../inventory/InventorySerialization.ts';
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
+import {
+  transformGizmoSize,
+  transformScreenPoint,
+  transformViewCamera,
+  TRANSFORM_GIZMO_ROTATION_RADIUS as WRENCH_GIZMO_ROTATION_RADIUS,
+} from '../render/TransformGizmo.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
-import { type SelectorShape, type StairsOrientation, computeSelectionCells } from './SelectorShapes.ts';
 import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
 import {
-  decodeBackpack,
-  inventoryKindForPortable,
-  inventoryResourcePreviewItem,
-  newItemTemplateId,
-  wrapLegacyInventoryResource,
-  MAX_BACKPACK_ITEM_SLOTS,
-  encodeBackpack,
-  encodeInventoryResource,
-  INVENTORY_PROTOBUF_SCHEMA_VERSION,
-  BACKPACK_PROTOBUF_SCHEMA_VERSION,
-  MAX_BACKPACK_SLOTS_PER_CATEGORY,
-  protobufFromBase64,
-  protobufToBase64,
-  type InventoryKind,
-  type PortableBackpack,
-} from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
-import { PLAYER_GRAVITY_MPS2, PLAYER_MASS_KG } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
-import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
+  isPerspectiveToggleCode,
+  RESERVED_ENTITY_INPUT_CODES,
+  SpecialTool,
+  type PlayerPerspective,
+} from './ControlBindings.ts';
+import { ModelingTool } from './ModelingTool.ts';
+import { computeSelectionCells, type SelectorShape, type StairsOrientation } from './SelectorShapes.ts';
+// Keep existing imports working while new consumers use the owning modules directly.
+export { validateVoxelOccupancy, withinEntityBounds } from '../inventory/InventoryGeometry.ts';
+export {
+  isPerspectiveToggleCode,
+  RESERVED_ENTITY_INPUT_CODES,
+  SpecialTool,
+  type PlayerPerspective,
+} from './ControlBindings.ts';
+export {
+  BULK_EDIT_MAX_OPERATIONS_PER_FRAME,
+  BULK_EDIT_THRESHOLD,
+  MAX_INVENTORY_BLOCKS,
+  MAX_INVENTORY_IMPORT_BYTES,
+  MAX_INVENTORY_SCRIPT_BYTES,
+  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
+  MAX_MICRO_MATERIALIZE_BLOCKS,
+  MAX_MICRO_SELECTION_CELLS,
+};
 
-const INVENTORY_STORAGE_KEY = 'space.backpack.v10.pb';
-const PREVIOUS_INVENTORY_STORAGE_KEY = 'space.backpack.v9.pb';
-const LEGACY_INVENTORY_STORAGE_KEY = 'space.backpack.v8.pb';
-const INVENTORY_CATEGORIES = ['item', 'colorset'];
-const DEFAULT_COLOR_SET_NAME = 'Default palette';
+import type { InventoryInput, InventoryVoxel, BlockSetVoxel, InventoryEntity } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
+import {
+  addInventoryItem,
+  createEmptyInventories,
+  deleteInventoryItem,
+  ensureDefaultColorSet,
+  inventoryGroup,
+  renameInventoryItem,
+  swapInventorySlots,
+  type Inventories,
+} from '../inventory/Backpack.ts';
+import { loadBackpack, saveBackpack, type BackpackStorage } from '../inventory/BackpackPersistence.ts';
 export const BULK_EDIT_FRAME_BUDGET_MS = 5;
 const ENTITY_PLACEMENT_MAX_DROP = 48;
-const ENTITY_PLACEMENT_SUPPORT_BINS = 12;
-const ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT = 256;
-const ENTITY_PLACEMENT_EPSILON = 1e-5;
 const ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS = MAX_ENTITY_BOUNDS * MICRO_DIVISIONS;
 const ENTITY_TARGET_PLACEMENT_BUCKET_SIZE = 2;
 const INTERACTIVE_ENTITY_EDIT_ACTIONS = new Set([
@@ -171,46 +219,6 @@ export function nearestGridAlignedQuaternion(quaternion: any): THREE.Quaternion 
   return nearest.clone();
 }
 
-function contraptionRootId(contraption: any): string {
-  const explicit = contraption?.rootComponentId;
-  if (typeof explicit === 'string' && explicit.length > 0) return explicit;
-  for (const node of contraption?.entityNodes?.values?.() || []) {
-    if (node?.parentId === null && typeof node.id === 'string' && node.id.length > 0) return node.id;
-  }
-  return '';
-}
-
-function contraptionBlockOwnerId(contraption: any, block: any): string {
-  return block?.entityId === undefined || block?.entityId === null
-    ? contraptionRootId(contraption)
-    : String(block.entityId);
-}
-
-type EntityPlacementEntry = { center: THREE.Vector3; size: number };
-type EntityPlacementObb = {
-  center: THREE.Vector3;
-  axes: [THREE.Vector3, THREE.Vector3, THREE.Vector3];
-  halfExtents: [number, number, number];
-  min: THREE.Vector3;
-  max: THREE.Vector3;
-};
-
-type EntityPlacementShape = {
-  blocksRef: any[];
-  childEntitiesRef: any;
-  entries: EntityPlacementEntry[];
-  supportSamples: Array<{ x: number; z: number; bottom: number }>;
-  minX: number;
-  minY: number;
-  minZ: number;
-  maxX: number;
-  maxY: number;
-  maxZ: number;
-  centerX: number;
-  centerZ: number;
-};
-
-const entityPlacementShapeCache = new WeakMap<object, EntityPlacementShape>();
 const entityPlacementTargetObbCache = new WeakMap<object, {
   poseSignature: string;
   entriesRef: any;
@@ -239,13 +247,13 @@ export class PlayerController {
   static _forwardBent = new THREE.Vector3();
 
   // --- Injected engine dependencies ---
-  camera: any;
-  physics: any;
-  world: any;
-  sound: any;
-  particles: any;
-  contraptions: any;
-  ui: any;
+  camera: THREE.PerspectiveCamera;
+  physics: PlayerPhysics;
+  world: World;
+  sound: SoundManager;
+  particles: ParticleSystem;
+  contraptions: ContraptionManager;
+  ui: SpaceUiStore;
 
   // --- Pointer lock state ---
   isLocked: boolean;
@@ -274,7 +282,7 @@ export class PlayerController {
   yaw: number;
 
   // --- Selected item / cursor state ---
-  _activeTool: string;
+  _activeTool!: string;
   toolUseSequence = 0;
   get activeTool(): string {
     return this._activeTool;
@@ -308,7 +316,7 @@ export class PlayerController {
   selectedMaterialId: number;
   selectedGradientStops: GradientStop[];
   currentRaycast: any;
-  hoveredContraption: any;
+  hoveredContraption: Contraption | null;
   hoveredContraptionHit: any;
   worldPickingSuspended = false;
   pendingInteractionStops: WeakSet<object>;
@@ -327,10 +335,10 @@ export class PlayerController {
   private wrenchGizmoRaycaster: THREE.Raycaster | null = null;
 
   // --- Entity/component selector + inventory clipboard ---
-  selectedSubtree: any;
-  selectedBlockSelection: any;
-  selectorLevel: any;
-  selectorRange: any;
+  selectedSubtree: SubtreeSelection | null;
+  selectedBlockSelection: ComponentBlockSelection | null;
+  selectorLevel: ComponentSelection | null;
+  selectorRange: ComponentRange | null;
   selectorMicroMode: boolean;
   private _selectorShape: SelectorShape = 'box';
   get selectorShape(): SelectorShape {
@@ -349,7 +357,7 @@ export class PlayerController {
   } | null = null;
   brushMicroMode: boolean;
   brushSelection: any;
-  inventories: any;
+  inventories: Inventories;
   activeInventoryCategory: string;
   hammerRotationTurnsY: number;
   hammerRotationTurnsX: number;
@@ -374,7 +382,7 @@ export class PlayerController {
   serverEntityDeleteHandler: ((contraption: any) => Promise<any>) | null = null;
 
   // --- Camera / View Settings ---
-  sceneRenderer: any;
+  sceneRenderer: SceneRenderer | null;
   fov: number;
   perspective: PlayerPerspective;
   thirdPersonDistance: number;
@@ -382,20 +390,20 @@ export class PlayerController {
 
   // --- Driving state ---
   isDriving: boolean;
-  drivenContraption: any;
+  drivenContraption: Contraption | null;
   drivenSeat: { componentId: string; seatIndex: number } | null;
   /** The occupied seat fixes the rider's body orientation, never the camera. */
   drivenSeatFixedOrientation: boolean;
-  navigationSystem: any;
+  navigationSystem: NavigationSystem | null = null;
 
   constructor(
-    camera,
-    physics,
-    world,
-    soundManager,
-    particleSystem,
-    contraptionManager,
-    uiBridge,
+    camera: THREE.PerspectiveCamera,
+    physics: PlayerPhysics,
+    world: World,
+    soundManager: SoundManager,
+    particleSystem: ParticleSystem,
+    contraptionManager: ContraptionManager,
+    uiBridge: SpaceUiStore,
     persistentStorage: SpaceStorage | null = null
   ) {
     this.camera = camera;
@@ -527,7 +535,7 @@ export class PlayerController {
     });
   }
 
-  applyPointerLockState(locked) {
+  applyPointerLockState(locked: boolean) {
     if (locked && !this.isLocked) this.ignoreNextLockedMouseMove = true;
     this.isLocked = !!locked;
     if (this.ui) this.ui.setPointerLocked?.(this.isLocked);
@@ -1006,7 +1014,7 @@ export class PlayerController {
     }
   }
 
-  private scrollFocusedWrenchEntity(contraption, hit, distanceChange: number) {
+  private scrollFocusedWrenchEntity(contraption: Contraption, hit: EntityHit | null, distanceChange: number) {
     if (!this.contraptions?.contraptions?.includes(contraption)) return false;
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`, { tone: 'warning' });
@@ -1060,14 +1068,14 @@ export class PlayerController {
     return true;
   }
 
-  setHotbarSlot(index) {
+  setHotbarSlot(index: number) {
     if (this.ui?.selectHotbarSlot) {
       this.ui.selectHotbarSlot(index);
     }
   }
 
   /** Switch tools from an interaction flow such as a successful selection copy. */
-  activateTool(tool) {
+  activateTool(tool: string) {
     if (this.activeWrenchGizmoDrag) this.releaseWrenchGizmoDrag();
     if (this.wrenchGrab) this.releaseWrenchGrab();
     if (tool !== SpecialTool.SELECTOR) {
@@ -1082,7 +1090,7 @@ export class PlayerController {
   }
 
   /** Canonical command entry shared with entity programs and editor buttons. */
-  performBasicAction(command) {
+  performBasicAction(command: Parameters<typeof executeBasicAction>[1]) {
     const contraption = command?.target?.contraption || command?.selection?.contraption
       || this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption;
     const interactive = (command.actor?.source || 'player') === 'player'
@@ -1172,7 +1180,7 @@ export class PlayerController {
     }
   }
 
-  recordEntityKeyDown(code) {
+  recordEntityKeyDown(code: string) {
     if (!code || RESERVED_ENTITY_INPUT_CODES.has(code)) return false;
     if (!this.entityInputDown.has(code)) {
       this.entityInputPressed.add(code);
@@ -1181,7 +1189,7 @@ export class PlayerController {
     return true;
   }
 
-  recordEntityKeyUp(code) {
+  recordEntityKeyUp(code: string) {
     if (!code || RESERVED_ENTITY_INPUT_CODES.has(code)) return false;
     if (this.entityInputDown.delete(code)) {
       this.entityInputReleased.add(code);
@@ -1221,7 +1229,7 @@ export class PlayerController {
     return true;
   }
 
-  handleLeftClick(e = null) {
+  handleLeftClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
     if (this.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
     if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
@@ -1409,7 +1417,7 @@ export class PlayerController {
         }
         : publishedHit.hitPos;
 
-      const carve = hit => {
+      const carve = (hit: { kind: string; microPos: Point3; hitPos: Point3; normal: Point3; entry?: Point3 }) => {
         if (hit.kind === 'micro') {
           return this.performBasicAction({
             domain: ActionDomain.WORLD,
@@ -1424,7 +1432,7 @@ export class PlayerController {
         const entry = hit.entry
           ? new THREE.Vector3(hit.entry.x, hit.entry.y, hit.entry.z)
           : this.physics.getEyePosition();
-        const clamp = (value, base) => Math.max(base * MICRO_DIVISIONS, Math.min(
+        const clamp = (value: number, base: number) => Math.max(base * MICRO_DIVISIONS, Math.min(
           base * MICRO_DIVISIONS + MICRO_DIVISIONS - 1,
           value,
         ));
@@ -1629,7 +1637,7 @@ export class PlayerController {
               micro: this.selectorMicroMode === true
             });
             this.selectionShapeAnchor = {
-              cornerA: this.selectorMicroMode ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) },
+              cornerA: this.selectorMicroMode && microCell ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) },
               cornerB: null,
               micro: this.selectorMicroMode === true
             };
@@ -1640,12 +1648,12 @@ export class PlayerController {
               point: targetPoint,
               micro: this.selectorMicroMode === true
             });
-            const ptB = this.selectorMicroMode ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) };
+            const ptB = this.selectorMicroMode && microCell ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) };
             if (this.selectionShapeAnchor) {
               this.selectionShapeAnchor.cornerB = ptB;
             } else {
               this.selectionShapeAnchor = {
-                cornerA: this.selectorMicroMode ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) },
+                cornerA: this.selectorMicroMode && microCell ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) },
                 cornerB: ptB,
                 micro: this.selectorMicroMode === true
               };
@@ -1684,7 +1692,7 @@ export class PlayerController {
    * Only stopped entities expose their construction grid. An attempt on a
    * running entity immediately stops it without also selecting or editing.
    */
-  selectorOnEntityClick(hit, e = null) {
+  selectorOnEntityClick(hit: EntityHit, e: Pick<MouseEvent, "shiftKey"> | null = null) {
     const contraption = hit.contraption;
     const hitNodeId = (hit.entityId && contraption?.entityNodes?.has(hit.entityId))
       ? hit.entityId
@@ -1834,7 +1842,7 @@ export class PlayerController {
     this.updateSelectionAxisGizmo();
   }
 
-  canEditEntityInternals(contraption) {
+  canEditEntityInternals(contraption: Contraption | null) {
     return !!contraption && (contraption.serverManaged !== true || contraption.serverCanEdit === true)
       && !this.pendingInteractionStops?.has(contraption) && !this.isEntityRunning(contraption);
   }
@@ -1875,7 +1883,7 @@ export class PlayerController {
   }
 
   /** A running-entity interaction immediately performs Stop, never the attempted edit. */
-  handleRunningEntityInteraction(contraption) {
+  handleRunningEntityInteraction(contraption: Contraption | null) {
     if (!contraption) return false;
     const label = `Entity #${contraption.id}`;
     if (this.pendingInteractionStops?.has(contraption)) {
@@ -1940,7 +1948,7 @@ export class PlayerController {
   }
 
   /** Explicitly confirm the full A/B bounds of the current component's own blocks. */
-  selectAllSelectionBlocks(explicitTarget = null) {
+  selectAllSelectionBlocks(explicitTarget: ComponentSelection | null = null) {
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
@@ -1959,7 +1967,7 @@ export class PlayerController {
       return false;
     }
     const node = contraption.entityNodes?.get?.(nodeId);
-    const blocks = contraption.blocks.filter(block => contraptionBlockOwnerId(contraption, block) === nodeId);
+    const blocks = contraption.blocks.filter((block: RuntimeVoxel) => contraptionBlockOwnerId(contraption, block) === nodeId);
     if (!node || blocks.length === 0) {
       this.ui?.showToast?.('Selected component has no blocks', { tone: 'warning' });
       return false;
@@ -1997,7 +2005,7 @@ export class PlayerController {
    * True while an entity still simulates scripts or physics, i.e. it must be
    * stopped before its construction grid becomes selectable.
    */
-  isEntityRunning(contraption) {
+  isEntityRunning(contraption: Contraption | null) {
     if (!contraption) return false;
     if (contraption.serverManaged === true && contraption.serverDesiredRunState === 'running') return true;
     if (typeof contraption.canEditInternalSelection === 'function') {
@@ -2010,7 +2018,7 @@ export class PlayerController {
    * Select a component level and auto-highlight its full subtree (descendants only, not the
    * parent). Clears any active world selection so the two modes never overlap.
    */
-  startSubtreeSelection(contraption, hitNodeId, opts: { wholeOnly?: boolean } = {}) {
+  startSubtreeSelection(contraption: Contraption, hitNodeId: string, opts: { wholeOnly?: boolean } = {}) {
     // New selection: drop any shape corners left over from a previous region.
     this.selectionShapeAnchor = null;
     if (this.selectedSubtree && this.selectedSubtree.contraption !== contraption) {
@@ -2061,7 +2069,7 @@ export class PlayerController {
    * cell quantization (Math.floor) and range selection firmly target the hit
    * voxel instead of extending into the empty neighbor block along the normal.
    */
-  getInwardEntityPoint(hit: any): THREE.Vector3 | null {
+  getInwardEntityPoint(hit: EntityHit | null): THREE.Vector3 | null {
     if (!hit?.point) return null;
     let normal = hit.worldNormal;
     if (!normal && hit.normal) {
@@ -2097,11 +2105,8 @@ export class PlayerController {
    *
    * @returns The point in node-local space, or `null` if the node no longer exists.
    */
-  rangePointToLocal(range, worldPoint) {
-    if (!range || !worldPoint || !range.contraption) return null;
-    const node = range.contraption.entityNodes.get(range.nodeId);
-    if (!node) return null;
-    return node.group.worldToLocal(new THREE.Vector3(worldPoint.x, worldPoint.y, worldPoint.z));
+  rangePointToLocal(range: ComponentSelection | null, worldPoint: Point3 | null) {
+    return selectionGeometry.rangePointToLocal(range, worldPoint);
   }
 
   /**
@@ -2110,11 +2115,8 @@ export class PlayerController {
    *
    * @returns World-space position, or `null` if the node no longer exists.
    */
-  rangePointToWorld(range, point) {
-    if (!range || !point || !range.contraption) return null;
-    const node = range.contraption.entityNodes.get(range.nodeId);
-    if (!node) return null;
-    return node.group.localToWorld(new THREE.Vector3(point.x, point.y, point.z));
+  rangePointToWorld(range: ComponentSelection | null, point: Point3 | null) {
+    return selectionGeometry.rangePointToWorld(range, point);
   }
 
   /**
@@ -2124,53 +2126,16 @@ export class PlayerController {
    * added back here. The renderer uses the live node group as the frame so
    * previews inherit root and child rotations, including render interpolation.
    */
-  rangePreviewFrame(range) {
-    if (!range || !range.contraption) return null;
-    const node = range.contraption.entityNodes.get(range.nodeId);
-    if (!node) return null;
-    // Clamp to EVERY block owned by this level, standard and micro alike. Filtering
-    // to micro blocks alone broke components that mix granularities: after carving
-    // a hole in one 1 m block, a box drawn on another (still standard) block was
-    // clamped to the carved micro geometry elsewhere in the component, so the
-    // live preview jumped to the wrong block.
-    const ownerBlocks = range.contraption.blocks.filter(block => (
-      contraptionBlockOwnerId(range.contraption, block) === range.nodeId
-    ));
-    if (ownerBlocks.length === 0) return null;
-    node.group?.updateWorldMatrix?.(true, false);
-    const min = new THREE.Vector3(Infinity, Infinity, Infinity);
-    const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-    for (const block of ownerBlocks) {
-      const size = block.size || 1;
-      min.x = Math.min(min.x, block.localX);
-      min.y = Math.min(min.y, block.localY);
-      min.z = Math.min(min.z, block.localZ);
-      max.x = Math.max(max.x, block.localX + size);
-      max.y = Math.max(max.y, block.localY + size);
-      max.z = Math.max(max.z, block.localZ + size);
-    }
-    const hasValidBounds = Number.isFinite(min.x) && Number.isFinite(max.x) &&
-      Number.isFinite(min.y) && Number.isFinite(max.y) &&
-      Number.isFinite(min.z) && Number.isFinite(max.z) &&
-      min.x <= max.x && min.y <= max.y && min.z <= max.z;
-    return {
-      object: node.group,
-      pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
-      // The live range is only a selector aid. Clamp it to real component
-      // bounds so pointing outside the entity cannot draw cyan ghost cells.
-      bounds: hasValidBounds ? { min, max } : null
-    };
+  rangePreviewFrame(range: ComponentSelection | null) {
+    return selectionGeometry.rangePreviewFrame(range);
   }
 
-  rangePointToPreviewGrid(range, point) {
-    const frame = this.rangePreviewFrame(range);
-    if (!frame || !point) return null;
-    return new THREE.Vector3(point.x, point.y, point.z).add(frame.pivot);
+  rangePointToPreviewGrid(range: ComponentSelection | null, point: Point3 | null) {
+    return selectionGeometry.rangePointToPreviewGrid(range, point);
   }
 
-  worldPointToRangePreviewGrid(range, worldPoint) {
-    const local = this.rangePointToLocal(range, worldPoint);
-    return local ? this.rangePointToPreviewGrid(range, local) : null;
+  worldPointToRangePreviewGrid(range: ComponentSelection | null, worldPoint: Point3 | null) {
+    return selectionGeometry.worldPointToRangePreviewGrid(range, worldPoint);
   }
 
   /**
@@ -2184,10 +2149,10 @@ export class PlayerController {
    * If no own blocks are found the method tries to auto-detect which other component's blocks
    * fall inside the range and switches to that level automatically.
    */
-  resolveBlockRangeSelection(range) {
+  resolveBlockRangeSelection(range: ComponentRange) {
     const { contraption, nodeId, pointA, pointB } = range;
     const node = contraption.entityNodes.get(nodeId);
-    if (!node) {
+    if (!node || !pointA || !pointB) {
       // Target component no longer exists — discard this range.
       range.pointA = null;
       range.pointB = null;
@@ -2303,7 +2268,7 @@ export class PlayerController {
    * surface micro cell the selector cursor highlights, so Shift+click toggles
    * exactly the voxel the player is aiming at.
    */
-  private entityMicroCellFromHit(hit) {
+  private entityMicroCellFromHit(hit: EntityHit | null) {
     const place = hit?.placeMicroPos;
     if (!place) return null;
     const normal = hit.normal || { x: 0, y: 0, z: 0 };
@@ -2319,24 +2284,8 @@ export class PlayerController {
    * Mirrors the engine's block-AABB intersection (both endpoints inclusive),
    * so the synthesized micro cells match the blocks the shared query selects.
    */
-  private entityMicroCellRangeForBox(range) {
-    const gridA = this.rangePointToPreviewGrid(range, range.pointA);
-    const gridB = this.rangePointToPreviewGrid(range, range.pointB);
-    if (!gridA || !gridB) return null;
-    const minX = Math.min(gridA.x, gridB.x);
-    const maxX = Math.max(gridA.x, gridB.x);
-    const minY = Math.min(gridA.y, gridB.y);
-    const maxY = Math.max(gridA.y, gridB.y);
-    const minZ = Math.min(gridA.z, gridB.z);
-    const maxZ = Math.max(gridA.z, gridB.z);
-    return {
-      minX: Math.ceil(minX * MICRO_DIVISIONS) - 1,
-      maxX: Math.floor(maxX * MICRO_DIVISIONS),
-      minY: Math.ceil(minY * MICRO_DIVISIONS) - 1,
-      maxY: Math.floor(maxY * MICRO_DIVISIONS),
-      minZ: Math.ceil(minZ * MICRO_DIVISIONS) - 1,
-      maxZ: Math.floor(maxZ * MICRO_DIVISIONS)
-    };
+  private entityMicroCellRangeForBox(range: ComponentRange) {
+    return selectionGeometry.entityMicroCellRangeForBox(range);
   }
 
   /**
@@ -2349,70 +2298,20 @@ export class PlayerController {
    * @returns The descriptor list, or `null` when the region exceeds
    *   {@link MAX_MICRO_SELECTION_CELLS} cells.
    */
-  private buildEntityMicroSelection(contraption, nodeId, contains: (x: number, y: number, z: number) => boolean, bounds) {
-    const blocks: any[] = [];
-    let cells = 0;
-    for (const block of contraption.blocks) {
-      if (contraptionBlockOwnerId(contraption, block) !== nodeId) continue;
-      const size = (block.size !== undefined && block.size !== null) ? block.size : 1;
-      if (size < 1) {
-        const cx = Math.round(block.localX * MICRO_DIVISIONS);
-        const cy = Math.round(block.localY * MICRO_DIVISIONS);
-        const cz = Math.round(block.localZ * MICRO_DIVISIONS);
-        if (cx < bounds.minX || cx > bounds.maxX || cy < bounds.minY || cy > bounds.maxY || cz < bounds.minZ || cz > bounds.maxZ) continue;
-        if (contains(cx, cy, cz)) {
-          if (++cells > MAX_MICRO_SELECTION_CELLS) return null;
-          blocks.push(block);
-        }
-        continue;
-      }
-      const baseX = Math.floor(block.localX + 1e-6) * MICRO_DIVISIONS;
-      const baseY = Math.floor(block.localY + 1e-6) * MICRO_DIVISIONS;
-      const baseZ = Math.floor(block.localZ + 1e-6) * MICRO_DIVISIONS;
-      // Only enumerate the overlap. A tiny cut in a large entity must not visit
-      // 512 virtual cells for every unrelated standard block.
-      const minX = Math.max(0, bounds.minX - baseX);
-      const minY = Math.max(0, bounds.minY - baseY);
-      const minZ = Math.max(0, bounds.minZ - baseZ);
-      const maxX = Math.min(MICRO_DIVISIONS - 1, bounds.maxX - baseX);
-      const maxY = Math.min(MICRO_DIVISIONS - 1, bounds.maxY - baseY);
-      const maxZ = Math.min(MICRO_DIVISIONS - 1, bounds.maxZ - baseZ);
-      if (minX > maxX || minY > maxY || minZ > maxZ) continue;
-      const owner = contraptionBlockOwnerId(contraption, block);
-      for (let ix = minX; ix <= maxX; ix++) {
-        for (let iy = minY; iy <= maxY; iy++) {
-          for (let iz = minZ; iz <= maxZ; iz++) {
-            if (!contains(baseX + ix, baseY + iy, baseZ + iz)) continue;
-            if (++cells > MAX_MICRO_SELECTION_CELLS) return null;
-            blocks.push({
-              localX: (baseX + ix) * MICRO_SIZE,
-              localY: (baseY + iy) * MICRO_SIZE,
-              localZ: (baseZ + iz) * MICRO_SIZE,
-              size: MICRO_SIZE,
-              color: block.color,
-              materialId: normalizeVoxelMaterialId(block.materialId),
-              block: block.block,
-              entityId: owner,
-              virtualMicro: true,
-              sourceBlock: block
-            });
-          }
-        }
-      }
-    }
-    return blocks;
+  private buildEntityMicroSelection(contraption: Contraption, nodeId: string, contains: (x: number, y: number, z: number) => boolean, bounds: CollisionBounds) {
+    return selectionGeometry.buildEntityMicroSelection(contraption, nodeId, contains, bounds);
   }
 
   /** Cell key used to compare a block descriptor with a 0.125 m cell index. */
-  private microCellKey(block) {
-    return `${Math.round(block.localX * MICRO_DIVISIONS)},${Math.round(block.localY * MICRO_DIVISIONS)},${Math.round(block.localZ * MICRO_DIVISIONS)}`;
+  private microCellKey(block: RuntimeVoxel) {
+    return selectionGeometry.microCellKey(block);
   }
 
   /**
    * Replace the current selection with a virtual micro selection made of the
    * given descriptors, refreshing highlights, bounds and the shape gizmo.
    */
-  private setVirtualMicroSelection(contraption, nodeId, blocks) {
+  private setVirtualMicroSelection(contraption: Contraption, nodeId: string, blocks: SelectedVoxel[]) {
     this.selectedSubtree = null;
     this.selectedBlockSelection = {
       contraption,
@@ -2505,7 +2404,7 @@ export class PlayerController {
    * G key (Selector + block selection): create a child component from the currently box-selected
    * blocks under the active level.
    */
-  private preparedChildBoundsStep(bounds, block) {
+  private preparedChildBoundsStep(bounds: CollisionBounds, block: RuntimeVoxel) {
     const size = block.size || 1;
     bounds.minX = Math.min(bounds.minX, block.localX);
     bounds.minY = Math.min(bounds.minY, block.localY);
@@ -2515,7 +2414,7 @@ export class PlayerController {
     bounds.maxZ = Math.max(bounds.maxZ, block.localZ + size);
   }
 
-  private finishPreparedChildCreation(contraption, nodeId, blocks, bounds, legacy = false) {
+  private finishPreparedChildCreation(contraption: Contraption, nodeId: string, blocks: RuntimeVoxel[], bounds: CollisionBounds, legacy = false) {
     const result = this.performBasicAction({
       domain: ActionDomain.SELECTION,
       action: 'create-child',
@@ -2538,8 +2437,8 @@ export class PlayerController {
     this.sound?.playAssemblyClack?.();
     if (legacy) {
       this.ui?.showToast?.(`Sub-contraption ${child.id} assembled · control it via self.child('${child.id}')`);
-      this.ui?.renderComponentTree?.(contraption);
-      this.ui?.renderCodeTabs?.(contraption);
+      this.ui?.renderComponentTree?.();
+      this.ui?.renderCodeTabs?.();
       this.ui?.updateInspectorProperties?.(child.id);
     } else {
       this.selectorLevel = { contraption, nodeId };
@@ -2548,7 +2447,7 @@ export class PlayerController {
     return child;
   }
 
-  private startLargeChildCreation(contraption, nodeId, candidates, legacy = false, selectedCells = null) {
+  private startLargeChildCreation(contraption: Contraption, nodeId: string, candidates: Iterable<RuntimeVoxel>, legacy = false, selectedCells: ReadonlySet<string> | null = null) {
     const source = [...candidates];
     const prepared: any[] = [];
     const bounds = {
@@ -2560,7 +2459,7 @@ export class PlayerController {
       total: source.length,
       mutatesWorld: false,
       detail: 'Preparing component blocks',
-      step: index => {
+      step: (index: number) => {
         const block = source[index];
         if (contraptionBlockOwnerId(contraption, block) !== nodeId) return 0;
         if (selectedCells) {
@@ -2744,6 +2643,7 @@ export class PlayerController {
       voxelCount += entity.blocks.length;
       if (voxelCount > MAX_INVENTORY_BLOCKS) throw new Error('Selected entities exceed the Item voxel limit');
       const source = entity.serializeSubtree(contraptionRootId(entity));
+      if (!source) throw new Error('Selected entity no longer exists');
       const portable = this.serializeInventoryItem('entity', source);
       const position = new THREE.Vector3().fromArray(source.sourcePosition).add(periodicOffset).sub(origin);
       portable.root.localPosition = position.toArray();
@@ -2779,7 +2679,7 @@ export class PlayerController {
     }
   }
 
-  private finishWorldSelectionCopy(blocks, capture) {
+  private finishWorldSelectionCopy(blocks: InventoryVoxel[], capture: WorldSelectionCapture) {
     if (!blocks.length && !capture.entityList.length) {
       this.ui?.showToast?.('Selection contains no world voxels or fully enclosed entities');
       return null;
@@ -2817,7 +2717,7 @@ export class PlayerController {
    *   slot.
    * - First-click subtree preselection is not sufficient; A/B must be confirmed.
    */
-  private stripCopiedBottomGap(blocks, yKey) {
+  private stripCopiedBottomGap<T extends InventoryVoxel>(blocks: T[], yKey: 'dy' | 'localY') {
     if (!Array.isArray(blocks) || blocks.length === 0) return blocks;
     let minY = Infinity;
     for (const block of blocks) {
@@ -2845,6 +2745,7 @@ export class PlayerController {
         return null;
       }
       const slot = contraption.serializeSubtree(nodeId);
+      if (!slot) return null;
       const slotRootId = inventoryEntityRootId(slot);
       const copiedMinY = Math.min(...blocks.map(block => Number(block.localY)));
       if (slot.decorations?.length) slot.decorations = offsetDecorations(slot.decorations, [0, -copiedMinY, 0]);
@@ -2904,7 +2805,7 @@ export class PlayerController {
    * 3. **World selection** (2-point box / single cells): read-only sampling of the
    *    world — the original blocks stay in place (unlike G, which extracts them).
    */
-  private finishBlockSetCopy(rawBlocks, name) {
+  private finishBlockSetCopy(rawBlocks: InventoryVoxel[], name: string) {
     if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
       this.ui?.showToast?.('Selection region is empty (no voxels to copy)');
       return null;
@@ -2925,7 +2826,7 @@ export class PlayerController {
   }
 
   /** Two-pass, frame-sliced normalization for entity-local block selections. */
-  private startLargeEntityBlockSetCopy(blocks, name) {
+  private startLargeEntityBlockSetCopy(blocks: RuntimeVoxel[], name: string) {
     const source = [...blocks];
     const rawBlocks: any[] = [];
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -2934,7 +2835,7 @@ export class PlayerController {
       total: source.length * 2,
       mutatesWorld: false,
       detail: job => job.processed < source.length ? 'Measuring selection' : 'Preparing inventory voxels',
-      step: index => {
+      step: (index: number) => {
         const sourceIndex = index % source.length;
         const block = source[sourceIndex];
         if (index < source.length) {
@@ -2960,7 +2861,7 @@ export class PlayerController {
   }
 
   /** Read one standard world cell and all of its carved micro voxels. */
-  private sampleWorldCellForBulkCopy(cell, consider) {
+  private sampleWorldCellForBulkCopy(cell: Point3, consider: (x: number, y: number, z: number, size: number, block: number, color: number, part?: string | null, materialId?: number) => void) {
     const block = this.world.getBlock?.(cell.x, cell.y, cell.z);
     if (block !== BlockTypes.AIR) {
       consider(cell.x, cell.y, cell.z, 1, block,
@@ -2982,7 +2883,7 @@ export class PlayerController {
   }
 
   /** Scan and normalize a large world selection through the shared executor. */
-  private startLargeWorldBlockSetCopy(manager, itemCapture = null) {
+  private startLargeWorldBlockSetCopy(manager: ContraptionManager, itemCapture: WorldSelectionCapture | null = null) {
     const microCells = Array.isArray(manager.microSelection)
       ? manager.microSelection.map(cell => ({ x: cell.x, y: cell.y, z: cell.z }))
       : null;
@@ -2992,24 +2893,24 @@ export class PlayerController {
       : null;
     if (!microCells && !bounds) return false;
 
-    const sizeY = bounds ? bounds.maxY - bounds.minY + 1 : 0;
-    const sizeZ = bounds ? bounds.maxZ - bounds.minZ + 1 : 0;
+    const sizeY = bounds ? bounds!.maxY - bounds!.minY + 1 : 0;
+    const sizeZ = bounds ? bounds!.maxZ - bounds!.minZ + 1 : 0;
     const scanTotal = microCells?.length
       ?? sparseCells?.length
-      ?? ((bounds.maxX - bounds.minX + 1) * sizeY * sizeZ);
+      ?? ((bounds!.maxX - bounds!.minX + 1) * sizeY * sizeZ);
     const collected: any[] = [];
     const rawBlocks: any[] = [];
     let minX = Infinity, minY = Infinity, minZ = Infinity;
-    const consider = (x, y, z, size, block, color, part = null, materialId = 0) => {
+    const consider = (x: number, y: number, z: number, size: number, block: number, color: number, part: string | null = null, materialId = 0) => {
       collected.push({ x, y, z, size, block, color, part, materialId });
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       minZ = Math.min(minZ, z);
     };
-    const cellAt = index => sparseCells?.[index] || {
-      x: bounds.minX + Math.floor(index / (sizeY * sizeZ)),
-      y: bounds.minY + Math.floor(index / sizeZ) % sizeY,
-      z: bounds.minZ + index % sizeZ
+    const cellAt = (index: number) => sparseCells?.[index] || {
+      x: bounds!.minX + Math.floor(index / (sizeY * sizeZ)),
+      y: bounds!.minY + Math.floor(index / sizeZ) % sizeY,
+      z: bounds!.minZ + index % sizeZ
     };
 
     const started = this.startBulkEditJob({
@@ -3017,7 +2918,7 @@ export class PlayerController {
       total: scanTotal,
       mutatesWorld: false,
       detail: job => job.processed < scanTotal ? 'Scanning selected cells' : 'Normalizing inventory voxels',
-      step: (index, job) => {
+      step: (index: number, job) => {
         if (index < scanTotal) {
           if (microCells) {
             const cell = microCells[index];
@@ -3120,7 +3021,7 @@ export class PlayerController {
         dz: b.localZ - minZ,
         size: b.size || 1,
         block: b.block,
-        color: b.color,
+        color: b.color == null ? undefined : normalizeColor(b.color),
         materialId: normalizeVoxelMaterialId(b.materialId),
         part: b.part
       }));
@@ -3135,7 +3036,7 @@ export class PlayerController {
         this.ui?.showToast?.('Stop the entity before copying one of its internal components');
         return null;
       }
-      const nodeIds = this.selectedSubtree.nodeIds || this.collectSubtreeIds(contraption, rootId);
+      const nodeIds = this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, rootId);
       const blocks = contraption.blocks.filter(b => nodeIds.has(contraptionBlockOwnerId(contraption, b)));
       if (blocks.length > 0) {
         if (blocks.length > BULK_EDIT_THRESHOLD) {
@@ -3155,7 +3056,7 @@ export class PlayerController {
           dz: b.localZ - minZ,
           size: b.size || 1,
           block: b.block,
-          color: b.color,
+          color: b.color == null ? undefined : normalizeColor(b.color),
           materialId: normalizeVoxelMaterialId(b.materialId),
           part: b.part
         }));
@@ -3193,7 +3094,7 @@ export class PlayerController {
     // Empty selected cells are skipped so the copy matches what G extracts.
     const microSelection = manager.microSelection;
     if (Array.isArray(microSelection)) {
-      const collected = [];
+      const collected: WorldCopyVoxel[] = [];
       let minX = Infinity, minY = Infinity, minZ = Infinity;
       for (const cell of microSelection) {
         let color = null;
@@ -3231,7 +3132,7 @@ export class PlayerController {
         dz: Math.round((b.z - minZ) * MICRO_DIVISIONS) / MICRO_DIVISIONS,
         size: b.size,
         block: b.block,
-        color: b.color,
+        color: b.color == null ? undefined : normalizeColor(b.color),
         ...(normalizeVoxelMaterialId(b.materialId) === VoxelMaterialIds.DEFAULT
           ? {}
           : { materialId: normalizeVoxelMaterialId(b.materialId) }),
@@ -3253,9 +3154,9 @@ export class PlayerController {
       maxZ: bounds.maxZ + 1 - 1e-6
     };
 
-    const collected = []; // { x, y, z, size, block, color } in world units
+    const collected: WorldCopyVoxel[] = []; // { x, y, z, size, block, color } in world units
     let minX = Infinity, minY = Infinity, minZ = Infinity;
-    const consider = (x, y, z, size, block, color, materialId = 0) => {
+    const consider = (x: number, y: number, z: number, size: number, block: number, color: number, materialId = 0) => {
       collected.push({ x, y, z, size, block, color, materialId });
       if (x < minX) minX = x;
       if (y < minY) minY = y;
@@ -3310,7 +3211,7 @@ export class PlayerController {
       dz: b.z - minZ,
       size: b.size,
       block: b.block,
-      color: b.color,
+      color: b.color == null ? undefined : normalizeColor(b.color),
       ...(normalizeVoxelMaterialId(b.materialId) === VoxelMaterialIds.DEFAULT
         ? {}
         : { materialId: normalizeVoxelMaterialId(b.materialId) })
@@ -3438,7 +3339,7 @@ export class PlayerController {
   }
 
   /** Pure-micro block sets can move on the 1/5 grid without invalidating a standard voxel. */
-  private usesMicroBlockSetPlacement(slot) {
+  private usesMicroBlockSetPlacement(slot: InventoryInput | null) {
     return slot?.kind === 'blockset'
       && Array.isArray(slot.blocks)
       && slot.blocks.length > 0
@@ -3446,7 +3347,7 @@ export class PlayerController {
   }
 
   /** Resolve the adjacent 0.125 m cell on either terrain or an entity surface. */
-  private getMicroBlockSetPlacementPosition(placementHit) {
+  private getMicroBlockSetPlacementPosition(placementHit: PlacementHit) {
     if (placementHit.kind === 'micro' && placementHit.placeMicroPos) {
       const micro = placementHit.placeMicroPos;
       if ([micro.x, micro.y, micro.z].every(Number.isFinite)) {
@@ -3474,7 +3375,7 @@ export class PlayerController {
       new THREE.Vector3(normal.x || 0, normal.y || 0, normal.z || 0),
       0.02
     );
-    const snap = value => Math.floor(value * MICRO_DIVISIONS + 1e-6) / MICRO_DIVISIONS;
+    const snap = (value: number) => Math.floor(value * MICRO_DIVISIONS + 1e-6) / MICRO_DIVISIONS;
     return new THREE.Vector3(snap(outside.x), snap(outside.y), snap(outside.z));
   }
 
@@ -3484,105 +3385,8 @@ export class PlayerController {
    * uneven terrain without raycasting every voxel of a large inventory item
    * on every render frame.
    */
-  private getEntityPlacementShape(slot): EntityPlacementShape | null {
-    if (!slot || typeof slot !== 'object' || !Array.isArray(slot.blocks)) return null;
-    const cached = entityPlacementShapeCache.get(slot);
-    if (cached
-      && cached.blocksRef === slot.blocks
-      && cached.childEntitiesRef === slot.childEntities) return cached;
-
-    const entries = getInventoryPreviewBlocks(slot).flatMap(entry => {
-      const size = Number(entry?.size) || 1;
-      const center = entry?.center;
-      if (!(size > 0) || !center
-        || ![center.x, center.y, center.z].every(Number.isFinite)) return [];
-      return [{ center: center.clone(), size }];
-    });
-    if (entries.length === 0) return null;
-
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const entry of entries) {
-      const half = entry.size / 2;
-      minX = Math.min(minX, entry.center.x - half);
-      minY = Math.min(minY, entry.center.y - half);
-      minZ = Math.min(minZ, entry.center.z - half);
-      maxX = Math.max(maxX, entry.center.x + half);
-      maxY = Math.max(maxY, entry.center.y + half);
-      maxZ = Math.max(maxZ, entry.center.z + half);
-    }
-
-    // Preserve all small footprints. Large ones use one lowest voxel per X/Z
-    // bin, spreading support probes across the whole authored footprint.
-    let representatives = entries;
-    const binLimit = ENTITY_PLACEMENT_SUPPORT_BINS * ENTITY_PLACEMENT_SUPPORT_BINS;
-    if (entries.length > binLimit) {
-      const width = Math.max(ENTITY_PLACEMENT_EPSILON, maxX - minX);
-      const depth = Math.max(ENTITY_PLACEMENT_EPSILON, maxZ - minZ);
-      const bins = new Map<number, { center: THREE.Vector3; size: number }>();
-      for (const entry of entries) {
-        const bx = Math.min(
-          ENTITY_PLACEMENT_SUPPORT_BINS - 1,
-          Math.max(0, Math.floor((entry.center.x - minX) / width * ENTITY_PLACEMENT_SUPPORT_BINS))
-        );
-        const bz = Math.min(
-          ENTITY_PLACEMENT_SUPPORT_BINS - 1,
-          Math.max(0, Math.floor((entry.center.z - minZ) / depth * ENTITY_PLACEMENT_SUPPORT_BINS))
-        );
-        const key = bx * ENTITY_PLACEMENT_SUPPORT_BINS + bz;
-        const previous = bins.get(key);
-        if (!previous
-          || entry.center.y - entry.size / 2 < previous.center.y - previous.size / 2) {
-          bins.set(key, entry);
-        }
-      }
-      representatives = [...bins.values()];
-    }
-
-    const rawSamples: Array<{ x: number; z: number; bottom: number }> = [];
-    const sampleKeys = new Set<string>();
-    const addSample = (x, z, bottom) => {
-      const key = `${Math.round(x * 1000)},${Math.round(z * 1000)},${Math.round(bottom * 1000)}`;
-      if (sampleKeys.has(key)) return;
-      sampleKeys.add(key);
-      rawSamples.push({ x, z, bottom });
-    };
-    for (const entry of representatives) {
-      const half = entry.size / 2;
-      const bottom = entry.center.y - half;
-      addSample(entry.center.x, entry.center.z, bottom);
-      // Edge probes keep a one-voxel entity from hanging over a ledge merely
-      // because its centre ray missed the supporting terrain cell.
-      const inset = Math.max(0, half - Math.min(0.05, entry.size * 0.1));
-      if (inset > ENTITY_PLACEMENT_EPSILON) {
-        addSample(entry.center.x - inset, entry.center.z - inset, bottom);
-        addSample(entry.center.x + inset, entry.center.z - inset, bottom);
-        addSample(entry.center.x - inset, entry.center.z + inset, bottom);
-        addSample(entry.center.x + inset, entry.center.z + inset, bottom);
-      }
-    }
-    const supportSamples = rawSamples.length <= ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT
-      ? rawSamples
-      : Array.from({ length: ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT }, (_, index) => (
-        rawSamples[Math.floor(index * (rawSamples.length - 1) / (ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT - 1))]
-      ));
-
-    const shape: EntityPlacementShape = {
-      blocksRef: slot.blocks,
-      childEntitiesRef: slot.childEntities,
-      entries,
-      supportSamples,
-      minX, minY, minZ,
-      maxX, maxY, maxZ,
-      centerX: (minX + maxX) / 2,
-      centerZ: (minZ + maxZ) / 2
-    };
-    entityPlacementShapeCache.set(slot, shape);
-    return shape;
-  }
-
   /** Exact face point when available; otherwise use the centre of the hit voxel face. */
-  private getEntityPlacementSurfacePoint(placementHit) {
+  private getEntityPlacementSurfacePoint(placementHit: PlacementHit) {
     const entry = placementHit?.entry;
     if (entry && [entry.x, entry.y, entry.z].every(Number.isFinite)) {
       return new THREE.Vector3(entry.x, entry.y, entry.z);
@@ -3591,7 +3395,7 @@ export class PlayerController {
     if (!hp || ![hp.x, hp.y, hp.z].every(Number.isFinite)) return null;
     const normal = placementHit.normal || { x: 0, y: 1, z: 0 };
     const cellSize = placementHit.kind === 'micro' ? 1 / MICRO_DIVISIONS : 1;
-    const onFace = (value, axisNormal) => value + (
+    const onFace = (value: number, axisNormal: number) => value + (
       axisNormal > 0 ? cellSize : axisNormal < 0 ? 0 : cellSize / 2
     );
     return new THREE.Vector3(
@@ -3601,18 +3405,18 @@ export class PlayerController {
     );
   }
 
-  private clampEntityPlacementY(shape: EntityPlacementShape, y) {
+  private clampEntityPlacementY(shape: EntityPlacementShape, y: number) {
     const minOriginY = -shape.minY;
     const maxOriginY = CHUNK_SIZE_Y - shape.maxY;
     return Math.max(minOriginY, Math.min(maxOriginY, y));
   }
 
-  private snapEntityPlacementMicroValue(value) {
+  private snapEntityPlacementMicroValue(value: number) {
     const units = Math.round(value * MICRO_DIVISIONS);
     return units === 0 ? 0 : units / MICRO_DIVISIONS;
   }
 
-  private targetEntityLocalToWorld(target, nodeId, point: THREE.Vector3) {
+  private targetEntityLocalToWorld(target: Contraption | null | undefined, nodeId: string, point: THREE.Vector3) {
     if (typeof target?.entityLocalToWorld === 'function') {
       return target.entityLocalToWorld(nodeId, point.clone());
     }
@@ -3624,7 +3428,7 @@ export class PlayerController {
     return point.clone();
   }
 
-  private targetEntityWorldToLocal(target, nodeId, point: THREE.Vector3) {
+  private targetEntityWorldToLocal(target: Contraption | null | undefined, nodeId: string, point: THREE.Vector3) {
     if (typeof target?.worldToEntityLocal === 'function') {
       return target.worldToEntityLocal(nodeId, point.clone());
     }
@@ -3636,7 +3440,7 @@ export class PlayerController {
     return point.clone();
   }
 
-  private getTargetEntityWorldQuaternion(target, nodeId) {
+  private getTargetEntityWorldQuaternion(target: Contraption | null | undefined, nodeId: string) {
     const direct = target?.getEntityNodeWorldQuaternion?.(nodeId);
     if (direct?.isQuaternion) return direct.clone().normalize();
     const node = target?.getEntityNode?.(nodeId) || target?.entityNodes?.get?.(nodeId);
@@ -3648,7 +3452,7 @@ export class PlayerController {
   }
 
   /** Read a normalized quaternion without allowing malformed inventory data to poison placement math. */
-  private inventoryQuaternion(value, fallback = new THREE.Quaternion()) {
+  private inventoryQuaternion(value: unknown, fallback = new THREE.Quaternion()) {
     if (!Array.isArray(value) || value.length < 4) return fallback.clone();
     const components = value.slice(0, 4).map(Number);
     if (!components.every(Number.isFinite)) return fallback.clone();
@@ -3659,17 +3463,17 @@ export class PlayerController {
   }
 
   /** Authored mounting frame: identity means local +Y is the outward axis. */
-  private getEntityAnchorRotation(slot) {
+  private getEntityAnchorRotation(slot: InventoryInput) {
     return this.inventoryQuaternion(slot?.anchorRotation);
   }
 
   /** Hammer-only roll. It is temporary and is never written back to the backpack item. */
-  private getEntityPlacementRotation(slot) {
+  private getEntityPlacementRotation(slot: PlacementSlot) {
     return this.inventoryQuaternion(slot?.placementRotation);
   }
 
-  private axisAlignedEntityFaceNormal(value) {
-    const normal = value?.isVector3
+  private axisAlignedEntityFaceNormal(value: Point3 | null | undefined) {
+    const normal = value instanceof THREE.Vector3
       ? value.clone()
       : new THREE.Vector3(Number(value?.x) || 0, Number(value?.y) || 0, Number(value?.z) || 0);
     const components = [Math.abs(normal.x), Math.abs(normal.y), Math.abs(normal.z)];
@@ -3681,101 +3485,11 @@ export class PlayerController {
     return result;
   }
 
-  private getRotatedEntityPlacementBounds(shape: EntityPlacementShape, rotation: THREE.Quaternion) {
-    const axes = [
-      new THREE.Vector3(1, 0, 0).applyQuaternion(rotation),
-      new THREE.Vector3(0, 1, 0).applyQuaternion(rotation),
-      new THREE.Vector3(0, 0, 1).applyQuaternion(rotation)
-    ];
-    const bounds = {
-      minX: Infinity, minY: Infinity, minZ: Infinity,
-      maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity
-    };
-    for (const entry of shape.entries) {
-      const center = entry.center.clone().applyQuaternion(rotation);
-      const half = entry.size / 2;
-      const radiusX = half * axes.reduce((sum, axis) => sum + Math.abs(axis.x), 0);
-      const radiusY = half * axes.reduce((sum, axis) => sum + Math.abs(axis.y), 0);
-      const radiusZ = half * axes.reduce((sum, axis) => sum + Math.abs(axis.z), 0);
-      bounds.minX = Math.min(bounds.minX, center.x - radiusX);
-      bounds.minY = Math.min(bounds.minY, center.y - radiusY);
-      bounds.minZ = Math.min(bounds.minZ, center.z - radiusZ);
-      bounds.maxX = Math.max(bounds.maxX, center.x + radiusX);
-      bounds.maxY = Math.max(bounds.maxY, center.y + radiusY);
-      bounds.maxZ = Math.max(bounds.maxZ, center.z + radiusZ);
-    }
-    return bounds;
-  }
-
-  /** Rotate cached support probes together with the entity without mutating the authored shape. */
-  private getRotatedEntityTerrainShape(shape: EntityPlacementShape, rotation: THREE.Quaternion): EntityPlacementShape {
-    const bounds = this.getRotatedEntityPlacementBounds(shape, rotation);
-    const supportSamples = shape.supportSamples.map(sample => {
-      const point = new THREE.Vector3(sample.x, sample.bottom, sample.z).applyQuaternion(rotation);
-      return { x: point.x, z: point.z, bottom: point.y };
-    });
-    return {
-      ...shape,
-      ...bounds,
-      supportSamples,
-      centerX: (bounds.minX + bounds.maxX) / 2,
-      centerZ: (bounds.minZ + bounds.maxZ) / 2
-    };
-  }
-
-  private createEntityPlacementObb(center: THREE.Vector3, size, quaternion: THREE.Quaternion): EntityPlacementObb {
-    const axes = [
-      new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion).normalize(),
-      new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion).normalize(),
-      new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion).normalize()
-    ] as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
-    const half = Number(size) / 2;
-    const radius = new THREE.Vector3(
-      half * axes.reduce((sum, axis) => sum + Math.abs(axis.x), 0),
-      half * axes.reduce((sum, axis) => sum + Math.abs(axis.y), 0),
-      half * axes.reduce((sum, axis) => sum + Math.abs(axis.z), 0)
-    );
-    return {
-      center,
-      axes,
-      halfExtents: [half, half, half],
-      min: center.clone().sub(radius),
-      max: center.clone().add(radius)
-    };
-  }
-
-  private entityPlacementObbsOverlap(a: EntityPlacementObb, b: EntityPlacementObb) {
-    if (a.max.x <= b.min.x + ENTITY_PLACEMENT_EPSILON || a.min.x >= b.max.x - ENTITY_PLACEMENT_EPSILON
-      || a.max.y <= b.min.y + ENTITY_PLACEMENT_EPSILON || a.min.y >= b.max.y - ENTITY_PLACEMENT_EPSILON
-      || a.max.z <= b.min.z + ENTITY_PLACEMENT_EPSILON || a.min.z >= b.max.z - ENTITY_PLACEMENT_EPSILON) {
-      return false;
-    }
-    const axes = [...a.axes, ...b.axes];
-    for (const axisA of a.axes) {
-      for (const axisB of b.axes) {
-        const cross = new THREE.Vector3().crossVectors(axisA, axisB);
-        if (cross.lengthSq() > 1e-10) axes.push(cross.normalize());
-      }
-    }
-    const delta = b.center.clone().sub(a.center);
-    for (const rawAxis of axes) {
-      const axis = rawAxis.clone().normalize();
-      const radiusA = a.halfExtents.reduce((sum, halfExtent, index) => (
-        sum + halfExtent * Math.abs(a.axes[index].dot(axis))
-      ), 0);
-      const radiusB = b.halfExtents.reduce((sum, halfExtent, index) => (
-        sum + halfExtent * Math.abs(b.axes[index].dot(axis))
-      ), 0);
-      if (radiusA + radiusB - Math.abs(delta.dot(axis)) <= ENTITY_PLACEMENT_EPSILON) return false;
-    }
-    return true;
-  }
-
-  private getTargetEntityPlacementPoseSignature(target) {
+  private getTargetEntityPlacementPoseSignature(target: Contraption) {
     const values: Array<string | number> = [];
-    const appendVector = value => {
+    const appendVector = (value: Partial<{ x: number; y: number; z: number; w: number }> | null | undefined) => {
       if (!value) return;
-      for (const key of ['x', 'y', 'z', 'w']) {
+      for (const key of ['x', 'y', 'z', 'w'] as const) {
         if (Number.isFinite(Number(value[key]))) values.push(Number(value[key]));
       }
     };
@@ -3791,7 +3505,7 @@ export class PlayerController {
       : String(Number(target?.collisionPoseVersion) || 0);
   }
 
-  private getTargetEntityPlacementObbs(target) {
+  private getTargetEntityPlacementObbs(target: Contraption | null | undefined) {
     if (!target) return { boxes: [], buckets: new Map<string, EntityPlacementObb[]>() };
     const entries = Array.isArray(target.collisionEntries) && target.collisionEntries.length > 0
       ? target.collisionEntries
@@ -3802,7 +3516,7 @@ export class PlayerController {
     if (cached && cached.entriesRef === entriesRef && cached.poseSignature === poseSignature) return cached;
 
     const quaternionByNode = new Map<string, THREE.Quaternion>();
-    const quaternionFor = nodeId => {
+    const quaternionFor = (nodeId: string) => {
       const id = nodeId === undefined || nodeId === null ? contraptionRootId(target) : String(nodeId);
       let quaternion = quaternionByNode.get(id);
       if (!quaternion) {
@@ -3822,7 +3536,7 @@ export class PlayerController {
           (Number(entry.y) + Number(entry.span) / 2) / MICRO_DIVISIONS,
           (Number(entry.z) + Number(entry.span) / 2) / MICRO_DIVISIONS
         ));
-        boxes.push(this.createEntityPlacementObb(center, size, quaternionFor(nodeId)));
+        boxes.push(createEntityPlacementObb(center, size, quaternionFor(nodeId)));
       }
     } else {
       for (const block of target.blocks || []) {
@@ -3834,7 +3548,7 @@ export class PlayerController {
             Number(block.localY) + size / 2,
             Number(block.localZ) + size / 2
           ));
-        boxes.push(this.createEntityPlacementObb(center, size, quaternionFor(nodeId)));
+        boxes.push(createEntityPlacementObb(center, size, quaternionFor(nodeId)));
       }
     }
     const buckets = new Map<string, EntityPlacementObb[]>();
@@ -3861,14 +3575,14 @@ export class PlayerController {
     return result;
   }
 
-  private entitySlotOverlapsTarget(slot, position: THREE.Vector3, quaternion: THREE.Quaternion, target) {
-    const shape = this.getEntityPlacementShape(slot);
+  private entitySlotOverlapsTarget(slot: InventoryInput, position: THREE.Vector3, quaternion: THREE.Quaternion, target: Contraption | null | undefined) {
+    const shape = getEntityPlacementShape(slot);
     if (!shape) return false;
     const targetIndex = this.getTargetEntityPlacementObbs(target);
     if (targetIndex.boxes.length === 0) return false;
     for (const entry of shape.entries) {
       const center = entry.center.clone().applyQuaternion(quaternion).add(position);
-      const placed = this.createEntityPlacementObb(center, entry.size, quaternion);
+      const placed = createEntityPlacementObb(center, entry.size, quaternion);
       const candidates = new Set<EntityPlacementObb>();
       const minX = Math.floor(placed.min.x / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
       const minY = Math.floor(placed.min.y / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
@@ -3884,14 +3598,14 @@ export class PlayerController {
         }
       }
       for (const existing of candidates) {
-        if (this.entityPlacementObbsOverlap(placed, existing)) return true;
+        if (entityPlacementObbsOverlap(placed, existing)) return true;
       }
     }
     return false;
   }
 
   /** Centre on the hit face, align to its component grid, then move only outward to clear occupied voxels. */
-  private resolveEntityTargetPlacement(slot, shape: EntityPlacementShape, surface: THREE.Vector3, placementHit) {
+  private resolveEntityTargetPlacement(slot: InventoryInput, shape: EntityPlacementShape, surface: THREE.Vector3, placementHit: PlacementHit) {
     const target = placementHit.targetContraption;
     const nodeId = placementHit.targetNodeId ?? contraptionRootId(placementHit.targetContraption);
     const targetWorldRotation = this.getTargetEntityWorldQuaternion(target, nodeId);
@@ -3905,7 +3619,7 @@ export class PlayerController {
       .multiply(this.getEntityAnchorRotation(slot).invert())
       .normalize();
     const worldRotation = targetWorldRotation.clone().multiply(relativeRotation).normalize();
-    const bounds = this.getRotatedEntityPlacementBounds(shape, relativeRotation);
+    const bounds = getRotatedEntityPlacementBounds(shape, relativeRotation);
     const surfaceLocal = this.targetEntityWorldToLocal(target, nodeId, surface);
     const originLocal = new THREE.Vector3(
       surfaceLocal.x - (bounds.minX + bounds.maxX) / 2,
@@ -3914,8 +3628,8 @@ export class PlayerController {
     );
     for (const axis of ['x', 'y', 'z'] as const) {
       const normal = localNormal[axis];
-      if (normal > 0) originLocal[axis] = surfaceLocal[axis] - bounds[`min${axis.toUpperCase()}`];
-      else if (normal < 0) originLocal[axis] = surfaceLocal[axis] - bounds[`max${axis.toUpperCase()}`];
+      if (normal > 0) originLocal[axis] = surfaceLocal[axis] - bounds[({ x: 'minX', y: 'minY', z: 'minZ' } as const)[axis]];
+      else if (normal < 0) originLocal[axis] = surfaceLocal[axis] - bounds[({ x: 'maxX', y: 'maxY', z: 'maxZ' } as const)[axis]];
       originLocal[axis] = this.snapEntityPlacementMicroValue(originLocal[axis]);
     }
 
@@ -3934,7 +3648,7 @@ export class PlayerController {
   private resolveEntityTerrainSupport(
     shape: EntityPlacementShape,
     origin: THREE.Vector3,
-    placementHit
+    placementHit: PlacementHit
   ) {
     const normalY = Number(placementHit?.normal?.y) || 0;
     let bestOriginY = -Infinity;
@@ -3990,7 +3704,7 @@ export class PlayerController {
    * another entity, they align to the targeted component's 0.125 m grid, rotate
    * outward from side faces, and move only along that normal to clear voxels.
    */
-  getInventoryPlacementPose(slot) {
+  getInventoryPlacementPose(slot: InventoryInput) {
     if (!slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return null;
 
     const placementHit = this.getInventoryPlacementHit();
@@ -4018,7 +3732,7 @@ export class PlayerController {
         Math.floor(position.z)
       );
     } else {
-      const shape = this.getEntityPlacementShape(slot);
+      const shape = getEntityPlacementShape(slot);
       const surface = this.getEntityPlacementSurfacePoint(placementHit);
       if (shape && surface) {
         if (placementHit.targetContraption && (slot.kind !== 'item'
@@ -4029,7 +3743,7 @@ export class PlayerController {
           quaternion.copy(targetPose.quaternion);
         } else {
           const placementRotation = this.getEntityPlacementRotation(slot);
-          const terrainShape = this.getRotatedEntityTerrainShape(shape, placementRotation);
+          const terrainShape = getRotatedEntityTerrainShape(shape, placementRotation);
           quaternion.copy(placementRotation);
           const normal = placementHit.normal || { x: 0, y: 1, z: 0 };
           let originX = surface.x - terrainShape.centerX;
@@ -4062,8 +3776,8 @@ export class PlayerController {
     };
   }
 
-  private snapItemTerrainOrigin(slot, position) {
-    const step = slot.blockSet.blocks.some(block => (block.size || 1) === 1) ? 1 : MICRO_SIZE;
+  private snapItemTerrainOrigin(slot: InventoryInput, position: Point3) {
+    const step = (slot.blockSet?.blocks || []).some(block => (block.size || 1) === 1) ? 1 : MICRO_SIZE;
     return new THREE.Vector3(
       Math.round(position.x / step) * step,
       Math.ceil((position.y - 1e-6) / step) * step,
@@ -4093,14 +3807,14 @@ export class PlayerController {
    * blocks are replaced and occupied micro cells are replaced; a micro voxel
    * that overlaps a standard block clears that block first.
    */
-  private applyBlockSetVoxel(target, block, replace = false) {
+  private applyBlockSetVoxel(target: Point3, block: InventoryVoxel, replace = false) {
     if ((block.size || 1) < 1) {
       if (replace) {
         // Micro voxels cannot coexist with a standard block, so overwrite
         // mode clears the parent cell before writing the micro voxel.
-        const wx = Math.round(target.x + block.dx);
-        const wy = Math.round(target.y + block.dy);
-        const wz = Math.round(target.z + block.dz);
+        const wx = Math.round(target.x + (block.dx ?? 0));
+        const wy = Math.round(target.y + (block.dy ?? 0));
+        const wz = Math.round(target.z + (block.dz ?? 0));
         if (this.world.getBlock?.(wx, wy, wz) !== BlockTypes.AIR) {
           this.performBasicAction({
             domain: ActionDomain.WORLD,
@@ -4113,9 +3827,9 @@ export class PlayerController {
         domain: ActionDomain.WORLD,
         action: 'place-micro',
         micro: [
-          Math.round((target.x + block.dx) * MICRO_DIVISIONS),
-          Math.round((target.y + block.dy) * MICRO_DIVISIONS),
-          Math.round((target.z + block.dz) * MICRO_DIVISIONS)
+          Math.round((target.x + (block.dx ?? 0)) * MICRO_DIVISIONS),
+          Math.round((target.y + (block.dy ?? 0)) * MICRO_DIVISIONS),
+          Math.round((target.z + (block.dz ?? 0)) * MICRO_DIVISIONS)
         ],
         options: { color: block.color, materialId: normalizeVoxelMaterialId(block.materialId) },
         part: block.part || null,
@@ -4128,9 +3842,9 @@ export class PlayerController {
       domain: ActionDomain.WORLD,
       action: 'place-standard',
       cell: {
-        x: target.x + Math.round(block.dx),
-        y: target.y + Math.round(block.dy),
-        z: target.z + Math.round(block.dz)
+        x: target.x + Math.round((block.dx ?? 0)),
+        y: target.y + Math.round((block.dy ?? 0)),
+        z: target.z + Math.round((block.dz ?? 0))
       },
       block: block.block || BlockTypes.COLOR_BLOCK,
       options: { color: block.color, materialId: normalizeVoxelMaterialId(block.materialId) },
@@ -4145,7 +3859,7 @@ export class PlayerController {
     this.activateTool(SpecialTool.WRENCH);
   }
 
-  private finishBlockSetPaste(target, total, placed, replace) {
+  private finishBlockSetPaste(target: Point3, total: number, placed: number, replace: boolean) {
     if (placed > 0) {
       this.sound?.playBlockPlace?.();
       this.completeHammerPlacement();
@@ -4160,7 +3874,7 @@ export class PlayerController {
         : `Built block set: ${placed}/${total} voxels ${where}`);
   }
 
-  pasteBlockSet(slot, replace = false) {
+  pasteBlockSet(slot: InventoryInput, replace = false) {
     if (!this.world || !slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return false;
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
@@ -4180,7 +3894,7 @@ export class PlayerController {
       return this.startBulkEditJob({
         label: replace ? 'Overwriting block set' : 'Building block set',
         total: blocks.length,
-        step: index => {
+        step: (index: number) => {
           const changed = this.applyBlockSetVoxel(target, blocks[index], replace);
           placed += changed;
           return changed;
@@ -4200,7 +3914,7 @@ export class PlayerController {
    * Enforces the same admission limits as backpack persistence and market publishing.
    * @returns The written slot, or null.
    */
-  importBlockSetToInventory(blocks, name = 'STL import') {
+  importBlockSetToInventory(blocks: BlockSetVoxel[], name = 'STL import') {
     if (!Array.isArray(blocks) || blocks.length === 0) {
       if (this.ui) this.ui.showToast('Nothing to import - the source produced no voxels');
       return null;
@@ -4246,7 +3960,7 @@ export class PlayerController {
     return this.inventories.item.items[index];
   }
 
-  private finishWorldSelectionDelete(standard, micro) {
+  private finishWorldSelectionDelete(standard: number, micro: number) {
     const removed = standard + micro;
     if (removed > 0) {
       this.sound?.playBlockBreak?.({ kind: 'bulk', count: removed });
@@ -4259,7 +3973,7 @@ export class PlayerController {
     }
   }
 
-  private startLargeWorldSelectionDelete(manager, microSelection, bounds) {
+  private startLargeWorldSelectionDelete(manager: ContraptionManager, microSelection: Point3[] | null, bounds: CollisionBounds | null) {
     let particleBudget = 64;
     let removedStandard = 0;
     let removedMicro = 0;
@@ -4276,7 +3990,7 @@ export class PlayerController {
       const started = this.startBulkEditJob({
         label: 'Deleting micro selection',
         total,
-        step: index => {
+        step: (index: number) => {
           if (index < stdCells.length) {
             const cell = stdCells[index];
             const block = this.world.getBlock?.(cell.x, cell.y, cell.z);
@@ -4301,7 +4015,7 @@ export class PlayerController {
             const wx = Math.floor(cell.x / MICRO_DIVISIONS);
             const wy = Math.floor(cell.y / MICRO_DIVISIONS);
             const wz = Math.floor(cell.z / MICRO_DIVISIONS);
-            let block = this.world.getMicroBlock?.(cell.x, cell.y, cell.z);
+            let block: { color: number; block?: number; materialId?: number } | null | undefined = this.world.getMicroBlock?.(cell.x, cell.y, cell.z);
             if (!block && this.world.getBlock?.(wx, wy, wz) !== BlockTypes.AIR) {
               block = { color: this.world.getBlockColor?.(wx, wy, wz) };
             }
@@ -4354,12 +4068,12 @@ export class PlayerController {
       const started = this.startBulkEditJob({
         label: 'Deleting micro selection',
         total: cells.length,
-        step: index => {
+        step: (index: number) => {
           const cell = cells[index];
           const wx = Math.floor(cell.x / MICRO_DIVISIONS);
           const wy = Math.floor(cell.y / MICRO_DIVISIONS);
           const wz = Math.floor(cell.z / MICRO_DIVISIONS);
-          let block = this.world.getMicroBlock?.(cell.x, cell.y, cell.z);
+          let block: { color: number; block?: number; materialId?: number } | null | undefined = this.world.getMicroBlock?.(cell.x, cell.y, cell.z);
           if (!block && this.world.getBlock?.(wx, wy, wz) !== BlockTypes.AIR) {
             block = { color: this.world.getBlockColor?.(wx, wy, wz) };
           }
@@ -4409,11 +4123,12 @@ export class PlayerController {
     const sparseCells = manager.connectedSelection !== null
       ? [...(manager.connectedSelection || [])].map(cell => ({ x: cell.x, y: cell.y, z: cell.z }))
       : null;
+    if (!bounds) return false;
     const sizeY = bounds.maxY - bounds.minY + 1;
     const sizeZ = bounds.maxZ - bounds.minZ + 1;
     const total = sparseCells?.length
       ?? (bounds.maxX - bounds.minX + 1) * sizeY * sizeZ;
-    const cellAt = index => {
+    const cellAt = (index: number) => {
       if (sparseCells) return sparseCells[index];
       return {
         x: bounds.minX + Math.floor(index / (sizeY * sizeZ)),
@@ -4425,7 +4140,7 @@ export class PlayerController {
     const started = this.startBulkEditJob({
       label: 'Deleting selection',
       total,
-      step: index => {
+      step: (index: number) => {
         const cell = cellAt(index);
         const block = this.world.getBlock?.(cell.x, cell.y, cell.z);
         if (block !== BlockTypes.AIR && particleBudget > 0) {
@@ -4478,7 +4193,7 @@ export class PlayerController {
     if (stops.length <= 1 || manager?.selectionBoxConfirmed !== true
       || !manager.selectionCornerA || !manager.selectionCornerB) return null;
     const micro = manager.selectionCornerA.micro === true || manager.selectionCornerB.micro === true;
-    const center = (point: any) => micro
+    const center = (point: Point3) => micro
       ? { x: (point.x + 0.5) / MICRO_DIVISIONS, y: (point.y + 0.5) / MICRO_DIVISIONS, z: (point.z + 0.5) / MICRO_DIVISIONS }
       : { x: point.x + 0.5, y: point.y + 0.5, z: point.z + 0.5 };
     return { stops, start: center(manager.selectionCornerA), end: center(manager.selectionCornerB) };
@@ -4500,7 +4215,7 @@ export class PlayerController {
     return { stops, start: point(range.pointA), end: point(range.pointB) };
   }
 
-  private startLargeWorldSelectionFill(manager, partition, bounds, color, materialId: number = VoxelMaterialIds.DEFAULT, gradient = null) {
+  private startLargeWorldSelectionFill(manager: ContraptionManager, partition: ReturnType<ContraptionManager['partitionMicroSelection']> | null, bounds: CollisionBounds | null, color: number, materialId: number = VoxelMaterialIds.DEFAULT, gradient: SelectionGradient | null = null) {
     let placedStandard = 0;
     let placedMicro = 0;
 
@@ -4512,7 +4227,7 @@ export class PlayerController {
       const started = this.startBulkEditJob({
         label: 'Filling micro selection',
         total,
-        step: index => {
+        step: (index: number) => {
           if (index < stdCells.length) {
             const cell = stdCells[index];
             const cellColor = this.gradientColorAt(
@@ -4577,10 +4292,11 @@ export class PlayerController {
     const sparseCells = manager.connectedSelection !== null
       ? [...(manager.connectedSelection || [])].map(cell => ({ x: cell.x, y: cell.y, z: cell.z }))
       : null;
+    if (!bounds) return false;
     const sizeY = bounds.maxY - bounds.minY + 1;
     const sizeZ = bounds.maxZ - bounds.minZ + 1;
     const total = sparseCells?.length ?? (bounds.maxX - bounds.minX + 1) * sizeY * sizeZ;
-    const cellAt = index => {
+    const cellAt = (index: number) => {
       if (sparseCells) return sparseCells[index];
       return {
         x: bounds.minX + Math.floor(index / (sizeY * sizeZ)),
@@ -4592,7 +4308,7 @@ export class PlayerController {
     const started = this.startBulkEditJob({
       label: 'Filling selection',
       total,
-      step: index => {
+      step: (index: number) => {
         const cell = cellAt(index);
         const cellColor = this.gradientColorAt(
           { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 }, gradient, color,
@@ -4617,7 +4333,7 @@ export class PlayerController {
     return started;
   }
 
-  private startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor?: number, materialId: number = VoxelMaterialIds.DEFAULT, gradient = null) {
+  private startLargeWorldSelectionPaint(manager: ContraptionManager, partition: ReturnType<ContraptionManager['partitionMicroSelection']> | null, bounds: CollisionBounds | null, color: number, fromColor?: number, materialId: number = VoxelMaterialIds.DEFAULT, gradient: SelectionGradient | null = null) {
     let paintedStandard = 0;
     let paintedMicro = 0;
 
@@ -4629,7 +4345,7 @@ export class PlayerController {
       const started = this.startBulkEditJob({
         label: 'Recoloring micro selection',
         total,
-        step: index => {
+        step: (index: number) => {
           if (index < stdCells.length) {
             const cell = stdCells[index];
             const cellColor = this.gradientColorAt(
@@ -4700,10 +4416,11 @@ export class PlayerController {
     const sparseCells = manager.connectedSelection !== null
       ? [...(manager.connectedSelection || [])].map(cell => ({ x: cell.x, y: cell.y, z: cell.z }))
       : null;
+    if (!bounds) return false;
     const sizeY = bounds.maxY - bounds.minY + 1;
     const sizeZ = bounds.maxZ - bounds.minZ + 1;
     const total = sparseCells?.length ?? (bounds.maxX - bounds.minX + 1) * sizeY * sizeZ;
-    const cellAt = index => {
+    const cellAt = (index: number) => {
       if (sparseCells) return sparseCells[index];
       return {
         x: bounds.minX + Math.floor(index / (sizeY * sizeZ)),
@@ -4715,7 +4432,7 @@ export class PlayerController {
     const started = this.startBulkEditJob({
       label: 'Recoloring selection',
       total,
-      step: index => {
+      step: (index: number) => {
         const cell = cellAt(index);
         const cellColor = this.gradientColorAt(
           { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 }, gradient, color,
@@ -4827,6 +4544,7 @@ export class PlayerController {
     const isMicroSelection = Array.isArray(microSelection) || manager.microBounds !== null;
     const partition = isMicroSelection && manager.partitionMicroSelection ? manager.partitionMicroSelection() : null;
     const bounds = isMicroSelection ? null : manager.getSelectionBounds();
+    if (!isMicroSelection && !bounds) return;
     if (!bounds && !isMicroSelection) {
       if (this.ui) this.ui.showToast('Nothing selected - box-select a region with the selector first, then press Del');
       return;
@@ -4838,9 +4556,9 @@ export class PlayerController {
         ? microSelection?.length || 0
         : manager.connectedSelection !== null
           ? manager.connectedSelection.length
-          : (bounds.maxX - bounds.minX + 1)
-          * (bounds.maxY - bounds.minY + 1)
-          * (bounds.maxZ - bounds.minZ + 1);
+          : (bounds!.maxX - bounds!.minX + 1)
+          * (bounds!.maxY - bounds!.minY + 1)
+          * (bounds!.maxZ - bounds!.minZ + 1);
     if (largeSelectionCount > BULK_EDIT_THRESHOLD) {
       this.startLargeWorldSelectionDelete(manager, microSelection, bounds);
       return;
@@ -4873,13 +4591,13 @@ export class PlayerController {
     } else if (isMicroSelection && Array.isArray(microSelection)) {
       // Micro mode deletes exactly the selected 0.125 m cells that hold a voxel.
       for (const cell of microSelection) {
-        let block = this.world.getMicroBlock?.(cell.x, cell.y, cell.z);
+        let block: { color: number; block?: number; materialId?: number } | null | undefined = this.world.getMicroBlock?.(cell.x, cell.y, cell.z);
         if (!block) {
           const wx = Math.floor(cell.x / MICRO_DIVISIONS);
           const wy = Math.floor(cell.y / MICRO_DIVISIONS);
           const wz = Math.floor(cell.z / MICRO_DIVISIONS);
           if (this.world.getBlock && this.world.getBlock(wx, wy, wz) !== BlockTypes.AIR) {
-            block = { color: this.world.getBlockColor(wx, wy, wz) };
+            block = { block: BlockTypes.COLOR_BLOCK, color: this.world.getBlockColor(wx, wy, wz) };
           }
         }
         if (block && particleBudget > 0) {
@@ -4892,7 +4610,7 @@ export class PlayerController {
       }
     } else {
       const cells = [];
-      const collectCell = (x, y, z) => {
+      const collectCell = (x: number, y: number, z: number) => {
         cells.push({ x, y, z });
         const block = this.world.getBlock(x, y, z);
         if (block !== BlockTypes.AIR) {
@@ -4908,9 +4626,9 @@ export class PlayerController {
         // A shape deletes only cells inside the confirmed A/B region.
         for (const cell of manager.connectedSelection) collectCell(cell.x, cell.y, cell.z);
       } else {
-        for (let x = bounds.minX; x <= bounds.maxX; x++) {
-          for (let y = bounds.minY; y <= bounds.maxY; y++) {
-            for (let z = bounds.minZ; z <= bounds.maxZ; z++) collectCell(x, y, z);
+        for (let x = bounds!.minX; x <= bounds!.maxX; x++) {
+          for (let y = bounds!.minY; y <= bounds!.maxY; y++) {
+            for (let z = bounds!.minZ; z <= bounds!.maxZ; z++) collectCell(x, y, z);
           }
         }
       }
@@ -4993,9 +4711,9 @@ export class PlayerController {
       if (Array.isArray(shapeCells) && shapeCells.length > 0) {
         targetCoords = shapeCells;
       } else if (bounds) {
-        for (let x = bounds.minX; x <= bounds.maxX; x++) {
-          for (let y = bounds.minY; y <= bounds.maxY; y++) {
-            for (let z = bounds.minZ; z <= bounds.maxZ; z++) {
+        for (let x = bounds!.minX; x <= bounds!.maxX; x++) {
+          for (let y = bounds!.minY; y <= bounds!.maxY; y++) {
+            for (let z = bounds!.minZ; z <= bounds!.maxZ; z++) {
               targetCoords.push({ x, y, z });
             }
           }
@@ -5045,6 +4763,7 @@ export class PlayerController {
     const isMicroSelection = Array.isArray(manager.microSelection) || manager.microBounds !== null;
     const partition = isMicroSelection && manager.partitionMicroSelection ? manager.partitionMicroSelection() : null;
     const bounds = isMicroSelection ? null : manager.getSelectionBounds();
+    if (!isMicroSelection && !bounds) return;
     const gradient = this.worldSelectionGradient(targetColor);
 
     const largeSelectionCount = partition
@@ -5053,7 +4772,7 @@ export class PlayerController {
         ? manager.microSelection?.length || 0
         : manager.connectedSelection !== null
           ? manager.connectedSelection.length
-          : (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1) * (bounds.maxZ - bounds.minZ + 1);
+          : (bounds!.maxX - bounds!.minX + 1) * (bounds!.maxY - bounds!.minY + 1) * (bounds!.maxZ - bounds!.minZ + 1);
 
     if (gradient || largeSelectionCount > BULK_EDIT_THRESHOLD) {
       this.startLargeWorldSelectionFill(manager, partition, bounds, color, materialId, gradient);
@@ -5158,6 +4877,7 @@ export class PlayerController {
     const isMicroSelection = Array.isArray(manager.microSelection) || manager.microBounds !== null;
     const partition = isMicroSelection && manager.partitionMicroSelection ? manager.partitionMicroSelection() : null;
     const bounds = isMicroSelection ? null : manager.getSelectionBounds();
+    if (!isMicroSelection && !bounds) return;
     const gradient = this.worldSelectionGradient(targetColor);
 
     const largeSelectionCount = partition
@@ -5166,7 +4886,7 @@ export class PlayerController {
         ? manager.microSelection?.length || 0
         : manager.connectedSelection !== null
           ? manager.connectedSelection.length
-          : (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1) * (bounds.maxZ - bounds.minZ + 1);
+          : (bounds!.maxX - bounds!.minX + 1) * (bounds!.maxY - bounds!.minY + 1) * (bounds!.maxZ - bounds!.minZ + 1);
 
     if (gradient || largeSelectionCount > BULK_EDIT_THRESHOLD) {
       this.startLargeWorldSelectionPaint(manager, partition, bounds, color, fromColor, materialId, gradient);
@@ -5191,7 +4911,7 @@ export class PlayerController {
     }
   }
 
-  handleRightClick(e = null) {
+  handleRightClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
     if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     if (this.activeTool === SpecialTool.MODELING) return this.modeling.beginCreation(e);
@@ -5389,217 +5109,12 @@ export class PlayerController {
     return;
   }
 
-  private normalizeQuarterTurns(turns = 0) {
-    const wholeTurns = Number.isFinite(turns) ? Math.trunc(turns) : 0;
-    return ((wholeTurns % 4) + 4) % 4;
+  rotateBlocksX90(blocks: InventoryVoxel[], quarterTurns = 1) {
+    return rotateBlocksX90(blocks, quarterTurns);
   }
 
-  /**
-   * Rotate a set of voxel blocks around the X axis by `quarterTurns * 90°`.
-   * The result is calculated directly from the supplied original coordinates,
-   * never by repeatedly rotating an already rounded intermediate result.
-   */
-  rotateBlocksX90(blocks: any[], quarterTurns = 1) {
-    if (!Array.isArray(blocks) || blocks.length === 0) return blocks;
-
-    const turns = this.normalizeQuarterTurns(quarterTurns);
-    if (turns === 0) return blocks.map(block => ({ ...block }));
-
-    const isEntity = 'localX' in blocks[0] || 'localY' in blocks[0];
-    const hasMicro = blocks.some(b => (b.size && b.size < 1) || (isEntity ? (!Number.isInteger(b.localY ?? 0) || !Number.isInteger(b.localZ ?? 0)) : (!Number.isInteger(b.dy ?? 0) || !Number.isInteger(b.dz ?? 0))));
-    const S = hasMicro ? MICRO_SIZE : 1.0;
-
-    let minY = Infinity, maxY = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
-
-    for (const b of blocks) {
-      const y = isEntity ? (b.localY ?? 0) : (b.dy ?? 0);
-      const z = isEntity ? (b.localZ ?? 0) : (b.dz ?? 0);
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z;
-      if (z > maxZ) maxZ = z;
-    }
-
-    const cy = (minY + maxY) / 2;
-    const cz = (minZ + maxZ) / 2;
-
-    const rotatePoint = (y: number, z: number) => {
-      if (turns === 1) return [cy + cz - z, cz - cy + y];
-      if (turns === 2) return [2 * cy - y, 2 * cz - z];
-      return [cy - cz + z, cz + cy - y];
-    };
-
-    // Rotating an even-height/depth shape around its geometric center can land its
-    // lower-corner coordinates on half cells. Apply one deterministic grid
-    // correction derived from the original bounds for this final orientation.
-    const [sampleY, sampleZ] = rotatePoint(minY, minZ);
-    const gridUnitsY = sampleY / S;
-    const gridUnitsZ = sampleZ / S;
-    const remY = (gridUnitsY - Math.round(gridUnitsY)) * S;
-    const remZ = (gridUnitsZ - Math.round(gridUnitsZ)) * S;
-
-    return blocks.map(b => {
-      const y = isEntity ? (b.localY ?? 0) : (b.dy ?? 0);
-      const z = isEntity ? (b.localZ ?? 0) : (b.dz ?? 0);
-
-      const rotated = rotatePoint(y, z);
-      let ry = rotated[0] - remY;
-      let rz = rotated[1] - remZ;
-
-      if (hasMicro) {
-        ry = Math.round(ry * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-        rz = Math.round(rz * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-      } else {
-        ry = Math.round(ry);
-        rz = Math.round(rz);
-      }
-
-      if (isEntity) {
-        return { ...b, localY: ry, localZ: rz };
-      } else {
-        return { ...b, dy: ry, dz: rz };
-      }
-    });
-  }
-
-  /**
-   * Rotate a set of voxel blocks around the Y axis by `quarterTurns * 90°`.
-   * The result is calculated directly from the supplied original coordinates,
-   * never by repeatedly rotating an already rounded intermediate result.
-   */
-  rotateBlocksY90(blocks: any[], quarterTurns = 1) {
-    if (!Array.isArray(blocks) || blocks.length === 0) return blocks;
-
-    const turns = this.normalizeQuarterTurns(quarterTurns);
-    if (turns === 0) return blocks.map(block => ({ ...block }));
-
-    const isEntity = 'localX' in blocks[0];
-    const hasMicro = blocks.some(b => (b.size && b.size < 1) || (isEntity ? (!Number.isInteger(b.localX ?? 0) || !Number.isInteger(b.localZ ?? 0)) : (!Number.isInteger(b.dx ?? 0) || !Number.isInteger(b.dz ?? 0))));
-    const S = hasMicro ? MICRO_SIZE : 1.0;
-
-    let minX = Infinity, maxX = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
-
-    for (const b of blocks) {
-      const x = isEntity ? (b.localX ?? 0) : (b.dx ?? 0);
-      const z = isEntity ? (b.localZ ?? 0) : (b.dz ?? 0);
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (z < minZ) minZ = z;
-      if (z > maxZ) maxZ = z;
-    }
-
-    const cx = (minX + maxX) / 2;
-    const cz = (minZ + maxZ) / 2;
-
-    const rotatePoint = (x, z) => {
-      if (turns === 1) return [cx + cz - z, cz - cx + x];
-      if (turns === 2) return [2 * cx - x, 2 * cz - z];
-      return [cx - cz + z, cz + cx - x];
-    };
-
-    // Rotating an even-width shape around its geometric center can land its
-    // lower-corner coordinates on half cells. Apply one deterministic grid
-    // correction derived from the original bounds for this final orientation.
-    const [sampleX, sampleZ] = rotatePoint(minX, minZ);
-    const gridUnitsX = sampleX / S;
-    const gridUnitsZ = sampleZ / S;
-    const remX = (gridUnitsX - Math.round(gridUnitsX)) * S;
-    const remZ = (gridUnitsZ - Math.round(gridUnitsZ)) * S;
-
-    return blocks.map(b => {
-      const x = isEntity ? (b.localX ?? 0) : (b.dx ?? 0);
-      const z = isEntity ? (b.localZ ?? 0) : (b.dz ?? 0);
-
-      const rotated = rotatePoint(x, z);
-      let rx = rotated[0] - remX;
-      let rz = rotated[1] - remZ;
-
-      if (hasMicro) {
-        rx = Math.round(rx * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-        rz = Math.round(rz * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-      } else {
-        rx = Math.round(rx);
-        rz = Math.round(rz);
-      }
-
-      if (isEntity) {
-        return { ...b, localX: rx, localZ: rz };
-      } else {
-        return { ...b, dx: rx, dz: rz };
-      }
-    });
-  }
-
-  /**
-   * Rotate child entity definitions around the same center (cy, cz).
-   */
-  private rotateChildDefinitionsX90(childEntities: any[], quarterTurns = 1, center: { cy: number; cz: number } | null = null) {
-    if (!Array.isArray(childEntities) || childEntities.length === 0) return childEntities;
-    const turns = this.normalizeQuarterTurns(quarterTurns);
-    if (turns === 0) return childEntities.map(child => ({
-      ...child,
-      position: child.position ? { ...child.position } : child.position
-    }));
-    return childEntities.map(child => {
-      const pos = child.position || { x: 0, y: 0, z: 0 };
-      const cy = center ? center.cy : 0;
-      const cz = center ? center.cz : 0;
-      const ry = turns === 1
-        ? cy + cz - pos.z
-        : turns === 2
-          ? 2 * cy - pos.y
-          : cy - cz + pos.z;
-      const rz = turns === 1
-        ? cz - cy + pos.y
-        : turns === 2
-          ? 2 * cz - pos.z
-          : cz + cy - pos.y;
-      return {
-        ...child,
-        position: {
-          x: pos.x,
-          y: Math.round(ry * MICRO_DIVISIONS) / MICRO_DIVISIONS,
-          z: Math.round(rz * MICRO_DIVISIONS) / MICRO_DIVISIONS
-        }
-      };
-    });
-  }
-
-  /**
-   * Rotate child entity definitions around the same center (cx, cz).
-   */
-  private rotateChildDefinitionsY90(childEntities: any[], quarterTurns = 1, center: { cx: number; cz: number } | null = null) {
-    if (!Array.isArray(childEntities) || childEntities.length === 0) return childEntities;
-    const turns = this.normalizeQuarterTurns(quarterTurns);
-    if (turns === 0) return childEntities.map(child => ({
-      ...child,
-      position: child.position ? { ...child.position } : child.position
-    }));
-    return childEntities.map(child => {
-      const pos = child.position || { x: 0, y: 0, z: 0 };
-      const cx = center ? center.cx : 0;
-      const cz = center ? center.cz : 0;
-      const rx = turns === 1
-        ? cx + cz - pos.z
-        : turns === 2
-          ? 2 * cx - pos.x
-          : cx - cz + pos.z;
-      const rz = turns === 1
-        ? cz - cx + pos.x
-        : turns === 2
-          ? 2 * cz - pos.z
-          : cz + cx - pos.x;
-      return {
-        ...child,
-        position: {
-          x: Math.round(rx * MICRO_DIVISIONS) / MICRO_DIVISIONS,
-          y: pos.y,
-          z: Math.round(rz * MICRO_DIVISIONS) / MICRO_DIVISIONS
-        }
-      };
-    });
+  rotateBlocksY90(blocks: InventoryVoxel[], quarterTurns = 1) {
+    return rotateBlocksY90(blocks, quarterTurns);
   }
 
   /** Clear the Hammer's placement-only rotation without touching inventory data. */
@@ -5613,15 +5128,15 @@ export class PlayerController {
     if (this.sceneRenderer) this.sceneRenderer.inventoryPlacementSlot = null;
   }
 
-  private itemPlacementSlot(item) {
+  private itemPlacementSlot(item: PlacementSlot | null | undefined) {
     if (item?.kind !== 'item') return item;
     if (item.blockSet && !item.entityList?.length) {
       return { ...item.blockSet, id: item.id, name: item.name };
     }
     const entity = item.entityList?.[0];
-    if (!item.blockSet && item.entityList?.length === 1
+    if (entity && !item.blockSet && item.entityList?.length === 1
       && (entity.itemPosition || [0, 0, 0]).every(value => value === 0)
-      && (entity.itemRotation || [0, 0, 0, 1]).every((value, index) => value === (index === 3 ? 1 : 0))) {
+      && (entity.itemRotation || [0, 0, 0, 1]).every((value, index: number) => value === (index === 3 ? 1 : 0))) {
       return { ...entity, id: item.id, itemName: item.name, itemWorldConstraints: true };
     }
     return item;
@@ -5633,8 +5148,8 @@ export class PlayerController {
     const slot = this.itemPlacementSlot(stored);
     if (!slot) return null;
 
-    const turnsY = this.normalizeQuarterTurns(this.hammerRotationTurnsY);
-    const turnsX = this.normalizeQuarterTurns(this.hammerRotationTurnsX);
+    const turnsY = normalizeQuarterTurns(this.hammerRotationTurnsY);
+    const turnsX = normalizeQuarterTurns(this.hammerRotationTurnsX);
     if (turnsY === 0 && turnsX === 0) return slot;
 
     const cacheKey = `${turnsY}:${turnsX}`;
@@ -5666,10 +5181,10 @@ export class PlayerController {
     let rotatedChildren = slot.childEntities;
     if (Array.isArray(rotatedChildren)) {
       if (turnsX !== 0) {
-        rotatedChildren = this.rotateChildDefinitionsX90(rotatedChildren, turnsX);
+        rotatedChildren = rotateChildDefinitionsX90(rotatedChildren, turnsX);
       }
       if (turnsY !== 0) {
-        rotatedChildren = this.rotateChildDefinitionsY90(rotatedChildren, turnsY);
+        rotatedChildren = rotateChildDefinitionsY90(rotatedChildren || [], turnsY);
       }
     }
 
@@ -5712,9 +5227,9 @@ export class PlayerController {
 
     const step = direction >= 0 ? 1 : -1;
     if (axis === 'x') {
-      this.hammerRotationTurnsX = this.normalizeQuarterTurns((this.hammerRotationTurnsX || 0) + step);
+      this.hammerRotationTurnsX = normalizeQuarterTurns((this.hammerRotationTurnsX || 0) + step);
     } else {
-      this.hammerRotationTurnsY = this.normalizeQuarterTurns((this.hammerRotationTurnsY || 0) + step);
+      this.hammerRotationTurnsY = normalizeQuarterTurns((this.hammerRotationTurnsY || 0) + step);
     }
     this.hammerRotatedSlotSource = null;
     this.hammerRotatedSlotTurnsKey = null;
@@ -5821,7 +5336,7 @@ export class PlayerController {
     return this.hoveredWrenchGizmoHandle;
   }
 
-  updateWrenchPivotGizmo(entityHit) {
+  updateWrenchPivotGizmo(entityHit: EntityHit) {
     if (this.worldPickingSuspended) {
       this.clearWrenchPivotDisplay();
       return null;
@@ -5889,7 +5404,7 @@ export class PlayerController {
     this.sceneRenderer?.clearWrenchPivotGizmo?.();
   }
 
-  private beginWrenchManipulation(contraption, simulationEnabled: boolean, updateServerRunState = true) {
+  private beginWrenchManipulation(contraption: Contraption, simulationEnabled: boolean, updateServerRunState = true) {
     this.releaseWrenchGrab();
     const wasRunning = contraption.scriptStatus !== 'stopped'
       || contraption.isPhysicsSimulationEnabled?.() !== false;
@@ -6068,7 +5583,7 @@ export class PlayerController {
     return true;
   }
 
-  getWrenchGrabBodyId(contraption, nodeId = contraptionRootId(contraption)) {
+  getWrenchGrabBodyId(contraption: Contraption, nodeId = contraptionRootId(contraption)) {
     let currentId = String(nodeId ?? contraptionRootId(contraption));
     let kinematicId = null;
     while (currentId) {
@@ -6080,7 +5595,7 @@ export class PlayerController {
     return kinematicId;
   }
 
-  getWrenchTargetPosition(eyePos, targetDistance, anchorPos = eyePos, targetSpace = 'flat') {
+  getWrenchTargetPosition(eyePos: THREE.Vector3, targetDistance: number, anchorPos = eyePos, targetSpace = 'flat') {
     const cameraQuat = this.camera?.quaternion || new THREE.Quaternion();
     const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraQuat).normalize();
     if (targetSpace !== 'bent') {
@@ -6321,15 +5836,15 @@ export class PlayerController {
     return result.ok;
   }
 
-  setServerEntityRunStateHandler(handler) {
+  setServerEntityRunStateHandler(handler: PlayerController['serverEntityRunStateHandler']) {
     this.serverEntityRunStateHandler = typeof handler === 'function' ? handler : null;
   }
 
-  setServerEntityDeleteHandler(handler) {
+  setServerEntityDeleteHandler(handler: PlayerController['serverEntityDeleteHandler']) {
     this.serverEntityDeleteHandler = typeof handler === 'function' ? handler : null;
   }
 
-  private applyEntityRotation(contraption, targetRotation: THREE.Quaternion, options: any = {}): boolean {
+  private applyEntityRotation(contraption: Contraption, targetRotation: THREE.Quaternion, options: any = {}): boolean {
     const rootId = contraptionRootId(contraption);
     const rootBody = contraption.getRigidBody?.(rootId);
     if (!rootBody?.position?.isVector3 || !rootBody?.quaternion?.isQuaternion) {
@@ -6379,7 +5894,7 @@ export class PlayerController {
     return true;
   }
 
-  private async rotateEntityToGrid(contraption, targetRotation: THREE.Quaternion, options: any = {}): Promise<boolean> {
+  private async rotateEntityToGrid(contraption: Contraption, targetRotation: THREE.Quaternion, options: any = {}): Promise<boolean> {
     if (contraption.serverManaged === true) {
       if (contraption.serverExecutionMode === 'hosted' || contraption.serverCanEdit !== true) {
         this.ui?.showToast?.('This entity cannot be rotated from this client', { tone: 'warning' });
@@ -6393,13 +5908,13 @@ export class PlayerController {
     return this.applyEntityRotation(contraption, targetRotation, options);
   }
 
-  private async resetEntityRotation(contraption): Promise<boolean> {
+  private async resetEntityRotation(contraption: Contraption): Promise<boolean> {
     return this.rotateEntityToGrid(contraption, new THREE.Quaternion(), {
       toast: `Entity #${contraption.id} rotation reset`
     });
   }
 
-  private async snapEntityRotationToGrid(contraption, options: any = {}): Promise<boolean> {
+  private async snapEntityRotationToGrid(contraption: Contraption, options: any = {}): Promise<boolean> {
     const rootBody = contraption.getRigidBody?.(contraptionRootId(contraption));
     if (!rootBody?.quaternion?.isQuaternion) {
       this.ui?.showToast?.('Entity rotation could not be aligned to the grid', { tone: 'warning' });
@@ -6412,7 +5927,7 @@ export class PlayerController {
     );
   }
 
-  private async disassembleEntity(contraption): Promise<boolean> {
+  private async disassembleEntity(contraption: Contraption): Promise<boolean> {
     const isServerManaged = contraption.serverManaged === true;
     if (isServerManaged
       && (contraption.serverExecutionMode === 'hosted'
@@ -6439,7 +5954,9 @@ export class PlayerController {
 
     if (isServerManaged) {
       try {
-        await this.serverEntityDeleteHandler(contraption);
+        const deleteEntity = this.serverEntityDeleteHandler;
+        if (!deleteEntity) throw new Error('Entity deletion is unavailable');
+        await deleteEntity(contraption);
       } catch {
         if (originalRootRotation?.isQuaternion) {
           this.applyEntityRotation(contraption, originalRootRotation, { save: false });
@@ -6469,7 +5986,7 @@ export class PlayerController {
 
   /** Whole-entity menu commands deliberately do not depend on hover, active
    * tool, or a Selector A/B range. Geometry selection retains its own gate. */
-  async performEntityMenuAction(contraption, action: string): Promise<boolean> {
+  async performEntityMenuAction(contraption: Contraption, action: string): Promise<boolean> {
     if (!this.contraptions?.contraptions?.includes(contraption)) {
       this.ui?.showToast?.('This entity is no longer available', { tone: 'warning' });
       return false;
@@ -6515,7 +6032,9 @@ export class PlayerController {
           return false;
         }
         try {
-          await this.serverEntityDeleteHandler(contraption);
+          const deleteEntity = this.serverEntityDeleteHandler;
+        if (!deleteEntity) throw new Error('Entity deletion is unavailable');
+        await deleteEntity(contraption);
         } catch {
           this.ui?.showToast?.('Entity could not be deleted; please try again', { tone: 'warning' });
           return false;
@@ -6548,7 +6067,7 @@ export class PlayerController {
     return result.ok;
   }
 
-  async requestServerEntityRunState(contraption, desiredState, options: any = {}) {
+  async requestServerEntityRunState(contraption: Contraption, desiredState: 'running' | 'stopped', options: any = {}) {
     if (contraption.serverCanControl !== true) {
       if (!options?.silent) {
         this.ui?.showToast?.('This entity is read-only or occupied by another endpoint');
@@ -6905,9 +6424,9 @@ export class PlayerController {
    * Recursively collect the node IDs of `rootId` and all its descendants.
    * @returns A `Set<string>` of node IDs.
    */
-  collectSubtreeIds(contraption, rootId) {
-    const ids = new Set();
-    const walk = (id) => {
+  collectSubtreeIds(contraption: Contraption, rootId: string) {
+    const ids = new Set<string>();
+    const walk = (id: string) => {
       if (ids.has(id)) return;
       ids.add(id);
       for (const node of contraption.entityNodes.values()) {
@@ -6933,6 +6452,7 @@ export class PlayerController {
       return null;
     }
     const slot = contraption.serializeSubtree(rootId);
+    if (!slot) return null;
     const index = this.addInventoryItem('entity', slot);
     if (index === null) {
       this.ui?.showToast?.(`Item inventory is full (${this.inventories.entity.items.length}) - delete one first`);
@@ -6976,18 +6496,8 @@ export class PlayerController {
     this.saveInventoriesToLocalStorage();
   }
 
-  createEmptyInventories() {
-    const inventories: any = {
-      item: { items: new Array(MAX_BACKPACK_ITEM_SLOTS).fill(null), selected: 0 },
-      colorset: { items: new Array(MAX_BACKPACK_SLOTS_PER_CATEGORY).fill(null), selected: 0 },
-    };
-    // Existing copy/install commands use these private aliases. They share the
-    // same collection and cursor; persistence and UI expose only Item.
-    Object.defineProperties(inventories, {
-      blockset: { get: () => inventories.item },
-      entity: { get: () => inventories.item },
-    });
-    return inventories;
+  createEmptyInventories(): Inventories {
+    return createEmptyInventories();
   }
 
   inventoryCategory() {
@@ -6995,10 +6505,10 @@ export class PlayerController {
       this.inventories = this.createEmptyInventories();
       this.activeInventoryCategory = 'item';
     }
-    return this.inventories[this.activeInventoryCategory] || this.inventories.item;
+    return inventoryGroup(this.inventories, this.activeInventoryCategory) || this.inventories.item;
   }
 
-  setActiveInventoryCategory(category) {
+  setActiveInventoryCategory(category: string) {
     if (!this.inventories) this.inventoryCategory();
     const view = category === 'colorset' ? 'colorset' : 'item';
     if (this.activeInventoryCategory !== view) this.clearHammerRotation();
@@ -7068,7 +6578,7 @@ export class PlayerController {
     const isMicro = this.selectorMicroMode === true;
 
     if (!this.selectedBlockSelection && this.selectedSubtree) {
-      const nodeIds = this.selectedSubtree.nodeIds || this.collectSubtreeIds(contraption, nodeId);
+      const nodeIds = this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, nodeId);
       const subtreeBlocks = contraption.blocks.filter((b: any) => nodeIds.has(contraptionBlockOwnerId(contraption, b)));
       this.selectedBlockSelection = {
         contraption,
@@ -7358,7 +6868,7 @@ export class PlayerController {
         const nodeId = this.selectedBlockSelection?.nodeId || this.selectedSubtree?.rootId;
         if (contraption && nodeId) {
           const blocks = this.selectedBlockSelection?.blocks || contraption.blocks.filter((b: any) => (this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, nodeId)).has(contraptionBlockOwnerId(contraption, b)));
-          const bounds = this.selectedBlockSelection?.bounds || this.getEntitySelectionBounds(blocks, isMicro);
+          const bounds = this.selectedBlockSelection?.bounds || this.getEntitySelectionBounds(blocks || [], isMicro);
           if (bounds) {
             cornerA = { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
             cornerB = { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
@@ -7674,7 +7184,7 @@ export class PlayerController {
     const baseX = Math.floor(hp.x);
     const baseY = Math.floor(hp.y);
     const baseZ = Math.floor(hp.z);
-    const clamp = (value, base) => Math.max(base * MICRO_DIVISIONS, Math.min(base * MICRO_DIVISIONS + MICRO_DIVISIONS - 1, value));
+    const clamp = (value: number, base: number) => Math.max(base * MICRO_DIVISIONS, Math.min(base * MICRO_DIVISIONS + MICRO_DIVISIONS - 1, value));
     return {
       x: wrapMicroX(clamp(Math.floor((entry.x + normal.x * 0.02) * MICRO_DIVISIONS), baseX)),
       y: Math.max(0, clamp(Math.floor((entry.y + normal.y * 0.02) * MICRO_DIVISIONS), baseY)),
@@ -7683,7 +7193,7 @@ export class PlayerController {
   }
 
   /** Meter-space origin of the 0.125 m micro cell containing a world point. */
-  microMeterPoint(point) {
+  microMeterPoint(point: Point3 | null) {
     if (!point) return null;
     return {
       x: Math.floor(point.x * MICRO_DIVISIONS + 1e-6) / MICRO_DIVISIONS,
@@ -7707,124 +7217,48 @@ export class PlayerController {
 
   /** Use an empty shared Item or Color Set slot, preferring the selected empty
    *  hotbar slot. Returns its index, or null when the group is full. */
-  addInventoryItem(category, item) {
-    if (!this.inventories) this.inventoryCategory();
-    const originalCategory = category;
-    category = category === 'colorset' ? 'colorset' : 'item';
-    const group = this.inventories?.[category];
-    if (!group || !item) return null;
-    if (category === 'item' && item.kind !== 'item' && originalCategory !== 'item') {
-      const portable = this.serializeInventoryItem(originalCategory, item);
-      const worldPoseKnown = originalCategory === 'entity' && Array.isArray(item.sourcePosition) && Array.isArray(item.sourceRotation);
-      if (worldPoseKnown) {
-        const inverseRotation = new THREE.Quaternion().fromArray(item.sourceRotation).invert();
-        const origin = new THREE.Vector3().fromArray(item.sourcePosition);
-        for (const constraint of portable.constraints || []) {
-          if (constraint.bodyA != null) continue;
-          for (const field of ['anchorA', 'axisA', 'referenceA']) {
-            if (!constraint[field]) continue;
-            const value = new THREE.Vector3().fromArray(constraint[field]);
-            if (field === 'anchorA') value.sub(origin);
-            constraint[field] = value.applyQuaternion(inverseRotation).toArray();
-          }
-        }
-      }
-      const wrapped = wrapLegacyInventoryResource(originalCategory, portable, item.id || newItemTemplateId(), worldPoseKnown);
-      if (wrapped.type === 'space-item') item = inventoryResourcePreviewItem('item', wrapped);
-    }
-    if (category === 'colorset') {
-      const source = Array.isArray(item.entries)
-        ? item.entries
-        : Array.isArray(item.colors)
-          ? item.colors.map(color => ({ stops: [{ color, position: 0 }], materialId: 0 }))
-          : [];
-      item.entries = source.map(entry => normalizePaletteEntry(entry, item.name || 'Custom'));
-      delete item.colors;
-    }
-    if (!item.id) {
-      const prefix = category === 'colorset' ? 'cs_' : 'item_';
-      item.id = typeof globalThis.crypto?.randomUUID === 'function'
-        ? `${prefix}${globalThis.crypto.randomUUID()}`
-        : `${prefix}${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    }
-    // Put an item into the first available empty slot in the category.
-    const index = group.items.findIndex(slot => !slot);
-    if (index < 0) return null;
-    item.name = this.inventoryItemName(category, item, index);
-    group.items[index] = item;
-    if (index < 9) {
-      if (this.activeInventoryCategory === category && group.selected !== index) this.clearHammerRotation();
-      group.selected = index;
-    }
+  addInventoryItem(category: InventoryKind, item: InventoryInput | null): number | null {
+    this.inventoryCategory();
+    const view = category === 'colorset' ? 'colorset' : 'item';
+    const group = inventoryGroup(this.inventories, view);
+    if (!group) return null;
+    const previousSelected = group.selected;
+    const index = addInventoryItem(this.inventories, category, item);
+    if (index === null) return null;
+    if (this.activeInventoryCategory === view && previousSelected !== this.inventories[view].selected) this.clearHammerRotation();
     this.saveInventoriesToLocalStorage();
     return index;
   }
 
-  /** Display name for a backpack item. Names are intentionally not unique. */
-  inventoryItemName(category, item, index = 0) {
+  inventoryItemName(category: string, item: InventoryInput | null, index = 0): string {
     return inventoryItemName(category, item, index);
   }
 
-  /** Rename one item. Duplicate and empty names are allowed within and across categories. */
-  renameInventoryItem(category, index, name) {
-    if (!this.inventories) this.inventoryCategory();
-    const group = this.inventories?.[category];
-    if (!group || !Number.isInteger(index) || !group.items[index]) return null;
-    const cleanName = typeof name === 'string' ? truncateInventoryName(trimInventoryName(name)) : '';
-    group.items[index].name = cleanName;
-    this.saveInventoriesToLocalStorage();
-    return cleanName;
+  renameInventoryItem(category: string, index: number, name: unknown): string | null {
+    this.inventoryCategory();
+    const result = renameInventoryItem(this.inventories, category, index, name);
+    if (result !== null) this.saveInventoriesToLocalStorage();
+    return result;
   }
 
-  /** Remove one backpack item; keeps a valid selected index. */
-  deleteInventoryItem(category, index) {
-    if (!this.inventories) this.inventoryCategory();
-    const group = this.inventories?.[category];
-    if (!group || !Number.isInteger(index) || !group.items[index]) return false;
-    if (this.activeInventoryCategory === category) this.clearHammerRotation();
-    if (category === 'colorset') {
-      const nonNullCount = group.items.filter(Boolean).length;
-      if (nonNullCount <= 1) return false;
-      group.items.splice(index, 1);
-      while (group.items.length < MAX_BACKPACK_SLOTS_PER_CATEGORY) {
-        group.items.push(null);
-      }
-      if (group.selected >= group.items.filter(Boolean).length) {
-        group.selected = Math.max(0, group.items.filter(Boolean).length - 1);
-      }
+  deleteInventoryItem(category: string, index: number): boolean {
+    this.inventoryCategory();
+    const changed = deleteInventoryItem(this.inventories, category, index);
+    if (changed) {
+      if (this.activeInventoryCategory === category) this.clearHammerRotation();
       this.saveInventoriesToLocalStorage();
-      return true;
     }
-    group.items[index] = null;
-    if (!group.items[group.selected]) {
-      const filled = group.items.findIndex(slot => slot);
-      group.selected = filled >= 0 ? filled : 0;
-    }
-    this.saveInventoriesToLocalStorage();
-    return true;
+    return changed;
   }
 
-  /** Swap two slots within an inventory category. */
-  swapInventorySlots(category, fromIndex, toIndex) {
-    if (!this.inventories) this.inventoryCategory();
-    const group = this.inventories?.[category];
-    if (!group || !Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return false;
-    const maxLen = group.items.length;
-    if (fromIndex < 0 || fromIndex >= maxLen || toIndex < 0 || toIndex >= maxLen || fromIndex === toIndex) return false;
-    if (this.activeInventoryCategory === category) this.clearHammerRotation();
-
-    const temp = group.items[fromIndex];
-    group.items[fromIndex] = group.items[toIndex];
-    group.items[toIndex] = temp;
-
-    if (group.selected === fromIndex) {
-      group.selected = toIndex;
-    } else if (group.selected === toIndex) {
-      group.selected = fromIndex;
+  swapInventorySlots(category: string, fromIndex: number, toIndex: number): boolean {
+    this.inventoryCategory();
+    const changed = swapInventorySlots(this.inventories, category, fromIndex, toIndex);
+    if (changed) {
+      if (this.activeInventoryCategory === category) this.clearHammerRotation();
+      this.saveInventoriesToLocalStorage();
     }
-
-    this.saveInventoriesToLocalStorage();
-    return true;
+    return changed;
   }
 
   inventoryStorage() {
@@ -7836,142 +7270,47 @@ export class PlayerController {
     }
   }
 
-  /** Keep the built-in nine-entry palette available as a color set. */
-  ensureDefaultColorSet() {
-    if (!this.inventories) this.inventoryCategory();
-    const items = this.inventories.colorset.items;
-    const defaultEntries = PRESET_COLORS.map(color => normalizePaletteEntry({
-      name: color.name,
-      stops: [{ color: color.hex, position: 0 }],
-      materialId: VoxelMaterialIds.DEFAULT,
-    }));
-    const alreadyPresent = items.some(item => item && Array.isArray(item.entries)
-      && item.entries.length === defaultEntries.length
-      && item.entries.every((entry, index) => (
-        normalizePaletteEntry(entry).hex === defaultEntries[index].hex
-        && normalizePaletteEntry(entry).stops.length === 1
-      )));
-    if (alreadyPresent) {
-      items.forEach(item => {
-        if (item && !item.id) {
-          item.id = typeof globalThis.crypto?.randomUUID === 'function'
-            ? `cs_${globalThis.crypto.randomUUID()}`
-            : `cs_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-        }
-      });
-      return false;
-    }
-    const index = items.findIndex(item => !item);
-    if (index < 0) return false;
-    items[index] = {
-      id: typeof globalThis.crypto?.randomUUID === 'function'
-        ? `cs_${globalThis.crypto.randomUUID()}`
-        : `cs_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-      name: DEFAULT_COLOR_SET_NAME,
-      entries: defaultEntries
-    };
-    return true;
+  ensureDefaultColorSet(): boolean {
+    this.inventoryCategory();
+    return ensureDefaultColorSet(this.inventories);
   }
 
-  /** Persist Items and palettes in the same canonical format used by export. */
-  saveInventoriesToLocalStorage(storage = this.inventoryStorage()) {
-    if (!storage || !this.inventories) return false;
-    const categories = {} as PortableBackpack['categories'];
-    for (const category of INVENTORY_CATEGORIES) {
-      const group = this.inventories[category];
-      categories[category] = {
-        selected: group.selected,
-        items: group.items.map(item => item ? this.serializeInventoryItem(category, item) : null)
-      };
-    }
-    try {
-      const encoded = encodeBackpack({
-        activeCategory: this.activeInventoryCategory as InventoryKind,
-        categories
-      });
-      if (typeof storage.setBytes === 'function') storage.setBytes(INVENTORY_STORAGE_KEY, encoded);
-      else storage.setItem(INVENTORY_STORAGE_KEY, protobufToBase64(encoded));
-      return true;
-    } catch (err) {
-      console.warn('Could not save backpack to browser storage:', err);
-      return false;
-    }
+  saveInventoriesToLocalStorage(storage: BackpackStorage | null = this.inventoryStorage()): boolean {
+    return saveBackpack(this.inventories, this.activeInventoryCategory, storage);
   }
 
-  /** Restore the backpack on startup; old or malformed storage is intentionally ignored. */
-  loadInventoriesFromLocalStorage(storage = this.inventoryStorage()) {
-    const inventories = this.createEmptyInventories();
-    let activeCategory = 'item';
-    let loaded = false;
-    let changed = false;
-    let failed = false;
-
-    try {
-      const raw = storage?.getBytes?.(INVENTORY_STORAGE_KEY)
-        ?? storage?.getItem(INVENTORY_STORAGE_KEY)
-        ?? storage?.getBytes?.(PREVIOUS_INVENTORY_STORAGE_KEY)
-        ?? storage?.getItem(PREVIOUS_INVENTORY_STORAGE_KEY)
-        ?? storage?.getBytes?.(LEGACY_INVENTORY_STORAGE_KEY)
-        ?? storage?.getItem(LEGACY_INVENTORY_STORAGE_KEY);
-      if (raw) {
-        const data = decodeBackpack(typeof raw === 'string' ? protobufFromBase64(raw) : raw);
-        changed = data.sourceSchemaVersion !== BACKPACK_PROTOBUF_SCHEMA_VERSION;
-        for (const category of INVENTORY_CATEGORIES) {
-          const storedGroup = data.categories?.[category];
-          const maxLen = inventories[category].items.length;
-          const storedItems = Array.isArray(storedGroup?.items) ? storedGroup.items.slice(0, maxLen) : [];
-          for (let index = 0; index < storedItems.length; index++) {
-            if (!storedItems[index]) continue;
-            const parsed = this.parseInventoryImport(
-              encodeInventoryResource(inventoryKindForPortable(storedItems[index]), storedItems[index]),
-              category
-            );
-            if (parsed.ok) inventories[category].items[index] = (parsed as any).item;
-            else failed = true;
-          }
-          const selected = Number(storedGroup?.selected);
-          inventories[category].selected = Number.isInteger(selected) && selected >= 0 && selected < maxLen ? selected : 0;
-        }
-        if (INVENTORY_CATEGORIES.includes(data.activeCategory)) activeCategory = data.activeCategory;
-        loaded = true;
-      }
-    } catch (err) {
-      failed = true;
-      console.warn('Could not read backpack; original storage was retained:', err);
-    }
-
-    this.inventories = inventories;
-    this.activeInventoryCategory = activeCategory;
-    if (this.ensureDefaultColorSet()) changed = true;
-    if (storage && !failed && (!loaded || changed)) {
-      this.saveInventoriesToLocalStorage(storage);
-    }
-    return loaded;
+  loadInventoriesFromLocalStorage(storage: BackpackStorage | null = this.inventoryStorage()): boolean {
+    const result = loadBackpack(storage);
+    this.inventories = result.inventories;
+    this.activeInventoryCategory = result.activeCategory;
+    return result.loaded;
   }
 
   // --- File import / export (pure, DOM-free) ----------------------------------------
 
   /** Build the portable object that is encoded into Protobuf storage or transfer. */
-  serializeInventoryItem(category, item) {
+  serializeInventoryItem(category: 'entity', item: InventoryInput): import('@entropydrop/space-engine/storage/InventoryTypes.ts').PortableEntity;
+  serializeInventoryItem(category: string, item: InventoryInput | null): import('@entropydrop/space-engine/storage/InventoryTypes.ts').PortableResource | null;
+  serializeInventoryItem(category: string, item: InventoryInput | null) {
     return serializeInventoryItem(category, item);
   }
 
-  encodeInventoryItem(category, item) {
+  encodeInventoryItem(category: string, item: InventoryInput | null) {
     return encodeInventoryItem(category, item);
   }
 
   /** Parse one Protobuf resource into a backpack item. Returns { ok, item, error }. */
-  parseInventoryImport(input, category) {
+  parseInventoryImport(input: unknown, category: string) {
     return parseInventoryImport(input, category);
   }
 
-  private finishEntitySlotBuild(slot, pose, preparedBlocks = null) {
+  private finishEntitySlotBuild(slot: PlacementSlot, pose: PlacementPose, preparedBlocks: RuntimeVoxel[] | null = null) {
     const origin = pose?.position?.clone?.()
       || new THREE.Vector3(Number(pose?.position?.x) || 0, Number(pose?.position?.y) || 0, Number(pose?.position?.z) || 0);
     const rotation = pose?.quaternion?.isQuaternion
       ? pose.quaternion.clone().normalize()
       : new THREE.Quaternion();
-    const pendingWorldConstraints = [];
+    const pendingWorldConstraints: NonNullable<InventoryInput['constraints']> = [];
     if (slot.itemWorldConstraints) {
       const worldPose = pose.itemWorldPose || { position: origin, quaternion: rotation };
       slot = { ...slot, constraints: (slot.constraints || []).filter(constraint => {
@@ -7981,7 +7320,7 @@ export class PlayerController {
         const perpendicular = Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
         transformed.axisA = constraint.axisA || axis.toArray();
         transformed.referenceA = constraint.referenceA || perpendicular.addScaledVector(axis, -perpendicular.dot(axis)).normalize().toArray();
-        for (const field of ['anchorA', 'axisA', 'referenceA']) {
+        for (const field of ['anchorA', 'axisA', 'referenceA'] as const) {
           if (!transformed[field]) continue;
           const value = new THREE.Vector3().fromArray(transformed[field]).applyQuaternion(worldPose.quaternion);
           if (field === 'anchorA') value.add(worldPose.position);
@@ -8023,7 +7362,7 @@ export class PlayerController {
   }
 
   /** Place all static geometry and independent Entity trees in one Item frame. */
-  private pasteCompositeItem(slot, installAsComponent = false) {
+  private pasteCompositeItem(slot: InventoryInput, installAsComponent = false) {
     const singleEntity = !slot.blockSet && slot.entityList?.length === 1;
     if (installAsComponent && !singleEntity) {
       this.ui?.showToast?.('Component installation requires an item containing one entity and no static blocks');
@@ -8046,7 +7385,8 @@ export class PlayerController {
         this.ui?.showToast?.('Stop the target entity with the Wrench before installing components');
         return false;
       }
-      const entity = slot.entityList[0];
+      const entity = slot.entityList?.[0];
+      if (!entity) return false;
       const entityPose = {
         ...pose,
         position: new THREE.Vector3().fromArray(entity.itemPosition || [0, 0, 0])
@@ -8100,7 +7440,7 @@ export class PlayerController {
     if (blocks.length > BULK_EDIT_THRESHOLD) {
       return this.startBulkEditJob({
         label: 'Building item', total: blocks.length,
-        step: index => {
+        step: (index: number) => {
           const changed = this.applyBlockSetVoxel(origin, blocks[index]);
           placed += changed;
           return changed;
@@ -8112,8 +7452,8 @@ export class PlayerController {
     return buildEntities();
   }
 
-  private describeComponentInstallFailure(reason) {
-    const messages = {
+  private describeComponentInstallFailure(reason: string | undefined) {
+    const messages: Record<string, string> = {
       target_entity_missing: 'The target entity is no longer available',
       target_component_missing: 'The targeted component is no longer available',
       target_not_stopped: 'Stop the target entity with the Wrench before installing components',
@@ -8132,11 +7472,12 @@ export class PlayerController {
       invalid_constraints: 'The module contains invalid internal constraints',
       invalid_scripts: 'The module contains an invalid component script'
     };
-    return messages[reason] || `Component installation failed (${reason || 'unknown error'})`;
+    return messages[reason || ''] || `Component installation failed (${reason || 'unknown error'})`;
   }
 
-  private finishEntitySlotInstall(slot, pose, preparedBlocks = null) {
+  private finishEntitySlotInstall(slot: PlacementSlot, pose: PlacementPose, preparedBlocks: RuntimeVoxel[] | null = null) {
     const target = pose?.targetContraption;
+    if (!target) return null;
     const parentId = pose?.targetNodeId ?? contraptionRootId(target);
     const placementRotation = pose?.quaternion?.isQuaternion
       ? pose.quaternion
@@ -8172,15 +7513,15 @@ export class PlayerController {
   }
 
   /** Map a large serialized entity slot incrementally; registration stays atomic. */
-  private startLargeEntitySlotBuild(slot, pose) {
-    const source = [...slot.blocks];
+  private startLargeEntitySlotBuild(slot: PlacementSlot, pose: PlacementPose) {
+    const source = [...(slot.blocks || [])];
     const preparedBlocks: any[] = [];
     return this.startBulkEditJob({
       label: 'Building entity',
       total: source.length,
       mutatesWorld: false,
       detail: 'Preparing entity voxels',
-      step: index => {
+      step: (index: number) => {
         const block = source[index];
         preparedBlocks.push({
           localX: block.localX,
@@ -8200,15 +7541,15 @@ export class PlayerController {
   }
 
   /** Prepare a large module incrementally, then merge it in one atomic hierarchy edit. */
-  private startLargeEntitySlotInstall(slot, pose) {
-    const source = [...slot.blocks];
+  private startLargeEntitySlotInstall(slot: PlacementSlot, pose: PlacementPose) {
+    const source = [...(slot.blocks || [])];
     const preparedBlocks: any[] = [];
     return this.startBulkEditJob({
       label: 'Installing component',
       total: source.length,
       mutatesWorld: false,
       detail: 'Preparing component voxels',
-      step: index => {
+      step: (index: number) => {
         const block = source[index];
         preparedBlocks.push({
           localX: block.localX,
@@ -8300,7 +7641,7 @@ export class PlayerController {
    * Cycle the active inventory slot of the current backpack category by
    * `direction` (+1 or −1); used when the Hammer is active.
    */
-  cycleInventorySlot(direction) {
+  cycleInventorySlot(direction: number) {
     const count = this.inventorySlots.length;
     this.selectedInventoryIndex = (this.selectedInventoryIndex + direction + count) % count;
     this.ui?.renderInventoryBar?.();
@@ -8317,7 +7658,7 @@ export class PlayerController {
     }
   }
 
-  canPlaceStandardAt(pos) {
+  canPlaceStandardAt(pos: Point3 | null) {
     if (!pos) return false;
     const playerAABB = this.physics.getAABB();
     return !(
@@ -8327,7 +7668,7 @@ export class PlayerController {
     );
   }
 
-  private finishPreparedWorldAssembly(rawBlocks, origin, mode, customOptions) {
+  private finishPreparedWorldAssembly(rawBlocks: RuntimeVoxel[], origin: Point3, mode: string, customOptions: ContraptionOptions) {
     if (rawBlocks.length === 0) {
       this.ui?.showToast?.('Selection region is empty (no blocks to assemble)');
       return null;
@@ -8348,7 +7689,7 @@ export class PlayerController {
   }
 
   /** Extract a large world selection incrementally, then atomically create its entity. */
-  private startLargeWorldAssembly(mode, customOptions = {}) {
+  private startLargeWorldAssembly(mode: string, customOptions: ContraptionOptions = {}) {
     const manager = this.contraptions;
     const finalMode = manager.normalizeAssemblyMode?.(mode);
     if (!finalMode) return false;
@@ -8362,20 +7703,20 @@ export class PlayerController {
       : null;
     if (!microCells && !bounds) return false;
 
-    const sizeY = bounds ? bounds.maxY - bounds.minY + 1 : 0;
-    const sizeZ = bounds ? bounds.maxZ - bounds.minZ + 1 : 0;
+    const sizeY = bounds ? bounds!.maxY - bounds!.minY + 1 : 0;
+    const sizeZ = bounds ? bounds!.maxZ - bounds!.minZ + 1 : 0;
     const scanTotal = microCells?.length
       ?? sparseCells?.length
-      ?? ((bounds.maxX - bounds.minX + 1) * sizeY * sizeZ);
+      ?? ((bounds!.maxX - bounds!.minX + 1) * sizeY * sizeZ);
     const origin = microCells
       ? { x: Infinity, y: Infinity, z: Infinity }
-      : { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
+      : { x: bounds!.minX, y: bounds!.minY, z: bounds!.minZ };
     const total = microCells ? scanTotal * 2 : scanTotal;
     const rawBlocks: any[] = [];
-    const cellAt = index => sparseCells?.[index] || {
-      x: bounds.minX + Math.floor(index / (sizeY * sizeZ)),
-      y: bounds.minY + Math.floor(index / sizeZ) % sizeY,
-      z: bounds.minZ + index % sizeZ
+    const cellAt = (index: number) => sparseCells?.[index] || {
+      x: bounds!.minX + Math.floor(index / (sizeY * sizeZ)),
+      y: bounds!.minY + Math.floor(index / sizeZ) % sizeY,
+      z: bounds!.minZ + index % sizeZ
     };
 
     const started = this.startBulkEditJob({
@@ -8384,7 +7725,7 @@ export class PlayerController {
       detail: job => microCells && job.processed < scanTotal
         ? 'Measuring micro selection'
         : 'Extracting selected voxels',
-      step: index => {
+      step: (index: number) => {
         if (microCells) {
           if (index < scanTotal) {
             const cell = microCells[index];
@@ -8524,8 +7865,8 @@ export class PlayerController {
         : null;
       if (result && this.ui) {
         this.ui.showToast(`Sub-contraption ${result.child.id} assembled · control it via self.child('${result.child.id}')`);
-        this.ui.renderComponentTree(result.contraption);
-        this.ui.renderCodeTabs(result.contraption);
+        this.ui.renderComponentTree();
+        this.ui.renderCodeTabs();
         this.ui.updateInspectorProperties(result.child.id);
       }
       return result?.child || null;
@@ -8621,7 +7962,7 @@ export class PlayerController {
     return this.physics?.weight ?? PLAYER_MASS_KG * Math.abs(PLAYER_GRAVITY_MPS2);
   }
 
-  setSceneRenderer(sceneRenderer) {
+  setSceneRenderer(sceneRenderer: SceneRenderer) {
     this.sceneRenderer = sceneRenderer;
     this.syncCameraViewVisibility();
   }
@@ -8774,7 +8115,7 @@ export class PlayerController {
     return true;
   }
 
-  updateSimulation(dt) {
+  updateSimulation(dt: number) {
     if (this.isDriving) this.physics.capturePreviousPosition?.();
     if (!this.syncDrivenVehiclePose()) {
       if (this.navigationSystem?.isNavigating) {
@@ -8884,7 +8225,7 @@ export class PlayerController {
 
   /** Compatibility one-call form used by focused controller tests. The game
    * loop invokes updateSimulation at 20 Hz and updateRender on every RAF. */
-  update(dt) {
+  update(dt: number) {
     this.processBulkEditFrame();
     this.updateSimulation(dt);
     this.getCameraPerspectiveTransition().advance(dt);
@@ -9249,7 +8590,7 @@ export class PlayerController {
       // back to world space here so the preview co-moves with rotating/translating components.
       // Hovering a *different* entity shows nothing (a click there switches the level) — and it
       // must never fall through to the spoon micro-voxel grid.
-      if (selectorActive) {
+      if (selectorActive && this.selectorRange) {
         if (this.selectorRange.contraption === contraption) {
           // Reuse the cursor target so the guide matches what the selector will
           // pick: a 0.125 m cell inside a standard block in micro mode, or the
@@ -9367,45 +8708,8 @@ export class PlayerController {
     }
   }
 
-  getEntitySelectionBounds(blocks: any[], isMicro = false) {
-    if (!blocks || blocks.length === 0) return null;
-    if (isMicro) {
-      let minX = Infinity, minY = Infinity, minZ = Infinity;
-      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      for (const b of blocks) {
-        const size = (b.size !== undefined && b.size !== null) ? b.size : 1;
-        const bx = Math.round(b.localX * MICRO_DIVISIONS);
-        const by = Math.round(b.localY * MICRO_DIVISIONS);
-        const bz = Math.round(b.localZ * MICRO_DIVISIONS);
-        const bSize = Math.max(1, Math.round(size * MICRO_DIVISIONS));
-        minX = Math.min(minX, bx);
-        minY = Math.min(minY, by);
-        minZ = Math.min(minZ, bz);
-        maxX = Math.max(maxX, bx + bSize - 1);
-        maxY = Math.max(maxY, by + bSize - 1);
-        maxZ = Math.max(maxZ, bz + bSize - 1);
-      }
-      if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return null;
-      return { minX, maxX, minY, maxY, minZ, maxZ };
-    } else {
-      let minX = Infinity, minY = Infinity, minZ = Infinity;
-      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      for (const b of blocks) {
-        const size = b.size || 1;
-        const bx = Math.floor(b.localX + 1e-6);
-        const by = Math.floor(b.localY + 1e-6);
-        const bz = Math.floor(b.localZ + 1e-6);
-        const bSize = Math.max(1, Math.round(size));
-        minX = Math.min(minX, bx);
-        minY = Math.min(minY, by);
-        minZ = Math.min(minZ, bz);
-        maxX = Math.max(maxX, bx + bSize - 1);
-        maxY = Math.max(maxY, by + bSize - 1);
-        maxZ = Math.max(maxZ, bz + bSize - 1);
-      }
-      if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return null;
-      return { minX, maxX, minY, maxY, minZ, maxZ };
-    }
+  getEntitySelectionBounds(blocks: RuntimeVoxel[], isMicro = false) {
+    return selectionGeometry.getEntitySelectionBounds(blocks, isMicro);
   }
 
   expandEntitySelectionAxis(axis: 'x' | 'y' | 'z', direction: 1 | -1, steps: number, isMicro = false) {
@@ -9414,7 +8718,7 @@ export class PlayerController {
     if (!contraption || !nodeId) return { ok: false, bounds: null, count: 0 };
 
     if (!this.selectedBlockSelection && this.selectedSubtree) {
-      const nodeIds = this.selectedSubtree.nodeIds || this.collectSubtreeIds(contraption, nodeId);
+      const nodeIds = this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, nodeId);
       const subtreeBlocks = contraption.blocks.filter((b: any) => nodeIds.has(contraptionBlockOwnerId(contraption, b)));
       this.selectedBlockSelection = {
         contraption,
@@ -9570,9 +8874,9 @@ export class PlayerController {
         const rootId = this.selectedSubtree.rootId;
         const node = contraption.entityNodes?.get?.(rootId);
         if (!boxPending && node && node.group && this.canEditEntityInternals(contraption)) {
-          const nodeIds = this.selectedSubtree.nodeIds || this.collectSubtreeIds(contraption, rootId);
+          const nodeIds = this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, rootId);
           const blocks = contraption.blocks.filter((b: any) => nodeIds.has(contraptionBlockOwnerId(contraption, b)));
-          bounds = this.getEntitySelectionBounds(blocks, isMicro);
+          bounds = this.getEntitySelectionBounds(blocks || [], isMicro);
           if (bounds) {
             frame = {
               object: node.group,
@@ -9645,7 +8949,7 @@ export class PlayerController {
 
   startGizmoDrag(hit: any, e: MouseEvent | null = null) {
     if (!hit) return;
-    if (this.handleRunningEntityInteraction(this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption)) return;
+    if (this.handleRunningEntityInteraction(this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption || null)) return;
     const isEntity = !!(this.selectedBlockSelection || this.selectedSubtree);
     this.activeGizmoDrag = {
       handleKey: hit.handleKey,
@@ -9680,9 +8984,9 @@ export class PlayerController {
       let bounds = this.selectedBlockSelection?.bounds;
       if (!bounds) {
         const blocks = this.selectedBlockSelection?.blocks || (
-          this.selectedSubtree ? target.blocks.filter((b: any) => (this.selectedSubtree.nodeIds || this.collectSubtreeIds(target, nodeId)).has(contraptionBlockOwnerId(target, b))) : null
+          this.selectedSubtree ? target.blocks.filter((b: any) => (this.selectedSubtree?.nodeIds || this.collectSubtreeIds(target, nodeId)).has(contraptionBlockOwnerId(target, b))) : null
         );
-        bounds = this.getEntitySelectionBounds(blocks, isMicro);
+        bounds = this.getEntitySelectionBounds(blocks || [], isMicro);
       }
       if (!bounds) {
         this.releaseGizmoDrag();

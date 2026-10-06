@@ -5,7 +5,7 @@ import { logConsoleSecurityWarning } from '../src/bootstrap/ConsoleSecurityWarni
 
 test('console security warning cautions against pasted code and browser-storage API-key theft', () => {
   const calls: unknown[][] = [];
-  logConsoleSecurityWarning((...data) => calls.push(data));
+  logConsoleSecurityWarning((...data: unknown[]) => calls.push(data));
 
   const output = calls.flat().join(' ');
   assert.match(output, /SECURITY WARNING/);

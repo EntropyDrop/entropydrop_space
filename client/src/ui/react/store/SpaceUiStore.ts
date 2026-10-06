@@ -201,6 +201,7 @@ export interface TelemetryView {
 
 export interface SpaceUiSnapshot {
   revision: number;
+  inventoryRevision: number;
   controller: any;
   world: any;
   contraptions: any;
@@ -375,6 +376,7 @@ export class SpaceUiStore {
 
   private snapshot: SpaceUiSnapshot = {
     revision: 0,
+    inventoryRevision: 0,
     controller: null,
     world: null,
     contraptions: null,
@@ -464,7 +466,9 @@ export class SpaceUiStore {
   }
 
   refresh(): void {
-    this.patch({});
+    // Inventory objects are mutable; publish an explicit version for narrowed
+    // subscribers when callers edit them in place (for example, a rename).
+    this.patch({ inventoryRevision: this.snapshot.inventoryRevision + 1 });
   }
 
   setEntityHostingHandlers(handlers: EntityHostingHandlers | null): void {
@@ -1399,7 +1403,8 @@ export class SpaceUiStore {
     this.patch({
       activeInventoryCategory,
       selectedInventoryIndex: Number(controller.selectedInventoryIndex ?? 0),
-      activeColorSetId
+      activeColorSetId,
+      inventoryRevision: this.snapshot.inventoryRevision + 1,
     });
   }
 
@@ -2073,7 +2078,7 @@ export class SpaceUiStore {
 
   setLightingQuality(quality: LightingQuality, persist = true): void {
     const normalized = normalizeLightingQuality(quality);
-    const value = this.snapshot.sceneRenderer?.setLightingQuality?.(normalized) ?? normalized;
+    const value = normalizeLightingQuality(this.snapshot.sceneRenderer?.setLightingQuality?.(normalized) ?? normalized);
     this.patch({ lightingQuality: value });
     if (persist) {
       try { localStorage.setItem(LIGHTING_QUALITY_SETTING_KEY, value); } catch { }

@@ -5,12 +5,13 @@ import { Contraption } from '../src/contraption/Contraption.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 import { CollisionBoxIndex, collisionBoundsOverlap, mergeCollisionCells } from '../src/physics/CollisionGeometry.ts';
 
-function occupied(boxes) {
+function occupied(boxes: Array<import('../src/physics/CollisionGeometry.ts').CollisionBox | import('../src/contraption/EntityTypes.ts').CollisionEntry>) {
   const cells = new Set<string>();
   for (const box of boxes) {
-    for (let x = box.x; x < box.x + (box.spanX ?? box.span); x++) {
-      for (let y = box.y; y < box.y + (box.spanY ?? box.span); y++) {
-        for (let z = box.z; z < box.z + (box.spanZ ?? box.span); z++) cells.add(`${box.entityId}:${x},${y},${z}`);
+    const spans = 'span' in box ? [box.span, box.span, box.span] : [box.spanX, box.spanY, box.spanZ];
+    for (let x = box.x; x < box.x + spans[0]; x++) {
+      for (let y = box.y; y < box.y + spans[1]; y++) {
+        for (let z = box.z; z < box.z + spans[2]; z++) cells.add(`${box.entityId}:${x},${y},${z}`);
       }
     }
   }
@@ -70,7 +71,7 @@ test('the local collision index matches exhaustive swept-bounds queries in stabl
     assert.deepEqual(index.query(query), boxes.filter(box => collisionBoundsOverlap(box, query)));
   }
   let reads = 0;
-  const watched = boxes.map(box => new Proxy(box, { get(target, key) { reads++; return target[key]; } }));
+  const watched = boxes.map(box => new Proxy(box, { get(target, key) { reads++; return Reflect.get(target, key); } }));
   const watchedIndex = new CollisionBoxIndex(watched);
   reads = 0;
   assert.equal(watchedIndex.query(boxes[500]).length, 1);

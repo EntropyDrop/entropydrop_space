@@ -11,6 +11,7 @@ export class InventoryThumbnailRenderer {
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
   private thumbnailCache = new Map<string, string>();
+  private itemKeys = new WeakMap<object, { revision: number; keys: Map<number, string> }>();
   private webgpuAvailable: boolean = true;
 
   static getInstance(): InventoryThumbnailRenderer {
@@ -85,8 +86,18 @@ export class InventoryThumbnailRenderer {
   /**
    * Compute a deterministic cache key for an inventory slot item.
    */
-  private getItemCacheKey(item: any, size: number): string {
+  private getItemCacheKey(item: any, size: number, revision = 0): string {
     if (!item) return '';
+    let cached = this.itemKeys.get(item);
+    if (!cached || cached.revision !== revision) {
+      cached = { revision, keys: new Map() };
+      this.itemKeys.set(item, cached);
+    }
+    if (!cached.keys.has(size)) cached.keys.set(size, this.computeItemCacheKey(item, size));
+    return cached.keys.get(size)!;
+  }
+
+  private computeItemCacheKey(item: any, size: number): string {
     if (item.kind === 'item') {
       const geometry = getInventoryPreviewBlocks(item, true).map(entry => (
         `${entry.center.toArray()}:${entry.size}:${entry.color}:${normalizeVoxelMaterialId(entry.materialId)}:${entry.scale?.toArray()}:${entry.quaternion?.toArray()}`
@@ -104,16 +115,16 @@ export class InventoryThumbnailRenderer {
       `${b.localX ?? b.dx}_${b.localY ?? b.dy}_${b.localZ ?? b.dz}_${b.color}_${b.size || 1}_${normalizeVoxelMaterialId(b.materialId)}`
     ).join(';');
 
-    const decorationSignature = JSON.stringify([item.decorations, (item.childEntities || []).map(child => child.decorations)]);
+    const decorationSignature = JSON.stringify([item.decorations, (item.childEntities || []).map((child: { decorations?: unknown }) => child.decorations)]);
     return `${kind}:${name}:${blockCount}:${childCount}:${sample}:${decorationSignature}:${size}`;
   }
 
   /**
    * Generate or retrieve a cached thumbnail Data URL for an inventory item (blockset or resting entity).
    */
-  getThumbnail(item: any, size = 128): string | null {
+  getThumbnail(item: any, size = 128, resourceRevision = 0): string | null {
     if (!item?.blocks?.length) return null;
-    const key = this.getItemCacheKey(item,size);
+    const key = this.getItemCacheKey(item, size, resourceRevision);
     if (this.thumbnailCache.has(key)) return this.thumbnailCache.get(key)!;
     if (!this.pending.has(key) && !this.failed.has(key)) {
       this.pending.add(key);
@@ -121,7 +132,7 @@ export class InventoryThumbnailRenderer {
       this.queue = this.queue.then(async () => {
         await this.ready;
         if (generation !== this.generation) return;
-        const url = await this.generateThumbnail(item,size);
+        const url = await this.generateThumbnail(item, size, key);
         if (generation !== this.generation) return;
         if (url) this.thumbnailCache.set(key,url); else this.failed.add(key);
       }).catch(error => { this.failed.add(key); console.warn('Thumbnail rendering failed:',error); })
@@ -130,10 +141,9 @@ export class InventoryThumbnailRenderer {
     return null;
   }
 
-  private async generateThumbnail(item: any, size: number): Promise<string | null> {
+  private async generateThumbnail(item: any, size: number, cacheKey: string): Promise<string | null> {
     if (!item || !item.blocks || item.blocks.length === 0) return null;
 
-    const cacheKey = this.getItemCacheKey(item, size);
     if (this.thumbnailCache.has(cacheKey)) {
       return this.thumbnailCache.get(cacheKey)!;
     }
@@ -154,7 +164,7 @@ export class InventoryThumbnailRenderer {
       let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
       for (const block of previewBlocks) {
-        const half = block.decoration ? block.scale.length() / 2 : (Number(block.size) || 1) / 2;
+        const half = block.decoration ? (block.scale?.length() ?? 1) / 2 : (Number(block.size) || 1) / 2;
         minX = Math.min(minX, block.center.x - half);
         minY = Math.min(minY, block.center.y - half);
         minZ = Math.min(minZ, block.center.z - half);
@@ -285,6 +295,7 @@ export class InventoryThumbnailRenderer {
    * Clear the thumbnail cache when inventory changes or items are edited.
    */
   clearCache() {
+    this.itemKeys = new WeakMap();
     this.generation++; this.thumbnailCache.clear(); this.failed.clear(); this.notify();
   }
 }

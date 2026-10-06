@@ -1,3 +1,4 @@
+import type { EntityRigidBody, RuntimeConstraint } from '../contraption/EntityTypes.ts';
 import type * as THREE from 'three';
 import { createGeometryArena, getGeometryKernels, type GeometryArena } from './GeometryKernels.ts';
 
@@ -14,6 +15,10 @@ export function getPhysicsSolverKernels(): PhysicsSolverKernels | null {
   return shared ??= new PhysicsSolverKernels(createGeometryArena()!);
 }
 
+type SolverBody = Pick<EntityRigidBody, 'type' | 'position' | 'quaternion' | 'mass' | 'inverseInertia'>
+  & Partial<Pick<EntityRigidBody, 'simulationEnabled' | 'velocity' | 'angularVelocity' | 'friction' | 'restitution' | 'isOnGround'>>;
+type MovingSolverBody = SolverBody & Pick<EntityRigidBody, 'velocity' | 'angularVelocity'>;
+
 const BASE = 65536, BODY = 20, JOINT = 24, LIMIT = 32 * 1024 * 1024;
 function writeVector(data: Float64Array, offset: number, v: THREE.Vector3) {
   data[offset] = v.x; data[offset + 1] = v.y; data[offset + 2] = v.z;
@@ -21,8 +26,8 @@ function writeVector(data: Float64Array, offset: number, v: THREE.Vector3) {
 function readVector(data: Float64Array, offset: number, v: THREE.Vector3) {
   v.set(data[offset], data[offset + 1], data[offset + 2]);
 }
-function dynamic(body): boolean { return body?.type === 'dynamic' && body.simulationEnabled !== false; }
-function packBody(data: Float64Array, offset: number, body) {
+function dynamic(body: SolverBody | null | undefined): body is SolverBody { return body?.type === 'dynamic' && body.simulationEnabled !== false; }
+function packBody(data: Float64Array, offset: number, body: SolverBody | null | undefined) {
   if (!body) {
     data.fill(0, offset, offset + BODY); data[offset + 6] = 1; return;
   }
@@ -38,10 +43,10 @@ function packBody(data: Float64Array, offset: number, body) {
   data[offset + 13] = dynamic(body) && body.mass > 0 ? 1 / body.mass : 0;
   data[offset + 14] = body.inverseInertia;
   data[offset + 15] = dynamic(body) ? 1 : 0;
-  data[offset + 16] = body.restitution; data[offset + 17] = body.friction;
+  data[offset + 16] = body.restitution ?? 0; data[offset + 17] = body.friction ?? 0;
   data[offset + 18] = body.mass;
 }
-function unpackVelocity(data: Float64Array, offset: number, body) {
+function unpackVelocity(data: Float64Array, offset: number, body: MovingSolverBody) {
   readVector(data, offset + 7, body.velocity); readVector(data, offset + 10, body.angularVelocity);
 }
 
@@ -61,12 +66,12 @@ export class PhysicsSolverKernels {
   }
 
   /** Pack once, retain all mutable poses for every iteration, then publish once. */
-  solveConstraints(contraption, constraints: any[], iterations: number): boolean {
+  solveConstraints(contraption: { getRigidBody?(id: string): SolverBody | null | undefined }, constraints: readonly RuntimeConstraint[], iterations: number): boolean {
     if (!(iterations > 0) || constraints.length === 0) return true;
     if (!Number.isFinite(iterations) || iterations > 0x7fffffff) return false;
-    const bodies: any[] = [null], indices = new Map<any, number>();
-    const joints: { definition: any; a: number; b: number }[] = [];
-    const index = body => {
+    const bodies: (SolverBody | null)[] = [null], indices = new Map<SolverBody, number>();
+    const joints: { definition: RuntimeConstraint; a: number; b: number }[] = [];
+    const index = (body: SolverBody | null | undefined) => {
       if (!body) return 0;
       let i = indices.get(body);
       if (i === undefined) { i = bodies.length; indices.set(body, i); bodies.push(body); }
@@ -109,7 +114,7 @@ export class PhysicsSolverKernels {
     return true;
   }
 
-  solvePairImpulse(a, b, ownerA, ownerB, normal: THREE.Vector3, point: THREE.Vector3,
+  solvePairImpulse(a: MovingSolverBody, b: MovingSolverBody, ownerA: SolverBody, ownerB: SolverBody, normal: THREE.Vector3, point: THREE.Vector3,
     inverseA: number, inverseB: number, restingVelocity: number): number {
     const data = this.reserve(BODY * 4 + 6)!;
     packBody(data, 0, a); packBody(data, BODY, b);
@@ -127,7 +132,7 @@ export class PhysicsSolverKernels {
     return magnitude;
   }
 
-  solveTerrainImpulse(body, normal: THREE.Vector3, point: THREE.Vector3, penetration: number,
+  solveTerrainImpulse(body: MovingSolverBody, normal: THREE.Vector3, point: THREE.Vector3, penetration: number,
     points: THREE.Vector3[], dt: number, manifold: THREE.Vector3[], restitution: boolean,
     iterations: number, gravity: number, restingVelocity: number, narrowWidth: number): number | null {
     if (!Number.isFinite(iterations) || iterations > 0x7fffffff) return null;
@@ -148,7 +153,7 @@ export class PhysicsSolverKernels {
     return magnitude;
   }
 
-  toppleSupport(body, normal: THREE.Vector3, dt: number, gravity: number) {
+  toppleSupport(body: MovingSolverBody, normal: THREE.Vector3, dt: number, gravity: number) {
     const data = this.reserve(BODY + 3)!;
     packBody(data, 0, body); writeVector(data, BODY, normal);
     this.arena.exports.toppleSupport(BASE, BASE + BODY * 8, dt, gravity);

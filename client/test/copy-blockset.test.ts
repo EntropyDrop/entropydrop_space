@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -26,7 +27,7 @@ function makeController(overrides: any = {}) {
   controller.sound = { playBlockPlace() {} };
   const toasts: string[] = [];
   controller.ui = {
-    showToast: m => toasts.push(m),
+    showToast: (m: string) => toasts.push(m),
     renderInventoryBar() {}
   };
   Object.assign(controller, overrides);
@@ -52,7 +53,7 @@ test('two-point world selection copied with T stores a normalized block set', ()
   world.setBlock(2, 3, 4, BlockTypes.COLOR_BLOCK, false, 0xff0000);
   world.setBlock(5, 3, 4, BlockTypes.COLOR_BLOCK, false, 0x00ff00);
   world.setBlock(5, 6, 7, BlockTypes.COLOR_BLOCK, false, 0x0000ff);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.setCornerA({ x: 2, y: 3, z: 4 });
@@ -68,16 +69,16 @@ test('two-point world selection copied with T stores a normalized block set', ()
   assert.equal(slot.blockCount, 3);
   assert.ok(slot.name.includes('world selection'));
 
-  const offsets = slot.blocks.map(b => [b.dx, b.dy, b.dz]);
-  assert.ok(offsets.some(([x, y, z]) => x === 0 && y === 0 && z === 0), 'the minimum-corner offset should be (0,0,0)');
-  assert.ok(offsets.some(([x, y, z]) => x === 3 && y === 0 && z === 0));
-  assert.ok(offsets.some(([x, y, z]) => x === 3 && y === 3 && z === 3));
-  assert.ok(slot.blocks.every(b => b.size === 1 && b.block === BlockTypes.COLOR_BLOCK));
+  const offsets = slot.blocks.map((b: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => [b.dx, b.dy, b.dz]);
+  assert.ok(offsets.some(([x, y, z]: number[]) => x === 0 && y === 0 && z === 0), 'the minimum-corner offset should be (0,0,0)');
+  assert.ok(offsets.some(([x, y, z]: number[]) => x === 3 && y === 0 && z === 0));
+  assert.ok(offsets.some(([x, y, z]: number[]) => x === 3 && y === 3 && z === 3));
+  assert.ok(slot.blocks.every((b: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => b.size === 1 && b.block === BlockTypes.COLOR_BLOCK));
 
   // Copy is read-only; only assembly with G removes source blocks.
   assert.equal(world.getBlock(2, 3, 4), BlockTypes.COLOR_BLOCK);
   assert.equal(world.getBlock(5, 6, 7), BlockTypes.COLOR_BLOCK);
-  assert.ok(controller.__toasts.some(m => m.includes('block set')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('block set')));
 });
 
 test('pasting a block set creates ordinary world blocks and no entity', () => {
@@ -87,7 +88,7 @@ test('pasting a block set creates ordinary world blocks and no entity', () => {
   world.setBlock(0, 0, 0, BlockTypes.COLOR_BLOCK, false, 0xff0000);
   world.setBlock(1, 0, 0, BlockTypes.COLOR_BLOCK, false, 0x00ff00);
   world.setBlock(1, 1, 1, BlockTypes.COLOR_BLOCK, false, 0x0000ff);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.setCornerA({ x: 0, y: 0, z: 0 });
@@ -98,7 +99,7 @@ test('pasting a block set creates ordinary world blocks and no entity', () => {
   // Paste on the top face at (10,20,30), so the target cell is y=21.
   clearRegion(world, 10, 21, 30, 11, 22, 31);
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 10.2, y: 20.0, z: 30.1 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -110,14 +111,14 @@ test('pasting a block set creates ordinary world blocks and no entity', () => {
   assert.equal(world.getBlockColor(10, 21, 30), 0xff0000);
   assert.equal(world.getBlockColor(11, 21, 30), 0x00ff00);
   assert.equal(manager.contraptions.length, before, 'block-set paste should not create an entity');
-  assert.ok(controller.__toasts.some(m => m.includes('Built block set')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Built block set')));
 });
 
 test('terrain paste stores emissive block-set material independently from color', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 10, 21, 30, 10, 21, 30);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
   controller.activeTool = SpecialTool.HAMMER;
   const slot = {
@@ -129,7 +130,7 @@ test('terrain paste stores emissive block-set material independently from color'
     }],
   };
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 10.2, y: 20, z: 30.1 },
     normal: { x: 0, y: 1, z: 0 },
   };
@@ -139,7 +140,7 @@ test('terrain paste stores emissive block-set material independently from color'
   assert.equal(world.getBlockColor(10, 21, 30), 0x22ccff);
   assert.equal(world.getBlockMaterial(10, 21, 30), 1);
   assert.equal(slot.blocks[0].materialId, 1);
-  assert.ok(controller.__toasts.some(message => message.includes('Built block set')));
+  assert.ok(controller.__toasts.some((message: string) => message.includes('Built block set')));
 });
 
 test('block-set copy preserves 0.125 microblock offsets during paste', () => {
@@ -149,7 +150,7 @@ test('block-set copy preserves 0.125 microblock offsets during paste', () => {
   world.setBlock(4, 10, 4, BlockTypes.COLOR_BLOCK, false, 0xaaaaaa);
   // Put a microblock in adjacent cell (4,10,5): microcell (34,80,42).
   assert.equal(world.setMicroBlock(34, 80, 42, 0x123456), true);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.setCornerA({ x: 4, y: 10, z: 4 });
@@ -158,7 +159,7 @@ test('block-set copy preserves 0.125 microblock offsets during paste', () => {
   const slot = controller.inventorySlots[0];
   assert.equal(slot.blockCount, 2, 'one standard block plus one microblock');
 
-  const micro = slot.blocks.find(b => (b.size || 1) < 1);
+  const micro = slot.blocks.find((b: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => (b.size || 1) < 1);
   assert.ok(micro, 'the block set should contain the microblock');
   assert.ok(Math.abs(micro.dx - 0.25) < 1e-6, `expected microblock dx=0.25, got ${micro.dx}`);
   assert.ok(Math.abs(micro.dz - 1.25) < 1e-6, `expected microblock dz=1.25, got ${micro.dz}`);
@@ -167,7 +168,7 @@ test('block-set copy preserves 0.125 microblock offsets during paste', () => {
   // Paste on top of (20,30,40); the microblock lands at microcell (162,248,330).
   clearRegion(world, 20, 31, 40, 20, 31, 41);
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 20.0, y: 30.0, z: 40.0 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -190,7 +191,7 @@ test('T copies an entity block selection using selected block-local coordinates'
     scene,
     { childEntities: [{ id: 'arm', parentId: 'root', pivot: [3.5, 0.5, 0.5], blockKeys: [['3', '0', '0']] }] }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.contraptions.push(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeController({ manager });
@@ -207,7 +208,7 @@ test('T copies an entity block selection using selected block-local coordinates'
   assert.equal(slot.blockSet.kind, 'blockset');
   assert.equal(slot.blockCount, 2);
   assert.ok(slot.name.includes('[root]'));
-  const offsets = slot.blocks.map(b => [b.dx, b.dy, b.dz]).sort((a, b) => a[1] - b[1]);
+  const offsets = slot.blocks.map((b: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => [b.dx, b.dy, b.dz]).sort((a: number[], b: number[]) => a[1] - b[1]);
   assert.deepEqual(offsets[0], [0, 0, 0]);
   assert.deepEqual(offsets[1], [0, 2, 0]);
 });
@@ -230,7 +231,7 @@ test('T rejects a selected subtree until A/B are confirmed', () => {
       ]
     }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.contraptions.push(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeController({ manager });
@@ -243,7 +244,7 @@ test('T rejects a selected subtree until A/B are confirmed', () => {
   controller.copySelectionAsBlockSet();
   const slot = controller.inventorySlots[0];
   assert.equal(slot, null);
-  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('A and B')));
 });
 
 test('R still copies an entity slot and paste creates an entity', () => {
@@ -254,7 +255,7 @@ test('R still copies an entity slot and paste creates an entity', () => {
     new THREE.Vector3(0, 10, 0),
     scene
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.contraptions.push(contraption);
   const controller = makeController({ manager });
 
@@ -267,7 +268,7 @@ test('R still copies an entity slot and paste creates an entity', () => {
   assert.notEqual(slot.kind, 'blockset', 'an entity slot must not carry the blockset marker');
 
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 50.0, y: 40.0, z: 30.0 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -283,7 +284,7 @@ test('Hammer LMB builds block sets into empty cells only, skipping occupied cell
   const world = new World(scene) as any;
   clearRegion(world, 10, 20, 30, 12, 23, 32);
   world.setBlock(11, 21, 30, BlockTypes.COLOR_BLOCK, false, 0x00ff00); // occupied cell
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
   controller.activeTool = SpecialTool.HAMMER;
   controller.inventorySlots[0] = {
@@ -295,7 +296,7 @@ test('Hammer LMB builds block sets into empty cells only, skipping occupied cell
     ]
   };
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 10.2, y: 20.0, z: 30.1 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -305,19 +306,19 @@ test('Hammer LMB builds block sets into empty cells only, skipping occupied cell
   assert.equal(world.getBlock(10, 21, 30), BlockTypes.COLOR_BLOCK);
   assert.equal(world.getBlockColor(10, 21, 30), 0xff0000);
   assert.equal(world.getBlockColor(11, 21, 30), 0x00ff00, 'LMB must not overwrite occupied cells');
-  assert.ok(controller.__toasts.some(m => m.includes('occupied cell(s) skipped')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('occupied cell(s) skipped')));
   assert.equal(controller.activeTool, SpecialTool.WRENCH);
 
   // Re-equip Hammer; RMB rotates the active block set 90 degrees.
   controller.activateTool(SpecialTool.HAMMER);
   controller.handleRightClick();
-  assert.ok(controller.__toasts.some(m => m.includes('Rotated')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Rotated')));
   const rotatedSlot = controller.getActiveHammerInventoryItem();
   assert.equal(rotatedSlot.blocks[0].dz !== 0 || rotatedSlot.blocks[1].dz !== 0, true);
-  assert.deepEqual(controller.inventorySlots[0].blocks.map(block => [block.dx, block.dz]), [[0, 0], [1, 0]],
+  assert.deepEqual(controller.inventorySlots[0].blocks.map((block: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => [block.dx, block.dz]), [[0, 0], [1, 0]],
     'RMB rotation must remain temporary and leave the backpack item unchanged');
 
-  const rotatedBlueBlock = rotatedSlot.blocks.find(block => block.color === 0x123456);
+  const rotatedBlueBlock = rotatedSlot.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.color === 0x123456);
   controller.handleLeftClick();
   assert.equal(world.getBlockColor(10 + rotatedBlueBlock.dx, 21, 30 + rotatedBlueBlock.dz), 0x123456,
     'Hammer placement must build from the temporary rotated view');
@@ -328,7 +329,7 @@ test('pasteBlockSet in replace mode clears standard blocks before placing micro 
   const world = new World(scene) as any;
   clearRegion(world, 10, 20, 30, 10, 22, 30);
   world.setBlock(10, 21, 30, BlockTypes.COLOR_BLOCK, false, 0x00ff00);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
   controller.activeTool = SpecialTool.HAMMER;
   const slot = {
@@ -338,7 +339,7 @@ test('pasteBlockSet in replace mode clears standard blocks before placing micro 
   };
   controller.inventorySlots[0] = slot;
   controller.currentRaycast = {
-    hit: true,
+    hit: true as const,
     hitPos: { x: 10.2, y: 20.0, z: 30.1 },
     normal: { x: 0, y: 1, z: 0 }
   };
@@ -355,7 +356,7 @@ test('Hammer refuses to build when the crosshair is on open sky', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 0, 0, 0, 6, 6, 6);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
   controller.activeTool = SpecialTool.HAMMER;
   controller.inventorySlots[0] = {
@@ -364,13 +365,13 @@ test('Hammer refuses to build when the crosshair is on open sky', () => {
     blocks: [{ dx: 0, dy: 0, dz: 0, size: 1, color: 0xff0000 }]
   };
   // High altitude: terrain raycast misses and nothing is hovered.
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.hoveredContraptionHit = null;
 
   assert.equal(controller.getInventoryPlacementPose(controller.inventorySlots[0]), null,
     'no surface, no pose');
   assert.equal(controller.pasteInventorySlot(), false, 'LMB must not build in open air');
-  assert.ok(controller.__toasts.some(m => m.includes('No surface under the crosshair')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('No surface under the crosshair')));
   for (let x = 0; x <= 6; x++) {
     for (let y = 0; y <= 6; y++) {
       for (let z = 0; z <= 6; z++) {
@@ -388,18 +389,18 @@ test('Hammer refuses to build when the crosshair is on open sky', () => {
     blocks: [{ localX: 0, localY: 0, localZ: 0, size: 1, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }]
   };
   assert.equal(controller.pasteInventorySlot(), false, 'entity LMB must not build in open air');
-  assert.ok(controller.__toasts.some(m => m.includes('No surface under the crosshair')),
+  assert.ok(controller.__toasts.some((m: string) => m.includes('No surface under the crosshair')),
     'the entity refusal explains the missing surface');
   assert.equal(manager.contraptions.length, 0);
 });
 
 test('T with no selection reports a message and leaves the slot unchanged', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager });
   controller.copySelectionAsBlockSet();
   assert.equal(controller.inventorySlots[0], null, 'no selection should leave the slot empty');
-  assert.ok(controller.__toasts.some(m => m.includes('Nothing selected')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Nothing selected')));
 });
 
 test('T rejects Shift single-cell mode until A/B are confirmed', () => {
@@ -409,7 +410,7 @@ test('T rejects Shift single-cell mode until A/B are confirmed', () => {
   clearRegion(world, 9, 9, 9, 9, 9, 9);
   world.setBlock(1, 1, 1, BlockTypes.COLOR_BLOCK, false, 0xabcdef);
   world.setBlock(9, 9, 9, BlockTypes.COLOR_BLOCK, false, 0x111111); // Unselected cell.
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
 
   manager.toggleWorldGlueCell({ x: 1, y: 1, z: 1 });
@@ -418,6 +419,6 @@ test('T rejects Shift single-cell mode until A/B are confirmed', () => {
   controller.copySelectionAsBlockSet();
   const slot = controller.inventorySlots[0];
   assert.equal(slot, null);
-  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('A and B')));
   assert.equal(world.getBlock(9, 9, 9), BlockTypes.COLOR_BLOCK, 'the unselected cell should remain unchanged');
 });

@@ -33,7 +33,7 @@ test('solid voxel interiors are removed from the physics collision shell', () =>
   assert.equal(solid.getCollisionWorldAABBs(true).length, 26, 'terrain broadphase uses only the exterior shell');
   assert.equal(solid.getCollisionSamplePoints().length, 26 * 10);
 
-  const bounds = solid.getCollisionWorldAABBs(true).reduce((result, box) => ({
+  const bounds = solid.getCollisionWorldAABBs(true).reduce((result: import('../src/physics/CollisionGeometry.ts').CollisionBounds, box: import('../src/contraption/Contraption.ts').EntityCollisionBounds) => ({
     minX: Math.min(result.minX, box.currentMinX),
     minY: Math.min(result.minY, box.currentMinY),
     minZ: Math.min(result.minZ, box.currentMinZ),
@@ -67,12 +67,12 @@ test('local player sweeps reuse transformed candidates and invalidate them on po
   const bounds = { minX: -1, maxX: 3, minY: 29, maxY: 32, minZ: -1, maxZ: 3 };
   const build = entity.buildCollisionWorldAABBs.bind(entity);
   let transformed = 0;
-  entity.buildCollisionWorldAABBs = entries => { transformed += entries.length; return build(entries); };
+  entity.buildCollisionWorldAABBs = (entries: Parameters<import('../src/contraption/Contraption.ts').Contraption['buildCollisionWorldAABBs']>[0]) => { transformed += entries.length; return build(entries); };
   const first = entity.queryCollisionWorldAABBs(bounds);
   for (let pass = 0; pass < 4; pass++) {
     const repeated = entity.queryCollisionWorldAABBs(bounds);
     assert.equal(repeated.length, first.length);
-    repeated.forEach((box, i) => assert.equal(box, first[i]));
+    repeated.forEach((box: import('../src/contraption/Contraption.ts').EntityCollisionBounds, i: number) => assert.equal(box, first[i]));
   }
   assert.equal(transformed, 4, 'each nearby authored voxel is transformed only once per pose');
   entity.position.y += 1;
@@ -95,8 +95,8 @@ test('surface terrain optimization keeps interior boxes for deep-penetration rec
   embedded.updateTransform();
   const start = embedded.position.clone();
   const physics = new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: () => BlockTypes.AIR
   } as any);
 
@@ -114,8 +114,8 @@ test('aligned collision boxes scan half-open terrain ranges without neighbour am
   let standardQueries = 0;
   let microQueries = 0;
   const physics = new ContraptionPhysics({
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     getBlock: () => {
       standardQueries++;
       return BlockTypes.AIR;
@@ -140,19 +140,19 @@ test('the manager builds entity broadphase candidates once for all frame substep
   const world = {
     getBlock: () => BlockTypes.AIR,
     getMicroBlocksInAABB: () => [],
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any;
   const physics = new ContraptionPhysics(world) as any;
   let broadphaseBuilds = 0;
   let pairSolves = 0;
   const preparePairs = physics.prepareContraptionPairFrame.bind(physics);
   const solvePairs = physics.resolvePreparedContraptionPairs.bind(physics);
-  physics.prepareContraptionPairFrame = (...args) => {
+  physics.prepareContraptionPairFrame = (...args: Parameters<import('../src/physics/ContraptionPhysics.ts').ContraptionPhysics['prepareContraptionPairFrame']>) => {
     broadphaseBuilds++;
     return preparePairs(...args);
   };
-  physics.resolvePreparedContraptionPairs = (...args) => {
+  physics.resolvePreparedContraptionPairs = (...args: Parameters<import('../src/physics/ContraptionPhysics.ts').ContraptionPhysics['resolvePreparedContraptionPairs']>) => {
     pairSolves++;
     return solvePairs(...args);
   };

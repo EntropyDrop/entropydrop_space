@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -12,13 +13,13 @@ import { getInventoryPreviewBlocks, SceneRenderer } from '../src/engine/render/S
 function fixture() {
   const terrain = new Map<string, number>();
   const micros = new Map<string, any>();
-  const key = (x, y, z) => `${wrapX(x)},${y},${wrapZ(z)}`;
+  const key = (x: number, y: number, z: number) => `${wrapX(x)},${y},${wrapZ(z)}`;
   const world = {
     microVoxels: { cells: micros },
-    getBlock: (x, y, z) => terrain.has(key(x, y, z)) ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
-    getBlockColor: (x, y, z) => terrain.get(key(x, y, z)),
+    getBlock: (x: number, y: number, z: number) => terrain.has(key(x, y, z)) ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    getBlockColor: (x: number, y: number, z: number) => terrain.get(key(x, y, z)),
     getBlockMaterial: () => 1,
-    getMicroBlock: (x, y, z) => micros.get(`${x},${y},${z}`),
+    getMicroBlock: (x: number, y: number, z: number) => micros.get(`${x},${y},${z}`),
     getMicroBlocksInAABB: () => [],
   };
   const manager = new ContraptionManager(new THREE.Scene(), world as any, null, null);
@@ -29,12 +30,12 @@ function fixture() {
   });
   controller.inventoryCategory();
   const toasts: string[] = [];
-  controller.ui = { showToast: message => toasts.push(message), renderInventoryBar() {} };
-  const select = (a, b, micro = false) => {
+  controller.ui = { showToast: (message: string) => toasts.push(message), renderInventoryBar() {} };
+  const select = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, micro = false) => {
     manager.setCornerA(a, { micro });
     manager.setCornerB(b, { micro });
   };
-  const entity = (origin, options: any = {}) => {
+  const entity = (origin: number[], options: any = {}) => {
     const source = manager.buildFromSlot({
       rootComponentId: 'root', name: 'Motor',
       blocks: [{ localX: 0, localY: 0, localZ: 0, size: options.size || 1,
@@ -46,10 +47,10 @@ function fixture() {
       enabled: [{ id: 'root', enabled: true }],
     }, new THREE.Vector3(...origin), null, false);
     if (options.rotation) {
-      source.quaternion.copy(options.rotation);
-      source.position.copy(new THREE.Vector3(...origin))
-        .add(source.localCenter.clone().applyQuaternion(options.rotation));
-      source.updateTransform();
+      requireValue(source).quaternion.copy(options.rotation);
+      requireValue(source).position.copy(new THREE.Vector3(...origin))
+        .add(requireValue(source).localCenter.clone().applyQuaternion(options.rotation));
+      requireValue(source).updateTransform();
     }
     return source;
   };
@@ -67,31 +68,33 @@ test('default Copy combines sparse orange terrain and complete cyan-box entities
     f.terrain.set(f.key(16, 22, 33), 0x00ff00);
     f.terrain.set(f.key(12, 20, 30), 0x0000ff);
     const first = f.entity([13, 21, 30], { child: true });
-    first.constraintDefinitions.set('world_joint', {
+    requireValue(first).constraintDefinitions.set('world_joint', {
+      axisA: [0, 0, 1], axisB: [0, 0, 1], referenceA: [1, 0, 0], referenceB: [1, 0, 0], limits: null, collideConnected: false,
+      anchorB: [0, 0, 0], stiffness: 0.9,
       id: 'world_joint', type: 'point', bodyA: null, bodyB: 'root',
-      anchorA: [13.5, 21.5, 30.5], anchorB: [0, 0, 0], stiffness: 0.9,
+      anchorA: [13.5, 21.5, 30.5],
     });
     const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
     f.entity([15, 21, 32], { rotation });
     f.entity([16.5, 21, 30]); // Crosses the right boundary.
     f.entity([20, 21, 30]);
-    const before = first.serializeSubtree();
+    const before = requireValue(first).serializeSubtree();
     const item = f.controller.copySelectionSmart();
     assert.ok(item, f.toasts.join('\n'));
     assert.equal(item.kind, 'item');
     assert.equal(item.blockSet.blocks.length, 2);
-    assert.deepEqual(item.blockSet.blocks.map(block => [block.dx, block.dy, block.dz]), [[0, 0, 0], [6, 2, 3]]);
+    assert.deepEqual(item.blockSet.blocks.map((block: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => [block.dx, block.dy, block.dz]), [[0, 0, 0], [6, 2, 3]]);
     assert.equal(item.entityList.length, 2);
     assert.deepEqual(item.entityList[0].itemPosition, [3, 1, 0]);
     assert.ok(new THREE.Quaternion().fromArray(item.entityList[1].itemRotation).angleTo(rotation) < 1e-7);
     assert.equal(item.entityList[0].childEntities.length, 1);
     assert.equal(item.entityList[0].scripts[0].code, 'export function update(): void {}');
     assert.deepEqual(item.entityList[0].constraints[0].anchorA, [3.5, 1.5, 0.5]);
-    assert.deepEqual(first.serializeSubtree(), before);
+    assert.deepEqual(requireValue(first).serializeSubtree(), before);
     assert.equal(f.terrain.size, 3);
     assert.equal(f.manager.contraptions.length, 4);
     assert.equal(f.controller.activeTool, SpecialTool.HAMMER);
-    const portable = decodeInventoryResource(f.controller.encodeInventoryItem('item', item)).portable;
+    const portable = decodeInventoryResource(f.controller.encodeInventoryItem('item', item), 'item').portable;
     assert.deepEqual(portable.entityList[0].root.localPosition, [3, 1, 0]);
     assert.ok(getInventoryPreviewBlocks(item).some(block => block.center.distanceTo(new THREE.Vector3(3.5, 1.5, 0.5)) < 1e-9));
   } finally { f.dispose(); }
@@ -117,7 +120,9 @@ test('copied terrain and entity world anchors follow the same rotated placement 
     f.select({ x: 10, y: 20, z: 30 }, { x: 14, y: 22, z: 32 });
     f.terrain.set(f.key(10, 20, 30), 0xff0000);
     const source = f.entity([13, 21, 31]);
-    source.constraintDefinitions.set('world_joint', {
+    requireValue(source).constraintDefinitions.set('world_joint', {
+      axisA: [0, 0, 1], axisB: [0, 0, 1], referenceA: [1, 0, 0], referenceB: [1, 0, 0], limits: null, collideConnected: false,
+      anchorB: [0, 0, 0], stiffness: 1,
       id: 'world_joint', type: 'point', bodyA: null, bodyB: 'root', anchorA: [13.5, 21.5, 31.5],
     });
     assert.ok(f.controller.copySelectionSmart(), f.toasts.join('\n'));
@@ -125,7 +130,7 @@ test('copied terrain and entity world anchors follow the same rotated placement 
     const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
     f.controller.getInventoryPlacementPose = () => ({ position: origin.clone(), quaternion: rotation.clone() });
     const cells: any[] = [];
-    f.controller.performBasicAction = action => {
+    f.controller.performBasicAction = (action: { action: string; cell?: { x: number; y: number; z: number }; target?: unknown }) => {
       if (action.action === 'place-standard') cells.push(action.cell);
       return { placed: 1 };
     };
@@ -136,8 +141,8 @@ test('copied terrain and entity world anchors follow the same rotated placement 
     const expected = new THREE.Vector3(3, 1, 1).applyQuaternion(rotation).add(origin);
     assert.ok(copied.originWorldPos.distanceTo(expected) < 1e-9);
     const anchor = new THREE.Vector3(3.5, 1.5, 1.5).applyQuaternion(rotation).add(origin);
-    assert.ok(new THREE.Vector3().fromArray(copied.constraintDefinitions.get('world_joint').anchorA).distanceTo(anchor) < 1e-9);
-    assert.notEqual(copied.publicId, source.publicId);
+    assert.ok(new THREE.Vector3().fromArray(requireValue(copied.constraintDefinitions.get('world_joint')).anchorA).distanceTo(anchor) < 1e-9);
+    assert.notEqual(copied.publicId, requireValue(source).publicId);
   } finally { f.dispose(); }
 });
 
@@ -191,8 +196,8 @@ test('large world Copy retains its region and snapshots entities through bounded
     assert.equal(f.manager.selectionBoxConfirmed, true);
     f.controller.processBulkEditFrame(16, Infinity);
     assert.ok(f.controller.bulkEditJob);
-    source.position.x += 1;
-    source.updateTransform();
+    requireValue(source).position.x += 1;
+    requireValue(source).updateTransform();
     while (f.controller.bulkEditJob) f.controller.processBulkEditFrame(16, Infinity);
     const item = f.controller.inventories.item.items[0];
     assert.ok(item, f.toasts.join('\n'));
@@ -207,7 +212,9 @@ test('world Copy unwraps enclosed entities and their world anchors across the to
   try {
     f.select({ x: TORUS_SIZE_X - 2, y: 20, z: 30 }, { x: 2, y: 22, z: 32 });
     const source = f.entity([0, 21, 31]);
-    source.constraintDefinitions.set('world_joint', {
+    requireValue(source).constraintDefinitions.set('world_joint', {
+      axisA: [0, 0, 1], axisB: [0, 0, 1], referenceA: [1, 0, 0], referenceB: [1, 0, 0], limits: null, collideConnected: false,
+      anchorB: [0, 0, 0], stiffness: 1,
       id: 'world_joint', type: 'point', bodyA: null, bodyB: 'root', anchorA: [0.5, 21.5, 31.5],
     });
     const item = f.controller.copySelectionSmart();
@@ -224,21 +231,23 @@ test('world Copy preserves an arbitrary Entity position through export, preview 
     f.terrain.set(f.key(10, 20, 30), 0xff0000);
     const source = f.entity([11.1, 21.03, 31.02], { child: true });
     const worldAnchor = new THREE.Vector3(11.6, 21.53, 31.52);
-    source.constraintDefinitions.set('world_joint', {
+    requireValue(source).constraintDefinitions.set('world_joint', {
+      axisA: [0, 0, 1], axisB: [0, 0, 1], referenceA: [1, 0, 0], referenceB: [1, 0, 0], limits: null, collideConnected: false,
+      anchorB: [0, 0, 0], stiffness: 1,
       id: 'world_joint', type: 'point', bodyA: null, bodyB: 'root', anchorA: worldAnchor.toArray(),
     });
-    const before = source.serializeSubtree();
+    const before = requireValue(source).serializeSubtree();
     const selectionOrigin = new THREE.Vector3(10, 20, 30);
-    const relativePosition = new THREE.Vector3().fromArray(before.sourcePosition).sub(selectionOrigin);
+    const relativePosition = new THREE.Vector3().fromArray(requireValue(before).sourcePosition).sub(selectionOrigin);
     const item = f.controller.copySelectionSmart();
     assert.ok(item, f.toasts.join('\n'));
     assert.deepEqual(item.entityList[0].itemPosition, relativePosition.toArray());
-    assert.deepEqual(source.serializeSubtree(), before);
+    assert.deepEqual(requireValue(source).serializeSubtree(), before);
     const encoded = f.controller.encodeInventoryItem('item', item);
-    assert.deepEqual(decodeInventoryResource(encoded).portable.entityList[0].root.localPosition, relativePosition.toArray());
+    assert.deepEqual(decodeInventoryResource(encoded, 'item').portable.entityList[0].root.localPosition, relativePosition.toArray());
     assert.equal(f.controller.parseInventoryImport(encoded, 'item').ok, true);
     const preview = getInventoryPreviewBlocks(item).find(block => block.color === 0x12ab34);
-    assert.ok(preview.center.distanceTo(relativePosition.clone().addScalar(0.5)) < 1e-9);
+    assert.ok(requireValue(preview).center.distanceTo(relativePosition.clone().addScalar(0.5)) < 1e-9);
 
     const origin = new THREE.Vector3(100, 50, 100);
     const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
@@ -248,8 +257,8 @@ test('world Copy preserves an arbitrary Entity position through export, preview 
     const copied = f.manager.contraptions[1];
     assert.ok(copied.originWorldPos.distanceTo(relativePosition.applyQuaternion(rotation).add(origin)) < 1e-9);
     const expectedAnchor = worldAnchor.sub(selectionOrigin).applyQuaternion(rotation).add(origin);
-    assert.ok(new THREE.Vector3().fromArray(copied.constraintDefinitions.get('world_joint').anchorA).distanceTo(expectedAnchor) < 1e-9);
-    assert.notEqual(copied.publicId, source.publicId);
+    assert.ok(new THREE.Vector3().fromArray(requireValue(copied.constraintDefinitions.get('world_joint')).anchorA).distanceTo(expectedAnchor) < 1e-9);
+    assert.notEqual(copied.publicId, requireValue(source).publicId);
   } finally { f.dispose(); }
 });
 
@@ -258,13 +267,13 @@ test('full Item copies leave sources, selection and backpack contents intact', (
   try {
     f.select({ x: 10, y: 20, z: 30 }, { x: 12, y: 22, z: 32 });
     const source = f.entity([11.1, 21, 31]);
-    const before = source.serializeSubtree();
+    const before = requireValue(source).serializeSubtree();
     f.controller.inventories.item.items.fill({ kind: 'item', name: 'Existing' });
     assert.equal(f.controller.copySelectionSmart(), null);
     assert.match(f.toasts.at(-1), /inventory is full/);
     assert.equal(f.manager.selectionBoxConfirmed, true);
     assert.equal(f.controller.activeTool, SpecialTool.SELECTOR);
-    assert.ok(f.controller.inventories.item.items.every(item => item.name === 'Existing'));
-    assert.deepEqual(source.serializeSubtree(), before);
+    assert.ok(f.controller.inventories.item.items.every((item: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) => item.name === 'Existing'));
+    assert.deepEqual(requireValue(source).serializeSubtree(), before);
   } finally { f.dispose(); }
 });

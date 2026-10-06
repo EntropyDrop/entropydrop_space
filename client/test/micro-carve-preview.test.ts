@@ -23,7 +23,7 @@ test('the micro-carve preview contains only surface line segments', () => {
   // 3 axes × 2 surface orientations × 9 grid lines × 2 endpoints × 3 coordinates.
   assert.equal(pos.length, 3 * 2 * 9 * 2 * 2 * 3, 'the preview should contain 108 segments');
 
-  const nearSurface = value => Math.abs(value) < 1e-9 || Math.abs(value - 1) < 1e-9;
+  const nearSurface = (value: number) => Math.abs(value) < 1e-9 || Math.abs(value - 1) < 1e-9;
   for (let i = 0; i < pos.length; i += 6) {
     const endpoints = [pos[i], pos[i + 1], pos[i + 2], pos[i + 3], pos[i + 4], pos[i + 5]];
     assert.ok(

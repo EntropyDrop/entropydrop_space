@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -105,7 +106,7 @@ test('ContraptionManager in none mode does not persist or load entities and purg
     entities: [{ publicId: 'test-car', slot: { blocks: [] } }]
   }));
 
-  const manager = new ContraptionManager(null, null, null, null, mockStorage as any);
+  const manager = new ContraptionManager({ add() {}, remove() {} }, null, null, null, mockStorage as any);
   manager.setWorldId(worldId);
 
   // Setting mode to 'none' must purge existing offline storage

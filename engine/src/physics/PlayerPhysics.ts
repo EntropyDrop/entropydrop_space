@@ -1,7 +1,13 @@
+import type { Contraption, EntityCollisionBounds } from '../contraption/Contraption.ts';
+import type { CollisionBounds } from './CollisionGeometry.ts';
 import * as THREE from 'three';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
-import type { World } from '../voxel/World.ts';
+import type { PlayerTerrain } from './PhysicsTerrain.ts';
+
+const AXIS_SUFFIX = { x: 'X', y: 'Y', z: 'Z' } as const;
+type SolidBlock = { x: number; y: number; z: number; size?: number; block?: number };
+export interface PlayerMoveInput { forward?: boolean; backward?: boolean; right?: boolean; left?: boolean; jump?: boolean; crouch?: boolean }
 
 const COLLISION_EPSILON = 1e-5;
 const FACE_TOLERANCE = 0.08;
@@ -12,7 +18,7 @@ const STAND_TOLERANCE = 0.4;
 export const PLAYER_MASS_KG = 50;
 export const PLAYER_GRAVITY_MPS2 = -24;
 
-function entityBodyId(contraption: any, value?: unknown): string {
+function entityBodyId(contraption: Contraption | null | undefined, value?: unknown): string {
   if (value !== undefined && value !== null) return String(value);
   if (typeof contraption?.rootComponentId === 'string') return contraption.rootComponentId;
   for (const node of contraption?.entityNodes?.values?.() || []) {
@@ -22,8 +28,8 @@ function entityBodyId(contraption: any, value?: unknown): string {
 }
 
 export class PlayerPhysics {
-  world: World;
-  contraptionManager: any;
+  world: PlayerTerrain;
+  contraptionManager: { contraptions: Contraption[] } | null;
 
   // Player position (bottom center of bounding box)
   position: THREE.Vector3;
@@ -60,17 +66,17 @@ export class PlayerPhysics {
   isInWater: boolean;
 
   // Moving Platform attachment (when standing on a moving contraption)
-  ridingContraption: any;
+  ridingContraption: Contraption | null;
   ridingBodyId: string | null;
-  lastRidingPlatformPos: any;
-  private ridingPlatformPose: { contraption: any; bodyId: string; matrix: THREE.Matrix4 } | null = null;
+  lastRidingPlatformPos: THREE.Vector3 | null;
+  private ridingPlatformPose: { contraption: Contraption; bodyId: string; matrix: THREE.Matrix4 } | null = null;
   private ridingInverseMatrix = new THREE.Matrix4();
   private ridingTargetPosition = new THREE.Vector3();
   private ridingDisplacement = new THREE.Vector3();
-  private currentCollisionBoxes = new WeakMap<object, any>();
+  private currentCollisionBoxes = new WeakMap<object, EntityCollisionBounds>();
   private observedColliderPoses = new WeakMap<object, Map<string, THREE.Matrix4>>();
 
-  constructor(world, contraptionManager = null) {
+  constructor(world: PlayerTerrain, contraptionManager: {contraptions: Contraption[]} | null = null) {
     this.world = world;
     this.contraptionManager = contraptionManager;
 
@@ -114,7 +120,7 @@ export class PlayerPhysics {
     this.lastRidingPlatformPos = null;
   }
 
-  setContraptionManager(contraptionManager) {
+  setContraptionManager(contraptionManager: {contraptions: Contraption[]} | null) {
     this.contraptionManager = contraptionManager;
   }
 
@@ -179,7 +185,7 @@ export class PlayerPhysics {
     this.previousPosition.copy(this.position);
   }
 
-  beginRenderInterpolation(alpha) {
+  beginRenderInterpolation(alpha: number) {
     if (this.renderInterpolated) return;
     const amount = Math.max(0, Math.min(1, Number(alpha) || 0));
     this.renderSimulationPosition.copy(this.position);
@@ -193,7 +199,7 @@ export class PlayerPhysics {
     this.renderInterpolated = false;
   }
 
-  update(dt, moveInput, cameraYaw) {
+  update(dt: number, moveInput: PlayerMoveInput, cameraYaw: number) {
     this.capturePreviousPosition();
     if (dt > 0.1) dt = 0.1;
 
@@ -260,7 +266,7 @@ export class PlayerPhysics {
     this.moveWithCollision(dt);
   }
 
-  moveWithCollision(dt) {
+  moveWithCollision(dt: number) {
     const nearbyContraptions = this.getNearbyContraptions();
 
     // -----------------------------------------------------------------------
@@ -412,7 +418,7 @@ export class PlayerPhysics {
     }
   }
 
-  private moveWithExternalDisplacement(displacement: THREE.Vector3, carrier) {
+  private moveWithExternalDisplacement(displacement: THREE.Vector3, carrier: Contraption) {
     const others = this.getNearbyContraptions().filter(entity => entity !== carrier);
     for (const axis of ['y', 'x', 'z'] as const) {
       const delta = displacement[axis];
@@ -434,7 +440,7 @@ export class PlayerPhysics {
 
   /** Keep moving-entity CCD separate from current-pose overlap recovery. The
    * swept broadphase envelope is never a persistent floor or a solid wall. */
-  private resolveMovingContraptionSweeps(contraptions) {
+  private resolveMovingContraptionSweeps(contraptions: Contraption[]) {
     let moved = false;
     for (const contraption of contraptions) {
       let observed = this.observedColliderPoses.get(contraption);
@@ -457,7 +463,7 @@ export class PlayerPhysics {
         let hitAxis: 'x' | 'y' | 'z' | null = null;
         let hitSign = 0;
         for (const axis of ['x', 'y', 'z'] as const) {
-          const suffix = axis.toUpperCase();
+          const suffix = AXIS_SUFFIX[axis];
           const previousMin = box[`previousMin${suffix}`], previousMax = box[`previousMax${suffix}`];
           const currentMin = box[`currentMin${suffix}`], currentMax = box[`currentMax${suffix}`];
           // Linear face sweeps are exact for translations. Rotating intrusions
@@ -480,7 +486,7 @@ export class PlayerPhysics {
         if (!hitAxis || entry < 0 || entry > 1 || entry > exit) continue;
         const normal = new THREE.Vector3();
         normal[hitAxis] = hitSign;
-        const surface = box[`${hitSign > 0 ? 'currentMax' : 'currentMin'}${hitAxis.toUpperCase()}`];
+        const surface = box[`${hitSign > 0 ? 'currentMax' : 'currentMin'}${AXIS_SUFFIX[hitAxis]}`];
         const contactPoint = this.position.clone();
         contactPoint[hitAxis] = surface;
         const closingSpeed = this.getContraptionBodyPointVelocity(contraption,
@@ -521,12 +527,12 @@ export class PlayerPhysics {
     return nearby;
   }
 
-  private sweptBounds(a, b) {
+  private sweptBounds(a: CollisionBounds, b: CollisionBounds) {
     return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), minZ: Math.min(a.minZ, b.minZ),
       maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY), maxZ: Math.max(a.maxZ, b.maxZ) };
   }
 
-  getContraptionCollisionBoxes(contraptions = this.getNearbyContraptions(), bounds = null) {
+  getContraptionCollisionBoxes(contraptions: Contraption[] = this.getNearbyContraptions(), bounds: CollisionBounds | null = null) {
     const boxes = [];
     for (const contraption of contraptions) {
       if (typeof contraption.getCollisionWorldAABBs !== 'function') continue;
@@ -550,7 +556,7 @@ export class PlayerPhysics {
     return boxes;
   }
 
-  getContraptionBodyPointVelocity(contraption, bodyId = entityBodyId(contraption), worldPoint = this.position) {
+  getContraptionBodyPointVelocity(contraption: Contraption | null, bodyId = entityBodyId(contraption), worldPoint: THREE.Vector3 = this.position) {
     const body = contraption?.getRigidBody?.(entityBodyId(contraption, bodyId));
     if (!body) return contraption?.getVelocityAtPoint?.(worldPoint) || new THREE.Vector3();
     const lever = worldPoint.clone().sub(body.position);
@@ -563,7 +569,7 @@ export class PlayerPhysics {
    * endpoint advances entity physics. Record the contact for scripts without
    * allowing the local player to mutate entity velocity or wake sleeping bodies.
    */
-  recordPlayerContact(box, direction, relativeClosingSpeed, worldPoint) {
+  recordPlayerContact(box: EntityCollisionBounds, direction: THREE.Vector3, relativeClosingSpeed: number, worldPoint: THREE.Vector3) {
     if (!box) return false;
     const normal = direction.clone().normalize();
     box.contraption?.recordScriptContact?.({
@@ -580,17 +586,17 @@ export class PlayerPhysics {
     return true;
   }
 
-  intervalsOverlap(minA, maxA, minB, maxB) {
+  intervalsOverlap(minA: number, maxA: number, minB: number, maxB: number) {
     return maxA > minB + COLLISION_EPSILON && minA < maxB - COLLISION_EPSILON;
   }
 
-  aabbIntersects(a, b) {
+  aabbIntersects(a: CollisionBounds, b: CollisionBounds) {
     return this.intervalsOverlap(a.minX, a.maxX, b.minX, b.maxX)
       && this.intervalsOverlap(a.minY, a.maxY, b.minY, b.maxY)
       && this.intervalsOverlap(a.minZ, a.maxZ, b.minZ, b.maxZ);
   }
 
-  getBlockAABB(block) {
+  getBlockAABB(block: SolidBlock) {
     const size = block.size || 1;
     return {
       minX: block.x,
@@ -602,7 +608,7 @@ export class PlayerPhysics {
     };
   }
 
-  resolveWorldVerticalCollision(blocks, dy, previousAABB) {
+  resolveWorldVerticalCollision(blocks: SolidBlock[], dy: number, previousAABB: CollisionBounds) {
     if (Math.abs(dy) <= COLLISION_EPSILON) return false;
 
     const currentAABB = this.getAABB();
@@ -643,7 +649,7 @@ export class PlayerPhysics {
     return true;
   }
 
-  resolveWorldHorizontalCollision(blocks, axis, delta) {
+  resolveWorldHorizontalCollision(blocks: SolidBlock[], axis: 'x' | 'z', delta: number) {
     if (Math.abs(delta) <= COLLISION_EPSILON || blocks.length === 0) return false;
 
     const halfWidth = this.width / 2;
@@ -665,7 +671,7 @@ export class PlayerPhysics {
     return true;
   }
 
-  resolveContraptionVerticalSweep(collisionBoxes, dy, previousAABB) {
+  resolveContraptionVerticalSweep(collisionBoxes: EntityCollisionBounds[], dy: number, previousAABB: CollisionBounds) {
     if (Math.abs(dy) <= COLLISION_EPSILON) return false;
 
     const currentAABB = this.getAABB();
@@ -724,7 +730,7 @@ export class PlayerPhysics {
     return true;
   }
 
-  resolveContraptionHorizontalSweep(collisionBoxes, axis, delta, previousAABB) {
+  resolveContraptionHorizontalSweep(collisionBoxes: EntityCollisionBounds[], axis: 'x' | 'z', delta: number, previousAABB: CollisionBounds) {
     if (Math.abs(delta) <= COLLISION_EPSILON) return false;
 
     const currentAABB = this.getAABB();
@@ -781,7 +787,7 @@ export class PlayerPhysics {
    * There is intentionally no Y side-penetration candidate: side contact may push the
    * player sideways, but can never act like automatic climbing or teleport up.
    */
-  resolveDynamicContraptionOverlaps(contraptions = this.getNearbyContraptions()) {
+  resolveDynamicContraptionOverlaps(contraptions: Contraption[] = this.getNearbyContraptions()) {
     if (this.isFlying || contraptions.length === 0) return false;
 
     let moved = this.followRidingPlatformPose();
@@ -811,7 +817,7 @@ export class PlayerPhysics {
         continue;
       }
 
-      const correctionCandidates = [
+      const correctionCandidates: {axis: 'x' | 'z'; amount: number}[] = [
         {
           axis: 'x',
           amount: Math.min(...overlaps.map(box => box.minX - aabb.maxX)) - COLLISION_EPSILON
@@ -876,7 +882,7 @@ export class PlayerPhysics {
     return moved;
   }
 
-  getIntersectingSolidBlocks(aabb) {
+  getIntersectingSolidBlocks(aabb: CollisionBounds) {
     const minX = Math.floor(aabb.minX);
     const maxX = Math.floor(aabb.maxX);
     const minY = Math.floor(aabb.minY);

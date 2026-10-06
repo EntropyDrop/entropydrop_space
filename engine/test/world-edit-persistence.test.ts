@@ -423,7 +423,7 @@ test('restored legacy outbox batches are repartitioned to the current spatial li
 
 test('remote persistence stores only the durable outbox, not acknowledged world snapshots', async () => {
   const storage = new MemoryStorage();
-  let releaseSend: (() => void) | null = null;
+  let releaseSend: () => void = () => {};
   const persistence = new WorldEditPersistence({
     worldId: 'outbox-only-world',
     storage,

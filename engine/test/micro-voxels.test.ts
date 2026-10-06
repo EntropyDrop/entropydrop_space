@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -131,7 +132,7 @@ test('dense micro mesh rebuilds yield to the render-frame budget and retain the 
   assert.equal(complete, true);
   assert.ok(frames > 1, 'dense meshing should be distributed over multiple render budgets');
   assert.notEqual(layer.mesh, previousMesh);
-  assert.equal(layer.mesh.geometry.index?.count, 36);
+  assert.equal(requireValue(layer.mesh).geometry.index?.count, 36);
 });
 
 test('micro mesh work is deferred until its standard chunk is active', () => {
@@ -345,7 +346,7 @@ test('selected micro voxels become one programmable rigid body and can be restor
 
   assert.ok(contraption);
   assert.equal(contraption.blocks.length, 512);
-  assert.ok(contraption.blocks.every(block => block.size === MICRO_SIZE));
+  assert.ok(contraption.blocks.every((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => block.size === MICRO_SIZE));
   assert.ok(Math.abs(contraption.voxelVolume - 1) < 1e-9);
   assert.equal(world.microVoxels.cells.size, 0);
 

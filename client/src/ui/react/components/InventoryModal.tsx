@@ -38,7 +38,7 @@ import {
   MAX_BACKPACK_ITEM_SLOTS,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
-import { useSpaceUi } from '../store/useSpaceUi.ts';
+import { useSpaceUi, useSpaceUiFields } from '../store/useSpaceUi.ts';
 import {
   SpaceMarketError,
   type SpaceMarketQuota,
@@ -513,14 +513,14 @@ function InventoryItemCard({
   onDrop?: (e: React.DragEvent, index: number) => void;
   onDragEnd?: () => void;
 }) {
-  const controller = useSpaceUi(state => state.controller);
+  const { controller, inventoryRevision } = useSpaceUiFields('controller', 'inventoryRevision');
   const fallback = category === 'item' ? `Item ${index + 1}` : category === 'blockset' ? `Block set ${index + 1}` : `Entity ${index + 1}`;
   const itemKind = item?.kind === 'item' ? (item.blockSet && item.entityList?.length ? 'mixed' : item.blockSet ? 'blockset' : 'entity') : item?.kind || 'item';
   const name = controller?.inventoryItemName?.(category, item, index) || item?.name || item?.rootComponentId || fallback;
   const count = item ? (item.blockCount || item.blocks?.length || 0) : 0;
   const thumbnailRenderer = InventoryThumbnailRenderer.getInstance();
   React.useSyncExternalStore(thumbnailRenderer.subscribe, thumbnailRenderer.getRevision, thumbnailRenderer.getRevision);
-  const thumbnail = item ? thumbnailRenderer.getThumbnail(item, isHotbar ? 144 : 96) : null;
+  const thumbnail = item ? thumbnailRenderer.getThumbnail(item, isHotbar ? 144 : 96, inventoryRevision) : null;
   const isDragging = draggedIndex === index;
   const isDragOver = dragOverIndex === index;
 
@@ -1198,7 +1198,7 @@ function MarketSection({
 }
 
 export function InventoryModal() {
-  const state = useSpaceUi(snapshot => snapshot);
+  const state = useSpaceUiFields('activeInventoryCategory', 'activeModal', 'controller', 'inventoryRevision', 'selectedInventoryIndex', 'activeColorSetId');
   const activeCategory: 'item' | 'colorset' = state.activeInventoryCategory === 'colorset' ? 'colorset' : 'item';
 
   const [marketRefreshKey, setMarketRefreshKey] = useState(0);

@@ -1,3 +1,4 @@
+import { requireValue, worldStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Minimap } from '../src/ui/Minimap.ts';
@@ -125,8 +126,8 @@ test('Minimap bounds and caches column scans without changing array-backed sampl
     };
   };
 
-  const reference = new Minimap(makeWorld(referenceChunk), null);
-  const optimized = new Minimap(makeWorld(arrayChunk), null);
+  const reference = new Minimap(worldStub(makeWorld(referenceChunk)), null);
+  const optimized = new Minimap(worldStub(makeWorld(arrayChunk)), null);
   reference.recomputeTerrain(0, 0);
   optimized.recomputeTerrain(0, 0);
 
@@ -172,7 +173,7 @@ test('Minimap skips standard scans for an empty chunk', () => {
 test('disabled Minimap skips all terrain work', () => {
   const dom = setupMockDOM();
   const minimap = new Minimap({
-    get chunks() {
+    get chunks(): never {
       throw new Error('disabled minimap should not inspect terrain');
     },
   }, null);
@@ -203,7 +204,7 @@ test('Minimap seamlessly renders across toroidal boundary at (1, 1, 1)', () => {
     microVoxels: { cells: new Map() }
   };
 
-  const minimap = new Minimap(world, null);
+  const minimap = new Minimap(worldStub(world), null);
   // Recompute at player position (1, 1)
   minimap.recomputeTerrain(1, 1);
 
@@ -239,7 +240,7 @@ test('Minimap correctly wraps entity positions near toroidal boundaries', () => 
     contraptions: [contraption]
   };
 
-  const minimap = new Minimap(world, contraptionManager);
+  const minimap = new Minimap(worldStub(world), contraptionManager);
   minimap.attachCanvas(createMockCanvas());
 
   // When player is at (0, 0), the update call should not throw and correctly process entity
@@ -256,7 +257,7 @@ test('Minimap micro heights use metres and preserve eighth-metre surfaces', () =
   const chunk = makeMockChunk(0, 0, 10, 0x112233);
   const chunks = new Map([['0,0', chunk]]);
   const world = { chunks, microVoxels };
-  const minimap = new Minimap(world, null);
+  const minimap = new Minimap(worldStub(world), null);
   const center = Minimap.RANGE * Minimap.CELLS + Minimap.RANGE;
   const cell = center + Minimap.CELLS + 1;
 
@@ -285,7 +286,7 @@ test('Minimap wraps indexed microcells and invalidates surfaces after chunk clea
   const dom = setupMockDOM();
   const microVoxels = new MicroVoxelLayer();
   const world = { chunks: new Map(), microVoxels };
-  const minimap = new Minimap(world, null);
+  const minimap = new Minimap(worldStub(world), null);
   const wrappedCell = (Minimap.RANGE - 1) * Minimap.CELLS + Minimap.RANGE - 1;
 
   microVoxels.set(-MICRO_DIVISIONS, 0, -MICRO_DIVISIONS, 0xabcdef);
@@ -318,7 +319,7 @@ test('Minimap repeated local digs never scan far microcells or unchanged visible
       for (let z = 0; z < 32; z++) microVoxels.set(8000 + x, y, 8000 + z, 0x778899);
     }
   }
-  const minimap = new Minimap({ chunks: new Map(), microVoxels }, null);
+  const minimap = new Minimap(worldStub({ chunks: new Map(), microVoxels }), null);
   const visitedChunks: string[] = [];
   let visitedCells = 0;
   const forEachCellInChunk = microVoxels.forEachCellInChunk.bind(microVoxels);

@@ -97,6 +97,7 @@ class Game {
   ) {
     const offline = import.meta.env.DEV && developmentOffline;
     this.canvasContainer = document.getElementById('canvas-container');
+    if (!this.canvasContainer) throw new Error('Missing canvas container');
 
     // 1. Core Engine Systems
     this.sceneRenderer = new SceneRenderer(this.canvasContainer, {

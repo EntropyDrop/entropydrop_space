@@ -121,8 +121,8 @@ test('the entry gate shows cache and byte progress through shader and GPU prepar
   let now = 1000;
   t.mock.method(performance, 'now', () => now);
   let tick!: () => void, cleared = false;
-  t.mock.method(globalThis, 'setInterval', callback => { tick = callback; return 123 as any; });
-  t.mock.method(globalThis, 'clearInterval', timer => { assert.equal(timer, 123); cleared = true; });
+  t.mock.method(globalThis, 'setInterval', (callback: () => void) => { tick = callback; return 123 as any; });
+  t.mock.method(globalThis, 'clearInterval', (timer: unknown) => { assert.equal(timer, 123); cleared = true; });
   const downloads = deferred<{ loaded: number; complete: boolean }>();
   const pipelines = deferred(), gpu = deferred();
   const updates: { value: number; message: string }[] = [];

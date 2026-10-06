@@ -1,3 +1,6 @@
+import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import type { RuntimeVoxel } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
+import type { EntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import {
   THREE, World, ContraptionManager, ContraptionPhysics,
@@ -5,6 +8,21 @@ import {
   preloadAssemblyScriptRuntime,
   wrapX, wrapZ, wrapChunkX, wrapChunkZ, unwrapPeriodicNear, TORUS_SIZE_X, TORUS_SIZE_Z,
 } from '@entropydrop/space-engine';
+
+interface HostedChunk {
+  chunk_x: number; chunk_z: number; revision: number;
+  standard: Array<[number, number, number, number, number, number?]>;
+  micro: Array<[number, number, number, number, (string | null)?, number?]>;
+}
+interface HostedInput {
+  world_id: string; world_slug?: string; world_name?: string; steps: number;
+  chunks: HostedChunk[];
+  entities: Array<{
+    id: string; definition_base64: string; position: number[]; anchor: number[];
+    snapshot?: EntityStreamState | null; yaw_quarter_turns: number; running: boolean;
+    messages?: unknown[]; message_results?: Record<string, unknown>[];
+  }>;
+}
 
 /** A bounded transaction candidate. No guest can access IPC, credentials or storage. */
 export class HostedSimulation {
@@ -17,7 +35,7 @@ export class HostedSimulation {
   outboundMessages: any[] = [];
   actor: string | null = null;
 
-  inBounds(c: any, anchor: number[]) {
+  inBounds(c: Contraption, anchor: number[]) {
     const box = new THREE.Box3();
     for (const block of c.blocks) {
       c.getBlockWorldBounds(block, box);
@@ -84,7 +102,7 @@ export class HostedSimulation {
     return { ok: true, queued: 1, pending: true, reason: 'queued' };
   }
 
-  async step(input: any) {
+  async step(input: HostedInput) {
     await preloadAssemblyScriptRuntime();
     if (!Number.isInteger(input.steps) || input.steps < 1 || input.steps > 20
       || input.entities.length > 36 || input.chunks.length > 196) throw new Error('hosting_request_limit');
@@ -134,10 +152,10 @@ export class HostedSimulation {
     this.dirty.clear();
     // Persistence hooks collect validated engine edits; Python commits them with snapshots and billing.
     this.world.editPersistence = {
-      recordStandard: (x, y, z, block, color, material = 0) => this.record({ kind: 'set_standard', x: wrapX(x), y, z: wrapZ(z), block, color, material }),
-      recordMicro: (mx, my, mz, color, part, material = 0) => this.record({ kind: 'set_micro', mx, my, mz, color, part, material }),
-      removeMicro: (mx, my, mz) => this.record({ kind: 'remove_micro', mx, my, mz }),
-      removeMicroStandardCell: (x, y, z) => this.record({ kind: 'clear_micro_cell', x: wrapX(x), y, z: wrapZ(z) }),
+      recordStandard: (x: number, y: number, z: number, block: number, color: number, material = 0) => this.record({ kind: 'set_standard', x: wrapX(x), y, z: wrapZ(z), block, color, material }),
+      recordMicro: (mx: number, my: number, mz: number, color: number, part: string | null, material = 0) => this.record({ kind: 'set_micro', mx, my, mz, color, part, material }),
+      removeMicro: (mx: number, my: number, mz: number) => this.record({ kind: 'remove_micro', mx, my, mz }),
+      removeMicroStandardCell: (x: number, y: number, z: number) => this.record({ kind: 'clear_micro_cell', x: wrapX(x), y, z: wrapZ(z) }),
       canAcceptLocalMutation: () => this.mutations.length < 256,
     } as any;
     const manager = new ContraptionManager(this.scene, this.world, null, null);
@@ -227,11 +245,13 @@ export class HostedSimulation {
         if (faults.length) return { faults }; // discard the entire candidate, including world edits
       }
       const results = [...hosted].map(([id, { c, elapsed, poses, priorMessageResultIds }]) => {
-        const snapshot: any = manager.captureContraptionForStreaming(c, manager.getContraptionChunk(c));
+        const chunk = manager.getContraptionChunk(c);
+        if (!chunk) throw new Error('hosting_invalid_entity_position');
+        const snapshot: any = manager.captureContraptionForStreaming(c, chunk);
         const slot = snapshot.slot;
-        slot.blocks = slot.blocks.map(b => {
+        slot.blocks = slot.blocks.map((b: RuntimeVoxel) => {
           const dx = Math.floor(b.localX), dy = Math.floor(b.localY), dz = Math.floor(b.localZ);
-          return { ...b, dx, dy, dz, ...(b.size < 1 ? {
+          return { ...b, dx, dy, dz, ...((b.size ?? 1) < 1 ? {
             mx: Math.round((b.localX - dx) * MICRO_DIVISIONS), my: Math.round((b.localY - dy) * MICRO_DIVISIONS),
             mz: Math.round((b.localZ - dz) * MICRO_DIVISIONS),
           } : {}) };

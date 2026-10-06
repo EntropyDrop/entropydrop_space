@@ -1,3 +1,10 @@
+import { buildUnifiedInventoryPreviewMesh } from './InventoryPreviewMesh.ts';
+export { buildUnifiedInventoryPreviewMesh } from './InventoryPreviewMesh.ts';
+import type { Point3, SelectionFrame, MicroCarvePreview, InventoryPlacementPreview, PreviewInteraction, PreviewForceInteraction, RemotePlayerRecord } from './PreviewTypes.ts';
+import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import type { World } from '@entropydrop/space-engine/voxel/World.ts';
+import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
+import type { InventoryInput } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
 import { getInventoryPreviewBlocks, previewVector3 } from '../inventory/InventoryGeometry.ts';
 export { getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
 import { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
@@ -131,7 +138,7 @@ interface PlayerAppearance {
  * through the curved terrain. Subdivide at roughly one segment per selected
  * cell (with a safety cap) so fills and outlines follow the rendered surface.
  */
-function updateTorusSelectionBoxGeometry(fill, edges, sizeX, sizeY, sizeZ) {
+function updateTorusSelectionBoxGeometry(fill: THREE.Mesh | null, edges: THREE.LineSegments | null, sizeX: number, sizeY: number, sizeZ: number) {
   if (!fill || !edges) return;
   const segments = [sizeX, sizeY, sizeZ].map(size => (
     Math.max(1, Math.min(MAX_SELECTION_BEND_SEGMENTS, Math.max(1, Math.round(Math.abs(Number(size)) * 5))))
@@ -153,274 +160,10 @@ function updateTorusSelectionBoxGeometry(fill, edges, sizeX, sizeY, sizeZ) {
  * culling all internal adjoining faces between voxels so the ghost renders as a clean solid
  * without multi-box transparent overdraw or internal line clutter.
  */
-export function buildUnifiedInventoryPreviewMesh(entries) {
-  if (!entries || entries.length === 0) return null;
-
-  let minSize = Infinity;
-  let allSize1 = true;
-  for (const entry of entries) {
-    const s = Number(entry.size) || 1;
-    minSize = Math.min(minSize, s);
-    if (Math.abs(s - 1) > 1e-4) allSize1 = false;
-  }
-
-  // Quantization step in milli-units (1.0 block -> 1000, 0.125 microblock -> 125)
-  const step = allSize1 ? 1000 : (minSize < 0.9 ? MICRO_SIZE * 1000 : 1000);
-  const toCoord = (val) => Math.round(val * 1000);
-
-  // Map of patchKey -> { pos?: Patch, neg?: Patch }
-  // Back-to-back opposing faces cancel each other out (internal face culling).
-  const patchMap = new Map();
-
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    const size = Number(entry.size) || 1;
-    const color = entry.color ?? 0xf2a93b;
-    const cx = entry.center.x;
-    const cy = entry.center.y;
-    const cz = entry.center.z;
-
-    const qx0 = toCoord(cx - size / 2);
-    const qy0 = toCoord(cy - size / 2);
-    const qz0 = toCoord(cz - size / 2);
-    const qx1 = toCoord(cx + size / 2);
-    const qy1 = toCoord(cy + size / 2);
-    const qz1 = toCoord(cz + size / 2);
-
-    // 1. +X Face (Plane X = qx1, Normal +X, Dir +1)
-    for (let u = qy0; u < qy1; u += step) {
-      for (let v = qz0; v < qz1; v += step) {
-        const u1 = Math.min(u + step, qy1);
-        const v1 = Math.min(v + step, qz1);
-        const key = `X:${qx1}:${u}:${u1}:${v}:${v1}`;
-        const existing = patchMap.get(key);
-        if (existing?.neg) {
-          patchMap.delete(key);
-        } else {
-          patchMap.set(key, {
-            pos: {
-              v0: [qx1 / 1000, u / 1000, v1 / 1000],
-              v1: [qx1 / 1000, u / 1000, v / 1000],
-              v2: [qx1 / 1000, u1 / 1000, v / 1000],
-              v3: [qx1 / 1000, u1 / 1000, v1 / 1000],
-              normal: [1, 0, 0],
-              color
-            }
-          });
-        }
-      }
-    }
-
-    // 2. -X Face (Plane X = qx0, Normal -X, Dir -1)
-    for (let u = qy0; u < qy1; u += step) {
-      for (let v = qz0; v < qz1; v += step) {
-        const u1 = Math.min(u + step, qy1);
-        const v1 = Math.min(v + step, qz1);
-        const key = `X:${qx0}:${u}:${u1}:${v}:${v1}`;
-        const existing = patchMap.get(key);
-        if (existing?.pos) {
-          patchMap.delete(key);
-        } else {
-          patchMap.set(key, {
-            neg: {
-              v0: [qx0 / 1000, u / 1000, v / 1000],
-              v1: [qx0 / 1000, u / 1000, v1 / 1000],
-              v2: [qx0 / 1000, u1 / 1000, v1 / 1000],
-              v3: [qx0 / 1000, u1 / 1000, v / 1000],
-              normal: [-1, 0, 0],
-              color
-            }
-          });
-        }
-      }
-    }
-
-    // 3. +Y Face (Plane Y = qy1, Normal +Y, Dir +1)
-    for (let u = qx0; u < qx1; u += step) {
-      for (let v = qz0; v < qz1; v += step) {
-        const u1 = Math.min(u + step, qx1);
-        const v1 = Math.min(v + step, qz1);
-        const key = `Y:${qy1}:${u}:${u1}:${v}:${v1}`;
-        const existing = patchMap.get(key);
-        if (existing?.neg) {
-          patchMap.delete(key);
-        } else {
-          patchMap.set(key, {
-            pos: {
-              v0: [u / 1000, qy1 / 1000, v1 / 1000],
-              v1: [u1 / 1000, qy1 / 1000, v1 / 1000],
-              v2: [u1 / 1000, qy1 / 1000, v / 1000],
-              v3: [u / 1000, qy1 / 1000, v / 1000],
-              normal: [0, 1, 0],
-              color
-            }
-          });
-        }
-      }
-    }
-
-    // 4. -Y Face (Plane Y = qy0, Normal -Y, Dir -1)
-    for (let u = qx0; u < qx1; u += step) {
-      for (let v = qz0; v < qz1; v += step) {
-        const u1 = Math.min(u + step, qx1);
-        const v1 = Math.min(v + step, qz1);
-        const key = `Y:${qy0}:${u}:${u1}:${v}:${v1}`;
-        const existing = patchMap.get(key);
-        if (existing?.pos) {
-          patchMap.delete(key);
-        } else {
-          patchMap.set(key, {
-            neg: {
-              v0: [u / 1000, qy0 / 1000, v / 1000],
-              v1: [u1 / 1000, qy0 / 1000, v / 1000],
-              v2: [u1 / 1000, qy0 / 1000, v1 / 1000],
-              v3: [u / 1000, qy0 / 1000, v1 / 1000],
-              normal: [0, -1, 0],
-              color
-            }
-          });
-        }
-      }
-    }
-
-    // 5. +Z Face (Plane Z = qz1, Normal +Z, Dir +1)
-    for (let u = qx0; u < qx1; u += step) {
-      for (let v = qy0; v < qy1; v += step) {
-        const u1 = Math.min(u + step, qx1);
-        const v1 = Math.min(v + step, qy1);
-        const key = `Z:${qz1}:${u}:${u1}:${v}:${v1}`;
-        const existing = patchMap.get(key);
-        if (existing?.neg) {
-          patchMap.delete(key);
-        } else {
-          patchMap.set(key, {
-            pos: {
-              v0: [u / 1000, v / 1000, qz1 / 1000],
-              v1: [u1 / 1000, v / 1000, qz1 / 1000],
-              v2: [u1 / 1000, v1 / 1000, qz1 / 1000],
-              v3: [u / 1000, v1 / 1000, qz1 / 1000],
-              normal: [0, 0, 1],
-              color
-            }
-          });
-        }
-      }
-    }
-
-    // 6. -Z Face (Plane Z = qz0, Normal -Z, Dir -1)
-    for (let u = qx0; u < qx1; u += step) {
-      for (let v = qy0; v < qy1; v += step) {
-        const u1 = Math.min(u + step, qx1);
-        const v1 = Math.min(v + step, qy1);
-        const key = `Z:${qz0}:${u}:${u1}:${v}:${v1}`;
-        const existing = patchMap.get(key);
-        if (existing?.pos) {
-          patchMap.delete(key);
-        } else {
-          patchMap.set(key, {
-            neg: {
-              v0: [u1 / 1000, v / 1000, qz0 / 1000],
-              v1: [u / 1000, v / 1000, qz0 / 1000],
-              v2: [u / 1000, v1 / 1000, qz0 / 1000],
-              v3: [u1 / 1000, v1 / 1000, qz0 / 1000],
-              normal: [0, 0, -1],
-              color
-            }
-          });
-        }
-      }
-    }
-  }
-
-  const patchCount = patchMap.size;
-  if (patchCount === 0) return null;
-
-  const fillPositions = new Float32Array(patchCount * 18);
-  const fillNormals = new Float32Array(patchCount * 18);
-  const fillColors = new Float32Array(patchCount * 18);
-
-  const edgePositions: number[] = [];
-  const edgeSet = new Set<string>();
-  const tempColor = new THREE.Color();
-
-  let vertOffset = 0;
-  for (const item of patchMap.values()) {
-    const patch = item.pos || item.neg;
-    if (!patch) continue;
-
-    tempColor.set(patch.color ?? 0xf2a93b);
-    const r = tempColor.r;
-    const g = tempColor.g;
-    const b = tempColor.b;
-    const [nx, ny, nz] = patch.normal;
-    const { v0, v1, v2, v3 } = patch;
-
-    // Triangle 1: v0, v1, v2
-    fillPositions[vertOffset] = v0[0];
-    fillPositions[vertOffset + 1] = v0[1];
-    fillPositions[vertOffset + 2] = v0[2];
-    fillPositions[vertOffset + 3] = v1[0];
-    fillPositions[vertOffset + 4] = v1[1];
-    fillPositions[vertOffset + 5] = v1[2];
-    fillPositions[vertOffset + 6] = v2[0];
-    fillPositions[vertOffset + 7] = v2[1];
-    fillPositions[vertOffset + 8] = v2[2];
-
-    // Triangle 2: v0, v2, v3
-    fillPositions[vertOffset + 9] = v0[0];
-    fillPositions[vertOffset + 10] = v0[1];
-    fillPositions[vertOffset + 11] = v0[2];
-    fillPositions[vertOffset + 12] = v2[0];
-    fillPositions[vertOffset + 13] = v2[1];
-    fillPositions[vertOffset + 14] = v2[2];
-    fillPositions[vertOffset + 15] = v3[0];
-    fillPositions[vertOffset + 16] = v3[1];
-    fillPositions[vertOffset + 17] = v3[2];
-
-    for (let k = 0; k < 6; k++) {
-      const idx = vertOffset + k * 3;
-      fillNormals[idx] = nx;
-      fillNormals[idx + 1] = ny;
-      fillNormals[idx + 2] = nz;
-      fillColors[idx] = r;
-      fillColors[idx + 1] = g;
-      fillColors[idx + 2] = b;
-    }
-    vertOffset += 18;
-
-    // Outer quad boundary edges
-    const edges = [
-      [v0, v1],
-      [v1, v2],
-      [v2, v3],
-      [v3, v0]
-    ];
-    for (const [p1, p2] of edges) {
-      const k1 = `${Math.round(p1[0] * 1000)},${Math.round(p1[1] * 1000)},${Math.round(p1[2] * 1000)}`;
-      const k2 = `${Math.round(p2[0] * 1000)},${Math.round(p2[1] * 1000)},${Math.round(p2[2] * 1000)}`;
-      const edgeKey = k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
-      if (!edgeSet.has(edgeKey)) {
-        edgeSet.add(edgeKey);
-        edgePositions.push(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]);
-      }
-    }
-  }
-
-  const fillGeometry = new THREE.BufferGeometry();
-  fillGeometry.setAttribute('position', new THREE.BufferAttribute(fillPositions, 3));
-  fillGeometry.setAttribute('normal', new THREE.BufferAttribute(fillNormals, 3));
-  fillGeometry.setAttribute('color', new THREE.BufferAttribute(fillColors, 3));
-
-  const wireGeometry = new THREE.BufferGeometry();
-  wireGeometry.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
-
-  return { fillGeometry, wireGeometry, patchCount };
-}
-
-export function calculateEntityPreviewCameraPose(contraption, aspect = 1, fov = 42) {
+export function calculateEntityPreviewCameraPose(contraption: Pick<Contraption, 'position' | 'quaternion'> & Partial<Pick<Contraption, 'boundingRadius' | 'getDecorationCount' | 'getVisualWorldBounds'>>, aspect = 1, fov = 42) {
   const safeAspect = Math.max(0.2, Number(aspect) || 1);
-  const visual = contraption.getDecorationCount?.() > 0
-    ? contraption.getVisualWorldBounds().getBoundingSphere(new THREE.Sphere()) : null;
+  const visual = (contraption.getDecorationCount?.() || 0) > 0
+    ? contraption.getVisualWorldBounds?.().getBoundingSphere(new THREE.Sphere()) : null;
   const radius = Math.max(0.75, visual?.radius || contraption.boundingRadius || 0.75);
   const verticalHalfFov = THREE.MathUtils.degToRad(fov * 0.5);
   const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * safeAspect);
@@ -452,7 +195,7 @@ export class SceneRenderer {
     this.worldOverlayListeners.add(listener);
     return () => this.worldOverlayListeners.delete(listener);
   }
-  declare container: any;
+  declare container: HTMLElement;
   declare scene: THREE.Scene;
   declare skyColorDay: THREE.Color;
   declare camera: THREE.PerspectiveCamera;
@@ -465,23 +208,23 @@ export class SceneRenderer {
   declare cinematicEffects: CinematicEffects | null;
   declare resolutionScale: number;
   declare onResolutionScaleChange: ((state: any) => void) | null;
-  declare previewRenderer: any;
-  declare previewCamera: any;
+  declare previewRenderer: SpaceRenderer | null;
+  declare previewCamera: THREE.PerspectiveCamera | null;
   declare previewWorldCullCamera: THREE.PerspectiveCamera;
-  declare previewCanvas: any;
-  declare previewTarget: any;
-  declare previewRaycaster: any;
-  declare previewPointer: any;
-  declare previewOrbit: any;
-  declare previewInteraction: any;
-  declare previewForceArrow: any;
+  declare previewCanvas: HTMLCanvasElement | null;
+  declare previewTarget: Contraption | null;
+  declare previewRaycaster: THREE.Raycaster;
+  declare previewPointer: THREE.Vector2;
+  declare previewOrbit: ReturnType<SceneRenderer['createDefaultPreviewOrbit']>;
+  declare previewInteraction: PreviewInteraction | null;
+  declare previewForceArrow: THREE.ArrowHelper | null;
   declare previewArrowHoldUntil: number;
   declare previewLastRenderedAt: number;
-  declare onPreviewPointerDown: any;
-  declare onPreviewPointerMove: any;
-  declare onPreviewPointerUp: any;
-  declare onPreviewContextMenu: any;
-  declare onEntityPreviewNodeSelect: any;
+  declare onPreviewPointerDown: (event: PointerEvent) => void;
+  declare onPreviewPointerMove: (event: PointerEvent) => void;
+  declare onPreviewPointerUp: (event: PointerEvent) => void;
+  declare onPreviewContextMenu: (event: MouseEvent) => void;
+  declare onEntityPreviewNodeSelect: ((nodeId: string) => void) | null;
   declare hemiLight: THREE.HemisphereLight;
   declare sunLight: THREE.DirectionalLight;
   declare fillLight: THREE.DirectionalLight;
@@ -509,11 +252,11 @@ export class SceneRenderer {
   declare playerAvatarCharacter: CuteCharacter | null;
   declare playerFirstPersonHand: THREE.Group | null;
   declare remotePlayersGroup: THREE.Group;
-  declare remotePlayers: Map<string, any>;
+  declare remotePlayers: Map<string, RemotePlayerRecord>;
   declare inventoryPlacementGroup: THREE.Group;
   declare inventoryPlacementFill: THREE.Mesh | null;
   declare inventoryPlacementWire: THREE.LineSegments | null;
-  declare inventoryPlacementSlot: any;
+  declare inventoryPlacementSlot: InventoryInput | null;
   declare selectionGroup: THREE.Group;
   declare selectionWireframe: any;
   declare selectionFill: any;
@@ -530,7 +273,7 @@ export class SceneRenderer {
   declare selectionMicroCellFillMaterial: THREE.MeshBasicNodeMaterial;
   declare selectionMicroCellsSignature: string;
   declare timeOfDay: number;
-  declare world: any;
+  declare world: World | null;
   declare flatCameraPosition: THREE.Vector3;
   declare flatCameraQuaternion: THREE.Quaternion;
   declare bentLightTarget: THREE.Vector3;
@@ -542,7 +285,7 @@ export class SceneRenderer {
   declare skyDomeUniforms: Record<string, { value: any }>;
   declare playerAppearance: PlayerAppearance;
 
-  constructor(canvasContainer, playerAppearance: PlayerAppearance) {
+  constructor(canvasContainer: HTMLElement, playerAppearance: PlayerAppearance) {
     this.container = canvasContainer;
     this.playerAppearance = playerAppearance;
     this.world = null;
@@ -828,7 +571,7 @@ export class SceneRenderer {
    *   block is hit), otherwise null;
    *   quaternion: optional orientation of the parent entity component.
    */
-  setMicroCarvePreview(preview) {
+  setMicroCarvePreview(preview: MicroCarvePreview | null) {
     if (!this.microCarveGroup) return;
     if (!preview || !preview.cellOrigin) {
       this.microCarveGroup.visible = false;
@@ -865,7 +608,7 @@ export class SceneRenderer {
     this.scene.add(this.inventoryPlacementGroup);
   }
 
-  rebuildInventoryPlacementPreview(slot) {
+  rebuildInventoryPlacementPreview(slot: InventoryInput) {
     for (const object of this.inventoryPlacementGroup.children.filter(object => object.name === 'DecorationPreview')) {
       (object as THREE.Mesh).geometry.dispose();
       ((object as THREE.Mesh).material as THREE.Material).dispose();
@@ -925,8 +668,8 @@ export class SceneRenderer {
         new THREE.MeshBasicNodeMaterial({ color: entry.color, transparent: true, opacity: 0.38, depthWrite: false }));
       mesh.name = 'DecorationPreview';
       mesh.position.copy(entry.center);
-      mesh.quaternion.copy(entry.quaternion);
-      mesh.scale.copy(entry.scale);
+      if (entry.quaternion) mesh.quaternion.copy(entry.quaternion);
+      if (entry.scale) mesh.scale.copy(entry.scale);
       this.inventoryPlacementGroup.add(mesh);
     }
     this.inventoryPlacementFill = fill;
@@ -937,7 +680,7 @@ export class SceneRenderer {
     return true;
   }
 
-  setInventoryPlacementPreview(preview) {
+  setInventoryPlacementPreview(preview: InventoryPlacementPreview | null) {
     if (!this.inventoryPlacementGroup) return;
     if (!preview?.slot || !preview.position) {
       this.inventoryPlacementGroup.visible = false;
@@ -1045,11 +788,11 @@ export class SceneRenderer {
     this.scene.add(this.selectionMicroCellsGroup);
   }
 
-  setCursor(hitPos, size = 1, quaternion = null, center = null) {
+  setCursor(hitPos: Point3 | null, size = 1, quaternion: THREE.Quaternion | null = null, center: Point3 | null = null) {
     if (center || hitPos) {
       if (center) {
         this.cursorMesh.position.set(center.x, center.y, center.z);
-      } else {
+      } else if (hitPos) {
         this.cursorMesh.position.set(hitPos.x + size / 2, hitPos.y + size / 2, hitPos.z + size / 2);
       }
       if (quaternion?.isQuaternion) {
@@ -1064,7 +807,7 @@ export class SceneRenderer {
     }
   }
 
-  setEntityPreviewCanvas(canvas) {
+  setEntityPreviewCanvas(canvas: HTMLCanvasElement | null) {
     if (!canvas || this.previewCanvas === canvas) return;
 
     if (this.previewCanvas) {
@@ -1122,7 +865,7 @@ export class SceneRenderer {
     canvas.addEventListener('contextmenu', this.onPreviewContextMenu);
   }
 
-  setEntityPreviewTarget(contraption) {
+  setEntityPreviewTarget(contraption: Contraption | null) {
     if (this.previewTarget === contraption) return;
 
     this.previewTarget?.rootGroup?.traverse?.(object => {
@@ -1151,7 +894,7 @@ export class SceneRenderer {
     };
   }
 
-  getEntityPreviewPointer(event) {
+  getEntityPreviewPointer(event: PointerEvent) {
     if (!this.previewCanvas) return this.previewPointer.set(0, 0);
     const rect = this.previewCanvas.getBoundingClientRect();
     const width = Math.max(1, rect.width);
@@ -1162,7 +905,7 @@ export class SceneRenderer {
     );
   }
 
-  handleEntityPreviewPointerDown(event) {
+  handleEntityPreviewPointerDown(event: PointerEvent) {
     if (event.button !== 0 || !this.previewTarget || !this.previewCamera) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1179,12 +922,12 @@ export class SceneRenderer {
     ray.direction.copy(flatDir);
     const targetHits = this.previewTarget.rootGroup
       ? this.previewRaycaster.intersectObject(this.previewTarget.rootGroup, true)
-        .filter(hit => hit.object.isMesh)
+        .filter(hit => hit.object instanceof THREE.Mesh)
       : [];
 
     if (targetHits.length > 0) {
       const hit = targetHits[0];
-      let currentObj = hit.object;
+      let currentObj: THREE.Object3D | null = hit.object;
       let hitNodeId = this.previewTarget.rootComponentId;
       while (currentObj && currentObj !== this.previewTarget.rootGroup) {
         if (currentObj.name?.startsWith('Entity_')) {
@@ -1227,13 +970,14 @@ export class SceneRenderer {
 
   }
 
-  handleEntityPreviewPointerMove(event) {
+  handleEntityPreviewPointerMove(event: PointerEvent) {
     const interaction = this.previewInteraction;
     if (!interaction?.active || interaction.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
 
     if (interaction.mode === 'force') {
+      if (!this.previewTarget || !this.previewCamera) return;
       const forceOrigin = this.previewTarget.localToWorld(interaction.localPoint);
       interaction.force.copy(calculatePreviewDragForce(
         this.previewCamera.quaternion,
@@ -1259,7 +1003,7 @@ export class SceneRenderer {
     );
   }
 
-  handleEntityPreviewPointerUp(event) {
+  handleEntityPreviewPointerUp(event: PointerEvent) {
     const interaction = this.previewInteraction;
     if (!interaction?.active || interaction.pointerId !== event.pointerId) return;
     event.preventDefault();
@@ -1280,7 +1024,7 @@ export class SceneRenderer {
     }
   }
 
-  applyEntityPreviewForce(interaction) {
+  applyEntityPreviewForce(interaction: PreviewForceInteraction | null) {
     if (!this.previewTarget || !interaction?.localPoint || !interaction?.force) return;
     const force = interaction.force;
     const point = interaction.localPoint;
@@ -1370,7 +1114,7 @@ export class SceneRenderer {
       }
       this.updatePreviewForceArrow(this.previewInteraction);
       if (!this.previewInteraction.active && performance.now() > this.previewArrowHoldUntil) {
-        this.previewForceArrow.visible = false;
+        if (this.previewForceArrow) this.previewForceArrow.visible = false;
         this.previewInteraction = null;
       }
     }
@@ -1381,7 +1125,7 @@ export class SceneRenderer {
 
   /** Use the preview's viewpoint without leaking sky/culling state into the main view. */
   renderEntityPreviewScene() {
-    if (this.previewReady === false) return;
+    if (this.previewReady === false || !this.previewCamera || !this.previewRenderer) return;
     const skyPosition = this.skyDome?.position.clone();
     const holeDirection = this.skyDomeUniforms?.uHoleDir.value.clone();
     const sunDirection = this.skyDomeUniforms?.uSunDir.value.clone();
@@ -1400,7 +1144,7 @@ export class SceneRenderer {
       if (skyPosition) this.skyDome.position.copy(skyPosition);
       if (holeDirection) this.skyDomeUniforms.uHoleDir.value.copy(holeDirection);
       if (sunDirection) this.skyDomeUniforms.uSunDir.value.copy(sunDirection);
-      if (this.playerFirstPersonHand) this.playerFirstPersonHand.visible = handVisible;
+      if (this.playerFirstPersonHand) this.playerFirstPersonHand.visible = handVisible ?? false;
       if (this.world) {
         // The logical main camera is flat outside its own render pass. Bend a
         // reusable copy so restoring terrain visibility never mutates it.
@@ -1445,7 +1189,7 @@ export class SceneRenderer {
     this.scene.add(this.focusBlockGuide);
   }
 
-  setFocusBlockGuide(center, active = false, cellSize = 1, quaternion = null) {
+  setFocusBlockGuide(center: Point3 | null, active = false, cellSize = 1, quaternion: THREE.Quaternion | null = null) {
     if (!this.focusBlockGuide) return;
     if (!center) {
       this.focusBlockGuide.visible = false;
@@ -1910,13 +1654,13 @@ export class SceneRenderer {
     this.scene.add(this.boxSelectionGroup);
   }
 
-  setBoxSelectionPreview(a, b, micro = false, frame = null) {
+  setBoxSelectionPreview(a: Point3 | null, b: Point3 | null, micro = false, frame: SelectionFrame | null = null) {
     if (!this.boxSelectionGroup) return;
     if (!a || !b) {
       this.boxSelectionGroup.visible = false;
       return;
     }
-    const applyFrame = center => {
+    const applyFrame = (center: THREE.Vector3) => {
       this.boxSelectionGroup.scale.set(1, 1, 1);
       if (frame?.object?.localToWorld) {
         frame.object.updateWorldMatrix?.(true, false);
@@ -1930,7 +1674,7 @@ export class SceneRenderer {
         this.boxSelectionGroup.quaternion.identity();
       }
     };
-    const frameLimits = divisions => {
+    const frameLimits = (divisions: number) => {
       if (!frame?.bounds?.min || !frame?.bounds?.max) return null;
       const min = previewVector3(frame.bounds.min).multiplyScalar(divisions);
       const max = previewVector3(frame.bounds.max).multiplyScalar(divisions);
@@ -1948,7 +1692,7 @@ export class SceneRenderer {
         maxZ: Math.ceil(max.z - 1e-6) - 1
       };
     };
-    const clampCell = (value, min, max) => Math.max(min, Math.min(max, value));
+    const clampCell = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
     if (micro) {
       // Micro mode (Selector Tab): a/b are the meter-space origins of 0.125 m
       // cells, so quantize to micro indices and span whole micro cells.
@@ -2117,7 +1861,7 @@ export class SceneRenderer {
     if (this.boxSelectionGroup) this.boxSelectionGroup.visible = false;
   }
 
-  updateSelectionHologram(bounds, connectedBlocks = null, microBlocks = null, isMicroShape = false, frame: any = null) {
+  updateSelectionHologram(bounds: CollisionBounds | null, connectedBlocks: Point3[] | null = null, microBlocks: Point3[] | null = null, isMicroShape = false, frame: SelectionFrame | null = null) {
     const applyFrameToGroup = (grp: THREE.Group, offset: THREE.Vector3 = new THREE.Vector3(0, 0, 0)) => {
       if (frame?.object?.localToWorld) {
         frame.object.updateWorldMatrix?.(true, false);
@@ -2296,7 +2040,7 @@ export class SceneRenderer {
       return;
     }
 
-    const isMicro = isMicroShape || (Array.isArray(microBlocks) && microBlocks.length > 0);
+    const isMicro = isMicroShape;
     const scale = isMicro ? MICRO_SIZE : 1;
     const sx = Math.max(0.001, (bounds.maxX - bounds.minX + 1) * scale);
     const sy = Math.max(0.001, (bounds.maxY - bounds.minY + 1) * scale);
@@ -2508,7 +2252,7 @@ export class SceneRenderer {
     applyCameraBend(remotePlayerCullCamera);
   }
 
-  private isRemotePlayerInView(record, distance: number) {
+  private isRemotePlayerInView(record: RemotePlayerRecord, distance: number) {
     // Keep very near players visible even when only part of their body crosses
     // the edge of the screen. Farther players use a torus-bent center point so
     // ordinary flat-world frustum assumptions cannot hide the wrong player.
@@ -2523,7 +2267,7 @@ export class SceneRenderer {
     return isProjectedPlayerVisible(remotePlayerProjectedPosition);
   }
 
-  private loadRemotePlayerCharacter(record, id: string, highDetail: boolean) {
+  private loadRemotePlayerCharacter(record: RemotePlayerRecord, id: string, highDetail: boolean) {
     if (record.loadingSkin) return;
     const token = {};
     const requestedSkinUrl = record.skinUrl;
@@ -2569,7 +2313,7 @@ export class SceneRenderer {
     });
   }
 
-  private applyRemotePlayerLod(record, lod: RemotePlayerLod, inView: boolean) {
+  private applyRemotePlayerLod(record: RemotePlayerRecord, lod: RemotePlayerLod, inView: boolean) {
     const shouldRender = lod !== 'hidden' && inView;
     record.group.visible = shouldRender;
     record.lod = lod;
@@ -2819,7 +2563,7 @@ export class SceneRenderer {
     if (this.playerAvatar.visible) this.playerAvatar.updateMatrixWorld(true);
   }
 
-  update(dt, playerPos, playerYaw = 0, playerMotion: any = null) {
+  update(dt: number, playerPos: THREE.Vector3, playerYaw = 0, playerMotion: any = null) {
     // Update player avatar when in third-person view
     this.updatePlayerAvatar(playerPos, playerYaw, dt, playerMotion);
 
@@ -2862,7 +2606,7 @@ export class SceneRenderer {
 
     // Fixed daylight fog. The sky dome renders the background gradient; keep
     // its base and the fog color identical so far terrain fades into the sky.
-    this.scene.fog.color.copy(this.skyColorDay);
+    this.scene.fog?.color.copy(this.skyColorDay);
     if (this.scene.background instanceof THREE.Color) {
       this.scene.background.copy(this.skyColorDay);
     }
@@ -2870,7 +2614,7 @@ export class SceneRenderer {
 
   }
 
-  setWorld(world) {
+  setWorld(world: World | null) {
     this.world = world;
     // Enable only with the adapter that preserves opaque ordering and replay statistics.
     world?.distantSurface?.voxels.setCommandCachingEnabled(this.renderer.terrainCommandCaching);

@@ -13,12 +13,13 @@ import threading
 import time
 
 import zstandard as zstd
-from sqlalchemy import func
+from sqlalchemy import func, tuple_
 
 from space import models
 from space.voxel_grid import MICRO_DIVISIONS
 from space.database import SessionLocal
 from space.terrain_wasm import get_terrain_kernels
+from space.surface_jobs import SurfaceWorld, claim_zone, release_zone, now as lease_now
 
 
 SURFACE_MAGIC = b"EDSZ"
@@ -503,52 +504,62 @@ def decode_surface_lod(row: models.SpaceSurfaceZoneSnapshot, level: dict) -> byt
 
 
 def generate_surface_zone(db, world: models.SpaceWorld, zone_x: int, zone_z: int):
+    # Copy scalar inputs before ending any transaction. ORM attribute access
+    # after rollback would otherwise silently open another transaction.
+    source = SurfaceWorld.capture(world)
+    token = claim_zone(db, source.id, zone_x, zone_z)
+    if token is None:
+        return None
+    try:
+        return _generate_claimed_surface_zone(db, source, zone_x, zone_z, token)
+    finally:
+        db.rollback()
+        release_zone(db, source.id, zone_x, zone_z, token)
+
+
+def _generate_claimed_surface_zone(db, world: SurfaceWorld, zone_x: int, zone_z: int, token: str):
     zone_size = int(world.zone_size_chunks)
     min_x, min_z = zone_x * zone_size, zone_z * zone_size
     max_x, max_z = min_x + zone_size, min_z + zone_size
-    overlay_rows = db.query(models.SpaceChunkSnapshot).filter(
+    source_filter = (
         models.SpaceChunkSnapshot.world_id == world.id,
         models.SpaceChunkSnapshot.chunk_x >= min_x,
         models.SpaceChunkSnapshot.chunk_x < max_x,
         models.SpaceChunkSnapshot.chunk_z >= min_z,
         models.SpaceChunkSnapshot.chunk_z < max_z,
-    ).all()
+    )
+    overlay_rows = db.query(models.SpaceChunkSnapshot).filter(*source_filter).all()
     source_revision = max((int(row.last_event_id or 0) for row in overlay_rows), default=0)
     overlays = {
         (int(row.chunk_x), int(row.chunk_z)): {**_decode_overlay(row), 'revision': int(row.revision)}
         for row in overlay_rows
     }
+    db.rollback()
+    # Node generation, LOD construction and compression hold no DB transaction.
     volume = _terrain_runtime_payload('volume', int(world.seed), int(world.terrain_generator_version), zone_x, zone_z)
     raw = build_surface_zone_payload(world, zone_x, zone_z, source_revision, overlays, voxel_data=volume)
     lod_manifest, lod_payload = build_surface_lods(raw)
     compressed = zstd.ZstdCompressor(level=6).compress(raw)
     digest = hashlib.sha256(raw).digest()
 
-    row = db.query(models.SpaceSurfaceZoneSnapshot).filter(
-        models.SpaceSurfaceZoneSnapshot.world_id == world.id,
-        models.SpaceSurfaceZoneSnapshot.zone_x == zone_x,
-        models.SpaceSurfaceZoneSnapshot.zone_z == zone_z,
-    ).with_for_update().first()
-    # Lock the destination before the final source check. Terrain mutation
-    # transactions lock the same row before marking it dirty, so an edit can
-    # never be silently overwritten by a stale rebuild of an existing zone.
-    current_revision = db.query(func.max(models.SpaceChunkSnapshot.last_event_id)).filter(
-        models.SpaceChunkSnapshot.world_id == world.id,
-        models.SpaceChunkSnapshot.chunk_x >= min_x,
-        models.SpaceChunkSnapshot.chunk_x < max_x,
-        models.SpaceChunkSnapshot.chunk_z >= min_z,
-        models.SpaceChunkSnapshot.chunk_z < max_z,
-    ).scalar() or 0
-    if int(current_revision) != source_revision:
-        db.rollback()
+    # Serialize only publication with terrain mutations, in their lock order:
+    # world -> destination. This also protects a zone's first-ever insert.
+    current_world = db.query(models.SpaceWorld).filter_by(id=world.id).populate_existing().with_for_update().first()
+    if current_world is None or current_world.status != 1 or SurfaceWorld.capture(current_world) != world:
         return None
+    lease = db.query(models.SpaceSurfaceGenerationLease).filter_by(
+        world_id=world.id, zone_x=zone_x, zone_z=zone_z, token=token,
+    ).filter(models.SpaceSurfaceGenerationLease.expires_at > lease_now()).with_for_update().first()
+    if lease is None:
+        return None
+    current_revision = db.query(func.max(models.SpaceChunkSnapshot.last_event_id)).filter(*source_filter).scalar() or 0
+    if int(current_revision) != source_revision:
+        return None
+    row = db.query(models.SpaceSurfaceZoneSnapshot).filter_by(
+        world_id=world.id, zone_x=zone_x, zone_z=zone_z,
+    ).populate_existing().with_for_update().first()
     if row is None:
-        row = models.SpaceSurfaceZoneSnapshot(
-            world_id=world.id,
-            zone_x=zone_x,
-            zone_z=zone_z,
-            revision=1,
-        )
+        row = models.SpaceSurfaceZoneSnapshot(world_id=world.id, zone_x=zone_x, zone_z=zone_z, revision=1)
         db.add(row)
     else:
         row.revision = int(row.revision or 0) + 1
@@ -564,35 +575,23 @@ def generate_surface_zone(db, world: models.SpaceWorld, zone_x: int, zone_z: int
     row.lod_payload = lod_payload
     row.dirty = False
     db.commit()
-    db.refresh(row)
-    # A first build has no pre-existing row for the mutation transaction to
-    # lock. Recheck after publishing it; a concurrent edit either marks the new
-    # row itself or is detected here and schedules another rebuild.
-    latest_revision = db.query(func.max(models.SpaceChunkSnapshot.last_event_id)).filter(
-        models.SpaceChunkSnapshot.world_id == world.id,
-        models.SpaceChunkSnapshot.chunk_x >= min_x,
-        models.SpaceChunkSnapshot.chunk_x < max_x,
-        models.SpaceChunkSnapshot.chunk_z >= min_z,
-        models.SpaceChunkSnapshot.chunk_z < max_z,
-    ).scalar() or 0
-    if int(latest_revision) != source_revision:
-        row.dirty = True
-        db.commit()
-        db.refresh(row)
     return row
 
 
 def generate_next_surface_zone() -> bool:
     db = SessionLocal()
     try:
-        # This lock also makes the API self-healing worker safe alongside the
-        # normal Redis-singleton background service and across API replicas.
-        worlds = db.query(models.SpaceWorld).filter(
+        worlds = [SurfaceWorld.capture(world) for world in db.query(models.SpaceWorld).filter(
             models.SpaceWorld.status == 1
-        ).with_for_update(skip_locked=True).all()
+        ).all()]
         for world in worlds:
+            leased = set(db.query(models.SpaceSurfaceGenerationLease.zone_x, models.SpaceSurfaceGenerationLease.zone_z).filter(
+                models.SpaceSurfaceGenerationLease.world_id == world.id,
+                models.SpaceSurfaceGenerationLease.expires_at > lease_now(),
+            ).all())
             dirty = db.query(models.SpaceSurfaceZoneSnapshot.zone_x, models.SpaceSurfaceZoneSnapshot.zone_z).filter(
                 models.SpaceSurfaceZoneSnapshot.world_id == world.id,
+                tuple_(models.SpaceSurfaceZoneSnapshot.zone_x, models.SpaceSurfaceZoneSnapshot.zone_z).not_in(leased),
                 (
                     (models.SpaceSurfaceZoneSnapshot.dirty.is_(True))
                     | (models.SpaceSurfaceZoneSnapshot.terrain_generator_version != world.terrain_generator_version)
@@ -625,8 +624,9 @@ def generate_next_surface_zone() -> bool:
             }
             zones_x = int(world.width_chunks) // int(world.zone_size_chunks)
             zones_z = int(world.length_chunks) // int(world.zone_size_chunks)
+            occupied = existing | leased
             pending = [(zone_x, zone_z) for zone_x in range(zones_x)
-                       for zone_z in range(zones_z) if (zone_x, zone_z) not in existing]
+                       for zone_z in range(zones_z) if (zone_x, zone_z) not in occupied]
             if int(world.terrain_generator_version) in RUNTIME_TERRAIN_GENERATORS:
                 center_x, center_z = zones_x // 2, zones_z // 2
                 pending.sort(key=lambda point: (

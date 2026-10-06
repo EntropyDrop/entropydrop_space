@@ -10,7 +10,7 @@ from tests.test_space_entities import _entity
 
 def test_hosted_runtime_returns_one_pose_sample_per_fixed_tick_without_extra_simulation():
     definition = _entity('Hosted trajectory')
-    definition['root']['script'] = 'self.state.ticks = (self.state.ticks || 0) + 1;'
+    definition['root']['script'] = 'self.state.setNumber("ticks", self.state.getNumber("ticks") + 1);'
     entity_id = str(uuid.uuid4())
     payload = {'seed': 1, 'steps': 20, 'entities': [{
         'id': entity_id, 'running': True, 'anchor': [80, 80], 'position': [80, 220, 80],

@@ -37,14 +37,19 @@ entropydrop_website/
 | `src/bootstrap/SpaceMarketClient.ts` | Market list/publish/download/like/delete. |
 | `src/bootstrap/SpaceSurfaceSnapshot.ts` | Far-surface `EDSZ` manifest and zone download/verification. |
 | `src/bootstrap/SpaceApiKeyClient.ts`, `LatencyMonitor.ts`, `JsonParseWorker.ts` | API keys/usage, latency sampling, JSON worker. |
-| `src/engine/controls/PlayerController.ts` | Player/tool interaction, selection, backpack state and persistence, build/entityize flows; delegates resource conversion and validation to `inventory/`. |
+| `src/engine/controls/PlayerController.ts` | Player/tool interaction, selection and build/entityize flows; coordinates UI effects and delegates backpack operations, persistence and placement geometry to `inventory/`. |
+| `src/engine/controls/SelectionGeometry.ts`, `SelectionTypes.ts` | Component-local selection frames, virtual micro voxels, selection bounds and state contracts. |
 | `src/engine/controls/ControlBindings.ts`, `PreviewDragForce.ts` | Tool identifiers, reserved keys, perspective types and camera-relative drag-force math. |
 | `src/engine/inventory/InventoryImport.ts` | Bounded Protobuf input validation, with separate Item, Block Set, Entity and Color Set parsers. |
 | `src/engine/inventory/InventorySerialization.ts` | Runtime-to-portable conversion, resource encoding, names and flat entity root resolution. |
 | `src/engine/inventory/InventoryGeometry.ts` | Shared preview geometry, hierarchy transforms, grid alignment and voxel occupancy checks. |
+| `src/engine/inventory/Backpack.ts` | Backpack collections, legacy category aliases, selection, item mutations and default palettes. |
+| `src/engine/inventory/BackpackPersistence.ts` | Injected storage, Protobuf save/load, v8/v9 migration and retention of malformed original storage. |
+| `src/engine/inventory/InventoryRotation.ts`, `InventoryPlacementGeometry.ts` | Grid rotations, cached placement footprints, support probes and oriented-box overlap. |
 | `src/engine/building/` | Retired `SpaceBuilder` and `BuildAgent` BuildPlan libraries; reference/tests only, not connected to application startup. |
 | `src/engine/contraption/` | `AgentChat` (model calls + prompts), `AgentConfig`, `BehaviorAgent`, entity script generation. |
 | `src/engine/network/` | `MultiplayerSync` (`space-relay-v1` client) and `SpaceEntitySync` (AOI entity polling, checkpoint cadence, execution-lease coordination). |
+| `src/engine/render/InventoryPreviewMesh.ts`, `PreviewTypes.ts` | Inventory surface meshing and typed preview/remote-player state. |
 | `src/engine/render/` | Scene, terrain LOD/far-surface layer, lighting/HDR presets, particles, character/skin, held tools. |
 | `src/engine/voxel/` | Model import (GLTF/STL) and voxelization. |
 | `src/engine/storage/BrowserStorage.ts` | IndexedDB with localStorage fallback and legacy-key migration. |
@@ -64,11 +69,38 @@ component, script and geometry limits; it does not execute entity scripts.
 Placement, scene previews and thumbnail rendering all consume the same geometry
 functions. UI components import tool identifiers from `ControlBindings.ts`.
 Existing controller methods and renderer exports remain compatibility adapters;
-new data-only callers should import the inventory modules directly. Keep browser
-storage and UI updates in the controller/store layer rather than adding them to
-the inventory modules. `test/inventory-modules.test.ts` verifies this boundary in
+new data-only callers should import the inventory modules directly. Browser
+storage discovery and UI updates stay in the controller/store layer. The persistence
+module receives a storage interface; it never accesses localStorage or the DOM.
+`test/inventory-modules.test.ts` verifies this boundary in
 a fresh process, while the existing backpack/copy/placement suites exercise the
 compatibility paths.
+
+`engine/src/storage/InventoryTypes.ts` defines the portable resource union and the
+runtime Item, Entity, Block Set and Color Set contracts. Portable entity voxels use
+integral cells plus micro offsets; validated runtime entity voxels use local
+construction coordinates. `InventoryInput` is the explicit compatibility projection
+for older in-memory callers, which may omit defaulted fields. Binary import returns
+a discriminated success/failure result and validates its contents before use.
+
+`npm run typecheck:inventory --workspace @entropydrop/space` checks every inventory
+module and its transitive imports with `strict` and `noImplicitAny`. This gate also
+runs from the normal `typecheck` and `check` commands. Compile-only tests ensure
+resource categories and failed imports cannot be used without narrowing. The engine,
+client and hosted runtime use `strict: true`, including their TypeScript tests.
+Core voxel, component, rigid-body, terrain-worker, script-snapshot, inventory and
+selection data now have explicit contracts. Legacy dynamic action dispatch and
+some integration adapters still use explicit `any`; strict mode prevents new
+implicit `any` and unchecked nullable values, and does not by itself eliminate
+all dynamic boundaries.
+
+The shared engine separates `Contraption` into `EntityVoxelMeshes.ts` (mesh/index
+construction), `ComponentScriptApi.ts` (component capabilities), `EntityInput.ts`
+(input normalization) and `EntityTypes.ts` (runtime contracts).
+`ContraptionManager` delegates world/selection capabilities to `WorldScriptApi.ts`
+and checkpoint capture/restore to `EntityStreaming.ts`. Browser UI and renderer
+code remain outside these engine modules. `PhysicsTerrain.ts` describes the
+terrain queries required by physics instead of accepting an untyped world.
 
 ## Runtime data flow
 
@@ -133,7 +165,9 @@ compatibility paths.
 ## Build and test
 
 Run `npm run check` from the workspace root for engine checks, client type checking,
-documentation links, client tests and the production build. Vite defaults to
+documentation links, client tests, the production build, hosted-runtime checks and
+Python server tests. Set `SPACE_PYTHON` when using a Python environment outside
+`server/.venv`. Vite defaults to
 `base: '/space/app/'`; `VITE_SPACE_BASE_PATH` selects the production entry path.
 Build output is `client/dist/`, and the build checks production module initialization
 and excludes development-only entry points. See [`CONTRIBUTING.md`](../CONTRIBUTING.md),

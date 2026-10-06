@@ -1,3 +1,4 @@
+import { worldStub } from './fixtures.ts';
 import { setScript, setNodeScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ import { ContraptionManager } from '@entropydrop/space-engine/contraption/Contra
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 
-function block(x, y = 0, z = 0, color = 0x123456) {
+function block(x: number, y = 0, z = 0, color = 0x123456) {
   return { localX: x, localY: y, localZ: z, size: 1, block: BlockTypes.COLOR_BLOCK, color, entityId: 'root' };
 }
 
@@ -35,8 +36,8 @@ test('script voxel adapters and engine input use the same canonical action dispa
   assert.equal(scripted.blocks.length, 511);
   assert.equal(inputDriven.blocks.length, 511);
   assert.deepEqual(
-    scripted.blocks.map(item => [item.localX, item.localY, item.localZ]),
-    inputDriven.blocks.map(item => [item.localX, item.localY, item.localZ])
+    scripted.blocks.map((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => [item.localX, item.localY, item.localZ]),
+    inputDriven.blocks.map((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => [item.localX, item.localY, item.localZ])
   );
   assert.equal(inputDriven.lastBlocksChangedEvent.type, 'subdivide');
   assert.deepEqual(inputDriven.lastBlocksChangedEvent.cell, [0, 0, 0]);
@@ -72,7 +73,7 @@ test('player voxel mutations require a stopped entity while script mutations rem
   });
   assert.equal(playerPlace.reason, 'entity_not_stopped');
   assert.equal(playerRemove.reason, 'entity_not_stopped');
-  assert.deepEqual(entity.blocks.map(item => item.localX), [0]);
+  assert.deepEqual(entity.blocks.map((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.localX), [0]);
 
   const scriptPlace = executeBasicAction({ contraption: entity }, {
     domain: ActionDomain.ENTITY,
@@ -83,7 +84,7 @@ test('player voxel mutations require a stopped entity while script mutations rem
     actor: { source: 'script' }
   });
   assert.equal(scriptPlace.ok, true, 'the entity runtime keeps its self-modifying API');
-  assert.deepEqual(entity.blocks.map(item => item.localX), [0, 1]);
+  assert.deepEqual(entity.blocks.map((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.localX), [0, 1]);
 
   entity.stopAllNodeScripts();
   const stoppedRemove = executeBasicAction({ contraption: entity }, {
@@ -95,22 +96,22 @@ test('player voxel mutations require a stopped entity while script mutations rem
     actor: { source: 'player' }
   });
   assert.equal(stoppedRemove.ok, true);
-  assert.deepEqual(entity.blocks.map(item => item.localX), [1]);
+  assert.deepEqual(entity.blocks.map((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.localX), [1]);
 });
 
 test('player queries pick published terrain while scripts read the live terrain state', () => {
   const calls: Array<[string, boolean]> = [];
-  const miss = { hit: false };
+  const miss = { hit: false as const };
   const world = {
-    raycastBent(_origin, _direction, _distance, published) {
+    raycastBent(_origin: unknown, _direction: unknown, _distance: number, published: boolean) {
       calls.push(['standard-bent', published]);
       return miss;
     },
-    raycastMicroBent(_origin, _direction, _distance, published) {
+    raycastMicroBent(_origin: unknown, _direction: unknown, _distance: number, published: boolean) {
       calls.push(['micro-bent', published]);
       return miss;
     },
-    raycastMicro(_origin, _direction, _distance, published) {
+    raycastMicro(_origin: unknown, _direction: unknown, _distance: number, published: boolean) {
       calls.push(['micro-flat', published]);
       return miss;
     },
@@ -322,11 +323,11 @@ test('ctx.selection entity and entityBox share component selection state and cre
   assert.equal(boxed.selected, 3);
   const child = api.createChild('arm');
   assert.deepEqual(child, { ok: true, childId: 'arm', reason: 'created' });
-  assert.equal(entity.blocks.every(item => item.entityId === 'arm'), true);
+  assert.equal(entity.blocks.every((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.entityId === 'arm'), true);
 });
 
 test('ctx.selection createChild has a stable null failure shape', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null) as any;
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null) as any;
   assert.deepEqual(manager.scriptSelectionApi.createChild(), {
     ok: false,
     childId: null,
@@ -365,7 +366,7 @@ test('ctx.selection.delete removes child subtrees and whole root entities', asyn
   });
   assert.equal(manager.contraptions.includes(entity), true, 'the root entity should remain');
   assert.deepEqual([...entity.entityNodes.keys()], ['root']);
-  assert.deepEqual(entity.blocks.map(item => item.localX), [0]);
+  assert.deepEqual(entity.blocks.map((item: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => item.localX), [0]);
   assert.equal(entity.childDefinitions.has('arm'), false);
   assert.equal(entity.childDefinitions.has('hand'), false);
   assert.equal(entity.nodeScripts.has('arm'), false);

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 const assets = process.argv[2]
   ? resolve(process.argv[2]) : fileURLToPath(new URL('../dist/assets/', import.meta.url));
-const files = (await readdir(assets)).filter(file => /^(?:world-simulation|script-runtime|script-sdk)-.*\.js$/.test(file)).sort();
+const files = (await readdir(assets)).filter(file => /^(?:world-simulation|script-runtime|script-sdk|entity-data)-.*\.js$/.test(file)).sort();
 for (const prefix of ['world-simulation-', 'script-runtime-']) {
   if (!files.some(file => file.startsWith(prefix))) throw new Error(`Missing production chunk: ${prefix}`);
 }

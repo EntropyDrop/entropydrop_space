@@ -1,21 +1,28 @@
+import type {
+  InventoryKind,
+  InventoryItem,
+  InventoryEntity,
+  InventoryBlockSet,
+  InventoryInput,
+  PortableResourceMap,
+  PortableResource,
+  PortableVoxel,
+  PortableComponent,
+  PortableEntity,
+  PortableBlockSet,
+  InventoryConstraint,
+  InventorySeat,
+  FlatPortableEntity,
+  DecodedInventoryResource,
+} from './InventoryTypes.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import { parseVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import { normalizeGradientStops, normalizePaletteEntry } from '../voxel/Palette.ts';
 import { normalizeDecorations } from '../contraption/Decorations.ts';
-import {
-  createFileRegistry,
-  fromBinary,
-  ScalarType,
-  type DescField,
-  type DescMessage,
-} from '@bufbuild/protobuf';
+import { createFileRegistry, fromBinary, ScalarType, type DescField, type DescMessage } from '@bufbuild/protobuf';
 import { FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
 import { BinaryReader, configureTextEncoding, WireType } from '@bufbuild/protobuf/wire';
-import {
-  Backpack,
-  BackpackView,
-  InventoryCategory,
-} from '../generated/backpack.ts';
+import { Backpack, BackpackView, InventoryCategory } from '../generated/backpack.ts';
 import {
   BodyType,
   type Component,
@@ -33,14 +40,14 @@ export const BACKPACK_PROTOBUF_SCHEMA_VERSION = 10;
 export const INVENTORY_PROTOBUF_MIME = 'application/x-protobuf';
 export { MAX_BACKPACK_ITEM_SLOTS, MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
 import { MAX_BACKPACK_ITEM_SLOTS, MAX_BACKPACK_SLOTS_PER_CATEGORY } from '../constants/SpaceConstants.ts';
-export type InventoryKind = 'item' | 'blockset' | 'entity' | 'colorset';
+export type { InventoryKind } from './InventoryTypes.ts';
 
 export interface PortableBackpack {
   sourceSchemaVersion?: 8 | 9 | 10;
   activeCategory: InventoryKind;
   categories: Partial<Record<InventoryKind, {
     selected: number;
-    items: Array<any | null>;
+    items: Array<PortableResource | null>;
   }>>;
 }
 
@@ -306,7 +313,7 @@ function isIdentityQuaternion(value: unknown): boolean {
 }
 
 /** Canonical portable seat: identity orientation and free look stay implicit. */
-function portableSeat(seat: any): any {
+function portableSeat(seat: any): InventorySeat {
   const rotation = seat?.rotation;
   return {
     position: seat.position.map(canonicalDouble),
@@ -342,8 +349,8 @@ function voxelMessage(block: any): Voxel {
   };
 }
 
-function portableVoxel(block: Voxel): any {
-  const portable: any = {
+function portableVoxel(block: Voxel): PortableVoxel {
+  const portable: PortableVoxel = {
     dx: Number(block.dx),
     dy: Number(block.dy),
     dz: Number(block.dz),
@@ -361,8 +368,8 @@ function portableVoxel(block: Voxel): any {
 }
 
 /** Copy only the fields carried by the portable v8 voxel shape. */
-function portableVoxelFields(block: any): any {
-  const portable: any = {
+function portableVoxelFields(block: any): PortableVoxel {
+  const portable: PortableVoxel = {
     dx: canonicalDouble(block?.dx),
     dy: canonicalDouble(block?.dy),
     dz: canonicalDouble(block?.dz),
@@ -380,8 +387,8 @@ function portableVoxelFields(block: any): any {
 }
 
 /** Normalize the one current constraint shape without accepting legacy aliases. */
-function portableConstraintFields(constraint: any): any {
-  const portable: any = {
+function portableConstraintFields(constraint: any): InventoryConstraint {
+  const portable: InventoryConstraint = {
     id: String(constraint?.id || ''),
     type: constraint?.type || 'point',
     bodyA: constraint?.bodyA == null ? null : String(constraint.bodyA),
@@ -457,7 +464,7 @@ function componentMessage(component: any, includeNames = true): Component {
   };
 }
 
-function portableComponent(component: Component): any {
+function portableComponent(component: Component): PortableComponent {
   if (!component.body) throw new Error(`Component ${String(component.id || '')} has no body config.`);
   const seats = (component.seats || []).map(seat => {
     const position = vectorArray(seat.position);
@@ -632,7 +639,7 @@ function portablePaletteEntry(value: any): { stops: Array<{ color: string; posit
   return { stops: normalized.stops, materialId: normalized.materialId };
 }
 
-function portableResource(message: any, allowLegacyV7 = false): { category: InventoryKind; portable: any } {
+function portableResource(message: any, allowLegacyV7 = false): DecodedInventoryResource {
   const schemaVersion = Number(message.schemaVersion);
   if (schemaVersion !== INVENTORY_PROTOBUF_SCHEMA_VERSION && !(allowLegacyV7 && schemaVersion === 7)) {
     throw new Error(`Expected inventory Protobuf v${INVENTORY_PROTOBUF_SCHEMA_VERSION}.`);
@@ -651,12 +658,12 @@ function portableResource(message: any, allowLegacyV7 = false): { category: Inve
           blockSet: portableResource({
             schemaVersion,
             content: { $case: 'blockSet', value: item.blockSet },
-          }).portable,
+          }).portable as PortableBlockSet,
         } : {}),
         entityList: (item.entityList || []).map((entity: any) => portableResource({
           schemaVersion,
           content: { $case: 'entity', value: entity },
-        }).portable),
+        }).portable as PortableEntity),
       },
     };
   }
@@ -668,7 +675,7 @@ function portableResource(message: any, allowLegacyV7 = false): { category: Inve
       portable: {
         type: 'space-blockset',
         version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
-        name: blockSet.name,
+        name: blockSet.name ?? '',
         blocks,
       },
     };
@@ -681,13 +688,13 @@ function portableResource(message: any, allowLegacyV7 = false): { category: Inve
         position: Math.max(0, Math.min(1000, Number(stop.offsetMillis))) / 1000,
       })),
       materialId: parseVoxelMaterialId(entry.materialId),
-      name: colorSet.name,
+      name: colorSet.name ?? '',
     }));
     if (entries.length === 0 && allowLegacyV7) {
       entries.push(...(colorSet.legacyColors || []).map((color: number) => portablePaletteEntry({
         stops: [{ color: `#${(Number(color) >>> 0).toString(16).padStart(6, '0')}`, position: 0 }],
         materialId: VoxelMaterialIds.DEFAULT,
-        name: colorSet.name,
+        name: colorSet.name ?? '',
       })));
     }
     return {
@@ -695,7 +702,7 @@ function portableResource(message: any, allowLegacyV7 = false): { category: Inve
       portable: {
         type: 'space-colorset',
         version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
-        name: colorSet.name,
+        name: colorSet.name ?? '',
         entries,
       },
     };
@@ -704,7 +711,7 @@ function portableResource(message: any, allowLegacyV7 = false): { category: Inve
 
   const entity = content.value;
   if (!entity.root) throw new Error('Entity Protobuf does not contain a root component.');
-  const portable: any = {
+  const portable: PortableEntity = {
     type: 'space-entity',
     version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
     root: portableComponent(entity.root),
@@ -748,12 +755,12 @@ function bodyFromRuntime(source: any, fallbackType: 'dynamic' | 'kinematic'): an
 }
 
 /** Convert the engine's indexed runtime representation into the recursive wire shape. */
-export function runtimeEntityToPortable(runtime: any): any {
+export function runtimeEntityToPortable(runtime: any): PortableEntity {
   const definitions = Array.isArray(runtime?.childEntities) ? runtime.childEntities : [];
-  const scripts = new Map((runtime?.scripts || []).map((entry: any) => [String(entry.id), entry.language === 'assemblyscript' ? String(entry.code || '') : '']));
+  const scripts = new Map<string, string>((runtime?.scripts || []).map((entry: any) => [String(entry.id), entry.language === 'assemblyscript' ? String(entry.code || '') : '']));
   const enabled = new Map((runtime?.enabled || []).map((entry: any) => [String(entry.id), entry.enabled === true]));
-  const nodes = new Map<string, any>();
-  const makeNode = (source: any, id: string, fallbackType: 'dynamic' | 'kinematic') => ({
+  const nodes = new Map<string, PortableComponent>();
+  const makeNode = (source: any, id: string, fallbackType: 'dynamic' | 'kinematic'): PortableComponent => ({
     id,
     name: String(source?.name ?? ''),
     ...(source?.pivot === undefined ? {} : { pivot: source.pivot.map(canonicalDouble) }),
@@ -794,7 +801,7 @@ export function runtimeEntityToPortable(runtime: any): any {
     const parentId = String(definition.parentId ?? '');
     const parent = nodes.get(parentId);
     if (!parent) throw new Error(`Unknown parent ${String(definition.parentId)}.`);
-    parent.children.push(nodes.get(String(definition.id)));
+    parent.children.push(nodes.get(String(definition.id))!);
   }
   for (const block of runtime?.blocks || []) {
     const ownerId = String(block.entityId ?? '');
@@ -804,7 +811,7 @@ export function runtimeEntityToPortable(runtime: any): any {
   }
   const visiting = new Set<string>();
   const visited = new Set<string>();
-  const sortTree = (component: any) => {
+  const sortTree = (component: PortableComponent): void => {
     if (visiting.has(component.id)) throw new Error('Component hierarchy contains a cycle.');
     if (visited.has(component.id)) return;
     visiting.add(component.id);
@@ -821,32 +828,31 @@ export function runtimeEntityToPortable(runtime: any): any {
     version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
     root,
     constraints: (runtime?.constraints || [])
-      .map((constraint: any) => portableConstraintFields(constraint))
+      .map((constraint: InventoryConstraint) => portableConstraintFields(constraint))
       .sort((left: any, right: any) => compareCodePoints(left.id, right.id)),
   };
 }
 
 /** Flatten a recursive portable entity only for the current in-memory engine. */
-export function portableEntityToRuntime(portable: any): any {
-  const blocks: any[] = [];
-  const childEntities: any[] = [];
-  const scripts: any[] = [];
-  const enabled: any[] = [];
+export function portableEntityToRuntime(portable: PortableEntity): FlatPortableEntity {
+  const blocks: FlatPortableEntity['blocks'] = [];
+  const childEntities: FlatPortableEntity['childEntities'] = [];
+  const scripts: FlatPortableEntity['scripts'] = [];
+  const enabled: FlatPortableEntity['enabled'] = [];
   let nodeCount = 0;
-  const visit = (component: any, parentId: string | null) => {
+  const visit = (component: PortableComponent, parentId: string | null) => {
     nodeCount += 1;
     const id = String(component.id || '');
     for (const block of component.blocks || []) {
       const runtimeBlock = portableVoxelFields(block);
-      runtimeBlock.entityId = id;
-      blocks.push(runtimeBlock);
+      blocks.push({ ...runtimeBlock, entityId: id });
     }
     if (component.script !== undefined) {
       scripts.push({ id, code: component.scriptLanguage === 'assemblyscript' ? String(component.script) : '', language: 'assemblyscript' });
       enabled.push({ id, enabled: component.scriptDisabled !== true });
     }
     if (parentId !== null) {
-      const body = component.body || {};
+      const body = component.body;
       childEntities.push({
         id,
         name: String(component.name ?? ''),
@@ -861,7 +867,7 @@ export function portableEntityToRuntime(portable: any): any {
         ...(body.friction === undefined ? {} : { friction: canonicalDouble(body.friction) }),
         ...(body.useGravity === undefined ? {} : { useGravity: body.useGravity === true }),
         ...(body.collisionEnabled === undefined ? {} : { collisionEnabled: body.collisionEnabled === true }),
-        seats: (component.seats || []).map((seat: any) => portableSeat(seat)),
+        seats: (component.seats || []).map(seat => portableSeat(seat)),
         ...(component.decorations?.length ? { decorations: normalizeDecorations(component.decorations) } : {}),
       });
     }
@@ -871,7 +877,7 @@ export function portableEntityToRuntime(portable: any): any {
     }
   };
   visit(portable.root, null);
-  const rootBody = portable.root?.body || {};
+  const rootBody = portable.root.body;
   return {
     type: 'space-entity',
     version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
@@ -885,7 +891,7 @@ export function portableEntityToRuntime(portable: any): any {
     scripts,
     enabled,
     constraints: (portable.constraints || [])
-      .map((constraint: any) => portableConstraintFields(constraint))
+      .map((constraint: InventoryConstraint) => portableConstraintFields(constraint))
       .sort((left: any, right: any) => compareCodePoints(left?.id || '', right?.id || '')),
     mode: 'free_physics',
     ...(portable.root?.pivot === undefined
@@ -900,7 +906,7 @@ export function portableEntityToRuntime(portable: any): any {
     ...(rootBody.friction === undefined ? {} : { friction: canonicalDouble(rootBody.friction) }),
     ...(rootBody.useGravity === undefined ? {} : { useGravity: rootBody.useGravity === true }),
     ...(rootBody.collisionEnabled === undefined ? {} : { collisionEnabled: rootBody.collisionEnabled === true }),
-    seats: (portable.root?.seats || []).map((seat: any) => portableSeat(seat)),
+    seats: (portable.root?.seats || []).map(seat => portableSeat(seat)),
     ...(portable.root?.decorations?.length ? { decorations: normalizeDecorations(portable.root.decorations) } : {}),
   };
 }
@@ -918,10 +924,12 @@ export function inventoryResourceName(category: InventoryKind, portable: any): s
     : String(portable?.name || '');
 }
 
+export function decodeInventoryResource<K extends InventoryKind>(encoded: Uint8Array, expectedCategory: K): { category: K; portable: PortableResourceMap[K] };
+export function decodeInventoryResource(encoded: Uint8Array): DecodedInventoryResource;
 export function decodeInventoryResource(
   encoded: Uint8Array,
   expectedCategory?: InventoryKind,
-): { category: InventoryKind; portable: any } {
+): DecodedInventoryResource {
   const decoded = portableResource(decodeInventoryMessage(INVENTORY_RESOURCE_DESCRIPTOR, encoded));
   if (expectedCategory && decoded.category !== expectedCategory) {
     throw new Error(`Expected ${expectedCategory}, received ${decoded.category}.`);
@@ -968,7 +976,11 @@ function previewVoxel(block: any, entity: boolean): any {
 }
 
 /** Convert portable v8 coordinates into the runtime shape used by thumbnail rendering. */
-export function inventoryResourcePreviewItem(category: InventoryKind, portable: any): any {
+export function inventoryResourcePreviewItem(category: 'blockset', portable: any): InventoryBlockSet;
+export function inventoryResourcePreviewItem(category: 'entity', portable: any): InventoryEntity;
+export function inventoryResourcePreviewItem(category: 'item', portable: any): InventoryItem;
+export function inventoryResourcePreviewItem(category: InventoryKind, portable: any): InventoryInput;
+export function inventoryResourcePreviewItem(category: InventoryKind, portable: any): InventoryInput {
   if (category === 'item') {
     const blockSet = portable.blockSet ? inventoryResourcePreviewItem('blockset', portable.blockSet) : undefined;
     const entityList = (portable.entityList || []).map((entity: any) => ({
@@ -1008,7 +1020,7 @@ export function inventoryResourcePreviewItem(category: InventoryKind, portable: 
 
   const source = portableEntityToRuntime(portable);
   const blocks = source.blocks.map((block: any) => previewVoxel(block, true));
-  const preview: any = {
+  const preview: InventoryEntity = {
     type: source.type,
     version: source.version,
     name: source.name,
@@ -1043,13 +1055,15 @@ function categoryName(category: InventoryCategory): InventoryKind {
   throw new Error(`Unknown backpack category enum value ${category}.`);
 }
 
-export function inventoryKindForPortable(portable: any): InventoryKind {
-  const kind = {
-    'space-item': 'item', 'space-blockset': 'blockset',
-    'space-entity': 'entity', 'space-colorset': 'colorset',
-  }[portable?.type];
-  if (!kind) throw new Error('Unknown portable inventory resource.');
-  return kind;
+export function inventoryKindForPortable(portable: unknown): InventoryKind {
+  const type = portable && typeof portable === 'object' && 'type' in portable ? portable.type : undefined;
+  switch (type) {
+    case 'space-item': return 'item';
+    case 'space-blockset': return 'blockset';
+    case 'space-entity': return 'entity';
+    case 'space-colorset': return 'colorset';
+    default: throw new Error('Unknown inventory resource type.');
+  }
 }
 
 export function newItemTemplateId(): string {
@@ -1059,7 +1073,7 @@ export function newItemTemplateId(): string {
 }
 
 /** Legacy world anchors cannot be rebased without the original world pose. */
-export function wrapLegacyInventoryResource(category: InventoryKind, portable: any, id = newItemTemplateId(), worldPoseKnown = false): any {
+export function wrapLegacyInventoryResource(category: InventoryKind, portable: any, id = newItemTemplateId(), worldPoseKnown = false): PortableResource {
   if (category === 'item' || category === 'colorset') return portable;
   if (category === 'entity' && !worldPoseKnown && (portable.constraints || []).some((constraint: any) => constraint.bodyA == null)) {
     return portable;

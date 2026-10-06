@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -54,7 +55,7 @@ test('entity and terrain meshes feed the same emissive tint and shader', () => {
     block: 1, color: 0x010203, materialId: 1, size: 1, entityId: 'root' }],
   new THREE.Vector3(), new THREE.Scene());
   try {
-    const mesh = [...entity.getEntityNode('root').voxelChunks.values()][0] as THREE.Mesh;
+    const mesh = [...requireValue(requireValue(entity.getEntityNode('root')).voxelChunks).values()][0] as THREE.Mesh;
     const chunk = new Chunk(0, 0, null);
     chunk.setLocalBlock(2, 5, 2, 1, 0x010203, 1);
     const terrain = new LowPolyMesher().buildChunkMesh(chunk).children[0] as THREE.Mesh;
@@ -81,7 +82,7 @@ test('emission uses scene tone mapping and only marks opted-in HDR buffers', () 
   let renderTarget: THREE.WebGLRenderTarget | null = null;
   const renderer = { getRenderTarget: () => renderTarget } as THREE.WebGLRenderer;
   try {
-    const draw = () => material.onBeforeRender(renderer, scene, camera, geometry, mesh, null);
+    const draw = () => material.onBeforeRender(renderer, scene, camera, geometry, mesh, new THREE.Group());
     assert.equal(material.toneMapped, true);
     assert.equal(material.fog, false);
     assert.ok(material.colorNode?.isNode);

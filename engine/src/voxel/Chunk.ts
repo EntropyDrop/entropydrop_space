@@ -1,5 +1,13 @@
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
 import { normalizeVoxelMaterialId } from './VoxelMaterials.ts';
+import type { Group } from 'three';
+
+/** A chunk only needs dirty notifications and neighboring chunk lookups. */
+export interface ChunkWorld {
+  markChunkDirty(cx: number, cz: number): void;
+  worldToChunkCoords(wx: number, wz: number): { cx: number; cz: number };
+  getChunk(cx: number, cz: number): Chunk | null | undefined;
+}
 
 // Voxel Chunk Data Storage (16x256x16)
 
@@ -10,13 +18,13 @@ export const CHUNK_SIZE_Z = 16;
 export class Chunk {
   cx: number;
   cz: number;
-  world: any;
+  world: ChunkWorld | null;
   blocks: Uint8Array;
   colors: Uint32Array;
   materials: Uint8Array;
   /** Deterministic 0.125 m cells: local mx,my,mz, RGB | material << 24. */
   terrainDetails: Uint32Array;
-  mesh: any;
+  mesh: Group | null;
   isDirty: boolean;
   hasGenerated: boolean;
   /** Changes whenever collision-relevant standard voxel data changes. */
@@ -29,7 +37,7 @@ export class Chunk {
   private maxOccupiedY: number;
   private occupiedYBoundsDirty: boolean;
 
-  constructor(cx, cz, world) {
+  constructor(cx: number, cz: number, world: ChunkWorld | null) {
     this.cx = cx;
     this.cz = cz;
     this.world = world;
@@ -51,12 +59,12 @@ export class Chunk {
     this.occupiedYBoundsDirty = false;
   }
 
-  static getIndex(lx, ly, lz) {
+  static getIndex(lx: number, ly: number, lz: number) {
     return (ly * CHUNK_SIZE_Z + lz) * CHUNK_SIZE_X + lx;
   }
 
   /** Reuse the large typed-array allocation for another procedural chunk. */
-  reuseAt(cx: number, cz: number, world: any) {
+  reuseAt(cx: number, cz: number, world: ChunkWorld | null) {
     this.cx = cx;
     this.cz = cz;
     this.world = world;
@@ -72,28 +80,28 @@ export class Chunk {
     this.occupiedYBoundsDirty = false;
   }
 
-  getLocalBlock(lx, ly, lz) {
+  getLocalBlock(lx: number, ly: number, lz: number) {
     if (lx < 0 || lx >= CHUNK_SIZE_X || ly < 0 || ly >= CHUNK_SIZE_Y || lz < 0 || lz >= CHUNK_SIZE_Z) {
       return 0;
     }
     return this.blocks[Chunk.getIndex(lx, ly, lz)];
   }
 
-  getLocalColor(lx, ly, lz) {
+  getLocalColor(lx: number, ly: number, lz: number) {
     if (lx < 0 || lx >= CHUNK_SIZE_X || ly < 0 || ly >= CHUNK_SIZE_Y || lz < 0 || lz >= CHUNK_SIZE_Z) {
       return DEFAULT_BLOCK_COLOR;
     }
     return this.colors[Chunk.getIndex(lx, ly, lz)];
   }
 
-  getLocalMaterial(lx, ly, lz) {
+  getLocalMaterial(lx: number, ly: number, lz: number) {
     if (lx < 0 || lx >= CHUNK_SIZE_X || ly < 0 || ly >= CHUNK_SIZE_Y || lz < 0 || lz >= CHUNK_SIZE_Z) {
       return 0;
     }
     return this.materials[Chunk.getIndex(lx, ly, lz)];
   }
 
-  setLocalBlock(lx, ly, lz, blockType, color = DEFAULT_BLOCK_COLOR, materialId = 0) {
+  setLocalBlock(lx: number, ly: number, lz: number, blockType: number, color: number | string = DEFAULT_BLOCK_COLOR, materialId = 0) {
     if (lx < 0 || lx >= CHUNK_SIZE_X || ly < 0 || ly >= CHUNK_SIZE_Y || lz < 0 || lz >= CHUNK_SIZE_Z) {
       return false;
     }

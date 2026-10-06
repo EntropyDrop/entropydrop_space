@@ -45,7 +45,7 @@ const summary = (values: number[]) => {
 };
 function showResults() {
   $('results').textContent = JSON.stringify(results, null, 2);
-  $('rows').replaceChildren(...results.rows.map(row => {
+  $('rows').replaceChildren(...results.rows.map((row: { view: string; round: number; backend: Backend; cpu: { p50: number; p95: number }; gpu?: { p50: number }; frame: { p50: number; p95: number }; draws: { mean: number }; triangles: { mean: number } }) => {
     const tr = document.createElement('tr');
     for (const value of [`${row.view} #${row.round} / ${names[row.backend as Backend]}`,
       `${row.cpu.p50.toFixed(2)} / ${row.cpu.p95.toFixed(2)}`, row.gpu?.p50.toFixed(2) ?? 'unavailable',

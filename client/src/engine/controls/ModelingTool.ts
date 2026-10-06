@@ -65,7 +65,7 @@ export class ModelingTool {
       return null;
     }
     const value = target.contraption.getComponentDecorations(target.componentId)
-      .find(decoration => decoration.id === target.decorationId);
+      .find((decoration: DecorationDefinition) => decoration.id === target.decorationId);
     if (!value) { this.clearSelection(false); return null; }
     return { ...target, value };
   }
@@ -210,9 +210,9 @@ export class ModelingTool {
     const selection = this.getSelection();
     const camera = this.controller.camera;
     const mesh = selection?.contraption.decorationGroups.get(selection.componentId)?.children
-      .find(object => object.userData.decorationId === selection.decorationId);
+      .find((object: THREE.Object3D) => object.userData.decorationId === selection.decorationId);
     const node = selection?.contraption.getEntityNode(selection.componentId);
-    if (this.controller.activeTool !== 'modeling' || !mesh || !node || !camera) {
+    if (this.controller.activeTool !== 'modeling' || !selection || !mesh || !node || !camera) {
       if (this.ownershipLink) this.ownershipLink.group.visible = false;
       return;
     }
@@ -422,7 +422,7 @@ export class ModelingTool {
     if (!drag) return;
     this.drag = null;
     const current = drag.target.contraption.getComponentDecorations(drag.target.componentId)
-      .find(value => value.id === drag.target.decorationId);
+      .find((value: DecorationDefinition) => value.id === drag.target.decorationId);
     if (current) this.previewTransform(drag.target, current);
     this.controller.ui?.refresh?.();
   }
@@ -436,7 +436,7 @@ export class ModelingTool {
       return false;
     }
     if (JSON.stringify(drag.start) === JSON.stringify(drag.value)) return false;
-    return this.commit(drag.target, drag.before.map(value => value.id === drag.value.id ? drag.value : value), drag.value);
+    return this.commit(drag.target, drag.before.map((value: DecorationDefinition) => value.id === drag.value.id ? drag.value : value), drag.value);
   }
 
   selectHovered() {
@@ -471,7 +471,7 @@ export class ModelingTool {
     this.undoStack.push({ target: { ...target, decorationId: edited?.id || target.decorationId }, before, after: committed });
     if (this.undoStack.length > 100) this.undoStack.shift();
     this.redoStack = [];
-    const value = edited && committed.find(value => value.id === edited.id);
+    const value = edited && committed.find((value: DecorationDefinition) => value.id === edited.id);
     if (value) this.rememberSize(value);
     this.save(target);
     return true;
@@ -600,7 +600,7 @@ export class ModelingTool {
     try {
       const value = normalizeDecoration({ ...selection.value, ...patch, id: selection.value.id });
       return this.commit(selection, selection.contraption.getComponentDecorations(selection.componentId)
-        .map(decoration => decoration.id === value.id ? value : decoration), value);
+        .map((decoration: DecorationDefinition) => decoration.id === value.id ? value : decoration), value);
     } catch (error) {
       this.controller.ui?.showToast?.((error as Error).message, { tone: 'warning' });
       return false;
@@ -624,7 +624,7 @@ export class ModelingTool {
     const selection = this.getSelection();
     if (!selection) return false;
     if (!this.commit(selection, selection.contraption.getComponentDecorations(selection.componentId)
-      .filter(decoration => decoration.id !== selection.decorationId))) return false;
+      .filter((decoration: DecorationDefinition) => decoration.id !== selection.decorationId))) return false;
     this.clearSelection();
     return true;
   }
@@ -648,7 +648,7 @@ export class ModelingTool {
     source.pop();
     (redo ? this.undoStack : this.redoStack).push(edit);
     const restored = edit.target.contraption.getComponentDecorations(edit.target.componentId)
-      .find(value => value.id === edit.target.decorationId);
+      .find((value: DecorationDefinition) => value.id === edit.target.decorationId);
     if (restored) this.rememberSize(restored);
     this.getSelection();
     this.save(edit.target);

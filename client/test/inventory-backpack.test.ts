@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -41,9 +42,9 @@ function makeController(overrides: any = {}) {
   const toasts: string[] = [];
   const appliedSets: any[] = [];
   controller.ui = {
-    showToast: m => toasts.push(m),
+    showToast: (m: string) => toasts.push(m),
     renderInventoryBar() {},
-    applyColorSetToPalette: set => appliedSets.push(set)
+    applyColorSetToPalette: (set: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) => appliedSets.push(set)
   };
   Object.assign(controller, overrides);
   controller.inventoryCategory(); // lazy 3×99 bootstrap (prototype instances skip the constructor)
@@ -55,9 +56,9 @@ function makeController(overrides: any = {}) {
 function makeMemoryStorage() {
   const values = new Map<string, string>();
   return {
-    getItem(key) { return values.get(key) ?? null; },
-    setItem(key, value) { values.set(key, String(value)); },
-    removeItem(key) { values.delete(key); }
+    getItem(key: string) { return values.get(key) ?? null; },
+    setItem(key: string, value: unknown) { values.set(key, String(value)); },
+    removeItem(key: string) { values.delete(key); }
   };
 }
 
@@ -80,13 +81,13 @@ function makeEntity() {
       childEntities: [{ id: 'arm', parentId: 'root', pivot: [1.5, 0.5, 0.5], blockKeys: [['1', '0', '0']] }],
     }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   return { contraption, manager, scene };
 }
 
-function selectEntity(controller, contraption) {
+function selectEntity(controller: import('../src/engine/controls/PlayerController.ts').PlayerController, contraption: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) {
   controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm']) };
   assert.equal(controller.selectAllSelectionBlocks(), true);
 }
@@ -123,7 +124,7 @@ test('the shared Item collection caps at 198 and reports the limit', () => {
   const hundredth = controller.copySelectionToInventory();
   assert.equal(hundredth, null, 'the 100th entity copy must be rejected');
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 198);
-  assert.ok(controller.__toasts.some(m => m.includes('full (198)')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('full (198)')));
 });
 
 test('color set inventory has capacity 99 and renders without visible group or slot labels', () => {
@@ -176,8 +177,8 @@ test('the unified backpack import detects block sets and entities and rejects ot
   Object.defineProperty(globalThis, 'FileReader', {
     configurable: true,
     value: class {
-      result: ArrayBuffer;
-      onload: () => void;
+      result!: ArrayBuffer;
+      onload!: () => void;
       readAsArrayBuffer() {
         this.result = new Uint8Array(payload).buffer;
         this.onload();
@@ -322,7 +323,7 @@ test('serialize/parse round-trips block sets', () => {
   assert.equal(serialized.version, 8);
   assert.equal('label' in serialized, false);
   assert.deepEqual(
-    serialized.blocks.map(({ dx, dy, dz, mx, my, mz }) => ({ dx, dy, dz, mx, my, mz })),
+    serialized.blocks.map(({ dx, dy, dz, mx, my, mz }: { dx: number; dy: number; dz: number; mx?: number; my?: number; mz?: number }) => ({ dx, dy, dz, mx, my, mz })),
     [
       { dx: 0, dy: 0, dz: 0, mx: undefined, my: undefined, mz: undefined },
       { dx: 1, dy: 0, dz: 2, mx: 1, my: 2, mz: 4 },
@@ -340,10 +341,10 @@ test('serialize/parse round-trips block sets', () => {
   const parsed = controller.parseInventoryImport(encoded, 'blockset');
   assert.equal(parsed.ok, true, parsed.error);
   assert.equal(parsed.item.blocks.length, 3);
-  assert.deepEqual(parsed.item.blocks.map(block => block.dx), [-0.125, 0, 1.125]);
-  const positiveMicro = parsed.item.blocks.find(block => block.color === 0x00ff00);
-  const negativeMicro = parsed.item.blocks.find(block => block.color === 0x0000ff);
-  const standard = parsed.item.blocks.find(block => block.color === 0xff0000);
+  assert.deepEqual(parsed.item.blocks.map((block: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => block.dx), [-0.125, 0, 1.125]);
+  const positiveMicro = parsed.item.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.color === 0x00ff00);
+  const negativeMicro = parsed.item.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.color === 0x0000ff);
+  const standard = parsed.item.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.color === 0xff0000);
   assert.deepEqual(
     [positiveMicro.dx, positiveMicro.dy, positiveMicro.dz, positiveMicro.size],
     [1.125, 0.25, 2.5, 0.125],
@@ -472,8 +473,8 @@ test('serialize/parse round-trips recursive entities with component-local data',
   const parsed = controller.parseInventoryImport(encoded, 'entity');
   assert.equal(parsed.ok, true, parsed.error);
   assert.equal(parsed.item.blocks.length, 4);
-  const armMicro = parsed.item.blocks.find(block => block.entityId === 'arm' && block.size === 0.125);
-  const rootMicro = parsed.item.blocks.find(block => block.entityId === 'root' && block.size === 0.125);
+  const armMicro = parsed.item.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.entityId === 'arm' && block.size === 0.125);
+  const rootMicro = parsed.item.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.entityId === 'root' && block.size === 0.125);
   assert.deepEqual([armMicro.localX, armMicro.localY, armMicro.localZ], [1.125, 0.25, 2.5]);
   assert.deepEqual([rootMicro.localX, rootMicro.localY, rootMicro.localZ], [-0.125, -1.625, -2]);
   assert.deepEqual(parsed.item.scripts, [{ language: "assemblyscript", id: 'arm', code: 'self.applyForce([0,1,0]);' }]);
@@ -499,13 +500,13 @@ test('serialize/parse round-trips recursive entities with component-local data',
   assert.ok(built, 'the imported entity should build');
   assert.equal(built.blocks.length, 4);
   assert.ok(built.entityNodes.has('arm'));
-  assert.ok(built.getEntityNode('arm').localPosition.distanceTo(new THREE.Vector3(0.625, 0.75, 0)) < 1e-9);
-  assert.deepEqual(built.getEntityNode('arm').localQuaternion.toArray(), [0, 1, 0, 0]);
+  assert.ok(requireValue(built.getEntityNode('arm')).localPosition.distanceTo(new THREE.Vector3(0.625, 0.75, 0)) < 1e-9);
+  assert.deepEqual(requireValue(built.getEntityNode('arm')).localQuaternion.toArray(), [0, 1, 0, 0]);
   assert.equal(built.getNodeCollisionEnabled('root'), false);
   assert.equal(built.getComponentSeats('arm').length, 2);
   assert.deepEqual(built.rootPivotOverride?.toArray(), [0.875, 0.375, 0.625]);
   const rebuiltSlot = built.serializeSubtree('root');
-  assert.deepEqual(rebuiltSlot.rootPivotOverride, [0.875, 0.375, 0.625]);
+  assert.deepEqual(requireValue(rebuiltSlot).rootPivotOverride, [0.875, 0.375, 0.625]);
   assert.deepEqual(
     controller.serializeInventoryItem('entity', rebuiltSlot).root.pivot,
     [0.875, 0.375, 0.625],
@@ -654,7 +655,7 @@ test('inventory imports enforce byte, voxel, bounds, hierarchy, and script budge
       stiffness: 0.9,
     }],
   }), 'entity').ok, true, 'constraint ids use a namespace separate from component ids');
-  const entityWithRootPivot = localPosition => ({
+  const entityWithRootPivot = (localPosition: number[]) => ({
     ...baseEntity,
     root: {
       ...baseEntity.root,
@@ -869,9 +870,12 @@ test('backpack persists all categories and seeds the default palette', () => {
   assert.throws(() => JSON.parse(raw), 'backpack storage is binary Protobuf encoded as base64 in localStorage');
   const stored = decodeBackpack(protobufFromBase64(raw));
   assert.equal(stored.activeCategory, 'item');
-  assert.equal(stored.categories.item.items[0].name, 'Renamed shape');
-  assert.equal('label' in stored.categories.item.items[0], false);
-  assert.equal('size' in stored.categories.item.items[0].blockSet.blocks[0], false);
+  const storedItem = requireValue(requireValue(stored.categories.item).items[0]);
+  assert.equal(storedItem.type, 'space-item');
+  assert.ok(storedItem.type === 'space-item');
+  assert.equal(storedItem.name, 'Renamed shape');
+  assert.equal('label' in storedItem, false);
+  assert.equal('size' in requireValue(storedItem.blockSet).blocks[0], false);
 
   const restored = makeController();
   restored.persistentStorage = storage;
@@ -890,7 +894,7 @@ test('old backpack storage keys are ignored without migration', () => {
   const controller = makeController();
   controller.persistentStorage = storage;
   assert.equal(controller.loadInventoriesFromLocalStorage(), false);
-  assert.equal(controller.inventories.blockset.items.every(item => item === null), true);
+  assert.equal(controller.inventories.blockset.items.every((item: unknown) => item === null), true);
   assert.equal(storage.getItem('space.backpack.v5.pb') !== null, true);
 });
 
@@ -921,12 +925,12 @@ test('hammer left-click applies a selected color set to the palette', () => {
   assert.equal(controller.pasteInventorySlot(), true);
   assert.equal(controller.__appliedColorSets.length, 1);
   assert.equal(controller.__appliedColorSets[0], set);
-  assert.ok(controller.__toasts.some(m => m.includes('Applied color set')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Applied color set')));
 
   // An empty color-set slot reports empty instead of applying.
   controller.selectedInventoryIndex = 5;
   assert.equal(controller.pasteInventorySlot(), false);
-  assert.ok(controller.__toasts.some(m => m.includes('slot is empty')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('slot is empty')));
 });
 
 test('large Hammer block sets are applied across bounded frame slices', () => {
@@ -937,7 +941,7 @@ test('large Hammer block sets are applied across bounded frame slices', () => {
   controller.bulkEditJob = null;
   controller.getInventoryPlacementPose = () => ({ position: new THREE.Vector3(0, 80, 0) });
   const progress: any[] = [];
-  controller.ui.setBulkEditProgress = value => progress.push(value);
+  controller.ui.setBulkEditProgress = (value: unknown) => progress.push(value);
 
   const total = BULK_EDIT_THRESHOLD + 44;
   const slot = {
@@ -964,7 +968,7 @@ test('large Hammer block sets are applied across bounded frame slices', () => {
   while (controller.bulkEditJob) controller.processBulkEditFrame(128, Infinity);
   assert.equal(world.getBlock(total - 1, 80, 0), BlockTypes.COLOR_BLOCK);
   assert.equal(progress.at(-1).phase, 'complete');
-  assert.ok(controller.__toasts.some(message => message.includes(`Built block set: ${total}/${total}`)));
+  assert.ok(controller.__toasts.some((message: string) => message.includes(`Built block set: ${total}/${total}`)));
 });
 
 test('assembleSelection creates the contraption without automatically writing to backpack', () => {
@@ -982,7 +986,7 @@ test('assembleSelection creates the contraption without automatically writing to
   const contraption = controller.assembleSelection();
   assert.ok(contraption, 'contraption should be assembled');
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 0, 'assembly does not write to backpack');
-  assert.ok(controller.__toasts.some(m => m.includes('assembled into a contraption')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('assembled into a contraption')));
 });
 
 test('copySelectionToInventory rejects writing when shared Item slots are full', () => {
@@ -999,14 +1003,14 @@ test('copySelectionToInventory rejects writing when shared Item slots are full',
   const result = controller.copySelectionToInventory();
   assert.equal(result, null, 'copy must be rejected when entity inventory is full');
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 198);
-  assert.ok(controller.__toasts.some(m => m.includes('full (198)')), 'toast must report that entity inventory is full');
+  assert.ok(controller.__toasts.some((m: string) => m.includes('full (198)')), 'toast must report that entity inventory is full');
 });
 
 test('copySelectionAsBlockSet rejects writing when shared Item slots are full (198)', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   world.setBlock(5, 5, 5, BlockTypes.COLOR_BLOCK, false, 0x0000ff);
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeController({ manager, world });
   manager.selectionHost = controller;
 
@@ -1022,7 +1026,7 @@ test('copySelectionAsBlockSet rejects writing when shared Item slots are full (1
   const result = controller.copySelectionAsBlockSet();
   assert.equal(result, null, 'copy must be rejected when blockset inventory is full');
   assert.equal(controller.inventories.blockset.items.filter(Boolean).length, 198);
-  assert.ok(controller.__toasts.some(m => m.includes('full (198)')), 'toast must report that block set inventory is full');
+  assert.ok(controller.__toasts.some((m: string) => m.includes('full (198)')), 'toast must report that block set inventory is full');
 });
 
 test('copySelectionSmart handles both entity and world block selection with unified R key', () => {

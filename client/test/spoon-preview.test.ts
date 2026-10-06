@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -9,11 +10,11 @@ import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
  * Spoon-focus 8x8x8 preview tests for updateMicroCarvePreview coordinate conversion.
  */
 
-function makeController(tool) {
+function makeController(tool: string) {
   const controller = Object.create(PlayerController.prototype);
   controller.activeTool = tool;
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.contraptions = { hasChildSelection: () => false };
   controller.microCarvePreview = null;
   return controller;
@@ -21,14 +22,14 @@ function makeController(tool) {
 
 test('tools other than the spoon produce no preview', () => {
   const controller = makeController(SpecialTool.BRUSH);
-  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
+  controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
   controller.updateMicroCarvePreview();
   assert.equal(controller.microCarvePreview, null);
 });
 
 test('spoon over a world standard block previews its 8x8x8 grid', () => {
   const controller = makeController(SpecialTool.SPOON);
-  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
+  controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
   controller.updateMicroCarvePreview();
   assert.deepEqual(controller.microCarvePreview.cellOrigin.toArray(), [3, 4, 5]);
   assert.equal(controller.microCarvePreview.microCenter, null);
@@ -37,7 +38,7 @@ test('spoon over a world standard block previews its 8x8x8 grid', () => {
 test('spoon over a world microblock highlights it within the parent standard cell', () => {
   const controller = makeController(SpecialTool.SPOON);
   // Microcell (18,3,10) belongs to standard cell (2,0,1).
-  controller.currentRaycast = { hit: true, kind: 'micro', microPos: { x: 18, y: 3, z: 10 } };
+  controller.currentRaycast = { hit: true as const, kind: 'micro', microPos: { x: 18, y: 3, z: 10 } };
   controller.updateMicroCarvePreview();
   assert.deepEqual(controller.microCarvePreview.cellOrigin.toArray(), [2, 0, 1]);
   assert.deepEqual(
@@ -135,7 +136,7 @@ test('spoon over a tilted entity inherits the entity quaternion orientation', ()
 
 test('no hit produces no preview', () => {
   const controller = makeController(SpecialTool.SPOON);
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.updateMicroCarvePreview();
   assert.equal(controller.microCarvePreview, null);
 });
@@ -164,7 +165,7 @@ test('selector hover shows no focus wireframe before entity selection', () => {
 test('selector shows no focus guide when not pointing at an entity', () => {
   const controller = makeController(SpecialTool.SELECTOR);
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
+  controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
   controller.updateMicroCarvePreview();
   assert.equal(controller.microCarvePreview, null);
   assert.equal(controller.focusBlockPreview, null, 'world hits use the existing black cursor, not a cyan guide');
@@ -280,7 +281,7 @@ test('boxSelectionPreview follows the crosshair after point 1 is set', () => {
   controller.selectorLevel = { contraption, nodeId: 'root' };
   // Anchor the range point in node-local space and convert it back for preview.
   const p1World = new THREE.Vector3(0.5, 10.5, 0.5);
-  const p1Local = contraption.entityNodes.get('root').group.worldToLocal(p1World.clone());
+  const p1Local = requireValue(contraption.entityNodes.get('root')).group.worldToLocal(p1World.clone());
   controller.selectorRange = { contraption, nodeId: 'root', pointA: p1Local, pointB: null };
 
   // Entity hover previews in the node's voxel grid and carries its live frame.
@@ -289,13 +290,13 @@ test('boxSelectionPreview follows the crosshair after point 1 is set', () => {
   assert.ok(controller.boxSelectionPreview, 'point 1 should enable a live preview');
   assert.deepEqual(controller.boxSelectionPreview.pointA.toArray(), [0.5, 0.5, 0.5], 'anchor should use entity-local voxel coordinates');
   assert.deepEqual(controller.boxSelectionPreview.cursor.toArray(), [1.5, 1.5, 1.5], 'cursor should use the same voxel grid');
-  assert.equal(controller.boxSelectionPreview.frame.object, contraption.entityNodes.get('root').group);
+  assert.equal(controller.boxSelectionPreview.frame.object, requireValue(contraption.entityNodes.get('root')).group);
   assert.deepEqual(controller.boxSelectionPreview.frame.bounds.min.toArray(), [0, 0, 0]);
   assert.deepEqual(controller.boxSelectionPreview.frame.bounds.max.toArray(), [1, 1, 1]);
 
   // World hits are projected into that same tilted/local frame.
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
+  controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
   controller.updateMicroCarvePreview();
   assert.ok(controller.boxSelectionPreview, 'world hits should also show a live preview');
   assert.deepEqual(controller.boxSelectionPreview.pointA.toArray(), [0.5, 0.5, 0.5], 'the anchor should stay on the original block');
@@ -328,19 +329,19 @@ test('world two-point preview follows the crosshair after cornerA until confirma
   const controller = makeController(SpecialTool.SELECTOR);
   controller.contraptions.selectionCornerA = { x: 2, y: 3, z: 4 };
   controller.contraptions.selectionCornerB = null;
-  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 6.7, y: 7.2, z: 8.9 } };
+  controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 6.7, y: 7.2, z: 8.9 } };
   controller.updateMicroCarvePreview();
   assert.ok(controller.boxSelectionPreview, 'cornerA should enable live preview');
   assert.deepEqual(controller.boxSelectionPreview.pointA, { x: 2, y: 3, z: 4 }, 'preview should start at cornerA');
   assert.deepEqual(controller.boxSelectionPreview.cursor, { x: 6, y: 7, z: 8 }, 'preview should follow the crosshair with cell rounding');
 
   // Moving the crosshair updates the preview.
-  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 1.2, y: 3.4, z: 5.6 } };
+  controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 1.2, y: 3.4, z: 5.6 } };
   controller.updateMicroCarvePreview();
   assert.deepEqual(controller.boxSelectionPreview.cursor, { x: 1, y: 3, z: 5 }, 'preview should update with the crosshair');
 
   // Pointing at the sky removes the preview.
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.updateMicroCarvePreview();
   assert.equal(controller.boxSelectionPreview, null, 'no hit should show no preview');
 });
@@ -371,7 +372,7 @@ test('world two-point preview follows an entity hover hit', () => {
 
 test('world two-point selection shows no preview before cornerA or after cornerB', () => {
   const controller = makeController(SpecialTool.SELECTOR);
-  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
+  controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
 
   // Point 1 is unset.
   controller.contraptions.selectionCornerA = null;

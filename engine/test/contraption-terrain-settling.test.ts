@@ -8,34 +8,34 @@ import { MICRO_SIZE } from '../src/voxel/MicroGrid.ts';
 
 function makeFloorWorld() {
   return {
-    getBlock: (_x, y, _z) => y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    getBlock: (_x: number, y: number, _z: number) => y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    raycast: () => ({ hit: false as const, distance: 0 }),
+    raycastMicro: () => ({ hit: false as const, distance: 0 }),
     microVoxels: { get: () => null }
   };
 }
 
 function makeSingleBlockWorld() {
   return {
-    getBlock: (x, y, z) => (x === 0 && y === 0 && z === 0)
+    getBlock: (x: number, y: number, z: number) => (x === 0 && y === 0 && z === 0)
       ? BlockTypes.COLOR_BLOCK
       : BlockTypes.AIR,
-    raycast: (origin, direction, maxDistance) => {
-      if (!(direction.y < -1e-8) || origin.y <= 1) return { hit: false };
+    raycast: (origin: import('three').Vector3, direction: import('three').Vector3, maxDistance: number) => {
+      if (!(direction.y < -1e-8) || origin.y <= 1) return { hit: false as const };
       const distance = (1 - origin.y) / direction.y;
-      if (!(distance >= 0 && distance <= maxDistance)) return { hit: false };
+      if (!(distance >= 0 && distance <= maxDistance)) return { hit: false as const };
       const x = origin.x + direction.x * distance;
       const z = origin.z + direction.z * distance;
       return x >= -1e-8 && x <= 1 + 1e-8 && z >= -1e-8 && z <= 1 + 1e-8
-        ? { hit: true, distance, normal: { x: 0, y: 1, z: 0 } }
-        : { hit: false };
+        ? { hit: true as const, distance, normal: { x: 0, y: 1, z: 0 } }
+        : { hit: false as const };
     },
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycastMicro: () => ({ hit: false as const, distance: 0 }),
     microVoxels: { get: () => null }
   };
 }
 
-function orientedUnitBlockPenetration(center, quaternion, box) {
+function orientedUnitBlockPenetration(center: import('three').Vector3, quaternion: import('three').Quaternion, box: import('../src/physics/CollisionGeometry.ts').CollisionBounds) {
   const bodyAxes = [
     new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion),
     new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion),
@@ -175,11 +175,11 @@ test('low restitution settles a long body without repeated launch bounces', () =
 
 test('terrain wall collision resolves sideways without climbing or frame rewind', () => {
   const wallWorld = {
-    getBlock: (x, y, _z) => (y <= 0 || (x === 12 && y <= 4))
+    getBlock: (x: number, y: number, _z: number) => (y <= 0 || (x === 12 && y <= 4))
       ? BlockTypes.COLOR_BLOCK
       : BlockTypes.AIR,
-    raycast: () => ({ hit: false, distance: 0 }),
-    raycastMicro: () => ({ hit: false, distance: 0 }),
+    raycast: () => ({ hit: false as const, distance: 0 }),
+    raycastMicro: () => ({ hit: false as const, distance: 0 }),
     microVoxels: { get: () => null }
   };
   const contraption = new Contraption(
@@ -213,15 +213,15 @@ test('terrain wall collision resolves sideways without climbing or frame rewind'
 test('terrain collision sweeps across a standard wall during a stalled frame', () => {
   const wallX = 12;
   const wallWorld = {
-    getBlock: (x) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
-    raycast: (origin, direction, maxDistance) => {
-      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false };
+    getBlock: (x: number) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    raycast: (origin: import('three').Vector3, direction: import('three').Vector3, maxDistance: number) => {
+      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false as const };
       const distance = (wallX - origin.x) / direction.x;
       return distance <= maxDistance
-        ? { hit: true, distance, normal: { x: -1, y: 0, z: 0 } }
-        : { hit: false };
+        ? { hit: true as const, distance, normal: { x: -1, y: 0, z: 0 } }
+        : { hit: false as const };
     },
-    raycastMicro: () => ({ hit: false }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
   // 25m/s ends a sub-step deep inside the wall; 60m/s skips the whole voxel.
@@ -249,14 +249,14 @@ test('terrain collision sweeps across a 0.125m micro wall', () => {
   const wallMicroX = wallX * 5;
   const wallWorld = {
     getBlock: () => BlockTypes.AIR,
-    getMicroBlock: (mx) => mx === wallMicroX ? { block: BlockTypes.COLOR_BLOCK } : null,
-    raycast: () => ({ hit: false }),
-    raycastMicro: (origin, direction, maxDistance) => {
-      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false };
+    getMicroBlock: (mx: number) => mx === wallMicroX ? { block: BlockTypes.COLOR_BLOCK } : null,
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: (origin: import('three').Vector3, direction: import('three').Vector3, maxDistance: number) => {
+      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false as const };
       const distance = (wallX - origin.x) / direction.x;
       return distance <= maxDistance
-        ? { hit: true, distance, normal: { x: -1, y: 0, z: 0 } }
-        : { hit: false };
+        ? { hit: true as const, distance, normal: { x: -1, y: 0, z: 0 } }
+        : { hit: false as const };
     },
     microVoxels: { get: () => null }
   };
@@ -279,15 +279,15 @@ test('terrain collision sweeps across a 0.125m micro wall', () => {
 test('persistent high force cannot push a dynamic body through terrain', () => {
   const wallX = 12;
   const wallWorld = {
-    getBlock: (x) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
-    raycast: (origin, direction, maxDistance) => {
-      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false };
+    getBlock: (x: number) => x === wallX ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    raycast: (origin: import('three').Vector3, direction: import('three').Vector3, maxDistance: number) => {
+      if (!(direction.x > 0) || origin.x >= wallX) return { hit: false as const };
       const distance = (wallX - origin.x) / direction.x;
       return distance <= maxDistance
-        ? { hit: true, distance, normal: { x: -1, y: 0, z: 0 } }
-        : { hit: false };
+        ? { hit: true as const, distance, normal: { x: -1, y: 0, z: 0 } }
+        : { hit: false as const };
     },
-    raycastMicro: () => ({ hit: false }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
   const contraption = new Contraption(
@@ -326,13 +326,13 @@ test('physics uses the same three substeps for fast angular motion', () => {
   contraption.angularVelocity.set(0, 80, 0);
   const physics = new ContraptionPhysics({
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   } as any) as any;
   const resolveTerrainCollisionBody = physics.resolveTerrainCollisionBody.bind(physics);
   let collisionSubsteps = 0;
-  physics.resolveTerrainCollisionBody = (...args) => {
+  physics.resolveTerrainCollisionBody = (...args: Parameters<import('../src/physics/ContraptionPhysics.ts').ContraptionPhysics['resolveTerrainCollisionBody']>) => {
     collisionSubsteps++;
     return resolveTerrainCollisionBody(...args);
   };
@@ -370,7 +370,7 @@ test('a flat asymmetric footprint settles without support impulses inventing rot
     if (x < 2 || z < 2) blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
   }
   for (const size of [1, MICRO_SIZE]) for (const yaw of [0, 0.3]) {
-    const entity = new Contraption('flat-L', blocks.map(block => ({ ...block,
+    const entity: Contraption = new Contraption('flat-L', blocks.map(block => ({ ...block,
       localX: block.localX * size, localZ: block.localZ * size, size })),
       new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
     entity.quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
@@ -394,7 +394,7 @@ test('a nearly flat wide plate converges to rest instead of rocking between samp
     blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
   }
   for (const dt of [0.05, 1 / 60]) for (const tilt of [0.001, 0.02]) {
-    const entity = new Contraption('wide-plate', blocks.map(block => ({ ...block })),
+    const entity: Contraption = new Contraption('wide-plate', blocks.map(block => ({ ...block })),
       new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
     entity.quaternion.setFromEuler(new THREE.Euler(tilt, 0.3, tilt));
     entity.updateTransform();
@@ -410,7 +410,7 @@ test('asymmetric face contact stays quiet without relying on sleep to hide motio
   for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
     if (x < 2 || z < 2) blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
   }
-  const entity = new Contraption('awake-L', blocks, new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
+  const entity: Contraption = new Contraption('awake-L', blocks, new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
   entity.quaternion.setFromEuler(new THREE.Euler(0, 0.3, 0));
   entity.updateTransform();
   const physics = new ContraptionPhysics(makeFloorWorld() as any); // No terrainVersion: sleep is unavailable.
@@ -431,12 +431,12 @@ test('a stabilized plate still responds to a force and falls when its ground is 
   for (const action of ['force', 'remove-ground']) {
     let floor = true;
     const world = { ...makeFloorWorld(), terrainVersion: 0,
-      getBlock: (_x, y, _z) => floor && y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR };
+      getBlock: (_x: number, y: number, _z: number) => floor && y <= 0 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR };
     const blocks = [];
     for (let x = 0; x < 8; x++) for (let z = 0; z < 4; z++) {
       blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
     }
-    const entity = new Contraption('wake-plate', blocks, new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
+    const entity: Contraption = new Contraption('wake-plate', blocks, new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene());
     entity.quaternion.setFromEuler(new THREE.Euler(0.02, 0.3, 0.02));
     entity.updateTransform();
     const physics = new ContraptionPhysics(world as any);
@@ -453,7 +453,7 @@ test('a stabilized plate still responds to a force and falls when its ground is 
 });
 
 test('face stabilization does not balance a plate whose centre lies outside the real support', () => {
-  const entity = new Contraption('overhang', [0, 1, 2].map(localX => ({
+  const entity: Contraption = new Contraption('overhang', [0, 1, 2].map(localX => ({
     localX, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK
   })), new THREE.Vector3(0.3, 1, 0.1), new THREE.Scene(), { restitution: 0 });
   const physics = new ContraptionPhysics({ ...makeSingleBlockWorld(), terrainVersion: 0 } as any);
@@ -470,7 +470,7 @@ test('multi-point face support preserves frictionless sliding and restitution', 
     blocks.push({ localX: x, localY: 0, localZ: z, block: BlockTypes.COLOR_BLOCK });
   }
   for (const restitution of [0, 0.8]) {
-    const entity = new Contraption('slider', blocks.map(block => ({ ...block })),
+    const entity: Contraption = new Contraption('slider', blocks.map(block => ({ ...block })),
       new THREE.Vector3(10.2, 1, 10.6), new THREE.Scene(), { friction: 0, restitution });
     entity.velocity.set(5, -5, 0);
     const physics = new ContraptionPhysics(makeFloorWorld() as any);
@@ -535,11 +535,11 @@ test('a yaw-rotated block wedged into a pillar corner is pushed back out', () =>
   // a pillar voxel's top corner, so the block rested with part of its volume
   // inside the pillar. Exact OBB-vs-AABB contact detects that overlap.
   const pillarWorld = {
-    getBlock: (x, y, z) => (y <= 0 || (x === 1 && z === 1 && y <= 2))
+    getBlock: (x: number, y: number, z: number) => (y <= 0 || (x === 1 && z === 1 && y <= 2))
       ? BlockTypes.COLOR_BLOCK
       : BlockTypes.AIR,
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false }),
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const }),
     microVoxels: { get: () => null }
   };
   const contraption = new Contraption(

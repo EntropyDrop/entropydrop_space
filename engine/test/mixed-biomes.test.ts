@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Chunk } from '../src/voxel/Chunk.ts';
@@ -35,8 +36,8 @@ test('Mixed: five populated biome cores retain terrain-lab solids and micro deta
       const r = generateAetherRegion({ ...sourceConfig, ...AETHER_DEFAULTS });
       source = { voxels: Uint32Array.from(r.cells, id => id ? (0x80000000 | r.palette[id].color | (r.palette[id].emission > 0 ? 1 << 24 : 0)) >>> 0 : 0), details: r.details };
     }
-    assert.deepEqual(mixed.voxels, source.voxels);
-    assert.deepEqual(microMap(mixed.details), microMap(source.details));
+    assert.deepEqual(mixed.voxels, requireValue(source).voxels);
+    assert.deepEqual(microMap(mixed.details), microMap(requireValue(source).details));
     assert.ok(mixed.voxels.filter(Boolean).length > 1024 && mixed.details.length > 0);
     assert.deepEqual(generateMixedRegion({ ...config, offsetX: site.x, offsetZ: site.z }, false).voxels, mixed.voxels);
     for (let i = 0; i < mixed.details.length; i += 4) {

@@ -101,7 +101,7 @@ function harness(currentUserId: string, overrides: Record<string, unknown> = {})
       restored.push({ contraption, state });
       if (Array.isArray(state.position)) contraption.position.fromArray(state.position);
     },
-    buildFromSlot(_slot, origin) {
+    buildFromSlot(_slot: unknown, origin: import('three').Vector3) {
       let running = true;
       const entity: any = {
         publicId: 'temporary',
@@ -117,7 +117,7 @@ function harness(currentUserId: string, overrides: Record<string, unknown> = {})
       created.push(entity);
       return entity;
     },
-    performBasicAction(command) {
+    performBasicAction(command: { action: string; target: { contraption: { setRunning(value: boolean): void } } }) {
       const running = command.action === 'start-scripts';
       command.target.contraption.setRunning(running);
       actions.push(command.action);
@@ -193,7 +193,7 @@ test('a non-author may edit a stopped entity and Start claims its own endpoint a
   assert.equal(target.serverExecutesLocally, false);
   const client = (sync as any).client;
   client.claimExecutionLeases = async () => { throw new Error('atomic Start must not claim twice'); };
-  client.setRunState = async (id, state, revision, instance) => {
+  client.setRunState = async (id: string, state: 'running' | 'stopped', revision: number, instance: string) => {
     assert.equal(id, record().id);
     assert.equal(state, 'running');
     assert.equal(revision, 1);
@@ -311,11 +311,11 @@ test('confirmed hosting hands off only our own live executor after acknowledged 
   const entity = created[0];
   const calls: string[] = [];
   const client = (sync as any).client;
-  client.setRunState = async (_id, state) => {
+  client.setRunState = async (_id: string, state: 'running' | 'stopped') => {
     calls.push(`browser ${state}`);
     return { ...record(), revision: 2, desired_run_state: 'stopped', execution_epoch: 2 };
   };
-  client.setHosting = async (id, enabled, budget, _operation, epoch) => {
+  client.setHosting = async (id: string, enabled: boolean, budget: number, _operation: unknown, epoch: number) => {
     calls.push('hosting');
     assert.equal(entity.serverDesiredRunState, 'stopped');
     assert.equal(epoch, 2);
@@ -349,7 +349,7 @@ test('off-AOI early Stop uses fresh execution epoch and paid success survives la
   const { sync } = harness('owner-1');
   const client = (sync as any).client;
   client.getHosting = async () => hostingStatus({ execution_epoch: 7 });
-  client.setHosting = async (id, enabled, budget, _operation, epoch) => {
+  client.setHosting = async (id: string, enabled: boolean, budget: number, _operation: unknown, epoch: number) => {
     assert.equal(id, 'outside-aoi');
     assert.equal(enabled, false);
     assert.equal(budget, 0);
@@ -464,7 +464,7 @@ test('browser Start uses the atomically granted epoch without a second claim req
   const target = created[0];
   let requestedInstance: string | undefined;
   (sync as any).client.claimExecutionLeases = async () => { throw new Error('Start must not make a second claim'); };
-  (sync as any).client.setRunState = async (_id, state, _revision, instance) => {
+  (sync as any).client.setRunState = async (_id: string, state: 'running' | 'stopped', _revision: number, instance: string) => {
     assert.equal(state, 'running'); requestedInstance = instance;
     return { ...record(), can_edit: true, revision: 2, execution_epoch: 2,
       execution_lease_expires_at: new Date(Date.now() + 8000).toISOString() };
@@ -523,7 +523,7 @@ test('a remote checkpoint updates decorations while its live rigid-body timeline
   await sync.poll();
   const entity = created[0];
   const values: any[] = [];
-  entity.restoreRuntimeDecorations = value => values.push(value);
+  entity.restoreRuntimeDecorations = (value: unknown) => values.push(value);
   entity.position.set(9, 40, 10);
   const internal = sync as any;
   internal.poseBuffers.set(entity.publicId, { frame: { execution_epoch: 1 }, receivedAt: Date.now() });
@@ -564,7 +564,7 @@ test('a leased executor can publish a script stop with its epoch, while stopped 
   internal.controller.encodeInventoryItem = () => definition;
   created[0].setPhysicsSimulationEnabled(false); // the script stopped itself
   const writes: any[] = [];
-  internal.client.checkpointBrowser = async (_id, _revision, payload) => {
+  internal.client.checkpointBrowser = async (_id: string, _revision: number, payload: unknown) => {
     writes.push(payload);
     return { ...record(), revision: 2, desired_run_state: 'stopped' };
   };

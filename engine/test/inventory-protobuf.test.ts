@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -70,11 +71,11 @@ test('Item reuses BlockSet and Entity messages with identical Python wire bytes'
 });
 
 test('Item supports static-only and entity-only content with repeated local component ids', () => {
-  const decoded = decodeInventoryResource(Buffer.from(CROSS_LANGUAGE_ITEM_HEX, 'hex')).portable;
+  const decoded = decodeInventoryResource(Buffer.from(CROSS_LANGUAGE_ITEM_HEX, 'hex'), 'item').portable;
   const staticOnly = { ...decoded, entityList: [] };
-  assert.deepEqual(decodeInventoryResource(encodeInventoryResource('item', staticOnly)).portable, staticOnly);
+  assert.deepEqual(decodeInventoryResource(encodeInventoryResource('item', staticOnly), 'item').portable, staticOnly);
   const entityOnly = { ...decoded, blockSet: undefined, entityList: [decoded.entityList[0], decoded.entityList[0]] };
-  const roundTrip = decodeInventoryResource(encodeInventoryResource('item', entityOnly)).portable;
+  const roundTrip = decodeInventoryResource(encodeInventoryResource('item', entityOnly), 'item').portable;
   assert.equal(roundTrip.blockSet, undefined);
   assert.deepEqual(roundTrip.entityList.map((entity: any) => entity.root.id), ['root', 'root']);
   const emptyStatic = { ...entityOnly, blockSet: { ...decoded.blockSet, blocks: [] } };
@@ -83,7 +84,7 @@ test('Item supports static-only and entity-only content with repeated local comp
 });
 
 test('Item canonical root poses omit identity and normalize quaternion sign', () => {
-  const item = decodeInventoryResource(Buffer.from(CROSS_LANGUAGE_ITEM_HEX, 'hex')).portable;
+  const item = decodeInventoryResource(Buffer.from(CROSS_LANGUAGE_ITEM_HEX, 'hex'), 'item').portable;
   const root = item.entityList[0].root;
   delete root.localPosition;
   const identity = encodeInventoryResource('item', item);
@@ -170,7 +171,7 @@ test('inventory encoding uses the backend canonical ordering at every resource b
       { dx: 0, dy: 0, dz: 0, color: 2 },
       { dx: 0, dy: 0, dz: 0, mx: 0, my: 4, mz: 4, color: 1 },
     ],
-  })).portable;
+  }), 'blockset').portable;
   assert.deepEqual(blockSet.blocks.map((block: any) => [
     block.mx ?? -1, block.my ?? -1, block.mz ?? -1, block.color,
   ]), [
@@ -248,10 +249,10 @@ test('entity decoding makes sibling and constraint wire order non-semantic', () 
     },
   }).finish();
 
-  const decoded = decodeInventoryResource(encoded).portable;
+  const decoded = decodeInventoryResource(encoded, 'entity').portable;
   assert.deepEqual(decoded.root.children.map((child: any) => child.id), ['B', 'root']);
   assert.deepEqual(
-    decoded.root.children.find((child: any) => child.id === 'root').children.map((child: any) => child.id),
+    requireValue(decoded.root.children.find((child: any) => child.id === 'root')).children.map((child: any) => child.id),
     ['A', 'z'],
   );
   assert.deepEqual(decoded.constraints.map((constraint: any) => constraint.id), ['A', 'z']);
@@ -271,7 +272,7 @@ test('entity runtime adapters preserve arbitrary component ids without hierarchy
       id: 'root',
       parentId: 'world',
       kind: 'bearing',
-      bodyType: 'kinematic',
+      bodyType: 'kinematic' as const,
       seats: [],
     }],
     scripts: [],
@@ -417,13 +418,13 @@ test('runtime-to-portable projection drops legacy and unknown in-memory fields',
 });
 
 test('portable-to-runtime projection drops legacy aliases and arbitrary fields', () => {
-  const runtime = portableEntityToRuntime({
-    type: 'space-entity',
+  const input = {
+    type: 'space-entity' as const,
     version: 8,
     root: {
       name: 'Projected',
       id: 'alpha',
-      body: { type: 'dynamic', unknown: 'drop-me' },
+      body: { type: 'dynamic' as const, unknown: 'drop-me' },
       blocks: [{
         dx: 1,
         dy: 2,
@@ -448,7 +449,7 @@ test('portable-to-runtime projection drops legacy aliases and arbitrary fields',
     },
     constraints: [{
       id: 'joint',
-      type: 'point',
+      type: 'point' as const,
       bodyA: null,
       bodyB: 'alpha',
       anchorA: null,
@@ -467,7 +468,8 @@ test('portable-to-runtime projection drops legacy aliases and arbitrary fields',
     kind: 'legacy',
     rootId: 'legacy-root',
     unknown: 'drop-me',
-  });
+  };
+  const runtime = portableEntityToRuntime(input as unknown as import('../src/storage/InventoryTypes.ts').PortableEntity);
 
   assert.equal(runtime.rootComponentId, 'alpha');
   assert.deepEqual(runtime.blocks, [{
@@ -534,7 +536,7 @@ test('descriptor-driven decoding matches standard protobuf merge and invalid-wir
     `090000000000000000${CROSS_LANGUAGE_BLOCKSET_HEX}`,
     'hex',
   );
-  assert.equal(decodeInventoryResource(wrongWireThenValid).portable.name, 'Cross');
+  assert.equal(decodeInventoryResource(wrongWireThenValid, 'blockset').portable.name, 'Cross');
   assert.equal(
     decodeInventoryResource(Buffer.from('080852005001', 'hex')).category,
     'blockset',
@@ -543,7 +545,7 @@ test('descriptor-driven decoding matches standard protobuf merge and invalid-wir
   const bomRoot = decodeInventoryResource(Buffer.from(
     '08085a120a0178120d0a07efbbbf726f6f741a002200',
     'hex',
-  ));
+  ), 'entity');
   assert.equal(bomRoot.portable.root.id, '\ufeffroot');
 });
 
@@ -593,29 +595,29 @@ test('canonical encoding normalizes negative zero while retaining optional field
   );
   assert.deepEqual(negativeBytes, positiveBytes);
 
-  const decoded = decodeInventoryResource(negativeBytes).portable;
+  const decoded = decodeInventoryResource(negativeBytes, 'entity').portable;
   for (const value of [
-    ...decoded.root.pivot,
-    ...decoded.root.anchorRotation,
-    ...decoded.root.seats[0].position,
-    ...decoded.root.children[0].pivot,
-    ...decoded.root.children[0].localPosition,
-    ...decoded.root.children[0].localRotation,
-    ...decoded.root.children[0].anchorRotation,
-    ...decoded.constraints[0].anchorA,
-    ...decoded.constraints[0].anchorB,
-    ...decoded.constraints[0].axisA,
-    ...decoded.constraints[0].axisB,
-    ...decoded.constraints[0].referenceA,
-    ...decoded.constraints[0].referenceB,
+    ...requireValue(decoded.root.pivot),
+    ...requireValue(decoded.root.anchorRotation),
+    ...requireValue(decoded.root.seats[0].position),
+    ...requireValue(decoded.root.children[0].pivot),
+    ...requireValue(decoded.root.children[0].localPosition),
+    ...requireValue(decoded.root.children[0].localRotation),
+    ...requireValue(decoded.root.children[0].anchorRotation),
+    ...requireValue(decoded.constraints[0].anchorA),
+    ...requireValue(decoded.constraints[0].anchorB),
+    ...requireValue(decoded.constraints[0].axisA),
+    ...requireValue(decoded.constraints[0].axisB),
+    ...requireValue(decoded.constraints[0].referenceA),
+    ...requireValue(decoded.constraints[0].referenceB),
     decoded.root.body.mass,
     decoded.root.body.restitution,
     decoded.root.body.friction,
     decoded.root.children[0].body.mass,
     decoded.root.children[0].body.restitution,
     decoded.root.children[0].body.friction,
-    decoded.constraints[0].limits.min,
-    decoded.constraints[0].limits.max,
+    requireValue(decoded.constraints[0].limits).min,
+    requireValue(decoded.constraints[0].limits).max,
     decoded.constraints[0].stiffness,
   ]) assert.equal(Object.is(value, -0), false);
   assert.equal(Object.hasOwn(decoded.root.body, 'mass'), true);
@@ -667,10 +669,14 @@ test('backpack v10 preserves sparse slots and migrates legacy collections', () =
 
   const current = decodeBackpack(currentBytes);
   assert.equal(current.sourceSchemaVersion, 10);
-  assert.equal(current.categories.item.items[0].name, 'First');
-  assert.equal(current.categories.item.items[1], null);
-  assert.equal(current.categories.item.items[5].name, 'Sixth');
-  assert.equal(current.categories.item.selected, 5);
+  const firstItem = requireValue(requireValue(current.categories.item).items[0]);
+  assert.ok(firstItem.type === 'space-item');
+  const sixthItem = requireValue(requireValue(current.categories.item).items[5]);
+  assert.ok(sixthItem.type === 'space-item');
+  assert.equal(firstItem.name, 'First');
+  assert.equal(requireValue(current.categories.item).items[1], null);
+  assert.equal(sixthItem.name, 'Sixth');
+  assert.equal(requireValue(current.categories.item).selected, 5);
 
   const legacyVersion = LegacyBackpack.encode({
     schemaVersion: 8,
@@ -692,7 +698,9 @@ test('backpack v10 preserves sparse slots and migrates legacy collections', () =
   }).finish();
   const migrated = decodeBackpack(legacyVersion);
   assert.equal(migrated.sourceSchemaVersion, 8);
-  assert.deepEqual(migrated.categories.colorset.items[0].entries, [{
+  const colorSet = requireValue(requireValue(migrated.categories.colorset).items[0]);
+  assert.ok(colorSet.type === 'space-colorset');
+  assert.deepEqual(colorSet.entries, [{
     stops: [{ color: '#123456', position: 0 }],
     materialId: 0,
   }]);
@@ -872,7 +880,7 @@ test('inventory v8 round-trips every offset in an 8x8x8 cell, including 7,7,7', 
   assert.equal(wire.content?.$case, 'blockSet');
   assert.ok(
     wire.content?.$case === 'blockSet'
-    && wire.content.value.blocks.some(
+    && requireValue(wire.content.value.blocks).some(
       b => b.isMicro === true && b.microX === 7 && b.microY === 7 && b.microZ === 7 && b.colorRgb === 511,
     ),
   );
@@ -882,13 +890,13 @@ test('unmarked historic scripts clear recursively; marked AssemblyScript survive
   const legacy = InventoryResource.fromPartial({ schemaVersion: 8, content: { $case: 'entity', value: {
     root: { id: 'root', body: {}, script: 'self.state.old = true;', children: [{ id: 'arm', body: {}, script: 'throw new Error("old");' }] }, constraints: []
   } } });
-  const loaded = decodeInventoryResource(InventoryResource.encode(legacy).finish()).portable;
+  const loaded = decodeInventoryResource(InventoryResource.encode(legacy).finish(), 'entity').portable;
   assert.equal(loaded.root.script, '');
   assert.equal(loaded.root.children[0].script, '');
   assert.equal(loaded.root.scriptLanguage, 'assemblyscript');
   loaded.root.script = 'self.state.setNumber("n", 1);';
   const encoded = encodeInventoryResource('entity', loaded);
-  const restored = decodeInventoryResource(encoded).portable;
+  const restored = decodeInventoryResource(encoded, 'entity').portable;
   assert.equal(restored.root.script, loaded.root.script);
   const runtime = portableEntityToRuntime(restored);
   assert.equal(runtime.scripts[0].language, 'assemblyscript');

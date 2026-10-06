@@ -8,14 +8,16 @@ import { getPhysicsSolverKernels, setPhysicsSolverMode } from '../src/wasm/Physi
 function random(seed: number) {
   return () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
 }
-function body(seed: number) {
+function body(seed: number): import('../src/contraption/EntityTypes.ts').EntityRigidBody {
   const r = random(seed), v = (scale = 1) => new THREE.Vector3(r() - .5, r() - .5, r() - .5).multiplyScalar(scale);
-  return { type: seed % 9 === 0 ? 'kinematic' : 'dynamic', simulationEnabled: seed % 11 !== 0,
+  return { id: String(seed), nodeId: String(seed), appliedForces: new THREE.Vector3(), appliedTorques: new THREE.Vector3(),
+    linearDamping: 0, angularDamping: 0, centerOfMassLocal: new THREE.Vector3(),
+    previousKinematicPosition: new THREE.Vector3(), previousKinematicQuaternion: new THREE.Quaternion(), type: seed % 9 === 0 ? 'kinematic' : 'dynamic', simulationEnabled: seed % 11 !== 0,
     position: v(10), quaternion: new THREE.Quaternion().setFromEuler(new THREE.Euler(...v(4).toArray())),
     velocity: v(5), angularVelocity: v(2), mass: seed % 17 ? .1 + r() * 10 : 0,
     inverseInertia: seed % 13 ? r() * 2 : 0, restitution: r(), friction: r(), isOnGround: false };
 }
-function state(b) {
+function state(b: ReturnType<typeof body>) {
   return [...b.position.toArray(), ...b.quaternion.toArray(), ...b.velocity.toArray(), ...b.angularVelocity.toArray(), +b.isOnGround];
 }
 function near(actual: number[], expected: number[], label: string, epsilon = 2e-11) {
@@ -38,14 +40,14 @@ test('WASM joint iterations preserve ordered point, hinge, limited hinge and wel
       const bodies = Array.from({ length: 6 }, (_, i) => body(seed + i));
       const r = random(seed), vector = () => [r() - .5, r() - .5, r() - .5];
       const definitions = Array.from({ length: 8 }, (_, i) => ({
-        bodyA: i === 0 ? null : (i - 1) % 6, bodyB: i % 6,
-        type: ['point', 'hinge', 'weld'][i % 3], stiffness: .1 + r() * .9,
+        id: String(i), collideConnected: false, bodyA: i === 0 ? null : String((i - 1) % 6), bodyB: String(i % 6),
+        type: (['point', 'hinge', 'weld'] as const)[i % 3], stiffness: .1 + r() * .9,
         anchorA: vector(), anchorB: vector(), axisA: vector(), axisB: vector(),
         referenceA: vector(), referenceB: vector(), limits: i % 2 ? { min: -.3, max: .2 } : null
       }));
       // Invalid references and self constraints must retain reference behavior.
-      definitions.push({ ...definitions[0], bodyA: 999 }, { ...definitions[1], bodyA: 2, bodyB: 2 });
-      const host = { constraintDefinitions: new Map(definitions.map((c, i) => [i, c])), getRigidBody: id => bodies[id] };
+      definitions.push({ ...definitions[0], bodyA: '999' }, { ...definitions[1], bodyA: '2', bodyB: '2' });
+      const host = { constraintDefinitions: new Map(definitions.map((c, i) => [String(i), c])), getRigidBody: (id: string | number) => bodies[Number(id)] ?? null };
       physics.solveConstraints(host, 1 / 60, 10);
       return bodies.flatMap(state);
     };
@@ -103,11 +105,11 @@ test('solver arenas grow without retaining stale views or state across calls', (
 
 test('world anchors, antiparallel hinges and locked limits retain degenerate-case behavior', () => modes(() => {
   const physics = new ContraptionPhysics({} as any);
-  for (const type of ['point', 'hinge', 'weld']) for (const sign of [-1, 0, 1]) {
+  for (const type of ['point', 'hinge', 'weld'] as const) for (const sign of [-1, 0, 1]) {
     const run = (mode: 'js' | 'auto') => {
       setPhysicsSolverMode(mode);
       const b = body(1); b.position.set(0, 0, 0); b.quaternion.identity();
-      const definition = { bodyA: null, bodyB: 'body', type, stiffness: 1,
+      const definition = { id: 'joint', collideConnected: false, bodyA: null, bodyB: 'body', type, stiffness: 1,
         anchorA: [-0, 0, 0], anchorB: [0, 0, 0], axisA: [0, 0, 1], axisB: [0, 0, sign],
         referenceA: [-1, 0, 0], referenceB: [1, -0, 0], limits: { min: 0, max: 0 } };
       const host = { constraintDefinitions: new Map([['joint', definition]]), getRigidBody: () => b };

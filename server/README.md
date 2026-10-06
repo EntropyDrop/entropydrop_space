@@ -16,6 +16,11 @@ records and authoritative balances never enter the Space schema.
 `space/integrations/object_store.py` stores Market protobuf objects on the mounted
 Space volume. `space/billing.py` owns the durable reservation/capture outbox.
 
+The root `npm run check` includes Python tests and contract freshness checks.
+Set `SPACE_PYTHON` when using an interpreter outside `server/.venv`. Optional real
+PostgreSQL concurrency checks run when `SPACE_TEST_POSTGRES_URL` names a test
+database; they create and remove a unique schema for each test.
+
 Set `DATABASE_URL`, `REDIS_URL`, `SPACE_ACCOUNT_API_URL`,
 `SPACE_ACCOUNT_SERVICE_TOKEN`, `SPACE_JOIN_TICKET_SECRET`, `SPACE_OBJECT_DIR`,
 `SPACE_PUBLIC_API_URL`, and browser `CORS_ORIGINS`/`SPACE_WS_ALLOWED_ORIGINS`.
@@ -51,10 +56,16 @@ Build the server image from the workspace root with
 `docker build -f deploy/Dockerfile --target runtime .`. This requires only Space;
 neither a backend nor frontend checkout is included in the image.
 
+Schema revision `space_0012` adds expiring per-zone generation leases. Upgrade the
+schema before running the new API/worker. Generation copies its inputs and releases
+the database transaction before invoking the runtime or compressing LODs. Publication
+briefly locks only the target world and verifies its configuration, terrain revision,
+and lease token; expired or superseded work cannot overwrite a newer result.
+
 Surface generation and LOD use the engine's shared WASM kernels through Wasmtime;
 Copper's TypeScript grammar uses the same kernels in the Node surface runtime.
-Install the pinned Python requirements when updating. No terrain/schema migration
-or snapshot invalidation is needed. See [kernel controls and benchmarks](../engine/wasm/README.md).
+Install the pinned Python requirements when updating. Existing terrain snapshots
+remain readable. See [kernel controls and benchmarks](../engine/wasm/README.md).
 
 After changing Copper's generation grammar, update the development terrain and
 hosting runtime bundles, then clear only that world's generated far-surface cache:

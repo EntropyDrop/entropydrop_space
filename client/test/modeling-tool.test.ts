@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
@@ -16,7 +17,7 @@ function fixture(options = {}) {
   let saves = 0, unlocks = 0;
   const controller: any = { contraptions: { contraptions: [entity], saveEntitiesToStorage: () => saves++ },
     selectedColor: 0x112233, selectedMaterialId: 1, ui: {}, unlock: () => unlocks++,
-    canEditEntityInternals: (value) => value.serverCanEdit !== false,
+    canEditEntityInternals: (value: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) => value.serverCanEdit !== false,
     handleRunningEntityInteraction: () => false };
   return { entity, controller, tool: new ModelingTool(controller), saves: () => saves, unlocks: () => unlocks };
 }
@@ -29,7 +30,7 @@ test('create auto-selects, edit, duplicate, delete, undo and redo persist decora
     assert.equal(f.unlocks(), 0, 'creation must keep the game pointer locked');
     assert.equal(f.entity.getDecorationCount(), 1);
     assert.equal(f.tool.change({ scale: [2, 0.25, 1] }), true);
-    assert.deepEqual(f.tool.getSelection().value.scale, [2, 0.25, 1]);
+    assert.deepEqual(requireValue(f.tool.getSelection()).value.scale, [2, 0.25, 1]);
     assert.equal(f.tool.duplicate(), true);
     assert.equal(f.entity.getDecorationCount(), 2);
     assert.equal(f.tool.remove(), true);
@@ -132,7 +133,7 @@ function dragFixture() {
   f.tool.selectHovered();
   const start = f.tool.getSelection()!.value;
   const position = f.entity.entityLocalToWorld('base', new THREE.Vector3());
-  const rotation = f.entity.getEntityNode('base').group.getWorldQuaternion(new THREE.Quaternion())
+  const rotation = requireValue(f.entity.getEntityNode('base')).group.getWorldQuaternion(new THREE.Quaternion())
     .multiply(new THREE.Quaternion().fromArray(start.rotation!));
   const screenDelta = (axis: 'x' | 'y' | 'z', amount: number, kind = 'move') => {
     const worldAxis = transformAxis(axis).applyQuaternion(rotation);
@@ -167,7 +168,7 @@ test('drag follows decoration local axes on a rotated owner, previews without sa
     assert.notDeepEqual(f.tool.getDisplaySelection()!.value, f.start, 'the inspector follows the live preview');
     const mesh = f.entity.decorationGroups.get('base')!.children[0];
     const expected = transformAxis('x').applyQuaternion(new THREE.Quaternion().fromArray(f.start.rotation!));
-    assert.ok(mesh.position.clone().add(f.entity.getEntityNode('base').pivotLocal).distanceTo(expected) < 1e-8);
+    assert.ok(mesh.position.clone().add(requireValue(f.entity.getEntityNode('base')).pivotLocal).distanceTo(expected) < 1e-8);
     assert.equal(f.tool.endDrag(), true);
     assert.equal(f.saves(), 1);
     assert.ok(new THREE.Vector3().fromArray(f.tool.getSelection()!.value.position!).distanceTo(expected) < 1e-8);
@@ -308,7 +309,7 @@ function creationFixture() {
   const value = { id: 'preview', color: 0x123456, position: [0, 0.25, 0] as [number, number, number], scale: [0.5, 0.5, 0.5] as [number, number, number] };
   f.tool.placement = { target: { contraption: f.entity, componentId: 'base' }, value };
   const node = f.entity.getEntityNode('base');
-  const worldRotation = node.group.getWorldQuaternion(new THREE.Quaternion());
+  const worldRotation = requireValue(node).group.getWorldQuaternion(new THREE.Quaternion());
   const origin = f.entity.entityLocalToWorld('base', new THREE.Vector3());
   const camera = transformViewCamera(f.controller.camera);
   const screenAxis = (axis: 'x' | 'z') => transformScreenPoint(origin.clone().add(transformAxis(axis).applyQuaternion(worldRotation)), camera, 900, 600)
@@ -540,8 +541,8 @@ test('game mouse events drag without rotating the view, commit on the matching r
   const previousDocument = globalThis.document, previousWindow = globalThis.window;
   const listeners = new Map<string, (event: any) => void>();
   const body = {};
-  globalThis.document = { body, pointerLockElement: body, addEventListener: (name, callback) => listeners.set(name, callback) } as any;
-  globalThis.window = { addEventListener: (name, callback) => listeners.set(name, callback) } as any;
+  globalThis.document = { body, pointerLockElement: body, addEventListener: (name: string, callback: EventListener) => listeners.set(name, callback) } as any;
+  globalThis.window = { addEventListener: (name: string, callback: EventListener) => listeners.set(name, callback) } as any;
   t.after(() => { globalThis.document = previousDocument; globalThis.window = previousWindow; f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); });
   const controller = Object.setPrototypeOf(f.controller, PlayerController.prototype);
   Object.assign(controller, { modeling: f.tool, pointerLockDesired: true, yaw: 0.3, pitch: 0.2,
@@ -696,6 +697,6 @@ test('presentation includes decoration TRS while placement geometry keeps its ph
   const visual = getInventoryPreviewBlocks(slot, true);
   assert.equal(visual.length, 2);
   assert.deepEqual(visual[1].center.toArray(), [5, 0, 0]);
-  assert.deepEqual(visual[1].scale.toArray(), [2, 0.1, 1]);
-  assert.ok(visual[1].quaternion.angleTo(new THREE.Quaternion().fromArray(slot.decorations[0].rotation)) < 1e-9);
+  assert.deepEqual(requireValue(visual[1].scale).toArray(), [2, 0.1, 1]);
+  assert.ok(requireValue(visual[1].quaternion).angleTo(new THREE.Quaternion().fromArray(slot.decorations[0].rotation)) < 1e-9);
 });

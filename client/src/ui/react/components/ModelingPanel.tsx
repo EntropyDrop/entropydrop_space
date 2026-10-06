@@ -59,7 +59,7 @@ export function ModelingPanel() {
       <span className="palette-title">Modeling</span>
       <span className="mode-badge std">DECORATION</span>
     </div>
-    {creationDimensions && <div className="modeling-hint" role="status">Creating {creationDimensions.map(value => Number(value.toFixed(3))).join(' × ')} m<br />Wheel: thickness · release RMB: create · Esc: cancel</div>}
+    {creationDimensions && <div className="modeling-hint" role="status">Creating {creationDimensions.map((value: number) => Number(value.toFixed(3))).join(' × ')} m<br />Wheel: thickness · release RMB: create · Esc: cancel</div>}
     {selection ? <>
       <div className="modeling-owner">{selection.contraption.getComponentName(selection.componentId) || selection.componentId} · {selection.decorationId}</div>
       <fieldset disabled={!editable} key={`${selection.contraption.id}:${selection.componentId}:${selection.decorationId}`}>

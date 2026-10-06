@@ -19,6 +19,7 @@ from pydantic import (
 from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only
+from starlette.concurrency import run_in_threadpool
 
 from space import auth
 from space import models
@@ -962,6 +963,13 @@ async def publish_market_resource(
             "code": "MARKET_RESOURCE_TOO_LARGE",
             "message": "Market resource must be a non-empty Protobuf message no larger than 8 MiB.",
         })
+    # The request-scoped Session is handed to one worker for the entire unit of
+    # work; no concurrent coroutine accesses it, and dependency cleanup waits
+    # for the worker. Validation, SQL and durable object writes all stay off-loop.
+    return await run_in_threadpool(_publish_market_resource, db, current_user, encoded_request)
+
+
+def _publish_market_resource(db: Session, current_user: models.User, encoded_request: bytes):
     try:
         kind, decoded = decode_inventory_resource(encoded_request)
         canonical = validate_inventory_resource_payload(kind, decoded)

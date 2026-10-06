@@ -1,3 +1,5 @@
+import { worldStub } from './fixtures.ts';
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -16,7 +18,7 @@ import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 
 assert.equal(MAX_ENTITY_BOUNDS, 256, 'the cap is 256 standard cells per axis');
 
-function makeEntity(id) {
+function makeEntity(id: string | number) {
   const scene = new THREE.Scene();
   const entity = new Contraption(
     id,
@@ -24,12 +26,12 @@ function makeEntity(id) {
     new THREE.Vector3(),
     scene
   ) as any;
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub(), null, null);
   manager.registerContraption(entity);
   return { entity, manager };
 }
 
-function placeStandard(entity, manager, cell) {
+function placeStandard(entity: import('../src/contraption/Contraption.ts').Contraption, manager: import('../src/contraption/ContraptionManager.ts').ContraptionManager, cell: number[] | { x: number; y: number; z: number }) {
   return executeBasicAction({ manager }, {
     domain: ActionDomain.ENTITY,
     action: 'place-standard',
@@ -39,7 +41,7 @@ function placeStandard(entity, manager, cell) {
   });
 }
 
-function placeMicro(entity, manager, micro) {
+function placeMicro(entity: import('../src/contraption/Contraption.ts').Contraption, manager: import('../src/contraption/ContraptionManager.ts').ContraptionManager, micro: number[] | { x: number; y: number; z: number }) {
   return executeBasicAction({ manager }, {
     domain: ActionDomain.ENTITY,
     action: 'place-micro',
@@ -74,14 +76,14 @@ test('entity micro placements respect the cap through their parent cell', () => 
 });
 
 test('world box corners clamp to the 256×256×256 selection limit', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub(), null, null);
 
   manager.setCornerA({ x: 100, y: 0, z: 0 });
   const result = manager.setCornerB({ x: 400, y: 70, z: 5 });
   assert.deepEqual(manager.selectionCornerB, { x: 355, y: 70, z: 5 });
   assert.equal(result.clamped, true);
   const bounds = manager.getSelectionBounds();
-  assert.equal(bounds.maxX - bounds.minX + 1, 256);
+  assert.equal(requireValue(bounds).maxX - requireValue(bounds).minX + 1, 256);
 
   // Negative direction clamps the same way.
   manager.setCornerA({ x: 400, y: 0, z: 0 });
@@ -91,19 +93,19 @@ test('world box corners clamp to the 256×256×256 selection limit', () => {
 });
 
 test('single-cell selection rejects cells that would exceed the limit', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
-  const toggle = (x, y, z) => manager.toggleWorldGlueCell({ x, y, z });
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub(), null, null);
+  const toggle = (x: number, y: number, z: number) => manager.toggleWorldGlueCell({ x, y, z });
 
-  assert.equal(toggle(0, 0, 0).count, 1);
-  assert.equal(toggle(255, 0, 0).count, 2);
+  assert.equal(requireValue(toggle(0, 0, 0)).count, 1);
+  assert.equal(requireValue(toggle(255, 0, 0)).count, 2);
   const rejected = toggle(256, 0, 0);
-  assert.equal(rejected.rejected, true);
-  assert.equal(rejected.count, 2, 'the out-of-limit cell must not be added');
-  assert.equal(toggle(0, 0, 0).count, 1, 'removal stays allowed and un-rejected');
+  assert.equal(requireValue(rejected).rejected, true);
+  assert.equal(requireValue(rejected).count, 2, 'the out-of-limit cell must not be added');
+  assert.equal(requireValue(toggle(0, 0, 0)).count, 1, 'removal stays allowed and un-rejected');
 });
 
 test('setConnectedSelection rejects out-of-limit batches without touching state', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub(), null, null);
 
   const tooWide = [];
   for (let x = 0; x <= 256; x++) tooWide.push({ x, y: 0, z: 0 }); // 257 cells
@@ -113,12 +115,13 @@ test('setConnectedSelection rejects out-of-limit batches without touching state'
   const fits = [];
   for (let x = 0; x < 256; x++) fits.push({ x, y: 0, z: 0 }); // exactly 256 cells
   assert.equal(manager.setConnectedSelection(fits), true);
-  assert.equal(manager.connectedSelection.length, 256);
+  assert.equal(requireValue(manager.getWorldGlueSelectionInfo().cells).length, 256);
 });
 
 test('the script selection API reports bounds_exceeded and clamped', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub(), null, null);
   const api = manager.scriptSelectionApi;
+  assert.ok(api.cells && api.toggle && api.cornerA && api.cornerB && api.box);
 
   const cells: any[] = [];
   for (let x = 0; x <= 256; x++) cells.push([x, 0, 0]);
@@ -128,7 +131,7 @@ test('the script selection API reports bounds_exceeded and clamped', () => {
 
   assert.deepEqual(api.toggle([0, 0, 0]), { ok: true, selected: 1, reason: 'selected' });
   assert.deepEqual(api.toggle([256, 0, 0]), { ok: false, selected: 1, reason: 'bounds_exceeded' }, 'a 257-cell span must be rejected');
-  assert.equal(manager.connectedSelection.length, 1, 'a rejected toggle must not grow the selection');
+  assert.equal(requireValue(manager.getWorldGlueSelectionInfo().cells).length, 1, 'a rejected toggle must not grow the selection');
 
   const unanchored = api.cornerB({ x: 100, y: 0, z: 0 });
   assert.equal(unanchored.clamped, false, 'cornerB without cornerA is not clamped');

@@ -11,7 +11,7 @@ test('frame samples are bounded, ignore invalid input and reset between comparis
 });
 
 test('method instrumentation preserves receiver, return values and inherited ownership', () => {
-  const prototype = { work(n: number) { return this.offset + n; } };
+  const prototype = { work(this: { offset: number }, n: number): number { return this.offset + n; } };
   const target = Object.assign(Object.create(prototype), { offset: 4 });
   let calls = 0;
   const restore = interceptMethod(target, 'work', (original, args) => { calls++; return original(...args); });

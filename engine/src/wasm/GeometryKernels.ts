@@ -112,6 +112,8 @@ export class GeometryKernels {
     return result;
   }
 
+  obbContacts(first: readonly (NumericObb | null)[], second: readonly (NumericObb | null)[], terrain?: false): ((GeometryContact & {featurePoint: THREE.Vector3; faceSupport: boolean}) | null)[];
+  obbContacts(first: readonly (NumericObb | null)[], second: readonly (NumericBounds | null)[], terrain: true): ((GeometryContact & {hitPosition: THREE.Vector3}) | null)[];
   /** Batches preserve pair order. Only surviving contacts become Three objects. */
   obbContacts(first: readonly (NumericObb | null)[], second: readonly (NumericObb | NumericBounds | null)[], terrain = false): (GeometryContact | null)[] {
     if (first.length !== second.length) throw new RangeError('Invalid collision batch');

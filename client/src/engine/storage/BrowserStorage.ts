@@ -1,4 +1,5 @@
 import type { SpaceStorage } from '@entropydrop/space-engine/storage/SpaceStorage.ts';
+import { INVENTORY_STORAGE_KEYS } from '../inventory/InventoryStorageKeys.ts';
 export type { SpaceStorage } from '@entropydrop/space-engine/storage/SpaceStorage.ts';
 
 const DATABASE_NAME = 'entropydrop-space';
@@ -19,8 +20,7 @@ export interface AsyncKeyValueBackend {
 type SpaceStoredValue = string | Uint8Array;
 
 export function isLargeSpaceStorageKey(key: string) {
-  return key === 'space.backpack.v9.pb'
-    || key === 'space.backpack.v8.pb'
+  return INVENTORY_STORAGE_KEYS.some(candidate => candidate === key)
     || key.startsWith('space.world-edits.v3.')
     || key.startsWith('entropydrop_space_entities.');
 }
@@ -62,7 +62,7 @@ export class BufferedIndexedDbStorage implements SpaceStorage {
     // UI preferences intentionally stay in localStorage.
     for (const key of enumerableKeys(legacyStorage).filter(isLargeSpaceStorageKey)) {
       const legacyValue = legacyStorage?.getItem(key);
-      if (legacyValue !== null) {
+      if (legacyValue != null) {
         // Commit before deleting the legacy copy: an interrupted migration is
         // therefore retryable and never loses the only durable value. A legacy
         // value also wins over an existing IndexedDB value because it may have

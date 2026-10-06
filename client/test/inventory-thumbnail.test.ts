@@ -71,3 +71,22 @@ test('InventoryThumbnailRenderer singleton instance can be retrieved and cleared
   assert.ok(instance instanceof InventoryThumbnailRenderer);
   assert.doesNotThrow(() => instance.clearCache());
 });
+
+test('thumbnail keys reuse item geometry until its resource version changes', () => {
+  const renderer = new InventoryThumbnailRenderer() as any;
+  const item = { kind: 'item', blocks: [{}], blockSet: { kind: 'blockset',
+    blocks: [{ dx: 0, dy: 0, dz: 0, size: 1, color: 1 }] }, entityList: [] };
+  const compute = renderer.computeItemCacheKey.bind(renderer);
+  let computations = 0;
+  renderer.computeItemCacheKey = (...args: unknown[]) => { computations++; return compute(...args); };
+  const first = renderer.getItemCacheKey(item, 96, 1);
+  for (let i = 0; i < 100; i++) assert.equal(renderer.getItemCacheKey(item, 96, 1), first);
+  assert.equal(computations, 1);
+  item.blockSet.blocks[0].color = 2;
+  const changed = renderer.getItemCacheKey(item, 96, 2);
+  assert.notEqual(changed, first);
+  assert.equal(computations, 2);
+  renderer.clearCache();
+  assert.equal(renderer.getItemCacheKey(item, 96, 2), changed);
+  assert.equal(computations, 3);
+});

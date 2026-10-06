@@ -51,7 +51,7 @@ export async function signInToSpaceWithGoogle(
   });
   if (!response.ok) throw new Error('Google login failed. Please try again.');
   const data = await readJsonResponse<{ access_token?: string }>(response, 64 * 1024);
-  if (typeof data.access_token !== 'string' || !data.access_token) throw new Error('Invalid login response.');
+  if (typeof data?.access_token !== 'string' || !data.access_token) throw new Error('Invalid login response.');
   storage.setItem('token', data.access_token);
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-token-updated'));
   return data.access_token;
@@ -72,7 +72,7 @@ export async function mountSpaceGoogleLogin(container: HTMLElement, apiOrigin: s
       });
       if (!response.ok) throw new Error('Account configuration unavailable.');
       const config = await readJsonResponse<{ google_client_id?: string }>(response, 4096);
-      clientId = config.google_client_id;
+      clientId = config?.google_client_id;
     }
     if (!clientId) throw new Error('Google login is not configured.');
     const google = await loadGoogleIdentity();

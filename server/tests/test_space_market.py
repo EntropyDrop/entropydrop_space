@@ -1,4 +1,5 @@
 import math
+import asyncio
 from copy import deepcopy
 
 import pytest
@@ -17,6 +18,9 @@ def market_object_storage(monkeypatch):
     invalidations: list[str] = []
 
     def upload(file_content, key, is_public, content_type="image/png"):
+        # Durable object I/O must execute in a worker, away from the ASGI loop.
+        with pytest.raises(RuntimeError, match='no running event loop'):
+            asyncio.get_running_loop()
         assert is_public is True
         assert content_type == "application/x-protobuf"
         objects[key] = bytes(file_content)

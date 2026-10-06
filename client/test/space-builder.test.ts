@@ -12,36 +12,36 @@ function createHarness() {
   const standard = new Map<string, { block: number; color: number; materialId: number }>();
   const micro = new Map<string, { block: number; color: number; materialId: number }>();
   const world = {
-    getBlock(x, y, z) {
+    getBlock(x: number, y: number, z: number) {
       return standard.get(`${x},${y},${z}`)?.block ?? BlockTypes.AIR;
     },
-    getBlockColor(x, y, z) {
+    getBlockColor(x: number, y: number, z: number) {
       return standard.get(`${x},${y},${z}`)?.color ?? 0;
     },
-    getBlockMaterial(x, y, z) {
+    getBlockMaterial(x: number, y: number, z: number) {
       return standard.get(`${x},${y},${z}`)?.materialId ?? 0;
     },
-    setBlock(x, y, z, block, _updateMesh, color = 0, materialId = 0) {
+    setBlock(x: number, y: number, z: number, block: number, _updateMesh: boolean, color = 0, materialId = 0) {
       const key = `${x},${y},${z}`;
       if (block === BlockTypes.AIR) standard.delete(key);
       else standard.set(key, { block, color, materialId });
       return true;
     },
-    hasMicroInStandardCell(x, y, z) {
+    hasMicroInStandardCell(x: number, y: number, z: number) {
       const prefix = `${x * 5},${y * 5},${z * 5}`;
       return [...micro.keys()].some(key => {
         const [mx, my, mz] = key.split(',').map(Number);
         return Math.floor(mx / 5) === x && Math.floor(my / 5) === y && Math.floor(mz / 5) === z;
       }) || prefix === '__never__';
     },
-    getMicroBlock(x, y, z) {
+    getMicroBlock(x: number, y: number, z: number) {
       return micro.get(`${x},${y},${z}`) || null;
     },
-    setMicroBlock(x, y, z, color, _part, materialId = 0) {
+    setMicroBlock(x: number, y: number, z: number, color: number, _part: unknown, materialId = 0) {
       micro.set(`${x},${y},${z}`, { block: BlockTypes.COLOR_BLOCK, color, materialId });
       return true;
     },
-    removeMicroBlock(x, y, z) {
+    removeMicroBlock(x: number, y: number, z: number) {
       return micro.delete(`${x},${y},${z}`);
     },
     editPersistence: { getSyncStatus: () => ({ backpressured: false }) }
@@ -49,10 +49,10 @@ function createHarness() {
   const manager: any = {
     world,
     contraptions: [],
-    performBasicAction(command) {
+    performBasicAction(command: { domain: string; action: string }) {
       return executeBasicAction({ world, manager }, command);
     },
-    buildFromSlot(slot, position, _restore, _save, preparedBlocks) {
+    buildFromSlot(slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput, position: import('three').Vector3, _restore: unknown, _save: boolean, preparedBlocks: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel[]) {
       const entity = {
         publicId: `entity-${this.contraptions.length + 1}`,
         slot,
@@ -62,13 +62,13 @@ function createHarness() {
       this.contraptions.push(entity);
       return entity;
     },
-    removeContraption(entity) {
+    removeContraption(entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) {
       const index = this.contraptions.indexOf(entity);
       if (index >= 0) this.contraptions.splice(index, 1);
     }
   };
   const controller = {
-    getInventoryPlacementPose(slot) {
+    getInventoryPlacementPose(slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) {
       return { slot, position: new THREE.Vector3(10, 10, 10) };
     }
   };

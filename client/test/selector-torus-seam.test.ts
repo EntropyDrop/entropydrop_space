@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -10,7 +11,7 @@ import { TORUS_SIZE_X, TORUS_SIZE_Z } from '@entropydrop/space-engine/torus/Toru
 const MICRO_DIVISIONS = 8;
 
 test('two-point selector uses the shortest box across both torus seams', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
 
   manager.setCornerA({ x: TORUS_SIZE_X - 1, y: 10, z: TORUS_SIZE_Z - 1 });
   const result = manager.setCornerB({ x: 1, y: 11, z: 1 });
@@ -33,7 +34,7 @@ test('two-point selector uses the shortest box across both torus seams', () => {
 });
 
 test('reverse seam selection stays adjacent on the negative unwrapped side', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
 
   manager.setCornerA({ x: 0, y: 4, z: 0 });
   manager.setCornerB({ x: TORUS_SIZE_X - 1, y: 4, z: TORUS_SIZE_Z - 1 });
@@ -50,12 +51,12 @@ test('reverse seam selection stays adjacent on the negative unwrapped side', () 
 });
 
 test('single-cell selector toggles canonical seam cells inside one compact range', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
 
   manager.toggleWorldGlueCell({ x: TORUS_SIZE_X - 1, y: 7, z: TORUS_SIZE_Z - 1 });
   const added = manager.toggleWorldGlueCell({ x: 0, y: 7, z: 0 });
 
-  assert.equal(added.rejected, undefined);
+  assert.equal(requireValue(added).rejected, undefined);
   assert.deepEqual(manager.connectedSelection, [
     { x: TORUS_SIZE_X - 1, y: 7, z: TORUS_SIZE_Z - 1 },
     { x: TORUS_SIZE_X, y: 7, z: TORUS_SIZE_Z }

@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileEntityScript } from '@entropydrop/space-engine/scripting/AssemblyScriptCompiler.ts';
@@ -36,7 +37,7 @@ test('local Agent stop intent calls the root Stop API', () => {
   assert.equal(result.code, 'ctx.root.stop();');
 });
 
-async function executeController(code, ctx, state = {}) {
+async function executeController(code: string, ctx: import('@entropydrop/space-engine/scripting/ScriptProtocol.ts').ScriptSnapshot, state = {}) {
   const service = createAssemblyScriptRuntimeService();
   const compiled = await service.handle({ type: 'set-script', entityRuntimeId: 'test', nodeId: 'root', code });
   assert.equal(compiled.ok, true, compiled.error);
@@ -45,18 +46,18 @@ async function executeController(code, ctx, state = {}) {
   } });
   assert.equal(result.ok, true, result.error);
   assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
-  return result.commands.find(c => c.path === 'applyForce')?.args[0];
+  return result.commands.find((c: { path: string }) => c.path === 'applyForce')?.args[0];
 }
 
 test('local follow controller uses shortest torus deltas and eye-relative height', async () => {
   const result = compileBehaviorPrompt('follow me at a distance of 3 meters');
   assert.equal(result.ok, true);
-  assert.match(result.code, /wrappedDelta\(ctx\.position\[0\], target\[0\], 16384\)/);
-  assert.match(result.code, /wrappedDelta\(ctx\.position\[2\], target\[2\], 2048\)/);
-  assert.doesNotMatch(result.code, /target\.map\(\(value, axis\) => value - ctx\.position\[axis\]\)/);
-  assert.doesNotMatch(result.summary, /to the right/i);
+  assert.match(requireValue(result.code), /wrappedDelta\(ctx\.position\[0\], target\[0\], 16384\)/);
+  assert.match(requireValue(result.code), /wrappedDelta\(ctx\.position\[2\], target\[2\], 2048\)/);
+  assert.doesNotMatch(requireValue(result.code), /target\.map\(\(value, axis\) => value - ctx\.position\[axis\]\)/);
+  assert.doesNotMatch(requireValue(result.summary), /to the right/i);
 
-  const force = await executeController(result.code, {
+  const force = await executeController(requireValue(result.code), {
     players: [{ position: [1, 10, 1] }],
     position: [16383, 11.8, 2047],
     velocity: [0, 0, 0],
@@ -82,10 +83,10 @@ test('every local player-tracking controller includes wrapped X/Z deltas', () =>
 test('local orbit controller uses shortest torus deltas', async () => {
   const result = compileBehaviorPrompt('orbit every 10 seconds');
   assert.equal(result.ok, true);
-  assert.match(result.code, /wrappedDelta\(ctx\.position\[0\], target\[0\], 16384\)/);
-  assert.match(result.code, /wrappedDelta\(ctx\.position\[2\], target\[2\], 2048\)/);
+  assert.match(requireValue(result.code), /wrappedDelta\(ctx\.position\[0\], target\[0\], 16384\)/);
+  assert.match(requireValue(result.code), /wrappedDelta\(ctx\.position\[2\], target\[2\], 2048\)/);
 
-  const force = await executeController(result.code, {
+  const force = await executeController(requireValue(result.code), {
     position: [1, 3, 2047],
     velocity: [0, 0, 0],
     angularVelocity: [0, 0, 0],

@@ -299,18 +299,19 @@ export function resolveInitialPlayerPose(
   player: SpaceBootstrapPayload['player'],
   randomFn: () => number = Math.random
 ) {
+  const { start_x_cm, start_y_cm, start_z_cm, start_yaw_q15 } = player;
   const hasBackendStart = (
-    typeof player.start_x_cm === 'number' &&
-    typeof player.start_y_cm === 'number' &&
-    typeof player.start_z_cm === 'number' &&
-    typeof player.start_yaw_q15 === 'number'
+    typeof start_x_cm === 'number' &&
+    typeof start_y_cm === 'number' &&
+    typeof start_z_cm === 'number' &&
+    typeof start_yaw_q15 === 'number'
   );
   if (hasBackendStart) {
     return {
-      x: player.start_x_cm / 100,
-      y: player.start_y_cm / 100,
-      z: player.start_z_cm / 100,
-      yaw: (player.start_yaw_q15 / 32767) * Math.PI,
+      x: start_x_cm / 100,
+      y: start_y_cm / 100,
+      z: start_z_cm / 100,
+      yaw: (start_yaw_q15 / 32767) * Math.PI,
       resumed: player.resumed,
     };
   }

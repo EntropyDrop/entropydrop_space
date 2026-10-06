@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -14,7 +15,7 @@ function makeStubWorld(microPairs: Array<[string, number]> = []) {
     map.set(key, { color });
   }
   return {
-    microVoxels: { cells: map },
+    microVoxels: { cells: new Map([...map].map(([key, value]) => [key, value.color])) },
     getMicroBlock(mx: number, my: number, mz: number) {
       return map.get(`${mx},${my},${mz}`) || null;
     },
@@ -36,7 +37,7 @@ function makeStubSceneRenderer() {
 test('ContraptionManager.expandSelectionAxis expands and shrinks standard selection bounds', () => {
   const scene = new THREE.Scene();
   const world = makeStubWorld();
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
 
   manager.selectionCornerA = { x: 5, y: 10, z: 2 };
   manager.selectionCornerB = { x: 8, y: 12, z: 6 };
@@ -44,33 +45,33 @@ test('ContraptionManager.expandSelectionAxis expands and shrinks standard select
   // Expand +X by 2 blocks
   let res = manager.expandSelectionAxis('x', 1, 2, false);
   assert.equal(res.ok, true);
-  assert.equal(res.bounds.maxX, 10);
-  assert.equal(res.bounds.minX, 5);
+  assert.equal(requireValue(res.bounds).maxX, 10);
+  assert.equal(requireValue(res.bounds).minX, 5);
 
   // Shrink +X by 1 block
   res = manager.expandSelectionAxis('x', 1, -1, false);
   assert.equal(res.ok, true);
-  assert.equal(res.bounds.maxX, 9);
+  assert.equal(requireValue(res.bounds).maxX, 9);
 
   // Expand -X by 2 blocks (minX decreases)
   res = manager.expandSelectionAxis('x', -1, 2, false);
   assert.equal(res.ok, true);
-  assert.equal(res.bounds.minX, 3);
+  assert.equal(requireValue(res.bounds).minX, 3);
 
   // Expand +Y by 1 block
   res = manager.expandSelectionAxis('y', 1, 1, false);
   assert.equal(res.ok, true);
-  assert.equal(res.bounds.maxY, 13);
+  assert.equal(requireValue(res.bounds).maxY, 13);
 
   // Expand -Z by 1 block (minZ decreases)
   res = manager.expandSelectionAxis('z', -1, 1, false);
   assert.equal(res.ok, true);
-  assert.equal(res.bounds.minZ, 1);
+  assert.equal(requireValue(res.bounds).minZ, 1);
 
   // Clamping: cannot shrink below 1 block span (maxX cannot be less than minX)
   res = manager.expandSelectionAxis('x', 1, -20, false);
   assert.equal(res.ok, true);
-  assert.equal(res.bounds.maxX, res.bounds.minX);
+  assert.equal(requireValue(res.bounds).maxX, requireValue(res.bounds).minX);
 });
 
 test('ContraptionManager.expandSelectionAxis expands and rematerializes micro selection', () => {
@@ -80,7 +81,7 @@ test('ContraptionManager.expandSelectionAxis expands and rematerializes micro se
     ['20,47,20', 0x222222],
     ['21,47,20', 0x333333]
   ]);
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
 
   // Start with micro selection from 19 to 20 on X
   manager.microBounds = { minX: 19, minY: 47, minZ: 20, maxX: 20, maxY: 47, maxZ: 20 };
@@ -90,13 +91,13 @@ test('ContraptionManager.expandSelectionAxis expands and rematerializes micro se
   // Expand +X by 1 micro step -> now covers 19..21 (should capture 3rd voxel)
   const res = manager.expandSelectionAxis('x', 1, 1, true);
   assert.equal(res.ok, true);
-  assert.equal(res.bounds.maxX, 21);
+  assert.equal(requireValue(res.bounds).maxX, 21);
   assert.equal(manager.microSelection.length, 3);
 
   // Shrink +X by 1 micro step -> back to 19..20 (2 voxels)
   const shrinkRes = manager.expandSelectionAxis('x', 1, -1, true);
   assert.equal(shrinkRes.ok, true);
-  assert.equal(shrinkRes.bounds.maxX, 20);
+  assert.equal(requireValue(shrinkRes.bounds).maxX, 20);
   assert.equal(manager.microSelection.length, 2);
 });
 
@@ -139,7 +140,7 @@ test('SceneRenderer creates 6 selection gizmo handles and updates face positions
 test('PlayerController activates SelectionAxisGizmo on confirmed selection and drags to expand', () => {
   const scene = new THREE.Scene();
   const world = makeStubWorld();
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const renderer = makeStubSceneRenderer();
 
   const controller: any = Object.create(PlayerController.prototype);
@@ -174,7 +175,7 @@ test('PlayerController activates SelectionAxisGizmo on confirmed selection and d
   // Trigger drag step expansion
   manager.expandSelectionAxis('x', 1, 1, false);
   const bounds = manager.getSelectionBounds();
-  assert.equal(bounds.maxX, 6, 'maxX should expand from 5 to 6');
+  assert.equal(requireValue(bounds).maxX, 6, 'maxX should expand from 5 to 6');
 
   // Release drag
   controller.releaseGizmoDrag();
@@ -188,7 +189,7 @@ test('PlayerController activates SelectionAxisGizmo on confirmed selection and d
 test('handleLeftClick on gizmo handle starts drag without clearing selection', () => {
   const scene = new THREE.Scene();
   const world = makeStubWorld();
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const renderer = makeStubSceneRenderer();
 
   const controller: any = Object.create(PlayerController.prototype);
@@ -197,7 +198,7 @@ test('handleLeftClick on gizmo handle starts drag without clearing selection', (
   controller.contraptions = manager;
   controller.sceneRenderer = renderer;
   controller.keys = {};
-  controller.currentRaycast = { hit: true, hitPos: { x: 10, y: 10, z: 10 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 10, y: 10, z: 10 } };
   controller.sound = { playWrenchClick() {} };
   controller.ui = { showToast() {} };
 
@@ -232,7 +233,7 @@ test('updateGizmoDrag translates mouse movement to discrete steps in micro mode'
     ['11,10,10', 0x222222],
     ['12,10,10', 0x333333]
   ]);
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   const renderer = makeStubSceneRenderer();
 
   const controller: any = Object.create(PlayerController.prototype);
@@ -261,14 +262,14 @@ test('updateGizmoDrag translates mouse movement to discrete steps in micro mode'
 
   // maxX should have expanded
   const mb = manager.getMicroSelectionBounds();
-  assert.ok(mb.maxX > 11, `maxX should expand past 11, got ${mb.maxX}`);
+  assert.ok(requireValue(mb).maxX > 11, `maxX should expand past 11, got ${requireValue(mb).maxX}`);
   assert.equal(manager.microSelection.length, 3, 'Newly covered voxel should be captured');
 });
 
 test('expandSelectionAxis clamps to MAX_ENTITY_BOUNDS (256 blocks)', () => {
   const scene = new THREE.Scene();
   const world = makeStubWorld();
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
 
   manager.selectionCornerA = { x: 0, y: 10, z: 0 };
   manager.selectionCornerB = { x: 250, y: 10, z: 0 };
@@ -276,7 +277,7 @@ test('expandSelectionAxis clamps to MAX_ENTITY_BOUNDS (256 blocks)', () => {
   // Try to expand by 20 blocks (would be 271 total, exceeding 256 limit)
   manager.expandSelectionAxis('x', 1, 20, false);
   const bounds = manager.getSelectionBounds();
-  assert.equal(bounds.maxX - bounds.minX + 1, 256, 'Span must be clamped to 256 blocks');
+  assert.equal(requireValue(bounds).maxX - requireValue(bounds).minX + 1, 256, 'Span must be clamped to 256 blocks');
 });
 
 test('SceneRenderer.updateSelectionAxisGizmo positions and rotates gizmo to entity node frame', () => {
@@ -585,7 +586,7 @@ test('2-point selection validation rules between entity and world', () => {
   // Rule B: Point 1 is entity, Point 2 clicks world -> rejected
   controller.hoveredContraptionHit = null;
   controller.selectorRange = { contraption: contraption1, nodeId: 'root', pointA: { x: 0, y: 0, z: 0 }, pointB: null };
-  controller.currentRaycast = { hit: true, hitPos: { x: 5, y: 5, z: 5 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 5, y: 5, z: 5 } };
   PlayerController.prototype.handleLeftClick.call(controller);
   assert.equal(controller.selectorRange, null, 'selectorRange should be cleared');
   assert.ok(toasts.some(t => t.includes('starts on an entity must end on that same entity')));
@@ -752,7 +753,7 @@ test('Del key cascades deletion of child component and subcomponents when all bl
 test('the XYZ gizmo stays hidden until the entity box has both points', () => {
   const scene = new THREE.Scene();
   const renderer = makeStubSceneRenderer();
-  const manager: any = new ContraptionManager(scene, {}, null, null);
+  const manager: any = new ContraptionManager(scene, worldStub({}), null, null);
   const contraption = new Contraption(
     1,
     [
@@ -813,7 +814,7 @@ test('selection gizmo handles are pickable in bent space where they are drawn', 
 
   const handle = renderer.selectionGizmoHandles.get('+x');
   handle.updateMatrixWorld(true);
-  const pick = handle.children.find(child => String(child.name).startsWith('SelectionGizmoPick_'));
+  const pick = handle.children.find((child: import('three').Object3D) => String(child.name).startsWith('SelectionGizmoPick_'));
   const flatCenter = pick.getWorldPosition(new THREE.Vector3());
 
   // Aim a BENT ray at the handle's BENT centre, exactly like the renderer draws it.

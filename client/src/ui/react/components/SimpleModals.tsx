@@ -11,7 +11,7 @@ import {
   type DistantSurfaceSettingKey,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
-import { useSpaceUi } from '../store/useSpaceUi.ts';
+import { useSpaceUi, useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 
 const DISTANT_LOD_CONTROLS: ReadonlyArray<{
@@ -182,7 +182,7 @@ export function SpaceApiKeysSettings() {
           ] as const).map(([label, quota, exempt]) => <div key={label}>
             <dt>{label}</dt><dd><strong>{exempt ? 'Unlimited · administrator' : `${quota.remaining.toLocaleString()} remaining`}</strong><span>{exempt ? `${quota.used.toLocaleString()} used · quota exempt` : `${quota.used.toLocaleString()} / ${quota.limit.toLocaleString()} used`}</span></dd>
           </div>)}
-          {hostingAvailable ? <div><dt>Hosted entities · entire world</dt><dd>{usage.quotas.hosted_entities_world.used.toLocaleString()} running</dd></div> : null}
+          {hostingAvailable && usage.quotas.hosted_entities_world ? <div><dt>Hosted entities · entire world</dt><dd>{usage.quotas.hosted_entities_world.used.toLocaleString()} running</dd></div> : null}
           <div><dt>Entity storage · this world</dt><dd>{(usage.quotas.entity_storage_bytes.used / 1048576).toFixed(1)} MiB used{usage.admin_quota_exemptions ? ' · Unlimited (administrator)' : ` / ${(usage.quotas.entity_storage_bytes.limit / 1048576).toFixed(0)} MiB`}</dd></div>
         </dl>
         <div className="settings-desc">Terrain allowance is shared by manual edits and API builds{hostingAvailable ? ', including hosted scripts' : ''}. Daily reset: {new Date(usage.quotas.terrain.day.reset_at).toLocaleString()}.</div>
@@ -248,7 +248,9 @@ export function SpaceApiKeysSettings() {
 }
 
 export function GlobalSettingsModal() {
-  const state = useSpaceUi(snapshot => snapshot);
+  const state = useSpaceUiFields(
+    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceSettings', 'world', 'musicEnabled', 'effectsEnabled'
+  );
   const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>('character');
   if (state.activeModal !== 'settings') return null;
   return (

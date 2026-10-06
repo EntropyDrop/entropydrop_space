@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
@@ -19,7 +20,7 @@ test('BuildAgent extracts strict raw or fenced JSON plans', () => {
 test('BuildAgent requires configured model transport', async () => {
   const result = await runSpaceBuildAgentTurn('build a house', { apiKey: '' });
   assert.equal(result.ok, false);
-  assert.match(result.error, /Configure a model API key/);
+  assert.match(requireValue(result.error), /Configure a model API key/);
 });
 
 test('BuildAgent returns a parsed BuildPlan from an OpenAI-compatible response', async () => {

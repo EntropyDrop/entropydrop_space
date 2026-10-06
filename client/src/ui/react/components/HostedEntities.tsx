@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { FaStop } from 'react-icons/fa';
 import { LiaAngleDownSolid, LiaServerSolid, LiaSyncSolid, LiaMapMarkerSolid } from 'react-icons/lia';
 import { spaceUiStore, hostingAvailabilityMessage } from '../store/SpaceUiStore.ts';
-import { useSpaceUi } from '../store/useSpaceUi.ts';
+import { useSpaceUiFields } from '../store/useSpaceUi.ts';
 
 export function HostedEntities({ defaultExpanded = false }: { defaultExpanded?: boolean } = {}) {
-  const { hosting, hostingBusyIds, hostingError } = useSpaceUi(state => state);
+  const { hosting, hostingBusyIds, hostingError } = useSpaceUiFields('hosting', 'hostingBusyIds', 'hostingError');
   const [expanded, setExpanded] = useState(defaultExpanded);
   const running = hosting.items.filter(entity => entity.enabled).length;
   return <section className="hud-entities-section hud-hosting-section" id="hud-hosted-entities" aria-label="Hosted entities">

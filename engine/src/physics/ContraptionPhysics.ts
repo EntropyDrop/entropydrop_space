@@ -1,9 +1,13 @@
+import type { Contraption, EntityCollisionBounds } from '../contraption/Contraption.ts';
+import type { EntityRigidBody, EntityNode, RuntimeConstraint } from '../contraption/EntityTypes.ts';
+import type { CollisionBounds, CollisionBox } from './CollisionGeometry.ts';
+import { collisionShapeSpans } from './CollisionGeometry.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
 import { BodyType } from '../contraption/Contraption.ts';
 import { PHYSICS_SUBSTEPS_PER_ENTITY_UPDATE } from '../simulation/EntitySimulationClock.ts';
-import type { World } from '../voxel/World.ts';
+import type { PhysicsTerrain } from './PhysicsTerrain.ts';
 import { CollisionBoxIndex, collisionBoundsOf, collisionBoundsOverlap } from './CollisionGeometry.ts';
 import { ContraptionSleep } from './ContraptionSleep.ts';
 import { getGeometryKernels } from '../wasm/GeometryKernels.ts';
@@ -34,8 +38,8 @@ const TERRAIN_FACE_NORMALS = [
 ];
 
 /** Keep candidate packing bounded even when many authored boxes overlap. */
-function* collisionPairBatches(boxesA, boxesB, indexB) {
-  let pairs: any[][] = [];
+function* collisionPairBatches(boxesA: PhysicsBox[], boxesB: PhysicsBox[], indexB: CollisionBoxIndex<PhysicsBox> | null) {
+  let pairs: [PhysicsBox, PhysicsBox][] = [];
   for (const a of boxesA) for (const b of indexB ? indexB.query(a) : boxesB) {
     if (a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY
       || a.maxZ < b.minZ || a.minZ > b.maxZ) continue;
@@ -45,30 +49,37 @@ function* collisionPairBatches(boxesA, boxesB, indexB) {
   if (pairs.length) yield pairs;
 }
 
+type PhysicsBox = Omit<EntityCollisionBounds, 'cell' | 'contraption' | 'entityId' | 'bodyId'> & Partial<Pick<EntityCollisionBounds, 'cell' | 'contraption' | 'entityId' | 'bodyId'>>;
+const AXIS_SUFFIX = { x: 'X', y: 'Y', z: 'Z' } as const;
+interface PhysicsObb { center: THREE.Vector3; axes: THREE.Vector3[]; halfExtents: number[] }
+interface BodyObb extends PhysicsObb, CollisionBounds { coversSamples?: boolean }
+type EntityFrame = NonNullable<ReturnType<ContraptionPhysics['prepareContraptionFrame']>>;
+interface PairFrame { colliders: Contraption[]; collisionCandidates?: [number, number][]; dynamicCandidates?: [number, number][] }
+
 type RestingTerrainSupport = {
-  shape: any;
+  shape: unknown;
   position: THREE.Vector3;
   quaternion: THREE.Quaternion;
   normal: THREE.Vector3;
   points: THREE.Vector3[];
   manifold: THREE.Vector3[];
-  cells: any[];
-  parts: Array<{ node: any; matrix: THREE.Matrix4 | null; enabled: boolean }>;
+  cells: (CollisionBounds | null)[];
+  parts: Array<{ node: EntityNode; matrix: THREE.Matrix4 | null; enabled: boolean }>;
 };
 
 export class ContraptionPhysics {
-  private world: World;
+  private world: PhysicsTerrain;
   private sleep: ContraptionSleep;
-  private gravity: THREE.Vector3;
-  private collisionIndexes = new WeakMap<any[], CollisionBoxIndex<any>>();
-  private collisionBounds = new WeakMap<any[], ReturnType<typeof collisionBoundsOf>>();
+  readonly gravity: THREE.Vector3;
+  private collisionIndexes = new WeakMap<PhysicsBox[], CollisionBoxIndex<PhysicsBox>>();
+  private collisionBounds = new WeakMap<PhysicsBox[], ReturnType<typeof collisionBoundsOf>>();
   private restingTerrainSupports = new WeakMap<object, RestingTerrainSupport>();
 
-  physicsBoxes(contraption) {
+  physicsBoxes(contraption: Contraption) {
     return contraption.getPhysicsCollisionWorldAABBs?.() || contraption.getCollisionWorldAABBs?.() || [];
   }
 
-  boxesBounds(boxes) {
+  boxesBounds(boxes: PhysicsBox[]) {
     let bounds = this.collisionBounds.get(boxes);
     if (!bounds) {
       bounds = collisionBoundsOf(boxes);
@@ -77,7 +88,7 @@ export class ContraptionPhysics {
     return bounds;
   }
 
-  boxIndex(boxes) {
+  boxIndex(boxes: PhysicsBox[]) {
     let index = this.collisionIndexes.get(boxes);
     if (!index) {
       index = new CollisionBoxIndex(boxes);
@@ -86,24 +97,24 @@ export class ContraptionPhysics {
     return index;
   }
 
-  constructor(world) {
+  constructor(world: PhysicsTerrain) {
     this.world = world;
     this.sleep = new ContraptionSleep(world);
     this.gravity = new THREE.Vector3(0, -18.0, 0);
   }
 
-  beginEntityUpdate(contraptions) { this.sleep.setActiveEntities(contraptions); }
+  beginEntityUpdate(contraptions: Contraption[]) { this.sleep.setActiveEntities(contraptions); }
 
-  isSleeping(contraption) { return this.sleep.isSleeping(contraption); }
+  isSleeping(contraption: Contraption) { return this.sleep.isSleeping(contraption); }
 
-  isInactiveCollider(contraption) {
+  isInactiveCollider(contraption: Contraption) {
     return contraption.isPhysicsSimulationEnabled?.() === false || this.isSleeping(contraption);
   }
 
   /**
    * Fast downward distance measurement to nearest solid voxel
    */
-  getGroundDistance(worldPos, maxCheckDist = 40) {
+  getGroundDistance(worldPos: THREE.Vector3, maxCheckDist = 40) {
     const down = new THREE.Vector3(0, -1, 0);
     const standardHit = this.world.raycast(worldPos, down, maxCheckDist);
     const microRaycast = this.world.raycastMicroCollision?.bind(this.world)
@@ -120,7 +131,7 @@ export class ContraptionPhysics {
    * can interleave entity-vs-entity collision with terrain collision at the
    * same substep cadence.
    */
-  update(contraption, dt) {
+  update(contraption: Contraption, dt: number) {
     const frame = this.prepareContraptionFrame(contraption, dt);
     if (!frame) return;
     for (let step = 0; step < frame.subSteps; step++) this.stepContraptionFrame(frame);
@@ -131,7 +142,7 @@ export class ContraptionPhysics {
    * Begin one fixed entity update: snapshot the accumulated script forces and
    * split its 50 ms interval into three immutable 60 Hz physics substeps.
    */
-  prepareContraptionFrame(contraption, dt) {
+  prepareContraptionFrame(contraption: Contraption, dt: number) {
     if (!contraption || !(dt > 0)) return null;
     if (contraption.isPhysicsSimulationEnabled?.() === false) {
       this.sleep.suspend(contraption);
@@ -148,7 +159,7 @@ export class ContraptionPhysics {
     const sleeping = this.sleep.begin(contraption);
     if (!sleeping) contraption.groundDistance = this.getGroundDistance(contraption.position);
 
-    const frameInputs = new Map();
+    const frameInputs = new Map<string, {force: THREE.Vector3; torque: THREE.Vector3}>();
     for (const body of dynamicBodies) {
       frameInputs.set(body.id, {
         force: body.appliedForces.clone(),
@@ -173,7 +184,7 @@ export class ContraptionPhysics {
   /** Run exactly one fixed substep: integrate, solve constraints, then
    * resolve terrain contacts with the same body poses every other entity
    * currently has, so entity-pair collision can run between substeps. */
-  stepContraptionFrame(frame) {
+  stepContraptionFrame(frame: EntityFrame | null) {
     if (!frame) return;
     const { contraption, dynamicBodies, frameInputs, substepDt } = frame;
     if (this.isSleeping(contraption)) return;
@@ -184,7 +195,7 @@ export class ContraptionPhysics {
         position: body.position.clone(),
         quaternion: body.quaternion.clone()
       });
-      const input = frameInputs.get(body.id);
+      const input = frameInputs.get(body.id)!;
       this.integrateBody(contraption, body, sdt, input.force, input.torque);
     }
 
@@ -210,22 +221,22 @@ export class ContraptionPhysics {
 
   /** Close one contraption's physics frame after all substeps (and any
    * entity-pair resolution interleaved with them) have run. */
-  finishContraptionFrame(frame) {
+  finishContraptionFrame(frame: EntityFrame | null) {
     if (!frame) return;
     const contraption = frame.contraption;
     contraption.isOnGround = contraption.getRigidBody?.(contraption.rootComponentId)?.isOnGround || false;
     this.sleep.finish(contraption, frame.dt, frame.frameInputs);
   }
 
-  inverseMass(body) {
+  inverseMass(body: EntityRigidBody | null | undefined) {
     return this.isSimulatedDynamicBody(body) && body.mass > 0 ? 1 / body.mass : 0;
   }
 
-  isSimulatedDynamicBody(body) {
+  isSimulatedDynamicBody(body: EntityRigidBody | null | undefined): body is EntityRigidBody {
     return body?.type === BodyType.DYNAMIC && body.simulationEnabled !== false;
   }
 
-  angularVelocityBetween(previous, current, dt) {
+  angularVelocityBetween(previous: THREE.Quaternion, current: THREE.Quaternion, dt: number) {
     if (!(dt > 0)) return new THREE.Vector3();
     const delta = current.clone().multiply(previous.clone().invert()).normalize();
     if (delta.w < 0) delta.set(-delta.x, -delta.y, -delta.z, -delta.w);
@@ -235,7 +246,7 @@ export class ContraptionPhysics {
     return new THREE.Vector3(delta.x, delta.y, delta.z).divideScalar(sinHalf).multiplyScalar(angle / dt);
   }
 
-  rotateBody(body, worldRotation) {
+  rotateBody(body: EntityRigidBody, worldRotation: THREE.Vector3) {
     if (!this.isSimulatedDynamicBody(body)) return;
     const angle = worldRotation.length();
     if (angle < 1e-10) return;
@@ -243,7 +254,7 @@ export class ContraptionPhysics {
     body.quaternion.premultiply(rotation).normalize();
   }
 
-  integrateBody(contraption, body, dt, frameForce, frameTorque) {
+  integrateBody(contraption: Contraption, body: EntityRigidBody, dt: number, frameForce: THREE.Vector3, frameTorque: THREE.Vector3) {
     const useGravity = contraption.getNodeGravityEnabled?.(body.id) !== false;
     if (useGravity) body.velocity.addScaledVector(this.gravity, dt);
     if (frameForce?.lengthSq() > 0.0001) {
@@ -262,7 +273,7 @@ export class ContraptionPhysics {
     this.rotateBody(body, body.angularVelocity.clone().multiplyScalar(dt));
   }
 
-  private solveRestingTerrainSupport(contraption, body, dt) {
+  private solveRestingTerrainSupport(contraption: Contraption, body: EntityRigidBody, dt: number) {
     const support = this.restingTerrainSupports.get(body);
     if (!support) return;
     const valid = support.shape === contraption.collisionEntries
@@ -278,7 +289,7 @@ export class ContraptionPhysics {
         // floor, changed joint/shape, or pose beyond the contact slop.
         const current = this.terrainCellAtPoint(point.clone().addScaledVector(support.normal, -0.002));
         const previous = support.cells[i];
-        return current && previous && ['minX', 'maxX', 'minY', 'maxY', 'minZ', 'maxZ']
+        return current && previous && (['minX', 'maxX', 'minY', 'maxY', 'minZ', 'maxZ'] as const)
           .every(axis => current[axis] === previous[axis]);
       });
     if (!valid) {
@@ -295,30 +306,30 @@ export class ContraptionPhysics {
     });
   }
 
-  bodyAnchorWorld(body, localAnchor) {
+  bodyAnchorWorld(body: EntityRigidBody | null | undefined, localAnchor: number[]) {
     if (!body) return new THREE.Vector3().fromArray(localAnchor || [0, 0, 0]);
     return new THREE.Vector3().fromArray(localAnchor || [0, 0, 0])
       .applyQuaternion(body.quaternion)
       .add(body.position);
   }
 
-  applyPointCorrection(body, impulse, lever) {
+  applyPointCorrection(body: EntityRigidBody | null | undefined, impulse: THREE.Vector3, lever: THREE.Vector3) {
     const invMass = this.inverseMass(body);
-    if (invMass <= 0) return;
+    if (invMass <= 0 || !body) return;
     body.position.addScaledVector(impulse, invMass);
     this.rotateBody(body, lever.clone().cross(impulse).multiplyScalar(body.inverseInertia));
   }
 
-  applyAngularPairCorrection(bodyA, bodyB, rotation) {
+  applyAngularPairCorrection(bodyA: EntityRigidBody | null | undefined, bodyB: EntityRigidBody | null | undefined, rotation: THREE.Vector3) {
     const invA = this.isSimulatedDynamicBody(bodyA) ? bodyA.inverseInertia : 0;
     const invB = this.isSimulatedDynamicBody(bodyB) ? bodyB.inverseInertia : 0;
     const total = invA + invB;
     if (total <= 0 || rotation.lengthSq() < 1e-14) return;
-    if (invA > 0) this.rotateBody(bodyA, rotation.clone().multiplyScalar(-invA / total));
-    if (invB > 0) this.rotateBody(bodyB, rotation.clone().multiplyScalar(invB / total));
+    if (invA > 0 && bodyA) this.rotateBody(bodyA, rotation.clone().multiplyScalar(-invA / total));
+    if (invB > 0 && bodyB) this.rotateBody(bodyB, rotation.clone().multiplyScalar(invB / total));
   }
 
-  solvePointConstraint(bodyA, bodyB, constraint) {
+  solvePointConstraint(bodyA: EntityRigidBody | null, bodyB: EntityRigidBody, constraint: RuntimeConstraint) {
     const anchorA = this.bodyAnchorWorld(bodyA, constraint.anchorA);
     const anchorB = this.bodyAnchorWorld(bodyB, constraint.anchorB);
     const error = anchorB.clone().sub(anchorA);
@@ -342,7 +353,7 @@ export class ContraptionPhysics {
     this.applyPointCorrection(bodyB, impulse.clone().multiplyScalar(-1), leverB);
   }
 
-  solveHingeOrientation(bodyA, bodyB, constraint, lockReference = false) {
+  solveHingeOrientation(bodyA: EntityRigidBody | null, bodyB: EntityRigidBody, constraint: RuntimeConstraint, lockReference = false) {
     const axisA = new THREE.Vector3().fromArray(constraint.axisA).applyQuaternion(bodyA?.quaternion || new THREE.Quaternion()).normalize();
     const axisB = new THREE.Vector3().fromArray(constraint.axisB).applyQuaternion(bodyB.quaternion).normalize();
     const axisError = axisB.clone().cross(axisA).multiplyScalar(constraint.stiffness);
@@ -377,7 +388,7 @@ export class ContraptionPhysics {
     }
   }
 
-  solveConstraints(contraption, dt, iterations = 8) {
+  solveConstraints(contraption: { constraintDefinitions: ReadonlyMap<string, RuntimeConstraint>; getRigidBody(nodeId: string): EntityRigidBody | null }, dt: number, iterations = 8) {
     const constraints = contraption.constraintDefinitions?.values?.();
     if (!constraints) return;
     const list = [...constraints];
@@ -408,7 +419,9 @@ export class ContraptionPhysics {
    * box owners are kinematic. Kinematic bodies with no dynamic ancestor keep
    * their scripted-contact behavior (zero inverse mass, own velocity).
    */
-  contactBodyFor(contraption, body) {
+  contactBodyFor(contraption: Contraption, body: EntityRigidBody): EntityRigidBody;
+  contactBodyFor(contraption: Contraption, body: EntityRigidBody | null | undefined): EntityRigidBody | null | undefined;
+  contactBodyFor(contraption: Contraption, body: EntityRigidBody | null | undefined) {
     if (!body || body.type === BodyType.DYNAMIC) return body;
     let parentId = contraption.getEntityNode?.(body.nodeId || body.id)?.parentId;
     while (parentId) {
@@ -427,7 +440,7 @@ export class ContraptionPhysics {
    * ancestor routes response to that ancestor. The manager calls this once per
    * physics substep so contacts are caught at terrain cadence.
    */
-  resolveContraptionPairs(contraptions, dt = 1 / 60, broadphaseBounds = null) {
+  resolveContraptionPairs(contraptions: Contraption[], dt: number = 1 / 60, broadphaseBounds: ReadonlyMap<Contraption, CollisionBounds> | null = null) {
     return this.resolvePreparedContraptionPairs(
       this.prepareContraptionPairFrame(contraptions, broadphaseBounds),
       dt
@@ -437,7 +450,7 @@ export class ContraptionPhysics {
   /** Build the spatial-hash candidate set once for a whole entity update.
    * Its broadphase bounds already cover all three fixed physics substeps, so
    * rebuilding identical buckets only creates garbage. */
-  prepareContraptionPairFrame(contraptions, broadphaseBounds = null) {
+  prepareContraptionPairFrame(contraptions: Contraption[], broadphaseBounds: ReadonlyMap<Contraption, CollisionBounds> | null = null) {
     const colliders = (contraptions || []).filter(c => c?.getRigidBodies?.().length > 0);
     // Editing/adding an immovable collider can overlap a sleeping body even
     // without a moving neighbour. Wake that body before interleaved integration.
@@ -494,7 +507,7 @@ export class ContraptionPhysics {
     return { colliders, collisionCandidates: [...candidates.values()] };
   }
 
-  resolvePreparedContraptionPairs(pairFrame, dt = 1 / 60) {
+  resolvePreparedContraptionPairs(pairFrame: PairFrame | null, dt: number = 1 / 60) {
     const colliders = pairFrame?.colliders || [];
     const collisionCandidates = pairFrame?.collisionCandidates || pairFrame?.dynamicCandidates || [];
     for (let iteration = 0; iteration < ENTITY_CONTACT_ITERATIONS; iteration++) {
@@ -524,7 +537,7 @@ export class ContraptionPhysics {
    * collision boxes, which spans both the previous and current poses because
    * every box records both corner sets.
    */
-  contraptionBroadphaseBounds(contraption) {
+  contraptionBroadphaseBounds(contraption: Contraption) {
     const radius = Math.max(0.5, Number(contraption.boundingRadius) || 0.5) + 0.5;
     const boxes = this.physicsBoxes(contraption);
     if (boxes.length === 0) {
@@ -550,7 +563,7 @@ export class ContraptionPhysics {
    * entity-pair pass, so substep-cadence collision detection never misses a
    * swept crossing.
    */
-  frameBroadphaseBounds(contraption, dt) {
+  frameBroadphaseBounds(contraption: Contraption, dt: number) {
     const bounds = this.contraptionBroadphaseBounds(contraption);
     const radius = Math.max(0.5, Number(contraption.boundingRadius) || 0.5);
     let travel = 0;
@@ -572,23 +585,23 @@ export class ContraptionPhysics {
     };
   }
 
-  isDynamicCollider(contraption) {
+  isDynamicCollider(contraption: Contraption) {
     return !!contraption?.getRigidBodies?.().some(body => this.isSimulatedDynamicBody(body));
   }
 
-  sweptAabbContact(a, b) {
-    const previousOverlap = ['x', 'y', 'z'].every(axis => (
-      Math.min(a[`previousMax${axis.toUpperCase()}`], b[`previousMax${axis.toUpperCase()}`])
-      - Math.max(a[`previousMin${axis.toUpperCase()}`], b[`previousMin${axis.toUpperCase()}`]) > 0
+  sweptAabbContact(a: PhysicsBox, b: PhysicsBox) {
+    const previousOverlap = (['x', 'y', 'z'] as const).every(axis => (
+      Math.min(a[`previousMax${AXIS_SUFFIX[axis]}`], b[`previousMax${AXIS_SUFFIX[axis]}`])
+      - Math.max(a[`previousMin${AXIS_SUFFIX[axis]}`], b[`previousMin${AXIS_SUFFIX[axis]}`]) > 0
     ));
     if (previousOverlap) return null;
 
     const relativeDelta = new THREE.Vector3();
     for (const axis of ['x', 'y', 'z'] as const) {
-      const centerA0 = (a[`previousMin${axis.toUpperCase()}`] + a[`previousMax${axis.toUpperCase()}`]) * 0.5;
-      const centerA1 = (a[`currentMin${axis.toUpperCase()}`] + a[`currentMax${axis.toUpperCase()}`]) * 0.5;
-      const centerB0 = (b[`previousMin${axis.toUpperCase()}`] + b[`previousMax${axis.toUpperCase()}`]) * 0.5;
-      const centerB1 = (b[`currentMin${axis.toUpperCase()}`] + b[`currentMax${axis.toUpperCase()}`]) * 0.5;
+      const centerA0 = (a[`previousMin${AXIS_SUFFIX[axis]}`] + a[`previousMax${AXIS_SUFFIX[axis]}`]) * 0.5;
+      const centerA1 = (a[`currentMin${AXIS_SUFFIX[axis]}`] + a[`currentMax${AXIS_SUFFIX[axis]}`]) * 0.5;
+      const centerB0 = (b[`previousMin${AXIS_SUFFIX[axis]}`] + b[`previousMax${AXIS_SUFFIX[axis]}`]) * 0.5;
+      const centerB1 = (b[`currentMin${AXIS_SUFFIX[axis]}`] + b[`currentMax${AXIS_SUFFIX[axis]}`]) * 0.5;
       relativeDelta[axis] = (centerA1 - centerA0) - (centerB1 - centerB0);
     }
     // AABB sweep is deliberately reserved for meaningful frame travel. At
@@ -602,10 +615,10 @@ export class ContraptionPhysics {
     let normal = null;
     for (const axis of ['x', 'y', 'z'] as const) {
       const delta = relativeDelta[axis];
-      const aMin = a[`previousMin${axis.toUpperCase()}`];
-      const aMax = a[`previousMax${axis.toUpperCase()}`];
-      const bMin = b[`previousMin${axis.toUpperCase()}`];
-      const bMax = b[`previousMax${axis.toUpperCase()}`];
+      const aMin = a[`previousMin${AXIS_SUFFIX[axis]}`];
+      const aMax = a[`previousMax${AXIS_SUFFIX[axis]}`];
+      const bMin = b[`previousMin${AXIS_SUFFIX[axis]}`];
+      const bMax = b[`previousMax${AXIS_SUFFIX[axis]}`];
       if (Math.abs(delta) < 1e-12) {
         if (aMax < bMin || aMin > bMax) return null;
         continue;
@@ -636,10 +649,10 @@ export class ContraptionPhysics {
     return { time: entryTime, normal, relativeDelta };
   }
 
-  entityContactPoint(boxA, boxB, normal, time = 1) {
+  entityContactPoint(boxA: PhysicsBox, boxB: PhysicsBox, normal: THREE.Vector3, time = 1) {
     const point = new THREE.Vector3();
-    const boundsAt = (box, axis, edge) => {
-      const suffix = axis.toUpperCase();
+    const boundsAt = (box: PhysicsBox, axis: keyof typeof AXIS_SUFFIX, edge: 'Min' | 'Max') => {
+      const suffix = AXIS_SUFFIX[axis];
       const previous = box[`previous${edge}${suffix}`];
       const current = box[`current${edge}${suffix}`];
       return previous + (current - previous) * time;
@@ -662,7 +675,7 @@ export class ContraptionPhysics {
     return point;
   }
 
-  entitySupportOffset(body, boxA, boxB) {
+  entitySupportOffset(body: EntityRigidBody, boxA: PhysicsBox, boxB: PhysicsBox) {
     const minX = Math.max(boxA.currentMinX, boxB.currentMinX);
     const maxX = Math.min(boxA.currentMaxX, boxB.currentMaxX);
     const minZ = Math.max(boxA.currentMinZ, boxB.currentMinZ);
@@ -675,7 +688,7 @@ export class ContraptionPhysics {
     );
   }
 
-  stableStackContactPoint(boxA, boxB, bodyA, bodyB, normal, time = 1) {
+  stableStackContactPoint(boxA: PhysicsBox, boxB: PhysicsBox, bodyA: EntityRigidBody, bodyB: EntityRigidBody, normal: THREE.Vector3, time = 1) {
     const point = this.entityContactPoint(boxA, boxB, normal, time);
     const verticalSeparation = bodyB.position.y - bodyA.position.y;
     if (Math.abs(normal.y) <= 0.5 || Math.abs(verticalSeparation) <= 0.5) return point;
@@ -688,7 +701,7 @@ export class ContraptionPhysics {
     return point;
   }
 
-  entityCollisionObb(box, cache = null) {
+  entityCollisionObb(box: PhysicsBox, cache: Map<PhysicsBox, PhysicsObb> | null = null): PhysicsObb | null {
     const cached = cache?.get(box);
     if (cached) return cached;
     const cell = box?.cell;
@@ -698,7 +711,7 @@ export class ContraptionPhysics {
       || contraption.getEntityNode?.();
     if (!node) return null;
     const quaternion = node.group.getWorldQuaternion(new THREE.Quaternion());
-    const sizes = [cell.spanX ?? cell.span, cell.spanY ?? cell.span, cell.spanZ ?? cell.span];
+    const sizes = collisionShapeSpans(cell);
     const obb = {
       center: contraption.entityLocalToWorld(cell.entityId, new THREE.Vector3(
         (cell.x + sizes[0] / 2) * MICRO_SIZE,
@@ -723,7 +736,7 @@ export class ContraptionPhysics {
    * every member of the support feature, so the count reveals its shape:
    * 4 tied vertices is a face, 2 an edge, 1 a vertex.
    */
-  boxSupportVertices(obb, axis, sign) {
+  boxSupportVertices(obb: PhysicsObb, axis: THREE.Vector3, sign: number) {
     const dots = obb.axes.map(obbAxis => obbAxis.dot(axis));
     const vertices = [];
     let best = -Infinity;
@@ -747,7 +760,7 @@ export class ContraptionPhysics {
     return vertices;
   }
 
-  orientedBoxPairContact(boxA, boxB, cache = null) {
+  orientedBoxPairContact(boxA: PhysicsBox, boxB: PhysicsBox, cache: Map<PhysicsBox, PhysicsObb> | null = null) {
     const obbA = this.entityCollisionObb(boxA, cache);
     const obbB = this.entityCollisionObb(boxB, cache);
     if (!obbA || !obbB) return null;
@@ -800,7 +813,7 @@ export class ContraptionPhysics {
     };
   }
 
-  entityContactInverseMass(body, normalDirection) {
+  entityContactInverseMass(body: EntityRigidBody, normalDirection: THREE.Vector3) {
     const inverseMass = this.inverseMass(body);
     if (inverseMass <= 0) return 0;
     // Entity pairs are solved at the same substep cadence as terrain: a
@@ -813,7 +826,7 @@ export class ContraptionPhysics {
     return inverseMass;
   }
 
-  bodyPointVelocity(body, contactPoint) {
+  bodyPointVelocity(body: EntityRigidBody, contactPoint: THREE.Vector3) {
     const lever = contactPoint.clone().sub(body.position);
     return body.velocity.clone().add(body.angularVelocity.clone().cross(lever));
   }
@@ -823,7 +836,7 @@ export class ContraptionPhysics {
    * Active kinematic bodies cannot accept an impulse, but collisionEnabled still
    * means their commanded poses must not pass through another collider. In that
    * case clip only the active moving pose(s), weighted by contact advance. */
-  entityContactCorrectionWeights(bodyA, bodyB, normal, boxA, boxB) {
+  entityContactCorrectionWeights(bodyA: EntityRigidBody, bodyB: EntityRigidBody, normal: THREE.Vector3, boxA: PhysicsBox, boxB: PhysicsBox) {
     const inverseA = this.entityContactInverseMass(bodyA, normal.clone().multiplyScalar(-1));
     const inverseB = this.entityContactInverseMass(bodyB, normal);
     if (inverseA + inverseB > 0) {
@@ -835,7 +848,7 @@ export class ContraptionPhysics {
       return { correctionA: 0, correctionB: 0, impulseA: inverseA, impulseB: inverseB };
     }
 
-    const displacement = box => new THREE.Vector3(
+    const displacement = (box: PhysicsBox) => new THREE.Vector3(
       (box.currentMinX + box.currentMaxX - box.previousMinX - box.previousMaxX) * 0.5,
       (box.currentMinY + box.currentMaxY - box.previousMinY - box.previousMaxY) * 0.5,
       (box.currentMinZ + box.currentMaxZ - box.previousMinZ - box.previousMaxZ) * 0.5
@@ -853,7 +866,7 @@ export class ContraptionPhysics {
 
   /** Keep a kinematic collision shape's own scripted velocity and material,
    * while applying the resulting impulse to its dynamic carrier (if any). */
-  applyEntityCollisionImpulse(bodyA, bodyB, ownerA, ownerB, normal, contactPoint, invA, invB) {
+  applyEntityCollisionImpulse(bodyA: EntityRigidBody, bodyB: EntityRigidBody, ownerA: EntityRigidBody, ownerB: EntityRigidBody, normal: THREE.Vector3, contactPoint: THREE.Vector3, invA: number, invB: number) {
     const solver = getPhysicsSolverKernels();
     if (solver) return solver.solvePairImpulse(bodyA, bodyB, ownerA, ownerB, normal, contactPoint,
       invA, invB, RESTING_CONTACT_VELOCITY);
@@ -887,7 +900,7 @@ export class ContraptionPhysics {
         const impulseMagnitude = -(1 + restitution) * normalVelocity / effectiveInverseMass;
         appliedImpulseMagnitude = impulseMagnitude;
         const impulse = normal.clone().multiplyScalar(impulseMagnitude);
-        const applyPairImpulse = vector => {
+        const applyPairImpulse = (vector: THREE.Vector3) => {
           bodyA.velocity.addScaledVector(vector, -invA);
           bodyB.velocity.addScaledVector(vector, invB);
           if (invA > 0) {
@@ -958,7 +971,7 @@ export class ContraptionPhysics {
     return appliedImpulseMagnitude;
   }
 
-  recordEntityPairContact(a, b, bodyA, bodyB, ownerA, ownerB, normal, contactPoint, penetration, impulse) {
+  recordEntityPairContact(a: Contraption, b: Contraption, bodyA: EntityRigidBody, bodyB: EntityRigidBody, ownerA: EntityRigidBody, ownerB: EntityRigidBody, normal: THREE.Vector3, contactPoint: THREE.Vector3, penetration: number, impulse: number) {
     const relativeVelocity = bodyB.velocity.clone().sub(bodyA.velocity);
     a.recordScriptContact?.({
       kind: 'entity',
@@ -986,7 +999,7 @@ export class ContraptionPhysics {
     });
   }
 
-  syncKinematicCollisionResponses(contraption, bodies) {
+  syncKinematicCollisionResponses(contraption: Contraption, bodies: ReadonlySet<EntityRigidBody>) {
     if (!contraption || !bodies || bodies.size === 0) return;
     contraption.syncAllBodyTransforms?.();
     for (const body of bodies) {
@@ -998,7 +1011,7 @@ export class ContraptionPhysics {
     contraption.invalidateCollisionPoseCache?.();
   }
 
-  destabilizeOverhangingEntity(body, boxA, boxB, dt) {
+  destabilizeOverhangingEntity(body: EntityRigidBody | null, boxA: PhysicsBox, boxB: PhysicsBox, dt: number) {
     if (!this.isSimulatedDynamicBody(body)) return;
     const overhang = this.entitySupportOffset(body, boxA, boxB);
     if (!overhang) return;
@@ -1023,7 +1036,7 @@ export class ContraptionPhysics {
     );
   }
 
-  resolveContraptionPair(a, b, boxesA = null, boxesB = null, allowSweep = true, dt = 1 / 60) {
+  resolveContraptionPair(a: Contraption, b: Contraption, boxesA: PhysicsBox[] | null = null, boxesB: PhysicsBox[] | null = null, allowSweep = true, dt: number = 1 / 60) {
     if (a === b || (this.isInactiveCollider(a) && this.isInactiveCollider(b))) return false;
 
     boxesA ||= this.physicsBoxes(a);
@@ -1034,10 +1047,13 @@ export class ContraptionPhysics {
     const indexB = boxesB.length > 8 ? this.boxIndex(boxesB) : null;
     let bestSweep = null;
     let shallowestContact = null;
-    const contactGroups = new Map();
+    const contactGroups = new Map<string, { normal: THREE.Vector3; penetration: number;
+      contactPoints: THREE.Vector3[]; featurePoints: THREE.Vector3[]; faceSupport: boolean;
+      ba: PhysicsBox; bb: PhysicsBox; ownerA: EntityRigidBody; ownerB: EntityRigidBody;
+      bodyA: EntityRigidBody; bodyB: EntityRigidBody }>();
     const obbCache = new Map();
-    const movedKinematicA = new Set();
-    const movedKinematicB = new Set();
+    const movedKinematicA = new Set<EntityRigidBody>();
+    const movedKinematicB = new Set<EntityRigidBody>();
 
     const kernels = getGeometryKernels();
     for (const pairs of collisionPairBatches(boxesA, boxesB, indexB)) {
@@ -1257,7 +1273,7 @@ export class ContraptionPhysics {
     return separated;
   }
 
-  markEntitySupport(a, b, bodyA, bodyB, normal) {
+  markEntitySupport(a: Contraption, b: Contraption, bodyA: EntityRigidBody, bodyB: EntityRigidBody, normal: THREE.Vector3) {
     if (normal.y < -0.5 && this.isSimulatedDynamicBody(bodyA)) {
       bodyA.isOnGround = true;
       if (bodyA.id === a.rootComponentId) a.isOnGround = true;
@@ -1270,7 +1286,7 @@ export class ContraptionPhysics {
     }
   }
 
-  terrainCellAtPoint(point) {
+  terrainCellAtPoint(point: THREE.Vector3) {
     const bx = Math.floor(point.x);
     const by = Math.floor(point.y);
     const bz = Math.floor(point.z);
@@ -1281,11 +1297,11 @@ export class ContraptionPhysics {
     const mx = Math.floor(point.x * MICRO_DIVISIONS);
     const my = Math.floor(point.y * MICRO_DIVISIONS);
     const mz = Math.floor(point.z * MICRO_DIVISIONS);
-    const collisionReader = (this.world as any).getMicroCollisionBlock;
+    const collisionReader = this.world.getMicroCollisionBlock;
     const micro = typeof collisionReader === 'function'
       ? collisionReader.call(this.world, mx, my, mz)
-      : ((this.world as any).getMicroBlock?.(mx, my, mz)
-        ?? (this.world as any).microVoxels?.get(mx, my, mz)
+      : (this.world.getMicroBlock?.(mx, my, mz)
+        ?? this.world.microVoxels?.get(mx, my, mz)
         ?? null);
     if (micro === null || micro === undefined) return null;
     return {
@@ -1305,11 +1321,12 @@ export class ContraptionPhysics {
    * face. Keeping the OBBs here lets the terrain solver cover that topology
    * with a separating-axis test.
    */
-  getBodyCollisionWorldOBBs(contraption, body) {
+  getBodyCollisionWorldOBBs(contraption: Contraption, body: EntityRigidBody): BodyObb[] {
     if (!contraption || !body) return [];
     const attached = contraption.getAttachedNodeIds?.(body.id) || new Set([body.id]);
     const boxes = [];
-    const nodeTransforms = new Map();
+    const nodeTransforms = new Map<string, { matrix: THREE.Matrix4 | null; pivot: THREE.Vector3;
+      axes: THREE.Vector3[]; coversSamples?: boolean }>();
     for (const cell of contraption.collisionTerrainBoxes || contraption.collisionSurfaceEntries || contraption.collisionEntries || []) {
       if (!attached.has(cell.entityId)) continue;
       if (contraption.isNodeCollisionEnabled?.(cell.entityId) === false) continue;
@@ -1331,14 +1348,14 @@ export class ContraptionPhysics {
         // Only certify coverage for the unit-scale rigid transform used by the
         // OBBs. Custom/scaled hosts must retain the point-probe fallback.
         transform.coversSamples = !!transform.matrix && transform.axes.every((axis, i) => (
-          Math.abs(transform.matrix.elements[i * 4] - axis.x) < 1e-10
-          && Math.abs(transform.matrix.elements[i * 4 + 1] - axis.y) < 1e-10
-          && Math.abs(transform.matrix.elements[i * 4 + 2] - axis.z) < 1e-10
+          Math.abs(transform!.matrix!.elements[i * 4] - axis.x) < 1e-10
+          && Math.abs(transform!.matrix!.elements[i * 4 + 1] - axis.y) < 1e-10
+          && Math.abs(transform!.matrix!.elements[i * 4 + 2] - axis.z) < 1e-10
         ));
         nodeTransforms.set(cell.entityId, transform);
       }
       const axes = transform.axes;
-      const sizes = [cell.spanX ?? cell.span, cell.spanY ?? cell.span, cell.spanZ ?? cell.span];
+      const sizes = collisionShapeSpans(cell);
       const halfExtents = sizes.map(span => span * MICRO_SIZE / 2);
       const center = new THREE.Vector3(
         (cell.x + sizes[0] / 2) * MICRO_SIZE,
@@ -1368,7 +1385,7 @@ export class ContraptionPhysics {
     return boxes;
   }
 
-  orientedBoxAabbContact(obb, box) {
+  orientedBoxAabbContact(obb: PhysicsObb, box: CollisionBounds) {
     const terrainCenter = new THREE.Vector3(
       (box.minX + box.maxX) / 2,
       (box.minY + box.maxY) / 2,
@@ -1425,7 +1442,7 @@ export class ContraptionPhysics {
     return { normal, penetration, hitPosition };
   }
 
-  terrainBoxesOverlapping(obb, coverage?: { complete: boolean }) {
+  terrainBoxesOverlapping(obb: CollisionBounds, coverage?: { complete: boolean }) {
     if (coverage) coverage.complete = false;
     const boxes = [];
     // SAT requires positive overlap, so a box whose maximum lies exactly on a
@@ -1473,15 +1490,15 @@ export class ContraptionPhysics {
           maxZ: cell.z + size
         });
       }
-    } else if (typeof (this.world as any).getMicroBlock === 'function') {
-      if (coverage) coverage.complete = typeof (this.world as any).getMicroCollisionBlock !== 'function';
+    } else if (typeof this.world.getMicroBlock === 'function') {
+      if (coverage) coverage.complete = typeof this.world.getMicroCollisionBlock !== 'function';
       const maxMx = Math.floor(obb.maxX * MICRO_DIVISIONS - 1e-7);
       const maxMy = Math.floor(obb.maxY * MICRO_DIVISIONS - 1e-7);
       const maxMz = Math.floor(obb.maxZ * MICRO_DIVISIONS - 1e-7);
       for (let mx = Math.floor(obb.minX * MICRO_DIVISIONS); mx <= maxMx; mx++) {
         for (let my = Math.floor(obb.minY * MICRO_DIVISIONS); my <= maxMy; my++) {
           for (let mz = Math.floor(obb.minZ * MICRO_DIVISIONS); mz <= maxMz; mz++) {
-            const micro = (this.world as any).getMicroBlock(mx, my, mz);
+            const micro = this.world.getMicroBlock(mx, my, mz);
             if (micro === null || micro === undefined) continue;
             boxes.push({
               minX: mx / MICRO_DIVISIONS,
@@ -1495,13 +1512,13 @@ export class ContraptionPhysics {
         }
       }
     } else if (coverage) {
-      coverage.complete = typeof (this.world as any).getMicroCollisionBlock !== 'function'
-        && typeof (this.world as any).microVoxels?.get !== 'function';
+      coverage.complete = typeof this.world.getMicroCollisionBlock !== 'function'
+        && typeof this.world.microVoxels?.get !== 'function';
     }
     return boxes;
   }
 
-  exactTerrainContacts(contraption, body, cachedObbs = null, cachedTerrainBoxes = null) {
+  exactTerrainContacts(contraption: Contraption, body: EntityRigidBody, cachedObbs: BodyObb[] | null = null, cachedTerrainBoxes: Map<BodyObb, CollisionBounds[]> | null = null) {
     const contacts = [];
     const obbs = cachedObbs || this.getBodyCollisionWorldOBBs(contraption, body);
     const kernels = getGeometryKernels();
@@ -1529,8 +1546,8 @@ export class ContraptionPhysics {
             if (Math.abs(contact.normal[axis]) <= 1e-6) continue;
             const facePoint = terrainCenter.clone();
             facePoint[axis] = contact.normal[axis] > 0
-              ? terrainBox[`max${axis.toUpperCase()}`]
-              : terrainBox[`min${axis.toUpperCase()}`];
+              ? terrainBox[`max${AXIS_SUFFIX[axis]}`]
+              : terrainBox[`min${AXIS_SUFFIX[axis]}`];
             facePoint[axis] += Math.sign(contact.normal[axis]) * 0.002;
             if (this.terrainCellAtPoint(facePoint)) {
               exposed = false;
@@ -1545,7 +1562,7 @@ export class ContraptionPhysics {
     return contacts;
   }
 
-  terrainContactAtPoint(point) {
+  terrainContactAtPoint(point: THREE.Vector3) {
     const cell = this.terrainCellAtPoint(point);
     if (!cell) return null;
     const penetrations = [
@@ -1605,7 +1622,7 @@ export class ContraptionPhysics {
     return null;
   }
 
-  sweepTerrainContact(start, end) {
+  sweepTerrainContact(start: THREE.Vector3, end: THREE.Vector3) {
     const movement = end.clone().sub(start);
     const distance = movement.length();
     if (distance < 1e-8) return null;
@@ -1613,7 +1630,7 @@ export class ContraptionPhysics {
     const hits = [
       this.world.raycast?.(start, direction, distance + 0.002),
       this.world.raycastMicro?.(start, direction, distance + 0.002)
-    ].filter(hit => hit?.hit
+    ].filter((hit): hit is Extract<NonNullable<typeof hit>, { hit: true }> => hit?.hit === true
       && Number.isFinite(hit.distance)
       && hit.distance >= 0
       && hit.distance <= distance + 0.002);
@@ -1651,7 +1668,7 @@ export class ContraptionPhysics {
    * sample through this frame's requested displacement and stop at the earliest
    * terrain or entity entry face.
    */
-  sweepPointAabb(start, direction, maxDistance, box) {
+  sweepPointAabb(start: THREE.Vector3, direction: THREE.Vector3, maxDistance: number, box: CollisionBounds) {
     const inside = start.x >= box.minX && start.x <= box.maxX
       && start.y >= box.minY && start.y <= box.maxY
       && start.z >= box.minZ && start.z <= box.maxZ;
@@ -1672,8 +1689,8 @@ export class ContraptionPhysics {
     let normal = null;
     for (const axis of ['x', 'y', 'z'] as const) {
       const component = direction[axis];
-      const min = box[`min${axis.toUpperCase()}`];
-      const max = box[`max${axis.toUpperCase()}`];
+      const min = box[`min${AXIS_SUFFIX[axis]}`];
+      const max = box[`max${AXIS_SUFFIX[axis]}`];
       if (Math.abs(component) < 1e-10) {
         if (start[axis] < min || start[axis] > max) return null;
         continue;
@@ -1706,7 +1723,7 @@ export class ContraptionPhysics {
    * cell's orthonormal frame keeps the inexpensive slab test while matching
    * the shape used by the entity contact solver.
    */
-  sweepPointEntityBox(start, direction, maxDistance, box) {
+  sweepPointEntityBox(start: THREE.Vector3, direction: THREE.Vector3, maxDistance: number, box: PhysicsBox) {
     const obb = this.entityCollisionObb(box);
     if (!obb) return this.sweepPointAabb(start, direction, maxDistance, box);
 
@@ -1739,7 +1756,7 @@ export class ContraptionPhysics {
     return { distance: contact.distance, normal };
   }
 
-  constrainWrenchVelocity(contraption, body, desiredVelocity, dt, contraptions = []) {
+  constrainWrenchVelocity(contraption: Contraption, body: EntityRigidBody, desiredVelocity: THREE.Vector3, dt: number, contraptions: Contraption[] = []) {
     const velocity = desiredVelocity?.clone?.() || new THREE.Vector3();
     const safeDt = Math.max(1 / 240, Math.min(0.08, Number(dt) || 0));
     const frameDistance = velocity.length() * safeDt;
@@ -1813,7 +1830,7 @@ export class ContraptionPhysics {
   /** A near-flush face uses its real convex support boundary plus a pressure
    * centre nearest the body centre. Averaging samples makes asymmetric faces
    * invent a torque; projecting outside the boundary would freeze overhangs. */
-  terrainSupportManifold(body, normal: THREE.Vector3, points: THREE.Vector3[]): THREE.Vector3[] {
+  terrainSupportManifold(body: EntityRigidBody, normal: THREE.Vector3, points: THREE.Vector3[]): THREE.Vector3[] {
     if (points.length <= 1) return points.map(point => point.clone());
     const localNormal = normal.clone().applyQuaternion(body.quaternion.clone().invert());
     if (Math.max(Math.abs(localNormal.x), Math.abs(localNormal.y), Math.abs(localNormal.z)) < 0.995) {
@@ -1832,16 +1849,16 @@ export class ContraptionPhysics {
       height += offset.dot(normal);
       return { u: offset.dot(tangent), v: offset.dot(bitangent), point };
     }).sort((a, b) => a.u - b.u || a.v - b.v);
-    const cross = (a, b, c) => (b.u - a.u) * (c.v - a.v) - (b.v - a.v) * (c.u - a.u);
+    const cross = (a: { u: number; v: number }, b: { u: number; v: number }, c: { u: number; v: number }) => (b.u - a.u) * (c.v - a.v) - (b.v - a.v) * (c.u - a.u);
     const lower: typeof projected = [];
     const upper: typeof projected = [];
     for (const point of projected) {
-      while (lower.length >= 2 && cross(lower.at(-2), lower.at(-1), point) <= 1e-10) lower.pop();
+      while (lower.length >= 2 && cross(lower.at(-2)!, lower.at(-1)!, point) <= 1e-10) lower.pop();
       lower.push(point);
     }
     for (let i = projected.length - 1; i >= 0; i--) {
       const point = projected[i];
-      while (upper.length >= 2 && cross(upper.at(-2), upper.at(-1), point) <= 1e-10) upper.pop();
+      while (upper.length >= 2 && cross(upper.at(-2)!, upper.at(-1)!, point) <= 1e-10) upper.pop();
       upper.push(point);
     }
     const hull = [...lower.slice(0, -1), ...upper.slice(0, -1)];
@@ -1880,7 +1897,7 @@ export class ContraptionPhysics {
    * or edge balance) have width ~0; any real face support is at least as wide
    * as its cell.
    */
-  supportWidth(points, normal) {
+  supportWidth(points: THREE.Vector3[], normal: THREE.Vector3) {
     if (!points || points.length <= 2) return 0;
     const tangent = new THREE.Vector3(1, 0, 0);
     if (Math.abs(normal.x) > 0.9) tangent.set(0, 1, 0);
@@ -1918,7 +1935,7 @@ export class ContraptionPhysics {
    * breaks instead of persisting forever. Shared by terrain contacts (width
    * check) and entity pairs (SAT feature check).
    */
-  toppleNarrowSupport(body, normal, dt) {
+  toppleNarrowSupport(body: EntityRigidBody, normal: THREE.Vector3, dt: number) {
     if (!this.isSimulatedDynamicBody(body)) return;
     const solver = getPhysicsSolverKernels();
     if (solver) { solver.toppleSupport(body, normal, dt, this.gravity.length()); return; }
@@ -1943,7 +1960,7 @@ export class ContraptionPhysics {
     }
   }
 
-  solveTerrainContact(body, normal, hitPosition, penetration, contactPoints, dt, manifold = [hitPosition], allowRestitution = true, contactIterations = TERRAIN_CONTACT_ITERATIONS) {
+  solveTerrainContact(body: EntityRigidBody, normal: THREE.Vector3, hitPosition: THREE.Vector3, penetration: number, contactPoints: THREE.Vector3[], dt: number, manifold = [hitPosition], allowRestitution = true, contactIterations = TERRAIN_CONTACT_ITERATIONS) {
     const solver = getPhysicsSolverKernels();
     if (solver) {
       const impulse = solver.solveTerrainImpulse(body, normal, hitPosition, penetration, contactPoints,
@@ -2026,7 +2043,7 @@ export class ContraptionPhysics {
     return normalImpulseMagnitude;
   }
 
-  resolveTerrainCollisionBody(contraption, body, dt, previousPose = null) {
+  resolveTerrainCollisionBody(contraption: Contraption, body: EntityRigidBody, dt: number, previousPose: {position:THREE.Vector3; quaternion:THREE.Quaternion} | null = null) {
     // A dynamic body's terrain contact includes every kinematic part rigidly
     // attached to it: after a child component is split off, the child's cells
     // still move with the body (scene-graph parent), so they must keep the
@@ -2066,8 +2083,9 @@ export class ContraptionPhysics {
     const samplePoints = contraption.getCollisionSamplePoints(body.id, true);
     if (!bodyObbs.length && !samplePoints.length) return 0;
 
-    const contacts = new Map();
-    const addContact = (resolvedContact, point) => {
+    const contacts = new Map<string, { normal: THREE.Vector3; penetration: number;
+      hitPosition: THREE.Vector3; points: THREE.Vector3[]; count: number }>();
+    const addContact = (resolvedContact: { normal: THREE.Vector3; penetration: number }, point: THREE.Vector3) => {
       const key = [resolvedContact.normal.x, resolvedContact.normal.y, resolvedContact.normal.z]
         .map(value => value.toFixed(5))
         .join(',');
@@ -2100,7 +2118,7 @@ export class ContraptionPhysics {
       const previousPoint = previousPose
         ? pt.clone()
           .sub(body.position)
-          .applyQuaternion(inverseCurrentQuaternion)
+          .applyQuaternion(inverseCurrentQuaternion!)
           .applyQuaternion(previousPose.quaternion)
           .add(previousPose.position)
         : null;
@@ -2132,7 +2150,7 @@ export class ContraptionPhysics {
     const sampledNormals = [...contacts.values()].map(group => group.normal);
     for (const exactContact of this.exactTerrainContacts(contraption, body, bodyObbs, cachedTerrainBoxes)) {
       if (exactContact.penetration <= EXACT_TERRAIN_CONTACT_SLOP) continue;
-      const terrainFeatureDimensions = ['x', 'y', 'z'].filter(axis => (
+      const terrainFeatureDimensions = (['x', 'y', 'z'] as const).filter(axis => (
         Math.abs(exactContact.normal[axis]) > 1e-6
       )).length;
       // A sampled face normal already gives the higher-quality manifold for a
@@ -2216,14 +2234,14 @@ export class ContraptionPhysics {
     // between a fresh impact and a missing support every other substep.
   }
 
-  private canSkipEmptyTerrainSamples(obbs, shouldSweep: boolean, completeCoverage: boolean) {
+  private canSkipEmptyTerrainSamples(obbs: BodyObb[], shouldSweep: boolean, completeCoverage: boolean) {
     // A negative broadphase is authoritative only when it queried the same
     // published micro occupancy as point probes. Legacy point-only worlds and
     // fast sweeps retain the full path, including mid-flight thin obstacles.
     return completeCoverage && !shouldSweep && obbs.length > 0 && obbs.every(obb => obb.coversSamples);
   }
 
-  applyImpulse(contraption, impulse, worldPoint = null, nodeId = contraption?.rootComponentId) {
+  applyImpulse(contraption: Contraption, impulse: THREE.Vector3, worldPoint: THREE.Vector3 | null = null, nodeId = contraption?.rootComponentId) {
     const body = contraption.getRigidBody?.(nodeId);
     if (!this.isSimulatedDynamicBody(body)) return;
     if (impulse.lengthSq() > 1e-12) this.sleep.wake(contraption);

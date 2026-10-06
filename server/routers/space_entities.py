@@ -17,7 +17,7 @@ from google.protobuf.message import DecodeError
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError, model_validator
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session, object_session, defer
 
 from space import auth
 from space import models
@@ -909,7 +909,10 @@ def _enforce_running_entity_quota(
 
 
 def _entity_response(entity: models.SpaceWorldEntity, current_user: models.User,
-                     owner_names: dict[str, str | None] | None = None) -> dict:
+                     owner_names: dict[str, str | None] | None = None,
+                     *, has_snapshot: bool | None = None) -> dict:
+    if has_snapshot is None:
+        has_snapshot = entity.snapshot is not None
     def account_name(user_id):
         if user_id == current_user.id:
             return current_user.username
@@ -945,7 +948,7 @@ def _entity_response(entity: models.SpaceWorldEntity, current_user: models.User,
         "snapshot_url": (
             f"/space/api/v2/worlds/{entity.world_id}/entities/{entity.id}/snapshot"
             f"?digest={bytes(entity.snapshot_digest).hex()}"
-            if entity.snapshot is not None and entity.snapshot_digest is not None else None
+            if has_snapshot and entity.snapshot_digest is not None else None
         ),
         "position": {
             "x_cm": entity.position_x_cm,
@@ -997,7 +1000,7 @@ def create_world_entity(
     creator: EntityCreator = Depends(_entity_creator),
 ):
     current_user = creator.user
-    world = _require_world_membership(db, world_id, current_user)
+    world = _require_world_membership(db, world_id, current_user, for_update=True)
     _validate_position(world, payload.position, require_buildable_height=True)
     definition, definition_digest, canonical = _decode_entity_definition(payload.definition_base64)
     _validate_entity_build_height(payload.position, canonical)
@@ -1079,7 +1082,7 @@ def create_browser_world_entity(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """Persist an entity authored in an authenticated Space browser."""
-    world = _require_world_membership(db, world_id, current_user)
+    world = _require_world_membership(db, world_id, current_user, for_update=True)
     _validate_position(world, payload.position, require_buildable_height=True)
     definition, definition_digest, canonical = _decode_entity_definition(payload.definition_base64)
     _validate_entity_build_height(payload.position, canonical)
@@ -1173,7 +1176,12 @@ def list_world_entities(
     width_cm, length_cm = _world_dimensions_cm(world)
     if center_x_cm >= width_cm or center_z_cm >= length_cm:
         raise HTTPException(status_code=422, detail={"code": "ENTITY_AOI_OUT_OF_BOUNDS"})
-    candidates = db.query(models.SpaceWorldEntity).filter(
+    candidates = db.query(
+        models.SpaceWorldEntity, models.SpaceWorldEntity.snapshot.is_not(None).label('has_snapshot'),
+    ).options(
+        defer(models.SpaceWorldEntity.definition, raiseload=True),
+        defer(models.SpaceWorldEntity.snapshot, raiseload=True),
+    ).filter(
         models.SpaceWorldEntity.world_id == world.id,
         _interval_filter(
             models.SpaceWorldEntity.position_x_cm,
@@ -1188,19 +1196,20 @@ def list_world_entities(
     ).all()
     in_radius = []
     radius_squared = radius_cm * radius_cm
-    for entity in candidates[:SPACE_ENTITY_MAX_AOI_CANDIDATES]:
+    for entity, has_snapshot in candidates[:SPACE_ENTITY_MAX_AOI_CANDIDATES]:
         dx = _wrapped_delta(entity.position_x_cm, center_x_cm, width_cm)
         dz = _wrapped_delta(entity.position_z_cm, center_z_cm, length_cm)
         if dx * dx + dz * dz <= radius_squared:
-            in_radius.append((dx * dx + dz * dz, entity))
+            in_radius.append((dx * dx + dz * dz, entity, has_snapshot))
     in_radius.sort(key=lambda item: (item[0], item[1].created_at, str(item[1].id)))
     truncated = len(candidates) > SPACE_ENTITY_MAX_AOI_CANDIDATES or len(in_radius) > limit
     # One bounded identity query for the entire AOI, not one query per label.
-    owner_ids = {user_id for _distance, entity in in_radius[:limit]
+    owner_ids = {user_id for _distance, entity, _has_snapshot in in_radius[:limit]
                  for user_id in (entity.owner_user_id, entity.execution_user_id) if user_id}
     owner_names = dict(db.query(models.User.id, models.User.username).filter(models.User.id.in_(owner_ids)).all())
     return {
-        "items": [_entity_response(entity, current_user, owner_names) for _distance, entity in in_radius[:limit]],
+        "items": [_entity_response(entity, current_user, owner_names, has_snapshot=has_snapshot)
+                  for _distance, entity, has_snapshot in in_radius[:limit]],
         "truncated": truncated,
         "limit": limit,
     }
@@ -1374,7 +1383,7 @@ def get_entity_configuration(request: Request, response: Response, world_id: str
 def update_entity_configuration(request: Request, world_id: str, entity_id: str,
                                 payload: UpdateEntityConfigurationRequest,
                                 db: Session = Depends(get_db), creator: EntityCreator = Depends(_entity_creator)):
-    world = _require_world_membership(db, world_id, creator.user)
+    world = _require_world_membership(db, world_id, creator.user, for_update=True)
     _lock_entity_quota_scope(db, world, creator.user)
     entity = _world_entity_for_update(db, world, entity_id)
     digest = _operation_digest(entity, creator.user, "configuration", payload)
@@ -1501,7 +1510,7 @@ def checkpoint_browser_world_entity(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    world = _require_world_membership(db, world_id, current_user)
+    world = _require_world_membership(db, world_id, current_user, for_update=True)
     _validate_position(world, payload.position)
     _lock_entity_quota_scope(db, world, current_user)
     entity = db.query(models.SpaceWorldEntity).filter(
@@ -1618,7 +1627,7 @@ def delete_world_entity(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    world = _require_world_membership(db, world_id, current_user)
+    world = _require_world_membership(db, world_id, current_user, for_update=True)
     entity = db.query(models.SpaceWorldEntity).filter(
         models.SpaceWorldEntity.world_id == world.id,
         models.SpaceWorldEntity.id == entity_id,
@@ -1644,7 +1653,7 @@ def claim_world_entity_execution_leases(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    world = _require_world_membership(db, world_id, current_user)
+    world = _require_world_membership(db, world_id, current_user, for_update=True)
     _lock_entity_quota_scope(db, world, current_user)
     requested_ids = [str(entity_id) for entity_id in payload.entity_ids]
     instance_id = str(payload.instance_id)
@@ -1714,7 +1723,7 @@ def set_world_entity_run_state(
     creator: EntityCreator = Depends(_entity_creator),
 ):
     current_user = creator.user
-    world = _require_world_membership(db, world_id, current_user)
+    world = _require_world_membership(db, world_id, current_user, for_update=True)
     _lock_entity_quota_scope(db, world, current_user)
     entity = db.query(models.SpaceWorldEntity).filter(
         models.SpaceWorldEntity.world_id == world.id,

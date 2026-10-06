@@ -16,13 +16,13 @@ import {
 
 function makeSpoonController(overrides = {}) {
   const controller = Object.create(PlayerController.prototype);
-  const breakSounds = [];
+  const breakSounds: unknown[] = [];
   controller.activeTool = SpecialTool.SPOON;
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.selectedColor = 0xff0000;
   controller.particles = { emitBlockBreak() {} };
-  controller.sound = { playBlockBreak(options) { breakSounds.push(options); } };
+  controller.sound = { playBlockBreak(options: Record<string, unknown>) { breakSounds.push(options); } };
   controller.ui = { showToast() {}, notifyContraptionStructureChanged() {} };
   Object.assign(controller, overrides);
   controller.__breakSounds = breakSounds;
@@ -31,10 +31,10 @@ function makeSpoonController(overrides = {}) {
 
 test('world: clicking a standard block subdivides it and removes the hit microcell', () => {
   let subdivided = 0;
-  let removed = null;
+  let removed = null as { mx: number; my: number; mz: number } | null;
   const controller = makeSpoonController({
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'standard',
       hitPos: { x: 2, y: 2, z: 2 },
       distance: 5,
@@ -49,12 +49,12 @@ test('world: clicking a standard block subdivides it and removes the hit microce
     },
     camera: { quaternion: new THREE.Quaternion() },
     world: {
-      subdivideBlock: (wx, wy, wz) => {
+      subdivideBlock: (wx: number, wy: number, wz: number) => {
         subdivided++;
         assert.deepEqual([wx, wy, wz], [2, 2, 2]);
         return 512;
       },
-      removeMicroBlock: (mx, my, mz) => {
+      removeMicroBlock: (mx: number, my: number, mz: number) => {
         removed = { mx, my, mz };
         return true;
       }
@@ -69,10 +69,10 @@ test('world: clicking a standard block subdivides it and removes the hit microce
 });
 
 test('world: a boundary entry point clamps the removed microcell inside the hit cell', () => {
-  let removed = null;
+  let removed = null as { mx: number; my: number; mz: number } | null;
   const controller = makeSpoonController({
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'standard',
       hitPos: { x: 0, y: 0, z: 0 },
       distance: 1,
@@ -87,7 +87,7 @@ test('world: a boundary entry point clamps the removed microcell inside the hit 
     camera: { quaternion: new THREE.Quaternion() },
     world: {
       subdivideBlock: () => 512,
-      removeMicroBlock: (mx, my, mz) => { removed = { mx, my, mz }; return true; }
+      removeMicroBlock: (mx: number, my: number, mz: number) => { removed = { mx, my, mz }; return true; }
     }
   });
   controller.handleLeftClick();
@@ -194,17 +194,17 @@ test('world: rapid spoon clicks continue while standard-to-micro publication is 
 });
 
 test('world: a live retry cannot carve terrain hidden behind an entity', () => {
-  const removeCalls = [];
+  const removeCalls: unknown[] = [];
   const controller = makeSpoonController({
     currentRaycast: {
-      hit: true,
+      hit: true as const,
       kind: 'micro',
       microPos: { x: 10, y: 12, z: 10 },
       hitPos: { x: 2, y: 2.4, z: 2 },
       color: 0x123456,
     },
     world: {
-      removeMicroBlock(mx, my, mz) {
+      removeMicroBlock(mx: number, my: number, mz: number) {
         removeCalls.push([mx, my, mz]);
         return false;
       },
@@ -214,7 +214,7 @@ test('world: a live retry cannot carve terrain hidden behind an entity', () => {
     kind: 'entity',
     entityHit: { distance: 2 },
     worldHit: {
-      hit: true,
+      hit: true as const,
       kind: 'micro',
       microPos: { x: 10, y: 11, z: 10 },
       hitPos: { x: 2, y: 2.2, z: 2 },

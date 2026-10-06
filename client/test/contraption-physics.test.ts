@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import { setScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -109,14 +110,14 @@ test('ctx.limits clamps only the legacy root force surface', () => {
 test('controller force is integrated across every physics sub-step', async () => {
   const contraption = makeContraption();
   const hover = compileBehaviorPrompt('hover 5 meters above the ground');
-  assert.equal(await setScript(contraption, hover.code), true);
+  assert.equal(await setScript(contraption, requireValue(hover.code)), true);
   contraption.groundDistance = 5;
 
   contraption.update(1 / 60, {}, { gravity: [0, -18, 0], world: null });
   const physics = new ContraptionPhysics({
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: true, distance: 5 }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: true as const, distance: 5 }),
+    raycastMicro: () => ({ hit: false as const })
   });
   physics.update(contraption, 1 / 60);
 

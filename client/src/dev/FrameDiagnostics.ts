@@ -23,7 +23,7 @@ export class FrameSamples {
 export function interceptMethod(target: any, key: string, invoke: (original: (...args: any[]) => any, args: any[]) => any) {
   const descriptor = Object.getOwnPropertyDescriptor(target, key), original = target[key];
   if (typeof original !== 'function') return () => {};
-  const wrapper = function (...args: any[]) { return invoke(original.bind(this), args); };
+  const wrapper = function (this: unknown, ...args: any[]) { return invoke(original.bind(this), args); };
   target[key] = wrapper;
   return () => {
     if (target[key] !== wrapper) return;
@@ -458,7 +458,7 @@ export function installFrameDiagnostics(game: any) {
   });
   button('Reset isolation', () => {
     if (comparison) { const run = comparison; comparison = null; restoreComparison(run); }
-    for (const key of Object.keys(flags)) flags[key] = true;
+    for (const key of Object.keys(flags) as Array<keyof typeof flags>) flags[key] = true;
     refreshButtons(); clear();
   });
   const measure = (target: any, key: string, name: string) => {
@@ -516,7 +516,7 @@ export function installFrameDiagnostics(game: any) {
         let total = 0;
         if (times) for (const value of times.values()) total += value;
         if (!disposed && sampleEpoch === epoch && total > 0) metric('GPU').add(total);
-      }).catch(error => showResults([`GPU timer failed: ${String(error)}`])).finally(() => { pending = null; });
+      }).catch((error: unknown) => showResults([`GPU timer failed: ${String(error)}`])).finally(() => { pending = null; });
       backend.trackTimestamp = false;
     }
   }));
@@ -589,7 +589,7 @@ export function installFrameDiagnostics(game: any) {
               nearOpaqueFastPath: game.world.distantSurface?.handoff.getOpaqueFastPathEnabled(),
               nearFrustumCulling: scene.nearFrustumCullingEnabled,
               stagesNested:true,gpuExcludesPresentation:true});
-            run.rows.push(`${run.cases[run.index].label}: ${(1000 / (frame.mean || 1)).toFixed(1)} FPS | frame ${frame.p50.toFixed(2)}/${frame.p95.toFixed(2)} ms | max ${frameMetrics(metric('Frame').snapshot()).maxMs.toFixed(2)} ms | CPU ${cpu.p50.toFixed(2)}/${cpu.p95.toFixed(2)} ms | GPU ${gpu.count ? gpu.p50.toFixed(2) : 'N/A'} ms | ${calls} calls / ${triangles} tris`);
+            run.rows.push(`${run.cases[run.index].label}: ${(1000 / (frame.mean || 1)).toFixed(1)} FPS | frame ${frame.p50.toFixed(2)}/${frame.p95.toFixed(2)} ms | max ${(frameMetrics(metric('Frame').snapshot())?.maxMs ?? 0).toFixed(2)} ms | CPU ${cpu.p50.toFixed(2)}/${cpu.p95.toFixed(2)} ms | GPU ${gpu.count ? gpu.p50.toFixed(2) : 'N/A'} ms | ${calls} calls / ${triangles} tris`);
             showResults(run.rows);
             if (++run.index < run.cases.length) beginCase(now);
             else { comparison = null; restoreComparison(run); showResults([...run.rows, 'Done. Original settings restored.']); }

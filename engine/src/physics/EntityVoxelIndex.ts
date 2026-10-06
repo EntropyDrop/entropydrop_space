@@ -1,26 +1,27 @@
+import type { RuntimeVoxel, CollisionEntry, EntityNode } from '../contraption/EntityTypes.ts';
 import { CollisionBoxIndex, type CollisionBounds } from './CollisionGeometry.ts';
 import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
 
-export type IndexedVoxel = CollisionBounds & { entry: any; order: number };
+export type IndexedVoxel<T> = CollisionBounds & { entry: T; order: number };
 
 const INDEX_CHUNK_SIZE = 8;
 
-type IndexChunk = {
+type IndexChunk<T> = {
   key: string;
   bounds: CollisionBounds;
-  items: IndexedVoxel[];
-  subIndex?: CollisionBoxIndex<IndexedVoxel>;
+  items: IndexedVoxel<T>[];
+  subIndex?: CollisionBoxIndex<IndexedVoxel<T>>;
 };
 
-export class ChunkedVoxelIndex {
+export class ChunkedVoxelIndex<T> {
   bounds: CollisionBounds;
-  private readonly chunks = new Map<string, IndexChunk>();
-  private readonly itemMap = new Map<any, { chunkKey: string; voxel: IndexedVoxel }>();
+  private readonly chunks = new Map<string, IndexChunk<T>>();
+  private readonly itemMap = new Map<T, { chunkKey: string; voxel: IndexedVoxel<T> }>();
   private nextOrder = 0;
   private batchDepth = 0;
   private dirtyChunks = new Set<string>();
 
-  constructor(items: IndexedVoxel[] = []) {
+  constructor(items: IndexedVoxel<T>[] = []) {
     this.bounds = {
       minX: Infinity, minY: Infinity, minZ: Infinity,
       maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity
@@ -40,7 +41,7 @@ export class ChunkedVoxelIndex {
     return `${cx},${cy},${cz}`;
   }
 
-  private addItem(voxel: IndexedVoxel, updateBounds = true) {
+  private addItem(voxel: IndexedVoxel<T>, updateBounds = true) {
     const key = ChunkedVoxelIndex.chunkKey(voxel.minX, voxel.minY, voxel.minZ);
     let chunk = this.chunks.get(key);
     if (!chunk) {
@@ -79,9 +80,9 @@ export class ChunkedVoxelIndex {
     }
   }
 
-  add(entry: any, minX: number, minY: number, minZ: number, size: number, order?: number): IndexedVoxel {
+  add(entry: T, minX: number, minY: number, minZ: number, size: number, order?: number): IndexedVoxel<T> {
     const ord = order !== undefined ? order : this.nextOrder++;
-    const voxel: IndexedVoxel = {
+    const voxel: IndexedVoxel<T> = {
       minX, minY, minZ,
       maxX: minX + size, maxY: minY + size, maxZ: minZ + size,
       entry,
@@ -91,7 +92,7 @@ export class ChunkedVoxelIndex {
     return voxel;
   }
 
-  remove(entry: any): boolean {
+  remove(entry: T): boolean {
     const mapping = this.itemMap.get(entry);
     if (!mapping) return false;
     this.itemMap.delete(entry);
@@ -187,15 +188,15 @@ export class ChunkedVoxelIndex {
     this.bounds = { minX, minY, minZ, maxX, maxY, maxZ };
   }
 
-  query(bounds: CollisionBounds): IndexedVoxel[] {
+  query(bounds: CollisionBounds): IndexedVoxel<T>[] {
     return this.queryMatchingBounds(candidate => candidate.maxX >= bounds.minX && candidate.minX <= bounds.maxX
       && candidate.maxY >= bounds.minY && candidate.minY <= bounds.maxY
       && candidate.maxZ >= bounds.minZ && candidate.minZ <= bounds.maxZ);
   }
 
-  queryMatchingBounds(intersects: (bounds: CollisionBounds) => boolean): IndexedVoxel[] {
+  queryMatchingBounds(intersects: (bounds: CollisionBounds) => boolean): IndexedVoxel<T>[] {
     if (this.chunks.size === 0 || !intersects(this.bounds)) return [];
-    const matches: IndexedVoxel[] = [];
+    const matches: IndexedVoxel<T>[] = [];
     for (const chunk of this.chunks.values()) {
       if (!intersects(chunk.bounds)) continue;
       if (chunk.subIndex) {
@@ -211,14 +212,14 @@ export class ChunkedVoxelIndex {
 }
 
 /** Geometry stays in component coordinates; poses never invalidate this index. */
-export function buildEntityVoxelIndexes(entries: any[], rootId: string, collision: boolean) {
-  const groups = new Map<string, IndexedVoxel[]>();
+export function buildEntityVoxelIndexes<T extends RuntimeVoxel | CollisionEntry>(entries: readonly T[], rootId: string, _collision: boolean) {
+  const groups = new Map<string, IndexedVoxel<T>[]>();
   entries.forEach((entry, order) => {
     const id = entry.entityId || rootId;
-    const minX = collision ? entry.x * MICRO_SIZE : entry.localX;
-    const minY = collision ? entry.y * MICRO_SIZE : entry.localY;
-    const minZ = collision ? entry.z * MICRO_SIZE : entry.localZ;
-    const size = collision ? entry.span * MICRO_SIZE : entry.size || 1;
+    const minX = 'localX' in entry ? entry.localX : entry.x * MICRO_SIZE;
+    const minY = 'localY' in entry ? entry.localY : entry.y * MICRO_SIZE;
+    const minZ = 'localZ' in entry ? entry.localZ : entry.z * MICRO_SIZE;
+    const size = 'span' in entry ? entry.span * MICRO_SIZE : entry.size || 1;
     let group = groups.get(id);
     if (!group) groups.set(id, group = []);
     group.push({ minX, minY, minZ, maxX: minX + size, maxY: minY + size,
@@ -230,7 +231,7 @@ export function buildEntityVoxelIndexes(entries: any[], rootId: string, collisio
 /** Transform an AABB using center/extents, optionally unioning the old pose.
  * This covers every descendant voxel's previous/current world AABB, including
  * fast translations, rotations, and parented moving components. */
-export function transformVoxelBounds(bounds: CollisionBounds, node: any, out: CollisionBounds, swept = false) {
+export function transformVoxelBounds(bounds: CollisionBounds, node: Pick<EntityNode, 'pivotLocal' | 'group' | 'previousWorldMatrix'>, out: CollisionBounds, swept = false) {
   const x = (bounds.minX + bounds.maxX) / 2 - node.pivotLocal.x;
   const y = (bounds.minY + bounds.maxY) / 2 - node.pivotLocal.y;
   const z = (bounds.minZ + bounds.maxZ) / 2 - node.pivotLocal.z;
@@ -241,7 +242,7 @@ export function transformVoxelBounds(bounds: CollisionBounds, node: any, out: Co
   out.maxX = out.maxY = out.maxZ = -Infinity;
   const count = swept && node.previousWorldMatrix ? 2 : 1;
   for (let i = 0; i < count; i++) {
-    const m = (i === 0 ? node.group.matrixWorld : node.previousWorldMatrix).elements;
+    const m = (i === 0 ? node.group.matrixWorld : node.previousWorldMatrix!).elements;
     const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
     const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
     const cz = m[2] * x + m[6] * y + m[10] * z + m[14];

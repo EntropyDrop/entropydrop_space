@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -27,7 +28,7 @@ function makeMicroController(overrides: any = {}) {
   controller.selectorRange = null;
   controller.selectorMicroMode = false;
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   controller.inventorySlots = new Array(9).fill(null);
   controller.selectedInventoryIndex = 0;
   controller.inventories = null;
@@ -38,7 +39,7 @@ function makeMicroController(overrides: any = {}) {
   controller.sound = { playBlockBreak() {}, playWrenchClick() {} };
   const toasts: string[] = [];
   controller.ui = {
-    showToast: m => toasts.push(m),
+    showToast: (m: string) => toasts.push(m),
     renderInventoryBar() {},
     notifyContraptionStructureChanged() {}
   };
@@ -53,16 +54,16 @@ function makeStubWorld(keys: Array<[string, number]>) {
     microVoxels: { cells: new Map(keys.map(([key, color]) => [key, color])) },
     getBlock: () => BlockTypes.AIR,
     getBlockColor: () => 0,
-    getMicroBlock(mx, my, mz) {
+    getMicroBlock(mx: number, my: number, mz: number) {
       const color = world.microVoxels.cells.get(`${mx},${my},${mz}`);
       return color === undefined ? null : { block: BlockTypes.COLOR_BLOCK, color };
     },
-    removeMicroBlock(mx, my, mz) {
+    removeMicroBlock(mx: number, my: number, mz: number) {
       const key = `${mx},${my},${mz}`;
       const removed = world.microVoxels.cells.delete(key);
       return removed;
     },
-    extractMicroCellRegion(minX, minY, minZ, maxX, maxY, maxZ) {
+    extractMicroCellRegion(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number) {
       const found = [];
       for (const key of [...world.microVoxels.cells.keys()]) {
         const [mx, my, mz] = key.split(',').map(Number);
@@ -81,7 +82,7 @@ function makeStubWorld(keys: Array<[string, number]>) {
 
 test('Selector defaults to standard block selection and Tab toggles micro mode', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeMicroController({ manager });
   assert.equal(controller.selectorMicroMode, false, 'default must be standard blocks');
 
@@ -94,11 +95,11 @@ test('Selector defaults to standard block selection and Tab toggles micro mode',
   assert.equal(manager.connectedSelection, null, 'standard single selection cleared on mode switch');
   assert.equal(controller.selectorLevel, null);
   assert.equal(controller.selectorRange, null);
-  assert.ok(controller.__toasts.some(m => m.includes('MICRO')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('MICRO')));
 
   controller.toggleSelectorMicroMode();
   assert.equal(controller.selectorMicroMode, false);
-  assert.ok(controller.__toasts.some(m => m.includes('STANDARD')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('STANDARD')));
 });
 
 test('selector micro cell resolves the surface micro cell under the crosshair', () => {
@@ -106,53 +107,53 @@ test('selector micro cell resolves the surface micro cell under the crosshair', 
 
   // Top face of standard cell (2,5,7); crosshair near (2.375, 6.0, 7.125).
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 2, y: 5, z: 7 },
+    hit: true as const, kind: 'standard', hitPos: { x: 2, y: 5, z: 7 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 2.375, y: 6.0, z: 7.125 }
   };
   assert.deepEqual(controller.selectorMicroCellFromRaycast(), { x: 19, y: 47, z: 57 });
 
   // Left face of the same cell: entry x=2.0 pushed against normal -x.
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 2, y: 5, z: 7 },
+    hit: true as const, kind: 'standard', hitPos: { x: 2, y: 5, z: 7 },
     normal: { x: -1, y: 0, z: 0 }, entry: { x: 2.0, y: 5.25, z: 7.375 }
   };
   assert.deepEqual(controller.selectorMicroCellFromRaycast(), { x: 16, y: 42, z: 59 });
 
   // Bottom face with no entry point: falls back to the cell origin.
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 2, y: 5, z: 7 },
+    hit: true as const, kind: 'standard', hitPos: { x: 2, y: 5, z: 7 },
     normal: { x: 0, y: -1, z: 0 }
   };
   assert.deepEqual(controller.selectorMicroCellFromRaycast(), { x: 16, y: 40, z: 56 });
 
   // A micro hit selects the hit micro cell directly.
   controller.currentRaycast = {
-    hit: true, kind: 'micro', hitPos: { x: 0.25, y: 5, z: 7 },
+    hit: true as const, kind: 'micro', hitPos: { x: 0.25, y: 5, z: 7 },
     microPos: { x: 2, y: 40, z: 56 }, normal: { x: 0, y: 1, z: 0 }
   };
   assert.deepEqual(controller.selectorMicroCellFromRaycast(), { x: 2, y: 40, z: 56 });
 
   // No hit → null.
-  controller.currentRaycast = { hit: false };
+  controller.currentRaycast = { hit: false as const };
   assert.equal(controller.selectorMicroCellFromRaycast(), null);
 });
 
 test('toggleMicroCell toggles sparse 0.125 m cells and is exclusive of standard single mode', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
   const info1 = manager.toggleMicroCell({ x: 2.375, y: 5.075, z: 2.5 });
-  assert.equal(info1.granularity, 'micro');
-  assert.equal(info1.count, 1);
-  assert.equal(info1.ready, true);
+  assert.equal(requireValue(info1).granularity, 'micro');
+  assert.equal(requireValue(info1).count, 1);
+  assert.equal(requireValue(info1).ready, true);
   assert.deepEqual(manager.microSelection, [{ x: 19, y: 40, z: 20 }]);
 
   const info2 = manager.toggleMicroCell({ x: 2.375, y: 5.075, z: 2.5 });
-  assert.equal(info2.count, 0);
-  assert.equal(info2.ready, false);
+  assert.equal(requireValue(info2).count, 0);
+  assert.equal(requireValue(info2).ready, false);
 
   // Entering standard single mode clears the micro set and vice versa.
   manager.toggleWorldGlueCell({ x: 1.5, y: 5, z: 1.5 });
   assert.equal(manager.microSelection, null);
-  assert.equal(manager.toggleMicroCell({ x: 1.0625, y: 5.1, z: 1.0625 }).granularity, 'micro');
+  assert.equal(requireValue(manager.toggleMicroCell({ x: 1.0625, y: 5.1, z: 1.0625 })).granularity, 'micro');
   assert.equal(manager.connectedSelection, null);
 
   assert.equal(manager.hasValidSelection(), true);
@@ -174,7 +175,7 @@ test('micro box corners clamp to the 256 standard-cell entity limit', () => {
     micro: true
   });
   assert.equal(result.clamped, true, 'a 300 m span exceeds the 256×256×256 limit');
-  const xs = manager.microSelection.map(c => c.x).sort((a, b) => a - b);
+  const xs = requireValue(manager.microSelection).map(c => c.x).sort((a, b) => a - b);
   assert.deepEqual(xs, [0, 2047], 'materialization keeps only micro cells inside the clamped span');
 });
 
@@ -218,7 +219,7 @@ test('shared corner actions materialize a micro box into existing micro voxels',
 });
 
 test('shared toggle-cell with the micro flag toggles 0.125 m cells', () => {
-  const manager = new ContraptionManager(new THREE.Scene(), {}, null, null);
+  const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
   const ctx = { manager, world: {}, selectionHost: null };
   let result = executeBasicAction(ctx, {
     domain: ActionDomain.SELECTION,
@@ -251,7 +252,7 @@ test('selector click flow: two plain clicks build a materialized micro box, thir
 
   // Corner 1: top face of cell (2,5,2), crosshair at (2.375, 6.0, 2.125).
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
+    hit: true as const, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 2.375, y: 6.0, z: 2.125 }
   };
   controller.handleLeftClick();
@@ -260,7 +261,7 @@ test('selector click flow: two plain clicks build a materialized micro box, thir
 
   // Corner 2: top face hit at (2.5, 6.0, 2.5) → micro (20, 47, 20).
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
+    hit: true as const, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 2.5, y: 6.0, z: 2.5 }
   };
   controller.handleLeftClick();
@@ -282,7 +283,7 @@ test('selector Shift+click toggles micro cells while in micro mode', () => {
   controller.selectorMicroMode = true;
 
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
+    hit: true as const, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 2.375, y: 6.0, z: 2.125 }
   };
   controller.handleLeftClick({ shiftKey: true });
@@ -311,7 +312,7 @@ test('Del removes exactly the selected micro voxels and nothing else', () => {
   assert.equal(world.microVoxels.cells.has('20,47,20'), false, 'selected micro voxel removed');
   assert.equal(world.microVoxels.cells.has('32,32,32'), true, 'outside micro voxel kept');
   assert.equal(manager.microSelection, null, 'selection reset after delete');
-  assert.ok(controller.__toasts.some(m => m.includes('Deleted 2 micro voxels')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('Deleted 2 micro voxels')));
 });
 
 test('G assembles a sparse micro selection into 0.125 m entity blocks', () => {
@@ -331,7 +332,7 @@ test('G assembles a sparse micro selection into 0.125 m entity blocks', () => {
   const entity = result.entity;
   assert.ok(entity, `assembly should succeed (reason: ${result.reason})`);
   assert.equal(entity.blocks.length, 2);
-  assert.deepEqual(entity.blocks.map(b => b.size), [0.125, 0.125]);
+  assert.deepEqual(entity.blocks.map((b: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => b.size), [0.125, 0.125]);
   // The entity origin anchors the sparse min corner; the block offsets stay
   // relative to that origin even though the root pivot is the AABB center.
   const origin = { x: 19 / 8, y: 40 / 8, z: 20 / 8 };
@@ -339,7 +340,7 @@ test('G assembles a sparse micro selection into 0.125 m entity blocks', () => {
   assert.equal(entity.originWorldPos.y, origin.y);
   assert.equal(entity.originWorldPos.z, origin.z);
   const locals = entity.blocks
-    .map(b => [Math.round(b.localX * 8) / 8, Math.round(b.localY * 8) / 8, Math.round(b.localZ * 8) / 8])
+    .map((b: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => [Math.round(b.localX * 8) / 8, Math.round(b.localY * 8) / 8, Math.round(b.localZ * 8) / 8])
     .sort();
   assert.deepEqual(locals, [[0, 0, 0], [0.125, 0.125, 0]], 'relative offsets follow the sparse min corner');
   assert.equal(world.microVoxels.cells.size, 0, 'extracted micro voxels leave the world');
@@ -381,7 +382,7 @@ test('entity 2-point box in micro mode keeps only 0.125 m blocks', () => {
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const ctx = { manager, world: {}, selectionHost: null };
@@ -415,7 +416,7 @@ test('copying an entity micro selection removes empty layers below its lowest vo
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeMicroController({ manager });
@@ -430,7 +431,7 @@ test('copying an entity micro selection removes empty layers below its lowest vo
   const slot = controller.copySelectionToInventory();
 
   assert.ok(slot);
-  assert.deepEqual(slot.blocks.map(block => block.localY), [0, 0],
+  assert.deepEqual(slot.blocks.map((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.localY), [0, 0],
     'the copied top layer should move down four micro cells to y=0');
   assert.deepEqual(contraption.blocks.map(block => block.localY), [0, 0.5, 0.5],
     'copying must not move the source entity voxels');
@@ -449,7 +450,7 @@ test('pending micro box preview carries meter coordinates and the micro flag', (
 
   // Crosshair on the top face of cell (2,5,2) at entry (2.5, 6.0, 2.5) → cursor cell (20, 47, 20).
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
+    hit: true as const, kind: 'standard', hitPos: { x: 2, y: 5, z: 2 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 2.5, y: 6.0, z: 2.5 }
   };
   controller.updateMicroCarvePreview();
@@ -519,7 +520,7 @@ test('entity focus guide hugs 0.125 m blocks in micro mode instead of their 1 m 
   controller.updateMicroCarvePreview();
   assert.equal(controller.focusBlockPreview.cellSize, 0.125, 'micro target must shrink the guide');
   const center = controller.focusBlockPreview.center.toArray();
-  assert.ok(center.every((v, i) => Math.abs(v - [0.0625, 10.0625, 0.0625][i]) < 1e-9), 'guide centers on the micro block');
+  assert.ok(center.every((v: number, i: number) => Math.abs(v - [0.0625, 10.0625, 0.0625][i]) < 1e-9), 'guide centers on the micro block');
 });
 
 /**
@@ -527,7 +528,7 @@ test('entity focus guide hugs 0.125 m blocks in micro mode instead of their 1 m 
  * world (0,10,0) with two stacked 1 m blocks plus one 0.125 m block sitting in
  * the upper part of the third standard cell (origin-local y 2.6..2.8).
  */
-function makeEntityWithTopMicroLayer(scene) {
+function makeEntityWithTopMicroLayer(scene: import('three').Scene) {
   const contraption = new Contraption(
     1,
     [
@@ -539,7 +540,7 @@ function makeEntityWithTopMicroLayer(scene) {
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   return { contraption, manager };
@@ -556,8 +557,8 @@ test('entity 2-point box rejects world click as corner 2 with toast warning', ()
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
 
   // Corner 1: entity click at origin-local (0.25, 2.4, 0.5).
-  const pointAWorld = node.group.localToWorld(new THREE.Vector3(
-    0.25 - node.pivotLocal.x, 2.4 - node.pivotLocal.y, 0.5 - node.pivotLocal.z
+  const pointAWorld = requireValue(node).group.localToWorld(new THREE.Vector3(
+    0.25 - requireValue(node).pivotLocal.x, 2.4 - requireValue(node).pivotLocal.y, 0.5 - requireValue(node).pivotLocal.z
   ));
   controller.hoveredContraptionHit = {
     contraption, entityId: 'root', cell: { x: 0, y: 2, z: 0 },
@@ -569,14 +570,14 @@ test('entity 2-point box rejects world click as corner 2 with toast warning', ()
   // Corner 2: world click is rejected because point 1 was on an entity.
   controller.hoveredContraptionHit = null;
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 0, y: 12, z: 0 },
+    hit: true as const, kind: 'standard', hitPos: { x: 0, y: 12, z: 0 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 0.1875, y: 13.0, z: 0.375 }
   };
   controller.handleLeftClick();
 
   assert.equal(controller.selectorRange, null, 'entity selection range must be cleared on invalid world endpoint');
   assert.ok(
-    controller.__toasts.some(m => m.includes('starts on an entity must end on that same entity')),
+    controller.__toasts.some((m: string) => m.includes('starts on an entity must end on that same entity')),
     'toast should warn about invalid endpoint'
   );
 });
@@ -591,8 +592,8 @@ test('entity 2-point box in standard mode also rejects world click as corner 2',
   controller.selectorLevel = { contraption, nodeId: 'root' };
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
 
-  const pointAWorld = node.group.localToWorld(new THREE.Vector3(
-    0.25 - node.pivotLocal.x, 2.4 - node.pivotLocal.y, 0.5 - node.pivotLocal.z
+  const pointAWorld = requireValue(node).group.localToWorld(new THREE.Vector3(
+    0.25 - requireValue(node).pivotLocal.x, 2.4 - requireValue(node).pivotLocal.y, 0.5 - requireValue(node).pivotLocal.z
   ));
   controller.hoveredContraptionHit = {
     contraption, entityId: 'root', cell: { x: 0, y: 2, z: 0 },
@@ -603,14 +604,14 @@ test('entity 2-point box in standard mode also rejects world click as corner 2',
 
   controller.hoveredContraptionHit = null;
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 0, y: 12, z: 0 },
+    hit: true as const, kind: 'standard', hitPos: { x: 0, y: 12, z: 0 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 0.1875, y: 13.0, z: 0.375 }
   };
   controller.handleLeftClick();
 
   assert.equal(controller.selectorRange, null, 'entity selection range must be cleared');
   assert.ok(
-    controller.__toasts.some(m => m.includes('starts on an entity must end on that same entity')),
+    controller.__toasts.some((m: string) => m.includes('starts on an entity must end on that same entity')),
     'toast should warn about invalid endpoint'
   );
 });
@@ -623,8 +624,8 @@ test('entity-range world hover preview quantizes the cursor to the surface micro
 
   const node = contraption.entityNodes.get('root');
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
-  const pointAWorld = node.group.localToWorld(new THREE.Vector3(
-    0.25 - node.pivotLocal.x, 2.4 - node.pivotLocal.y, 0.5 - node.pivotLocal.z
+  const pointAWorld = requireValue(node).group.localToWorld(new THREE.Vector3(
+    0.25 - requireValue(node).pivotLocal.x, 2.4 - requireValue(node).pivotLocal.y, 0.5 - requireValue(node).pivotLocal.z
   ));
   controller.hoveredContraptionHit = {
     contraption, entityId: 'root', cell: { x: 0, y: 2, z: 0 },
@@ -638,7 +639,7 @@ test('entity-range world hover preview quantizes the cursor to the surface micro
   // (0.125, 2.5, 0.375), not the standard cell corner (0,2,0).
   controller.hoveredContraptionHit = null;
   controller.currentRaycast = {
-    hit: true, kind: 'standard', hitPos: { x: 0, y: 12, z: 0 },
+    hit: true as const, kind: 'standard', hitPos: { x: 0, y: 12, z: 0 },
     normal: { x: 0, y: 1, z: 0 }, entry: { x: 0.1875, y: 13.0, z: 0.375 }
   };
   controller.updateMicroCarvePreview();
@@ -646,7 +647,7 @@ test('entity-range world hover preview quantizes the cursor to the surface micro
   assert.ok(preview, 'entity-range hover shows the live box preview');
   assert.equal(preview.micro, true);
   assert.ok(preview.cursor.distanceTo(new THREE.Vector3(1 / 8, 23 / 8, 3 / 8)) < 1e-12);
-  assert.equal(preview.frame.object, node.group, 'preview should inherit the entity node transform');
+  assert.equal(preview.frame.object, requireValue(node).group, 'preview should inherit the entity node transform');
 
   // In standard mode the cursor stays the whole hit cell in the same grid.
   controller.selectorMicroMode = false;
@@ -656,7 +657,7 @@ test('entity-range world hover preview quantizes the cursor to the surface micro
 
 test('standard selection is unaffected: micro flag defaults to off', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.setCornerA({ x: 1.25, y: 5.125, z: 1.9 });
   manager.setCornerB({ x: 3.5625, y: 6.8, z: 4.0625 });
   assert.equal(manager.microSelection, null, 'standard box never materializes a micro set');
@@ -668,7 +669,7 @@ test('standard selection is unaffected: micro flag defaults to off', () => {
 
   // A standard toggle-cell still returns the standard snapshot shape.
   const toggle = manager.toggleWorldGlueCell({ x: 2.5, y: 5.5, z: 2.5 });
-  assert.equal(toggle.granularity, 'standard');
+  assert.equal(requireValue(toggle).granularity, 'standard');
   assert.equal(manager.microSelection, null);
 });
 
@@ -689,7 +690,7 @@ test('create-child from microblock selection isolates selected microblocks and c
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeMicroController({ manager, world: {} });
@@ -697,8 +698,8 @@ test('create-child from microblock selection isolates selected microblocks and c
 
   // Box-select only the top two microblocks (localY 2.375 and 2.5)
   const node = contraption.entityNodes.get('root');
-  const a = { x: -1, y: 2.4 - node.pivotLocal.y, z: -1 };
-  const b = { x: 1, y: 2.6 - node.pivotLocal.y, z: 1 };
+  const a = { x: -1, y: 2.4 - requireValue(node).pivotLocal.y, z: -1 };
+  const b = { x: 1, y: 2.6 - requireValue(node).pivotLocal.y, z: 1 };
   const result = executeBasicAction({ manager, world: {}, selectionHost: null }, {
     domain: ActionDomain.SELECTION,
     action: 'entity-box',
@@ -732,24 +733,24 @@ test('create-child from microblock selection isolates selected microblocks and c
 
   // Pivot should accurately center the two microblocks:
   // x: [0, 0.125] -> 0.0625, y: [2.375, 2.625] -> 2.5, z: [0, 0.125] -> 0.0625
-  assert.ok(Math.abs(childDef.pivot[0] - 0.0625) < 1e-6, `pivot X = 0.0625, got ${childDef.pivot[0]}`);
-  assert.ok(Math.abs(childDef.pivot[1] - 2.5) < 1e-6, `pivot Y = 2.5, got ${childDef.pivot[1]}`);
-  assert.ok(Math.abs(childDef.pivot[2] - 0.0625) < 1e-6, `pivot Z = 0.0625, got ${childDef.pivot[2]}`);
+  assert.ok(Math.abs(requireValue(childDef.pivot)[0] - 0.0625) < 1e-6, `pivot X = 0.0625, got ${requireValue(childDef.pivot)[0]}`);
+  assert.ok(Math.abs(requireValue(childDef.pivot)[1] - 2.5) < 1e-6, `pivot Y = 2.5, got ${requireValue(childDef.pivot)[1]}`);
+  assert.ok(Math.abs(requireValue(childDef.pivot)[2] - 0.0625) < 1e-6, `pivot Z = 0.0625, got ${requireValue(childDef.pivot)[2]}`);
 });
 
 test('assembleSelection extracts both standard blocks and microblocks from standard 2-point box', () => {
   const scene = new THREE.Scene();
   const world = {
-    extractRegion(minX, minY, minZ, maxX, maxY, maxZ) {
+    extractRegion(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number) {
       return [{ worldX: 0, worldY: 0, worldZ: 0, block: BlockTypes.COLOR_BLOCK, color: 0x0000ff }];
     },
-    extractMicroRegion(minX, minY, minZ, maxX, maxY, maxZ) {
+    extractMicroRegion(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number) {
       return [{ mx: 1, my: 1, mz: 1, color: 0x00ff00, part: null }];
     },
     worldToChunkCoords: () => ({ cx: 0, cz: 0 }),
     getChunk: () => null
   };
-  const manager = new ContraptionManager(scene, world, null, null);
+  const manager = new ContraptionManager(scene, worldStub(world), null, null);
   manager.setCornerA({ x: 0, y: 0, z: 0 });
   manager.setCornerB({ x: 1, y: 1, z: 1 });
 
@@ -760,7 +761,7 @@ test('assembleSelection extracts both standard blocks and microblocks from stand
 
   assert.ok(result.entity, 'entity assembled');
   assert.equal(result.entity.blocks.length, 2, 'must contain both standard block and carved microblock');
-  const sizes = result.entity.blocks.map(b => b.size || 1).sort();
+  const sizes = result.entity.blocks.map((b: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => b.size || 1).sort();
   assert.deepEqual(sizes, [0.125, 1]);
 });
 
@@ -774,13 +775,13 @@ test('mixed-mode setCornerB scales standard cornerA to micro coordinates', () =>
 
   // Corner A set in standard mode at cell (2, 5, 2)
   manager.setCornerA({ x: 2, y: 5, z: 2 });
-  assert.equal(manager.selectionCornerA.micro, undefined);
+  assert.equal(requireValue(manager.selectionCornerA).micro, undefined);
   assert.deepEqual(manager.selectionCornerA, { x: 2, y: 5, z: 2 });
 
   // Corner B set with micro: true at meter (2.5, 5.875, 2.5) -> micro cell (20, 47, 20)
   const result = manager.setCornerB({ x: 2.5, y: 5.875, z: 2.5 }, { micro: true });
   assert.equal(result.materialized, 2, 'should materialize both microblocks within span');
-  assert.equal(manager.microSelection.length, 2);
+  assert.equal(requireValue(manager.microSelection).length, 2);
   assert.deepEqual(manager.microSelection, [{ x: 16, y: 40, z: 16 }, { x: 19, y: 42, z: 19 }]);
 });
 
@@ -860,7 +861,7 @@ test('toggleSelectorMicroMode toggles between standard (1m) and micro (0.125m) m
   controller.ui = {
     updateToolPanelMode: () => uiCalls.push('updateToolPanelMode'),
     renderHotbar: () => uiCalls.push('renderHotbar'),
-    showToast: (msg) => uiCalls.push(`toast:${msg}`)
+    showToast: (msg: string) => uiCalls.push(`toast:${msg}`)
   } as any;
 
   assert.equal(controller.selectorMicroMode, false, 'default is standard mode');
@@ -891,7 +892,7 @@ test('micro selector can select child component region and switch levels', () =>
   const child = contraption.createChildEntity('root', [contraption.blocks[1], contraption.blocks[2]], 'arm');
   assert.ok(child, 'child created');
 
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
 
@@ -911,7 +912,7 @@ test('micro selector can select child component region and switch levels', () =>
   const armBlock = contraption.blocks.find(b => b.entityId === 'arm');
 
   // 1. First click sets pointA on child component level
-  const point1 = armNode.group.localToWorld(new THREE.Vector3(0, 0, 0));
+  const point1 = requireValue(armNode).group.localToWorld(new THREE.Vector3(0, 0, 0));
   controller.hoveredContraptionHit = {
     contraption,
     entityId: 'arm',
@@ -924,7 +925,7 @@ test('micro selector can select child component region and switch levels', () =>
 
   // 2. Second click sets pointB and resolves block selection
   // Deliberately extend box slightly toward root to verify ancestor blocks don't falsely reject with child component warning
-  const point2 = armNode.group.localToWorld(new THREE.Vector3(0.2, 0.2, 0.2));
+  const point2 = requireValue(armNode).group.localToWorld(new THREE.Vector3(0.2, 0.2, 0.2));
   controller.hoveredContraptionHit = {
     contraption,
     entityId: 'arm',
@@ -969,7 +970,7 @@ test('micro box selection stays virtual and only Del subdivides the entity', () 
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeMicroController({ manager });
@@ -977,9 +978,9 @@ test('micro box selection stays virtual and only Del subdivides the entity', () 
 
   contraption.rootGroup.updateMatrixWorld(true);
   const node = contraption.entityNodes.get('root');
-  const pivot = node.pivotLocal;
+  const pivot = requireValue(node).pivotLocal;
   /** Authored (block-local) point -> world, so the stored range corners are exact. */
-  const toWorld = (ax: number, ay: number, az: number) => node.group.localToWorld(
+  const toWorld = (ax: number, ay: number, az: number) => requireValue(node).group.localToWorld(
     new THREE.Vector3(ax - pivot.x, ay - pivot.y, az - pivot.z)
   );
   const clickAuthored = (ax: number, ay: number, az: number) => {
@@ -1049,7 +1050,7 @@ test('F subdivides a virtual micro selection on demand before expanding it', () 
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeMicroController({ manager });
@@ -1057,14 +1058,14 @@ test('F subdivides a virtual micro selection on demand before expanding it', () 
 
   contraption.rootGroup.updateMatrixWorld(true);
   const node = contraption.entityNodes.get('root');
-  const pivot = node.pivotLocal;
+  const pivot = requireValue(node).pivotLocal;
   const clickAuthored = (ax: number, ay: number, az: number) => {
     controller.hoveredContraptionHit = {
       contraption,
       entityId: 'root',
       block: contraption.blocks.find((b: any) => (b.size || 1) >= 1),
       cell: { x: 0, y: 0, z: 0 },
-      point: node.group.localToWorld(new THREE.Vector3(ax - pivot.x, ay - pivot.y, az - pivot.z)),
+      point: requireValue(node).group.localToWorld(new THREE.Vector3(ax - pivot.x, ay - pivot.y, az - pivot.z)),
       worldNormal: new THREE.Vector3(0, 0, 0),
       normal: new THREE.Vector3(0, 0, 0)
     };
@@ -1094,7 +1095,7 @@ test('Shift-picked virtual micro cells cannot be recolored before A/B', () => {
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeMicroController({ manager });
@@ -1129,7 +1130,7 @@ test('Shift-picked virtual micro cells cannot be recolored before A/B', () => {
   assert.equal(contraption.blocks.length, 1);
   assert.equal(contraption.blocks[0].size || 1, 1);
   assert.equal(contraption.blocks[0].color, 0xff0000);
-  assert.ok(controller.__toasts.some(m => m.includes('A and B')));
+  assert.ok(controller.__toasts.some((m: string) => m.includes('A and B')));
 });
 
 test('micro Del carves every covered block with one atomic rebuild', () => {
@@ -1143,7 +1144,7 @@ test('micro Del carves every covered block with one atomic rebuild', () => {
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeMicroController({ manager });
@@ -1151,14 +1152,14 @@ test('micro Del carves every covered block with one atomic rebuild', () => {
 
   contraption.rootGroup.updateMatrixWorld(true);
   const node = contraption.entityNodes.get('root');
-  const pivot = node.pivotLocal;
+  const pivot = requireValue(node).pivotLocal;
   const click = (ax: number, ay: number, az: number) => {
     controller.hoveredContraptionHit = {
       contraption,
       entityId: 'root',
       block: contraption.blocks.find((b: any) => (b.size || 1) >= 1),
       cell: { x: 0, y: 0, z: 0 },
-      point: node.group.localToWorld(new THREE.Vector3(ax - pivot.x, ay - pivot.y, az - pivot.z)),
+      point: requireValue(node).group.localToWorld(new THREE.Vector3(ax - pivot.x, ay - pivot.y, az - pivot.z)),
       worldNormal: new THREE.Vector3(0, 0, 0),
       normal: new THREE.Vector3(0, 0, 0)
     };
@@ -1199,7 +1200,7 @@ test('micro selection over a standard block stays anchored after another block w
     scene,
     { rootComponentId: 'root' }
   );
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.registerContraption(contraption);
   contraption.stopAllNodeScripts();
   const controller = makeMicroController({ manager });
@@ -1207,14 +1208,14 @@ test('micro selection over a standard block stays anchored after another block w
 
   contraption.rootGroup.updateMatrixWorld(true);
   const node = contraption.entityNodes.get('root');
-  const pivot = node.pivotLocal;
+  const pivot = requireValue(node).pivotLocal;
   const clickAuthored = (ax: number, ay: number, az: number) => {
     controller.hoveredContraptionHit = {
       contraption,
       entityId: 'root',
       block: contraption.blocks.find((b: any) => (b.size || 1) >= 1),
       cell: { x: 0, y: 0, z: 0 },
-      point: node.group.localToWorld(new THREE.Vector3(ax - pivot.x, ay - pivot.y, az - pivot.z)),
+      point: requireValue(node).group.localToWorld(new THREE.Vector3(ax - pivot.x, ay - pivot.y, az - pivot.z)),
       worldNormal: new THREE.Vector3(0, 0, 0),
       normal: new THREE.Vector3(0, 0, 0)
     };

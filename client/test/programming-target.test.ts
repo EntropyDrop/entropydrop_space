@@ -1,3 +1,4 @@
+import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -40,7 +41,7 @@ test('React editor state exposes the entity random id', t => {
   const ui = new SpaceUiStore();
   const previewTargets: any[] = [];
   ui.setSceneRenderer({
-    setEntityPreviewTarget(target) { previewTargets.push(target); },
+    setEntityPreviewTarget(target: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) { previewTargets.push(target); },
     renderEntityPreview() {}
   });
 
@@ -56,7 +57,7 @@ test('React editor state exposes the entity random id', t => {
 
 test('programming terminal opens under any tool when pointed at contraption', () => {
   const target = { id: 3 };
-  const opened = [];
+  const opened: unknown[] = [];
   const messages = [];
   const controller = Object.create(PlayerController.prototype);
   controller.activeTool = SpecialTool.SHOVEL;
@@ -67,8 +68,8 @@ test('programming terminal opens under any tool when pointed at contraption', ()
     activeProgrammingContraption: target
   };
   controller.ui = {
-    openCodeEditor: contraption => opened.push(contraption),
-    showToast: message => messages.push(message)
+    openCodeEditor: (contraption: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) => opened.push(contraption),
+    showToast: (message: string) => messages.push(message)
   };
 
   // 1. Not pointing at a contraption -> returns false
@@ -89,8 +90,8 @@ test('programming terminal opens under any tool when pointed at contraption', ()
 
 test('pointer lock state follows the browser and ignores a stale relock after modal escape', async t => {
   const originalDocument = globalThis.document;
-  let pointerLockElement = null;
-  let finishRequest;
+  let pointerLockElement: object | null = null;
+  let finishRequest: () => void = () => { throw new Error('Pointer lock was not requested'); };
   let exitCalls = 0;
   const body = {
     requestPointerLock: () => new Promise<void>(resolve => {
@@ -110,17 +111,17 @@ test('pointer lock state follows the browser and ignores a stale relock after mo
   } as any;
   t.after(() => { globalThis.document = originalDocument; });
 
-  const states = [];
+  const states: boolean[] = [];
   const controller = Object.create(PlayerController.prototype);
   controller.isLocked = false;
   controller.pointerLockDesired = false;
-  controller.ui = { setPointerLocked: locked => states.push(locked) };
+  controller.ui = { setPointerLocked: (locked: boolean) => states.push(locked) };
   controller.sound = { init() {} };
 
   const pending = controller.requestLock();
   assert.equal(controller.isLocked, false, 'requesting lock must not optimistically hide the cursor');
   controller.unlock(); // Programming modal is closed with Escape before the request finishes.
-  finishRequest();
+  requireValue(finishRequest)();
 
   assert.equal(await pending, false);
   assert.equal(controller.pointerLockDesired, false);
@@ -132,7 +133,7 @@ test('pointer lock state follows the browser and ignores a stale relock after mo
 
 test('contraption pointing ray must hit an occupied cell, not empty bounds', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const contraption = new Contraption(
     4,
     [
@@ -164,7 +165,7 @@ test('contraption pointing ray must hit an occupied cell, not empty bounds', () 
 
 test('contraption pointing follows the rendered torus deformation instead of a flat tangent approximation', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const blockOrigin = new THREE.Vector3(TORUS_SPAWN_X, 18, TORUS_SPAWN_Z + 7.5);
   const contraption = new Contraption(
     5,
@@ -201,7 +202,7 @@ test('contraption pointing follows the rendered torus deformation instead of a f
 
 test('aim refresh uses the latest entity transform rather than a previous-frame hit', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const contraption = new Contraption(
     6,
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }],
@@ -216,8 +217,8 @@ test('aim refresh uses the latest entity transform rather than a previous-frame 
     physics: { getEyePosition: () => eye.clone() },
     camera: new THREE.PerspectiveCamera(),
     world: {
-      raycastBent: () => ({ hit: false }),
-      raycastMicroBent: () => ({ hit: false })
+      raycastBent: () => ({ hit: false as const }),
+      raycastMicroBent: () => ({ hit: false as const })
     },
     contraptions: manager,
     hoveredContraption: null,
@@ -241,7 +242,7 @@ test('aim refresh uses the latest entity transform rather than a previous-frame 
 
 test('wrench keeps entity picking active without showing hover wireframes', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null) as any;
+  const manager = new ContraptionManager(scene, worldStub({}), null, null) as any;
   const contraption = new Contraption(
     8,
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }],
@@ -256,8 +257,8 @@ test('wrench keeps entity picking active without showing hover wireframes', () =
     physics: { getEyePosition: () => eye.clone() },
     camera: new THREE.PerspectiveCamera(),
     world: {
-      raycastBent: () => ({ hit: false }),
-      raycastMicroBent: () => ({ hit: false })
+      raycastBent: () => ({ hit: false as const }),
+      raycastMicroBent: () => ({ hit: false as const })
     },
     contraptions: manager,
     hoveredContraption: null,
@@ -399,11 +400,11 @@ for (const failRender of [false, true]) {
       renderer.renderer = { toneMappingExposure: 1.15 };
       let renders = 0;
       renderer.previewRenderer = {
-        setClearColor(color, alpha) {
+        setClearColor(color: THREE.Color, alpha: number) {
           assert.equal(color.getHex(), renderer.skyColorDay.getHex());
           assert.equal(alpha, 1);
         },
-        render(scene, camera) {
+        render(scene: import('three').Scene, camera: import('three').PerspectiveCamera) {
           renders++;
           assert.equal(scene, renderer.scene);
           assert.equal(camera, renderer.previewCamera);

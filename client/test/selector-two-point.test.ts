@@ -1,3 +1,4 @@
+import { requireValue, worldStub } from './fixtures.ts';
 import { setNodeScript } from '../../engine/test/script-helpers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -51,9 +52,9 @@ function makeSelectorController(overrides: any = {}) {
 }
 
 /** Convert world coordinates to target-node local coordinates, matching rangePointToLocal. */
-function toNodeLocal(contraption, nodeId, worldPoint) {
+function toNodeLocal(contraption: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption, nodeId: string, worldPoint: import('three').Vector3) {
   const node = contraption.entityNodes.get(nodeId);
-  return node.group.worldToLocal(worldPoint.clone());
+  return requireValue(node).group.worldToLocal(worldPoint.clone());
 }
 
 test('first selector click selects a component and descendants without its parent', () => {
@@ -87,7 +88,7 @@ test('repeat clicks reject point 2 on a different component than point 1', () =>
   const { contraption } = makeEntityWithChildren();
   const toasts: string[] = [];
   const controller = makeSelectorController();
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
 
   // Point 1 on root.
   controller.hoveredContraptionHit = {
@@ -159,7 +160,7 @@ test('ordinary clicks advance the current-level box without switching components
 test('R copies a block selection and pastes it as an independent entity', () => {
   const { contraption } = makeEntityWithChildren();
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.contraptions.push(contraption);
   const controller = makeSelectorController({ manager });
 
@@ -184,22 +185,22 @@ test('R copies a block selection and pastes it as an independent entity', () => 
 
 test('world two-point selection builds a box from cornerA and cornerB', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeSelectorController({ manager });
-  controller.currentRaycast = { hit: true, hitPos: { x: 2, y: 3, z: 4 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 2, y: 3, z: 4 } };
 
   controller.handleLeftClick();
   assert.ok(manager.selectionCornerA, 'the first click should set cornerA');
   assert.equal(manager.selectionCornerB, null);
   assert.equal(manager.hasValidSelection(), false, 'one point should not complete the selection');
 
-  controller.currentRaycast = { hit: true, hitPos: { x: 5, y: 6, z: 7 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 5, y: 6, z: 7 } };
   controller.handleLeftClick();
   assert.ok(manager.selectionCornerB, 'the second click should set cornerB');
   assert.equal(manager.hasValidSelection(), true, 'two points should form a valid selection');
   const bounds = manager.getSelectionBounds();
   assert.deepEqual(
-    [bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ],
+    [requireValue(bounds).minX, requireValue(bounds).minY, requireValue(bounds).minZ, requireValue(bounds).maxX, requireValue(bounds).maxY, requireValue(bounds).maxZ],
     [2, 3, 4, 5, 6, 7]
   );
 
@@ -210,9 +211,9 @@ test('world two-point selection builds a box from cornerA and cornerB', () => {
 
 test('selector copy reports no selection and copies when a selection exists', () => {
   const { contraption } = makeEntityWithChildren();
-  const toasts = [];
+  const toasts: string[] = [];
   const controller = makeSelectorController();
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
 
   // Report no selection.
   controller.copySelectedSubtreeToInventory();
@@ -226,14 +227,14 @@ test('selector copy reports no selection and copies when a selection exists', ()
   assert.equal(controller.selectAllSelectionBlocks(), true);
   controller.copySelectionToInventory();
   assert.ok(controller.inventorySlots[0]);
-  assert.equal(controller.inventorySlots[0].blockCount, 1);
+  assert.equal((controller.inventorySlots[0] as import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput).blockCount, 1);
 });
 
 test('two points on one entity face select direct blocks through AABB intersection', () => {
   const { contraption } = makeEntityWithChildren();
   const controller = makeSelectorController();
   const rootBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'root');
-  const center = contraption.getBlockWorldCenter(rootBlock);
+  const center = contraption.getBlockWorldCenter(requireValue(rootBlock));
   const top = center.y + 0.5; // Root-block top face.
 
   // Both points lie on the same top face, creating a zero-thickness Y range.
@@ -263,7 +264,7 @@ test('two points on one entity face select direct blocks through AABB intersecti
 test('G creates a child component from a boxed block selection', () => {
   const { contraption } = makeEntityWithChildren();
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   manager.contraptions.push(contraption);
   const controller = makeSelectorController({ manager });
   controller.sound = { playAssemblyClack() {} };
@@ -283,15 +284,15 @@ test('G creates a child component from a boxed block selection', () => {
   assert.equal(childBlocks.length, 0, 'the block should belong to the new child component');
   const newChild = [...contraption.entityNodes.keys()].find(id => id !== 'root' && id !== 'arm' && id !== 'hand' && id !== 'wing');
   assert.ok(newChild, 'a new child component should be created');
-  assert.equal(contraption.getEntityNode(newChild).parentId, 'root', 'the child should attach to root');
-  assert.equal(contraption.blocks.find(b => b.localX === 0 && b.localY === 0 && b.localZ === 0).entityId, newChild, 'the selected block should belong to the new component');
+  assert.equal(requireValue(contraption.getEntityNode(newChild)).parentId, 'root', 'the child should attach to root');
+  assert.equal(requireValue(contraption.blocks.find(b => b.localX === 0 && b.localY === 0 && b.localZ === 0)).entityId, newChild, 'the selected block should belong to the new component');
 });
 
 test('clicking after box completion starts re-boxing at the same level', () => {
   const { contraption } = makeEntityWithChildren();
   const controller = makeSelectorController();
   const rootBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'root');
-  const center = contraption.getBlockWorldCenter(rootBlock);
+  const center = contraption.getBlockWorldCenter(requireValue(rootBlock));
   const top = center.y + 0.5;
 
   // 1. Set points 1 and 2 to complete a box.
@@ -326,7 +327,7 @@ test('clicking after box completion starts re-boxing at the same level', () => {
 
 test('clicking an entity after box completion waits for a new point 1', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption } = makeEntityWithChildren();
   manager.contraptions.push(contraption);
   const controller = makeSelectorController({ manager });
@@ -359,7 +360,7 @@ test('clicking an entity after box completion waits for a new point 1', () => {
 
 test('world clicks after entity selection clear entity state and start a new world box', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption } = makeEntityWithChildren();
   manager.contraptions.push(contraption);
   const controller = makeSelectorController({ manager });
@@ -369,8 +370,8 @@ test('world clicks after entity selection clear entity state and start a new wor
   controller.selectorLevel = { contraption, nodeId: 'root' };
 
   // World click 1: preselected entity selection is dismissed, returning to unselected.
-  const c = contraption.getBlockWorldCenter(rootBlock);
-  controller.currentRaycast = { hit: true, hitPos: { x: c.x - 0.4, y: c.y - 0.4, z: c.z - 0.4 } };
+  const c = contraption.getBlockWorldCenter(requireValue(rootBlock));
+  controller.currentRaycast = { hit: true as const, hitPos: { x: c.x - 0.4, y: c.y - 0.4, z: c.z - 0.4 } };
   controller.handleLeftClick();
   assert.equal(controller.selectedBlockSelection, null, 'entity selection should be cleared');
   assert.equal(controller.selectorRange, null, 'entity selection range should be cleared');
@@ -380,7 +381,7 @@ test('world clicks after entity selection clear entity state and start a new wor
   assert.ok(manager.selectionCornerA, 'a world click should set world corner A');
 
   // World click 3: completes the world box (corner B).
-  controller.currentRaycast = { hit: true, hitPos: { x: c.x + 0.4, y: c.y + 0.4, z: c.z + 0.4 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: c.x + 0.4, y: c.y + 0.4, z: c.z + 0.4 } };
   controller.handleLeftClick();
   assert.ok(manager.selectionCornerB, 'the new world box should complete');
   assert.equal(manager.hasValidSelection(), true, 'world selection should be valid');
@@ -388,17 +389,17 @@ test('world clicks after entity selection clear entity state and start a new wor
 
 test('a click outside a completed world box clears selection', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeSelectorController({ manager });
-  controller.currentRaycast = { hit: true, hitPos: { x: 2, y: 3, z: 4 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 2, y: 3, z: 4 } };
   controller.handleLeftClick(); // Point a.
-  controller.currentRaycast = { hit: true, hitPos: { x: 5, y: 6, z: 7 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 5, y: 6, z: 7 } };
   controller.handleLeftClick(); // Point b completes the box.
   assert.ok(manager.selectionCornerB, 'a and b should complete the box');
   assert.equal(manager.hasValidSelection(), true);
 
   // Point c lies outside, so clear selection without starting another box.
-  controller.currentRaycast = { hit: true, hitPos: { x: 20, y: 21, z: 22 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 20, y: 21, z: 22 } };
   controller.handleLeftClick();
   assert.equal(manager.selectionCornerA, null, 'cornerA should clear');
   assert.equal(manager.selectionCornerB, null, 'cornerB should clear');
@@ -409,15 +410,15 @@ test('a click outside a completed world box clears selection', () => {
 
 test('a second world click completes the in-progress a-c box', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const controller = makeSelectorController({ manager });
-  controller.currentRaycast = { hit: true, hitPos: { x: 1, y: 1, z: 1 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 1, y: 1, z: 1 } };
   controller.handleLeftClick(); // Point a.
-  assert.equal(manager.selectionCornerA.x, 1);
+  assert.equal(requireValue(manager.selectionCornerA).x, 1);
 
-  controller.currentRaycast = { hit: true, hitPos: { x: 9, y: 9, z: 9 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 9, y: 9, z: 9 } };
   controller.handleLeftClick(); // Second click completes the box.
-  assert.equal(manager.selectionCornerB.x, 9);
+  assert.equal(requireValue(manager.selectionCornerB).x, 9);
   assert.equal(manager.hasValidSelection(), true);
 });
 
@@ -425,13 +426,13 @@ test('a root-level box over a child region is rejected with child component warn
   const { contraption } = makeEntityWithChildren();
   const toasts: string[] = [];
   const controller = makeSelectorController();
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
   controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm', 'hand', 'wing']) };
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
 
   // Cover only the hand block, excluding root-owned and arm blocks.
   const handBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'hand');
-  const center = contraption.getBlockWorldCenter(handBlock);
+  const center = contraption.getBlockWorldCenter(requireValue(handBlock));
   controller.selectorRange.pointA = toNodeLocal(contraption, 'root', center.clone().add(new THREE.Vector3(-0.4, -0.4, -0.4)));
   controller.selectorRange.pointB = toNodeLocal(contraption, 'root', center.clone().add(new THREE.Vector3(0.4, 0.4, 0.4)));
   controller.resolveBlockRangeSelection(controller.selectorRange);
@@ -446,9 +447,9 @@ test('rotated component box recognizes and selects the visible edge of a rotated
   const handBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'hand');
 
   // Rotation expands the world AABB beyond size/2.
-  contraption.getChildScriptApi('hand').setLocalEuler([0, Math.PI / 4, 0]);
+  requireValue(contraption.getChildScriptApi('hand')).setLocalEuler([0, Math.PI / 4, 0]);
   contraption.rootGroup.updateMatrixWorld(true);
-  const center = contraption.getBlockWorldCenter(handBlock);
+  const center = contraption.getBlockWorldCenter(requireValue(handBlock));
 
   controller.selectedSubtree = {
     contraption,
@@ -483,12 +484,12 @@ test('a rotated child microblock uses its true 0.125 world AABB for selection', 
     { childEntities: [{ id: 'tip', parentId: 'root', pivot: [0.0625, 2.0625, 0.0625] }] }
   );
   contraption.stopAllNodeScripts();
-  contraption.getChildScriptApi('tip').setLocalEuler([0, Math.PI / 4, 0]);
+  requireValue(contraption.getChildScriptApi('tip')).setLocalEuler([0, Math.PI / 4, 0]);
   contraption.rootGroup.updateMatrixWorld(true);
 
   const micro = contraption.blocks.find(b => (b.entityId || 'root') === 'tip');
-  const center = contraption.getBlockWorldCenter(micro);
-  const bounds = contraption.getBlockWorldBounds(micro);
+  const center = contraption.getBlockWorldCenter(requireValue(micro));
+  const bounds = contraption.getBlockWorldBounds(requireValue(micro));
   assert.ok(bounds.max.x - center.x > 0.08, 'the rotated X edge should exceed the old 0.0625 approximation');
 
   const controller = makeSelectorController();
@@ -510,15 +511,15 @@ test('a box covering multiple direct children is rejected immediately', () => {
   const { contraption } = makeEntityWithChildren();
   const toasts: string[] = [];
   const controller = makeSelectorController();
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
   controller.selectedSubtree = { contraption, rootId: 'root', nodeIds: new Set(['root', 'arm', 'hand', 'wing']) };
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
 
   // Large range covers arm and hand.
   const armBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'arm');
   const handBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'hand');
-  const c1 = contraption.getBlockWorldCenter(armBlock);
-  const c2 = contraption.getBlockWorldCenter(handBlock);
+  const c1 = contraption.getBlockWorldCenter(requireValue(armBlock));
+  const c2 = contraption.getBlockWorldCenter(requireValue(handBlock));
   controller.selectorRange.pointA = toNodeLocal(contraption, 'root',
     new THREE.Vector3(Math.min(c1.x, c2.x) - 0.5, Math.min(c1.y, c2.y) - 0.3, -0.5)); // Avoid the root-block boundary at y=11.2.
   controller.selectorRange.pointB = toNodeLocal(contraption, 'root',
@@ -531,7 +532,7 @@ test('a box covering multiple direct children is rejected immediately', () => {
 
 test('after G creates a child, a world click clears entity state and starts a world box', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption } = makeEntityWithChildren();
   manager.contraptions.push(contraption);
   const controller = makeSelectorController({ manager });
@@ -548,14 +549,14 @@ test('after G creates a child, a world click clears entity state and starts a wo
   assert.ok(controller.selectorLevel, 'the component level should remain');
 
   // A world click clears entity state and starts a world box rather than getting stuck in re-boxing.
-  controller.currentRaycast = { hit: true, hitPos: { x: 50, y: 60, z: 70 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 50, y: 60, z: 70 } };
   controller.handleLeftClick();
   assert.equal(controller.selectorLevel, null, 'entity-level state should clear');
   assert.equal(controller.selectorRange, null, 'no entity-box flow should remain');
   assert.deepEqual(manager.selectionCornerA, { x: 50, y: 60, z: 70 }, 'world-box point 1 should be set');
 
   // The second world click completes the box.
-  controller.currentRaycast = { hit: true, hitPos: { x: 55, y: 65, z: 75 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 55, y: 65, z: 75 } };
   controller.handleLeftClick();
   assert.deepEqual(manager.selectionCornerB, { x: 55, y: 65, z: 75 }, 'world-box point 2 should be set');
   assert.equal(manager.hasValidSelection(), true, 'world selection should be valid for G assembly');
@@ -563,16 +564,16 @@ test('after G creates a child, a world click clears entity state and starts a wo
 
 test('an entity click during an in-progress world box is rejected with toast and exits selection', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption } = makeEntityWithChildren();
   manager.contraptions.push(contraption);
   const toasts: string[] = [];
   const controller = makeSelectorController({ manager });
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
 
   // First world click sets cornerA.
   controller.hoveredContraptionHit = null;
-  controller.currentRaycast = { hit: true, hitPos: { x: 0, y: 10, z: 0 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 0, y: 10, z: 0 } };
   controller.handleLeftClick();
   assert.ok(manager.selectionCornerA, 'point 1 should be set');
 
@@ -609,16 +610,16 @@ test('re-boxing anchors range points in node-local space while the component rot
   contraption.stopAllNodeScripts();
   const toasts: string[] = [];
   const controller = makeSelectorController({ manager: { contraptions: [contraption] } });
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
-  const click = (entityId, cell, point) => {
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
+  const click = (entityId: string, cell: { x: number; y: number; z: number }, point: { x: number; y: number; z: number }) => {
     controller.hoveredContraptionHit = { contraption, entityId, cell, point };
     controller.handleLeftClick();
   };
   // Arm blocks are offset from the pivot, so a Y rotation moves them visibly.
   const armBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'arm' && b.localZ === 0);
   const rootBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'root');
-  const armCenter = contraption.getBlockWorldCenter(armBlock);
-  const rootCenter = contraption.getBlockWorldCenter(rootBlock);
+  const armCenter = contraption.getBlockWorldCenter(requireValue(armBlock));
+  const rootCenter = contraption.getBlockWorldCenter(requireValue(rootBlock));
 
   // 1. Box-select an arm-owned block with 2 clicks directly.
   click('arm', { x: 3, y: 0, z: 0 }, armCenter.clone().add(new THREE.Vector3(-0.4, -0.4, -0.4)));
@@ -632,14 +633,14 @@ test('re-boxing anchors range points in node-local space while the component rot
   assert.equal(controller.selectedBlockSelection, null);
 
   // 2. Set A' on the arm block before rotation.
-  const p1 = contraption.getBlockWorldCenter(armBlock);
+  const p1 = contraption.getBlockWorldCenter(requireValue(armBlock));
   click('arm', { x: 3, y: 0, z: 0 }, p1.clone().add(new THREE.Vector3(-0.4, -0.4, -0.4)));
   assert.ok(controller.selectorRange?.pointA, "point A' should be set");
 
   // 3. Rotate arm 90 degrees between the two clicks, as a script-driven arm might.
-  contraption.getChildScriptApi('arm').setLocalEuler([0, Math.PI / 2, 0]);
+  requireValue(contraption.getChildScriptApi('arm')).setLocalEuler([0, Math.PI / 2, 0]);
   contraption.rootGroup.updateMatrixWorld(true);
-  const rotatedCenter = contraption.getBlockWorldCenter(armBlock);
+  const rotatedCenter = contraption.getBlockWorldCenter(requireValue(armBlock));
   assert.ok(
     Math.abs(rotatedCenter.x - p1.x) > 0.3 || Math.abs(rotatedCenter.z - p1.z) > 0.3,
     'the block position should move after rotation'
@@ -658,12 +659,12 @@ test('re-boxing over a sibling component selects its blocks directly without fal
   const { contraption } = makeEntityWithChildren();
   const toasts: string[] = [];
   const controller = makeSelectorController();
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
   const armBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'arm');
   const wingBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'wing');
-  const armCenter = contraption.getBlockWorldCenter(armBlock);
-  const wingCenter = contraption.getBlockWorldCenter(wingBlock);
-  const click = (entityId, cell, point) => {
+  const armCenter = contraption.getBlockWorldCenter(requireValue(armBlock));
+  const wingCenter = contraption.getBlockWorldCenter(requireValue(wingBlock));
+  const click = (entityId: string, cell: { x: number; y: number; z: number }, point: { x: number; y: number; z: number }) => {
     controller.hoveredContraptionHit = { contraption, entityId, cell, point };
     controller.handleLeftClick();
   };
@@ -689,7 +690,7 @@ test('re-boxing over a sibling component selects its blocks directly without fal
 
 test('switching entity selection clears the previous entity block highlights', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption: a } = makeEntityWithChildren();
   const b = new Contraption(
     99,
@@ -705,7 +706,7 @@ test('switching entity selection clears the previous entity block highlights', (
 
   // 1. Complete a block selection on entity a (2 clicks) and attach per-block highlights.
   const rootBlock = a.blocks.find(x => (x.entityId || 'root') === 'root');
-  const center = a.getBlockWorldCenter(rootBlock);
+  const center = a.getBlockWorldCenter(requireValue(rootBlock));
   controller.hoveredContraptionHit = { contraption: a, entityId: 'root', cell: { x: 0, y: 0, z: 0 }, point: center.clone().add(new THREE.Vector3(-0.4, -0.4, -0.4)) };
   controller.handleLeftClick(); // Box point 1.
   controller.hoveredContraptionHit = { contraption: a, entityId: 'root', cell: { x: 0, y: 0, z: 0 }, point: center.clone().add(new THREE.Vector3(0.4, 0.4, 0.4)) };
@@ -747,17 +748,17 @@ test('inventory copy prunes empty ghost children and scripts from a block select
   assert.equal(slot.kind, 'item');
   const copiedEntity = slot.entityList[0];
   assert.equal(copiedEntity.rootComponentId, 'arm');
-  assert.deepEqual([...new Set(copiedEntity.blocks.map(b => b.entityId))], ['arm']);
+  assert.deepEqual([...new Set(copiedEntity.blocks.map((b: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => b.entityId))], ['arm']);
   assert.equal(copiedEntity.childEntities.length, 0, 'hand definition should be pruned because its blocks are not selected');
-  assert.deepEqual(copiedEntity.scripts.map(s => s.id), ['arm'], 'the copied level script stays attached to the selected component ID');
-  assert.deepEqual(copiedEntity.enabled.map(e => e.id), ['arm']);
+  assert.deepEqual(copiedEntity.scripts.map((s: { id: string }) => s.id), ['arm'], 'the copied level script stays attached to the selected component ID');
+  assert.deepEqual(copiedEntity.enabled.map((e: { id: string }) => e.id), ['arm']);
 
   // Pasting should not create ghost children.
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const pasted = manager.buildFromSlot(controller.getActiveHammerInventoryItem(), new THREE.Vector3(30, 0, 30));
-  assert.equal(pasted.blocks.length, 1);
-  const ghost = [...pasted.entityNodes.keys()].filter(id => id !== pasted.rootComponentId);
+  assert.equal(requireValue(pasted).blocks.length, 1);
+  const ghost = [...requireValue(pasted).entityNodes.keys()].filter(id => id !== requireValue(pasted).rootComponentId);
   assert.equal(ghost.length, 0, 'pasted entity should contain no ghost components');
 });
 
@@ -765,7 +766,7 @@ test('clicking the sky preserves an in-progress entity box after point 1', () =>
   const { contraption } = makeEntityWithChildren();
   const controller = makeSelectorController();
   const rootBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'root');
-  const center = contraption.getBlockWorldCenter(rootBlock);
+  const center = contraption.getBlockWorldCenter(requireValue(rootBlock));
 
   // Click 1 sets pointA directly on root.
   controller.hoveredContraptionHit = {
@@ -786,7 +787,7 @@ test('clicking the sky preserves an in-progress entity box after point 1', () =>
 
 test('selector box on entity A shows no spoon preview while hovering entity B', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption: a } = makeEntityWithChildren();
   const b = new Contraption(
     99,
@@ -813,7 +814,7 @@ test('selector box on entity A shows no spoon preview while hovering entity B', 
     cell: { x: 0, y: 0, z: 0 },
     point: new THREE.Vector3(10.5, 10.5, 10.5)
   };
-  controller.currentRaycast = { hit: true, hitPos: { x: 10.5, y: 10.5, z: 10.5 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 10.5, y: 10.5, z: 10.5 } };
   controller.updateMicroCarvePreview();
   assert.equal(controller.microCarvePreview, null, 'selector must not produce a spoon grid');
   assert.equal(controller.focusBlockPreview, null, 'the unselected entity should show no focus wireframe');
@@ -821,16 +822,16 @@ test('selector box on entity A shows no spoon preview while hovering entity B', 
 
 test('entering entity selection clears world cornerA and cornerB state', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption } = makeEntityWithChildren();
   manager.contraptions.push(contraption);
   const controller = makeSelectorController({ manager });
   controller.ui = { showToast() {}, renderInventoryBar() {} };
 
   // Complete a two-point world box.
-  controller.currentRaycast = { hit: true, hitPos: { x: 0, y: 10, z: 0 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 0, y: 10, z: 0 } };
   controller.handleLeftClick(); // a
-  controller.currentRaycast = { hit: true, hitPos: { x: 5, y: 13, z: 5 } };
+  controller.currentRaycast = { hit: true as const, hitPos: { x: 5, y: 13, z: 5 } };
   controller.handleLeftClick(); // b completes the box.
   assert.ok(manager.selectionCornerA && manager.selectionCornerB, 'world box should complete');
 
@@ -853,12 +854,12 @@ test('entering entity selection clears world cornerA and cornerB state', () => {
 
 test('Shift-picked blocks cannot create children until A/B are confirmed', () => {
   const scene = new THREE.Scene();
-  const manager = new ContraptionManager(scene, {}, null, null);
+  const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const { contraption } = makeEntityWithChildren();
   manager.contraptions.push(contraption);
   const toasts: string[] = [];
   const controller = makeSelectorController({ manager });
-  controller.ui = { showToast: m => toasts.push(m), renderInventoryBar() {} };
+  controller.ui = { showToast: (m: string) => toasts.push(m), renderInventoryBar() {} };
   controller.sound = { playAssemblyClack() {} };
 
   const rootBlock = contraption.blocks.find(b => (b.entityId || 'root') === 'root');
@@ -899,7 +900,7 @@ test('Shift-picked blocks cannot create children until A/B are confirmed', () =>
   assert.equal(controller.createChildFromSelectedBlocks(), null);
   controller.clearSelection();
   controller.hoveredContraptionHit = { contraption, entityId: 'root', block: rootBlock,
-    cell: { x: 0, y: 0, z: 0 }, point: contraption.getBlockWorldCenter(rootBlock) };
+    cell: { x: 0, y: 0, z: 0 }, point: contraption.getBlockWorldCenter(requireValue(rootBlock)) };
   controller.handleLeftClick();
   controller.handleLeftClick();
   assert.equal(controller.canUseSelectionActions(), true);

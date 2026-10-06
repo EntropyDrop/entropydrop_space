@@ -44,7 +44,7 @@ export const BlockData = {
 
 export const INVENTORY_BLOCKS = [BlockTypes.COLOR_BLOCK];
 
-export function normalizeColor(value, fallback = DEFAULT_BLOCK_COLOR) {
+export function normalizeColor(value: unknown, fallback = DEFAULT_BLOCK_COLOR) {
   if (typeof value === 'number' && Number.isFinite(value)) return value & 0xffffff;
   if (typeof value === 'string') {
     const parsed = Number.parseInt(value.replace('#', ''), 16);
@@ -53,6 +53,6 @@ export function normalizeColor(value, fallback = DEFAULT_BLOCK_COLOR) {
   return fallback;
 }
 
-export function colorToHex(value) {
+export function colorToHex(value: unknown) {
   return `#${normalizeColor(value).toString(16).padStart(6, '0')}`;
 }

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true
+  },
+  "include": ["src/engine/inventory/**/*.ts", "test/backpack-service.test.ts", "test/inventory-types.typecheck.ts"],
+  "exclude": []
+}

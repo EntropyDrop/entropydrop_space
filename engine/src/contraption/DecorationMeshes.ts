@@ -69,6 +69,7 @@ export function raycastDecorationGroup(group: THREE.Group, origin: THREE.Vector3
       const distance = origin.distanceTo(point);
       if (distance > maxDistance || (closest && distance >= closest.distance)) continue;
       const barycentric = THREE.Triangle.getBarycoord(point, corners[a], corners[b], corners[c], new THREE.Vector3());
+      if (!barycentric) continue;
       const worldPoint = flat[a].clone().multiplyScalar(barycentric.x)
         .addScaledVector(flat[b], barycentric.y).addScaledVector(flat[c], barycentric.z);
       closest = {

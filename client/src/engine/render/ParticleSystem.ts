@@ -1,8 +1,10 @@
 import * as THREE from 'three/webgpu';
 
+interface ParticleConfig { x: number; y: number; z: number; vx: number; vy: number; vz: number; size: number; life: number; color: THREE.Color; gravity?: number }
+type Particle = ParticleConfig & { maxLife: number; gravity: number };
 export class ParticleSystem {
   private scene: THREE.Scene;
-  private particles: any[] = [];
+  private particles: Particle[] = [];
   private maxParticles = 600;
   private enabled = true;
   private geometry: THREE.BoxGeometry;
@@ -10,7 +12,7 @@ export class ParticleSystem {
   private instancedMesh: THREE.InstancedMesh;
   private dummy: THREE.Object3D;
 
-  constructor(scene: any) {
+  constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.particles = [];
     this.maxParticles = 600;
@@ -56,7 +58,7 @@ export class ParticleSystem {
     return this.enabled;
   }
 
-  emitSteamPuff(worldPos, count = 15) {
+  emitSteamPuff(worldPos: { x: number; y: number; z: number }, count = 15) {
     if (!this.enabled) return;
     for (let i = 0; i < count; i++) {
       this.spawnParticle({
@@ -74,7 +76,7 @@ export class ParticleSystem {
     }
   }
 
-  emitBlockBreak(worldPos, hexColor, count = 12) {
+  emitBlockBreak(worldPos: { x: number; y: number; z: number }, hexColor: THREE.ColorRepresentation, count = 12) {
     if (!this.enabled) return;
     const color = new THREE.Color(hexColor);
     for (let i = 0; i < count; i++) {
@@ -93,7 +95,7 @@ export class ParticleSystem {
     }
   }
 
-  spawnParticle(config) {
+  spawnParticle(config: ParticleConfig) {
     if (!this.enabled) return;
     if (this.particles.length >= this.maxParticles) {
       this.particles.shift(); // remove oldest
@@ -113,7 +115,7 @@ export class ParticleSystem {
     });
   }
 
-  update(dt) {
+  update(dt: number) {
     if (!this.enabled) return;
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];

@@ -354,7 +354,7 @@ export class WorldEditPersistence {
     return this.pendingBatches.some(batch => batch.mutations.some(mutation => chunkKeyForMutation(mutation) === key));
   }
 
-  getStandardEditsForChunk(cx: number, cz: number) {
+  getStandardEditsForChunk(cx: number, cz: number): IterableIterator<PersistedStandardEdit> {
     return this.standardEditsByChunk.get(`${cx},${cz}`)?.values() ?? [][Symbol.iterator]();
   }
 
@@ -362,7 +362,7 @@ export class WorldEditPersistence {
     return this.microEdits.values();
   }
 
-  getMicroEditsForChunk(cx: number, cz: number) {
+  getMicroEditsForChunk(cx: number, cz: number): IterableIterator<PersistedMicroEdit> {
     return this.microEditsByChunk.get(`${cx},${cz}`)?.values() ?? [][Symbol.iterator]();
   }
 

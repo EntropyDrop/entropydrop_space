@@ -30,7 +30,7 @@ const BLOCKSET_PROTOBUF = encodeInventoryResource('blockset', BLOCKSET);
 const BLOCKSET_DIGEST = '3a30b3772f867a8ba94d6b6854e9f906dc92eda3322c9e0b587ac976e2f00bc4';
 
 test('market component names match Python bytes and recursive name-free digests', async () => {
-  const component = (id, name, children) => ({ id, name, body: { type: 'dynamic' }, blocks: [], seats: [], children });
+  const component = (id: string, name: string, children: import('@entropydrop/space-engine/storage/InventoryTypes.ts').PortableComponent[]) => ({ id, name, body: { type: 'dynamic' as const }, blocks: [], seats: [], children });
   const entity = { type: 'space-entity', version: 8, constraints: [],
     root: component('world', 'Chassis', [component('root', 'Module', [component('tip', 'Tip', [])])]) };
   const wire = encodeInventoryResource('entity', entity);

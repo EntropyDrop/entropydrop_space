@@ -4,11 +4,11 @@ import { unbendDirection } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 export const ENTITY_PREVIEW_FORCE_LIMIT_RATIO = 0.72;
 
 export function calculatePreviewDragForce(
-  cameraQuaternion,
-  deltaX,
-  deltaY,
-  maxForce,
-  flatReferencePoint = null
+  cameraQuaternion: THREE.Quaternion | null,
+  deltaX: number,
+  deltaY: number,
+  maxForce: number,
+  flatReferencePoint: THREE.Vector3 | null = null
 ) {
   const dx = Number(deltaX) || 0;
   const dy = Number(deltaY) || 0;

@@ -25,7 +25,7 @@ function fixture(micro = false) {
     entityInputDown: new Set(), entityInputPressed: new Set(), entityInputReleased: new Set(),
     sound: { playWrenchClick() {} },
     sceneRenderer: {
-      updateSelectionHologram(...args) { holograms.push(args); },
+      updateSelectionHologram(...args: unknown[]) { holograms.push(args); },
       updateSelectionAxisGizmo() {}, clearSelectionAxisGizmo() {}
     }
   });

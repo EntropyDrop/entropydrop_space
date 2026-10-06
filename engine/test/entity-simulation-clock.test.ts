@@ -1,3 +1,4 @@
+import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -37,14 +38,14 @@ test('one entity update always contains three 60 Hz physics substeps', () => {
   ) as any;
   const physics = new ContraptionPhysics({
     getBlock: () => BlockTypes.AIR,
-    raycast: () => ({ hit: false }),
-    raycastMicro: () => ({ hit: false })
+    raycast: () => ({ hit: false as const }),
+    raycastMicro: () => ({ hit: false as const })
   } as any);
 
   const frame = physics.prepareContraptionFrame(contraption, ENTITY_UPDATE_DT);
   assert.equal(PHYSICS_SUBSTEPS_PER_ENTITY_UPDATE, 3);
-  assert.equal(frame.subSteps, 3);
-  assert.ok(Math.abs(frame.substepDt - 1 / 60) < 1e-12);
+  assert.equal(requireValue(frame).subSteps, 3);
+  assert.ok(Math.abs(requireValue(frame).substepDt - 1 / 60) < 1e-12);
 });
 
 test('render interpolation is temporary and never changes the solved entity pose', () => {

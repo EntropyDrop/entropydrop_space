@@ -35,7 +35,7 @@ export function startOfflineSurface(world: World, repeatWorld = false) {
     if (data.progress) { status.progress = data.progress; return; }
     if (data.error) { status.error = data.error; worker.terminate(); return; }
     if (data.complete) { worker.terminate(); return; }
-    const entries = data.levels.map(({ size, bytes, digest, byteLength }) => {
+    const entries = data.levels.map(({ size, bytes, digest, byteLength }: { size: number; bytes?: Uint8Array; digest: string; byteLength: number }) => {
       const url = `${root}${data.zoneX}/${data.zoneZ}/${size}`;
       if (bytes) payloads.set(url, bytes);
       else aliases.set(url, { size, x: data.zoneX, z: data.zoneZ });

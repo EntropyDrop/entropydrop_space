@@ -95,7 +95,7 @@ def _build_mutations(payload, canonical):
 def build_blockset(request: Request, world_id: uuid.UUID,
                    payload: BuildBlocksetRequest = Depends(build_blockset_request),
                    db: Session = Depends(get_db), creator: entities.EntityCreator = Depends(entities._entity_creator)):
-    world = space._require_world_membership(db, str(world_id), creator.user)
+    world = space._require_world_membership(db, str(world_id), creator.user, for_update=True)
     entities._validate_position(world, payload.position, require_buildable_height=True)
     if any(getattr(payload.position, f"{axis}_cm") % 100 for axis in "xyz"):
         raise HTTPException(422, detail={"code": "BLOCKSET_ORIGIN_MUST_ALIGN_TO_METRE"})
