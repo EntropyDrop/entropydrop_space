@@ -1,4 +1,4 @@
-import type { PlayerPerspective } from './PlayerController.ts';
+import type { PlayerPerspective } from './ControlBindings.ts';
 
 export const CAMERA_PERSPECTIVE_TRANSITION_SECONDS = 0.28;
 

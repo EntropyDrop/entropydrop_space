@@ -101,6 +101,29 @@ function surfaceSnapshot(layer: DistantSurfaceLayer) {
   }));
 }
 
+function assertSurfaceSnapshotsEqual(actual: ReturnType<typeof surfaceSnapshot>[], expected: ReturnType<typeof surfaceSnapshot>[]) {
+  assert.equal(actual.length, expected.length, 'snapshot count');
+  for (let step = 0; step < actual.length; step++) {
+    assert.equal(actual[step].length, expected[step].length, `step ${step}: mesh count`);
+    for (let mesh = 0; mesh < actual[step].length; mesh++) {
+      const a = actual[step][mesh], b = expected[step][mesh];
+      const label = `step ${step}, ${mesh === 0 ? 'tops' : 'sides'}`;
+      assert.equal(a.count, b.count, `${label}: instance count`);
+      assert.deepEqual(Object.keys(a.attributes), Object.keys(b.attributes), `${label}: attributes`);
+      for (const name of Object.keys(a.attributes)) {
+        const aa = a.attributes[name], bb = b.attributes[name];
+        assert.equal(aa.constructor, bb.constructor, `${label}: ${name} type`);
+        assert.equal(aa.length, bb.length, `${label}: ${name} length`);
+        // Report the first differing scalar, not a diff of millions of values.
+        // Formatting a full geometry diff can exhaust memory and hide the bug.
+        for (let i = 0; i < aa.length; i++) {
+          if (!Object.is(aa[i], bb[i])) assert.equal(aa[i], bb[i], `${label}: ${name}[${i}]`);
+        }
+      }
+    }
+  }
+}
+
 async function surfaceScenario(mode: TerrainKernelMode) {
   setTerrainKernelMode(mode);
   const layer = new DistantSurfaceLayer(), snapshots = [];
@@ -128,7 +151,7 @@ async function surfaceScenario(mode: TerrainKernelMode) {
 
 test('WASM LOD matches JS through camera motion, hysteresis, torus seams, handoff and source replacement', async () => {
   const previous = setTerrainKernelMode('js');
-  try { assert.deepEqual(await surfaceScenario('wasm'), await surfaceScenario('js')); }
+  try { assertSurfaceSnapshotsEqual(await surfaceScenario('wasm'), await surfaceScenario('js')); }
   finally { setTerrainKernelMode(previous); }
 });
 

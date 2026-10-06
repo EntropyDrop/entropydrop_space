@@ -1,4 +1,6 @@
 import type { SurfaceMip } from './TerrainKernels.ts';
+import { Vector2 } from 'three';
+import { TORUS_K_THETA, torusTubeTrig } from '../torus/TorusWorld.ts';
 
 export interface SurfaceSelection {
   heights: Uint16Array;
@@ -13,13 +15,16 @@ export interface SurfaceSelection {
 }
 
 const xAngles = new Map<number, Float64Array>(), zAngles = new Map<number, Float64Array>();
-function angles(origin: number, period: number, cache: Map<number, Float64Array>) {
+function angles(origin: number, tube: boolean, cache: Map<number, Float64Array>) {
   let values = cache.get(origin);
   if (values) return values;
   values = new Float64Array(129 * 2);
+  const trig = new Vector2();
   for (let i = 0; i <= 128; i++) {
-    const angle = (origin + i / 2) * ((Math.PI * 2) / period);
-    values[i * 2] = Math.cos(angle); values[i * 2 + 1] = Math.sin(angle);
+    const coordinate = origin + i / 2;
+    if (tube) torusTubeTrig(coordinate, trig);
+    else trig.set(Math.cos(coordinate * TORUS_K_THETA), Math.sin(coordinate * TORUS_K_THETA));
+    values[i * 2] = trig.x; values[i * 2 + 1] = trig.y;
   }
   cache.set(origin, values);
   return values;
@@ -47,7 +52,7 @@ export function prepareSurfaceSelection(mips: Map<number, SurfaceMip>, sampleSiz
     }
   }
   // Evaluate transcendental functions in the same JS runtime as bendPoint.
-  const trigX = angles(worldX, 16384, xAngles), trigZ = angles(worldZ, 2048, zAngles);
+  const trigX = angles(worldX, false, xAngles), trigZ = angles(worldZ, true, zAngles);
   const detail = new Uint8Array(36);
   for (let x = 0; x < 6; x++) for (let z = 0; z < 6; z++) {
     detail[x * 6 + z] = mask[((worldZ / 16 + z - 1) & 127) * 1024 + ((worldX / 16 + x - 1) & 1023)];

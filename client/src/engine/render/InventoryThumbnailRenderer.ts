@@ -2,7 +2,7 @@ import { SpaceRenderer } from './SpaceRenderer.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
-import { getInventoryPreviewBlocks } from './SceneRenderer.ts';
+import { getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
 
 export class InventoryThumbnailRenderer {
   private static instance: InventoryThumbnailRenderer | null = null;

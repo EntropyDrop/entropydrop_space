@@ -16,15 +16,22 @@ export function surfaceSelect(heights: usize, minima: usize, errors: usize,
     const source = (sourceAxis * sourceAxis - 1) / 3 + (x / sourceSize) * sourceAxis + z / sourceSize;
     const height = load<u16>(heights + source * 2), minimum = load<u16>(minima + source * 2);
     const highY = f64(height) * 0.125, lowY = f64(minimum) * 0.125;
-    const centerRho = Math.min(rho + ((highY + lowY) / 2 - 16), R - 1);
     const ct = load<f64>(trigX + (x * 2 + size) * 16), st = load<f64>(trigX + (x * 2 + size) * 16 + 8);
     const cp = load<f64>(trigZ + (z * 2 + size) * 16), sp = load<f64>(trigZ + (z * 2 + size) * 16 + 8);
+    // Mirror bendPoint/computeBentBoundsSphere in TorusWorld.ts: the tube
+    // angle is redistributed and height follows its local ground scale.
+    const localScale = (R + rho * cp) / R;
+    const centerRho = Math.min(rho + ((highY + lowY) / 2 - 16) * localScale, R - 1);
     const radial = R + centerRho * cp;
     const dx = cameraX - radial * ct, dy = cameraY - centerRho * sp, dz = cameraZ - radial * st;
+    const maxHeightOffset = Math.max(Math.abs(lowY - 16), Math.abs(highY - 16));
+    const boundsRho = Math.min(rho + maxHeightOffset * (1 + rho / R), R - 1);
+    const boundsScale = Math.max(1, Math.max((R + boundsRho) / R,
+      boundsRho / rho * 1.15 + maxHeightOffset * 0.0005));
     const boundRho = Math.max(Math.abs(Math.min(rho + lowY - 16, R - 1)), Math.abs(Math.min(rho + highY - 16, R - 1)));
     const scale = Math.max(1, Math.max((R + boundRho) / R, boundRho / rho));
     const deltaY = highY - lowY;
-    const radius = Math.sqrt(f64(size) * size * 2 + deltaY * deltaY) * 0.5 * scale + 1e-6;
+    const radius = Math.sqrt(f64(size) * size * 2 + deltaY * deltaY) * 0.5 * boundsScale + 1e-6;
     const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz) - radius);
     tolerance = Math.min(tolerance, Math.abs(distance - maxDistance));
     if (distance > maxDistance) continue;

@@ -137,7 +137,8 @@ export function torusTubeAngle(z: number) {
   );
 }
 
-function torusTubeTrig(z: number, out: THREE.Vector2) {
+/** Shared tube samples for CPU projection and the WASM LOD lookup tables. */
+export function torusTubeTrig(z: number, out: THREE.Vector2) {
   const halfAngle = z * TORUS_K_PHI * 0.5;
   const sine = Math.sin(halfAngle);
   const cosine = Math.cos(halfAngle);

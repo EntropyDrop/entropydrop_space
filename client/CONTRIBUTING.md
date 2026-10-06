@@ -31,41 +31,43 @@ must also regenerate both backend Python bindings (`inventory_pb2.py`,
 checks (including `check:protobuf`) and the frontend integration tests.
 
 Add a regression test for behavior changes. Browser-facing changes should also
-be checked manually in a current WebGL 2 browser with the developer console open.
+be checked manually in a WebGPU-capable browser with GPU acceleration and the
+developer console open. See the [module boundaries](docs/architecture.md) before
+adding controller, rendering or inventory dependencies.
 
 ## API and documentation changes
 
 The public entity scripting API is rendered from one source of truth:
 `entropydrop_space/engine/src/contraption/ScriptApiContract.ts`. Edit that
-contract, then run `npm run docs:generate` in the engine to refresh
-`docs/generated/api-v2.md` and `docs/generated/agent-api-v2.md`. The backend
-serves those through `space/sync_agent_docs.py`, which also copies the public
-`inventory.proto` reference; run it with `--check` to detect drift. The in-game
-reference (`src/ui/react/components/EditorModal.tsx` via `apiDocsMarkup.ts`) and
+contract, then run `npm run docs:generate` from the workspace root to refresh
+`engine/docs/generated/api-v2.md` and `engine/docs/generated/agent-api-v2.md`.
+Run `python3 tools/sync_server_contracts.py` from the workspace root to copy
+the public Agent references into `server/space/agent/`; use `--check` to detect
+drift. The in-game reference (`src/ui/react/components/EditorModal.tsx` via
+`apiDocsMarkup.ts`) and
 the Agent system prompt (`src/engine/contraption/AgentChat.ts`) consume the same
 contract, so there is no separate API copy in `index.html`.
 
 Multiplayer protocol changes update
-`entropydrop_backend/space/contracts/protocol.proto` (linted by
-`space/contracts/buf.yaml` and compile-checked in
-`entropydrop_backend/tests/test_space_contracts.py`), the storage design in
-`entropydrop_backend/docs/space-backend.md`, and
-`entropydrop_backend/tests/test_space_contracts.py` together. The realtime
-WebSocket channel is still the transitional `space-relay-v1` MessagePack relay;
+`server/space/contracts/protocol.proto` (linted by
+`server/space/contracts/buf.yaml`), the storage design in
+`server/docs/space-backend.md`, and `server/tests/test_space_contracts.py`
+together. The realtime WebSocket channel is still the transitional
+`space-relay-v1` MessagePack relay;
 the `space.multiplayer.v2` protobuf contract is the target authoritative
 protocol and is not yet compiled or implemented. Do not describe it as live.
 `protocol.proto` must stay `buf lint` clean (run
-`cd space/contracts && buf lint`, using the sibling engine's pinned
+`cd server/space/contracts && buf lint`, using the workspace's pinned
 `@bufbuild/buf` if buf is not installed).
 
 Changing a `space-relay-v1` frame (field names, types, or the 4096-byte inbound
 limit) requires regenerating the shared wire fixture: run
-`node tools/generate-relay-fixtures.mjs`, copy
-`test/fixtures/space-relay-v1.json` to
-`entropydrop_backend/tests/fixtures/space-relay-v1.json`, and update
-`docs/networking.md`. The contract tests on both sides
-(`test/space-relay-v1.test.ts`,
-`entropydrop_backend/tests/test_space_relay_contract.py`) fail on drift.
+`node client/tools/generate-relay-fixtures.mjs` from the workspace root, copy
+`client/test/fixtures/space-relay-v1.json` to
+`server/tests/fixtures/space-relay-v1.json`, and update
+`client/docs/networking.md`. The contract tests on both sides
+(`client/test/space-relay-v1.test.ts`,
+`server/tests/test_space_relay_contract.py`) fail on drift.
 
 ## Security-sensitive boundaries
 

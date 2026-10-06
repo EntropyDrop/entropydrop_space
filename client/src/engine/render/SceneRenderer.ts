@@ -1,3 +1,7 @@
+import { getInventoryPreviewBlocks, previewVector3 } from '../inventory/InventoryGeometry.ts';
+export { getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
+import { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
+export { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
 import { SpaceRenderer } from './SpaceRenderer.ts';
 import { TransformGizmo, TRANSFORM_GIZMO_ROTATION_RADIUS } from './TransformGizmo.ts';
 import { warmTerrainPipelines } from './TerrainPipelineWarmup.ts';
@@ -31,7 +35,6 @@ import {
 import { MAX_SELECTION_BEND_SEGMENTS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 
 export const ENTITY_PREVIEW_LAYER = 1;
-export const ENTITY_PREVIEW_FORCE_LIMIT_RATIO = 0.72;
 export const ENTITY_PREVIEW_MAX_FPS = 30;
 const ENTITY_PREVIEW_FRAME_INTERVAL_MS = 1000 / ENTITY_PREVIEW_MAX_FPS;
 /** Invisible pick-sphere radius for a selection axis handle, in metres (pre-scale). */
@@ -143,172 +146,6 @@ function updateTorusSelectionBoxGeometry(fill, edges, sizeX, sizeY, sizeZ) {
   fill.geometry = box;
   edges.geometry = outline;
   fill.userData.torusSelectionSegments = signature;
-}
-
-function previewVector3(value, fallback = new THREE.Vector3()) {
-  if (value?.isVector3) return value.clone();
-  if (Array.isArray(value)) {
-    return new THREE.Vector3(Number(value[0]) || 0, Number(value[1]) || 0, Number(value[2]) || 0);
-  }
-  return fallback.clone();
-}
-
-function previewQuaternion(value) {
-  if (value?.isQuaternion) return value.clone().normalize();
-  if (Array.isArray(value) && value.length >= 4) {
-    const components = value.slice(0, 4).map(Number);
-    if (components.every(Number.isFinite)) {
-      const quaternion = new THREE.Quaternion(
-        components[0], components[1], components[2], components[3]
-      );
-      if (quaternion.lengthSq() > 1e-12) return quaternion.normalize();
-    }
-    return new THREE.Quaternion();
-  }
-  if (Array.isArray(value) && value.length >= 3) {
-    return new THREE.Quaternion().setFromEuler(new THREE.Euler(
-      Number(value[0]) || 0,
-      Number(value[1]) || 0,
-      Number(value[2]) || 0,
-      'XYZ'
-    ));
-  }
-  return new THREE.Quaternion();
-}
-
-/**
- * Convert either inventory format into voxel instances relative to the exact
- * placement origin. Entity component transforms mirror Contraption's initial
- * hierarchy, so articulated copies preview in the same pose they build in.
- */
-export function getInventoryPreviewBlocks(slot, includeDecorations = false): any[] {
-  if (slot?.kind === 'item') {
-    return [
-      ...getInventoryPreviewBlocks(slot.blockSet, includeDecorations),
-      ...(slot.entityList || []).flatMap(entity => {
-        const position = new THREE.Vector3().fromArray(entity.itemPosition || [0, 0, 0]);
-        const rotation = new THREE.Quaternion().fromArray(entity.itemRotation || [0, 0, 0, 1]);
-        return getInventoryPreviewBlocks(entity, includeDecorations).map(entry => ({
-          ...entry, center: entry.center.clone().applyQuaternion(rotation).add(position),
-          ...(entry.quaternion ? { quaternion: rotation.clone().multiply(entry.quaternion) } : {}),
-        }));
-      }),
-    ];
-  }
-  if (!slot || !Array.isArray(slot.blocks)) return [];
-  if (slot.kind === 'blockset') {
-    return slot.blocks.map(block => ({
-      center: new THREE.Vector3(
-        Number(block.dx) + (Number(block.size) || 1) / 2,
-        Number(block.dy) + (Number(block.size) || 1) / 2,
-        Number(block.dz) + (Number(block.size) || 1) / 2
-      ),
-      size: Number(block.size) || 1,
-      color: block.color,
-      materialId: block.materialId
-    }));
-  }
-
-  if (slot.blocks.length === 0) return [];
-  const rootComponentId = String(slot.rootComponentId || '');
-  if (!rootComponentId) return [];
-  const sourceChildIds = new Set((slot.childEntities || []).map(definition => definition.id));
-  const blocks = slot.blocks.map(block => ({
-    ...block,
-    entityId: block.entityId ?? rootComponentId
-  }));
-  const definitions = (slot.childEntities || []).map(definition => ({
-    ...definition,
-    parentId: sourceChildIds.has(definition.parentId)
-      ? definition.parentId
-      : rootComponentId
-  })).filter(definition => definition.id !== rootComponentId);
-
-  let minX = Infinity, minY = Infinity, minZ = Infinity;
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-  for (const block of blocks) {
-    const x = Number(block.localX);
-    const y = Number(block.localY);
-    const z = Number(block.localZ);
-    const size = Number(block.size) || 1;
-    minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z);
-    maxX = Math.max(maxX, x + size); maxY = Math.max(maxY, y + size); maxZ = Math.max(maxZ, z + size);
-  }
-  const defaultRootPivot = new THREE.Vector3(
-    (minX + maxX) / 2,
-    (minY + maxY) / 2,
-    (minZ + maxZ) / 2
-  );
-  const rootPivot = previewVector3(slot.rootPivotOverride, defaultRootPivot);
-  const rootMatrix = new THREE.Matrix4().makeTranslation(rootPivot.x, rootPivot.y, rootPivot.z);
-  const nodes = new Map([[rootComponentId, { pivot: rootPivot, matrix: rootMatrix }]]);
-  const pending = [...definitions];
-  let guard = pending.length + 1;
-  while (pending.length > 0 && guard-- > 0) {
-    let progressed = false;
-    for (let index = pending.length - 1; index >= 0; index--) {
-      const definition = pending[index];
-      const parent = nodes.get(definition.parentId);
-      if (!parent) continue;
-      const pivot = previewVector3(definition.pivot, rootPivot);
-      const defaultPosition = pivot.clone().sub(parent.pivot);
-      const localPosition = previewVector3(definition.localPosition, defaultPosition);
-      const localMatrix = new THREE.Matrix4().compose(
-        localPosition,
-        previewQuaternion(definition.localRotation),
-        new THREE.Vector3(1, 1, 1)
-      );
-      nodes.set(definition.id, {
-        pivot,
-        matrix: new THREE.Matrix4().multiplyMatrices(parent.matrix, localMatrix)
-      });
-      pending.splice(index, 1);
-      progressed = true;
-    }
-    if (!progressed) break;
-  }
-
-  // Match Contraption's safe fallback for invalid/cyclic parents.
-  for (const definition of pending) {
-    const pivot = previewVector3(definition.pivot, rootPivot);
-    const localMatrix = new THREE.Matrix4().makeTranslation(
-      pivot.x - rootPivot.x,
-      pivot.y - rootPivot.y,
-      pivot.z - rootPivot.z
-    );
-    nodes.set(definition.id, {
-      pivot,
-      matrix: new THREE.Matrix4().multiplyMatrices(rootMatrix, localMatrix)
-    });
-  }
-
-  const result = blocks.flatMap(block => {
-    const node = nodes.get(block.entityId ?? rootComponentId);
-    if (!node) return [];
-    const size = Number(block.size) || 1;
-    const center = new THREE.Vector3(
-      Number(block.localX) + size / 2,
-      Number(block.localY) + size / 2,
-      Number(block.localZ) + size / 2
-    ).sub(node.pivot).applyMatrix4(node.matrix);
-    return [{ center, size, color: block.color, materialId: block.materialId }];
-  });
-  if (!includeDecorations) return result;
-  const decorations: any[] = [];
-  for (const definition of [{ id: rootComponentId, decorations: slot.decorations }, ...definitions]) {
-    const node = nodes.get(definition.id);
-    if (!node) continue;
-    for (const value of definition.decorations || []) {
-      decorations.push({
-        center: new THREE.Vector3().fromArray(value.position || [0, 0, 0]).sub(node.pivot).applyMatrix4(node.matrix),
-        size: 1, color: value.color, materialId: value.materialId, decoration: true,
-        scale: new THREE.Vector3().fromArray(value.scale || [1, 1, 1]),
-        quaternion: new THREE.Quaternion().setFromRotationMatrix(node.matrix)
-          .multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1])),
-      });
-    }
-  }
-  return [...result, ...decorations];
 }
 
 /**
@@ -578,52 +415,6 @@ export function buildUnifiedInventoryPreviewMesh(entries) {
   wireGeometry.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
 
   return { fillGeometry, wireGeometry, patchCount };
-}
-
-export function calculatePreviewDragForce(
-  cameraQuaternion,
-  deltaX,
-  deltaY,
-  maxForce,
-  flatReferencePoint = null
-) {
-  const dx = Number(deltaX) || 0;
-  const dy = Number(deltaY) || 0;
-  const dragLength = Math.hypot(dx, dy);
-  const safeMaxForce = Math.max(0, Number(maxForce) || 0);
-  const forceLimit = safeMaxForce * ENTITY_PREVIEW_FORCE_LIMIT_RATIO;
-  if (dragLength < 0.5 || forceLimit <= 0) return new THREE.Vector3();
-
-  const orientation = cameraQuaternion?.isQuaternion
-    ? cameraQuaternion
-    : new THREE.Quaternion();
-  const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(orientation);
-  const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
-  // The preview camera lives in the torus-bent render space, while physics
-  // forces live in the flat simulation space. Convert both screen axes back at
-  // the grabbed point before composing the force; otherwise the displayed
-  // arrow rotates with the entity's position around the torus.
-  if (flatReferencePoint?.isVector3) {
-    unbendDirection(
-      flatReferencePoint.x,
-      flatReferencePoint.y,
-      flatReferencePoint.z,
-      cameraRight,
-      cameraRight
-    ).normalize();
-    unbendDirection(
-      flatReferencePoint.x,
-      flatReferencePoint.y,
-      flatReferencePoint.z,
-      cameraUp,
-      cameraUp
-    ).normalize();
-  }
-  const direction = cameraRight.multiplyScalar(dx)
-    .addScaledVector(cameraUp, -dy)
-    .normalize();
-  const magnitude = Math.min(forceLimit, (dragLength / 140) * forceLimit);
-  return direction.multiplyScalar(magnitude);
 }
 
 export function calculateEntityPreviewCameraPose(contraption, aspect = 1, fov = 42) {

@@ -1,8 +1,21 @@
+import {
+  SpecialTool, RESERVED_ENTITY_INPUT_CODES, isPerspectiveToggleCode, type PlayerPerspective,
+} from './ControlBindings.ts';
+import {
+  getInventoryPreviewBlocks, withinEntityBounds, validateVoxelOccupancy, STOPPED_GRID_EPSILON,
+} from '../inventory/InventoryGeometry.ts';
+import {
+  inventoryEntityRootId, inventoryItemName, serializeInventoryItem, encodeInventoryItem,
+} from '../inventory/InventorySerialization.ts';
+import { parseInventoryImport } from '../inventory/InventoryImport.ts';
+// Keep existing imports working while new consumers use the owning modules directly.
+export { SpecialTool, RESERVED_ENTITY_INPUT_CODES, isPerspectiveToggleCode, type PlayerPerspective } from './ControlBindings.ts';
+export { withinEntityBounds, validateVoxelOccupancy } from '../inventory/InventoryGeometry.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import { ModelingTool } from './ModelingTool.ts';
 import { normalizeDecorations, offsetDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
-import { MAX_INVENTORY_NAME_LENGTH, trimInventoryName, inventoryNameLength, truncateInventoryName } from '@entropydrop/space-engine/storage/InventoryName.ts';
+import { trimInventoryName, truncateInventoryName } from '@entropydrop/space-engine/storage/InventoryName.ts';
 import { BlockTypes, colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import {
   normalizeVoxelMaterialId,
@@ -16,17 +29,12 @@ import {
 } from '@entropydrop/space-engine/voxel/Palette.ts';
 import {
   BodyType,
-  ContraptionMode,
-  isValidComponentId,
-  isValidConstraintId
+  ContraptionMode
 } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import {
   MAX_ENTITY_BOUNDS,
   MAX_ENTITY_COMPONENTS,
-  MAX_ENTITY_DECORATIONS,
   MAX_SELECTION_BOUNDS,
-  MAX_IMPORT_COORDINATE,
-  MAX_PORTABLE_VECTOR_COMPONENT,
   MAX_ENTITY_BLOCKS,
   MAX_INVENTORY_BLOCKS,
   MAX_SELECTION_BLOCKS,
@@ -36,9 +44,6 @@ import {
   MAX_INVENTORY_SCRIPT_BYTES,
   MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
   MAX_ENTITY_TOTAL_SCRIPT_BYTES,
-  MAX_INVENTORY_CONSTRAINTS,
-  MAX_PORTABLE_BODY_MASS,
-  MAX_PORTABLE_CONSTRAINT_VALUE,
   BULK_EDIT_THRESHOLD,
   BULK_EDIT_MAX_OPERATIONS_PER_FRAME
 } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
@@ -58,8 +63,11 @@ import {
   TORUS_GREF, TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z,
   wrapMicroX, wrapMicroZ
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
-import { calculatePreviewDragForce, getInventoryPreviewBlocks, WRENCH_GIZMO_ROTATION_RADIUS } from '../render/SceneRenderer.ts';
-import { transformViewCamera, transformScreenPoint, transformGizmoSize } from '../render/TransformGizmo.ts';
+import { calculatePreviewDragForce } from './PreviewDragForce.ts';
+import {
+  TRANSFORM_GIZMO_ROTATION_RADIUS as WRENCH_GIZMO_ROTATION_RADIUS,
+  transformViewCamera, transformScreenPoint, transformGizmoSize,
+} from '../render/TransformGizmo.ts';
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
 import { type SelectorShape, type StairsOrientation, computeSelectionCells } from './SelectorShapes.ts';
@@ -71,40 +79,18 @@ import {
   newItemTemplateId,
   wrapLegacyInventoryResource,
   MAX_BACKPACK_ITEM_SLOTS,
-  decodeInventoryResource,
   encodeBackpack,
   encodeInventoryResource,
   INVENTORY_PROTOBUF_SCHEMA_VERSION,
   BACKPACK_PROTOBUF_SCHEMA_VERSION,
   MAX_BACKPACK_SLOTS_PER_CATEGORY,
-  portableEntityToRuntime,
   protobufFromBase64,
   protobufToBase64,
-  runtimeEntityToPortable,
   type InventoryKind,
   type PortableBackpack,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { PLAYER_GRAVITY_MPS2, PLAYER_MASS_KG } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
 import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
-
-// Global editor/game commands stay engine-owned and are not exposed to entity
-// programs, avoiding collisions between scripts and C/V/tool shortcuts.
-export const RESERVED_ENTITY_INPUT_CODES = new Set([
-  'Escape',
-  'Backspace', 'Delete',
-  'F3', 'F5',
-  'KeyC', 'KeyE', 'KeyF', 'KeyG', 'KeyR', 'KeyV',
-  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5',
-  'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'
-]);
-
-export function isPerspectiveToggleCode(code: string) {
-  return code === 'F3' || code === 'F5';
-}
-
-export type PlayerPerspective = 'first_person' | 'third_person' | 'third_person_front';
-
-const HEX_COLOR = /^#?[0-9a-f]{6}$/i;
 
 const INVENTORY_STORAGE_KEY = 'space.backpack.v10.pb';
 const PREVIOUS_INVENTORY_STORAGE_KEY = 'space.backpack.v9.pb';
@@ -118,7 +104,6 @@ const ENTITY_PLACEMENT_SUPPORT_SAMPLE_LIMIT = 256;
 const ENTITY_PLACEMENT_EPSILON = 1e-5;
 const ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS = MAX_ENTITY_BOUNDS * MICRO_DIVISIONS;
 const ENTITY_TARGET_PLACEMENT_BUCKET_SIZE = 2;
-const STOPPED_GRID_EPSILON = 1e-6;
 const INTERACTIVE_ENTITY_EDIT_ACTIONS = new Set([
   'place-standard', 'remove-standard', 'paint-standard',
   'place-micro', 'remove-micro', 'paint-micro',
@@ -137,54 +122,6 @@ const WRENCH_GRAB_RESPONSE = 8;
 const WRENCH_GRAB_MAX_ACCELERATION = 36;
 const WRENCH_GRAB_MAX_TARGET_SPEED = 10;
 const WRENCH_GRAB_MAX_SPEED = 14;
-
-/** True when voxels along any axis do not exceed MAX_ENTITY_BOUNDS (256). */
-export function withinEntityBounds(blocks: any[], keys: string[], ownerKey: string | null = null): boolean {
-  const groups = new Map();
-  for (const block of blocks) {
-    const owner = ownerKey ? String(block[ownerKey] ?? '') : 'resource';
-    if (!groups.has(owner)) groups.set(owner, []);
-    groups.get(owner).push(block);
-  }
-  for (const group of groups.values()) {
-    for (let axis = 0; axis < 3; axis++) {
-      let min = Number.POSITIVE_INFINITY;
-      let max = Number.NEGATIVE_INFINITY;
-      for (const block of group) {
-        const value = Math.floor(Number(block[keys[axis]]) + 1e-6);
-        min = Math.min(min, value);
-        max = Math.max(max, value);
-      }
-      if (max - min + 1 > MAX_ENTITY_BOUNDS) return false;
-    }
-  }
-  return true;
-}
-
-/** True when no duplicate voxels exist and standard and micro voxels do not share cells. */
-export function validateVoxelOccupancy(blocks: any[], coordinateKeys: string[], ownerKey: string | null = null): boolean {
-  const standardCells = new Set();
-  const microCells = new Set();
-  const microParents = new Set();
-  for (const block of blocks) {
-    const owner = ownerKey ? String(block[ownerKey] ?? '') : 'resource';
-    const coordinates = coordinateKeys.map(key => Number(block[key]));
-    const base = coordinates.map(value => Math.floor(value + 1e-6));
-    const isMicro = Number(block.size) < 1;
-    const parentKey = `${owner}:${base.join(',')}`;
-    const fine = coordinates.map(value => Math.round(value * MICRO_DIVISIONS));
-    if (isMicro) {
-      const key = `${owner}:${fine.join(',')}`;
-      if (standardCells.has(parentKey) || microCells.has(key)) return false;
-      microCells.add(key);
-      microParents.add(parentKey);
-    } else {
-      if (standardCells.has(parentKey) || microParents.has(parentKey)) return false;
-      standardCells.add(parentKey);
-    }
-  }
-  return true;
-}
 
 /** Yaw of a rotation whose forward axis is -Z, using the camera's YXZ order. */
 function quaternionForwardYaw(quaternion: any, fallback = 0): number {
@@ -249,22 +186,6 @@ function contraptionBlockOwnerId(contraption: any, block: any): string {
     : String(block.entityId);
 }
 
-function inventoryEntityRootId(item: any): string {
-  if (typeof item?.rootComponentId === 'string' && item.rootComponentId) return item.rootComponentId;
-  const definitions = Array.isArray(item?.childEntities) ? item.childEntities : [];
-  const childIds = new Set(definitions.map(definition => String(definition?.id ?? '')));
-  const candidates = new Set<string>();
-  for (const block of item?.blocks || []) {
-    const owner = block?.entityId;
-    if (typeof owner === 'string' && owner && !childIds.has(owner)) candidates.add(owner);
-  }
-  for (const definition of definitions) {
-    const parentId = definition?.parentId;
-    if (typeof parentId === 'string' && parentId && !childIds.has(parentId)) candidates.add(parentId);
-  }
-  return candidates.size === 1 ? [...candidates][0] : '';
-}
-
 type EntityPlacementEntry = { center: THREE.Vector3; size: number };
 type EntityPlacementObb = {
   center: THREE.Vector3;
@@ -273,93 +194,6 @@ type EntityPlacementObb = {
   min: THREE.Vector3;
   max: THREE.Vector3;
 };
-
-function isStoppedGridQuaternion(value): boolean {
-  if (value === undefined) return true;
-  if (!Array.isArray(value) || value.length !== 4) return false;
-  const components = value.map(Number);
-  if (!components.every(Number.isFinite)) return false;
-  const quaternion = new THREE.Quaternion(
-    components[0], components[1], components[2], components[3]
-  );
-  if (quaternion.lengthSq() <= 1e-12) return false;
-  quaternion.normalize();
-  return [
-    new THREE.Vector3(1, 0, 0),
-    new THREE.Vector3(0, 1, 0),
-    new THREE.Vector3(0, 0, 1)
-  ].every(axis => axis.applyQuaternion(quaternion).toArray().every(component => (
-    Math.abs(component - Math.round(component)) <= STOPPED_GRID_EPSILON
-    && Math.abs(Math.round(component)) <= 1
-  )));
-}
-
-function validateStoppedEntityGrid(slot): string | null {
-  if (!isStoppedGridQuaternion(slot?.anchorRotation)) {
-    return 'Root anchor rotation must be one of the 24 axis-aligned 90-degree rotations';
-  }
-  for (const definition of slot?.childEntities || []) {
-    if (!isStoppedGridQuaternion(definition?.localRotation)) {
-      return `Component ${String(definition?.id || '')} local rotation must use 90-degree grid steps`;
-    }
-    if (!isStoppedGridQuaternion(definition?.anchorRotation)) {
-      return `Component ${String(definition?.id || '')} anchor rotation must use 90-degree grid steps`;
-    }
-  }
-
-  const entries = getInventoryPreviewBlocks({ ...slot, kind: 'entity' });
-  if (entries.length !== (slot?.blocks || []).length) {
-    return 'Stopped entity hierarchy does not resolve every voxel';
-  }
-  return validateInventoryVoxelBounds(entries, true);
-}
-
-/** Validate occupancy in micro-grid units, allowing an Item's Entity origins to be fractional. */
-function validateInventoryVoxelBounds(entries, requireGridAlignment: boolean): string | null {
-  type VoxelBox = [number, number, number, number, number, number];
-  const buckets = new Map<string, VoxelBox[]>();
-  for (const entry of entries) {
-    const size = Number(entry?.size) || 1;
-    const bounds = [
-      (Number(entry?.center?.x) - size / 2) * MICRO_DIVISIONS,
-      (Number(entry?.center?.y) - size / 2) * MICRO_DIVISIONS,
-      (Number(entry?.center?.z) - size / 2) * MICRO_DIVISIONS,
-      (Number(entry?.center?.x) + size / 2) * MICRO_DIVISIONS,
-      (Number(entry?.center?.y) + size / 2) * MICRO_DIVISIONS,
-      (Number(entry?.center?.z) + size / 2) * MICRO_DIVISIONS
-    ];
-    const box = (requireGridAlignment ? bounds.map(Math.round) : bounds) as VoxelBox;
-    if (bounds.some((value, index) => (
-      !Number.isFinite(value) || (requireGridAlignment && Math.abs(value - box[index]) > STOPPED_GRID_EPSILON)
-    ))) {
-      return 'Stopped entity voxels must align to the 0.125-unit construction grid';
-    }
-    const [minX, minY, minZ, maxX, maxY, maxZ] = box;
-    const keys: string[] = [];
-    for (let x = Math.floor(minX / MICRO_DIVISIONS); x <= Math.floor((maxX - STOPPED_GRID_EPSILON) / MICRO_DIVISIONS); x++) {
-      for (let y = Math.floor(minY / MICRO_DIVISIONS); y <= Math.floor((maxY - STOPPED_GRID_EPSILON) / MICRO_DIVISIONS); y++) {
-        for (let z = Math.floor(minZ / MICRO_DIVISIONS); z <= Math.floor((maxZ - STOPPED_GRID_EPSILON) / MICRO_DIVISIONS); z++) {
-          keys.push(`${x},${y},${z}`);
-        }
-      }
-    }
-    for (const key of keys) {
-      for (const other of buckets.get(key) || []) {
-        if (Math.min(maxX, other[3]) - Math.max(minX, other[0]) > STOPPED_GRID_EPSILON
-          && Math.min(maxY, other[4]) - Math.max(minY, other[1]) > STOPPED_GRID_EPSILON
-          && Math.min(maxZ, other[5]) - Math.max(minZ, other[2]) > STOPPED_GRID_EPSILON) {
-          return 'Stopped entity components contain overlapping voxels';
-        }
-      }
-    }
-    for (const key of keys) {
-      const bucket = buckets.get(key);
-      if (bucket) bucket.push(box);
-      else buckets.set(key, [box]);
-    }
-  }
-  return null;
-}
 
 type EntityPlacementShape = {
   blocksRef: any[];
@@ -395,18 +229,6 @@ type BulkEditJob = {
   detail?: string | ((job: BulkEditJob) => string);
   step: (index: number, job: BulkEditJob) => number | void;
   finish?: (job: BulkEditJob) => void;
-};
-
-export const SpecialTool = {
-  SELECTOR: 'selector',     // 1. Selector (world/component selection and copy)
-  HAMMER: 'hammer',         // 2. Hammer (preview/place inventory items)
-  WRENCH: 'wrench',         // 3. Wrench (show pivot XYZ, hold to grab, right start/stop)
-  SHOVEL: 'shovel',         // 4. Shovel (remove / place 1x1x1 standard blocks)
-  SPOON: 'spoon',           // 5. Spoon (carve 8x8x8 micro voxels)
-  BRUSH: 'brush',           // 6. Brush (repaint block colors)
-  MODELING: 'modeling',     // 7. Modeling (visual-only decoration cubes)
-  PIPETTE: 'pipette',       // Legacy alias; color sampling is part of Brush
-  SUPER_GLUE: 'selector'    // alias for backwards compatibility
 };
 
 export class PlayerController {
@@ -7940,16 +7762,7 @@ export class PlayerController {
 
   /** Display name for a backpack item. Names are intentionally not unique. */
   inventoryItemName(category, item, index = 0) {
-    const explicitName = typeof item?.name === 'string' ? trimInventoryName(item.name) : '';
-    if (explicitName) return truncateInventoryName(explicitName);
-    if (category === 'item') return `Item ${index + 1}`;
-    if (category === 'blockset') {
-      return `Block set ${index + 1}`;
-    }
-    if (category === 'entity') {
-      return String(item?.rootComponentId || `Entity ${index + 1}`);
-    }
-    return `Color set ${index + 1}`;
+    return inventoryItemName(category, item, index);
   }
 
   /** Rename one item. Duplicate and empty names are allowed within and across categories. */
@@ -8140,609 +7953,18 @@ export class PlayerController {
 
   /** Build the portable object that is encoded into Protobuf storage or transfer. */
   serializeInventoryItem(category, item) {
-    if (!item) return null;
-    if (category === 'item') {
-      if (item.kind !== 'item') return this.serializeInventoryItem(item.kind || 'entity', item);
-      return {
-        type: 'space-item', version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
-        id: item.id || newItemTemplateId(), name: this.inventoryItemName('item', item),
-        ...(item.blockSet ? { blockSet: this.serializeInventoryItem('blockset', item.blockSet) } : {}),
-        entityList: (item.entityList || []).map(entity => {
-          const portable = this.serializeInventoryItem('entity', entity);
-          if (entity.itemPosition?.some(value => value !== 0)) portable.root.localPosition = [...entity.itemPosition];
-          if (entity.itemRotation?.some((value, index) => value !== (index === 3 ? 1 : 0))) portable.root.localRotation = [...entity.itemRotation];
-          return portable;
-        }),
-      };
-    }
-    if (category === 'blockset') {
-      return {
-        type: 'space-blockset',
-        version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
-        name: this.inventoryItemName('blockset', item),
-        blocks: (item.blocks || []).map(b => {
-          const shared = {
-            block: BlockTypes.COLOR_BLOCK,
-            color: normalizeColor(b.color ?? 0xf2a93b),
-            materialId: normalizeVoxelMaterialId(b.materialId)
-          };
-          if ((b.size ?? 1) < 1) {
-            // Block-set files keep every coordinate integral. dx/dy/dz select
-            // the standard cell; mx/my/mz select one of its 8 subdivisions.
-            const microX = Math.round(Number(b.dx) * MICRO_DIVISIONS);
-            const microY = Math.round(Number(b.dy) * MICRO_DIVISIONS);
-            const microZ = Math.round(Number(b.dz) * MICRO_DIVISIONS);
-            const dx = Math.floor(microX / MICRO_DIVISIONS);
-            const dy = Math.floor(microY / MICRO_DIVISIONS);
-            const dz = Math.floor(microZ / MICRO_DIVISIONS);
-            return {
-              dx,
-              dy,
-              dz,
-              mx: microX - dx * MICRO_DIVISIONS,
-              my: microY - dy * MICRO_DIVISIONS,
-              mz: microZ - dz * MICRO_DIVISIONS,
-              ...shared
-            };
-          }
-          return {
-            dx: Math.round(Number(b.dx)),
-            dy: Math.round(Number(b.dy)),
-            dz: Math.round(Number(b.dz)),
-            ...shared
-          };
-        })
-      };
-    }
-    if (category === 'entity') {
-      const rootComponentId = inventoryEntityRootId(item);
-      const vector3 = value => Array.isArray(value) && value.length >= 3
-        && value.slice(0, 3).every(component => Number.isFinite(Number(component)))
-        ? value.slice(0, 3).map(Number)
-        : undefined;
-      const quaternion4 = value => Array.isArray(value) && value.length >= 4
-        && value.slice(0, 4).every(component => Number.isFinite(Number(component)))
-        && value.slice(0, 4).reduce((sum, component) => sum + Number(component) ** 2, 0) > 1e-12
-        ? new THREE.Quaternion(...value.slice(0, 4).map(Number) as [number, number, number, number]).normalize().toArray()
-        : undefined;
-      const optionalNumber = value => value !== null && value !== undefined && Number.isFinite(Number(value))
-        ? Number(value)
-        : undefined;
-      // Seats accept the legacy `[x,y,z]` shorthand and the current object form.
-      // A missing rotation stays implicit so plain seats round trip unchanged;
-      // an unusable one drops the seat exactly like an unusable position.
-      const portableSeat = seat => {
-        const position = vector3(Array.isArray(seat) ? seat : seat?.position);
-        if (!position) return null;
-        if (Array.isArray(seat)) return { position };
-        const rotation = quaternion4(seat.rotation);
-        if (seat.rotation !== undefined && seat.rotation !== null && !rotation) return null;
-        return {
-          position,
-          ...(rotation ? { rotation } : {}),
-          ...(seat.fixedOrientation === true ? { fixedOrientation: true } : {})
-        };
-      };
-      const portableSeats = seats => (seats || []).flatMap(seat => {
-        const parsed = portableSeat(seat);
-        return parsed ? [parsed] : [];
-      });
-      const childEntities = (item.childEntities || []).map(definition => ({
-        id: String(definition.id || ''),
-        name: typeof definition.name === 'string' ? truncateInventoryName(trimInventoryName(definition.name)) : '',
-        parentId: String(definition.parentId ?? ''),
-        ...(definition.collisionEnabled === false ? { collisionEnabled: false } : {}),
-        ...(typeof definition.useGravity === 'boolean' ? { useGravity: definition.useGravity } : {}),
-        ...(vector3(definition.pivot) ? { pivot: vector3(definition.pivot) } : {}),
-        ...(vector3(definition.localPosition) ? { localPosition: vector3(definition.localPosition) } : {}),
-        ...(quaternion4(definition.localRotation) ? { localRotation: quaternion4(definition.localRotation) } : {}),
-        ...(quaternion4(definition.anchorRotation) ? { anchorRotation: quaternion4(definition.anchorRotation) } : {}),
-        ...(['dynamic', 'kinematic'].includes(definition.bodyType) ? { bodyType: definition.bodyType } : {}),
-        ...(optionalNumber(definition.mass) !== undefined ? { mass: optionalNumber(definition.mass) } : {}),
-        ...(optionalNumber(definition.restitution) !== undefined ? { restitution: optionalNumber(definition.restitution) } : {}),
-        ...(optionalNumber(definition.friction) !== undefined ? { friction: optionalNumber(definition.friction) } : {}),
-        seats: portableSeats(definition.seats),
-        ...(definition.decorations?.length ? { decorations: normalizeDecorations(definition.decorations) } : {})
-      }));
-      const constraints = (item.constraints || []).map(constraint => ({
-        id: String(constraint.id || ''),
-        type: ['point', 'hinge', 'weld'].includes(constraint.type) ? constraint.type : 'point',
-        bodyA: constraint.bodyA == null ? null : String(constraint.bodyA),
-        bodyB: String(constraint.bodyB || constraint.nodeId || ''),
-        ...(vector3(constraint.anchorA) ? { anchorA: vector3(constraint.anchorA) } : {}),
-        ...(vector3(constraint.anchorB) ? { anchorB: vector3(constraint.anchorB) } : {}),
-        ...(vector3(constraint.axisA) ? { axisA: vector3(constraint.axisA) } : {}),
-        ...(vector3(constraint.axisB) ? { axisB: vector3(constraint.axisB) } : {}),
-        ...(vector3(constraint.referenceA) ? { referenceA: vector3(constraint.referenceA) } : {}),
-        ...(vector3(constraint.referenceB) ? { referenceB: vector3(constraint.referenceB) } : {}),
-        ...(constraint.limits && Number.isFinite(Number(constraint.limits.min))
-          && Number.isFinite(Number(constraint.limits.max))
-          ? { limits: { min: Number(constraint.limits.min), max: Number(constraint.limits.max) } }
-          : {}),
-        stiffness: Number.isFinite(Number(constraint.stiffness)) ? Number(constraint.stiffness) : 0.9,
-        collideConnected: constraint.collideConnected === true
-      }));
-      const rootPivotOverride = vector3(item.rootPivotOverride ?? item.pivot);
-      return runtimeEntityToPortable({
-        name: typeof item.name === 'string' ? truncateInventoryName(trimInventoryName(item.name)) : '',
-        rootComponentId,
-        blocks: (item.blocks || []).map(b => {
-          const shared = {
-            block: BlockTypes.COLOR_BLOCK,
-            color: normalizeColor(b.color ?? 0xf2a93b),
-            materialId: normalizeVoxelMaterialId(b.materialId),
-            entityId: b.entityId === undefined || b.entityId === null
-              ? rootComponentId
-              : String(b.entityId)
-          };
-          const x = Number(b.localX ?? b.dx);
-          const y = Number(b.localY ?? b.dy);
-          const z = Number(b.localZ ?? b.dz);
-          if ((b.size ?? 1) < 1) {
-            const microX = Math.round(x * MICRO_DIVISIONS);
-            const microY = Math.round(y * MICRO_DIVISIONS);
-            const microZ = Math.round(z * MICRO_DIVISIONS);
-            const dx = Math.floor(microX / MICRO_DIVISIONS);
-            const dy = Math.floor(microY / MICRO_DIVISIONS);
-            const dz = Math.floor(microZ / MICRO_DIVISIONS);
-            return {
-              dx,
-              dy,
-              dz,
-              mx: microX - dx * MICRO_DIVISIONS,
-              my: microY - dy * MICRO_DIVISIONS,
-              mz: microZ - dz * MICRO_DIVISIONS,
-              ...shared
-            };
-          }
-          return {
-            dx: Math.round(x),
-            dy: Math.round(y),
-            dz: Math.round(z),
-            ...shared
-          };
-        }),
-        childEntities,
-        scripts: (item.scripts || []).map(script => ({ id: String(script.id || ''), code: script.language === 'assemblyscript' ? String(script.code || '') : '', language: 'assemblyscript' })),
-        enabled: (item.enabled || []).map(entry => ({ id: String(entry.id || ''), enabled: entry.enabled === true })),
-        constraints,
-        ...(rootPivotOverride ? { rootPivotOverride } : {}),
-        ...(quaternion4(item.anchorRotation) ? { anchorRotation: quaternion4(item.anchorRotation) } : {}),
-        bodyType: item.bodyType,
-        mass: item.mass,
-        restitution: item.restitution,
-        friction: item.friction,
-        useGravity: item.useGravity,
-        collisionEnabled: item.collisionEnabled,
-        seats: portableSeats(item.seats),
-        ...(item.decorations?.length ? { decorations: normalizeDecorations(item.decorations) } : {})
-      });
-    }
-    if (category === 'colorset') {
-      return {
-        type: 'space-colorset',
-        version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
-        name: item.name || 'color set',
-        entries: (item.entries || item.colors?.map(color => ({ stops: [{ color, position: 0 }] })) || [])
-          .map(entry => normalizePaletteEntry(entry, item.name || 'Custom'))
-      };
-    }
-    return null;
+    return serializeInventoryItem(category, item);
   }
 
   encodeInventoryItem(category, item) {
-    const portable = this.serializeInventoryItem(category, item);
-    if (!portable) return null;
-    return encodeInventoryResource(inventoryKindForPortable(portable), portable);
+    return encodeInventoryItem(category, item);
   }
 
   /** Parse one Protobuf resource into a backpack item. Returns { ok, item, error }. */
   parseInventoryImport(input, category) {
-    const fail = error => ({ ok: false, error });
-    const encoded = input instanceof Uint8Array
-      ? input
-      : input instanceof ArrayBuffer
-        ? new Uint8Array(input)
-        : null;
-    if (!encoded) return fail('Import data must be a Protobuf binary file');
-    if (encoded.byteLength > MAX_INVENTORY_IMPORT_BYTES) {
-      return fail(`File exceeds ${MAX_INVENTORY_IMPORT_BYTES / (1024 * 1024)} MiB`);
-    }
-
-    let data;
-    try {
-      const decoded = decodeInventoryResource(encoded);
-      if (category === 'item') {
-        if (decoded.category === 'colorset') return fail('Expected item, received colorset');
-        data = wrapLegacyInventoryResource(decoded.category, decoded.portable);
-        if (data.type !== 'space-item') return this.parseInventoryImport(encoded, decoded.category);
-      } else {
-        if (decoded.category !== category) return fail(`Expected ${category}, received ${decoded.category}`);
-        data = decoded.portable;
-      }
-    } catch (err) {
-      return fail(err instanceof Error ? err.message : 'Not valid inventory Protobuf');
-    }
-
-    const validBaseCoordinates = values => values.every(value => (
-      Number.isSafeInteger(value) && Math.abs(value) <= MAX_IMPORT_COORDINATE
-    ));
-    const portableVector = (value, maxAbs = MAX_PORTABLE_VECTOR_COMPONENT) => {
-      if (value === undefined) return undefined;
-      if (!Array.isArray(value) || value.length !== 3) return null;
-      const vector = value.map(Number);
-      return vector.every(component => Number.isFinite(component) && Math.abs(component) <= maxAbs)
-        ? vector
-        : null;
-    };
-    // Unit-quaternion shape check without the stopped-grid restriction, which
-    // applies only to authored component local/anchor rotations.
-    const portableUnitQuaternion = value => {
-      if (value === undefined) return undefined;
-      if (!Array.isArray(value) || value.length !== 4) return null;
-      const components = value.map(Number);
-      const lengthSq = components.reduce((sum, component) => sum + component * component, 0);
-      const unitTolerance = Math.max(1e-6, 1e-6 * Math.max(Math.abs(lengthSq), 1));
-      if (!components.every(Number.isFinite)
-        || !Number.isFinite(lengthSq)
-        || Math.abs(lengthSq - 1) > unitTolerance) return null;
-      return new THREE.Quaternion(
-        components[0], components[1], components[2], components[3]
-      ).normalize().toArray();
-    };
-    const portableQuaternion = value => {
-      if (value === undefined) return undefined;
-      // The backend rejects components outside -1..1 before it even checks the
-      // norm, so an unnormalized rotation is mirrored here.
-      if (Array.isArray(value) && value.map(Number).some(component => component < -1 || component > 1)) {
-        return null;
-      }
-      const normalized = portableUnitQuaternion(value);
-      return normalized === null || normalized === undefined
-        ? null
-        : (isStoppedGridQuaternion(normalized) ? normalized : null);
-    };
-    const runtimeVoxel = (block, ownerId = null) => {
-      if (block?.block !== undefined && block.block !== BlockTypes.COLOR_BLOCK) {
-        throw new Error(`Inventory v${INVENTORY_PROTOBUF_SCHEMA_VERSION} supports only color block id 1`);
-      }
-      const color = Number(block?.color ?? 0xf2a93b);
-      if (!Number.isSafeInteger(color) || color < 0 || color > 0xffffff) {
-        throw new Error('Voxel color must be an unsigned 24-bit value');
-      }
-      const base = [block?.dx, block?.dy, block?.dz].map(Number);
-      if (!validBaseCoordinates(base)) throw new Error('Voxel coordinates must be bounded safe integers');
-      const microValues = [block?.mx, block?.my, block?.mz];
-      const hasMicro = microValues.some(value => value !== undefined);
-      let coordinates = base;
-      if (hasMicro) {
-        const micro = microValues.map(Number);
-        if (!micro.every(value => Number.isInteger(value) && value >= 0 && value < MICRO_DIVISIONS)) {
-          throw new Error('Micro coordinates mx/my/mz must all be integers between 0 and 7');
-        }
-        coordinates = base.map((value, index) => (
-          (value * MICRO_DIVISIONS + micro[index]) / MICRO_DIVISIONS
-        ));
-      }
-      const result = {
-        size: hasMicro ? 1 / MICRO_DIVISIONS : 1,
-        block: BlockTypes.COLOR_BLOCK,
-        color,
-        materialId: normalizeVoxelMaterialId(block.materialId),
-      };
-      if (ownerId !== null) {
-        return {
-          ...result,
-          localX: coordinates[0],
-          localY: coordinates[1],
-          localZ: coordinates[2],
-          entityId: ownerId
-        };
-      }
-      return { ...result, dx: coordinates[0], dy: coordinates[1], dz: coordinates[2] };
-    };
-
-    if (category === 'item') {
-      if (typeof data.id !== 'string' || !data.id.trim() || Array.from(data.id).length > 128) return fail('Item template id is invalid');
-      if (typeof data.name !== 'string' || inventoryNameLength(data.name) > MAX_INVENTORY_NAME_LENGTH) return fail('Item name is invalid');
-      const entityList = [];
-      let blockSet;
-      if (data.blockSet) {
-        const parsed = this.parseInventoryImport(encodeInventoryResource('blockset', data.blockSet), 'blockset');
-        if (!parsed.ok) return parsed;
-        blockSet = parsed.item;
-      }
-      let components = 0, constraints = 0, seats = 0, scriptBytes = 0, decorations = 0;
-      const count = component => {
-        components++;
-        seats += (component.seats || []).length;
-        decorations += (component.decorations || []).length;
-        scriptBytes += new TextEncoder().encode(component.script || '').byteLength;
-        for (const child of component.children || []) count(child);
-      };
-      for (const entity of data.entityList || []) {
-        const position = portableVector(entity.root?.localPosition, MAX_IMPORT_COORDINATE) || [0, 0, 0];
-        if (entity.root?.localPosition !== undefined && portableVector(entity.root.localPosition, MAX_IMPORT_COORDINATE) === null) return fail('Item entity position is invalid');
-        const rotation = entity.root?.localRotation === undefined ? [0, 0, 0, 1] : portableQuaternion(entity.root.localRotation);
-        if (!rotation) return fail('Item entity rotation must use 90-degree grid steps');
-        const definition = { ...entity, root: { ...entity.root } };
-        delete definition.root.localPosition;
-        delete definition.root.localRotation;
-        const parsed = this.parseInventoryImport(encodeInventoryResource('entity', definition), 'entity');
-        if (!parsed.ok) return parsed;
-        count(definition.root);
-        constraints += definition.constraints.length;
-        entityList.push({ ...parsed.item, itemPosition: position, itemRotation: rotation, itemWorldConstraints: true });
-      }
-      const blocks = [...(blockSet?.blocks || []), ...entityList.flatMap(entity => entity.blocks)];
-      if (!blocks.length || blocks.length > MAX_INVENTORY_BLOCKS) return fail('Item must contain between 1 and 65536 voxels');
-      if (components > MAX_ENTITY_COMPONENTS || constraints > MAX_INVENTORY_CONSTRAINTS || seats > 256 || scriptBytes > MAX_INVENTORY_TOTAL_SCRIPT_BYTES || decorations > MAX_ENTITY_DECORATIONS) return fail('Item exceeds aggregate component, constraint, seat, decoration or script limits');
-      const item = {
-        kind: 'item', id: data.id, name: trimInventoryName(data.name),
-        blockSet, entityList, blocks, blockCount: blocks.length, nodeCount: components,
-      };
-      const geometry = getInventoryPreviewBlocks(item);
-      const geometryError = validateInventoryVoxelBounds(geometry, false);
-      if (geometryError) return fail(geometryError);
-      for (const axis of ['x', 'y', 'z']) {
-        let minimum = Infinity, maximum = -Infinity;
-        for (const entry of geometry) {
-          minimum = Math.min(minimum, entry.center[axis] - entry.size / 2);
-          maximum = Math.max(maximum, entry.center[axis] + entry.size / 2);
-        }
-        if ((maximum - minimum) * MICRO_DIVISIONS > MAX_ENTITY_BOUNDS * MICRO_DIVISIONS + STOPPED_GRID_EPSILON) {
-          return fail('Item bounds exceed the portable bounds');
-        }
-      }
-      return { ok: true, item };
-    }
-
-    if (category === 'blockset') {
-      if (data?.type !== 'space-blockset' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
-        return fail(`Expected a space-blockset v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
-      }
-      if (typeof data.name !== 'string' || !trimInventoryName(data.name)) return fail('A block set must have a name');
-      if (inventoryNameLength(data.name) > MAX_INVENTORY_NAME_LENGTH) {
-        return fail(`A block set name may contain at most ${MAX_INVENTORY_NAME_LENGTH} characters`);
-      }
-      if (!Array.isArray(data.blocks) || data.blocks.length === 0) return fail('A block set must contain voxels');
-      if (data.blocks.length > MAX_INVENTORY_BLOCKS) {
-        return fail(`A block set may contain at most ${MAX_INVENTORY_BLOCKS} voxels`);
-      }
-      let blocks;
-      try {
-        blocks = data.blocks.map(block => runtimeVoxel(block));
-      } catch (error) {
-        return fail(error instanceof Error ? error.message : 'Invalid block set');
-      }
-      if (!withinEntityBounds(blocks, ['dx', 'dy', 'dz'])) {
-        return fail(`Block-set bounds may not exceed ${MAX_ENTITY_BOUNDS} cells per axis`);
-      }
-      if (!validateVoxelOccupancy(blocks, ['dx', 'dy', 'dz'])) {
-        return fail('Block set contains duplicate voxels or standard/micro overlap');
-      }
-      return {
-        ok: true,
-        item: {
-          kind: 'blockset',
-          name: truncateInventoryName(trimInventoryName(data.name)),
-          blocks,
-          blockCount: blocks.length
-        }
-      };
-    }
-
-    if (category === 'entity') {
-      if (data?.type !== 'space-entity' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION || !data.root) {
-        return fail(`Expected a recursive space-entity v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
-      }
-      if (Object.hasOwn(data, 'name')) return fail('Entity names belong to root.name');
-
-      const ids = new Set();
-      let componentCount = 0;
-      let blockCount = 0;
-      let seatCount = 0;
-      let decorationCount = 0;
-      let totalScriptBytes = 0;
-      const validateBody = (body, id) => {
-        if (!body || (body.type !== 'dynamic' && body.type !== 'kinematic')) {
-          throw new Error(`Component ${id} must have a valid body config`);
-        }
-        if (body.mass !== undefined) {
-          const mass = Number(body.mass);
-          if (!Number.isFinite(mass) || mass < 0.1 || mass > MAX_PORTABLE_BODY_MASS) {
-            throw new Error(`Component ${id} has invalid mass`);
-          }
-        }
-        for (const field of ['restitution', 'friction']) {
-          if (body[field] === undefined) continue;
-          const value = Number(body[field]);
-          if (!Number.isFinite(value) || value < 0 || value > 1) {
-            throw new Error(`Component ${id} has invalid ${field}`);
-          }
-        }
-        for (const field of ['useGravity', 'collisionEnabled']) {
-          if (body[field] !== undefined && typeof body[field] !== 'boolean') {
-            throw new Error(`Component ${id} has invalid ${field}`);
-          }
-        }
-      };
-      const validateComponent = (component, parentId, depth) => {
-        if (!component || typeof component !== 'object' || depth > 16) {
-          throw new Error('Component hierarchy is malformed or exceeds depth 16');
-        }
-        const id = component.id;
-        if (component.name !== undefined && (typeof component.name !== 'string'
-          || inventoryNameLength(component.name) > MAX_INVENTORY_NAME_LENGTH)) {
-          throw new Error(`Component ${id} name must be a string of at most ${MAX_INVENTORY_NAME_LENGTH} characters`);
-        }
-        component.name = trimInventoryName(component.name ?? '');
-        if (!isValidComponentId(id) || ids.has(id)) {
-          throw new Error('Component ids must be unique portable identifiers');
-        }
-        ids.add(id);
-        componentCount += 1;
-        if (componentCount > MAX_ENTITY_COMPONENTS) {
-          throw new Error(`An entity may contain at most ${MAX_ENTITY_COMPONENTS} components`);
-        }
-        const pivot = portableVector(component.pivot, MAX_IMPORT_COORDINATE);
-        if (pivot === null) throw new Error(`Component ${id} has an invalid pivot`);
-        const localPosition = portableVector(component.localPosition, MAX_IMPORT_COORDINATE);
-        if (localPosition === null) throw new Error(`Component ${id} has an invalid local position`);
-        if (parentId === null && (component.localPosition !== undefined || component.localRotation !== undefined)) {
-          throw new Error('The entity root may not have a parent-relative transform');
-        }
-        for (const [label, value] of [
-          ['local rotation', component.localRotation],
-          ['anchor rotation', component.anchorRotation]
-        ]) {
-          if (portableQuaternion(value) === null) {
-            throw new Error(`Component ${id} ${label} must use an axis-aligned 90-degree grid rotation`);
-          }
-        }
-        validateBody(component.body, id);
-        const decorations = normalizeDecorations(component.decorations);
-        decorationCount += decorations.length;
-        if (decorationCount > MAX_ENTITY_DECORATIONS) throw new Error(`An entity may contain at most ${MAX_ENTITY_DECORATIONS} decorations`);
-        if (decorations.length) component.decorations = decorations;
-        if (!Array.isArray(component.blocks) || !Array.isArray(component.children) || !Array.isArray(component.seats)) {
-          throw new Error(`Component ${id} has malformed repeated fields`);
-        }
-        blockCount += component.blocks.length;
-        if (blockCount > MAX_INVENTORY_BLOCKS) {
-          throw new Error(`An entity may contain at most ${MAX_INVENTORY_BLOCKS} voxels`);
-        }
-        if (component.script !== undefined) {
-          if (typeof component.script !== 'string') throw new Error(`Component ${id} has an invalid script`);
-          const bytes = new TextEncoder().encode(component.script).byteLength;
-          if (bytes > MAX_INVENTORY_SCRIPT_BYTES) {
-            throw new Error(`One component script may not exceed ${MAX_INVENTORY_SCRIPT_BYTES / 1024} KiB`);
-          }
-          totalScriptBytes += bytes;
-          if (totalScriptBytes > MAX_INVENTORY_TOTAL_SCRIPT_BYTES) {
-            throw new Error(`Entity scripts may not exceed ${MAX_INVENTORY_TOTAL_SCRIPT_BYTES / 1024} KiB in total`);
-          }
-        }
-        for (const seat of component.seats) {
-          seatCount += 1;
-          const position = portableVector(seat?.position, MAX_IMPORT_COORDINATE);
-          if (seatCount > 256 || position === null || position === undefined) {
-            throw new Error('Entity seats must be bounded 3D positions and may not exceed 256');
-          }
-          // Seat orientation is an arbitrary unit quaternion, unlike the
-          // stopped-grid local/anchor rotations, so it uses the plain check.
-          if (seat.rotation !== undefined && portableUnitQuaternion(seat.rotation) === null) {
-            throw new Error('Entity seat rotations must be unit quaternions');
-          }
-          if (seat.fixedOrientation !== undefined && typeof seat.fixedOrientation !== 'boolean') {
-            throw new Error('Entity seat fixedOrientation must be a boolean');
-          }
-        }
-        for (const child of component.children) validateComponent(child, id, depth + 1);
-      };
-      try {
-        validateComponent(data.root, null, 0);
-      } catch (error) {
-        return fail(error instanceof Error ? error.message : 'Invalid component hierarchy');
-      }
-      if (blockCount === 0) return fail('An entity must contain at least one voxel');
-
-      let runtime;
-      try {
-        runtime = portableEntityToRuntime(data);
-        runtime.blocks = runtime.blocks.map(block => runtimeVoxel(block, block.entityId));
-      } catch (error) {
-        return fail(error instanceof Error ? error.message : 'Invalid recursive entity');
-      }
-      if (!withinEntityBounds(runtime.blocks, ['localX', 'localY', 'localZ'], 'entityId')) {
-        return fail(`Entity bounds may not exceed ${MAX_ENTITY_BOUNDS} cells per axis`);
-      }
-      if (!validateVoxelOccupancy(runtime.blocks, ['localX', 'localY', 'localZ'], 'entityId')) {
-        return fail('Entity contains duplicate voxels or standard/micro overlap');
-      }
-      const stoppedGridError = validateStoppedEntityGrid(runtime);
-      if (stoppedGridError) return fail(stoppedGridError);
-
-      if (!Array.isArray(data.constraints) || data.constraints.length > MAX_INVENTORY_CONSTRAINTS) {
-        return fail(`An entity may contain at most ${MAX_INVENTORY_CONSTRAINTS} constraints`);
-      }
-      const constraintIds = new Set();
-      const constraints = [];
-      for (const constraint of data.constraints) {
-        const id = constraint?.id;
-        const bodyA = constraint?.bodyA === null ? null : String(constraint?.bodyA ?? '');
-        const bodyB = String(constraint?.bodyB || '');
-        if (!isValidConstraintId(id) || constraintIds.has(id)) {
-          return fail('Constraint ids must be unique portable identifiers');
-        }
-        if ((bodyA !== null && !ids.has(bodyA)) || !ids.has(bodyB) || bodyA === bodyB) {
-          return fail(`Constraint ${id} references an invalid component`);
-        }
-        const vectors = {};
-        for (const field of ['anchorA', 'anchorB', 'axisA', 'axisB', 'referenceA', 'referenceB']) {
-          if (constraint[field] === undefined) continue;
-          const vector = portableVector(constraint[field]);
-          if (vector === null) return fail(`Constraint ${id} has an invalid ${field}`);
-          vectors[field] = vector;
-        }
-        let limits;
-        if (constraint.limits !== undefined) {
-          const min = Number(constraint.limits?.min);
-          const max = Number(constraint.limits?.max);
-          if (!Number.isFinite(min) || !Number.isFinite(max)
-            || Math.abs(min) > MAX_PORTABLE_CONSTRAINT_VALUE
-            || Math.abs(max) > MAX_PORTABLE_CONSTRAINT_VALUE) {
-            return fail(`Constraint ${id} has invalid limits`);
-          }
-          limits = { min: Math.min(min, max), max: Math.max(min, max) };
-        }
-        const stiffness = Number(constraint.stiffness ?? 0.9);
-        if (!Number.isFinite(stiffness) || stiffness < 0 || stiffness > 1) {
-          return fail(`Constraint ${id} has invalid stiffness`);
-        }
-        constraintIds.add(id);
-        constraints.push({
-          id,
-          type: ['point', 'hinge', 'weld'].includes(constraint.type) ? constraint.type : 'point',
-          bodyA,
-          bodyB,
-          ...vectors,
-          ...(limits ? { limits } : {}),
-          stiffness,
-          collideConnected: constraint.collideConnected === true
-        });
-      }
-      runtime.kind = 'entity';
-      runtime.constraints = constraints;
-      runtime.blockCount = runtime.blocks.length;
-      runtime.nodeCount = componentCount;
-      return { ok: true, item: runtime };
-    }
-
-    if (category === 'colorset') {
-      if (data?.type !== 'space-colorset' || data?.version !== INVENTORY_PROTOBUF_SCHEMA_VERSION) {
-        return fail(`Expected a space-colorset v${INVENTORY_PROTOBUF_SCHEMA_VERSION} Protobuf file`);
-      }
-      if (typeof data.name !== 'string' || !trimInventoryName(data.name)) return fail('A color set must have a name');
-      if (inventoryNameLength(data.name) > MAX_INVENTORY_NAME_LENGTH) {
-        return fail(`A color set name may contain at most ${MAX_INVENTORY_NAME_LENGTH} characters`);
-      }
-      if (!Array.isArray(data.entries) || data.entries.length !== 9) {
-        return fail('A color set must contain exactly 9 palette entries');
-      }
-      const entries = data.entries.map(entry => normalizePaletteEntry(entry, data.name));
-      if (entries.some(entry => entry.stops.length < 1 || entry.stops.length > 5
-        || entry.stops.some(stop => !HEX_COLOR.test(stop.color)))) {
-        return fail('Every palette entry must contain 1 to 5 valid gradient stops');
-      }
-      return {
-        ok: true,
-        item: { name: truncateInventoryName(trimInventoryName(data.name)), entries }
-      };
-    }
-
-    return fail('Unknown inventory category');
+    return parseInventoryImport(input, category);
   }
+
   private finishEntitySlotBuild(slot, pose, preparedBlocks = null) {
     const origin = pose?.position?.clone?.()
       || new THREE.Vector3(Number(pose?.position?.x) || 0, Number(pose?.position?.y) || 0, Number(pose?.position?.z) || 0);

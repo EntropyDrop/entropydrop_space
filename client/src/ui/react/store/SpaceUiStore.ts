@@ -7,10 +7,9 @@ import {
 } from '../../../engine/contraption/AgentConfig.ts';
 import { compareComponentIds, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import {
-  MAX_INVENTORY_IMPORT_BYTES,
   SpecialTool,
   type PlayerPerspective
-} from '../../../engine/controls/PlayerController.ts';
+} from '../../../engine/controls/ControlBindings.ts';
 import type { SelectorShape } from '../../../engine/controls/SelectorShapes.ts';
 import {
   TORUS_SIZE_X,
@@ -37,7 +36,7 @@ import {
 import { SpaceApiKeyClient } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import { SpaceMarketClient } from '../../../bootstrap/SpaceMarketClient.ts';
 import { decodeInventoryResource, MAX_BACKPACK_SLOTS_PER_CATEGORY } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
-import { MAX_SELECTION_BOUNDS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { MAX_SELECTION_BOUNDS, MAX_INVENTORY_IMPORT_BYTES } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, LIGHTING_QUALITY_SETTING_KEY,
   normalizeLightingQuality, type LightingQuality,

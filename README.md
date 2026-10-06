@@ -82,8 +82,9 @@ Python bindings and public Agent copies live in `server/space/`. Verify them wit
 python3 tools/sync_server_contracts.py --check --protobuf
 ```
 
-See [protocol rules](proto/README.md), [client guide](client/README.md), and
-[engine guide](engine/README.md).
+See [protocol rules](proto/README.md), [client guide](client/README.md),
+[engine guide](engine/README.md), and
+[architecture and module boundaries](client/docs/architecture.md).
 
 ## Server and development deployment
 

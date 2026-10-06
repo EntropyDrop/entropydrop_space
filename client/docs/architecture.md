@@ -1,12 +1,13 @@
 # Space architecture
 
-Three sibling repositories form one product. Keep them checked out side by side:
+Space is one workspace with a browser client, shared engine and independent server.
+The sibling applications supply the main site and account service:
 
 ```text
 entropydrop_website/
   entropydrop_frontend/        # main site
-  entropydrop_space/           # workspace: client/, engine/, proto/, tools/
-  entropydrop_backend/         # FastAPI Space service + hosting worker
+  entropydrop_space/           # workspace: client/, engine/, server/, proto/, tools/
+  entropydrop_backend/         # account service: identity, API keys and credits
 ```
 
 ## Responsibility split
@@ -18,9 +19,11 @@ entropydrop_website/
   application.
 - **`entropydrop_space/client`** owns the browser experience: React UI, Three.js
   rendering, input, sound, browser storage, REST/WebSocket clients and login handoff.
-- **`entropydrop_backend`** owns authentication, world/entity/market persistence, quotas
-  and billing, the `space-relay-v1` realtime relay, the hosting worker
-  (`space/runtime/`) and the multiplayer storage contracts.
+- **`entropydrop_space/server`** owns world/entity/market persistence, quotas,
+  the billing reservation/capture outbox, the `space-relay-v1` realtime relay,
+  the hosting worker (`space/runtime/`) and the multiplayer storage contracts.
+- **`entropydrop_backend`** owns account authentication, API-key records and
+  authoritative credit balances. Space calls it through `server/space/integrations/`.
 
 ## `client/` module map
 
@@ -34,7 +37,11 @@ entropydrop_website/
 | `src/bootstrap/SpaceMarketClient.ts` | Market list/publish/download/like/delete. |
 | `src/bootstrap/SpaceSurfaceSnapshot.ts` | Far-surface `EDSZ` manifest and zone download/verification. |
 | `src/bootstrap/SpaceApiKeyClient.ts`, `LatencyMonitor.ts`, `JsonParseWorker.ts` | API keys/usage, latency sampling, JSON worker. |
-| `src/engine/controls/PlayerController.ts` | The largest module: player, tools (shovel/spoon/hammer/wrench), selection, inventory, build/entityize flows, file import/export. |
+| `src/engine/controls/PlayerController.ts` | Player/tool interaction, selection, backpack state and persistence, build/entityize flows; delegates resource conversion and validation to `inventory/`. |
+| `src/engine/controls/ControlBindings.ts`, `PreviewDragForce.ts` | Tool identifiers, reserved keys, perspective types and camera-relative drag-force math. |
+| `src/engine/inventory/InventoryImport.ts` | Bounded Protobuf input validation, with separate Item, Block Set, Entity and Color Set parsers. |
+| `src/engine/inventory/InventorySerialization.ts` | Runtime-to-portable conversion, resource encoding, names and flat entity root resolution. |
+| `src/engine/inventory/InventoryGeometry.ts` | Shared preview geometry, hierarchy transforms, grid alignment and voxel occupancy checks. |
 | `src/engine/building/` | Retired `SpaceBuilder` and `BuildAgent` BuildPlan libraries; reference/tests only, not connected to application startup. |
 | `src/engine/contraption/` | `AgentChat` (model calls + prompts), `AgentConfig`, `BehaviorAgent`, entity script generation. |
 | `src/engine/network/` | `MultiplayerSync` (`space-relay-v1` client) and `SpaceEntitySync` (AOI entity polling, checkpoint cadence, execution-lease coordination). |
@@ -45,6 +52,23 @@ entropydrop_website/
 | `src/ui/` | `Minimap`, `NavigationSystem`, and the React store/components (`ui/react/`). |
 | `src/ui/react/components/AgentBuildModal.tsx`, `SpaceAgentInstructions.tsx` | HUD Agent Build: external-agent prompt, public API/Skill links, and shared spaceAPI key management. |
 | `tools/`, `test/` | Screenshot/benchmark helpers and the Node test suite. |
+
+## Inventory dependency boundaries
+
+Inventory import, serialization and geometry are callable without creating a
+controller, renderer or browser DOM. They use the engine's Protobuf codecs,
+constants, decoration normalization and portable ID rules
+(`engine/src/contraption/PortableIds.ts`). Import validation retains byte, voxel,
+component, script and geometry limits; it does not execute entity scripts.
+
+Placement, scene previews and thumbnail rendering all consume the same geometry
+functions. UI components import tool identifiers from `ControlBindings.ts`.
+Existing controller methods and renderer exports remain compatibility adapters;
+new data-only callers should import the inventory modules directly. Keep browser
+storage and UI updates in the controller/store layer rather than adding them to
+the inventory modules. `test/inventory-modules.test.ts` verifies this boundary in
+a fresh process, while the existing backpack/copy/placement suites exercise the
+compatibility paths.
 
 ## Runtime data flow
 
@@ -108,8 +132,10 @@ entropydrop_website/
 
 ## Build and test
 
-The Vite config builds `client/` with `base: '/space/app/'`. The frontend root's
-`npm run build` builds the main site and Space, then `scripts/merge-space-dist.js` merges the
-Space output into the site's `dist/space/app/` document. Local verification is documented in
-[`CONTRIBUTING.md`](../CONTRIBUTING.md); production deployment steps live outside this
-repository.
+Run `npm run check` from the workspace root for engine checks, client type checking,
+documentation links, client tests and the production build. Vite defaults to
+`base: '/space/app/'`; `VITE_SPACE_BASE_PATH` selects the production entry path.
+Build output is `client/dist/`, and the build checks production module initialization
+and excludes development-only entry points. See [`CONTRIBUTING.md`](../CONTRIBUTING.md),
+the [deployment guide](../../deploy/README.md) and
+[release gates](../../tools/RELEASING.md).

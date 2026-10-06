@@ -1,3 +1,5 @@
+import { isValidComponentId, isValidConstraintId } from './PortableIds.ts';
+export { isValidPortableId, isValidComponentId, isValidConstraintId } from './PortableIds.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
@@ -332,25 +334,6 @@ export const ContraptionMode = {
   PROJECTILE: 'projectile',      // Ballistic projectile
   PROGRAMMABLE: 'programmable'  // Programmable force entity
 };
-const COMPONENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
-
-/** Shared format for component and constraint ids. */
-export function isValidPortableId(value: unknown): boolean {
-  if (typeof value !== 'string' || value.length < 1 || value.length > MAX_COMPONENT_ID_LENGTH) return false;
-  return COMPONENT_ID_PATTERN.test(value);
-}
-
-/** Constraint ids live in their own namespace. */
-export function isValidConstraintId(value: unknown): boolean {
-  return isValidPortableId(value);
-}
-
-/** Component ids are portable identities. Hierarchy and external constraint
- * endpoints are represented structurally, so no string is reserved. */
-export function isValidComponentId(value: unknown): boolean {
-  return isValidPortableId(value);
-}
-
 /** Infer the structurally unique flat-tree root when callers already provide
  * component ownership/parent references. Ambiguous or bare block lists receive
  * an ordinary generated-model default; no particular ID has root semantics. */

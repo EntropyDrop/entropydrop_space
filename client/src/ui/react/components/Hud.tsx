@@ -23,7 +23,7 @@ import { ContraptionMode } from '@entropydrop/space-engine/contraption/Contrapti
 import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { gradientCss, MAX_GRADIENT_STOPS, normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { TbBox, TbCylinder, TbSphere, TbStairs, TbLine } from 'react-icons/tb';
-import { SpecialTool } from '../../../engine/controls/PlayerController.ts';
+import { SpecialTool } from '../../../engine/controls/ControlBindings.ts';
 import type { SelectorShape } from '../../../engine/controls/SelectorShapes.ts';
 import { InventoryThumbnailRenderer } from '../../../engine/render/InventoryThumbnailRenderer.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';

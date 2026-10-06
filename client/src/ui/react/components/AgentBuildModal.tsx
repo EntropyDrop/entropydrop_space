@@ -21,7 +21,7 @@ export function AgentBuildModal() {
           <li>Open the authorization link your agent provides, check the matching code, and approve the connection.</li>
           <li>Describe what to build and where in the selected world. Keep Space open to run browser-executed entities.</li>
         </ol>
-        <p className="settings-desc">Your agent receives its own key automatically after approval. The connection grants full Space access and can be revoked below.</p>
+        <p className="settings-desc">Your agent receives its own key automatically after approval. A spaceAPI key grants full Space access. Only approve an agent you trust; you can revoke it here at any time. This is not a model API key.</p>
         <SpaceApiKeysSettings />
       </div>
     </div>
