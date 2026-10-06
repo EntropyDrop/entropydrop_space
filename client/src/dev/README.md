@@ -425,7 +425,7 @@ Reload: source reads should be zero when IndexedDB is available and warm.
 Immutable terrain snapshots may persist in the site's cache; edits and inventory
 are still ephemeral. Denied storage falls back to local generation normally.
 
-Resident surface data defaults to 256 MiB (up to 1024 MiB). This is the raw source
+Resident surface data defaults to 512 MiB (up to 1024 MiB). This is the raw source
 budget, not total browser RAM: decoded mips, geometry, transitions and GPU copies
 use additional memory. Disk cache is capped at 2 GiB and 20% of browser quota,
 with a 512 MiB fallback when quota reporting is unavailable. The default geometry

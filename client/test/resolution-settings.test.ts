@@ -244,8 +244,10 @@ test('subdivision size and geometry budget persist independently of near detail 
       { subdivisionSizePx2: savedArea, renderDistanceChunks: 128, dataBudgetMiB: 32, geometryBudgetMiB: 160 });
     restored.resetDistantSurfaceSettings();
     assert.equal(applied.subdivisionSizePx2, 64);
+    assert.equal(applied.dataBudgetMiB, 512);
     assert.equal(applied.geometryBudgetMiB, 160);
     assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).subdivisionSizePx2, 64);
+    assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).dataBudgetMiB, 512);
     assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).geometryBudgetMiB, 160);
   }
   values.set('space_setting_distant_surface', JSON.stringify({ subdivisionSizePx2: 1, geometryBudgetMiB: 64 }));

@@ -476,7 +476,7 @@ exact edited geometry independently of procedural mip selection.
   volumetric mips in dense terrain-lab districts. The client validates
   every face and identity, and reuses digest-addressed disk cache entries.
 - Clients load coarse coverage first, then refine their position-based working set
-  within the configured source-data budget (default 256 MiB). Legacy v3-v6 snapshots
+  within the configured source-data budget (default 512 MiB). Legacy v3-v6 snapshots
   remain readable during server backfill. Their digest changes on v7 publication.
 - The renderer selects LOD per 64m brick using projected face area, with hysteresis.
   The default target is 16 CSS px^2. Its four-million-face budget uses packed

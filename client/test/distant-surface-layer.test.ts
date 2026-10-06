@@ -85,9 +85,9 @@ test('surface-zone binary parsing preserves identity, heights and colors', () =>
 test('pixel-area settings clamp safely and migrate legacy error/distance settings', () => {
   assert.deepEqual(normalizeDistantSurfaceSettings({ subdivisionSizePx2: 0, renderDistanceChunks: 1,
     dataBudgetMiB: Infinity, lod32Distance: 3000, connectionDistance: 0 } as any),
-  { subdivisionSizePx2: 1, renderDistanceChunks: 32, dataBudgetMiB: 256, geometryBudgetMiB: 160 });
+  { subdivisionSizePx2: 1, renderDistanceChunks: 32, dataBudgetMiB: 512, geometryBudgetMiB: 160 });
   assert.deepEqual(normalizeDistantSurfaceSettings({ lod2Enabled: false } as any),
-    { subdivisionSizePx2: 64, renderDistanceChunks: 2048, dataBudgetMiB: 256, geometryBudgetMiB: 160 });
+    { subdivisionSizePx2: 64, renderDistanceChunks: 2048, dataBudgetMiB: 512, geometryBudgetMiB: 160 });
   assert.deepEqual(normalizeDistantSurfaceSettings({ screenErrorPx: 0.5, maxDistance: 8500, dataBudgetMiB: 1024 } as any),
     { subdivisionSizePx2: 64, renderDistanceChunks: 2048, dataBudgetMiB: 1024, geometryBudgetMiB: 160 });
   assert.equal(normalizeDistantSurfaceSettings({ subdivisionSizePx2: 63 }).subdivisionSizePx2, 63);
