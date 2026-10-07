@@ -247,17 +247,19 @@ export class HostedSimulation {
       const results = [...hosted].map(([id, { c, elapsed, poses, priorMessageResultIds }]) => {
         const chunk = manager.getContraptionChunk(c);
         if (!chunk) throw new Error('hosting_invalid_entity_position');
-        const snapshot: any = manager.captureContraptionForStreaming(c, chunk);
-        const slot = snapshot.slot;
-        slot.blocks = slot.blocks.map((b: RuntimeVoxel) => {
+        const { slot: capturedDefinition, ...capturedState } = manager.captureContraptionForStreaming(c, chunk);
+        if (!capturedDefinition) throw new Error('hosting_invalid_entity_definition');
+        const snapshot: Record<string, unknown> = capturedState;
+        // Checkpoint definitions are shared immutable values. Adapt portable
+        // coordinates into a new value instead of modifying the cached slot.
+        const slot = { ...capturedDefinition, blocks: capturedDefinition.blocks.map((b: RuntimeVoxel) => {
           const dx = Math.floor(b.localX), dy = Math.floor(b.localY), dz = Math.floor(b.localZ);
           return { ...b, dx, dy, dz, ...((b.size ?? 1) < 1 ? {
             mx: Math.round((b.localX - dx) * MICRO_DIVISIONS), my: Math.round((b.localY - dy) * MICRO_DIVISIONS),
             mz: Math.round((b.localZ - dz) * MICRO_DIVISIONS),
           } : {}) };
-        });
+        }) };
         const definition = encodeInventoryResource('entity', runtimeEntityToPortable(slot));
-        delete snapshot.slot;
         for (const key of Object.keys(snapshot)) if (key.startsWith('server')) delete snapshot[key];
         const messageResults = c.pendingScriptCommandResults
           .filter((receipt: any) => receipt?.scope === 'messages'

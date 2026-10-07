@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { gradientCss, normalizePaletteEntry } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
-import { useSpaceUi } from '../store/useSpaceUi.ts';
+import { useSpaceUiFields } from '../store/useSpaceUi.ts';
 
 function NumberField({ label, value, step, onCommit }: {
   label: string; value: number; step: number; onCommit: (value: number) => void;
@@ -28,12 +28,10 @@ function NumberField({ label, value, step, onCommit }: {
 }
 
 export function ModelingPanel() {
-  const { controller } = useSpaceUi(state => state);
+  const { controller, modelingView } = useSpaceUiFields('controller', 'modelingView');
   const tool = controller?.modeling;
-  const selection = tool?.getDisplaySelection();
-  const editable = selection && !tool.isDragging && controller.canEditEntityInternals(selection.contraption);
+  const { selection, editable, creationDimensions } = modelingView;
   const value = selection?.value;
-  const creationDimensions = tool?.creationDimensions;
   const position = value?.position || [0, 0, 0];
   const scale = value?.scale || [1, 1, 1];
   const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(value?.rotation || [0, 0, 0, 1]), 'XYZ');
@@ -45,8 +43,8 @@ export function ModelingPanel() {
         const vector = [...values]; vector[index] = next;
         if (field === 'rotation') {
           const [x, y, z] = vector.map(THREE.MathUtils.degToRad);
-          tool.change({ rotation: new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, 'XYZ')).toArray() });
-        } else tool.change({ [field]: vector });
+          tool?.change({ rotation: new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, 'XYZ')).toArray() });
+        } else tool?.change({ [field]: vector });
         spaceUiStore.refresh();
       }} />
     </label>)}
@@ -61,22 +59,22 @@ export function ModelingPanel() {
     </div>
     {creationDimensions && <div className="modeling-hint" role="status">Creating {creationDimensions.map((value: number) => Number(value.toFixed(3))).join(' × ')} m<br />Wheel: thickness · release RMB: create · Esc: cancel</div>}
     {selection ? <>
-      <div className="modeling-owner">{selection.contraption.getComponentName(selection.componentId) || selection.componentId} · {selection.decorationId}</div>
+      <div className="modeling-owner">{selection.componentName || selection.componentId} · {selection.decorationId}</div>
       <fieldset disabled={!editable} key={`${selection.contraption.id}:${selection.componentId}:${selection.decorationId}`}>
         {vectorField('position', position, 0.125)}
         {vectorField('rotation', rotation, 5)}
         {vectorField('scale', scale, 0.125)}
       </fieldset>
-      {!controller.canEditEntityInternals(selection.contraption) && <div className="modeling-hint">Stop the entity and obtain edit access to change this decoration.</div>}
+      {!modelingView.canEdit && <div className="modeling-hint">Stop the entity and obtain edit access to change this decoration.</div>}
     </> : <div className="modeling-hint">Select a decoration with LMB to inspect its position, rotation and dimensions.</div>}
   </aside>;
 }
 
 export function ModelingToolbar() {
-  const { controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUi(state => state);
+  const { controller, selectedColor, paletteColors, selectedColorIndex, modelingView } = useSpaceUiFields(
+    'controller', 'selectedColor', 'paletteColors', 'selectedColorIndex', 'modelingView');
   const tool = controller?.modeling;
-  const selection = tool?.getSelection();
-  const editable = selection && !tool.isDragging && controller.canEditEntityInternals(selection.contraption);
+  const { editable } = modelingView;
   const activeEntry = normalizePaletteEntry(paletteColors[selectedColorIndex], colorToHex(selectedColor));
   return <div id="modeling-toolbar" className="selector-panel-wrapper wrench-panel-wrapper">
     <div className="palette-info-row">
@@ -96,9 +94,9 @@ export function ModelingToolbar() {
           title="Copy the selected decoration in its component (R or Ctrl/Cmd+D)" onClick={() => tool?.duplicate()}><b>R</b> Copy</button>
         <button type="button" tabIndex={-1} className="banner-btn danger" disabled={!editable}
           title="Delete only the selected decoration (Del)" onClick={() => tool?.remove()}><b>Del</b> Delete</button>
-        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!tool?.canUndo || tool.isDragging}
+        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!modelingView.canUndo || modelingView.isDragging}
           title="Undo decoration edit (Ctrl/Cmd+Z)" onClick={() => tool?.undo()}>Undo</button>
-        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!tool?.canRedo || tool.isDragging}
+        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!modelingView.canRedo || modelingView.isDragging}
           title="Redo decoration edit (Ctrl/Cmd+Shift+Z)" onClick={() => tool?.undo(true)}>Redo</button>
       </div>
     </div>

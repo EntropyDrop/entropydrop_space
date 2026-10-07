@@ -544,7 +544,10 @@ test('game mouse events drag without rotating the view, commit on the matching r
   globalThis.document = { body, pointerLockElement: body, addEventListener: (name: string, callback: EventListener) => listeners.set(name, callback) } as any;
   globalThis.window = { addEventListener: (name: string, callback: EventListener) => listeners.set(name, callback) } as any;
   t.after(() => { globalThis.document = previousDocument; globalThis.window = previousWindow; f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); });
+  const activeTool = f.controller.activeTool;
+  delete f.controller.activeTool;
   const controller = Object.setPrototypeOf(f.controller, PlayerController.prototype);
+  controller._activeTool = activeTool;
   Object.assign(controller, { modeling: f.tool, pointerLockDesired: true, yaw: 0.3, pitch: 0.2,
     mouseSensitivity: 0.002, ignoreNextLockedMouseMove: false, updateCameraRotation() {},
     updateAimRaycast() {}, refreshAimAfterPointerAction() {}, releaseWrenchGizmoDrag() {}, releaseWrenchGrab() {}, releaseGizmoDrag() {},
@@ -646,7 +649,10 @@ test('Modeling palette edits recolor the editable selection, while opening, clos
 
 test('modeling Copy and Delete shortcuts target only the selected decoration and ignore numeric inputs', () => {
   const f = fixture();
+  const activeTool = f.controller.activeTool;
+  delete f.controller.activeTool;
   const controller = Object.setPrototypeOf(f.controller, PlayerController.prototype);
+  controller._activeTool = activeTool;
   Object.assign(controller, { activeTool: 'modeling', modeling: f.tool, recordEntityKeyDown() {} });
   f.entity.setComponentDecorations('base', [{ id: 'trim', color: 1, scale: [2, 0.1, 1] }]);
   f.tool.selected = { contraption: f.entity, componentId: 'base', decorationId: 'trim' };

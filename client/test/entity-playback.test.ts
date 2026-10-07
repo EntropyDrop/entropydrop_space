@@ -49,8 +49,10 @@ test('editor start/stop waits for the server and does not apply a local-only cha
 test('removed pause action leaves physics and scripts unchanged', () => {
   const entity: any = { blocks: [], scriptStatus: 'running', disableAllNodeScripts() { assert.fail('pause removed'); } };
   const result = executeBasicAction({ contraption: entity }, {
+    // @ts-expect-error Deliberately exercise the removed action at runtime.
     domain: ActionDomain.ENTITY, action: 'pause-scripts', target: { contraption: entity },
   });
+  assert.ok(result && 'reason' in result);
   assert.equal(result.reason, 'unsupported_action');
   assert.equal(entity.scriptStatus, 'running');
 });

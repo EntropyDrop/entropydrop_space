@@ -37,7 +37,7 @@ function fixture(t: any) {
   } };
 }
 
-test('entry waits for distant downloads, refinement, publication and completed GPU work', async t => {
+test('entry limits refinement but waits for overview coverage, publication and completed GPU work', async t => {
   const { world, frame } = fixture(t);
   const downloads = deferred<{ loaded: number; complete: boolean }>();
   const connections = deferred(), pipelines = deferred(), gpu = deferred();
@@ -46,7 +46,7 @@ test('entry waits for distant downloads, refinement, publication and completed G
   const remote: SpaceSurfaceSnapshotRemote = {
     async loadAll(onZone, _remove, options) {
       assert.ok(drawings > 0, 'the spawn camera must be ready before selecting detail');
-      assert.equal(options!.getDataBudgetBytes!(), 256 * 1024 * 1024);
+      assert.equal(options!.getDataBudgetBytes!(), 32 * 1024 * 1024);
       calls++;
       if (calls === 1) {
         const result = await downloads.promise;
@@ -147,8 +147,8 @@ test('the entry gate shows cache and byte progress through shader and GPU prepar
   }).then(() => { entered = true; });
   emit({ loadedZones: 128, totalZones: 128, details });
   assert.match(updates.at(-1)!.message, /2\/4 files · 50%/);
-  assert.match(updates.at(-1)!.message, /Data: 3.0 MiB \/ 8.0 MiB/);
-  assert.match(updates.at(-1)!.message, /Cache: 2 files \(2.0 MiB\).*Download: 0 files \(1.0 MiB\)/);
+  assert.match(updates.at(-1)!.message, /Data \(uncompressed\): 3.0 MiB \/ 8.0 MiB/);
+  assert.match(updates.at(-1)!.message, /Cache: 2 files \(2.0 MiB\).*Fetched: 0 files \(1.0 MiB uncompressed\)/);
   assert.match(updates.at(-1)!.message, /Reading cache: 1 · Downloading: 1/);
   assert.equal(entered, false, 'full overview coverage is not complete entry');
   now += 2500;
@@ -169,6 +169,20 @@ test('the entry gate shows cache and byte progress through shader and GPU prepar
   const count = updates.length;
   now += 1000; tick();
   assert.equal(updates.length, count, 'late progress must not overwrite the next entry state');
+});
+
+test('the initial refinement cap respects a smaller user budget', async t => {
+  const { world, frame } = fixture(t);
+  world.distantSurface.hasPendingWork = false;
+  world.getDistantSurfaceSettings = () => ({ dataBudgetMiB: 4 });
+  const remote: SpaceSurfaceSnapshotRemote = { async loadAll(_install, _remove, options) {
+    assert.equal(options!.getDataBudgetBytes!(), 4 * 1024 * 1024);
+    return { loaded: 0, complete: true };
+  } };
+  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {},
+    async preparePipelines() {}, async waitForGpu() {} });
+  await frame(); await frame(); await frame();
+  await entering;
 });
 
 for (const stage of ['download', 'connections', 'worker', 'pipelines', 'gpu'] as const) {

@@ -11,6 +11,10 @@ interface InitialDistantTerrainOptions {
   reportProgress?: (value: number, message: string) => void;
 }
 
+// Entry needs complete world coverage, but fine sources can stream during play.
+// The normal background poll retains the user's full terrain data budget.
+const INITIAL_DISTANT_REFINEMENT_BYTES = 32 * 1024 * 1024;
+
 function nextLoadingFrame(): Promise<void> {
   return new Promise(resolve => {
     if (typeof requestAnimationFrame === 'function'
@@ -30,9 +34,9 @@ function formatBytes(bytes: number): string {
 function describeDataProgress({ loadedZones, totalZones, details }: SurfaceStreamProgress): string {
   if (!details) return `Zones ready: ${loadedZones}/${totalZones}`;
   return `Zones ready: ${loadedZones}/${totalZones}`
-    + `\nData: ${formatBytes(details.processedBytes)} / ${formatBytes(details.totalBytes)}`
+    + `\nData (uncompressed): ${formatBytes(details.processedBytes)} / ${formatBytes(details.totalBytes)}`
     + `\nCache: ${details.cacheHits} files (${formatBytes(details.cacheBytes)})`
-    + ` · Download: ${details.downloadedFiles} files (${formatBytes(details.downloadedBytes)})`
+    + ` · Fetched: ${details.downloadedFiles} files (${formatBytes(details.downloadedBytes)} uncompressed)`
     + `\nReading cache: ${details.reading} · Downloading: ${details.downloading}`
     + ` · Verifying: ${details.verifying} · Preparing: ${details.preparing}`;
 }
@@ -51,7 +55,7 @@ function describeProgress(progress: SurfaceStreamProgress, pass: number): string
   return `${title}${files}…\n${describeDataProgress(progress)}`;
 }
 
-/** Prepare resident terrain and its pipelines behind the entry gate. */
+/** Prepare overview coverage and bounded initial detail behind the entry gate. */
 export async function preloadInitialDistantTerrain({
   remote, world, drawFrame, preparePipelines, waitForGpu, reportProgress,
 }: InitialDistantTerrainOptions): Promise<void> {
@@ -76,7 +80,8 @@ export async function preloadInitialDistantTerrain({
     report(true);
   };
   const options: SurfaceStreamOptions = {
-    getDataBudgetBytes: () => world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024,
+    getDataBudgetBytes: () => Math.min(INITIAL_DISTANT_REFINEMENT_BYTES,
+      world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024),
     getZoneDemand: (x, z) => world.distantSurface.getZoneDemand(x, z),
     onProgress: progress => {
       if (stopped) return;

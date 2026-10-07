@@ -763,3 +763,69 @@ test('delayed realtime poses cannot restart or move a locally stopped wrench tar
   sync.updateReplicaPoses(0.05);
   assert.equal(applied, 1);
 });
+
+test('pose-only checkpoints encode a frozen definition once and coalesce a blocked writer', async t => {
+  const { sync, created } = harness('owner-1', { desired_run_state: 'stopped', can_edit: true });
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  internal.contraptions.findActiveContraptionByPublicId = () => created[0];
+  let encodes = 0;
+  internal.controller.encodeInventoryItem = () => { encodes++; return definition; };
+  let enter!: () => void;
+  let unblock!: () => void;
+  const entered = { promise: new Promise<void>(resolve => { enter = resolve; }), resolve: () => enter() };
+  const release = { promise: new Promise<void>(resolve => { unblock = resolve; }), resolve: () => unblock() };
+  const writes: any[] = [];
+  internal.client.checkpointBrowser = async (_id: string, revision: number, payload: any) => {
+    writes.push(payload);
+    if (writes.length === 1) { entered.resolve(); await release.promise; }
+    return { ...record(), revision: revision + 1, desired_run_state: 'stopped' };
+  };
+  const slot = Object.freeze({});
+  const first = internal.queueSave({ ...savedRecord(created[0]), slot, position: [1, 32, 2] });
+  await entered.promise;
+  for (let y = 33; y < 100; y++) {
+    internal.queueSave({ ...savedRecord(created[0]), slot, position: [1, y, 2] });
+  }
+  assert.equal(internal.pendingSaves.size, 1);
+  release.resolve();
+  await first;
+  assert.equal(encodes, 1);
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].snapshot.position[1], 99);
+  assert.equal(writes[1].definition, undefined);
+  await internal.queueSave({ ...savedRecord(created[0]), slot: Object.freeze({ name: 'Edited' }), position: [1, 99, 2] });
+  assert.equal(encodes, 2, 'a changed definition must be re-encoded');
+});
+
+test('coalesced create retries retain the original operation body then checkpoint the latest pose', async t => {
+  const { sync } = harness('owner-1');
+  t.after(() => sync.stop());
+  const internal = sync as any;
+  const localId = 'ent_local';
+  const entity: any = { publicId: localId };
+  internal.contraptions.findActiveContraptionByPublicId = (id: string) => entity.publicId === id ? entity : null;
+  internal.enforceExecutionLeases = () => {};
+  internal.controller.encodeInventoryItem = () => definition;
+  const creates: any[] = [];
+  const checkpoints: any[] = [];
+  internal.client.createBrowser = async (payload: any, operation: string) => {
+    creates.push({ payload, operation });
+    if (creates.length === 1) throw new Error('lost reply');
+    return { ...record(), desired_run_state: 'stopped', can_edit: true };
+  };
+  internal.client.checkpointBrowser = async (_id: string, revision: number, payload: any) => {
+    checkpoints.push(payload);
+    return { ...record(), revision: revision + 1, desired_run_state: 'stopped' };
+  };
+  t.mock.method(console, 'warn', () => {});
+  const saved = { publicId: localId, slot: Object.freeze({}), position: [1, 2, 3], physicsSimulationEnabled: false };
+  await internal.queueSave(saved);
+  await internal.queueSave({ ...saved, position: [1, 9, 3] });
+  assert.equal(creates.length, 2);
+  assert.deepEqual(creates[1], creates[0]);
+  assert.equal(checkpoints.length, 1);
+  assert.equal(checkpoints[0].snapshot.position[1], 9);
+  assert.equal(entity.publicId, record().id);
+});

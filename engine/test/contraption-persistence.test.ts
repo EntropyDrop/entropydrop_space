@@ -525,3 +525,61 @@ test('online entity persistence never reads or writes browser storage and delega
   assert.deepEqual(removed, [entity.publicId]);
   assert.equal(storage.getItem(worldEntitiesStorageKey(worldId)), null);
 });
+
+test('pose checkpoints reuse immutable definitions until authored content changes', () => {
+  const manager = new ContraptionManager(new THREE.Scene(), null, null, null);
+  manager.setEntityPersistenceMode('none');
+  const entity = requireValue(manager.buildFromSlot({
+    rootComponentId: 'root', bodyType: 'dynamic',
+    blocks: [{ localX: 0, localY: 0, localZ: 0, size: 1, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }],
+    scripts: [], childEntities: [], enabled: [], constraints: [],
+  }, new THREE.Vector3(), null, false));
+  const capture = () => manager.captureContraptionForStreaming(entity, { id: '0,0' });
+  const initial = capture();
+  entity.position.x += 10;
+  entity.setNodeBodyMass('root', 70, { runtimeOnly: true });
+  const moved = capture();
+  assert.equal(moved.slot, initial.slot);
+  assert.notDeepEqual(moved.position, initial.position);
+  assert.equal(moved.bodies[0].mass, 70);
+  assert.ok(Object.isFrozen(moved.slot?.blocks[0]));
+  assert.throws(() => { requireValue(moved.slot).blocks[0].localX = 99; }, TypeError);
+
+  const edits = [
+    () => entity.setComponentName('root', 'Edited'),
+    () => entity.setComponentSeats('root', [[0, 1, 0]]),
+    () => entity.setNodeScriptEnabled('root', false),
+    () => entity.setNodeScript('root', ''),
+    () => entity.setNodeBodyMass('root', 20),
+    () => entity.setNodeGravityEnabled('root', false),
+    () => entity.setComponentDecorations('root', []),
+    () => { entity.blocks[0].color = 0xffaabb; entity.rebuildAfterBlockChange('color', 'root'); },
+  ];
+  let previous = moved.slot;
+  for (const edit of edits) {
+    edit();
+    const current = capture().slot;
+    assert.notEqual(current, previous, 'authored edits must invalidate the definition');
+    assert.equal(capture().slot, current);
+    previous = current;
+  }
+  assert.equal(requireValue(previous).name, 'Edited');
+  assert.equal(requireValue(previous).mass, 20);
+  assert.equal(requireValue(previous).blocks[0].color, 0xffaabb);
+  assert.equal(requireValue(initial.slot).blocks[0].color, undefined, 'older queued saves retain their own content');
+});
+
+test('remote saves skip read-only replicas before capturing their definitions', () => {
+  const manager = new ContraptionManager(new THREE.Scene(), null, null, null);
+  manager.setEntityPersistenceMode('none');
+  const entity = requireValue(manager.buildFromSlot({
+    rootComponentId: 'root', bodyType: 'dynamic',
+    blocks: [{ localX: 0, localY: 0, localZ: 0, size: 1, block: BlockTypes.COLOR_BLOCK, entityId: 'root' }],
+    scripts: [], childEntities: [], enabled: [], constraints: [],
+  }, new THREE.Vector3(), null, false));
+  entity.serverManaged = true;
+  entity.serverCanEdit = false;
+  entity.serializeSubtree = () => { throw new Error('read-only replica was serialized'); };
+  manager.setRemoteEntityPersistence({ save: () => { throw new Error('read-only replica was saved'); } });
+  assert.equal(manager.saveEntitiesToStorage(), true);
+});

@@ -1,3 +1,4 @@
+import { uiStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
@@ -17,14 +18,14 @@ test('restoring Ultra publishes the final 60 FPS target after initial resolution
     else delete (globalThis as any).localStorage;
   });
   let targetFps = 120;
-  const state = () => ({ mode: 'auto', scale: 1, targetFps });
+  const state = () => ({ mode: 'auto' as const, scale: 1, targetFps });
   const renderer = {
     setResolutionScale: state,
-    setLightingQuality: (quality: string) => { targetFps = quality === 'ultra' ? 60 : 120; return quality; },
+    setLightingQuality: (quality: import('../src/engine/render/LightingQuality.ts').LightingQuality) => { targetFps = quality === 'ultra' ? 60 : 120; return quality; },
     getResolutionScaleState: state,
   };
   const store = new SpaceUiStore();
-  store.setSceneRenderer(renderer);
+  store.setSceneRenderer(uiStub('sceneRenderer', renderer));
   assert.equal(store.getSnapshot().lightingQuality, 'ultra');
   assert.equal(store.getSnapshot().resolutionTargetFps, 60);
 });
@@ -47,7 +48,7 @@ test('resolution setting is applied to the renderer and follows automatic update
   };
   const store = new SpaceUiStore();
 
-  store.setSceneRenderer(renderer);
+  store.setSceneRenderer(uiStub('sceneRenderer', renderer));
   store.setResolutionScale('0.67', false);
 
   assert.deepEqual(applied, ['auto', 0.67]);
@@ -82,7 +83,7 @@ test('shadow preference is applied to the renderer independently of resolution',
   };
   const store = new SpaceUiStore();
 
-  store.setSceneRenderer(renderer);
+  store.setSceneRenderer(uiStub('sceneRenderer', renderer));
   store.setShadowsEnabled(false, false);
 
   assert.deepEqual(applied, [false, false]);
@@ -115,7 +116,7 @@ test('minimap preference is restored, applied immediately, and persisted', () =>
     const store = new SpaceUiStore();
 
     assert.equal(store.getSnapshot().minimapEnabled, false, 'minimap should default to off');
-    store.setMinimap(minimap);
+    store.setMinimap(uiStub('minimap', minimap));
     assert.equal(store.getSnapshot().minimapEnabled, false);
     assert.deepEqual(applied, [false]);
 
@@ -126,12 +127,12 @@ test('minimap preference is restored, applied immediately, and persisted', () =>
 
     const restored: boolean[] = [];
     const restoredStore = new SpaceUiStore();
-    restoredStore.setMinimap({
+    restoredStore.setMinimap(uiStub('minimap', {
       setEnabled(enabled: boolean) {
         restored.push(enabled);
         return enabled;
       },
-    });
+    }));
     assert.equal(restoredStore.getSnapshot().minimapEnabled, true);
     assert.deepEqual(restored, [true]);
   } finally {
@@ -167,16 +168,16 @@ test('renderer combines the manual shadow preference with the selected lighting 
 test('the canonical torus distant layer stays enabled through renderer setup', () => {
   const lodEnabled: boolean[] = [];
   const store = new SpaceUiStore();
-  store.setWorld({
+  store.setWorld(uiStub('world', {
     renderDistance: 8,
     getDistantSurfaceSettings: () => ({ ...DEFAULT_DISTANT_SURFACE_SETTINGS }),
     setDistantSurfaceEnabled(enabled: boolean) {
       lodEnabled.push(enabled);
       return enabled;
     },
-  });
+  }));
 
-  store.setSceneRenderer({});
+  store.setSceneRenderer(uiStub('sceneRenderer', {}));
 
   assert.equal('worldShapeMode' in store.getSnapshot(), false);
   assert.deepEqual(lodEnabled, [true, true]);
@@ -194,7 +195,7 @@ test('distant terrain pixel budgets apply immediately through settings state', (
     },
   };
   const store = new SpaceUiStore();
-  store.setWorld(world);
+  store.setWorld(uiStub('world', world));
   store.setDistantSurfaceSetting('subdivisionSizePx2', 1, false);
   store.setDistantSurfaceSetting('renderDistanceChunks', 2048, false);
   store.setDistantSurfaceSetting('dataBudgetMiB', 32, false);
@@ -222,7 +223,7 @@ test('subdivision size and geometry budget persist independently of near detail 
   const world = { renderDistance: 8, getDistantSurfaceSettings: () => applied,
     setDistantSurfaceSettings(value: any) { return applied = normalizeDistantSurfaceSettings(value); } };
   const store = new SpaceUiStore();
-  store.setWorld(world);
+  store.setWorld(uiStub('world', world));
   store.setResolutionScale('0.8', false);
   store.setDistantSurfaceSetting('geometryBudgetMiB', 512);
   assert.equal(applied.subdivisionSizePx2, 64);
@@ -231,7 +232,7 @@ test('subdivision size and geometry budget persist independently of near detail 
     assert.equal(applied.subdivisionSizePx2, area);
     assert.equal(store.getSnapshot().renderDistance, 8);
     assert.equal(store.getSnapshot().resolutionScaleMode, '0.8');
-    const restored = new SpaceUiStore(); restored.setWorld(world);
+    const restored = new SpaceUiStore(); restored.setWorld(uiStub('world', world));
     assert.equal(restored.getSnapshot().distantSurfaceSettings.subdivisionSizePx2, area);
     assert.equal(restored.getSnapshot().distantSurfaceSettings.geometryBudgetMiB, 512);
   }
@@ -239,7 +240,7 @@ test('subdivision size and geometry budget persist independently of near detail 
   for (const savedArea of [16, 63]) {
     values.set('space_setting_distant_surface', JSON.stringify({ subdivisionSizePx2: savedArea,
       renderDistanceChunks: 128, dataBudgetMiB: 32 }));
-    const restored = new SpaceUiStore(); restored.setWorld(world);
+    const restored = new SpaceUiStore(); restored.setWorld(uiStub('world', world));
     assert.deepEqual(restored.getSnapshot().distantSurfaceSettings,
       { subdivisionSizePx2: savedArea, renderDistanceChunks: 128, dataBudgetMiB: 32, geometryBudgetMiB: 160 });
     restored.resetDistantSurfaceSettings();
@@ -251,7 +252,7 @@ test('subdivision size and geometry budget persist independently of near detail 
     assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).geometryBudgetMiB, 160);
   }
   values.set('space_setting_distant_surface', JSON.stringify({ subdivisionSizePx2: 1, geometryBudgetMiB: 64 }));
-  const previousBudget = new SpaceUiStore(); previousBudget.setWorld(world);
+  const previousBudget = new SpaceUiStore(); previousBudget.setWorld(uiStub('world', world));
   assert.equal(previousBudget.getSnapshot().distantSurfaceSettings.geometryBudgetMiB, 64);
 });
 
@@ -265,7 +266,7 @@ test('persisted near render distances cannot bypass the 16-chunk AOI cap', t => 
     else delete (globalThis as any).localStorage;
   });
   const applied: number[] = [], store = new SpaceUiStore();
-  store.setWorld({ renderDistance: 8, setRenderDistance: (value: number) => applied.push(value) });
+  store.setWorld(uiStub('world', { renderDistance: 8, setRenderDistance: (value: number) => applied.push(value) }));
   assert.deepEqual(applied, [16]);
   assert.equal(store.getSnapshot().renderDistance, 16);
 });

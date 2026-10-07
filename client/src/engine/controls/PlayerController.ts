@@ -1,23 +1,24 @@
-import { contraptionRootId, contraptionBlockOwnerId } from './SelectionGeometry.ts';
-import * as selectionGeometry from './SelectionGeometry.ts';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
-import type { RuntimeVoxel, EntityNode, ContraptionOptions } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
 import type { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
-import type { World } from '@entropydrop/space-engine/voxel/World.ts';
-import type { PlayerPhysics } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
+import type { ContraptionOptions, RuntimeVoxel } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
 import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
+import type { PlayerPhysics } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
+import type { World } from '@entropydrop/space-engine/voxel/World.ts';
+import type { NavigationSystem } from '../../ui/NavigationSystem.ts';
+import type { SpaceUiStore } from '../../ui/react/store/SpaceUiStore.ts';
 import type { SoundManager } from '../audio/SoundManager.ts';
 import type { ParticleSystem } from '../render/ParticleSystem.ts';
+import type { Point3, SelectionGizmoHandle } from '../render/PreviewTypes.ts';
 import type { SceneRenderer } from '../render/SceneRenderer.ts';
-import type { SpaceUiStore } from '../../ui/react/store/SpaceUiStore.ts';
-import type { NavigationSystem } from '../../ui/NavigationSystem.ts';
-import type { Point3, SelectionFrame } from '../render/PreviewTypes.ts';
-import type { ComponentSelection, ComponentRange, ComponentBlockSelection, SubtreeSelection, SelectedVoxel } from './SelectionTypes.ts';
+import { DrivingSession } from './DrivingSession.ts';
+import { PlacementSession } from './PlacementSession.ts';
+import { PlayerCamera } from './PlayerCamera.ts';
+import * as selectionGeometry from './SelectionGeometry.ts';
+import { contraptionBlockOwnerId, contraptionRootId } from './SelectionGeometry.ts';
+import { SelectionSession } from './SelectionSession.ts';
+import type { ComponentRange, ComponentSelection, SelectedVoxel } from './SelectionTypes.ts';
+import { ToolInteractionSession } from './ToolInteractionSession.ts';
 
-interface PlacementHit {
-  kind?: string; hitPos?: Point3; entry?: Point3; normal?: Point3; microNormal?: Point3;
-  placeMicroPos?: Point3; targetContraption?: Contraption | null; targetNodeId?: string; targetLocalNormal?: Point3;
-}
 type PlacementSlot = InventoryInput & { placementRotation?: number[]; itemName?: string };
 type SelectionGradient = { stops: GradientStop[]; start: Point3; end: Point3 };
 interface WorldCopyVoxel extends Point3 { size: number; block: number; color: number; part?: string | null; materialId: number }
@@ -31,99 +32,34 @@ type WorldSelectionCapture = NonNullable<ReturnType<PlayerController['captureWor
 type EntityHit = NonNullable<ReturnType<ContraptionManager['raycastContraptionHit']>>;
 
 import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
-import {
-  BULK_EDIT_MAX_OPERATIONS_PER_FRAME,
-  BULK_EDIT_THRESHOLD,
-  MAX_ENTITY_BOUNDS,
-  MAX_ENTITY_COMPONENTS,
-  MAX_INVENTORY_BLOCKS,
-  MAX_INVENTORY_IMPORT_BYTES,
-  MAX_INVENTORY_SCRIPT_BYTES,
-  MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
-  MAX_MICRO_MATERIALIZE_BLOCKS,
-  MAX_MICRO_SELECTION_CELLS,
-  MAX_SELECTION_BOUNDS,
-} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { BULK_EDIT_MAX_OPERATIONS_PER_FRAME, BULK_EDIT_THRESHOLD, MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_INVENTORY_BLOCKS, MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES, MAX_MICRO_MATERIALIZE_BLOCKS, MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import { BodyType, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { offsetDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { PLAYER_GRAVITY_MPS2, PLAYER_MASS_KG } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
-import {
-  encodeInventoryResource,
-  INVENTORY_PROTOBUF_SCHEMA_VERSION,
-  MAX_BACKPACK_ITEM_SLOTS,
-  MAX_BACKPACK_SLOTS_PER_CATEGORY,
-  newItemTemplateId,
-  type InventoryKind,
-} from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
-import {
-  bendDirection,
-  bendPointForView,
-  TORUS_SIZE_X,
-  TORUS_SIZE_Z,
-  unbendPointForView,
-  unwrapPeriodicNear,
-  wrapMicroX,
-  wrapMicroZ,
-} from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { encodeInventoryResource, INVENTORY_PROTOBUF_SCHEMA_VERSION, MAX_BACKPACK_ITEM_SLOTS, MAX_BACKPACK_SLOTS_PER_CATEGORY, newItemTemplateId, type InventoryKind, } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
+import { bendDirection, bendPointForView, TORUS_SIZE_X, TORUS_SIZE_Z, unbendPointForView, unwrapPeriodicNear, wrapMicroX, wrapMicroZ, } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { BlockTypes, colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-import {
-  normalizeGradientStops,
-  sampleGradientColor,
-  type GradientStop,
-} from '@entropydrop/space-engine/voxel/Palette.ts';
+import { normalizeGradientStops, sampleGradientColor, type GradientStop, } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import * as THREE from 'three';
 import { STOPPED_GRID_EPSILON, validateVoxelOccupancy, withinEntityBounds } from '../inventory/InventoryGeometry.ts';
 import { parseInventoryImport } from '../inventory/InventoryImport.ts';
-import {
-  createEntityPlacementObb,
-  ENTITY_PLACEMENT_EPSILON,
-  entityPlacementObbsOverlap,
-  getEntityPlacementShape,
-  getRotatedEntityPlacementBounds,
-  getRotatedEntityTerrainShape,
-  type EntityPlacementObb,
-  type EntityPlacementShape,
-} from '../inventory/InventoryPlacementGeometry.ts';
-import {
-  normalizeQuarterTurns,
-  rotateBlocksX90,
-  rotateBlocksY90,
-  rotateChildDefinitionsX90,
-  rotateChildDefinitionsY90,
-} from '../inventory/InventoryRotation.ts';
-import {
-  encodeInventoryItem,
-  inventoryEntityRootId,
-  inventoryItemName,
-  serializeInventoryItem,
-} from '../inventory/InventorySerialization.ts';
-import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
-import {
-  transformGizmoSize,
-  transformScreenPoint,
-  transformViewCamera,
-  TRANSFORM_GIZMO_ROTATION_RADIUS as WRENCH_GIZMO_ROTATION_RADIUS,
-} from '../render/TransformGizmo.ts';
+import { rotateBlocksX90, rotateBlocksY90 } from '../inventory/InventoryRotation.ts';
+import { encodeInventoryItem, inventoryEntityRootId, inventoryItemName, serializeInventoryItem, } from '../inventory/InventorySerialization.ts';
+import { transformGizmoSize, transformScreenPoint, transformViewCamera, TRANSFORM_GIZMO_ROTATION_RADIUS as WRENCH_GIZMO_ROTATION_RADIUS, } from '../render/TransformGizmo.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
 import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
-import {
-  isPerspectiveToggleCode,
-  RESERVED_ENTITY_INPUT_CODES,
-  SpecialTool,
-  type PlayerPerspective,
-} from './ControlBindings.ts';
+import { isPerspectiveToggleCode, SpecialTool, type PlayerPerspective } from './ControlBindings.ts';
 import { ModelingTool } from './ModelingTool.ts';
-import { computeSelectionCells, type SelectorShape, type StairsOrientation } from './SelectorShapes.ts';
+import { type SelectorShape } from './SelectorShapes.ts';
 // Keep existing imports working while new consumers use the owning modules directly.
 export { validateVoxelOccupancy, withinEntityBounds } from '../inventory/InventoryGeometry.ts';
 export {
   isPerspectiveToggleCode,
   RESERVED_ENTITY_INPUT_CODES,
   SpecialTool,
-  type PlayerPerspective,
+  type PlayerPerspective
 } from './ControlBindings.ts';
 export {
   BULK_EDIT_MAX_OPERATIONS_PER_FRAME,
@@ -133,25 +69,13 @@ export {
   MAX_INVENTORY_SCRIPT_BYTES,
   MAX_INVENTORY_TOTAL_SCRIPT_BYTES,
   MAX_MICRO_MATERIALIZE_BLOCKS,
-  MAX_MICRO_SELECTION_CELLS,
+  MAX_MICRO_SELECTION_CELLS
 };
 
-import type { InventoryInput, InventoryVoxel, BlockSetVoxel, InventoryEntity } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
-import {
-  addInventoryItem,
-  createEmptyInventories,
-  deleteInventoryItem,
-  ensureDefaultColorSet,
-  inventoryGroup,
-  renameInventoryItem,
-  swapInventorySlots,
-  type Inventories,
-} from '../inventory/Backpack.ts';
+import type { BlockSetVoxel, InventoryInput, InventoryVoxel } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
+import { addInventoryItem, createEmptyInventories, deleteInventoryItem, ensureDefaultColorSet, inventoryGroup, renameInventoryItem, swapInventorySlots, type Inventories, } from '../inventory/Backpack.ts';
 import { loadBackpack, saveBackpack, type BackpackStorage } from '../inventory/BackpackPersistence.ts';
 export const BULK_EDIT_FRAME_BUDGET_MS = 5;
-const ENTITY_PLACEMENT_MAX_DROP = 48;
-const ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS = MAX_ENTITY_BOUNDS * MICRO_DIVISIONS;
-const ENTITY_TARGET_PLACEMENT_BUCKET_SIZE = 2;
 const INTERACTIVE_ENTITY_EDIT_ACTIONS = new Set([
   'place-standard', 'remove-standard', 'paint-standard',
   'place-micro', 'remove-micro', 'paint-micro',
@@ -219,13 +143,6 @@ export function nearestGridAlignedQuaternion(quaternion: any): THREE.Quaternion 
   return nearest.clone();
 }
 
-const entityPlacementTargetObbCache = new WeakMap<object, {
-  poseSignature: string;
-  entriesRef: any;
-  boxes: EntityPlacementObb[];
-  buckets: Map<string, EntityPlacementObb[]>;
-}>();
-
 type BulkEditPhase = 'applying' | 'waiting' | 'syncing' | 'complete' | 'failed';
 type BulkEditJob = {
   label: string;
@@ -240,6 +157,305 @@ type BulkEditJob = {
 };
 
 export class PlayerController {
+  private _toolSession?: ToolInteractionSession;
+  private get toolSession(): ToolInteractionSession {
+    if (this._toolSession) return this._toolSession;
+    const host = this;
+    return this._toolSession = new ToolInteractionSession({
+      get applySelectionShape() { return host.applySelectionShape.bind(host); },
+      get boxSelectionPreview() { return host.boxSelectionPreview; },
+      set boxSelectionPreview(value) { host.boxSelectionPreview = value; },
+      get bulkEditJob() { return host.bulkEditJob; },
+      set bulkEditJob(value) { host.bulkEditJob = value; },
+      get canEditEntityInternals() { return host.canEditEntityInternals.bind(host); },
+      get canPlaceStandardAt() { return host.canPlaceStandardAt.bind(host); },
+      get clearHammerRotation() { return host.clearHammerRotation.bind(host); },
+      get clearSelection() { return host.clearSelection.bind(host); },
+      get clearWrenchPivotDisplay() { return host.clearWrenchPivotDisplay.bind(host); },
+      get contraptions() { return host.contraptions; },
+      set contraptions(value) { host.contraptions = value; },
+      get currentRaycast() { return host.currentRaycast; },
+      set currentRaycast(value) { host.currentRaycast = value; },
+      get focusBlockPreview() { return host.focusBlockPreview; },
+      set focusBlockPreview(value) { host.focusBlockPreview = value; },
+      get handleBrushRightClick() { return host.handleBrushRightClick.bind(host); },
+      get handleRunningEntityInteraction() { return host.handleRunningEntityInteraction.bind(host); },
+      get hoveredContraption() { return host.hoveredContraption; },
+      set hoveredContraption(value) { host.hoveredContraption = value; },
+      get hoveredContraptionHit() { return host.hoveredContraptionHit; },
+      set hoveredContraptionHit(value) { host.hoveredContraptionHit = value; },
+      get hoveredGizmoHandle() { return host.hoveredGizmoHandle; },
+      set hoveredGizmoHandle(value) { host.hoveredGizmoHandle = value; },
+      get hoveredWrenchGizmoHandle() { return host.hoveredWrenchGizmoHandle; },
+      set hoveredWrenchGizmoHandle(value) { host.hoveredWrenchGizmoHandle = value; },
+      get inventoryPlacementPreview() { return host.inventoryPlacementPreview; },
+      set inventoryPlacementPreview(value) { host.inventoryPlacementPreview = value; },
+      get keys() { return host.keys; },
+      set keys(value) { host.keys = value; },
+      get microCarvePreview() { return host.microCarvePreview; },
+      set microCarvePreview(value) { host.microCarvePreview = value; },
+      get modeling() { return host.modeling; },
+      set modeling(value) { host.modeling = value; },
+      get paintTargetedBlock() { return host.paintTargetedBlock.bind(host); },
+      get particles() { return host.particles; },
+      set particles(value) { host.particles = value; },
+      get pasteInventorySlot() { return host.pasteInventorySlot.bind(host); },
+      get performAimRaycast() { return host.performAimRaycast.bind(host); },
+      get performBasicAction() { return host.performBasicAction.bind(host); },
+      get physics() { return host.physics; },
+      set physics(value) { host.physics = value; },
+      get releaseGizmoDrag() { return host.releaseGizmoDrag.bind(host); },
+      get releaseWrenchGizmoDrag() { return host.releaseWrenchGizmoDrag.bind(host); },
+      get releaseWrenchGrab() { return host.releaseWrenchGrab.bind(host); },
+      get rotateActiveInventoryItem() { return host.rotateActiveInventoryItem.bind(host); },
+      get sampleTargetedColor() { return host.sampleTargetedColor.bind(host); },
+      get sceneRenderer() { return host.sceneRenderer; },
+      set sceneRenderer(value) { host.sceneRenderer = value; },
+      get selectedBlockSelection() { return host.selectedBlockSelection; },
+      set selectedBlockSelection(value) { host.selectedBlockSelection = value; },
+      get selectedColor() { return host.selectedColor; },
+      set selectedColor(value) { host.selectedColor = value; },
+      get selectedMaterialId() { return host.selectedMaterialId; },
+      set selectedMaterialId(value) { host.selectedMaterialId = value; },
+      get selectedSubtree() { return host.selectedSubtree; },
+      set selectedSubtree(value) { host.selectedSubtree = value; },
+      get selectionShapeAnchor() { return host.selectionShapeAnchor; },
+      set selectionShapeAnchor(value) { host.selectionShapeAnchor = value; },
+      get selectorLevel() { return host.selectorLevel; },
+      set selectorLevel(value) { host.selectorLevel = value; },
+      get selectorMicroCellFromRaycast() { return host.selectorMicroCellFromRaycast.bind(host); },
+      get selectorMicroMode() { return host.selectorMicroMode; },
+      set selectorMicroMode(value) { host.selectorMicroMode = value; },
+      get selectorOnEntityClick() { return host.selectorOnEntityClick.bind(host); },
+      get selectorRange() { return host.selectorRange; },
+      set selectorRange(value) { host.selectorRange = value; },
+      get selectorShape() { return host.selectorShape; },
+      set selectorShape(value) { host.selectorShape = value; },
+      get sound() { return host.sound; },
+      set sound(value) { host.sound = value; },
+      get startGizmoDrag() { return host.startGizmoDrag.bind(host); },
+      get startWrenchGizmoDrag() { return host.startWrenchGizmoDrag.bind(host); },
+      get startWrenchGrab() { return host.startWrenchGrab.bind(host); },
+      get ui() { return host.ui; },
+      set ui(value) { host.ui = value; },
+    });
+  }
+
+  get pendingInteractionStops(): ToolInteractionSession['pendingInteractionStops'] { return this.toolSession.pendingInteractionStops; }
+  set pendingInteractionStops(value: ToolInteractionSession['pendingInteractionStops']) { this.toolSession.pendingInteractionStops = value; }
+
+  get worldPickingSuspended(): ToolInteractionSession['worldPickingSuspended'] { return this.toolSession.worldPickingSuspended; }
+  set worldPickingSuspended(value: ToolInteractionSession['worldPickingSuspended']) { this.toolSession.worldPickingSuspended = value; }
+
+  get brushSelection(): ToolInteractionSession['brushSelection'] { return this.toolSession.brushSelection; }
+  set brushSelection(value: ToolInteractionSession['brushSelection']) { this.toolSession.brushSelection = value; }
+
+  get brushMicroMode(): ToolInteractionSession['brushMicroMode'] { return this.toolSession.brushMicroMode; }
+  set brushMicroMode(value: ToolInteractionSession['brushMicroMode']) { this.toolSession.brushMicroMode = value; }
+
+  get entityInputReleased(): ToolInteractionSession['entityInputReleased'] { return this.toolSession.entityInputReleased; }
+  set entityInputReleased(value: ToolInteractionSession['entityInputReleased']) { this.toolSession.entityInputReleased = value; }
+
+  get entityInputPressed(): ToolInteractionSession['entityInputPressed'] { return this.toolSession.entityInputPressed; }
+  set entityInputPressed(value: ToolInteractionSession['entityInputPressed']) { this.toolSession.entityInputPressed = value; }
+
+  get entityInputDown(): ToolInteractionSession['entityInputDown'] { return this.toolSession.entityInputDown; }
+  set entityInputDown(value: ToolInteractionSession['entityInputDown']) { this.toolSession.entityInputDown = value; }
+
+  get toolUseSequence(): ToolInteractionSession['toolUseSequence'] { return this.toolSession.toolUseSequence; }
+  set toolUseSequence(value: ToolInteractionSession['toolUseSequence']) { this.toolSession.toolUseSequence = value; }
+
+  get _activeTool(): ToolInteractionSession['_activeTool'] { return this.toolSession._activeTool; }
+  set _activeTool(value: ToolInteractionSession['_activeTool']) { this.toolSession._activeTool = value; }
+
+  private _placementSession?: PlacementSession;
+  private get placementSession(): PlacementSession {
+    if (this._placementSession) return this._placementSession;
+    const host = this;
+    return this._placementSession = new PlacementSession({
+      get activeInventoryCategory() { return host.activeInventoryCategory; },
+      set activeInventoryCategory(value) { host.activeInventoryCategory = value; },
+      get activeTool() { return host.activeTool; },
+      set activeTool(value) { host.activeTool = value; },
+      get currentRaycast() { return host.currentRaycast; },
+      set currentRaycast(value) { host.currentRaycast = value; },
+      get hoveredContraption() { return host.hoveredContraption; },
+      set hoveredContraption(value) { host.hoveredContraption = value; },
+      get hoveredContraptionHit() { return host.hoveredContraptionHit; },
+      set hoveredContraptionHit(value) { host.hoveredContraptionHit = value; },
+      get inventorySlots() { return host.inventorySlots; },
+      set inventorySlots(value) { host.inventorySlots = value; },
+      get rotateBlocksX90() { return host.rotateBlocksX90.bind(host); },
+      get rotateBlocksY90() { return host.rotateBlocksY90.bind(host); },
+      get sceneRenderer() { return host.sceneRenderer; },
+      set sceneRenderer(value) { host.sceneRenderer = value; },
+      get selectedInventoryIndex() { return host.selectedInventoryIndex; },
+      set selectedInventoryIndex(value) { host.selectedInventoryIndex = value; },
+      get sound() { return host.sound; },
+      set sound(value) { host.sound = value; },
+      get ui() { return host.ui; },
+      set ui(value) { host.ui = value; },
+      get world() { return host.world; },
+      set world(value) { host.world = value; },
+      get worldPickingSuspended() { return host.worldPickingSuspended; },
+      set worldPickingSuspended(value) { host.worldPickingSuspended = value; },
+    });
+  }
+
+  get inventoryPlacementPreview(): PlacementSession['inventoryPlacementPreview'] { return this.placementSession.inventoryPlacementPreview; }
+  set inventoryPlacementPreview(value: PlacementSession['inventoryPlacementPreview']) { this.placementSession.inventoryPlacementPreview = value; }
+
+  get hammerRotatedSlotCache(): PlacementSession['hammerRotatedSlotCache'] { return this.placementSession.hammerRotatedSlotCache; }
+  set hammerRotatedSlotCache(value: PlacementSession['hammerRotatedSlotCache']) { this.placementSession.hammerRotatedSlotCache = value; }
+
+  get hammerRotatedSlotTurnsKey(): PlacementSession['hammerRotatedSlotTurnsKey'] { return this.placementSession.hammerRotatedSlotTurnsKey; }
+  set hammerRotatedSlotTurnsKey(value: PlacementSession['hammerRotatedSlotTurnsKey']) { this.placementSession.hammerRotatedSlotTurnsKey = value; }
+
+  get hammerRotatedSlotSource(): PlacementSession['hammerRotatedSlotSource'] { return this.placementSession.hammerRotatedSlotSource; }
+  set hammerRotatedSlotSource(value: PlacementSession['hammerRotatedSlotSource']) { this.placementSession.hammerRotatedSlotSource = value; }
+
+  get hammerRotationTurnsX(): PlacementSession['hammerRotationTurnsX'] { return this.placementSession.hammerRotationTurnsX; }
+  set hammerRotationTurnsX(value: PlacementSession['hammerRotationTurnsX']) { this.placementSession.hammerRotationTurnsX = value; }
+
+  get hammerRotationTurnsY(): PlacementSession['hammerRotationTurnsY'] { return this.placementSession.hammerRotationTurnsY; }
+  set hammerRotationTurnsY(value: PlacementSession['hammerRotationTurnsY']) { this.placementSession.hammerRotationTurnsY = value; }
+
+  private _selectionSession?: SelectionSession;
+  private get selectionSession(): SelectionSession {
+    if (this._selectionSession) return this._selectionSession;
+    const host = this;
+    return this._selectionSession = new SelectionSession({
+      get activeTool() { return host.activeTool; },
+      set activeTool(value) { host.activeTool = value; },
+      get boxSelectionPreview() { return host.boxSelectionPreview; },
+      set boxSelectionPreview(value) { host.boxSelectionPreview = value; },
+      get buildEntityMicroSelection() { return host.buildEntityMicroSelection.bind(host); },
+      get camera() { return host.camera; },
+      set camera(value) { host.camera = value; },
+      get canEditEntityInternals() { return host.canEditEntityInternals.bind(host); },
+      get clearBrushSelection() { return host.clearBrushSelection.bind(host); },
+      get collectSubtreeIds() { return host.collectSubtreeIds.bind(host); },
+      get contraptions() { return host.contraptions; },
+      set contraptions(value) { host.contraptions = value; },
+      get focusBlockPreview() { return host.focusBlockPreview; },
+      set focusBlockPreview(value) { host.focusBlockPreview = value; },
+      get getEntitySelectionBounds() { return host.getEntitySelectionBounds.bind(host); },
+      get getTargetEntityWorldQuaternion() { return host.getTargetEntityWorldQuaternion.bind(host); },
+      get handleRunningEntityInteraction() { return host.handleRunningEntityInteraction.bind(host); },
+      get hasActiveSelection() { return host.hasActiveSelection.bind(host); },
+      get isLocked() { return host.isLocked; },
+      set isLocked(value) { host.isLocked = value; },
+      get performBasicAction() { return host.performBasicAction.bind(host); },
+      get physics() { return host.physics; },
+      set physics(value) { host.physics = value; },
+      get requireConfirmedSelection() { return host.requireConfirmedSelection.bind(host); },
+      get sceneRenderer() { return host.sceneRenderer; },
+      set sceneRenderer(value) { host.sceneRenderer = value; },
+      get sound() { return host.sound; },
+      set sound(value) { host.sound = value; },
+      get targetEntityLocalToWorld() { return host.targetEntityLocalToWorld.bind(host); },
+      get ui() { return host.ui; },
+      set ui(value) { host.ui = value; },
+      get worldPickingSuspended() { return host.worldPickingSuspended; },
+      set worldPickingSuspended(value) { host.worldPickingSuspended = value; },
+    });
+  }
+
+  get selectionGizmoRaycaster(): SelectionSession['selectionGizmoRaycaster'] { return this.selectionSession.selectionGizmoRaycaster; }
+  set selectionGizmoRaycaster(value: SelectionSession['selectionGizmoRaycaster']) { this.selectionSession.selectionGizmoRaycaster = value; }
+
+  get activeGizmoDrag(): SelectionSession['activeGizmoDrag'] { return this.selectionSession.activeGizmoDrag; }
+  set activeGizmoDrag(value: SelectionSession['activeGizmoDrag']) { this.selectionSession.activeGizmoDrag = value; }
+
+  get hoveredGizmoHandle(): SelectionSession['hoveredGizmoHandle'] { return this.selectionSession.hoveredGizmoHandle; }
+  set hoveredGizmoHandle(value: SelectionSession['hoveredGizmoHandle']) { this.selectionSession.hoveredGizmoHandle = value; }
+
+  get selectionShapeAnchor(): SelectionSession['selectionShapeAnchor'] { return this.selectionSession.selectionShapeAnchor; }
+  set selectionShapeAnchor(value: SelectionSession['selectionShapeAnchor']) { this.selectionSession.selectionShapeAnchor = value; }
+
+  get selectorShape(): SelectionSession['selectorShape'] { return this.selectionSession.selectorShape; }
+  set selectorShape(value: SelectionSession['selectorShape']) { this.selectionSession.selectorShape = value; }
+
+  get selectorMicroMode(): SelectionSession['selectorMicroMode'] { return this.selectionSession.selectorMicroMode; }
+  set selectorMicroMode(value: SelectionSession['selectorMicroMode']) { this.selectionSession.selectorMicroMode = value; }
+
+  get selectorRange(): SelectionSession['selectorRange'] { return this.selectionSession.selectorRange; }
+  set selectorRange(value: SelectionSession['selectorRange']) { this.selectionSession.selectorRange = value; }
+
+  get selectorLevel(): SelectionSession['selectorLevel'] { return this.selectionSession.selectorLevel; }
+  set selectorLevel(value: SelectionSession['selectorLevel']) { this.selectionSession.selectorLevel = value; }
+
+  get selectedBlockSelection(): SelectionSession['selectedBlockSelection'] { return this.selectionSession.selectedBlockSelection; }
+  set selectedBlockSelection(value: SelectionSession['selectedBlockSelection']) { this.selectionSession.selectedBlockSelection = value; }
+
+  get selectedSubtree(): SelectionSession['selectedSubtree'] { return this.selectionSession.selectedSubtree; }
+  set selectedSubtree(value: SelectionSession['selectedSubtree']) { this.selectionSession.selectedSubtree = value; }
+
+  private _drivingSession?: DrivingSession;
+  private get drivingSession(): DrivingSession {
+    if (this._drivingSession) return this._drivingSession;
+    const host = this;
+    return this._drivingSession = new DrivingSession({
+      get contraptions() { return host.contraptions; },
+      set contraptions(value) { host.contraptions = value; },
+      get hoveredContraption() { return host.hoveredContraption; },
+      set hoveredContraption(value) { host.hoveredContraption = value; },
+      get hoveredContraptionHit() { return host.hoveredContraptionHit; },
+      set hoveredContraptionHit(value) { host.hoveredContraptionHit = value; },
+      get physics() { return host.physics; },
+      set physics(value) { host.physics = value; },
+      get resetEntityInputState() { return host.resetEntityInputState.bind(host); },
+      get ui() { return host.ui; },
+      set ui(value) { host.ui = value; },
+    });
+  }
+
+  get drivenSeatFixedOrientation(): DrivingSession['drivenSeatFixedOrientation'] { return this.drivingSession.drivenSeatFixedOrientation; }
+  set drivenSeatFixedOrientation(value: DrivingSession['drivenSeatFixedOrientation']) { this.drivingSession.drivenSeatFixedOrientation = value; }
+
+  get drivenSeat(): DrivingSession['drivenSeat'] { return this.drivingSession.drivenSeat; }
+  set drivenSeat(value: DrivingSession['drivenSeat']) { this.drivingSession.drivenSeat = value; }
+
+  get drivenContraption(): DrivingSession['drivenContraption'] { return this.drivingSession.drivenContraption; }
+  set drivenContraption(value: DrivingSession['drivenContraption']) { this.drivingSession.drivenContraption = value; }
+
+  get isDriving(): DrivingSession['isDriving'] { return this.drivingSession.isDriving; }
+  set isDriving(value: DrivingSession['isDriving']) { this.drivingSession.isDriving = value; }
+
+  private _cameraSession?: PlayerCamera;
+  private get cameraSession(): PlayerCamera {
+    if (this._cameraSession) return this._cameraSession;
+    const host = this;
+    return this._cameraSession = new PlayerCamera({
+      get camera() { return host.camera; },
+      set camera(value) { host.camera = value; },
+      get physics() { return host.physics; },
+      set physics(value) { host.physics = value; },
+      get sceneRenderer() { return host.sceneRenderer; },
+      set sceneRenderer(value) { host.sceneRenderer = value; },
+      get ui() { return host.ui; },
+      set ui(value) { host.ui = value; },
+    });
+  }
+
+  get cameraPerspectiveTransition(): PlayerCamera['cameraPerspectiveTransition'] { return this.cameraSession.cameraPerspectiveTransition; }
+  set cameraPerspectiveTransition(value: PlayerCamera['cameraPerspectiveTransition']) { this.cameraSession.cameraPerspectiveTransition = value; }
+
+  get thirdPersonDistance(): PlayerCamera['thirdPersonDistance'] { return this.cameraSession.thirdPersonDistance; }
+  set thirdPersonDistance(value: PlayerCamera['thirdPersonDistance']) { this.cameraSession.thirdPersonDistance = value; }
+
+  get perspective(): PlayerCamera['perspective'] { return this.cameraSession.perspective; }
+  set perspective(value: PlayerCamera['perspective']) { this.cameraSession.perspective = value; }
+
+  get fov(): PlayerCamera['fov'] { return this.cameraSession.fov; }
+  set fov(value: PlayerCamera['fov']) { this.cameraSession.fov = value; }
+
+  get yaw(): PlayerCamera['yaw'] { return this.cameraSession.yaw; }
+  set yaw(value: PlayerCamera['yaw']) { this.cameraSession.yaw = value; }
+
+  get pitch(): PlayerCamera['pitch'] { return this.cameraSession.pitch; }
+  set pitch(value: PlayerCamera['pitch']) { this.cameraSession.pitch = value; }
+
   modeling = new ModelingTool(this);
   // Reusable temporary vectors for torus-world aiming.
   static _bentEye = new THREE.Vector3();
@@ -271,55 +487,19 @@ export class PlayerController {
     crouch: boolean;
     sprint: boolean;
   };
-
-  // --- Entity (program) keyboard input, sampled once by the engine ---
-  entityInputDown: Set<string>;
-  entityInputPressed: Set<string>;
-  entityInputReleased: Set<string>;
-
-  // --- Camera angles (Euler YXZ) ---
-  pitch: number;
-  yaw: number;
-
-  // --- Selected item / cursor state ---
-  _activeTool!: string;
-  toolUseSequence = 0;
   get activeTool(): string {
-    return this._activeTool;
+    return this.toolSession.activeTool;
   }
   set activeTool(tool: string) {
-    const prev = this._activeTool;
-    if (prev === tool) return;
-    // Hammer rotation is a placement-only pose. Leaving (or entering) a tool
-    // must never carry that pose into a later Hammer session.
-    this.clearHammerRotation();
-    if ((prev === SpecialTool.SELECTOR || prev === SpecialTool.SUPER_GLUE) &&
-      (tool !== SpecialTool.SELECTOR && tool !== SpecialTool.SUPER_GLUE)) {
-      this.clearSelection();
-    }
-    if (tool === SpecialTool.BRUSH) {
-      this.hoveredContraption?.clearFocusHighlight?.();
-    }
-    if (prev === SpecialTool.BRUSH && tool !== SpecialTool.BRUSH) {
-      this.clearBrushSelection();
-    }
-    if (prev === SpecialTool.WRENCH && tool !== SpecialTool.WRENCH) {
-      this.releaseWrenchGizmoDrag();
-      this.releaseWrenchGrab();
-      this.clearWrenchPivotDisplay();
-    }
-    if (prev === SpecialTool.MODELING && tool !== SpecialTool.MODELING) this.modeling.deactivate();
-    this._activeTool = tool;
+    this.toolSession.activeTool = tool;
   }
-  selectedBlock: number;
+  selectedBlock: number | null;
   selectedColor: number;
   selectedMaterialId: number;
   selectedGradientStops: GradientStop[];
   currentRaycast: any;
   hoveredContraption: Contraption | null;
   hoveredContraptionHit: any;
-  worldPickingSuspended = false;
-  pendingInteractionStops: WeakSet<object>;
   wrenchGrab: any;
   private wrenchScrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
   wrenchPivotTarget: any;
@@ -328,54 +508,21 @@ export class PlayerController {
   microCarvePreview: any;
   focusBlockPreview: any;
   boxSelectionPreview: any;
-  inventoryPlacementPreview: any;
-  hoveredGizmoHandle: any;
-  activeGizmoDrag: any;
-  private selectionGizmoRaycaster: THREE.Raycaster | null = null;
   private wrenchGizmoRaycaster: THREE.Raycaster | null = null;
-
-  // --- Entity/component selector + inventory clipboard ---
-  selectedSubtree: SubtreeSelection | null;
-  selectedBlockSelection: ComponentBlockSelection | null;
-  selectorLevel: ComponentSelection | null;
-  selectorRange: ComponentRange | null;
-  selectorMicroMode: boolean;
-  private _selectorShape: SelectorShape = 'box';
-  get selectorShape(): SelectorShape {
-    return this._selectorShape || 'box';
-  }
-  set selectorShape(val: SelectorShape) {
-    this._selectorShape = val;
-  }
-  selectionShapeAnchor: {
-    cornerA: { x: number; y: number; z: number };
-    cornerB: { x: number; y: number; z: number } | null;
-    micro: boolean;
-    cylinderAxis?: 'x' | 'y' | 'z';
-    stairsAxis?: 'x' | 'z';
-    stairsOrientation?: StairsOrientation;
-  } | null = null;
-  brushMicroMode: boolean;
-  brushSelection: any;
   inventories: Inventories;
   activeInventoryCategory: string;
-  hammerRotationTurnsY: number;
-  hammerRotationTurnsX: number;
   get hammerRotationTurns(): number {
     return this.hammerRotationTurnsY;
   }
   set hammerRotationTurns(val: number) {
     this.hammerRotationTurnsY = val;
   }
-  private hammerRotatedSlotSource: any;
-  private hammerRotatedSlotTurnsKey: string | null;
   get hammerRotatedSlotTurns(): number {
     return this.hammerRotationTurnsY;
   }
   set hammerRotatedSlotTurns(val: number) {
     this.hammerRotationTurnsY = val;
   }
-  private hammerRotatedSlotCache: any;
   persistentStorage: SpaceStorage | null;
   bulkEditJob: BulkEditJob | null;
   serverEntityRunStateHandler: ((contraption: any, state: 'running' | 'stopped') => Promise<any>) | null;
@@ -383,17 +530,6 @@ export class PlayerController {
 
   // --- Camera / View Settings ---
   sceneRenderer: SceneRenderer | null;
-  fov: number;
-  perspective: PlayerPerspective;
-  thirdPersonDistance: number;
-  private cameraPerspectiveTransition?: CameraPerspectiveTransition;
-
-  // --- Driving state ---
-  isDriving: boolean;
-  drivenContraption: Contraption | null;
-  drivenSeat: { componentId: string; seatIndex: number } | null;
-  /** The occupied seat fixes the rider's body orientation, never the camera. */
-  drivenSeatFixedOrientation: boolean;
   navigationSystem: NavigationSystem | null = null;
 
   constructor(
@@ -481,7 +617,7 @@ export class PlayerController {
     // 0.125 m micro cells (single toggles + boxes materialize to existing micro
     // voxels).
     this.selectorMicroMode = false;
-    this._selectorShape = 'box';
+    this.selectorShape = 'box';
     this.selectionShapeAnchor = null;
     this.brushMicroMode = false;
     this.brushSelection = null;
@@ -1090,8 +1226,9 @@ export class PlayerController {
   }
 
   /** Canonical command entry shared with entity programs and editor buttons. */
-  performBasicAction(command: Parameters<typeof executeBasicAction>[1]) {
-    const contraption = command?.target?.contraption || command?.selection?.contraption
+  performBasicAction<C extends import('@entropydrop/space-engine/actions/ActionContracts.ts').BasicActionCommand>(command: C): import('@entropydrop/space-engine/actions/ActionContracts.ts').BasicActionResult<C>;
+  performBasicAction(command: import('@entropydrop/space-engine/actions/ActionContracts.ts').BasicActionCommand): unknown {
+    const contraption = ('target' in command ? command.target?.contraption : null) || ('selection' in command ? command.selection?.contraption : null)
       || this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption;
     const interactive = (command.actor?.source || 'player') === 'player'
       && ((command.domain === ActionDomain.ENTITY && INTERACTIVE_ENTITY_EDIT_ACTIONS.has(command.action))
@@ -1106,112 +1243,38 @@ export class PlayerController {
       { world: this.world, manager: this.contraptions, selectionHost: this },
       { actor: { source: 'player' }, ...command }
     );
-    if (interactive && result?.reason === 'entity_not_stopped') {
-      this.handleRunningEntityInteraction(contraption);
+    if (interactive && result && 'reason' in result && result.reason === 'entity_not_stopped') {
+      this.handleRunningEntityInteraction(contraption ?? null);
     }
     return result;
   }
 
   clearSelection() {
-    this.selectedSubtree?.contraption?.clearSubtreeHighlight?.();
-    this.selectedBlockSelection?.contraption?.clearSubtreeHighlight?.();
-    const result = this.performBasicAction({ domain: ActionDomain.SELECTION, action: 'clear' });
-    this.selectedSubtree = null;
-    this.selectedBlockSelection = null;
-    this.selectorLevel = null;
-    this.selectorRange = null;
-    this.selectionShapeAnchor = null;
-    this.hoveredGizmoHandle = null;
-    this.releaseGizmoDrag();
-    this.clearBrushSelection();
-    this.boxSelectionPreview = null;
-    this.focusBlockPreview = null;
-    this.sceneRenderer?.clearBoxSelectionPreview?.();
-    this.sceneRenderer?.clearFocusBlockGuide?.();
-    this.sceneRenderer?.clearSelectionAxisGizmo?.();
-    if (this.sceneRenderer && this.contraptions) {
-      this.sceneRenderer.updateSelectionHologram(null, null, null);
-    }
-    return result;
+    return this.selectionSession.clearSelection();
   }
 
   setWorldPickingSuspended(suspended: boolean): void {
-    const next = Boolean(suspended);
-    if (this.worldPickingSuspended === next) return;
-    this.worldPickingSuspended = next;
-    if (!next) return;
-
-    this.modeling?.deactivate();
-    this.releaseWrenchGizmoDrag();
-    this.releaseGizmoDrag();
-    this.releaseWrenchGrab();
-
-    const hovered = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
-    if (hovered) {
-      hovered.setHighlighted?.(false);
-      hovered.clearFocusHighlight?.();
-    }
-    this.currentRaycast = { hit: false };
-    this.hoveredContraption = null;
-    this.hoveredContraptionHit = null;
-    this.hoveredGizmoHandle = null;
-    this.hoveredWrenchGizmoHandle = null;
-    this.microCarvePreview = null;
-    this.focusBlockPreview = null;
-    this.boxSelectionPreview = null;
-    this.inventoryPlacementPreview = null;
-    this.clearWrenchPivotDisplay();
-
-    this.sceneRenderer?.setCursor?.(null);
-    this.sceneRenderer?.setMicroCarvePreview?.(null);
-    this.sceneRenderer?.clearFocusBlockGuide?.();
-    this.sceneRenderer?.clearBoxSelectionPreview?.();
-    this.sceneRenderer?.setInventoryPlacementPreview?.(null);
-    this.sceneRenderer?.clearSelectionAxisGizmo?.();
-    this.sceneRenderer?.highlightSelectionGizmoHandle?.(null);
+    return this.toolSession.setWorldPickingSuspended(suspended);
   }
 
   clearBrushSelection() {
-    this.brushSelection = null;
-    if (this.activeTool === SpecialTool.BRUSH) {
-      this.boxSelectionPreview = null;
-      this.sceneRenderer?.clearBoxSelectionPreview?.();
-      this.hoveredContraption?.clearFocusHighlight?.();
-    }
+    return this.toolSession.clearBrushSelection();
   }
 
   recordEntityKeyDown(code: string) {
-    if (!code || RESERVED_ENTITY_INPUT_CODES.has(code)) return false;
-    if (!this.entityInputDown.has(code)) {
-      this.entityInputPressed.add(code);
-    }
-    this.entityInputDown.add(code);
-    return true;
+    return this.toolSession.recordEntityKeyDown(code);
   }
 
   recordEntityKeyUp(code: string) {
-    if (!code || RESERVED_ENTITY_INPUT_CODES.has(code)) return false;
-    if (this.entityInputDown.delete(code)) {
-      this.entityInputReleased.add(code);
-    }
-    return true;
+    return this.toolSession.recordEntityKeyUp(code);
   }
 
   consumeEntityInputFrame() {
-    const frame = Object.freeze({
-      down: Object.freeze([...this.entityInputDown]),
-      pressed: Object.freeze([...this.entityInputPressed]),
-      released: Object.freeze([...this.entityInputReleased])
-    });
-    this.entityInputPressed.clear();
-    this.entityInputReleased.clear();
-    return frame;
+    return this.toolSession.consumeEntityInputFrame();
   }
 
   resetEntityInputState() {
-    this.entityInputDown?.clear();
-    this.entityInputPressed?.clear();
-    this.entityInputReleased?.clear();
+    return this.toolSession.resetEntityInputState();
   }
 
   openCodeEditorForTarget(target = this.hoveredContraption) {
@@ -1230,448 +1293,7 @@ export class PlayerController {
   }
 
   handleLeftClick(e: MouseEvent | null = null) {
-    if (this.worldPickingSuspended) return false;
-    if (this.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
-    if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
-    if (this.activeTool === SpecialTool.MODELING) return this.modeling.leftDown(e);
-    if (this.bulkEditJob) {
-      this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
-      return false;
-    }
-    // Count accepted game clicks, including swings into empty space. DOM/UI
-    // clicks never reach this method unless the game owns pointer lock.
-    this.toolUseSequence = (this.toolUseSequence || 0) + 1;
-    // Consume one physical attempt before compound voxel actions can dispatch.
-    if ([SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH].includes(this.activeTool)
-      && !(this.activeTool === SpecialTool.BRUSH && this.brushSelection)
-      && this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
-    const selectorTool = this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE;
-    const selectorTarget = this.hoveredGizmoHandle
-      ? this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption
-      : this.hoveredContraptionHit?.contraption;
-    if (selectorTool && this.handleRunningEntityInteraction(selectorTarget)) return false;
-    // Selector XYZ coordinate axis gizmo dragging
-    if (this.activeTool === SpecialTool.SELECTOR && this.hoveredGizmoHandle) {
-      this.startGizmoDrag(this.hoveredGizmoHandle, e);
-      return;
-    }
-
-    // Hammer owns inventory construction. Selection never places inventory
-    // contents, so copying and building remain distinct tool modes.
-    if (this.activeTool === SpecialTool.HAMMER) {
-      this.pasteInventorySlot(!!(e?.shiftKey || this.keys?.crouch));
-      return;
-    }
-
-    if (this.activeTool === SpecialTool.WRENCH) {
-      if (this.hoveredWrenchGizmoHandle) {
-        this.startWrenchGizmoDrag(this.hoveredWrenchGizmoHandle, e);
-        return;
-      }
-      this.startWrenchGrab();
-      return;
-    }
-
-    // 1. Shovel -> remove one standard 1x1x1 cell or entity block. If pointing at
-    // micro-geometry, remove the micro cells contained in that standard cell.
-    if (this.activeTool === SpecialTool.SHOVEL) {
-      if (this.hoveredContraptionHit) {
-        const hit = this.hoveredContraptionHit;
-        const c = hit.contraption;
-        const targetNodeId = hit.entityId ?? contraptionRootId(c);
-        const hitCell = hit.cell;
-        let result;
-
-        if (hit.kind === 'micro') {
-          result = this.performBasicAction({
-            domain: ActionDomain.ENTITY,
-            action: 'clear-cell',
-            target: { contraption: c },
-            nodeId: targetNodeId,
-            cell: hitCell,
-            microOnly: true
-          });
-          if (result.empty) {
-            if (this.ui) this.ui.showToast(`Entity #${c.id} fully dismantled`);
-          } else if (result.ok) {
-            this.ui?.notifyContraptionStructureChanged(c);
-            if (this.ui) {
-              this.ui.showToast(`Shovel removed ${result.removed} micro voxels (1 standard cell) from [${targetNodeId}]`);
-            }
-          }
-        } else {
-          result = this.performBasicAction({
-            domain: ActionDomain.ENTITY,
-            action: 'remove-standard',
-            target: { contraption: c },
-            nodeId: targetNodeId,
-            cell: hitCell
-          });
-          if (result.empty) {
-            if (this.ui) this.ui.showToast(`Entity #${c.id} fully dismantled`);
-          } else if (result.ok) {
-            this.ui?.notifyContraptionStructureChanged(c);
-            if (this.ui) {
-              this.ui.showToast(`Shovel removed 1 standard block from [${targetNodeId}]`);
-            }
-          }
-        }
-        if ((result?.removed || 0) > 0) {
-          this.particles.emitBlockBreak(hit.point, hit.color || this.selectedColor, 12);
-          this.sound.playBlockBreak({ kind: 'standard', count: result.removed });
-        }
-        return;
-      }
-
-      if (!this.currentRaycast.hit) return;
-      let result;
-      if (this.currentRaycast.kind === 'micro') {
-        const mp = this.currentRaycast.microPos;
-        const wx = Math.floor(mp.x / MICRO_DIVISIONS);
-        const wy = Math.floor(mp.y / MICRO_DIVISIONS);
-        const wz = Math.floor(mp.z / MICRO_DIVISIONS);
-        result = this.performBasicAction({
-          domain: ActionDomain.WORLD,
-          action: 'clear-cell',
-          cell: { x: wx, y: wy, z: wz },
-          microOnly: true
-        });
-        if (result.removed && this.ui) this.ui.showToast(`Shovel removed ${result.removed} micro voxels (1 standard cell)`);
-      } else {
-        const hp = this.currentRaycast.hitPos;
-        result = this.performBasicAction({ domain: ActionDomain.WORLD, action: 'remove-standard', cell: hp });
-        if ((result.removed || 0) > 0) {
-          this.particles.emitBlockBreak(hp, this.currentRaycast.color || this.selectedColor, 12);
-        }
-      }
-      if ((result?.removed || 0) > 0) {
-        this.sound.playBlockBreak({ kind: 'standard', count: result.removed });
-      }
-      return;
-    }
-
-    // 2. Spoon -> subdivide a standard block, then edit individual micro cells.
-    if (this.activeTool === SpecialTool.SPOON) {
-      if (this.hoveredContraptionHit) {
-        const hit = this.hoveredContraptionHit;
-        const c = hit.contraption;
-        const targetNodeId = hit.entityId ?? contraptionRootId(c);
-        const hitCell = hit.cell;
-        let result;
-
-        if (hit.kind === 'micro' && hit.block) {
-          result = this.performBasicAction({
-            domain: ActionDomain.ENTITY,
-            action: 'remove-micro',
-            target: { contraption: c },
-            nodeId: targetNodeId,
-            micro: [
-              Math.round(hit.block.localX * MICRO_DIVISIONS),
-              Math.round(hit.block.localY * MICRO_DIVISIONS),
-              Math.round(hit.block.localZ * MICRO_DIVISIONS)
-            ]
-          });
-          if (result.empty) {
-            if (this.ui) this.ui.showToast(`Entity #${c.id} fully micro-carved away`);
-          } else if (result.ok) {
-            this.ui?.notifyContraptionStructureChanged(c);
-            if (this.ui) {
-              this.ui.showToast(`Spoon removed 1 micro voxel from [${targetNodeId}]`);
-            }
-          }
-        } else {
-          const carved = [
-            Math.round((hit.placeMicroPos.localX - hit.normal.x * MICRO_SIZE) * MICRO_DIVISIONS),
-            Math.round((hit.placeMicroPos.localY - hit.normal.y * MICRO_SIZE) * MICRO_DIVISIONS),
-            Math.round((hit.placeMicroPos.localZ - hit.normal.z * MICRO_SIZE) * MICRO_DIVISIONS)
-          ];
-          result = this.performBasicAction({
-            domain: ActionDomain.ENTITY,
-            action: 'subdivide-standard',
-            target: { contraption: c },
-            nodeId: targetNodeId,
-            cell: hitCell,
-            micro: carved
-          });
-          if (result.ok) {
-            this.ui?.notifyContraptionStructureChanged(c);
-            if (this.ui) {
-              this.ui.showToast(`Carved 1 micro voxel out of a subdivided block on [${targetNodeId}] (511 left)`);
-            }
-          }
-        }
-        if ((result?.removed || 0) > 0) {
-          this.particles.emitBlockBreak(hit.point, hit.color || this.selectedColor, 4);
-          this.sound.playBlockBreak({ kind: 'micro', count: result.removed });
-        }
-        return;
-      }
-
-      if (!this.currentRaycast.hit) return;
-      const publishedHit = this.currentRaycast;
-      const publishedCell = publishedHit.kind === 'micro'
-        ? {
-          x: Math.floor(publishedHit.microPos.x / MICRO_DIVISIONS),
-          y: Math.floor(publishedHit.microPos.y / MICRO_DIVISIONS),
-          z: Math.floor(publishedHit.microPos.z / MICRO_DIVISIONS),
-        }
-        : publishedHit.hitPos;
-
-      const carve = (hit: { kind: string; microPos: Point3; hitPos: Point3; normal: Point3; entry?: Point3 }) => {
-        if (hit.kind === 'micro') {
-          return this.performBasicAction({
-            domain: ActionDomain.WORLD,
-            action: 'remove-micro',
-            micro: hit.microPos,
-          });
-        }
-
-        const hp = hit.hitPos;
-        // Direct carve uses the exact rendered entry point, clamped to the hit standard cell.
-        const normal = hit.normal;
-        const entry = hit.entry
-          ? new THREE.Vector3(hit.entry.x, hit.entry.y, hit.entry.z)
-          : this.physics.getEyePosition();
-        const clamp = (value: number, base: number) => Math.max(base * MICRO_DIVISIONS, Math.min(
-          base * MICRO_DIVISIONS + MICRO_DIVISIONS - 1,
-          value,
-        ));
-        const carveMicro = [
-          clamp(Math.floor((entry.x + normal.x * 0.02) * MICRO_DIVISIONS), hp.x),
-          clamp(Math.floor((entry.y + normal.y * 0.02) * MICRO_DIVISIONS), hp.y),
-          clamp(Math.floor((entry.z + normal.z * 0.02) * MICRO_DIVISIONS), hp.z),
-        ];
-        return this.performBasicAction({
-          domain: ActionDomain.WORLD,
-          action: 'subdivide-standard',
-          cell: hp,
-          micro: carveMicro,
-        });
-      };
-
-      let carvedHit = publishedHit;
-      let result = carve(carvedHit);
-      if (!result.ok && result.reason === 'not_found') {
-        // The mesh currently on screen can outlive the cell consumed by the
-        // preceding click. Keep hover tied to that published mesh, but let this
-        // destructive retry advance through live microcells in the same 1 m
-        // cell so a burst of clicks is never swallowed.
-        const liveQuery = this.performAimRaycast('all', false);
-        const liveHit = liveQuery.kind === 'world' ? liveQuery.worldHit : null;
-        const liveCell = liveHit?.kind === 'micro' && liveHit.microPos
-          ? {
-            x: Math.floor(liveHit.microPos.x / MICRO_DIVISIONS),
-            y: Math.floor(liveHit.microPos.y / MICRO_DIVISIONS),
-            z: Math.floor(liveHit.microPos.z / MICRO_DIVISIONS),
-          }
-          : null;
-        if (
-          liveCell
-          && liveCell.x === publishedCell.x
-          && liveCell.y === publishedCell.y
-          && liveCell.z === publishedCell.z
-        ) {
-          carvedHit = liveHit;
-          result = carve(carvedHit);
-        }
-      }
-
-      if ((result.removed || 0) > 0) {
-        if (carvedHit.kind === 'standard' && this.ui) {
-          this.ui.showToast(`Carved 1 micro voxel out of ${result.subdivided} (511 left)`);
-        }
-        this.particles.emitBlockBreak(carvedHit.hitPos, carvedHit.color, 4);
-        this.sound.playBlockBreak({ kind: 'micro', count: result.removed });
-      }
-      return;
-    }
-
-    // 3. Brush -> Paint / Override block color directly, or cancel pending 2-point selection
-    if (this.activeTool === SpecialTool.BRUSH) {
-      if (this.brushSelection) {
-        this.clearBrushSelection();
-        this.sound?.playWrenchClick?.();
-        if (this.ui) this.ui.showToast('Brush selection cancelled');
-        return;
-      }
-      this.paintTargetedBlock();
-      return;
-    }
-
-    // 4. Pipette -> Pick / Sample block color directly
-    if (this.activeTool === SpecialTool.PIPETTE) {
-      this.sampleTargetedColor();
-      return;
-    }
-
-    // 5. Tool: Selector — entity/component level selection, 2-point block box,
-    //    and R/T copy. Inventory construction belongs exclusively to Hammer.
-    if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
-      const isMultiSelect = !!(e?.shiftKey || this.keys.crouch);
-
-      const worldPoint = this.currentRaycast && this.currentRaycast.hit
-        ? new THREE.Vector3(this.currentRaycast.hitPos.x, this.currentRaycast.hitPos.y, this.currentRaycast.hitPos.z)
-        : null;
-
-      // When in preselected state (completed selection without an in-progress 2-point drag),
-      // a plain left click on any block (entity or world) dismisses the selection and returns to unselected.
-      // A subtree-only selection created by Shift+click on an editable level also
-      // counts as preselected. Running interactions are consumed before this branch.
-      const isEntityBoxInProgress = !!(this.selectorRange && this.selectorRange.pointA && !this.selectorRange.pointB);
-      const isWorldBoxInProgress = !!(this.contraptions && this.contraptions.selectionCornerA !== null && this.contraptions.selectionCornerB === null);
-      const isEditableSubtreeSelection = !!(
-        this.selectedSubtree?.contraption &&
-        this.selectedBlockSelection === null &&
-        this.canEditEntityInternals(this.selectedSubtree.contraption)
-      );
-      const isPreselected = !!(
-        isEditableSubtreeSelection ||
-        (this.selectedBlockSelection && this.selectedBlockSelection.blocks?.length > 0) ||
-        (this.contraptions && typeof this.contraptions.hasValidSelection === 'function' && this.contraptions.hasValidSelection())
-      );
-      const clickedAnyBlock = !!(this.hoveredContraptionHit || worldPoint);
-      if (!isMultiSelect && !isEntityBoxInProgress && !isWorldBoxInProgress && isPreselected && clickedAnyBlock) {
-        this.clearSelection();
-        return;
-      }
-
-      if (this.hoveredContraptionHit) {
-        // If world selection was in progress (cornerA was set on world terrain), but point 2 hits an entity:
-        if (this.contraptions && this.contraptions.selectionCornerA !== null && this.contraptions.selectionCornerB === null) {
-          this.contraptions.selectionCornerA = null;
-          this.contraptions.selectionCornerB = null;
-          this.boxSelectionPreview = null;
-          this.sceneRenderer?.clearBoxSelectionPreview?.();
-          this.ui?.showToast?.('A selection that starts in the world cannot end on an entity.', { tone: 'warning' });
-          return;
-        }
-        // Entity/component hit:
-        //   First click  → select that component level (auto-highlights its subtree, not its parent).
-        //   Second click → advance the 2-point box selection for that level's own blocks only.
-        //   Shift+click  → multi-select / toggle individual blocks or micro-blocks.
-        this.selectorOnEntityClick(this.hoveredContraptionHit, e);
-        return;
-      }
-
-      // Micro selection mode (Tab) targets the 0.125 m cell under the crosshair
-      // instead of the whole standard cell.
-      const microCell = this.selectorMicroMode ? this.selectorMicroCellFromRaycast() : null;
-      const targetPoint = microCell
-        ? new THREE.Vector3(microCell.x / MICRO_DIVISIONS, microCell.y / MICRO_DIVISIONS, microCell.z / MICRO_DIVISIONS)
-        : worldPoint;
-
-      // Shift + world click: exit entity box-selection level, enter world single-cell mode.
-      if (isMultiSelect && worldPoint) {
-        if (this.selectedSubtree) {
-          this.selectedSubtree.contraption.clearSubtreeHighlight();
-          this.selectedSubtree = null;
-        }
-        if (this.selectedBlockSelection) {
-          this.selectedBlockSelection.contraption.clearSubtreeHighlight();
-        }
-        this.selectedBlockSelection = null;
-        this.selectorLevel = null;
-        this.selectorRange = null;
-        const info = this.performBasicAction({
-          domain: ActionDomain.SELECTION,
-          action: 'toggle-cell',
-          point: targetPoint,
-          micro: this.selectorMicroMode === true
-        }).selection;
-        if (info?.rejected && this.ui) {
-          this.ui.showToast(`Selected cell lies outside the ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS} limit`, { tone: 'warning' });
-        }
-        return;
-      }
-
-      // If entity selection was in progress (corner 1 on entity), but corner 2 is clicked on world:
-      if (this.selectorRange && this.selectorRange.pointA && !this.selectorRange.pointB && worldPoint) {
-        this.selectorRange = null;
-        this.selectorLevel = null;
-        this.boxSelectionPreview = null;
-        this.sceneRenderer?.clearBoxSelectionPreview?.();
-        this.ui?.showToast?.('A selection that starts on an entity must end on that same entity.', { tone: 'warning' });
-        return;
-      }
-
-      // World hit (no active entity box-selection): clear entity/component state and enter
-      // world 2-point box mode. Previously this would unconditionally re-enter "re-box entity
-      // level", causing selectorLevel to persist after G-assembly so clicks outside the entity
-      // could never start a world selection. Now: world click = world box; entity click = re-box
-      // entity level. A click that hits nothing (sky) intentionally leaves the current entity
-      // selection untouched — missing a shot must not cancel an in-progress 2-point box.
-      if (worldPoint) {
-        if (this.selectedSubtree) {
-          this.selectedSubtree.contraption.clearSubtreeHighlight();
-          this.selectedSubtree = null;
-        }
-        if (this.selectedBlockSelection) {
-          this.selectedBlockSelection.contraption.clearSubtreeHighlight();
-        }
-        this.selectedBlockSelection = null;
-        this.selectorLevel = null;
-        this.selectorRange = null;
-
-        const hp = worldPoint;
-        if (isMultiSelect) {
-          const info = this.performBasicAction({
-            domain: ActionDomain.SELECTION,
-            action: 'toggle-cell',
-            point: targetPoint,
-            micro: this.selectorMicroMode === true
-          }).selection;
-          if (info?.rejected && this.ui) {
-            this.ui.showToast(`Selected cell lies outside the ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS} limit`, { tone: 'warning' });
-          }
-        } else {
-          // 2-point world box: cornerA then cornerB define the diagonal AABB.
-          // In micro mode the confirmed box materializes into the existing
-          // micro voxels it contains; a plain click on the completed set clears it.
-          if (this.selectorMicroMode && Array.isArray(this.contraptions?.microSelection)) {
-            this.clearSelection();
-          } else if (this.contraptions.selectionCornerA === null) {
-            this.performBasicAction({
-              domain: ActionDomain.SELECTION,
-              action: 'corner-a',
-              point: targetPoint,
-              micro: this.selectorMicroMode === true
-            });
-            this.selectionShapeAnchor = {
-              cornerA: this.selectorMicroMode && microCell ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) },
-              cornerB: null,
-              micro: this.selectorMicroMode === true
-            };
-          } else if (this.contraptions.selectionCornerB === null) {
-            const cornerResult = this.performBasicAction({
-              domain: ActionDomain.SELECTION,
-              action: 'corner-b',
-              point: targetPoint,
-              micro: this.selectorMicroMode === true
-            });
-            const ptB = this.selectorMicroMode && microCell ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) };
-            if (this.selectionShapeAnchor) {
-              this.selectionShapeAnchor.cornerB = ptB;
-            } else {
-              this.selectionShapeAnchor = {
-                cornerA: this.selectorMicroMode && microCell ? { ...microCell } : { x: Math.floor(hp.x), y: Math.floor(hp.y), z: Math.floor(hp.z) },
-                cornerB: ptB,
-                micro: this.selectorMicroMode === true
-              };
-            }
-            if (this.selectorShape !== 'box') {
-              this.applySelectionShape(this.selectorShape);
-            }
-            if (cornerResult?.clamped && this.ui) {
-              this.ui.showToast(`Selection exceeds ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS} limit · clamped to bounds`, { tone: 'warning' });
-            }
-          } else {
-            // Box already complete — next plain click clears it and resets to idle.
-            this.clearSelection();
-          }
-        }
-      }
-      return;
-    }
+    return this.toolSession.handleLeftClick(e);
   }
 
   /**
@@ -1778,8 +1400,8 @@ export class PlayerController {
         this.selectedBlockSelection = {
           contraption,
           nodeId: hitNodeId,
-          blocks: result.selection.blocks,
-          bounds: this.getEntitySelectionBounds(result.selection.blocks, isMicro)
+          blocks: result.selection?.blocks,
+          bounds: this.getEntitySelectionBounds(result.selection?.blocks, isMicro)
         };
         this.selectorLevel = { contraption, nodeId: hitNodeId };
         this.selectorRange = null;
@@ -2186,7 +1808,7 @@ export class PlayerController {
       return;
     }
 
-    let selected = result.selection.blocks;
+    let selected = result.selection?.blocks ?? [];
     const components = result.components || [];
 
     // A selection cannot include blocks already assigned to child components.
@@ -3313,384 +2935,19 @@ export class PlayerController {
 
   /** Prefer the visible entity surface over terrain behind it for inventory placement. */
   getInventoryPlacementHit() {
-    const entityHit = this.hoveredContraptionHit;
-    if (entityHit?.point) {
-      return {
-        hitPos: entityHit.point,
-        normal: entityHit.worldNormal || entityHit.normal || { x: 0, y: 1, z: 0 },
-        microNormal: entityHit.worldNormal || entityHit.normal || { x: 0, y: 1, z: 0 },
-        entry: entityHit.point,
-        kind: entityHit.kind,
-        targetContraption: entityHit.contraption || this.hoveredContraption || null,
-        targetNodeId: entityHit.entityId ?? entityHit.entityNode?.id ?? contraptionRootId(entityHit.contraption),
-        targetLocalNormal: entityHit.normal || entityHit.worldNormal || { x: 0, y: 1, z: 0 }
-      };
-    }
-    return this.currentRaycast?.hit
-      ? {
-        hitPos: this.currentRaycast.hitPos,
-        normal: this.currentRaycast.normal,
-        microNormal: this.currentRaycast.normal,
-        entry: this.currentRaycast.entry,
-        kind: this.currentRaycast.kind,
-        placeMicroPos: this.currentRaycast.placeMicroPos
-      }
-      : null;
-  }
-
-  /** Pure-micro block sets can move on the 1/5 grid without invalidating a standard voxel. */
-  private usesMicroBlockSetPlacement(slot: InventoryInput | null) {
-    return slot?.kind === 'blockset'
-      && Array.isArray(slot.blocks)
-      && slot.blocks.length > 0
-      && slot.blocks.every(block => (Number(block?.size) || 1) < 1);
-  }
-
-  /** Resolve the adjacent 0.125 m cell on either terrain or an entity surface. */
-  private getMicroBlockSetPlacementPosition(placementHit: PlacementHit) {
-    if (placementHit.kind === 'micro' && placementHit.placeMicroPos) {
-      const micro = placementHit.placeMicroPos;
-      if ([micro.x, micro.y, micro.z].every(Number.isFinite)) {
-        return new THREE.Vector3(
-          micro.x / MICRO_DIVISIONS,
-          micro.y / MICRO_DIVISIONS,
-          micro.z / MICRO_DIVISIONS
-        );
-      }
-    }
-
-    const point = placementHit.entry;
-    if (!point) {
-      const hp = placementHit.hitPos;
-      if (!hp) return null;
-      const fallbackNormal = placementHit.normal || { x: 0, y: 1, z: 0 };
-      return new THREE.Vector3(
-        Math.floor(hp.x + (fallbackNormal.x || 0)),
-        Math.floor(hp.y + (fallbackNormal.y || 0)),
-        Math.floor(hp.z + (fallbackNormal.z || 0))
-      );
-    }
-    const normal = placementHit.microNormal || placementHit.normal || { x: 0, y: 1, z: 0 };
-    const outside = new THREE.Vector3(point.x, point.y, point.z).addScaledVector(
-      new THREE.Vector3(normal.x || 0, normal.y || 0, normal.z || 0),
-      0.02
-    );
-    const snap = (value: number) => Math.floor(value * MICRO_DIVISIONS + 1e-6) / MICRO_DIVISIONS;
-    return new THREE.Vector3(snap(outside.x), snap(outside.y), snap(outside.z));
-  }
-
-  /**
-   * Cache the authored entity footprint used by both the Hammer ghost and the
-   * final build. A small spatial sample of bottom faces is enough to follow
-   * uneven terrain without raycasting every voxel of a large inventory item
-   * on every render frame.
-   */
-  /** Exact face point when available; otherwise use the centre of the hit voxel face. */
-  private getEntityPlacementSurfacePoint(placementHit: PlacementHit) {
-    const entry = placementHit?.entry;
-    if (entry && [entry.x, entry.y, entry.z].every(Number.isFinite)) {
-      return new THREE.Vector3(entry.x, entry.y, entry.z);
-    }
-    const hp = placementHit?.hitPos;
-    if (!hp || ![hp.x, hp.y, hp.z].every(Number.isFinite)) return null;
-    const normal = placementHit.normal || { x: 0, y: 1, z: 0 };
-    const cellSize = placementHit.kind === 'micro' ? 1 / MICRO_DIVISIONS : 1;
-    const onFace = (value: number, axisNormal: number) => value + (
-      axisNormal > 0 ? cellSize : axisNormal < 0 ? 0 : cellSize / 2
-    );
-    return new THREE.Vector3(
-      onFace(hp.x, Number(normal.x) || 0),
-      onFace(hp.y, Number(normal.y) || 0),
-      onFace(hp.z, Number(normal.z) || 0)
-    );
-  }
-
-  private clampEntityPlacementY(shape: EntityPlacementShape, y: number) {
-    const minOriginY = -shape.minY;
-    const maxOriginY = CHUNK_SIZE_Y - shape.maxY;
-    return Math.max(minOriginY, Math.min(maxOriginY, y));
-  }
-
-  private snapEntityPlacementMicroValue(value: number) {
-    const units = Math.round(value * MICRO_DIVISIONS);
-    return units === 0 ? 0 : units / MICRO_DIVISIONS;
+    return this.placementSession.getInventoryPlacementHit();
   }
 
   private targetEntityLocalToWorld(target: Contraption | null | undefined, nodeId: string, point: THREE.Vector3) {
-    if (typeof target?.entityLocalToWorld === 'function') {
-      return target.entityLocalToWorld(nodeId, point.clone());
-    }
-    const node = target?.getEntityNode?.(nodeId) || target?.entityNodes?.get?.(nodeId);
-    if (node?.group?.localToWorld) {
-      node.group.updateWorldMatrix?.(true, false);
-      return node.group.localToWorld(point.clone().sub(node.pivotLocal || new THREE.Vector3()));
-    }
-    return point.clone();
-  }
-
-  private targetEntityWorldToLocal(target: Contraption | null | undefined, nodeId: string, point: THREE.Vector3) {
-    if (typeof target?.worldToEntityLocal === 'function') {
-      return target.worldToEntityLocal(nodeId, point.clone());
-    }
-    const node = target?.getEntityNode?.(nodeId) || target?.entityNodes?.get?.(nodeId);
-    if (node?.group?.worldToLocal) {
-      node.group.updateWorldMatrix?.(true, false);
-      return node.group.worldToLocal(point.clone()).add(node.pivotLocal || new THREE.Vector3());
-    }
-    return point.clone();
+    return this.placementSession.targetEntityLocalToWorld(target, nodeId, point);
   }
 
   private getTargetEntityWorldQuaternion(target: Contraption | null | undefined, nodeId: string) {
-    const direct = target?.getEntityNodeWorldQuaternion?.(nodeId);
-    if (direct?.isQuaternion) return direct.clone().normalize();
-    const node = target?.getEntityNode?.(nodeId) || target?.entityNodes?.get?.(nodeId);
-    if (node?.group?.getWorldQuaternion) {
-      node.group.updateWorldMatrix?.(true, false);
-      return node.group.getWorldQuaternion(new THREE.Quaternion()).normalize();
-    }
-    return new THREE.Quaternion();
-  }
-
-  /** Read a normalized quaternion without allowing malformed inventory data to poison placement math. */
-  private inventoryQuaternion(value: unknown, fallback = new THREE.Quaternion()) {
-    if (!Array.isArray(value) || value.length < 4) return fallback.clone();
-    const components = value.slice(0, 4).map(Number);
-    if (!components.every(Number.isFinite)) return fallback.clone();
-    const quaternion = new THREE.Quaternion(
-      components[0], components[1], components[2], components[3]
-    );
-    return quaternion.lengthSq() > 1e-12 ? quaternion.normalize() : fallback.clone();
-  }
-
-  /** Authored mounting frame: identity means local +Y is the outward axis. */
-  private getEntityAnchorRotation(slot: InventoryInput) {
-    return this.inventoryQuaternion(slot?.anchorRotation);
-  }
-
-  /** Hammer-only roll. It is temporary and is never written back to the backpack item. */
-  private getEntityPlacementRotation(slot: PlacementSlot) {
-    return this.inventoryQuaternion(slot?.placementRotation);
-  }
-
-  private axisAlignedEntityFaceNormal(value: Point3 | null | undefined) {
-    const normal = value instanceof THREE.Vector3
-      ? value.clone()
-      : new THREE.Vector3(Number(value?.x) || 0, Number(value?.y) || 0, Number(value?.z) || 0);
-    const components = [Math.abs(normal.x), Math.abs(normal.y), Math.abs(normal.z)];
-    const axis = components[1] > components[0]
-      ? (components[2] > components[1] ? 2 : 1)
-      : (components[2] > components[0] ? 2 : 0);
-    const result = new THREE.Vector3();
-    result.setComponent(axis, normal.getComponent(axis) < 0 ? -1 : 1);
-    return result;
-  }
-
-  private getTargetEntityPlacementPoseSignature(target: Contraption) {
-    const values: Array<string | number> = [];
-    const appendVector = (value: Partial<{ x: number; y: number; z: number; w: number }> | null | undefined) => {
-      if (!value) return;
-      for (const key of ['x', 'y', 'z', 'w'] as const) {
-        if (Number.isFinite(Number(value[key]))) values.push(Number(value[key]));
-      }
-    };
-    appendVector(target?.position);
-    appendVector(target?.quaternion);
-    for (const node of target?.entityNodes?.values?.() || []) {
-      values.push(String(node.id || ''));
-      appendVector(node.localPosition || node.group?.position);
-      appendVector(node.localQuaternion || node.group?.quaternion);
-    }
-    return values.length > 0
-      ? values.join(',')
-      : String(Number(target?.collisionPoseVersion) || 0);
-  }
-
-  private getTargetEntityPlacementObbs(target: Contraption | null | undefined) {
-    if (!target) return { boxes: [], buckets: new Map<string, EntityPlacementObb[]>() };
-    const entries = Array.isArray(target.collisionEntries) && target.collisionEntries.length > 0
-      ? target.collisionEntries
-      : null;
-    const entriesRef = entries || target.blocks;
-    const poseSignature = this.getTargetEntityPlacementPoseSignature(target);
-    const cached = entityPlacementTargetObbCache.get(target);
-    if (cached && cached.entriesRef === entriesRef && cached.poseSignature === poseSignature) return cached;
-
-    const quaternionByNode = new Map<string, THREE.Quaternion>();
-    const quaternionFor = (nodeId: string) => {
-      const id = nodeId === undefined || nodeId === null ? contraptionRootId(target) : String(nodeId);
-      let quaternion = quaternionByNode.get(id);
-      if (!quaternion) {
-        quaternion = this.getTargetEntityWorldQuaternion(target, id);
-        quaternionByNode.set(id, quaternion);
-      }
-      return quaternion;
-    };
-    const boxes: EntityPlacementObb[] = [];
-    if (entries) {
-      for (const entry of entries) {
-        const nodeId = contraptionBlockOwnerId(target, entry);
-        const size = Number(entry.span) / MICRO_DIVISIONS;
-        if (!(size > 0)) continue;
-        const center = this.targetEntityLocalToWorld(target, nodeId, new THREE.Vector3(
-          (Number(entry.x) + Number(entry.span) / 2) / MICRO_DIVISIONS,
-          (Number(entry.y) + Number(entry.span) / 2) / MICRO_DIVISIONS,
-          (Number(entry.z) + Number(entry.span) / 2) / MICRO_DIVISIONS
-        ));
-        boxes.push(createEntityPlacementObb(center, size, quaternionFor(nodeId)));
-      }
-    } else {
-      for (const block of target.blocks || []) {
-        const nodeId = contraptionBlockOwnerId(target, block);
-        const size = Number(block.size) || 1;
-        const center = target.getBlockWorldCenter?.(block)
-          || this.targetEntityLocalToWorld(target, nodeId, new THREE.Vector3(
-            Number(block.localX) + size / 2,
-            Number(block.localY) + size / 2,
-            Number(block.localZ) + size / 2
-          ));
-        boxes.push(createEntityPlacementObb(center, size, quaternionFor(nodeId)));
-      }
-    }
-    const buckets = new Map<string, EntityPlacementObb[]>();
-    for (const box of boxes) {
-      const minX = Math.floor(box.min.x / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const minY = Math.floor(box.min.y / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const minZ = Math.floor(box.min.z / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const maxX = Math.floor((box.max.x - ENTITY_PLACEMENT_EPSILON) / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const maxY = Math.floor((box.max.y - ENTITY_PLACEMENT_EPSILON) / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const maxZ = Math.floor((box.max.z - ENTITY_PLACEMENT_EPSILON) / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      for (let x = minX; x <= maxX; x++) {
-        for (let y = minY; y <= maxY; y++) {
-          for (let z = minZ; z <= maxZ; z++) {
-            const key = `${x},${y},${z}`;
-            const bucket = buckets.get(key);
-            if (bucket) bucket.push(box);
-            else buckets.set(key, [box]);
-          }
-        }
-      }
-    }
-    const result = { poseSignature, entriesRef, boxes, buckets };
-    entityPlacementTargetObbCache.set(target, result);
-    return result;
+    return this.placementSession.getTargetEntityWorldQuaternion(target, nodeId);
   }
 
   private entitySlotOverlapsTarget(slot: InventoryInput, position: THREE.Vector3, quaternion: THREE.Quaternion, target: Contraption | null | undefined) {
-    const shape = getEntityPlacementShape(slot);
-    if (!shape) return false;
-    const targetIndex = this.getTargetEntityPlacementObbs(target);
-    if (targetIndex.boxes.length === 0) return false;
-    for (const entry of shape.entries) {
-      const center = entry.center.clone().applyQuaternion(quaternion).add(position);
-      const placed = createEntityPlacementObb(center, entry.size, quaternion);
-      const candidates = new Set<EntityPlacementObb>();
-      const minX = Math.floor(placed.min.x / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const minY = Math.floor(placed.min.y / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const minZ = Math.floor(placed.min.z / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const maxX = Math.floor((placed.max.x - ENTITY_PLACEMENT_EPSILON) / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const maxY = Math.floor((placed.max.y - ENTITY_PLACEMENT_EPSILON) / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      const maxZ = Math.floor((placed.max.z - ENTITY_PLACEMENT_EPSILON) / ENTITY_TARGET_PLACEMENT_BUCKET_SIZE);
-      for (let x = minX; x <= maxX; x++) {
-        for (let y = minY; y <= maxY; y++) {
-          for (let z = minZ; z <= maxZ; z++) {
-            for (const box of targetIndex.buckets.get(`${x},${y},${z}`) || []) candidates.add(box);
-          }
-        }
-      }
-      for (const existing of candidates) {
-        if (entityPlacementObbsOverlap(placed, existing)) return true;
-      }
-    }
-    return false;
-  }
-
-  /** Centre on the hit face, align to its component grid, then move only outward to clear occupied voxels. */
-  private resolveEntityTargetPlacement(slot: InventoryInput, shape: EntityPlacementShape, surface: THREE.Vector3, placementHit: PlacementHit) {
-    const target = placementHit.targetContraption;
-    const nodeId = placementHit.targetNodeId ?? contraptionRootId(placementHit.targetContraption);
-    const targetWorldRotation = this.getTargetEntityWorldQuaternion(target, nodeId);
-    const localNormal = this.axisAlignedEntityFaceNormal(placementHit.targetLocalNormal);
-    const faceRotation = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      localNormal
-    ).normalize();
-    const relativeRotation = faceRotation
-      .clone()
-      .multiply(this.getEntityAnchorRotation(slot).invert())
-      .normalize();
-    const worldRotation = targetWorldRotation.clone().multiply(relativeRotation).normalize();
-    const bounds = getRotatedEntityPlacementBounds(shape, relativeRotation);
-    const surfaceLocal = this.targetEntityWorldToLocal(target, nodeId, surface);
-    const originLocal = new THREE.Vector3(
-      surfaceLocal.x - (bounds.minX + bounds.maxX) / 2,
-      surfaceLocal.y - (bounds.minY + bounds.maxY) / 2,
-      surfaceLocal.z - (bounds.minZ + bounds.maxZ) / 2
-    );
-    for (const axis of ['x', 'y', 'z'] as const) {
-      const normal = localNormal[axis];
-      if (normal > 0) originLocal[axis] = surfaceLocal[axis] - bounds[({ x: 'minX', y: 'minY', z: 'minZ' } as const)[axis]];
-      else if (normal < 0) originLocal[axis] = surfaceLocal[axis] - bounds[({ x: 'maxX', y: 'maxY', z: 'maxZ' } as const)[axis]];
-      originLocal[axis] = this.snapEntityPlacementMicroValue(originLocal[axis]);
-    }
-
-    const position = this.targetEntityLocalToWorld(target, nodeId, originLocal);
-    const outwardWorld = localNormal.clone().applyQuaternion(targetWorldRotation).normalize();
-    for (let step = 0; step <= ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS; step++) {
-      if (!this.entitySlotOverlapsTarget(slot, position, worldRotation, target)) {
-        return { position, quaternion: worldRotation, localNormal };
-      }
-      position.addScaledVector(outwardWorld, 1 / MICRO_DIVISIONS);
-    }
-    return null;
-  }
-
-  /** Drop (or minimally lift) a centred entity until sampled bottom faces meet terrain. */
-  private resolveEntityTerrainSupport(
-    shape: EntityPlacementShape,
-    origin: THREE.Vector3,
-    placementHit: PlacementHit
-  ) {
-    const normalY = Number(placementHit?.normal?.y) || 0;
-    let bestOriginY = -Infinity;
-    let supported = false;
-    const down = new THREE.Vector3(0, -1, 0);
-    const canRaycastStandard = typeof this.world?.raycast === 'function';
-    const canRaycastMicro = typeof this.world?.raycastMicro === 'function';
-
-    if (canRaycastStandard || canRaycastMicro) {
-      // Start just below a downward-facing hit so the ceiling voxel itself is
-      // not mistaken for support. Other faces start above the placed shape.
-      const startY = origin.y + shape.maxY + (normalY < -0.5 ? -0.05 : 0.05);
-      for (const sample of shape.supportSamples) {
-        const lowestSurfaceY = origin.y + sample.bottom - ENTITY_PLACEMENT_MAX_DROP;
-        const maxDistance = Math.max(0.05, startY - lowestSurfaceY);
-        const rayOrigin = new THREE.Vector3(
-          origin.x + sample.x,
-          startY,
-          origin.z + sample.z
-        );
-        for (const raycast of [
-          canRaycastStandard ? this.world.raycast(rayOrigin, down, maxDistance) : null,
-          canRaycastMicro ? this.world.raycastMicro(rayOrigin, down, maxDistance) : null
-        ]) {
-          const distance = Number(raycast?.distance);
-          if (!raycast?.hit || !Number.isFinite(distance)
-            || distance < -ENTITY_PLACEMENT_EPSILON
-            || distance > maxDistance + ENTITY_PLACEMENT_EPSILON) continue;
-          const supportTop = startY - Math.max(0, distance);
-          bestOriginY = Math.max(bestOriginY, supportTop - sample.bottom);
-          supported = true;
-        }
-      }
-    }
-
-    return {
-      y: this.clampEntityPlacementY(
-        shape,
-        supported ? bestOriginY : origin.y
-      ),
-      supported
-    };
+    return this.placementSession.entitySlotOverlapsTarget(slot, position, quaternion, target);
   }
 
   /**
@@ -3705,96 +2962,12 @@ export class PlayerController {
    * outward from side faces, and move only along that normal to clear voxels.
    */
   getInventoryPlacementPose(slot: InventoryInput) {
-    if (!slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return null;
-
-    const placementHit = this.getInventoryPlacementHit();
-    if (!placementHit) return null;
-
-    if (this.usesMicroBlockSetPlacement(slot)) {
-      const position = this.getMicroBlockSetPlacementPosition(placementHit);
-      if (!position) return null;
-      return { slot, kind: 'blockset', position };
-    }
-
-    const hp = placementHit.hitPos;
-    const n = placementHit.normal;
-    const position = new THREE.Vector3(
-      hp.x + (n?.x || 0),
-      hp.y + (n?.y || 0),
-      hp.z + (n?.z || 0)
-    );
-    const quaternion = new THREE.Quaternion();
-
-    if (slot.kind === 'blockset') {
-      position.set(
-        Math.floor(position.x),
-        Math.floor(position.y),
-        Math.floor(position.z)
-      );
-    } else {
-      const shape = getEntityPlacementShape(slot);
-      const surface = this.getEntityPlacementSurfacePoint(placementHit);
-      if (shape && surface) {
-        if (placementHit.targetContraption && (slot.kind !== 'item'
-          || (!slot.blockSet && slot.entityList?.length === 1))) {
-          const targetPose = this.resolveEntityTargetPlacement(slot, shape, surface, placementHit);
-          if (!targetPose) return null;
-          position.copy(targetPose.position);
-          quaternion.copy(targetPose.quaternion);
-        } else {
-          const placementRotation = this.getEntityPlacementRotation(slot);
-          const terrainShape = getRotatedEntityTerrainShape(shape, placementRotation);
-          quaternion.copy(placementRotation);
-          const normal = placementHit.normal || { x: 0, y: 1, z: 0 };
-          let originX = surface.x - terrainShape.centerX;
-          let originY = surface.y - terrainShape.minY;
-          let originZ = surface.z - terrainShape.centerZ;
-          // On a wall or ceiling, keep the nearest authored face outside the
-          // hit surface instead of centring half of the entity inside terrain.
-          if ((Number(normal.x) || 0) > 0.5) originX = surface.x - terrainShape.minX;
-          else if ((Number(normal.x) || 0) < -0.5) originX = surface.x - terrainShape.maxX;
-          if ((Number(normal.z) || 0) > 0.5) originZ = surface.z - terrainShape.minZ;
-          else if ((Number(normal.z) || 0) < -0.5) originZ = surface.z - terrainShape.maxZ;
-          if ((Number(normal.y) || 0) < -0.5) originY = surface.y - terrainShape.maxY;
-          const candidateOrigin = new THREE.Vector3(originX, originY, originZ);
-          candidateOrigin.y = this.clampEntityPlacementY(terrainShape, candidateOrigin.y);
-          position.copy(candidateOrigin);
-          position.y = this.resolveEntityTerrainSupport(terrainShape, position, placementHit).y;
-        }
-      }
-    }
-
-    return {
-      slot,
-      kind: slot.kind === 'blockset' ? 'blockset' : 'entity',
-      position: slot.kind === 'item' && slot.blockSet
-        ? this.snapItemTerrainOrigin(slot, position)
-        : position,
-      quaternion,
-      targetContraption: placementHit.targetContraption || null,
-      targetNodeId: placementHit.targetNodeId || null
-    };
-  }
-
-  private snapItemTerrainOrigin(slot: InventoryInput, position: Point3) {
-    const step = (slot.blockSet?.blocks || []).some(block => (block.size || 1) === 1) ? 1 : MICRO_SIZE;
-    return new THREE.Vector3(
-      Math.round(position.x / step) * step,
-      Math.ceil((position.y - 1e-6) / step) * step,
-      Math.round(position.z / step) * step,
-    );
+    return this.placementSession.getInventoryPlacementPose(slot);
   }
 
   /** Refresh the Hammer hover ghost without mutating either world or entity state. */
   updateInventoryPlacementPreview() {
-    this.inventoryPlacementPreview = null;
-    if (this.worldPickingSuspended) return;
-    if (this.activeTool !== SpecialTool.HAMMER) return;
-    // Color sets apply to the palette with left-click — no placement ghost.
-    if (this.activeInventoryCategory === 'colorset') return;
-    const slot = this.getActiveHammerInventoryItem();
-    if (!slot) return;
-    this.inventoryPlacementPreview = this.getInventoryPlacementPose(slot);
+    return this.placementSession.updateInventoryPlacementPreview();
   }
 
   /**
@@ -4508,7 +3681,7 @@ export class PlayerController {
       this.selectorLevel = null;
       this.selectorRange = null;
       if (result.ok) {
-        const kind = result.removed > 1
+        const kind = (result.removed ?? 0) > 1
           ? 'bulk'
           : (blocks[0]?.size || 1) < 1 ? 'micro' : 'standard';
         this.sound?.playBlockBreak({ kind, count: result.removed });
@@ -4789,8 +3962,8 @@ export class PlayerController {
     if (result.ok && (result.placed || 0) > 0) {
       this.sound?.playBlockPlace?.();
       const parts = [];
-      if (result.standard > 0) parts.push(`${result.standard} blocks`);
-      if (result.micro > 0) parts.push(`${result.micro} micro voxels`);
+      if ((result.standard ?? 0) > 0) parts.push(`${result.standard} blocks`);
+      if ((result.micro ?? 0) > 0) parts.push(`${result.micro} micro voxels`);
       this.ui?.showToast?.(`Filled ${parts.join(' + ') || `${result.placed} voxels`} with ${colorToHex(color)}`);
     } else {
       this.ui?.showToast?.('Selection region fill completed');
@@ -4903,8 +4076,8 @@ export class PlayerController {
     if (result.ok && (result.painted || 0) > 0) {
       this.sound?.playBlockPlace?.();
       const parts = [];
-      if (result.standard > 0) parts.push(`${result.standard} blocks`);
-      if (result.micro > 0) parts.push(`${result.micro} micro voxels`);
+      if ((result.standard ?? 0) > 0) parts.push(`${result.standard} blocks`);
+      if ((result.micro ?? 0) > 0) parts.push(`${result.micro} micro voxels`);
       this.ui?.showToast?.(`Recolored ${parts.join(' + ') || `${result.painted} voxels`} to ${colorToHex(color)}`);
     } else {
       this.ui?.showToast?.('Selection region contains no matching blocks to recolor');
@@ -4912,201 +4085,7 @@ export class PlayerController {
   }
 
   handleRightClick(e: MouseEvent | null = null) {
-    if (this.worldPickingSuspended) return false;
-    if (this.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
-    if (this.activeTool === SpecialTool.MODELING) return this.modeling.beginCreation(e);
-    // Selector RMB opens the complete action menu. Pointer lock is released by
-    // the UI bridge so the player can choose an item, then restored on close.
-    if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
-      this.ui?.showSelectorContextMenu?.({
-        x: Number(e?.clientX),
-        y: Number(e?.clientY)
-      });
-      return true;
-    }
-    // Wrench RMB opens the same entity action menu as the nameplate ellipsis.
-    if (this.activeTool === SpecialTool.WRENCH) {
-      const target = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
-      if (!target) {
-        this.ui?.showToast?.('Wrench: point at an entity to open its actions');
-        return false;
-      }
-      return this.ui?.showEntityContextMenu?.(target, {
-        x: Number(e?.clientX),
-        y: Number(e?.clientY)
-      }) ?? false;
-    }
-    if (this.bulkEditJob) {
-      this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
-      return false;
-    }
-    if ([SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH].includes(this.activeTool)
-      && this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
-    const isRecolorModifier = e && (e.shiftKey || this.keys.crouch);
-
-    // 1. Shovel -> place one standard block, replacing micro cells in the cell.
-    // When Shift is held, recolor the targeted block without placing a new one.
-    if (this.activeTool === SpecialTool.SHOVEL) {
-      if (isRecolorModifier) {
-        this.paintTargetedBlock();
-        return;
-      }
-
-      if (this.hoveredContraptionHit) {
-        const hit = this.hoveredContraptionHit;
-        const c = hit.contraption;
-        const targetNodeId = hit.entityId ?? contraptionRootId(c);
-        // When targeting micro voxels, treat the carved cell as one 1x1x1
-        // block: the placement target is its neighbor along the normal; the
-        // carved cell itself is never overwritten.
-        const targetCell = hit.kind === 'micro'
-          ? {
-            x: hit.cell.x + (hit.normal?.x || 0),
-            y: hit.cell.y + (hit.normal?.y || 0),
-            z: hit.cell.z + (hit.normal?.z || 0)
-          }
-          : hit.placeCell;
-
-        const result = this.performBasicAction({
-          domain: ActionDomain.ENTITY,
-          action: 'place-standard',
-          target: { contraption: c },
-          nodeId: targetNodeId,
-          cell: targetCell,
-          color: this.selectedColor,
-          options: { color: this.selectedColor, materialId: this.selectedMaterialId }
-        });
-        if (!result.ok) {
-          if (result.reason === 'occupied' && this.ui) {
-            this.ui.showToast('Target cell is occupied; the shovel never overwrites existing geometry');
-          }
-          return;
-        }
-        this.ui?.notifyContraptionStructureChanged(c);
-        this.sound.playBlockPlace();
-        if (this.ui) {
-          this.ui.showToast(`Added 1 standard block to [${targetNodeId}]`);
-        }
-        return;
-      }
-
-      if (!this.currentRaycast.hit) return;
-
-      let target;
-      if (this.currentRaycast.kind === 'micro') {
-        // Carved cell is treated as one block: target = neighbor along the normal
-        const mp = this.currentRaycast.microPos;
-        const normal = this.currentRaycast.normal;
-        target = {
-          x: Math.floor(mp.x / MICRO_DIVISIONS) + (normal?.x || 0),
-          y: Math.floor(mp.y / MICRO_DIVISIONS) + (normal?.y || 0),
-          z: Math.floor(mp.z / MICRO_DIVISIONS) + (normal?.z || 0)
-        };
-      } else {
-        target = this.currentRaycast.placePos;
-      }
-      if (!this.canPlaceStandardAt(target)) return;
-      const result = this.performBasicAction({
-        domain: ActionDomain.WORLD,
-        action: 'place-standard',
-        cell: target,
-        color: this.selectedColor,
-        options: { color: this.selectedColor, materialId: this.selectedMaterialId }
-      });
-      if (!result.ok && result.reason === 'occupied') {
-        if (this.ui) this.ui.showToast('Target cell is occupied; the shovel never overwrites existing geometry');
-        return;
-      }
-      this.sound.playBlockPlace();
-      return;
-    }
-
-    // 2. Spoon -> place one 1/5-scale micro block on the targeted surface.
-    // When Shift is held, recolor the targeted micro block.
-    if (this.activeTool === SpecialTool.SPOON) {
-      if (isRecolorModifier) {
-        this.paintTargetedBlock();
-        return;
-      }
-
-      if (this.hoveredContraptionHit) {
-        const hit = this.hoveredContraptionHit;
-        const c = hit.contraption;
-        const targetNodeId = hit.entityId ?? contraptionRootId(c);
-        const placePos = hit.placeMicroPos;
-        const mx = Math.round(placePos.localX * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-        const my = Math.round(placePos.localY * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-        const mz = Math.round(placePos.localZ * MICRO_DIVISIONS) / MICRO_DIVISIONS;
-
-        const result = this.performBasicAction({
-          domain: ActionDomain.ENTITY,
-          action: 'place-micro',
-          target: { contraption: c },
-          nodeId: targetNodeId,
-          micro: [Math.round(mx * MICRO_DIVISIONS), Math.round(my * MICRO_DIVISIONS), Math.round(mz * MICRO_DIVISIONS)],
-          color: this.selectedColor,
-          options: { color: this.selectedColor, materialId: this.selectedMaterialId }
-        });
-
-        if (result.ok) {
-          this.ui?.notifyContraptionStructureChanged(c);
-          this.sound.playBlockPlace();
-          if (this.ui) {
-            this.ui.showToast(`Added 1 micro voxel to [${targetNodeId}]`);
-          }
-        }
-        return;
-      }
-
-      if (!this.currentRaycast.hit) return;
-
-      let targetMicro = this.currentRaycast.placeMicroPos;
-      if (this.currentRaycast.kind === 'standard') {
-        const normal = this.currentRaycast.normal;
-        const entry = this.currentRaycast.entry
-          ? new THREE.Vector3(this.currentRaycast.entry.x, this.currentRaycast.entry.y, this.currentRaycast.entry.z)
-          : this.physics.getEyePosition();
-        entry.x += normal.x * 0.02;
-        entry.y += normal.y * 0.02;
-        entry.z += normal.z * 0.02;
-        targetMicro = {
-          x: Math.floor(entry.x * MICRO_DIVISIONS),
-          y: Math.floor(entry.y * MICRO_DIVISIONS),
-          z: Math.floor(entry.z * MICRO_DIVISIONS)
-        };
-      }
-      const result = targetMicro && this.performBasicAction({
-        domain: ActionDomain.WORLD,
-        action: 'place-micro',
-        micro: targetMicro,
-        color: this.selectedColor,
-        options: { color: this.selectedColor, materialId: this.selectedMaterialId }
-      });
-      if (result?.ok) {
-        this.sound.playBlockPlace();
-      }
-      return;
-    }
-
-    // 3. Brush -> Right-click 2-point box selection and dye region
-    if (this.activeTool === SpecialTool.BRUSH) {
-      this.handleBrushRightClick();
-      return;
-    }
-
-    // 4. Pipette -> Sample color on right click as well
-    if (this.activeTool === SpecialTool.PIPETTE) {
-      this.sampleTargetedColor();
-      return;
-    }
-
-    // Hammer RMB rotates the active inventory item 90 degrees around Y axis,
-    // centered at the integer/grid-aligned center of the object.
-    if (this.activeTool === SpecialTool.HAMMER) {
-      return this.rotateActiveInventoryItem();
-    }
-
-    return;
+    return this.toolSession.handleRightClick(e);
   }
 
   rotateBlocksX90(blocks: InventoryVoxel[], quarterTurns = 1) {
@@ -5119,96 +4098,12 @@ export class PlayerController {
 
   /** Clear the Hammer's placement-only rotation without touching inventory data. */
   clearHammerRotation() {
-    this.hammerRotationTurnsY = 0;
-    this.hammerRotationTurnsX = 0;
-    this.hammerRotatedSlotSource = null;
-    this.hammerRotatedSlotTurnsKey = null;
-    this.hammerRotatedSlotCache = null;
-    this.inventoryPlacementPreview = null;
-    if (this.sceneRenderer) this.sceneRenderer.inventoryPlacementSlot = null;
-  }
-
-  private itemPlacementSlot(item: PlacementSlot | null | undefined) {
-    if (item?.kind !== 'item') return item;
-    if (item.blockSet && !item.entityList?.length) {
-      return { ...item.blockSet, id: item.id, name: item.name };
-    }
-    const entity = item.entityList?.[0];
-    if (entity && !item.blockSet && item.entityList?.length === 1
-      && (entity.itemPosition || [0, 0, 0]).every(value => value === 0)
-      && (entity.itemRotation || [0, 0, 0, 1]).every((value, index: number) => value === (index === 3 ? 1 : 0))) {
-      return { ...entity, id: item.id, itemName: item.name, itemWorldConstraints: true };
-    }
-    return item;
+    return this.placementSession.clearHammerRotation();
   }
 
   /** Return the active item in its temporary Hammer placement orientation. */
   getActiveHammerInventoryItem() {
-    const stored = this.inventorySlots?.[this.selectedInventoryIndex];
-    const slot = this.itemPlacementSlot(stored);
-    if (!slot) return null;
-
-    const turnsY = normalizeQuarterTurns(this.hammerRotationTurnsY);
-    const turnsX = normalizeQuarterTurns(this.hammerRotationTurnsX);
-    if (turnsY === 0 && turnsX === 0) return slot;
-
-    const cacheKey = `${turnsY}:${turnsX}`;
-    if (this.hammerRotatedSlotSource === slot &&
-      this.hammerRotatedSlotTurnsKey === cacheKey &&
-      this.hammerRotatedSlotCache) {
-      return this.hammerRotatedSlotCache;
-    }
-
-    const isEntity = slot.kind === 'entity' || slot.kind === 'item';
-    const qY = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      turnsY * Math.PI / 2
-    );
-    const qX = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      turnsX * Math.PI / 2
-    );
-    const placementRotation = qY.clone().multiply(qX);
-
-    let rotatedBlocks = slot.blocks;
-    if (turnsX !== 0 && Array.isArray(rotatedBlocks)) {
-      rotatedBlocks = this.rotateBlocksX90(rotatedBlocks, turnsX);
-    }
-    if (turnsY !== 0 && Array.isArray(rotatedBlocks)) {
-      rotatedBlocks = this.rotateBlocksY90(rotatedBlocks, turnsY);
-    }
-
-    let rotatedChildren = slot.childEntities;
-    if (Array.isArray(rotatedChildren)) {
-      if (turnsX !== 0) {
-        rotatedChildren = rotateChildDefinitionsX90(rotatedChildren, turnsX);
-      }
-      if (turnsY !== 0) {
-        rotatedChildren = rotateChildDefinitionsY90(rotatedChildren || [], turnsY);
-      }
-    }
-
-    const rotatedSlot = isEntity
-      ? {
-        ...slot,
-        // Entity geometry and scripts stay in their authored local frame.
-        // The temporary anchor carries this roll for component installation,
-        // while placementRotation carries the same pose for terrain builds.
-        anchorRotation: this.getEntityAnchorRotation(slot)
-          .multiply(placementRotation.clone().invert())
-          .normalize()
-          .toArray(),
-        placementRotation: placementRotation.toArray()
-      }
-      : {
-        ...slot,
-        blocks: rotatedBlocks,
-        childEntities: rotatedChildren
-      };
-    this.hammerRotatedSlotSource = slot;
-    this.hammerRotatedSlotTurnsKey = cacheKey;
-    this.hammerRotatedSlotCache = rotatedSlot;
-    return rotatedSlot;
+    return this.placementSession.getActiveHammerInventoryItem();
   }
 
   /**
@@ -5217,44 +4112,15 @@ export class PlayerController {
    * Every pose is derived from the untouched inventory item plus the total turn count.
    */
   rotateActiveInventoryItem(direction = 1, axis: 'x' | 'y' = 'y') {
-    const category = this.activeInventoryCategory;
-    if (category === 'colorset') return false;
-    const slot = this.inventorySlots?.[this.selectedInventoryIndex];
-    if (!slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) {
-      this.ui?.showToast?.('No item in current slot to rotate');
-      return false;
-    }
-
-    const step = direction >= 0 ? 1 : -1;
-    if (axis === 'x') {
-      this.hammerRotationTurnsX = normalizeQuarterTurns((this.hammerRotationTurnsX || 0) + step);
-    } else {
-      this.hammerRotationTurnsY = normalizeQuarterTurns((this.hammerRotationTurnsY || 0) + step);
-    }
-    this.hammerRotatedSlotSource = null;
-    this.hammerRotatedSlotTurnsKey = null;
-    this.hammerRotatedSlotCache = null;
-
-    if (this.sceneRenderer) {
-      this.sceneRenderer.inventoryPlacementSlot = null;
-    }
-    this.updateInventoryPlacementPreview();
-
-    InventoryThumbnailRenderer.getInstance().clearCache();
-
-    this.sound?.playWrenchClick?.();
-    const axisLabel = axis === 'x' ? 'pitch' : 'yaw';
-    this.ui?.showToast?.(`Rotated "${slot.name || 'item'}" 90° (${axisLabel})`);
-    this.ui?.syncInventoryState?.();
-    return true;
+    return this.placementSession.rotateActiveInventoryItem(direction, axis);
   }
 
   rotateActiveInventoryItemY(direction = 1) {
-    return this.rotateActiveInventoryItem(direction, 'y');
+    return this.placementSession.rotateActiveInventoryItemY(direction);
   }
 
   rotateActiveInventoryItemX(direction = 1) {
-    return this.rotateActiveInventoryItem(direction, 'x');
+    return this.placementSession.rotateActiveInventoryItemX(direction);
   }
 
   private refreshWrenchPivotTargetPose(target = this.wrenchPivotTarget) {
@@ -5336,7 +4202,7 @@ export class PlayerController {
     return this.hoveredWrenchGizmoHandle;
   }
 
-  updateWrenchPivotGizmo(entityHit: EntityHit) {
+  updateWrenchPivotGizmo(entityHit: EntityHit | null) {
     if (this.worldPickingSuspended) {
       this.clearWrenchPivotDisplay();
       return null;
@@ -6171,18 +5037,18 @@ export class PlayerController {
         } else {
           const result = this.performBasicAction({
             domain: ActionDomain.ENTITY,
-            action: isMicro ? 'paint-micro' : 'paint-standard',
             target: { contraption: c },
             nodeId,
             ...(isMicro
               ? {
+                action: 'paint-micro' as const,
                 micro: [
                   Math.round(hit.block.localX * MICRO_DIVISIONS),
                   Math.round(hit.block.localY * MICRO_DIVISIONS),
                   Math.round(hit.block.localZ * MICRO_DIVISIONS)
                 ]
               }
-              : { cell: hit.cell }),
+              : { action: 'paint-standard' as const, cell: hit.cell }),
             color: this.selectedColor,
             options: { color: this.selectedColor, materialId: this.selectedMaterialId }
           });
@@ -6535,32 +5401,12 @@ export class PlayerController {
    * subtree selection is unaffected.
    */
   toggleSelectorMicroMode() {
-    this.selectorMicroMode = !this.selectorMicroMode;
-    if (this.selectedBlockSelection?.contraption?.clearSubtreeHighlight) {
-      this.selectedBlockSelection.contraption.clearSubtreeHighlight();
-    }
-    this.selectedBlockSelection = null;
-    this.selectorLevel = null;
-    this.selectorRange = null;
-    this.selectionShapeAnchor = null;
-    this.contraptions?.clearSelection?.();
-    if (this.ui) {
-      this.ui.updateToolPanelMode?.();
-      this.ui.renderHotbar?.();
-      this.ui.showToast(this.selectorMicroMode
-        ? 'Selector: MICRO mode · Shift+click toggles micro cells · Tab switches to STANDARD'
-        : 'Selector: STANDARD mode · Tab switches to MICRO');
-    }
-    return this.selectorMicroMode;
+    return this.selectionSession.toggleSelectorMicroMode();
   }
 
   /** Switch active geometric selection shape (box, cylinder, sphere, stairs, line). */
   setSelectorShape(shape: SelectorShape) {
-    this.selectorShape = shape;
-    this.applySelectionShape(shape);
-    // Publish only after recomputing cells/highlights. The UI's setSelectorShape
-    // is a player command that delegates here, not a notification callback.
-    this.ui?.updateToolPanelMode?.();
+    return this.selectionSession.setSelectorShape(shape);
   }
 
   /**
@@ -6571,174 +5417,7 @@ export class PlayerController {
     anchorA?: { x: number; y: number; z: number },
     anchorB?: { x: number; y: number; z: number }
   ) {
-    const contraption = this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption;
-    const nodeId = this.selectedBlockSelection?.nodeId || this.selectedSubtree?.rootId;
-    if (!contraption || !nodeId) return;
-
-    const isMicro = this.selectorMicroMode === true;
-
-    if (!this.selectedBlockSelection && this.selectedSubtree) {
-      const nodeIds = this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, nodeId);
-      const subtreeBlocks = contraption.blocks.filter((b: any) => nodeIds.has(contraptionBlockOwnerId(contraption, b)));
-      this.selectedBlockSelection = {
-        contraption,
-        nodeId,
-        blocks: subtreeBlocks,
-        bounds: this.getEntitySelectionBounds(subtreeBlocks, isMicro)
-      };
-      this.selectedSubtree = null;
-    }
-
-    if (!this.selectedBlockSelection) return;
-
-    let bounds = this.selectedBlockSelection.bounds;
-    if (!bounds) {
-      bounds = this.getEntitySelectionBounds(this.selectedBlockSelection.blocks, isMicro);
-      this.selectedBlockSelection.bounds = bounds;
-    }
-    if (!bounds) return;
-
-    const cornerA = anchorA || this.selectionShapeAnchor?.cornerA || { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
-    const cornerB = anchorB || this.selectionShapeAnchor?.cornerB || { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
-    const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
-    const stairsAxis = this.selectionShapeAnchor?.stairsAxis;
-    const stairsOrientation = this.resolveStairsOrientation(cornerA, cornerB, stairsAxis);
-
-    this.selectionShapeAnchor = {
-      cornerA: { ...cornerA },
-      cornerB: { ...cornerB },
-      micro: isMicro,
-      cylinderAxis,
-      stairsAxis,
-      stairsOrientation
-    };
-
-    const minX = Math.min(cornerA.x, cornerB.x);
-    const maxX = Math.max(cornerA.x, cornerB.x);
-    const minY = Math.min(cornerA.y, cornerB.y);
-    const maxY = Math.max(cornerA.y, cornerB.y);
-    const minZ = Math.min(cornerA.z, cornerB.z);
-    const maxZ = Math.max(cornerA.z, cornerB.z);
-
-    bounds.minX = minX;
-    bounds.maxX = maxX;
-    bounds.minY = minY;
-    bounds.maxY = maxY;
-    bounds.minZ = minZ;
-    bounds.maxZ = maxZ;
-
-    let matchingBlocks: any[] = [];
-    let shapeCells: any[] | null = null;
-
-    if (isMicro) {
-      // Virtual micro selection: synthesize 0.125 m cells over covered 1 m blocks
-      // without mutating the entity. Del/F/P/G subdivide lazily.
-      if (shape === 'box') {
-        matchingBlocks = this.buildEntityMicroSelection(contraption, nodeId, (x: number, y: number, z: number) => (
-          x >= bounds.minX && x <= bounds.maxX &&
-          y >= bounds.minY && y <= bounds.maxY &&
-          z >= bounds.minZ && z <= bounds.maxZ
-        ), bounds) || [];
-      } else {
-        shapeCells = computeSelectionCells(shape, cornerA, cornerB, true, cylinderAxis, stairsAxis, stairsOrientation);
-        const cellSet = new Set(shapeCells.map(c => `${c.x},${c.y},${c.z}`));
-        matchingBlocks = this.buildEntityMicroSelection(contraption, nodeId, (x: number, y: number, z: number) => (
-          cellSet.has(`${x},${y},${z}`)
-        ), bounds) || [];
-      }
-    } else {
-      const hasMicroInComponent = contraption.blocks.some((b: any) => contraptionBlockOwnerId(contraption, b) === nodeId && (b.size || 1) < 1);
-      if (shape === 'box') {
-        const matchingMicro: any[] = [];
-        const matchingStandard: any[] = [];
-        for (const b of contraption.blocks) {
-          if (contraptionBlockOwnerId(contraption, b) !== nodeId) continue;
-          const isMicroB = (b.size || 1) < 1;
-          const s = (b.size !== undefined && b.size !== null) ? b.size : 1;
-          const bx = isMicro ? Math.round(b.localX * MICRO_DIVISIONS) : Math.floor(b.localX + 1e-6);
-          const by = isMicro ? Math.round(b.localY * MICRO_DIVISIONS) : Math.floor(b.localY + 1e-6);
-          const bz = isMicro ? Math.round(b.localZ * MICRO_DIVISIONS) : Math.floor(b.localZ + 1e-6);
-          const bSize = isMicro ? Math.max(1, Math.round(s * MICRO_DIVISIONS)) : 1;
-          const maxBx = bx + bSize - 1;
-          const maxBy = by + bSize - 1;
-          const maxBz = bz + bSize - 1;
-          if (!(maxBx < minX || bx > maxX || maxBy < minY || by > maxY || maxBz < minZ || bz > maxZ)) {
-            if (isMicroB) {
-              matchingMicro.push(b);
-            } else {
-              matchingStandard.push(b);
-            }
-          }
-        }
-        matchingBlocks = (isMicro && hasMicroInComponent && matchingMicro.length > 0)
-          ? matchingMicro
-          : (isMicro ? (matchingMicro.length > 0 ? matchingMicro : matchingStandard) : [...matchingMicro, ...matchingStandard]);
-      } else {
-        shapeCells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis, stairsOrientation);
-        const cellSet = new Set(shapeCells.map(c => `${c.x},${c.y},${c.z}`));
-        const matchingMicro: any[] = [];
-        const matchingStandard: any[] = [];
-        for (const b of contraption.blocks) {
-          // Skip blocks owned by other components (parent/root/siblings) instead
-          // of aborting: only this component's own blocks may match the shape.
-          if (contraptionBlockOwnerId(contraption, b) !== nodeId) continue;
-          const isMicroB = (b.size || 1) < 1;
-          const s = (b.size !== undefined && b.size !== null) ? b.size : 1;
-          const bx = isMicro ? Math.round(b.localX * MICRO_DIVISIONS) : Math.floor(b.localX + 1e-6);
-          const by = isMicro ? Math.round(b.localY * MICRO_DIVISIONS) : Math.floor(b.localY + 1e-6);
-          const bz = isMicro ? Math.round(b.localZ * MICRO_DIVISIONS) : Math.floor(b.localZ + 1e-6);
-          if (s < 1) {
-            if (cellSet.has(`${bx},${by},${bz}`)) {
-              matchingMicro.push(b);
-            }
-          } else {
-            let intersects = false;
-            if (isMicro) {
-              for (let ix = 0; ix < MICRO_DIVISIONS && !intersects; ix++) {
-                for (let iy = 0; iy < MICRO_DIVISIONS && !intersects; iy++) {
-                  for (let iz = 0; iz < MICRO_DIVISIONS && !intersects; iz++) {
-                    if (cellSet.has(`${bx + ix},${by + iy},${bz + iz}`)) intersects = true;
-                  }
-                }
-              }
-            } else {
-              intersects = cellSet.has(`${bx},${by},${bz}`);
-            }
-            if (intersects) {
-              matchingStandard.push(b);
-            }
-          }
-        }
-        matchingBlocks = (isMicro && hasMicroInComponent && matchingMicro.length > 0)
-          ? matchingMicro
-          : (isMicro ? (matchingMicro.length > 0 ? matchingMicro : matchingStandard) : [...matchingMicro, ...matchingStandard]);
-      }
-    }
-
-    this.selectedBlockSelection.blocks = matchingBlocks;
-    this.selectedBlockSelection.micro = isMicro;
-    this.selectedBlockSelection.virtualMicro = matchingBlocks.some((b: any) => b.virtualMicro === true);
-    this.selectedBlockSelection.shapeCells = shapeCells;
-    if (this.contraptions) {
-      this.contraptions.entitySelection = {
-        kind: 'entity-blocks', contraption, nodeId, blocks: matchingBlocks, components: [nodeId]
-      };
-    }
-    contraption.clearSubtreeHighlight?.();
-    contraption.highlightBlocks?.(matchingBlocks);
-    this.updateSelectionAxisGizmo();
-
-    const node = contraption.entityNodes?.get?.(nodeId);
-    const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone() } : null;
-    if (shape === 'box' || !shapeCells || shapeCells.length === 0) {
-      // Micro bounds are expressed in 0.125 m grid units, so the outer guide box
-      // must be scaled by MICRO_SIZE too.
-      this.sceneRenderer?.updateSelectionHologram?.(bounds, null, null, isMicro, frame);
-    } else if (isMicro) {
-      this.sceneRenderer?.updateSelectionHologram?.(bounds, null, shapeCells, true, frame);
-    } else {
-      this.sceneRenderer?.updateSelectionHologram?.(bounds, shapeCells, null, false, frame);
-    }
+    return this.selectionSession.applyEntitySelectionShape(shape, anchorA, anchorB);
   }
 
   /**
@@ -6746,103 +5425,7 @@ export class PlayerController {
    * bounds and update connectedSelection / microSelection.
    */
   applySelectionShape(shape: SelectorShape = this.selectorShape) {
-    if (this.selectedBlockSelection || this.selectedSubtree) {
-      this.applyEntitySelectionShape(shape);
-      return;
-    }
-    if (!this.contraptions) return;
-    const isMicro = this.selectorMicroMode === true;
-
-    // Resolve anchor corners
-    let cornerA = this.selectionShapeAnchor?.cornerA;
-    let cornerB = this.selectionShapeAnchor?.cornerB;
-
-    if (!cornerA || !cornerB) {
-      if (isMicro) {
-        const mb = this.contraptions.getMicroSelectionBounds?.();
-        if (mb) {
-          cornerA = { x: mb.minX, y: mb.minY, z: mb.minZ };
-          cornerB = { x: mb.maxX, y: mb.maxY, z: mb.maxZ };
-        }
-      } else {
-        if (this.contraptions.selectionCornerA && this.contraptions.selectionCornerB) {
-          cornerA = this.contraptions.selectionCornerA;
-          cornerB = this.contraptions.selectionCornerB;
-        } else {
-          const bounds = this.contraptions.getSelectionBounds?.();
-          if (bounds) {
-            cornerA = { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
-            cornerB = { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
-          }
-        }
-      }
-    }
-
-    if (!cornerA || !cornerB) {
-      return;
-    }
-
-    const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
-    const dx = cornerB.x - cornerA.x;
-    const dz = cornerB.z - cornerA.z;
-    const stairsAxis = this.selectionShapeAnchor?.stairsAxis || (Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z');
-    const stairsOrientation = this.resolveStairsOrientation(cornerA, cornerB, stairsAxis);
-
-    this.selectionShapeAnchor = {
-      cornerA: { ...cornerA },
-      cornerB: { ...cornerB },
-      micro: isMicro,
-      cylinderAxis,
-      stairsAxis,
-      stairsOrientation
-    };
-
-    if (shape === 'box') {
-      if (isMicro) {
-        const minX = Math.min(cornerA.x, cornerB.x);
-        const maxX = Math.max(cornerA.x, cornerB.x);
-        const minY = Math.min(cornerA.y, cornerB.y);
-        const maxY = Math.max(cornerA.y, cornerB.y);
-        const minZ = Math.min(cornerA.z, cornerB.z);
-        const maxZ = Math.max(cornerA.z, cornerB.z);
-        this.contraptions.microBounds = { minX, minY, minZ, maxX, maxY, maxZ };
-        this.contraptions.microSelection = this.contraptions.materializeMicroBox?.(minX, minY, minZ, maxX, maxY, maxZ) || [];
-      } else {
-        this.contraptions.connectedSelection = null;
-        this.contraptions.selectionCornerA = { ...cornerA };
-        this.contraptions.selectionCornerB = { ...cornerB };
-      }
-    } else {
-      const cells = computeSelectionCells(shape, cornerA, cornerB, isMicro, cylinderAxis, stairsAxis, stairsOrientation);
-      if (isMicro) {
-        this.contraptions.microSelection = cells;
-        this.contraptions.microBounds = null;
-      } else {
-        this.contraptions.selectionCornerA = { ...cornerA };
-        this.contraptions.selectionCornerB = { ...cornerB };
-        this.contraptions.connectedSelection = cells;
-      }
-    }
-
-    const bounds = isMicro
-      ? (shape === 'box'
-        ? this.contraptions.getMicroSelectionBounds?.()
-        : {
-          minX: Math.min(cornerA.x, cornerB.x),
-          maxX: Math.max(cornerA.x, cornerB.x),
-          minY: Math.min(cornerA.y, cornerB.y),
-          maxY: Math.max(cornerA.y, cornerB.y),
-          minZ: Math.min(cornerA.z, cornerB.z),
-          maxZ: Math.max(cornerA.z, cornerB.z)
-        })
-      : this.contraptions.getSelectionBounds?.();
-    this.sceneRenderer?.updateSelectionAxisGizmo?.(bounds, isMicro);
-    this.sceneRenderer?.updateSelectionHologram?.(
-      bounds,
-      this.contraptions.connectedSelection,
-      this.contraptions.microSelection,
-      isMicro && shape !== 'box'
-    );
+    return this.selectionSession.applySelectionShape(shape);
   }
 
   /**
@@ -6851,297 +5434,7 @@ export class PlayerController {
    * - axis = 'x': Pitch (vertical rotation, ArrowDown = -1, ArrowUp = 1)
    */
   rotateSelection(direction: number = 1, axis: 'x' | 'y' = 'y'): boolean {
-    if (!this.requireConfirmedSelection('rotating')) return false;
-    if (!this.contraptions || !this.hasActiveSelection()) {
-      return false;
-    }
-
-    const isMicro = this.selectorMicroMode === true;
-    const isEntity = !!(this.selectedBlockSelection || this.selectedSubtree);
-
-    let cornerA = this.selectionShapeAnchor?.cornerA;
-    let cornerB = this.selectionShapeAnchor?.cornerB;
-
-    if (!cornerA || !cornerB) {
-      if (isEntity) {
-        const contraption = this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption;
-        const nodeId = this.selectedBlockSelection?.nodeId || this.selectedSubtree?.rootId;
-        if (contraption && nodeId) {
-          const blocks = this.selectedBlockSelection?.blocks || contraption.blocks.filter((b: any) => (this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, nodeId)).has(contraptionBlockOwnerId(contraption, b)));
-          const bounds = this.selectedBlockSelection?.bounds || this.getEntitySelectionBounds(blocks || [], isMicro);
-          if (bounds) {
-            cornerA = { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
-            cornerB = { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
-          }
-        }
-      } else if (isMicro) {
-        const mb = this.contraptions.getMicroSelectionBounds?.();
-        if (mb) {
-          cornerA = { x: mb.minX, y: mb.minY, z: mb.minZ };
-          cornerB = { x: mb.maxX, y: mb.maxY, z: mb.maxZ };
-        }
-      } else {
-        if (this.contraptions.selectionCornerA && this.contraptions.selectionCornerB) {
-          cornerA = { ...this.contraptions.selectionCornerA };
-          cornerB = { ...this.contraptions.selectionCornerB };
-        } else {
-          const bounds = this.contraptions.getSelectionBounds?.();
-          if (bounds) {
-            cornerA = { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
-            cornerB = { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
-          }
-        }
-      }
-    }
-
-    if (!cornerA || !cornerB) return false;
-
-    // Geometric stairs/cylinders are oriented inside their fixed selector box.
-    // Rotating their occupied cells must not move or resize that box.
-    if ((this.selectorShape === 'stairs' || this.selectorShape === 'cylinder') &&
-      this.rotateSelectionShapeInBounds(direction, axis, cornerA, cornerB)) {
-      return true;
-    }
-
-    const minX = Math.min(cornerA.x, cornerB.x);
-    const maxX = Math.max(cornerA.x, cornerB.x);
-    const minY = Math.min(cornerA.y, cornerB.y);
-    const maxY = Math.max(cornerA.y, cornerB.y);
-    const minZ = Math.min(cornerA.z, cornerB.z);
-    const maxZ = Math.max(cornerA.z, cornerB.z);
-
-    const sizeX = maxX - minX + 1;
-    const sizeY = maxY - minY + 1;
-    const sizeZ = maxZ - minZ + 1;
-
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const cz = (minZ + maxZ) / 2;
-
-    const dx = cornerB.x - cornerA.x;
-    const dy = cornerB.y - cornerA.y;
-    const dz = cornerB.z - cornerA.z;
-
-    let newSizeX: number, newSizeY: number, newSizeZ: number;
-    let newDx: number, newDy: number, newDz: number;
-    let newMinX: number, newMaxX: number;
-    let newMinY: number, newMaxY: number;
-    let newMinZ: number, newMaxZ: number;
-
-    let currentCylinderAxis: 'x' | 'y' | 'z' = this.selectionShapeAnchor?.cylinderAxis || 'y';
-    let newCylinderAxis: 'x' | 'y' | 'z' = currentCylinderAxis;
-
-    const origDx = cornerB.x - cornerA.x;
-    const origDz = cornerB.z - cornerA.z;
-    let currentStairsAxis: 'x' | 'z' = this.selectionShapeAnchor?.stairsAxis || (Math.abs(origDx) >= Math.abs(origDz) ? 'x' : 'z');
-    let newStairsAxis: 'x' | 'z' = currentStairsAxis;
-
-    if (axis === 'y') {
-      newSizeX = sizeZ;
-      newSizeY = sizeY;
-      newSizeZ = sizeX;
-
-      // Rotate vector around Y
-      newDx = direction > 0 ? -dz : dz;
-      newDz = direction > 0 ? dx : -dx;
-      newDy = dy;
-
-      newMinX = Math.round(cx - (newSizeX - 1) / 2);
-      newMaxX = newMinX + newSizeX - 1;
-      newMinY = minY;
-      newMaxY = maxY;
-      newMinZ = Math.round(cz - (newSizeZ - 1) / 2);
-      newMaxZ = newMinZ + newSizeZ - 1;
-
-      if (currentCylinderAxis === 'x') newCylinderAxis = 'z';
-      else if (currentCylinderAxis === 'z') newCylinderAxis = 'x';
-
-      newStairsAxis = currentStairsAxis === 'x' ? 'z' : 'x';
-    } else {
-      newSizeX = sizeX;
-      newSizeY = sizeZ;
-      newSizeZ = sizeY;
-
-      // Rotate vector around X
-      newDx = dx;
-      newDy = direction > 0 ? -dz : dz;
-      newDz = direction > 0 ? dy : -dy;
-
-      newMinX = minX;
-      newMaxX = maxX;
-      newMinY = Math.round(cy - (newSizeY - 1) / 2);
-      newMaxY = newMinY + newSizeY - 1;
-      newMinZ = Math.round(cz - (newSizeZ - 1) / 2);
-      newMaxZ = newMinZ + newSizeZ - 1;
-
-      if (currentCylinderAxis === 'y') newCylinderAxis = 'z';
-      else if (currentCylinderAxis === 'z') newCylinderAxis = 'y';
-    }
-
-    // Clamp Y to prevent negative coordinates below ground
-    if (newMinY < 0) {
-      const shiftY = -newMinY;
-      newMinY += shiftY;
-      newMaxY += shiftY;
-    }
-
-    const newCornerA = {
-      x: newDx >= 0 ? newMinX : newMaxX,
-      y: newDy >= 0 ? newMinY : newMaxY,
-      z: newDz >= 0 ? newMinZ : newMaxZ
-    };
-    const newCornerB = {
-      x: newDx >= 0 ? newMaxX : newMinX,
-      y: newDy >= 0 ? newMaxY : newMinY,
-      z: newDz >= 0 ? newMaxZ : newMinZ
-    };
-
-    this.selectionShapeAnchor = {
-      cornerA: newCornerA,
-      cornerB: newCornerB,
-      micro: isMicro,
-      cylinderAxis: newCylinderAxis,
-      stairsAxis: newStairsAxis
-    };
-
-    if (isEntity) {
-      this.applyEntitySelectionShape(this.selectorShape, newCornerA, newCornerB);
-      this.sound?.playWrenchClick?.();
-      this.ui?.updateToolPanelMode?.();
-      return true;
-    }
-
-    if (this.selectorShape === 'box') {
-      if (isMicro) {
-        this.contraptions.microBounds = {
-          minX: newMinX, minY: newMinY, minZ: newMinZ,
-          maxX: newMaxX, maxY: newMaxY, maxZ: newMaxZ
-        };
-        this.contraptions.microSelection = this.contraptions.materializeMicroBox?.(
-          newMinX, newMinY, newMinZ, newMaxX, newMaxY, newMaxZ
-        ) || [];
-      } else {
-        this.contraptions.connectedSelection = null;
-        this.contraptions.selectionCornerA = { ...newCornerA };
-        this.contraptions.selectionCornerB = { ...newCornerB };
-      }
-    } else {
-      const cells = computeSelectionCells(this.selectorShape, newCornerA, newCornerB, isMicro, newCylinderAxis, newStairsAxis);
-      if (isMicro) {
-        this.contraptions.microSelection = cells;
-        this.contraptions.microBounds = null;
-      } else {
-        this.contraptions.selectionCornerA = { ...newCornerA };
-        this.contraptions.selectionCornerB = { ...newCornerB };
-        this.contraptions.connectedSelection = cells;
-      }
-    }
-
-    const bounds = isMicro
-      ? this.contraptions.getMicroSelectionBounds?.()
-      : this.contraptions.getSelectionBounds?.();
-    this.sceneRenderer?.updateSelectionAxisGizmo?.(bounds, isMicro);
-    this.sceneRenderer?.updateSelectionHologram?.(
-      bounds,
-      this.contraptions.connectedSelection,
-      this.contraptions.microSelection,
-      isMicro && this.selectorShape !== 'box'
-    );
-
-    this.sound?.playWrenchClick?.();
-    this.ui?.updateToolPanelMode?.();
-    return true;
-  }
-
-  private resolveStairsOrientation(
-    cornerA: { x: number; y: number; z: number },
-    cornerB: { x: number; y: number; z: number },
-    stairsAxis?: 'x' | 'z'
-  ): StairsOrientation {
-    const current = this.selectionShapeAnchor?.stairsOrientation;
-    if (current && current.runAxis !== current.riseAxis) return { ...current };
-
-    const dx = cornerB.x - cornerA.x;
-    const dz = cornerB.z - cornerA.z;
-    const runAxis = stairsAxis || (Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z');
-    return {
-      runAxis,
-      riseAxis: 'y',
-      runDirection: (runAxis === 'x' ? dx : dz) < 0 ? -1 : 1,
-      riseDirection: cornerB.y - cornerA.y < 0 ? -1 : 1
-    };
-  }
-
-  private rotateSelectionShapeInBounds(
-    direction: number,
-    rotationAxis: 'x' | 'y',
-    cornerA: { x: number; y: number; z: number },
-    cornerB: { x: number; y: number; z: number }
-  ) {
-    const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
-    const stairsAxis = this.selectionShapeAnchor?.stairsAxis || (
-      Math.abs(cornerB.x - cornerA.x) >= Math.abs(cornerB.z - cornerA.z) ? 'x' : 'z'
-    );
-    let stairsOrientation: StairsOrientation | undefined;
-
-    if (this.selectorShape === 'cylinder') {
-      let nextCylinderAxis = cylinderAxis;
-      if (rotationAxis === 'y') {
-        if (cylinderAxis === 'x') nextCylinderAxis = 'z';
-        else if (cylinderAxis === 'z') nextCylinderAxis = 'x';
-      } else {
-        if (cylinderAxis === 'y') nextCylinderAxis = 'z';
-        else if (cylinderAxis === 'z') nextCylinderAxis = 'y';
-      }
-      this.selectionShapeAnchor = {
-        cornerA: { ...cornerA },
-        cornerB: { ...cornerB },
-        micro: this.selectorMicroMode === true,
-        cylinderAxis: nextCylinderAxis,
-        stairsAxis,
-        stairsOrientation: this.selectionShapeAnchor?.stairsOrientation
-      };
-    } else {
-      const orientation = this.resolveStairsOrientation(cornerA, cornerB, stairsAxis);
-      const rotateDirection = (vector: { axis: 'x' | 'y' | 'z'; sign: 1 | -1 }) => {
-        const value = { x: 0, y: 0, z: 0 };
-        value[vector.axis] = vector.sign;
-        const positive = direction > 0;
-        let rotated: typeof value;
-        if (rotationAxis === 'y') {
-          rotated = positive
-            ? { x: -value.z, y: value.y, z: value.x }
-            : { x: value.z, y: value.y, z: -value.x };
-        } else {
-          rotated = positive
-            ? { x: value.x, y: -value.z, z: value.y }
-            : { x: value.x, y: value.z, z: -value.y };
-        }
-        const nextAxis = (['x', 'y', 'z'] as const).find(key => rotated[key] !== 0)!;
-        return { axis: nextAxis, sign: rotated[nextAxis] as 1 | -1 };
-      };
-      const run = rotateDirection({ axis: orientation.runAxis, sign: orientation.runDirection });
-      const rise = rotateDirection({ axis: orientation.riseAxis, sign: orientation.riseDirection });
-      stairsOrientation = {
-        runAxis: run.axis,
-        runDirection: run.sign,
-        riseAxis: rise.axis,
-        riseDirection: rise.sign
-      };
-      this.selectionShapeAnchor = {
-        cornerA: { ...cornerA },
-        cornerB: { ...cornerB },
-        micro: this.selectorMicroMode === true,
-        cylinderAxis,
-        stairsAxis: run.axis === 'z' ? 'z' : 'x',
-        stairsOrientation
-      };
-    }
-
-    this.applySelectionShape(this.selectorShape);
-    this.sound?.playWrenchClick?.();
-    this.ui?.updateToolPanelMode?.();
-    return true;
+    return this.selectionSession.rotateSelection(direction, axis);
   }
 
   /**
@@ -7149,15 +5442,7 @@ export class PlayerController {
    * and 0.125 m micro-block painting.
    */
   toggleBrushMicroMode() {
-    this.brushMicroMode = !this.brushMicroMode;
-    if (this.ui) {
-      this.ui.updateToolPanelMode?.();
-      this.ui.renderHotbar?.();
-      this.ui.showToast(this.brushMicroMode
-        ? 'Brush: MICRO mode (0.125 m) · Tab switches to STANDARD'
-        : 'Brush: STANDARD mode (1.0 m) · Tab switches to MICRO');
-    }
-    return this.brushMicroMode;
+    return this.toolSession.toggleBrushMicroMode();
   }
 
   /**
@@ -7771,7 +6056,7 @@ export class PlayerController {
               micro: cell
             });
           }
-          if (!(result.removed > 0)) return 0;
+          if (!((result.removed ?? 0) > 0)) return 0;
           rawBlocks.push({
             localX: cell.x / MICRO_DIVISIONS - origin.x,
             localY: cell.y / MICRO_DIVISIONS - origin.y,
@@ -7802,7 +6087,7 @@ export class PlayerController {
           action: 'clear-cell',
           cell
         });
-        if (result.standard > 0) {
+        if ((result.standard ?? 0) > 0) {
           rawBlocks.push({
             localX: cell.x - origin.x,
             localY: cell.y - origin.y,
@@ -7889,69 +6174,7 @@ export class PlayerController {
   }
 
   toggleDriveVehicle() {
-    if (this.isDriving) {
-      const vehicle = this.drivenContraption;
-      const seat = this.drivenSeat;
-      this.isDriving = false;
-      this.contraptions.activeDrivable = null;
-      this.drivenContraption = null;
-      this.drivenSeat = null;
-      this.drivenSeatFixedOrientation = false;
-      this.resetEntityInputState();
-
-      if (vehicle) {
-        // Leave beside the vehicle instead of teleporting two metres upward.
-        // The bounding sphere keeps the player's AABB outside even when the
-        // vehicle is rotated, while preserving its current altitude/velocity.
-        // A seat orientation wins over the chassis axis so the player is set
-        // down where the seat faces instead of inside a swung-out hull.
-        const seatRotation = seat
-          ? vehicle.getSeatWorldQuaternion?.(seat.componentId, seat.seatIndex)
-          : null;
-        const exitDirection = new THREE.Vector3(1, 0, 0).applyQuaternion(
-          seatRotation?.isQuaternion ? seatRotation : vehicle.quaternion
-        );
-        exitDirection.y = 0;
-        if (exitDirection.lengthSq() < 1e-6) exitDirection.set(1, 0, 0);
-        exitDirection.normalize();
-        const exitDistance = vehicle.boundingRadius + this.physics.width + 0.25;
-        this.physics.position.copy(vehicle.position).addScaledVector(exitDirection, exitDistance);
-        this.physics.velocity.copy(vehicle.velocity);
-        this.physics.isOnGround = false;
-        this.physics.ridingContraption = null;
-      }
-
-      if (this.ui) this.ui.showToast(`Left the driver seat`);
-      return;
-    }
-
-    const target = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
-    const hit = this.hoveredContraptionHit;
-    const hitPoint = hit?.point;
-    const focusPoint = hit?.block && target?.getBlockWorldCenter
-      ? target.getBlockWorldCenter(hit.block)
-      : hitPoint?.isVector3
-        ? hitPoint
-        : hitPoint
-          ? new THREE.Vector3(Number(hitPoint.x), Number(hitPoint.y), Number(hitPoint.z))
-          : null;
-    const seat = target && focusPoint ? target.getNearestSeat?.(focusPoint) : null;
-
-    if (target && seat) {
-      if (target.serverManaged === true && target.serverCanControl !== true) {
-        this.ui?.showToast?.('This entity is read-only or occupied by another endpoint', { tone: 'warning' });
-        return;
-      }
-      this.resetEntityInputState();
-      this.isDriving = true;
-      this.drivenContraption = target;
-      this.drivenSeat = { componentId: seat.componentId, seatIndex: seat.seatIndex };
-      this.drivenSeatFixedOrientation = seat.fixedOrientation === true;
-      this.contraptions.activeDrivable = target;
-      if (this.ui) this.ui.showToast(`Mounted! Key behavior is defined by the ctx.input script · [C] program [V] leave`);
-    } else {
-      if (this.ui) this.ui.showToast(`Aim at an entity block with a configured seat, then press V`);
-    }
+    return this.drivingSession.toggleDriveVehicle();
   }
 
   get mass(): number {
@@ -7968,73 +6191,29 @@ export class PlayerController {
   }
 
   setFov(fov: number) {
-    this.fov = Math.max(40, Math.min(120, Number(fov) || 75));
-    if (this.camera) {
-      this.camera.fov = this.fov;
-      this.camera.updateProjectionMatrix();
-    }
+    return this.cameraSession.setFov(fov);
   }
 
   setPerspective(perspective: PlayerPerspective, animate = true) {
-    const normalized: PlayerPerspective = perspective === 'third_person'
-      || perspective === 'third_person_front'
-      ? perspective
-      : 'first_person';
-    const transition = this.getCameraPerspectiveTransition();
-    this.perspective = normalized;
-    transition.setPerspective(normalized, animate);
-    this.syncCameraViewVisibility();
+    return this.cameraSession.setPerspective(perspective, animate);
   }
 
   setThirdPersonDistance(dist: number) {
-    this.thirdPersonDistance = Math.max(1.5, Math.min(12, Number(dist) || 4));
+    return this.cameraSession.setThirdPersonDistance(dist);
   }
 
   togglePerspective() {
-    const next: PlayerPerspective = this.perspective === 'first_person'
-      ? 'third_person'
-      : this.perspective === 'third_person'
-        ? 'third_person_front'
-        : 'first_person';
-    this.setPerspective(next);
-    if (this.ui) {
-      this.ui.syncSettingsUI?.();
-      const label = next === 'third_person'
-        ? 'Third Person Back View'
-        : next === 'third_person_front'
-          ? 'Third Person Front View'
-          : 'First Person View';
-      this.ui.showToast(label);
-    }
+    return this.cameraSession.togglePerspective();
   }
 
   /** Camera look stays independent of a mounted seat's body orientation. */
   get viewYaw(): number {
-    return Number.isFinite(this.yaw) ? this.yaw : 0;
-  }
-
-  private refreshDrivenSeatOrientation() {
-    if (!this.isDriving || !this.drivenSeat || !this.drivenContraption) {
-      this.drivenSeatFixedOrientation = false;
-      return;
-    }
-    // Read current metadata, not the getNearestSeat snapshot from mounting.
-    // self.setSeats can replace the configuration while the rider stays seated.
-    if (this.drivenContraption.getComponentSeats) {
-      const seats = this.drivenContraption.getComponentSeats(this.drivenSeat.componentId);
-      this.drivenSeatFixedOrientation = seats?.[this.drivenSeat.seatIndex]?.fixedOrientation === true;
-    }
+    return this.cameraSession.viewYaw;
   }
 
   /** Full solved seat rotation for the avatar; null means normal free-look body yaw. */
   get bodyQuaternion(): THREE.Quaternion | null {
-    this.refreshDrivenSeatOrientation();
-    if (!this.drivenSeatFixedOrientation || !this.drivenSeat) return null;
-    const seatWorld = this.drivenContraption?.getSeatWorldQuaternion?.(
-      this.drivenSeat.componentId,
-      this.drivenSeat.seatIndex
-    );
-    return seatWorld?.isQuaternion ? seatWorld : null;
+    return this.drivingSession.bodyQuaternion;
   }
 
   get bodyYaw(): number {
@@ -8042,50 +6221,19 @@ export class PlayerController {
   }
 
   private getCameraPerspectiveTransition(): CameraPerspectiveTransition {
-    const perspective = this.perspective || 'first_person';
-    if (!this.cameraPerspectiveTransition) {
-      this.cameraPerspectiveTransition = new CameraPerspectiveTransition(perspective);
-    } else if (this.cameraPerspectiveTransition.perspective !== perspective) {
-      // Legacy callers may assign perspective directly rather than using the setter.
-      this.cameraPerspectiveTransition.setPerspective(perspective, false);
-    }
-    return this.cameraPerspectiveTransition;
+    return this.cameraSession.getCameraPerspectiveTransition();
   }
 
   private syncCameraViewVisibility() {
-    const pose = this.getCameraPerspectiveTransition().pose;
-    const distance = pose.distance * this.thirdPersonDistance;
-    // Hide the body near the eye, and show the viewmodel only once back in
-    // first person. This avoids flying through the head or carrying a floating hand.
-    this.sceneRenderer?.setPlayerAvatarVisible?.(
-      distance >= 0.65,
-      this.perspective === 'first_person' && distance < 0.08 && Math.abs(pose.angle) < 0.08
-    );
+    return this.cameraSession.syncCameraViewVisibility();
   }
 
   private updateCameraRotation(): THREE.Vector3 {
-    const { angle } = this.getCameraPerspectiveTransition().pose;
-    // Derive every pose from current free look, never from the previous render
-    // quaternion (which is reversed in front view). Mouse look itself is not eased.
-    const pitch = Number.isFinite(this.pitch) ? this.pitch : this.camera.rotation.x;
-    const yaw = this.viewYaw;
-    const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
-    const orbitDirection = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle)).applyQuaternion(look);
-    if (Math.abs(angle) < 1e-9) {
-      this.camera.rotation.set(pitch, yaw, 0, 'YXZ');
-    } else {
-      const rotation = new THREE.Matrix4().lookAt(orbitDirection, new THREE.Vector3(), this.camera.up);
-      this.camera.quaternion.setFromRotationMatrix(rotation);
-    }
-    return orbitDirection;
+    return this.cameraSession.updateCameraRotation();
   }
 
   updateCameraPosition() {
-    const eyePos = this.physics.getEyePosition();
-    const orbitDirection = this.updateCameraRotation();
-    const { distance } = this.getCameraPerspectiveTransition().pose;
-    this.camera.position.copy(eyePos).addScaledVector(orbitDirection, distance * this.thirdPersonDistance);
-    this.syncCameraViewVisibility();
+    return this.cameraSession.updateCameraPosition();
   }
 
   /**
@@ -8095,24 +6243,7 @@ export class PlayerController {
    * one-frame-old cockpit pose while a vehicle accelerates or rotates.
    */
   syncDrivenVehiclePose() {
-    if (!this.isDriving || !this.drivenContraption) return false;
-    const seat = this.drivenSeat;
-    const seatWorld = seat
-      ? this.drivenContraption.getSeatWorldPosition?.(seat.componentId, seat.seatIndex)
-      : null;
-    if (!seatWorld) {
-      this.isDriving = false;
-      this.contraptions.activeDrivable = null;
-      this.drivenContraption = null;
-      this.drivenSeat = null;
-      this.drivenSeatFixedOrientation = false;
-      this.physics.ridingContraption = null;
-      return false;
-    }
-    this.physics.position.copy(seatWorld);
-    this.physics.velocity.set(0, 0, 0);
-    this.refreshDrivenSeatOrientation();
-    return true;
+    return this.drivingSession.syncDrivenVehiclePose();
   }
 
   updateSimulation(dt: number) {
@@ -8250,7 +6381,7 @@ export class PlayerController {
     // Entity and terrain candidates are resolved by the shared raycast query,
     // using exact bent triangles for the same deformation rendered by the GPU.
     const contraptionHit = query.entityHit;
-    const hovered = query.kind === 'entity' ? contraptionHit.contraption : null;
+    const hovered = query.kind === 'entity' ? contraptionHit?.contraption ?? null : null;
     this.hoveredContraptionHit = hovered ? contraptionHit : null;
     this.updateWrenchPivotGizmo(hovered ? contraptionHit : null);
     if (this.hoveredContraption !== hovered) {
@@ -8297,7 +6428,7 @@ export class PlayerController {
   }
 
   /** Query along the current crosshair without changing hover presentation. */
-  performAimRaycast(include = 'all', usePublishedCollision: boolean | undefined = undefined) {
+  performAimRaycast(include: 'all' | 'world' | 'entities' = 'all', usePublishedCollision: boolean | undefined = undefined) {
     if (this.worldPickingSuspended) {
       return { kind: null, worldHit: { hit: false }, entityHit: null };
     }
@@ -8548,7 +6679,7 @@ export class PlayerController {
 
           // Brush 2-point box in progress: hovering an entity shows live preview if in same component
           if (brushBoxPending) {
-            if (hit.point && this.brushSelection.contraption === contraption && this.brushSelection.nodeId === nodeId) {
+            if (hit.point && this.brushSelection && this.brushSelection.contraption === contraption && this.brushSelection.nodeId === nodeId) {
               const pointA = this.rangePointToPreviewGrid(this.brushSelection, this.brushSelection.pointA);
               const cursor = this.worldPointToRangePreviewGrid(this.brushSelection, hit.point);
               const frame = this.rangePreviewFrame(this.brushSelection);
@@ -8713,443 +6844,27 @@ export class PlayerController {
   }
 
   expandEntitySelectionAxis(axis: 'x' | 'y' | 'z', direction: 1 | -1, steps: number, isMicro = false) {
-    const contraption = this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption;
-    const nodeId = this.selectedBlockSelection?.nodeId || this.selectedSubtree?.rootId;
-    if (!contraption || !nodeId) return { ok: false, bounds: null, count: 0 };
-
-    if (!this.selectedBlockSelection && this.selectedSubtree) {
-      const nodeIds = this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, nodeId);
-      const subtreeBlocks = contraption.blocks.filter((b: any) => nodeIds.has(contraptionBlockOwnerId(contraption, b)));
-      this.selectedBlockSelection = {
-        contraption,
-        nodeId,
-        blocks: subtreeBlocks,
-        bounds: this.getEntitySelectionBounds(subtreeBlocks, isMicro)
-      };
-      this.selectedSubtree = null;
-    }
-
-    if (!this.selectedBlockSelection) return { ok: false, bounds: null, count: 0 };
-
-    if (!this.selectedBlockSelection.bounds) {
-      this.selectedBlockSelection.bounds = this.getEntitySelectionBounds(this.selectedBlockSelection.blocks, isMicro);
-    }
-    const bounds = this.selectedBlockSelection.bounds;
-    if (!bounds) return { ok: false, bounds: null, count: 0 };
-
-    if (direction > 0) {
-      if (axis === 'x') {
-        bounds.maxX += steps;
-        if (bounds.maxX < bounds.minX) bounds.maxX = bounds.minX;
-      } else if (axis === 'y') {
-        bounds.maxY += steps;
-        if (bounds.maxY < bounds.minY) bounds.maxY = bounds.minY;
-      } else if (axis === 'z') {
-        bounds.maxZ += steps;
-        if (bounds.maxZ < bounds.minZ) bounds.maxZ = bounds.minZ;
-      }
-    } else {
-      if (axis === 'x') {
-        bounds.minX -= steps;
-        if (bounds.minX > bounds.maxX) bounds.minX = bounds.maxX;
-      } else if (axis === 'y') {
-        bounds.minY -= steps;
-        if (bounds.minY > bounds.maxY) bounds.minY = bounds.maxY;
-      } else if (axis === 'z') {
-        bounds.minZ -= steps;
-        if (bounds.minZ > bounds.maxZ) bounds.minZ = bounds.maxZ;
-      }
-    }
-
-    if (this.selectorShape && this.selectorShape !== 'box') {
-      const cornerA = { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
-      const cornerB = { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
-      this.applyEntitySelectionShape(this.selectorShape, cornerA, cornerB);
-      return { ok: true, bounds, count: this.selectedBlockSelection?.blocks?.length || 0 };
-    }
-
-    let minMeterX: number, maxMeterX: number;
-    let minMeterY: number, maxMeterY: number;
-    let minMeterZ: number, maxMeterZ: number;
-
-    if (isMicro) {
-      minMeterX = bounds.minX * MICRO_SIZE;
-      maxMeterX = (bounds.maxX + 1) * MICRO_SIZE;
-      minMeterY = bounds.minY * MICRO_SIZE;
-      maxMeterY = (bounds.maxY + 1) * MICRO_SIZE;
-      minMeterZ = bounds.minZ * MICRO_SIZE;
-      maxMeterZ = (bounds.maxZ + 1) * MICRO_SIZE;
-    } else {
-      minMeterX = bounds.minX;
-      maxMeterX = bounds.maxX + 1;
-      minMeterY = bounds.minY;
-      maxMeterY = bounds.maxY + 1;
-      minMeterZ = bounds.minZ;
-      maxMeterZ = bounds.maxZ + 1;
-    }
-
-    const matchingBlocks = isMicro
-      ? (this.buildEntityMicroSelection(contraption, nodeId, (x: number, y: number, z: number) => (
-        x >= bounds.minX && x <= bounds.maxX &&
-        y >= bounds.minY && y <= bounds.maxY &&
-        z >= bounds.minZ && z <= bounds.maxZ
-      ), bounds) || [])
-      : contraption.blocks.filter((b: any) => {
-        const owner = contraptionBlockOwnerId(contraption, b);
-        if (owner !== nodeId) return false;
-        const s = b.size || 1;
-        return (
-          b.localX < maxMeterX - 1e-6 &&
-          b.localX + s > minMeterX + 1e-6 &&
-          b.localY < maxMeterY - 1e-6 &&
-          b.localY + s > minMeterY + 1e-6 &&
-          b.localZ < maxMeterZ - 1e-6 &&
-          b.localZ + s > minMeterZ + 1e-6
-        );
-      });
-
-    this.selectedBlockSelection.blocks = matchingBlocks;
-    this.selectedBlockSelection.micro = isMicro;
-    this.selectedBlockSelection.virtualMicro = matchingBlocks.some((b: any) => b.virtualMicro === true);
-    this.selectedBlockSelection.shapeCells = null;
-    contraption.clearSubtreeHighlight?.();
-    contraption.highlightBlocks?.(matchingBlocks);
-
-    const node = contraption.entityNodes?.get?.(nodeId);
-    const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone() } : null;
-    // Keep the outer cuboid guide box visible while the axis gizmo expands the
-    // box selection instead of hiding the hologram.
-    this.sceneRenderer?.updateSelectionHologram?.(bounds, null, null, isMicro, frame);
-
-    return { ok: true, bounds, count: matchingBlocks.length };
+    return this.selectionSession.expandEntitySelectionAxis(axis, direction, steps, isMicro);
   }
 
   updateSelectionAxisGizmo() {
-    if (this.worldPickingSuspended) {
-      this.hoveredGizmoHandle = null;
-      this.sceneRenderer?.clearSelectionAxisGizmo?.();
-      return;
-    }
-    if (this.activeTool !== SpecialTool.SELECTOR) {
-      this.hoveredGizmoHandle = null;
-      this.sceneRenderer?.clearSelectionAxisGizmo?.();
-      return;
-    }
-
-    const isMicro = this.selectorMicroMode === true;
-    let bounds: any = null;
-    let frame: any = null;
-
-    if (isMicro) {
-      bounds = this.contraptions?.getMicroSelectionBounds?.();
-    } else {
-      if (this.contraptions && this.contraptions.selectionCornerA !== null && this.contraptions.selectionCornerB !== null) {
-        bounds = this.contraptions.getSelectionBounds?.();
-      }
-    }
-
-    if (!bounds) {
-      if (this.selectedBlockSelection && this.selectedBlockSelection.contraption) {
-        const contraption = this.selectedBlockSelection.contraption;
-        const nodeId = this.selectedBlockSelection.nodeId;
-        const node = contraption.entityNodes?.get?.(nodeId);
-        if (node && node.group) {
-          if (!this.selectedBlockSelection.bounds) {
-            this.selectedBlockSelection.bounds = this.getEntitySelectionBounds(this.selectedBlockSelection.blocks, isMicro);
-          }
-          bounds = this.selectedBlockSelection.bounds;
-          if (bounds) {
-            frame = {
-              object: node.group,
-              pivot: (node.pivotLocal || new THREE.Vector3()).clone()
-            };
-          }
-        }
-      } else if (this.selectedSubtree && this.selectedSubtree.contraption) {
-        // While the first box point is still pending the subtree bounds are just
-        // the whole entity, so the XYZ resize gizmo stays hidden until the box
-        // is completed (second click).
-        const boxPending = !!this.selectorRange?.pointA && !this.selectorRange?.pointB;
-        const contraption = this.selectedSubtree.contraption;
-        const rootId = this.selectedSubtree.rootId;
-        const node = contraption.entityNodes?.get?.(rootId);
-        if (!boxPending && node && node.group && this.canEditEntityInternals(contraption)) {
-          const nodeIds = this.selectedSubtree?.nodeIds || this.collectSubtreeIds(contraption, rootId);
-          const blocks = contraption.blocks.filter((b: any) => nodeIds.has(contraptionBlockOwnerId(contraption, b)));
-          bounds = this.getEntitySelectionBounds(blocks || [], isMicro);
-          if (bounds) {
-            frame = {
-              object: node.group,
-              pivot: (node.pivotLocal || new THREE.Vector3()).clone()
-            };
-          }
-        }
-      }
-    }
-
-    if (!bounds) {
-      this.hoveredGizmoHandle = null;
-      this.sceneRenderer?.clearSelectionAxisGizmo?.();
-      return;
-    }
-
-    this.sceneRenderer?.updateSelectionAxisGizmo?.(bounds, isMicro, frame);
-
-    // If currently dragging, maintain active handle highlight
-    if (this.activeGizmoDrag) {
-      this.sceneRenderer?.highlightSelectionGizmoHandle?.(this.activeGizmoDrag.handleKey);
-      return;
-    }
-
-    // When pointer is locked, raycast against gizmo handles from the crosshair.
-    // The gizmo is drawn in bent space, so the pick ray must be bent too,
-    // otherwise the handles miss by the torus distortion.
-    if (this.isLocked) {
-      const eyePos = this.physics?.getEyePosition?.() || this.camera.position;
-      const forwardFlat = PlayerController._forwardFlat
-        .set(0, 0, -1)
-        .applyQuaternion(this.camera.quaternion);
-      const eyeBent = bendPointForView(eyePos.x, eyePos.y, eyePos.z, PlayerController._bentEye);
-      const forwardBent = bendDirection(
-        eyePos.x, eyePos.y, eyePos.z, forwardFlat, PlayerController._forwardBent
-      );
-      const hit = this.sceneRenderer?.raycastSelectionGizmoBent?.(eyeBent, forwardBent);
-      this.hoveredGizmoHandle = hit;
-      this.sceneRenderer?.highlightSelectionGizmoHandle?.(hit ? hit.handleKey : null);
-    }
+    return this.selectionSession.updateSelectionAxisGizmo();
   }
 
   updateSelectionGizmoPointerHover(e: MouseEvent) {
-    if (this.worldPickingSuspended) {
-      this.hoveredGizmoHandle = null;
-      this.sceneRenderer?.highlightSelectionGizmoHandle?.(null);
-      return null;
-    }
-    if (this.activeTool !== SpecialTool.SELECTOR || !this.sceneRenderer) return;
-    if (!this.selectionGizmoRaycaster) {
-      this.selectionGizmoRaycaster = new THREE.Raycaster();
-    }
-    const pointer = new THREE.Vector2(
-      (e.clientX / window.innerWidth) * 2 - 1,
-      -(e.clientY / window.innerHeight) * 2 + 1
-    );
-    this.selectionGizmoRaycaster.setFromCamera(pointer, this.camera);
-    const flatOrigin = this.selectionGizmoRaycaster.ray.origin;
-    const flatDirection = this.selectionGizmoRaycaster.ray.direction;
-    const eyeBent = bendPointForView(flatOrigin.x, flatOrigin.y, flatOrigin.z, PlayerController._bentEye);
-    const directionBent = bendDirection(
-      flatOrigin.x, flatOrigin.y, flatOrigin.z, flatDirection, PlayerController._forwardBent
-    );
-    const hit = this.sceneRenderer.raycastSelectionGizmoBent
-      ? this.sceneRenderer.raycastSelectionGizmoBent(eyeBent, directionBent)
-      : this.sceneRenderer.raycastSelectionGizmo(this.selectionGizmoRaycaster);
-    this.hoveredGizmoHandle = hit;
-    this.sceneRenderer.highlightSelectionGizmoHandle(hit ? hit.handleKey : null);
+    return this.selectionSession.updateSelectionGizmoPointerHover(e);
   }
 
-  startGizmoDrag(hit: any, e: MouseEvent | null = null) {
-    if (!hit) return;
-    if (this.handleRunningEntityInteraction(this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption || null)) return;
-    const isEntity = !!(this.selectedBlockSelection || this.selectedSubtree);
-    this.activeGizmoDrag = {
-      handleKey: hit.handleKey,
-      axis: hit.axis,
-      direction: hit.direction,
-      isMicro: this.selectorMicroMode === true,
-      isEntity,
-      accumulatedDelta: 0,
-      startX: e ? e.clientX : 0,
-      startY: e ? e.clientY : 0,
-      lastX: e ? e.clientX : 0,
-      lastY: e ? e.clientY : 0
-    };
-    this.sound?.playWrenchClick?.();
+  startGizmoDrag(hit: SelectionGizmoHandle | null, e: MouseEvent | null = null) {
+    return this.selectionSession.startGizmoDrag(hit, e);
   }
 
   updateGizmoDrag(e: MouseEvent) {
-    if (!this.activeGizmoDrag) return;
-    const drag = this.activeGizmoDrag;
-    const isMicro = drag.isMicro;
-
-    let center: THREE.Vector3 | null = null;
-    let worldAxisVec: THREE.Vector3 | null = null;
-
-    if (drag.isEntity) {
-      const target = this.selectedBlockSelection?.contraption || this.selectedSubtree?.contraption;
-      const nodeId = this.selectedBlockSelection?.nodeId || this.selectedSubtree?.rootId;
-      if (!target || !nodeId) {
-        this.releaseGizmoDrag();
-        return;
-      }
-      let bounds = this.selectedBlockSelection?.bounds;
-      if (!bounds) {
-        const blocks = this.selectedBlockSelection?.blocks || (
-          this.selectedSubtree ? target.blocks.filter((b: any) => (this.selectedSubtree?.nodeIds || this.collectSubtreeIds(target, nodeId)).has(contraptionBlockOwnerId(target, b))) : null
-        );
-        bounds = this.getEntitySelectionBounds(blocks || [], isMicro);
-      }
-      if (!bounds) {
-        this.releaseGizmoDrag();
-        return;
-      }
-
-      const minWx = isMicro ? bounds.minX * MICRO_SIZE : bounds.minX;
-      const maxWx = isMicro ? (bounds.maxX + 1) * MICRO_SIZE : bounds.maxX + 1;
-      const minWy = isMicro ? bounds.minY * MICRO_SIZE : bounds.minY;
-      const maxWy = isMicro ? (bounds.maxY + 1) * MICRO_SIZE : bounds.maxY + 1;
-      const minWz = isMicro ? bounds.minZ * MICRO_SIZE : bounds.minZ;
-      const maxWz = isMicro ? (bounds.maxZ + 1) * MICRO_SIZE : bounds.maxZ + 1;
-
-      const localCenter = new THREE.Vector3(
-        (minWx + maxWx) * 0.5,
-        (minWy + maxWy) * 0.5,
-        (minWz + maxWz) * 0.5
-      );
-      center = this.targetEntityLocalToWorld(target, nodeId, localCenter);
-
-      const localAxis = new THREE.Vector3(
-        drag.axis === 'x' ? 1 : 0,
-        drag.axis === 'y' ? 1 : 0,
-        drag.axis === 'z' ? 1 : 0
-      );
-      const quat = this.getTargetEntityWorldQuaternion(target, nodeId);
-      worldAxisVec = localAxis.applyQuaternion(quat);
-    } else {
-      const bounds = isMicro
-        ? this.contraptions.getMicroSelectionBounds()
-        : this.contraptions.getSelectionBounds();
-      if (!bounds) {
-        this.releaseGizmoDrag();
-        return;
-      }
-
-      const minWx = isMicro ? bounds.minX * MICRO_SIZE : bounds.minX;
-      const maxWx = isMicro ? (bounds.maxX + 1) * MICRO_SIZE : bounds.maxX + 1;
-      const minWy = isMicro ? bounds.minY * MICRO_SIZE : bounds.minY;
-      const maxWy = isMicro ? (bounds.maxY + 1) * MICRO_SIZE : bounds.maxY + 1;
-      const minWz = isMicro ? bounds.minZ * MICRO_SIZE : bounds.minZ;
-      const maxWz = isMicro ? (bounds.maxZ + 1) * MICRO_SIZE : bounds.maxZ + 1;
-
-      center = new THREE.Vector3(
-        (minWx + maxWx) * 0.5,
-        (minWy + maxWy) * 0.5,
-        (minWz + maxWz) * 0.5
-      );
-
-      worldAxisVec = new THREE.Vector3(
-        drag.axis === 'x' ? 1 : 0,
-        drag.axis === 'y' ? 1 : 0,
-        drag.axis === 'z' ? 1 : 0
-      );
-    }
-
-    const v0 = center.clone().project(this.camera);
-    const v1 = center.clone().add(worldAxisVec).project(this.camera);
-    const screenDir = new THREE.Vector2(v1.x - v0.x, -(v1.y - v0.y));
-    const len = screenDir.length();
-    if (len < 1e-4) {
-      screenDir.set(1, 0);
-    } else {
-      screenDir.divideScalar(len);
-    }
-
-    let dx = 0, dy = 0;
-    if (this.isLocked) {
-      dx = Number(e.movementX) || 0;
-      dy = Number(e.movementY) || 0;
-    } else {
-      dx = (e.clientX - drag.lastX);
-      dy = (e.clientY - drag.lastY);
-      drag.lastX = e.clientX;
-      drag.lastY = e.clientY;
-    }
-
-    const dot = (dx * screenDir.x + dy * screenDir.y) * drag.direction;
-    drag.accumulatedDelta += dot;
-
-    const pixelsPerStep = isMicro ? 8 : 16;
-    if (Math.abs(drag.accumulatedDelta) >= pixelsPerStep) {
-      const steps = Math.trunc(drag.accumulatedDelta / pixelsPerStep);
-      drag.accumulatedDelta -= steps * pixelsPerStep;
-
-      if (drag.isEntity) {
-        const result = this.expandEntitySelectionAxis(
-          drag.axis,
-          drag.direction,
-          steps,
-          isMicro
-        );
-        if (result.ok) {
-          this.sound?.playWrenchClick?.();
-          this.updateSelectionAxisGizmo();
-        }
-      } else {
-        const result = this.contraptions.expandSelectionAxis(
-          drag.axis,
-          drag.direction,
-          steps,
-          isMicro
-        );
-
-        if (result.ok) {
-          this.sound?.playWrenchClick?.();
-          if (this.selectorShape !== 'box') {
-            const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
-            const stairsAxis = this.selectionShapeAnchor?.stairsAxis;
-            const stairsOrientation = this.selectionShapeAnchor?.stairsOrientation;
-            if (isMicro) {
-              const mb = this.contraptions.getMicroSelectionBounds();
-              if (mb) {
-                this.selectionShapeAnchor = {
-                  cornerA: { x: mb.minX, y: mb.minY, z: mb.minZ },
-                  cornerB: { x: mb.maxX, y: mb.maxY, z: mb.maxZ },
-                  micro: true,
-                  cylinderAxis,
-                  stairsAxis,
-                  stairsOrientation
-                };
-              }
-            } else {
-              if (this.contraptions.selectionCornerA && this.contraptions.selectionCornerB) {
-                this.selectionShapeAnchor = {
-                  cornerA: { ...this.contraptions.selectionCornerA },
-                  cornerB: { ...this.contraptions.selectionCornerB },
-                  micro: false,
-                  cylinderAxis,
-                  stairsAxis,
-                  stairsOrientation
-                };
-              }
-            }
-            const anchorA = this.selectionShapeAnchor?.cornerA;
-            const anchorB = this.selectionShapeAnchor?.cornerB;
-            if (anchorA && anchorB) {
-              const cells = computeSelectionCells(this.selectorShape, anchorA, anchorB, isMicro, cylinderAxis, stairsAxis, stairsOrientation);
-              if (isMicro) {
-                this.contraptions.microSelection = cells;
-                this.contraptions.microBounds = null;
-              } else {
-                this.contraptions.connectedSelection = cells;
-              }
-            }
-          }
-          const updatedBounds = isMicro
-            ? this.contraptions.getMicroSelectionBounds()
-            : this.contraptions.getSelectionBounds();
-          this.sceneRenderer?.updateSelectionAxisGizmo(updatedBounds, isMicro);
-          this.sceneRenderer?.updateSelectionHologram(
-            updatedBounds,
-            this.contraptions.connectedSelection,
-            this.contraptions.microSelection,
-            isMicro && this.selectorShape !== 'box'
-          );
-        }
-      }
-    }
+    return this.selectionSession.updateGizmoDrag(e);
   }
 
   releaseGizmoDrag() {
-    this.activeGizmoDrag = null;
+    return this.selectionSession.releaseGizmoDrag();
   }
 }
 

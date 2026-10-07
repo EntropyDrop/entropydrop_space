@@ -1,3 +1,4 @@
+import { uiStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SoundManager } from '../src/engine/audio/SoundManager.ts';
@@ -75,7 +76,7 @@ test('SpaceUiStore controls and persists music and effects independently', () =>
 
   try {
     const ui = new SpaceUiStore();
-    ui.setController(controller);
+    ui.setController(uiStub('controller', controller));
 
     assert.equal(ui.getSnapshot().musicEnabled, false);
     assert.equal(ui.getSnapshot().effectsEnabled, true);
@@ -127,7 +128,7 @@ test('SpaceUiStore migrates the legacy mute preference and prioritizes valid new
   const load = () => {
     const sound = new SoundManager();
     const ui = new SpaceUiStore();
-    ui.setController({ sound, fov: 75, perspective: 'first_person', thirdPersonDistance: 4 });
+    ui.setController(uiStub('controller', { sound, fov: 75, perspective: 'first_person', thirdPersonDistance: 4 }));
     return { sound, state: ui.getSnapshot() };
   };
 

@@ -1,6 +1,6 @@
 import { buildUnifiedInventoryPreviewMesh } from './InventoryPreviewMesh.ts';
 export { buildUnifiedInventoryPreviewMesh } from './InventoryPreviewMesh.ts';
-import type { Point3, SelectionFrame, MicroCarvePreview, InventoryPlacementPreview, PreviewInteraction, PreviewForceInteraction, RemotePlayerRecord } from './PreviewTypes.ts';
+import type { Point3, SelectionFrame, MicroCarvePreview, InventoryPlacementPreview, PreviewInteraction, PreviewForceInteraction, RemotePlayerRecord, SelectionGizmoHit } from './PreviewTypes.ts';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
@@ -1510,7 +1510,7 @@ export class SceneRenderer {
     }
   }
 
-  raycastSelectionGizmo(raycaster: THREE.Raycaster) {
+  raycastSelectionGizmo(raycaster: THREE.Raycaster): SelectionGizmoHit | null {
     if (!this.selectionAxisGizmo || !this.selectionAxisGizmo.visible) return null;
     const candidates: THREE.Object3D[] = [];
     if (this.selectionGizmoHandles) {
@@ -1549,12 +1549,12 @@ export class SceneRenderer {
    * ray and the handle centres the same way the renderer (and the entity pick)
    * do, so the arrows are grabbed exactly where they appear.
    */
-  raycastSelectionGizmoBent(origin: THREE.Vector3, direction: THREE.Vector3) {
+  raycastSelectionGizmoBent(origin: THREE.Vector3, direction: THREE.Vector3): SelectionGizmoHit | null {
     if (!this.selectionAxisGizmo || !this.selectionAxisGizmo.visible) return null;
     if (!origin || !direction) return null;
     const ray = new THREE.Ray(origin.clone(), direction.clone().normalize());
     this.selectionAxisGizmo.updateMatrixWorld(true);
-    let best: any = null;
+    let best: SelectionGizmoHit | null = null;
     const worldPos = new THREE.Vector3();
     const bentCenter = new THREE.Vector3();
     const hitPoint = new THREE.Vector3();
@@ -1564,7 +1564,8 @@ export class SceneRenderer {
       const pick = handleGroup.children.find(child => child.name?.startsWith('SelectionGizmoPick_')) as THREE.Mesh | undefined;
       if (!pick) continue;
       pick.getWorldPosition(worldPos);
-      const pickRadius = (pick.geometry as any)?.parameters?.radius || SELECTION_GIZMO_PICK_RADIUS;
+      const pickRadius = pick.geometry instanceof THREE.SphereGeometry
+        ? pick.geometry.parameters.radius : SELECTION_GIZMO_PICK_RADIUS;
       const radius = pickRadius * (handleGroup.scale?.x || 1);
       bendPointForView(worldPos.x, worldPos.y, worldPos.z, bentCenter);
       sphere.center.copy(bentCenter);

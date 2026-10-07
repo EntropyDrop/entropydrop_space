@@ -14,6 +14,7 @@ import logging
 import msgpack
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import time
 import uuid
 
@@ -157,18 +158,17 @@ def prepare(db, world_id, instance_id, entity_id=None, cpu_ids=None):
         return None
     chunks = set().union(*(region_chunks(e, world) for e in funded))
     rows = scene_rows(db, world_id, chunks)
-    scene_valid = True
-    try:
-        for entity in rows:
-            validate_hosted_definition(entity.definition)
-    except HTTPException:
-        scene_valid = False
-    if len(rows) > 36 or not scene_valid:
+    if len(rows) > 36:
         for entity in funded:
             pause(entity, "hosting_scene_limit")
         db.commit()
         return None
-    by_chunk = {(r.chunk_x, r.chunk_z): r for r in db.query(models.SpaceChunkSnapshot).filter(
+    # Copy only immutable bytes/scalars while holding the fence. Expired ORM
+    # objects must not issue new reads once this transaction is released.
+    by_chunk = {(r.chunk_x, r.chunk_z): SimpleNamespace(
+        revision=r.revision, payload=bytes(r.payload), codec=r.codec,
+        uncompressed_size=r.uncompressed_size, content_hash=bytes(r.content_hash)
+    ) for r in db.query(models.SpaceChunkSnapshot).filter(
         models.SpaceChunkSnapshot.world_id == world_id,
         or_(*[and_(models.SpaceChunkSnapshot.chunk_x == cx, models.SpaceChunkSnapshot.chunk_z == cz) for cx, cz in sorted(chunks)])
     ).all()}
@@ -178,29 +178,75 @@ def prepare(db, world_id, instance_id, entity_id=None, cpu_ids=None):
     payload = {"world_id": world_id, "world_slug": world_identity(world_id)["slug"],
         "world_name": world_display_name(world), "seed": world.seed,
         "terrain_generator_version": world.terrain_generator_version,
+        "world_extent_chunks": [world.width_chunks, world.length_chunks],
         "steps": duration_ms // 50,
         "epoch": lease.epoch, "terrain_revision": terrain_revision(db, world_id),
         "scene_revision": fingerprint(rows, running),
         "core_id": funded[0].hosting_core_id,
         "execution_epoch": funded[0].execution_epoch,
         "entities": [{"id": str(e.id), "running": str(e.id) in running,
-            "definition_base64": base64.b64encode(e.definition).decode(),
-            "snapshot": json.loads(e.snapshot) if e.snapshot else None,
+            "definition": bytes(e.definition),
+            "snapshot": bytes(e.snapshot) if e.snapshot else None,
             "position": [e.position_x_cm / 100, e.position_y_cm / 100, e.position_z_cm / 100],
             "anchor": [v / 100 for v in e.hosting_anchor] if e.hosting_anchor else None,
             "yaw_quarter_turns": e.yaw_quarter_turns} for e in rows],
-        "chunks": [{"chunk_x": cx, "chunk_z": cz, "revision": by_chunk[(cx, cz)].revision if (cx, cz) in by_chunk else 0,
-            **terrain._decode_chunk_overlay(by_chunk.get((cx, cz)))} for cx, cz in sorted(chunks)]}
+        "chunks": [{"chunk_x": cx, "chunk_z": cz, "revision": by_chunk[(cx, cz)].revision if (cx, cz) in by_chunk else 0}
+            for cx, cz in sorted(chunks)]}
     db.commit()
+    try:
+        for entity in payload["entities"]:
+            validate_hosted_definition(entity["definition"])
+    except HTTPException:
+        # A slow failed validation cannot pause a newly edited/restarted actor.
+        # Reuse the commit fence, including coordinator/core epochs and scene.
+        commit_result(db, world_id, instance_id, payload, {"faults": [
+            {"id": eid, "reason": "hosting_scene_limit"} for eid in running]})
+        return None
+    for entity in payload["entities"]:
+        entity["definition_base64"] = base64.b64encode(entity.pop("definition")).decode()
+        entity["snapshot"] = json.loads(entity["snapshot"]) if entity["snapshot"] else None
+    for chunk in payload["chunks"]:
+        chunk.update(terrain._decode_chunk_overlay(by_chunk.get((chunk["chunk_x"], chunk["chunk_z"]))))
     return payload
+
+
+def encode_result(payload, result):
+    """Pure validation/encoding; no session, locks, quota or billing side effects."""
+    if result.get("error") or result.get("faults"):
+        return {}
+    expected = {e["id"] for e in payload["entities"] if e["running"]}
+    entities = result.get("entities", [])
+    if {e["id"] for e in entities} != expected or len(entities) != len(expected):
+        raise ValueError("invalid runtime result entities")
+    if len(result.get("mutations", [])) > 256:
+        raise ValueError("hosting mutation limit")
+    width, length = payload["world_extent_chunks"]
+    dimensions = SimpleNamespace(width_chunks=width, length_chunks=length)
+    encoded_entities = {}
+    for item in entities:
+        elapsed = item["elapsed_ms"]
+        if not isinstance(elapsed, int) or not 0 < elapsed <= payload["steps"] * 50 or elapsed % 50:
+            raise ValueError("invalid elapsed time")
+        definition, digest, _ = _decode_entity_definition(item["definition_base64"])
+        validate_hosted_definition(definition)
+        snapshot = item["snapshot"]
+        x, y, z = snapshot["position"]
+        position = EntityPosition(x_cm=round(x * 100) % (width * 1600),
+                                  y_cm=round(y * 100), z_cm=round(z * 100) % (length * 1600))
+        encoded, snapshot_digest = _encode_snapshot(snapshot, dimensions, position)
+        encoded_entities[item["id"]] = (definition, digest, encoded, snapshot_digest, position)
+    return encoded_entities
 
 
 def commit_result(db, world_id, instance_id, payload, result):
     if not settings.SPACE_HOSTING_ENABLED:
         return False
+    encoded_entities = encode_result(payload, result)
     world = db.query(models.SpaceWorld).filter_by(id=world_id).with_for_update().first()
     lease = db.get(models.SpaceHostingWorker, world_id)
     if not world or world.status != 1 or not lease or lease.instance_id != instance_id or lease.epoch != payload["epoch"] or utc(lease.lease_expires_at) <= now():
+        return False
+    if [world.width_chunks, world.length_chunks] != payload["world_extent_chunks"]:
         return False
     chunks = {(c["chunk_x"], c["chunk_z"]) for c in payload["chunks"]}
     rows = scene_rows(db, world_id, chunks)
@@ -245,15 +291,7 @@ def commit_result(db, world_id, instance_id, payload, result):
         raise ValueError("hosting mutation limit")
     for item in result["entities"]:
         entity = by_id[item["id"]]
-        if not isinstance(item["elapsed_ms"], int) or not 0 < item["elapsed_ms"] <= payload["steps"] * 50 or item["elapsed_ms"] % 50:
-            raise ValueError("invalid elapsed time")
-        definition, digest, _ = _decode_entity_definition(item["definition_base64"])
-        validate_hosted_definition(definition)
-        snapshot = item["snapshot"]
-        x, y, z = snapshot["position"]
-        position = EntityPosition(x_cm=round(x * 100) % (world.width_chunks * 1600),
-                                  y_cm=round(y * 100), z_cm=round(z * 100) % (world.length_chunks * 1600))
-        encoded, snapshot_digest = _encode_snapshot(snapshot, world, position)
+        definition, digest, encoded, snapshot_digest, position = encoded_entities[item["id"]]
         _enforce_entity_storage_quota(db, world, users[entity.owner_user_id],
             incoming_bytes=len(definition) + len(encoded), replaced_bytes=entity.size_bytes + entity.snapshot_size_bytes)
         entity.definition, entity.content_digest, entity.size_bytes = definition, digest, len(definition)

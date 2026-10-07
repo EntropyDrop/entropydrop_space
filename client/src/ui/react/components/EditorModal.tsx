@@ -8,7 +8,7 @@ import {
 } from '../../../engine/contraption/AgentConfig.ts';
 import { compareComponentIds } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { spaceUiStore, type AgentMessage } from '../store/SpaceUiStore.ts';
-import { useSpaceUi } from '../store/useSpaceUi.ts';
+import { useSpaceUi, useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { AgentApiKeySecurityNotice } from './AgentApiKeySecurityNotice.tsx';
 import { AgentModelField } from './AgentModelField.tsx';
 import { ThoughtBox } from './ThoughtBox.tsx';
@@ -71,8 +71,7 @@ function formatTuple(value: unknown, suffix = ''): string {
 }
 
 function ComponentInspector() {
-  const { editingContraption, selectedComponentNodeId } = useSpaceUi(state => state);
-  const properties = editingContraption?.getNodeProperties?.(selectedComponentNodeId);
+  const { selectedComponentNodeId, componentProperties: properties } = useSpaceUiFields('selectedComponentNodeId', 'componentProperties');
   const [name, setName] = useState(selectedComponentNodeId);
   const [displayName, setDisplayName] = useState(properties?.name || '');
   const [tab, setTab] = useState<InspectorTab>('defaults');
@@ -174,7 +173,7 @@ function ComponentInspector() {
 }
 
 function AgentChat() {
-  const state = useSpaceUi(snapshot => snapshot);
+  const state = useSpaceUiFields('agentConfig', 'agentMessages', 'agentBusy', 'agentSetupOpen', 'editingContraption');
   const [prompt, setPrompt] = useState('');
   const [config, setConfig] = useState(state.agentConfig || {});
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -247,19 +246,20 @@ function AgentChat() {
 }
 
 export function CodeEditorModal() {
-  const state = useSpaceUi(snapshot => snapshot);
+  const state = useSpaceUiFields('sceneRenderer', 'activeModal', 'editingContraption', 'editorDefinitionVersion',
+    'inventoryRevision', 'entityLabels', 'globalPlaybackState', 'selectedComponentNodeId', 'scriptDraft', 'telemetry');
   const attachPreviewCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     if (canvas) state.sceneRenderer?.setEntityPreviewCanvas?.(canvas);
   }, [state.sceneRenderer]);
   const open = state.activeModal === 'code' && !!state.editingContraption;
   const contraption = state.editingContraption;
-  const tree = useMemo(() => contraption?.getHierarchyTree?.(), [contraption, state.revision]);
+  const tree = useMemo(() => contraption?.getHierarchyTree?.(), [contraption, state.editorDefinitionVersion, state.inventoryRevision]);
   const nodes = contraption
     ? [...(contraption.entityNodes?.values?.() || [])]
       .sort((left: any, right: any) => compareComponentIds(left.id, right.id))
     : [];
   const playback = spaceUiStore.getGlobalPlayback();
-  if (!open) return null;
+  if (!open || !contraption) return null;
   const childIds = nodes
     .filter((node: any) => node.parentId !== null)
     .map((node: any) => node.id)

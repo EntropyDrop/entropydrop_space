@@ -167,7 +167,7 @@ test('toggleMicroCell toggles sparse 0.125 m cells and is exclusive of standard 
 test('micro box corners clamp to the 256 standard-cell entity limit', () => {
   const world = makeStubWorld([[ '0,0,0', 0x111111 ], [ '2047,0,0', 0x222222 ], [ '2400,0,0', 0x333333 ]]);
   const manager = new ContraptionManager(new THREE.Scene(), world, null, null);
-  const result = executeBasicAction({ manager, world, selectionHost: null }, {
+  const result = executeBasicAction({ manager, world: worldStub(world), selectionHost: null }, {
     domain: ActionDomain.SELECTION,
     action: 'box',
     a: { x: 0, y: 0, z: 0 },
@@ -227,8 +227,8 @@ test('shared toggle-cell with the micro flag toggles 0.125 m cells', () => {
     point: { x: 3.1875, y: 4.0625, z: 3.5625 },
     micro: true
   });
-  assert.deepEqual(result.selection.cells, [{ x: 25, y: 32, z: 28 }]);
-  assert.equal(result.selection.granularity, 'micro');
+  assert.deepEqual(requireValue(result.selection).cells, [{ x: 25, y: 32, z: 28 }]);
+  assert.equal(requireValue(result.selection).granularity, 'micro');
 
   result = executeBasicAction(ctx, {
     domain: ActionDomain.SELECTION,
@@ -236,8 +236,8 @@ test('shared toggle-cell with the micro flag toggles 0.125 m cells', () => {
     point: { x: 3.1875, y: 4.0625, z: 3.5625 },
     micro: true
   });
-  assert.equal(result.selection.count, 0);
-  assert.equal(result.selection.ready, false);
+  assert.equal(requireValue(result.selection).count, 0);
+  assert.equal(requireValue(result.selection).ready, false);
 });
 
 test('selector click flow: two plain clicks build a materialized micro box, third clears it', () => {
@@ -325,7 +325,7 @@ test('G assembles a sparse micro selection into 0.125 m entity blocks', () => {
   manager.toggleMicroCell({ x: 2.375, y: 5.075, z: 2.5 });
   manager.toggleMicroCell({ x: 2.5, y: 5.2, z: 2.5 });
 
-  const result = executeBasicAction({ manager, world, selectionHost: null }, {
+  const result = executeBasicAction({ manager, world: worldStub(world), selectionHost: null }, {
     domain: ActionDomain.SELECTION,
     action: 'assemble'
   });
@@ -393,14 +393,14 @@ test('entity 2-point box in micro mode keeps only 0.125 m blocks', () => {
   const standard = executeBasicAction(ctx, {
     domain: ActionDomain.SELECTION, action: 'entity-box', target: { contraption }, nodeId: 'root', a, b, space: 'node-local'
   });
-  assert.equal(standard.selection.blocks.length, 3, 'standard mode keeps standard + micro blocks');
+  assert.equal(requireValue(standard.selection).blocks.length, 3, 'standard mode keeps standard + micro blocks');
 
   const micro = executeBasicAction(ctx, {
     domain: ActionDomain.SELECTION, action: 'entity-box', target: { contraption }, nodeId: 'root', a, b, space: 'node-local', micro: true
   });
-  assert.equal(micro.selection.blocks.length, 1, 'micro mode keeps only 0.125 m blocks');
-  assert.equal(micro.selection.blocks[0].size, 0.125);
-  assert.equal(micro.selection.blocks[0].color, 0x00ff00);
+  assert.equal(requireValue(micro.selection).blocks.length, 1, 'micro mode keeps only 0.125 m blocks');
+  assert.equal(requireValue(micro.selection).blocks[0].size, 0.125);
+  assert.equal(requireValue(micro.selection).blocks[0].color, 0x00ff00);
 });
 
 test('copying an entity micro selection removes empty layers below its lowest voxel', () => {
@@ -712,13 +712,13 @@ test('create-child from microblock selection isolates selected microblocks and c
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.selection.blocks.length, 2, 'only the 2 top micro blocks selected');
+  assert.equal(requireValue(result.selection).blocks.length, 2, 'only the 2 top micro blocks selected');
 
   // G creates child component from the selected blocks
   controller.selectedBlockSelection = {
     contraption,
     nodeId: 'root',
-    blocks: result.selection.blocks,
+    blocks: requireValue(result.selection).blocks,
     confirmedRange: { pointA: a, pointB: b }
   };
   controller.createChildFromSelectedBlocks();
@@ -754,7 +754,7 @@ test('assembleSelection extracts both standard blocks and microblocks from stand
   manager.setCornerA({ x: 0, y: 0, z: 0 });
   manager.setCornerB({ x: 1, y: 1, z: 1 });
 
-  const result = executeBasicAction({ manager, world, selectionHost: null }, {
+  const result = executeBasicAction({ manager, world: worldStub(world), selectionHost: null }, {
     domain: ActionDomain.SELECTION,
     action: 'assemble'
   });

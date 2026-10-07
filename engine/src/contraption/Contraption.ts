@@ -18,7 +18,7 @@ import {
   normalizeVoxelMaterialId,
   VoxelMaterialIds
 } from '../voxel/VoxelMaterials.ts';
-import { ActionDomain, executeBasicAction } from '../actions/BasicActions.ts';
+import { ActionDomain, executeBasicAction, executeBasicActionInput, executeUnknownBasicAction } from '../actions/BasicActions.ts';
 import {
   bendPoint,
   bendPointForView,
@@ -322,6 +322,13 @@ export type EntityCollisionBounds = CollisionBounds & {
 };
 
 export class Contraption {
+  /** Authored content revision; simulation poses and runtime overrides do not change it. */
+  definitionVersion = 0;
+
+  markDefinitionChanged() {
+    this.definitionVersion++;
+  }
+
   decorations: DecorationDefinition[];
   // Effective runtime values are checkpointed separately from authored definitions.
   runtimeDecorations = new Map<string, DecorationDefinition[]>();
@@ -554,7 +561,7 @@ export class Contraption {
   agentInterpretation: string;
   scriptApi: ComponentScriptApi | null;
   particleSystem: unknown;
-  actionContext: any;
+  actionContext: import('../actions/ActionContracts.ts').BasicActionContext | null = null;
 
   constructor(id: string | number, blocks: RuntimeVoxel[], originWorldPos: THREE.Vector3, scene: ContraptionScene, options: ContraptionOptions = {}) {
     this.id = id;
@@ -806,11 +813,14 @@ export class Contraption {
   }
 
   /** The sole entity mutation entry used by self.*, mouse controls and editor actions. */
-  performBasicAction(command: Parameters<typeof executeBasicAction>[1]) {
-    return executeBasicAction(
-      { contraption: this, ...(this.actionContext || {}) },
-      { domain: ActionDomain.ENTITY, target: { contraption: this }, actor: { source: 'script' }, ...command }
-    );
+  performBasicAction<C extends import('../actions/ActionContracts.ts').EntityActionInput>(command: C): import('../actions/ActionContracts.ts').ActionOutcome<C['action']>;
+  performBasicAction<C extends import('../actions/ActionContracts.ts').BasicActionInput>(command: C): import('../actions/ActionContracts.ts').BasicActionInputResult<C>;
+  performBasicAction(command: import('../actions/ActionContracts.ts').BasicActionInput | import('../actions/ActionContracts.ts').EntityActionInput): unknown {
+    const context = { contraption: this, ...(this.actionContext || {}) };
+    if (command.domain === undefined || command.domain === 'entity') {
+      return executeBasicActionInput(context, { target: { contraption: this }, actor: { source: 'script' }, ...command, domain: 'entity' });
+    }
+    return executeUnknownBasicAction(context, { actor: { source: 'script' }, ...command });
   }
 
   setComponentMicroVoxel(nodeId: string, node: EntityNode, location: unknown, microOffset: unknown, options: VoxelEditOptions | null = null) {
@@ -1032,6 +1042,7 @@ export class Contraption {
     }
     if (nodeId === this.rootComponentId) this.decorations = decorations;
     else this.childDefinitions.get(nodeId)!.decorations = decorations;
+    this.markDefinitionChanged();
     this.runtimeDecorations.delete(nodeId);
     this.rebuildDecorationMeshes(nodeId);
     return true;
@@ -1111,6 +1122,7 @@ export class Contraption {
       if (!definition) return false;
       definition.seats = normalized;
     }
+    this.markDefinitionChanged();
     return true;
   }
 
@@ -1212,6 +1224,7 @@ export class Contraption {
   // =========================================================================
 
   setNodeScript(nodeId: string, code: string) {
+    this.markDefinitionChanged();
     const id = String(nodeId || this.rootComponentId);
     this.latchedScriptCommands = [];
     this.nodeScripts.set(id, code || '');
@@ -1311,6 +1324,7 @@ export class Contraption {
   }
 
   setNodeScriptEnabled(nodeId: string = this.rootComponentId, enabled = true) {
+    this.markDefinitionChanged();
     const id = String(nodeId || this.rootComponentId);
     const state = !!enabled;
     this.nodeScriptEnabled.set(id, state);
@@ -1333,6 +1347,7 @@ export class Contraption {
   }
 
   enableAllNodeScripts() {
+    this.markDefinitionChanged();
     this.nodeScriptEnabled.set(this.rootComponentId, true);
     for (const id of this.entityNodes.keys()) {
       this.nodeScriptEnabled.set(id, true);
@@ -1346,6 +1361,7 @@ export class Contraption {
   }
 
   disableAllNodeScripts() {
+    this.markDefinitionChanged();
     this.latchedScriptCommands = [];
     this.nodeScriptEnabled.set(this.rootComponentId, false);
     for (const id of this.entityNodes.keys()) {
@@ -2146,6 +2162,7 @@ export class Contraption {
     const normalized = normalizeInventoryName(name);
     if (nodeId === this.rootComponentId) this.rootComponentName = normalized;
     else this.childDefinitions.get(nodeId)!.name = normalized;
+    this.markDefinitionChanged();
     return true;
   }
 
@@ -2794,6 +2811,7 @@ export class Contraption {
   }
 
   rebuildEntityHierarchy() {
+    this.markDefinitionChanged();
     const previousBodies = this.rigidBodies || new Map();
     const previousState = new Map();
     for (const [id, node] of this.entityNodes || []) {
@@ -3203,12 +3221,13 @@ export class Contraption {
   }
 
   updateCapturedBodyConfigDefault(nodeId: string, patch: Partial<ReturnType<Contraption['getCurrentNodeBodyConfig']>>) {
+    this.markDefinitionChanged();
     const saved = this.runtimeBodyConfigDefaults.get(String(nodeId || this.rootComponentId));
     if (saved) Object.assign(saved, patch);
   }
 
-  getNodeBodyType(nodeId: string = this.rootComponentId) {
-    return this.getRigidBody(nodeId)?.type || null;
+  getNodeBodyType(nodeId: string = this.rootComponentId): BodyTypeValue | null {
+    return normalizeBodyType(this.getRigidBody(nodeId)?.type, null);
   }
 
   setNodeBodyType(nodeId: string, value: unknown, options: any = {}) {
@@ -3484,6 +3503,7 @@ export class Contraption {
   }
 
   initializeConstraints(constraints: ConstraintInput[] = []) {
+    this.markDefinitionChanged();
     this.constraintDefinitions.clear();
     for (const definition of constraints) this.createConstraint(definition);
   }
@@ -3551,11 +3571,14 @@ export class Contraption {
       collideConnected: !!definition.collideConnected
     };
     this.constraintDefinitions.set(id, constraint);
+    this.markDefinitionChanged();
     return constraint;
   }
 
   removeConstraint(id: string) {
-    return this.constraintDefinitions.delete(String(id || ''));
+    const removed = this.constraintDefinitions.delete(String(id || ''));
+    if (removed) this.markDefinitionChanged();
+    return removed;
   }
 
   getConstraints(nodeId: string | null = null) {
@@ -3567,6 +3590,7 @@ export class Contraption {
   }
 
   rebuildAfterBlockChange(type = 'change', nodeId: string | null = null, event: BlockChangeDetails | null = null, changes: { added: RuntimeVoxel[]; removed: RuntimeVoxel[] } | null = null) {
+    this.markDefinitionChanged();
     const targetNodeId = String(nodeId || this.rootComponentId);
 
     const hasHierarchyChange = type === 'install' ||

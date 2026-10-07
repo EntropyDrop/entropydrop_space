@@ -372,7 +372,7 @@ export class ContraptionManager {
   }
 
   /** Dispatch a canonical engine action from UI, mouse input, scripts or systems. */
-  performBasicAction(command: Parameters<typeof executeBasicAction>[1]) {
+  performBasicAction<C extends import('../actions/ActionContracts.ts').BasicActionCommand>(command: C) {
     return executeBasicAction({ manager: this, world: this.world, selectionHost: this.selectionHost }, command);
   }
 
@@ -471,7 +471,7 @@ export class ContraptionManager {
         this.remoteEntityPersistence?.save?.(record, { definitionChanged: true });
       };
       for (const contraption of this.contraptions) {
-        if (!contraption) continue;
+        if (!contraption || (contraption.serverManaged === true && contraption.serverCanEdit !== true)) continue;
         const chunk = this.getContraptionChunk(contraption) || { id: '0,0', cx: 0, cz: 0 };
         queue(this.captureContraptionForStreaming(contraption, chunk));
       }

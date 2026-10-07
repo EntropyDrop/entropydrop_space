@@ -412,3 +412,48 @@ def test_migration_creates_fixed_pool_preserves_prepaid_and_refuses_active_downg
         migration.downgrade()
         assert 'space_hosting_cores' not in sa.inspect(connection).get_table_names()
     engine.dispose()
+
+
+def test_prepare_decodes_copied_scene_after_releasing_transaction(client, db, monkeypatch):
+    from space import hosting_worker as worker
+    actor, world, base, calls = setup(client, db, monkeypatch)
+    entity = new_entity(client, base)
+    assert host(client, base, entity).status_code == 200
+    db.get(models.SpaceWorldEntity, (world, entity['id'])).hosting_remaining_ms = 12_000
+    db.commit()
+    validate = worker.validate_hosted_definition
+    decode = worker.terrain._decode_chunk_overlay
+    phases = []
+    def validate_unlocked(definition):
+        assert not db.in_transaction(), 'definition validation held the world transaction'
+        phases.append('validate')
+        return validate(definition)
+    def decode_unlocked(snapshot):
+        assert not db.in_transaction(), 'terrain decoding opened or retained a transaction'
+        phases.append('decode')
+        return decode(snapshot)
+    monkeypatch.setattr(worker, 'validate_hosted_definition', validate_unlocked)
+    monkeypatch.setattr(worker.terrain, '_decode_chunk_overlay', decode_unlocked)
+    payload = prepare(db, world, INSTANCE, entity['id'], [2, 4])
+    assert payload and 'validate' in phases and 'decode' in phases
+    assert not db.in_transaction()
+
+
+def test_delayed_invalid_scene_does_not_pause_a_newer_revision(client, db, monkeypatch):
+    from space import hosting_worker as worker
+    actor, world, base, calls = setup(client, db, monkeypatch)
+    entity = new_entity(client, base)
+    assert host(client, base, entity).status_code == 200
+    row = db.get(models.SpaceWorldEntity, (world, entity['id']))
+    row.hosting_remaining_ms = 12_000
+    db.commit()
+    def changed_during_validation(_definition):
+        assert not db.in_transaction()
+        row = db.get(models.SpaceWorldEntity, (world, entity['id']))
+        row.revision += 1
+        db.commit()
+        raise HTTPException(422, detail='invalid old scene')
+    monkeypatch.setattr(worker, 'validate_hosted_definition', changed_during_validation)
+    assert prepare(db, world, INSTANCE, entity['id'], [2, 4]) is None
+    assert db.get(models.SpaceWorldEntity, (world, entity['id'])).hosting_enabled
+    assert db.get(models.SpaceWorldEntity, (world, entity['id'])).hosting_remaining_ms == 12_000

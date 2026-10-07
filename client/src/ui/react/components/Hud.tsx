@@ -59,7 +59,7 @@ function getHotbarToolIcon(toolValue: string): React.ReactNode {
 }
 
 function NearbyEntities() {
-  const { nearbyEntities, navigationSystem } = useSpaceUi(state => state);
+  const { nearbyEntities, navigationSystem } = useSpaceUiFields('nearbyEntities', 'navigationSystem');
   const [expanded, setExpanded] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 3;
@@ -166,7 +166,7 @@ function hsvToHex(h: number, s: number, v: number) {
 }
 
 function PaletteEditor() {
-  const { paletteColors, selectedColorIndex, paletteEditorOpen } = useSpaceUi(state => state);
+  const { paletteColors, selectedColorIndex, paletteEditorOpen } = useSpaceUiFields('paletteColors', 'selectedColorIndex', 'paletteEditorOpen');
   const [activeStop, setActiveStop] = useState(0);
   const [draggedStop, setDraggedStop] = useState<{ index: number; position: number } | null>(null);
   const draggedStopRef = useRef<{ index: number; position: number } | null>(null);
@@ -377,7 +377,7 @@ function PaletteEditor() {
 }
 
 function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
-  const { paletteColors, selectedColorIndex, brushMicro, controller } = useSpaceUi(state => state);
+  const { paletteColors, selectedColorIndex, brushMicro, controller } = useSpaceUiFields('paletteColors', 'selectedColorIndex', 'brushMicro', 'controller');
   const altLabel = getAltKeyLabel();
   return (
     <div className="color-palette-bar-wrapper" id="color-palette-wrapper">
@@ -512,7 +512,7 @@ function assembleCurrentSelection(controller: any) {
 }
 
 function SelectorPanel() {
-  const { selector, controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUi(state => state);
+  const { selector, controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUiFields('selector', 'controller', 'selectedColor', 'paletteColors', 'selectedColorIndex');
   const activeHex = colorToHex(selectedColor ?? 0xf2a93b);
   const activeEntry = normalizePaletteEntry(paletteColors[selectedColorIndex], activeHex);
   const activeBackground = gradientCss(activeEntry.stops);
@@ -574,7 +574,7 @@ function SelectorPanel() {
 }
 
 function SelectorContextMenu() {
-  const { selectorContextMenu, selector, controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUi(state => state);
+  const { selectorContextMenu, selector, controller, selectedColor, paletteColors, selectedColorIndex } = useSpaceUiFields('selectorContextMenu', 'selector', 'controller', 'selectedColor', 'paletteColors', 'selectedColorIndex');
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   useLayoutEffect(() => {
@@ -712,8 +712,7 @@ function SelectorContextMenu() {
 }
 
 function WrenchPanel() {
-  const { controller } = useSpaceUi(state => state);
-  const targetEntity = controller?.hoveredContraptionHit?.contraption || controller?.hoveredContraption || null;
+  const { controller, wrenchTarget: targetEntity } = useSpaceUiFields('controller', 'wrenchTarget');
   const hasTargetEntity = Boolean(targetEntity);
   return (
     <div className="selector-panel-wrapper wrench-panel-wrapper" id="wrench-panel-wrapper">
@@ -739,7 +738,7 @@ function WrenchPanel() {
 }
 
 function Hotbar() {
-  const { hotbarSlots, selectedHotbarIndex, selector, brushMicro } = useSpaceUi(state => state);
+  const { hotbarSlots, selectedHotbarIndex, selector, brushMicro } = useSpaceUiFields('hotbarSlots', 'selectedHotbarIndex', 'selector', 'brushMicro');
   return (
     <div id="hotbar">
       {hotbarSlots.map((slot, index) => (
@@ -759,7 +758,7 @@ function Hotbar() {
 }
 
 function BulkEditProgressPanel() {
-  const { bulkEdit, worldEditSync, isAdmin } = useSpaceUi(state => state);
+  const { bulkEdit, worldEditSync, isAdmin } = useSpaceUiFields('bulkEdit', 'worldEditSync', 'isAdmin');
   if (!bulkEdit) return null;
 
   const percent = bulkEdit.total > 0

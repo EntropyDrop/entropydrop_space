@@ -34,7 +34,7 @@ for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.SELECTOR,
     assert.equal(controller.handleLeftClick({ clientX: 3, clientY: 5 }), true);
     assert.equal(controller.handleRightClick({ clientX: 3, clientY: 5 }), true);
     assert.equal(clicks, 2);
-    assert.equal(controller.toolUseSequence, undefined);
+    assert.equal(controller.toolUseSequence, 0, 'menu clicks do not increment the tool counter');
   });
 }
 

@@ -86,7 +86,9 @@ test('entity shape changes synchronize highlight, engine selection and UI count,
     const expected = computeSelectionCells(shape, { x: 0, y: 0, z: 0 }, { x: 2, y: 2, z: 2 }).length;
     assert.equal(controller.selectedBlockSelection.blocks.length, expected);
     assert.equal(manager.entitySelection.blocks, controller.selectedBlockSelection.blocks);
-    assert.equal(manager.performBasicAction({ domain: ActionDomain.SELECTION, action: 'get' }).count, expected);
+    const selection = manager.performBasicAction({ domain: ActionDomain.SELECTION, action: 'get' });
+  assert.ok('count' in selection);
+  assert.equal(selection.count, expected);
     assert.match(store.getSnapshot().selector.details, new RegExp(`${expected} blocks`));
     assert.equal(store.getSnapshot().selector.shape, shape);
     assert.equal(store.getSnapshot().selector.canDelete, true);

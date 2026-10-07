@@ -152,6 +152,20 @@ bounds, unique chunk ownership and safe revisions, and verifies SHA-256 and mani
 identity before installation. Unavailable/dirty zones retain their last valid data;
 `complete: false` means more generation is pending, not that absent zones were deleted.
 
+Entry loads world-wide overviews and limits initial detail refinement to 32 MiB,
+or the user's terrain data budget when it is smaller. After entry, background
+streaming uses the full configured budget (512 MiB by default) to refine sources.
+The initial budget excludes overview bytes and is a resident-data limit, not a
+limit on cumulative transfers across successive refinement passes.
+
+HTTP responses already use gzip. The optional IndexedDB surface cache also stores
+large snapshots with native gzip streams when that reduces their size; quota and
+LRU eviction count stored bytes. Raw v1 cache records remain readable and migrate
+when accessed. Cached data is bounded during decompression and still passes the
+authenticated manifest's length, SHA-256 and identity checks before installation.
+Entry progress reports uncompressed data sizes, including bytes read from cache,
+rather than compressed network transfer or physical disk usage.
+
 ## Visual decorations
 
 Inventory v8 Component field 14 stores `decorations`: component-local ids, optional

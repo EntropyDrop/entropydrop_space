@@ -1,11 +1,12 @@
 import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { devTrafficFixture } from './tools/dev-traffic-fixture.mjs';
+import { compilerWorkerBoundary } from './tools/compiler-worker-boundary.mjs';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, fileURLToPath(new URL('../', import.meta.url)), 'VITE_');
   return {
-  plugins: [devTrafficFixture()],
+  plugins: [devTrafficFixture(), compilerWorkerBoundary()],
   base: process.env.VITE_SPACE_BASE_PATH || env.VITE_SPACE_BASE_PATH || '/space/app/',
   envDir: '..',
   resolve: {

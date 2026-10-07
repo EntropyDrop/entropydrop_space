@@ -10,6 +10,30 @@ function cloneEntityStreamData(value: unknown, fallback: unknown = null) {
   }
 }
 
+// Definitions are immutable checkpoint values. Keeping one per live entity avoids
+// walking every voxel for pose-only saves; a WeakMap releases unloaded entities.
+const definitions = new WeakMap<Contraption, {
+  version: number;
+  slot: Readonly<ReturnType<Contraption['serializeSubtree']>>;
+}>();
+
+function freezeDefinition(value: unknown): void {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return;
+  for (const child of Object.values(value)) freezeDefinition(child);
+  Object.freeze(value);
+}
+
+function captureDefinition(contraption: Contraption): Readonly<ReturnType<Contraption['serializeSubtree']>> {
+  const cached = definitions.get(contraption);
+  if (cached?.version === contraption.definitionVersion) return cached.slot;
+  // Detach nested constraint/decorations arrays before freezing so the live
+  // editor remains mutable. Portable-copy callers still get fresh, editable slots.
+  const slot = structuredClone(contraption.serializeSubtree(contraption.rootComponentId));
+  freezeDefinition(slot);
+  definitions.set(contraption, { version: contraption.definitionVersion, slot });
+  return slot;
+}
+
 export function captureEntityStreamState(contraption: Contraption, chunk: { id: string }) {
     // The point-grab servo temporarily enables physics so the wrench can move
     // a stopped entity. That is an editor implementation detail, not durable
@@ -59,7 +83,7 @@ export function captureEntityStreamState(contraption: Contraption, chunk: { id: 
       id: contraption.id,
       publicId: contraption.publicId,
       chunkId: chunk.id,
-      slot: contraption.serializeSubtree(contraption.rootComponentId),
+      slot: captureDefinition(contraption),
       constructorOrigin: constructorOrigin.toArray(),
       position: contraption.position.toArray(),
       quaternion: contraption.quaternion.toArray(),

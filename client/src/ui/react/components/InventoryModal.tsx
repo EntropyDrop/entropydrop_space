@@ -224,7 +224,7 @@ function Import3DModelPopover() {
           const result = event.data.result;
           const sizeLabel = `prec ${precision} · size ${sizeBlocks} blocks`;
           const slot = controller?.importBlockSetToInventory?.(result.blocks, `${modelName} @${sizeLabel}`);
-          if (!slot) throw new Error('Item inventory is full');
+          if (!slot || !controller) throw new Error('Item inventory is full');
           const index = controller.inventories.item.items.indexOf(slot);
           setStatus(`OK: ${result.blocks.length} voxels (${result.size.sx}×${result.size.sy}×${result.size.sz}) · ${sizeLabel} → item slot ${index + 1}`);
           spaceUiStore.syncInventoryState();
@@ -685,7 +685,7 @@ function ColorSetCard({
   totalCount?: number;
   onPublish: (category: InventoryCategory, item: any) => void;
 }) {
-  const state = useSpaceUi(s => s);
+  const state = useSpaceUiFields('controller', 'activeColorSetId', 'inventoryRevision');
   const controller = state.controller;
   const fallback = `Color set ${index + 1}`;
   const name = typeof item?.name === 'string' ? item.name : (controller?.inventoryItemName?.('colorset', item, index) || fallback);
@@ -1225,9 +1225,9 @@ export function InventoryModal() {
 
   if (state.activeModal !== 'inventory') return null;
 
-  const inventories = state.controller?.inventories || {};
-  const items = inventories.item?.items || [];
-  const colorsets = inventories.colorset?.items || [];
+  const inventories = state.controller?.inventories;
+  const items = inventories?.item?.items || [];
+  const colorsets = inventories?.colorset?.items || [];
 
   const publishItem = async (category: InventoryCategory, item: any) => {
     if (!marketClient || !state.controller) return;

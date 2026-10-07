@@ -118,10 +118,10 @@ test('player queries pick published terrain while scripts read the live terrain 
   };
   const query = {
     domain: ActionDomain.QUERY,
-    action: 'raycast',
+    action: 'raycast' as const,
     origin: [0, 0, 0],
     direction: [1, 0, 0],
-    include: 'world',
+    include: 'world' as const,
   };
 
   executeBasicAction({ world }, {

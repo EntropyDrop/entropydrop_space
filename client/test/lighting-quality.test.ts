@@ -1,3 +1,4 @@
+import { uiStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -197,24 +198,24 @@ test('lighting preference persists, restores, and coexists with legacy disabled 
   });
   const applied: string[] = [];
   const bridge = {
-    setLightingQuality(quality: string) { applied.push(quality); return quality; },
+    setLightingQuality(quality: import('../src/engine/render/LightingQuality.ts').LightingQuality) { applied.push(quality); return quality; },
     setShadowsEnabled: (value: boolean) => value,
   };
   const store = new SpaceUiStore();
-  store.setSceneRenderer(bridge);
+  store.setSceneRenderer(uiStub('sceneRenderer', bridge));
   assert.equal(store.getSnapshot().lightingQuality, 'medium');
   assert.equal(store.getSnapshot().shadowsEnabled, false);
   store.setLightingQuality('ultra');
   assert.equal(store.getSnapshot().lightingQuality, 'ultra');
   assert.equal(values.get(LIGHTING_QUALITY_SETTING_KEY), 'ultra');
   const restored = new SpaceUiStore();
-  restored.setSceneRenderer(bridge);
+  restored.setSceneRenderer(uiStub('sceneRenderer', bridge));
   assert.equal(restored.getSnapshot().lightingQuality, 'ultra');
   assert.equal(restored.getSnapshot().shadowsEnabled, false);
   assert.deepEqual(applied, ['medium', 'ultra', 'ultra']);
 
   values.set(LIGHTING_QUALITY_SETTING_KEY, 'invalid');
-  restored.setSceneRenderer(bridge);
+  restored.setSceneRenderer(uiStub('sceneRenderer', bridge));
   assert.equal(restored.getSnapshot().lightingQuality, 'medium');
 });
 
@@ -229,7 +230,7 @@ test('lighting still applies when browser storage is unavailable', t => {
     else delete (globalThis as any).localStorage;
   });
   const store = new SpaceUiStore();
-  store.setSceneRenderer({ setLightingQuality: (quality: string) => quality });
+  store.setSceneRenderer(uiStub('sceneRenderer', { setLightingQuality: (quality: import('../src/engine/render/LightingQuality.ts').LightingQuality) => quality }));
   assert.equal(store.getSnapshot().lightingQuality, 'medium');
   store.setLightingQuality('high');
   assert.equal(store.getSnapshot().lightingQuality, 'high');

@@ -1,4 +1,7 @@
+import type { UiPlayerController, UiWorld, UiContraptionManager, UiSceneRenderer, UiNavigationSystem, UiMinimap } from './UiPorts.ts';
 import * as THREE from 'three';
+import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { retainView, EMPTY_MODELING_VIEW, type EntityLabelView, type ModelingView } from './SimulationViews.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import {
   loadAgentConfig,
@@ -41,7 +44,7 @@ import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, LIGHTING_QUALITY_SETTING_KEY,
   normalizeLightingQuality, type LightingQuality,
 } from '../../../engine/render/LightingQuality.ts';
-import { entityRunStatus } from '../utils/entityNameplate.ts';
+import { entityDisplayName, entityRunStatus } from '../utils/entityNameplate.ts';
 import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
 import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
 import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
@@ -202,12 +205,17 @@ export interface TelemetryView {
 export interface SpaceUiSnapshot {
   revision: number;
   inventoryRevision: number;
-  controller: any;
-  world: any;
-  contraptions: any;
-  sceneRenderer: any;
-  navigationSystem: any;
-  minimap: any;
+  entityLabels: EntityLabelView[];
+  wrenchTarget: Contraption | null;
+  modelingView: ModelingView;
+  editorDefinitionVersion: number;
+  componentProperties: ReturnType<Contraption['getNodeProperties']>;
+  controller: UiPlayerController | null;
+  world: UiWorld | null;
+  contraptions: UiContraptionManager | null;
+  sceneRenderer: UiSceneRenderer | null;
+  navigationSystem: UiNavigationSystem | null;
+  minimap: UiMinimap | null;
   hasStarted: boolean;
   pointerLocked: boolean;
   activeModal: SpaceModal;
@@ -223,7 +231,7 @@ export interface SpaceUiSnapshot {
   activeColorSetId: string | null;
   activeInventoryCategory: 'item' | 'colorset';
   selectedInventoryIndex: number;
-  editingContraption: any;
+  editingContraption: Contraption | null;
   selectedComponentNodeId: string;
   scriptDraft: string;
   globalPlaybackState: 'play' | 'stop';
@@ -377,6 +385,11 @@ export class SpaceUiStore {
   private snapshot: SpaceUiSnapshot = {
     revision: 0,
     inventoryRevision: 0,
+    entityLabels: [],
+    wrenchTarget: null,
+    modelingView: EMPTY_MODELING_VIEW,
+    componentProperties: null,
+    editorDefinitionVersion: 0,
     controller: null,
     world: null,
     contraptions: null,
@@ -460,7 +473,33 @@ export class SpaceUiStore {
   getSnapshot = (): SpaceUiSnapshot => this.snapshot;
 
   private patch(partial: Partial<SpaceUiSnapshot>): void {
-    this.snapshot = { ...this.snapshot, ...partial, revision: this.snapshot.revision + 1 };
+    const previous = this.snapshot;
+    const next = { ...previous, ...partial, revision: previous.revision + 1 };
+    next.selector = retainView(previous.selector, next.selector);
+    next.nearbyEntities = retainView(previous.nearbyEntities, next.nearbyEntities);
+    next.telemetry = retainView(previous.telemetry, next.telemetry);
+    next.wrenchTarget = next.controller?.hoveredContraptionHit?.contraption || next.controller?.hoveredContraption || null;
+    next.entityLabels = retainView(previous.entityLabels, (next.contraptions?.contraptions || []).map((entity: Contraption) => ({
+      entity, name: entityDisplayName(entity), status: entityRunStatus(entity, next.currentUserName),
+      canControl: !entity.serverManaged || entity.serverCanControl === true,
+      canEdit: !entity.serverManaged || entity.serverCanEdit === true,
+      executionMode: entity.serverExecutionMode,
+      hostingCoreId: (entity as Contraption & { serverHostingCoreId?: number }).serverHostingCoreId ?? null,
+    })));
+    const tool = next.controller?.modeling;
+    const selection = tool?.getDisplaySelection?.();
+    const canEdit = !!selection && next.controller?.canEditEntityInternals(selection.contraption) === true;
+    next.modelingView = retainView(previous.modelingView, tool ? {
+      selection: selection ? { ...selection, componentName: selection.contraption.getComponentName(selection.componentId),
+        value: structuredClone(selection.value) } : null,
+      canEdit, editable: canEdit && !tool.isDragging, isDragging: !!tool.isDragging,
+      canUndo: !!tool.canUndo, canRedo: !!tool.canRedo,
+      creationDimensions: tool.creationDimensions ? [...tool.creationDimensions] : null,
+    } : EMPTY_MODELING_VIEW);
+    next.editorDefinitionVersion = next.editingContraption?.definitionVersion ?? 0;
+    next.componentProperties = retainView(previous.componentProperties, next.activeModal === 'code'
+      ? next.editingContraption?.getNodeProperties?.(next.selectedComponentNodeId) ?? null : null);
+    this.snapshot = next;
     this.snapshot.controller?.setWorldPickingSuspended?.(this.snapshot.activeModal === 'code');
     for (const listener of this.listeners) listener();
   }
@@ -564,7 +603,7 @@ export class SpaceUiStore {
     }
   }
 
-  setController(controller: any): void {
+  setController(controller: UiPlayerController | null): void {
     let paletteColors = this.snapshot.paletteColors;
     try {
       const saved = localStorage.getItem('space_palette_colors');
@@ -666,7 +705,7 @@ export class SpaceUiStore {
     return this.apiKeyClient;
   }
 
-  setWorld(world: any): void {
+  setWorld(world: UiWorld | null): void {
     let distantSurfaceSettings = normalizeDistantSurfaceSettings(
       world?.getDistantSurfaceSettings?.() || DEFAULT_DISTANT_SURFACE_SETTINGS,
     );
@@ -690,11 +729,11 @@ export class SpaceUiStore {
     } catch { }
   }
 
-  setContraptions(contraptions: any): void {
+  setContraptions(contraptions: UiContraptionManager | null): void {
     this.patch({ contraptions });
   }
 
-  setSceneRenderer(sceneRenderer: any): void {
+  setSceneRenderer(sceneRenderer: UiSceneRenderer | null): void {
     if (sceneRenderer) {
       sceneRenderer.onEntityPreviewNodeSelect = (nodeId: string) => this.selectComponentTreeNode(nodeId);
       sceneRenderer.onResolutionScaleChange = (state: any) => {
@@ -722,11 +761,11 @@ export class SpaceUiStore {
     });
   }
 
-  setNavigationSystem(navigationSystem: any): void {
+  setNavigationSystem(navigationSystem: UiNavigationSystem | null): void {
     this.patch({ navigationSystem });
   }
 
-  setMinimap(minimap: any): void {
+  setMinimap(minimap: UiMinimap | null): void {
     let minimapEnabled = false;
     try {
       minimapEnabled = localStorage.getItem('space_setting_minimap') === 'true';
@@ -1383,7 +1422,7 @@ export class SpaceUiStore {
   syncInventoryState(): void {
     const controller = this.snapshot.controller;
     if (!controller) return;
-    let activeInventoryCategory = controller.activeInventoryCategory || this.snapshot.activeInventoryCategory || 'item';
+    let activeInventoryCategory: 'item' | 'colorset' = controller.activeInventoryCategory === 'colorset' ? 'colorset' : 'item';
     if (activeInventoryCategory === 'colorset' && controller.activeTool === SpecialTool.HAMMER && this.snapshot.activeModal !== 'inventory') {
       controller.setActiveInventoryCategory?.('item');
       activeInventoryCategory = 'item';
@@ -1492,6 +1531,7 @@ export class SpaceUiStore {
   }
 
   copyInventoryItem(category: string, index: number): void {
+    if (category !== 'item' && category !== 'colorset' && category !== 'blockset' && category !== 'entity') return;
     const controller = this.snapshot.controller;
     if (!controller) return;
     const group = controller.inventories?.[category];
@@ -1705,6 +1745,7 @@ export class SpaceUiStore {
   }
 
   setSelectedBodyType(bodyType: string): void {
+    if (bodyType !== 'dynamic' && bodyType !== 'kinematic') return;
     const { editingContraption, selectedComponentNodeId } = this.snapshot;
     const result = this.snapshot.contraptions?.performBasicAction?.({
       domain: ActionDomain.PHYSICS,
@@ -1781,7 +1822,7 @@ export class SpaceUiStore {
       mass: Number(mass)
     });
     this.refresh();
-    this.showToast(result?.ok ? `Mass: ${result.mass.toFixed(1)} kg` : 'Mass must be greater than 0 kg');
+    this.showToast(result?.ok && result.mass != null ? `Mass: ${result.mass.toFixed(1)} kg` : 'Mass must be greater than 0 kg');
   }
 
   notifyContraptionStructureChanged(contraption: any): void {
@@ -2197,13 +2238,13 @@ export class SpaceUiStore {
   updateHUD(fps: number, playerPos: any, _raycast: any, _hoveredContraption: any, pingMs: number | null = null): void {
     const { contraptions, sceneRenderer, controller, editingContraption, activeModal } = this.snapshot;
     const isEntity = Boolean(controller?.selectedBlockSelection || controller?.selectedSubtree);
-    if (isEntity) {
+    if (isEntity && controller) {
       const isShape = controller?.selectorShape && controller.selectorShape !== 'box';
       const shapeCells = controller?.selectedBlockSelection?.shapeCells;
-      const bounds = controller?.selectedBlockSelection?.bounds;
+      const bounds = controller?.selectedBlockSelection?.bounds ?? null;
       const contraption = controller.selectedBlockSelection?.contraption || controller.selectedSubtree?.contraption;
       const nodeId = controller.selectedBlockSelection?.nodeId || controller.selectedSubtree?.rootId;
-      const node = contraption?.entityNodes?.get?.(nodeId);
+      const node = nodeId ? contraption?.entityNodes?.get?.(nodeId) : null;
       const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone() } : null;
       if (isShape && Array.isArray(shapeCells) && shapeCells.length > 0) {
         if (controller.selectorMicroMode) {
@@ -2224,9 +2265,9 @@ export class SpaceUiStore {
         controller?.selectorMicroMode && controller?.selectorShape && controller.selectorShape !== 'box'
       );
       sceneRenderer?.updateSelectionHologram?.(
-        contraptions?.getSelectionBounds?.(),
-        contraptions?.connectedSelection,
-        contraptions?.microSelection,
+        contraptions?.getSelectionBounds?.() ?? null,
+        contraptions?.connectedSelection ?? null,
+        contraptions?.microSelection ?? null,
         isMicroShape
       );
     }
@@ -2284,7 +2325,7 @@ export class SpaceUiStore {
       selector: this.buildSelectorView(),
       brushMicro: Boolean(controller?.brushMicroMode),
       telemetry,
-      activeInventoryCategory: controller?.activeInventoryCategory || this.snapshot.activeInventoryCategory,
+      activeInventoryCategory: controller ? controller.activeInventoryCategory === 'colorset' ? 'colorset' : 'item' : this.snapshot.activeInventoryCategory,
       selectedInventoryIndex: Number(controller?.selectedInventoryIndex ?? this.snapshot.selectedInventoryIndex)
     });
   }

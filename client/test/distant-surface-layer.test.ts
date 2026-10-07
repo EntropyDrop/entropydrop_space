@@ -1117,3 +1117,31 @@ test('returning to evicted fine data and reloading reuse verified disk bytes', a
   }, undefined, options);
   assert.equal(peak, 1, 'parallel downloads must not burst-install several fine mip pyramids in one task');
 });
+
+test('verified terrain publishes before an optional cache write completes', async () => {
+  const bytes = makeZoneBytes();
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let writes = 0, installs = 0;
+  const remote = createSpaceSurfaceSnapshotRemote('https://api.entropydrop.com', 'token', '/manifest', 20260827, 1,
+    (async input => new URL(String(input)).pathname === '/manifest' ? Response.json({
+      schema_version: 3, samples_per_chunk_axis: 8, zone_size_chunks: 32,
+      width_chunks: 32, length_chunks: 32, complete: true,
+      zones: [{ zone_x: 0, zone_z: 0, revision: 1, source_terrain_revision: 7,
+        digest, byte_length: bytes.length, url: '/zone' }],
+    }) : new Response(bytes.slice().buffer)) as typeof fetch, {
+      async get() { return undefined; },
+      async put() { writes++; await held; },
+      async remove() {},
+    });
+  try {
+    const result = await Promise.race([
+      remote.loadAll(() => { installs++; }),
+      delay(1000).then(() => { throw new Error('Terrain publication waited for the cache'); }),
+    ]);
+    assert.equal(result.loaded, 1);
+    assert.equal(installs, 1);
+    assert.equal(writes, 1);
+  } finally { release(); }
+});

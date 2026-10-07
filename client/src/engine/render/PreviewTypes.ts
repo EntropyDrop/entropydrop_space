@@ -32,3 +32,13 @@ export interface RemotePlayerRecord {
   skinUrl: string; skinModel: SkinModel; loadedSkinUrl: string | null; loadedSkinModel: SkinModel | null;
   highDetail: boolean; lod: RemotePlayerLod | null; inView: boolean; speed: number; loadingSkin: object | null;
 }
+
+export interface SelectionGizmoHandle {
+  handleKey: string;
+  axis: 'x' | 'y' | 'z';
+  direction: 1 | -1;
+}
+export interface SelectionGizmoHit extends SelectionGizmoHandle {
+  point: THREE.Vector3;
+  distance: number;
+}

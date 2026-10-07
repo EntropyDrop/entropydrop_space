@@ -1,3 +1,4 @@
+import { uiStub } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -8,10 +9,10 @@ const source = (path: string) => readFileSync(new URL(`../src/${path}`, import.m
 function fixture() {
   const store = new SpaceUiStore();
   const calls: string[] = [];
-  store.setController({
+  store.setController(uiStub('controller', {
     unlock: () => calls.push('unlock'),
-    requestLock: () => calls.push('lock'),
-  });
+    requestLock: async () => { calls.push('lock'); return true; },
+  }));
   calls.length = 0;
   return { store, calls };
 }

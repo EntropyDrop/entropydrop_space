@@ -42,5 +42,11 @@
     "three": "^0.183.2",
     "ts-proto": "2.12.1",
     "typescript": "~5.9.3"
+  },
+  "imports": {
+    "#entity-script-compiler": {
+      "browser": "./src/scripting/AssemblyScriptCompiler.browser.ts",
+      "default": "./src/scripting/AssemblyScriptCompiler.node.ts"
+    }
   }
 }

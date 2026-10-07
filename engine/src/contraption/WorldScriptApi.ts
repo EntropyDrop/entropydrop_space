@@ -1,7 +1,8 @@
 import { MICRO_DIVISIONS } from '../voxel/MicroGrid.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
-import { ActionDomain, executeBasicAction } from '../actions/BasicActions.ts';
+import type { SelectionActionCommand, ActionOutcome } from '../actions/ActionContracts.ts';
+import { ActionDomain, executeBasicActionInput } from '../actions/BasicActions.ts';
 import { ContraptionMode } from './Contraption.ts';
 import type { ContraptionManager } from './ContraptionManager.ts';
 import { isFiniteVector3Array, isMicroOffset, readRecord } from './EntityInput.ts';
@@ -25,7 +26,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
     // micro voxels so one namespace never implicitly overwrites the other.
     const worldVoxels = Object.freeze({
       get: (location: unknown) => {
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'get-standard',
           cell: location,
@@ -34,7 +35,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         return Object.freeze(result);
       },
       set: (location: unknown, options: unknown = null) => {
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'place-standard',
           cell: location,
@@ -44,7 +45,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         return scriptEditResult('placed', result.placed || 0, result.reason);
       },
       clear: (location: unknown) => {
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'remove-standard',
           cell: location,
@@ -53,7 +54,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         return scriptEditResult('removed', result.removed || 0, result.reason);
       },
       paint: (location: unknown, options: unknown = null) => {
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'paint-standard',
           cell: location,
@@ -63,7 +64,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         return Object.freeze({ ok: result.ok, painted: result.painted || 0, reason: result.reason });
       },
       clearCell: (location: unknown) => {
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'clear-cell',
           cell: location,
@@ -81,7 +82,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
           cell.y * MICRO_DIVISIONS + Number(clearOffset[1]),
           cell.z * MICRO_DIVISIONS + Number(clearOffset[2])
         ];
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'subdivide-standard',
           cell,
@@ -102,7 +103,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         if (!cell || !isMicroOffset(microOffset)) {
           return Object.freeze({ block: BlockTypes.AIR, color: 0x000000 });
         }
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'get-micro',
           micro: [
@@ -119,7 +120,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         if (!cell || !isMicroOffset(microOffset)) {
           return scriptEditResult('placed', 0, 'invalid_position');
         }
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'place-micro',
           micro: [
@@ -137,7 +138,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         if (!cell || !isMicroOffset(microOffset)) {
           return scriptEditResult('removed', 0, 'invalid_position');
         }
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'remove-micro',
           micro: [
@@ -154,7 +155,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
         if (!cell || !isMicroOffset(microOffset)) {
           return Object.freeze({ ok: false, painted: 0, reason: 'invalid_position' });
         }
-        const result = executeBasicAction({ manager, world: manager.world }, {
+        const result = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.WORLD,
           action: 'paint-micro',
           micro: [
@@ -196,7 +197,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
           ? options.voxelKinds.filter(kind => kind === 'standard' || kind === 'micro')
           : ['standard'];
         const space = options?.space === 'bent' ? 'bent' : 'world';
-        const query = manager.performBasicAction({
+        const query = executeBasicActionInput({ manager, world: manager.world }, {
           domain: ActionDomain.QUERY,
           action: 'raycast',
           origin,
@@ -241,7 +242,7 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
           entityId: null,
           runtimeId: null,
           nodeId: null,
-          block: hit.block ?? BlockTypes.COLOR_BLOCK,
+          block: 'block' in hit ? hit.block : BlockTypes.COLOR_BLOCK,
           color: Number(hit.color) || 0,
           normal: Object.freeze([hit.normal.x, hit.normal.y, hit.normal.z]),
           position: Object.freeze([hit.hitPos.x, hit.hitPos.y, hit.hitPos.z]),
@@ -250,14 +251,14 @@ export function createWorldScriptCapabilities(manager: ContraptionManager) {
       }
     });
 
-    const runSelection = (action: string, extra: Record<string, unknown> = {}) => manager.performBasicAction({
+    const runSelection = <A extends Exclude<SelectionActionCommand['action'], 'get'>>(action: A, extra: Record<string, unknown> = {}): ActionOutcome<A> => executeBasicActionInput({ manager, world: manager.world, selectionHost: manager.selectionHost }, {
       domain: ActionDomain.SELECTION,
       action,
       actor: { source: 'script' },
       ...extra
-    });
+    }) as ActionOutcome<A>;
     const selection = Object.freeze({
-      get: () => Object.freeze(runSelection('get')),
+      get: () => Object.freeze(executeBasicActionInput({ manager, world: manager.world }, { domain: 'selection', action: 'get', actor: { source: 'script' } })),
       clear: () => {
         const result = runSelection('clear');
         return Object.freeze({ ok: result.ok, cleared: result.cleared || 0, reason: result.reason });

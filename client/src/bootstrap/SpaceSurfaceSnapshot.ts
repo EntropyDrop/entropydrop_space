@@ -1,5 +1,6 @@
 import type { SurfaceZoneSnapshot, DistantChunkSnapshot, VoxelSurfaceMip } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 import { createSurfaceDiskCache, type SurfaceByteCache } from './SurfaceDiskCache.ts';
+import { SurfaceCacheWrites } from './SurfaceCacheWrites.ts';
 export type { SurfaceZoneSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 
 import {
@@ -310,6 +311,7 @@ export function createSpaceSurfaceSnapshotRemote(
   fetchImpl: typeof fetch = fetch,
   byteCache: SurfaceByteCache = createSurfaceDiskCache(),
 ): SpaceSurfaceSnapshotRemote {
+  const cacheWrites = new SurfaceCacheWrites((digest, bytes) => byteCache.put(digest, bytes));
   const installed = new Map<string, { sourceDigest: string; sampleSize: number; revision: number }>();
   // Fine decoded data belongs to the renderer; downloaded immutable snapshots
   // survive eviction in the optional disk cache without a second JS lattice.
@@ -474,7 +476,9 @@ export function createSpaceSurfaceSnapshotRemote(
         }
         // Do not keep a duplicate decoded fine lattice in JS memory. The GPU
         // working set can shrink independently without losing downloaded data.
-        if (downloaded) await trackWork('preparing', () => byteCache.put(level.digest, bytes!).catch(() => {}));
+        // Publish authenticated terrain immediately. Cache compression and disk
+        // latency consume a separate, bounded budget and never gate entry.
+        if (downloaded) void cacheWrites.enqueue(level.digest, bytes);
         if (level.sample_size === 64) overviews.set(key, { digest: level.digest, zone });
         return zone;
       };

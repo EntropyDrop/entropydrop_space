@@ -1,3 +1,4 @@
+import { uiStub } from './fixtures.ts';
 import { worldStub, requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -40,15 +41,15 @@ test('React editor state exposes the entity random id', t => {
   ) as any;
   const ui = new SpaceUiStore();
   const previewTargets: any[] = [];
-  ui.setSceneRenderer({
-    setEntityPreviewTarget(target: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) { previewTargets.push(target); },
+  ui.setSceneRenderer(uiStub('sceneRenderer', {
+    setEntityPreviewTarget(target: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption | null) { previewTargets.push(target); },
     renderEntityPreview() {}
-  });
+  }));
 
   ui.openCodeEditor(entity);
 
-  assert.equal(ui.getSnapshot().editingContraption.publicId, entity.publicId);
-  assert.match(ui.getSnapshot().editingContraption.publicId, /^ent_[0-9a-f-]{36}$/);
+  assert.equal(ui.getSnapshot().editingContraption!.publicId, entity.publicId);
+  assert.match(ui.getSnapshot().editingContraption!.publicId, /^ent_[0-9a-f-]{36}$/);
   assert.equal(ui.getSnapshot().activeModal, 'code');
   ui.toggleApiDocs(true);
   ui.toggleApiDocs(false);

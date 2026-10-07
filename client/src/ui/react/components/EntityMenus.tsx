@@ -8,7 +8,7 @@ import {
 } from 'react-icons/lia';
 import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
 import { spaceUiStore, hostingAvailabilityMessage } from '../store/SpaceUiStore.ts';
-import { useSpaceUi } from '../store/useSpaceUi.ts';
+import { useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { entityDisplayName, entityRunStatus, EntityNameplateProjector, EntityNameplateAimHighlighter } from '../utils/entityNameplate.ts';
 import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 
@@ -66,7 +66,8 @@ function EntityActionButton({ label, caption = label, icon: Icon, title = label,
 }
 
 export function EntityNameplates() {
-  const { contraptions, sceneRenderer, hasStarted, activeModal, apiDocsOpen, currentUserName, controller } = useSpaceUi(state => state);
+  const { contraptions, sceneRenderer, hasStarted, activeModal, apiDocsOpen, controller, entityLabels } = useSpaceUiFields(
+    'contraptions', 'sceneRenderer', 'hasStarted', 'activeModal', 'apiDocsOpen', 'controller', 'entityLabels');
   const rootRef = useRef<HTMLDivElement>(null);
   const elements = useRef(new Map<any, HTMLDivElement>());
   const hidden = !hasStarted || !!activeModal || apiDocsOpen;
@@ -98,10 +99,7 @@ export function EntityNameplates() {
   }, [sceneRenderer, contraptions, hidden, controller]);
   if (hidden) return null;
   return <div id="entity-nameplates" className="entity-nameplates" ref={rootRef}>
-    {(contraptions?.contraptions || []).map((entity: any) => {
-      const status = entityRunStatus(entity, currentUserName);
-      const name = entityDisplayName(entity);
-      const canControl = !entity.serverManaged || entity.serverCanControl === true;
+    {entityLabels.map(({ entity, status, name, canControl }) => {
       const open = (event: React.MouseEvent) => {
         event.preventDefault();
         event.stopPropagation();
@@ -132,7 +130,8 @@ export function EntityNameplates() {
 }
 
 export function EntityContextMenu() {
-  const { entityContextMenu, controller, currentUserName, hostingBusyIds, hosting } = useSpaceUi(state => state);
+  const { entityContextMenu, controller, currentUserName, hostingBusyIds, hosting, entityLabels } = useSpaceUiFields(
+    'entityContextMenu', 'controller', 'currentUserName', 'hostingBusyIds', 'hosting', 'entityLabels');
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const [busy, setBusy] = useState(false);
@@ -153,7 +152,7 @@ export function EntityContextMenu() {
   }, [entityContextMenu]);
   if (!entityContextMenu) return null;
   const entity = entityContextMenu.contraption;
-  const status = entityRunStatus(entity, currentUserName);
+  const status = entityLabels.find(view => view.entity === entity)?.status ?? entityRunStatus(entity, currentUserName);
   const canControl = !entity.serverManaged || entity.serverCanControl === true;
   const canEdit = !entity.serverManaged || entity.serverCanEdit === true;
   const hostingBusy = busy || hostingBusyIds.includes(String(entity.publicId));

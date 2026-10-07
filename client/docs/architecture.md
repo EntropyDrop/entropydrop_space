@@ -37,7 +37,9 @@ entropydrop_website/
 | `src/bootstrap/SpaceMarketClient.ts` | Market list/publish/download/like/delete. |
 | `src/bootstrap/SpaceSurfaceSnapshot.ts` | Far-surface `EDSZ` manifest and zone download/verification. |
 | `src/bootstrap/SpaceApiKeyClient.ts`, `LatencyMonitor.ts`, `JsonParseWorker.ts` | API keys/usage, latency sampling, JSON worker. |
-| `src/engine/controls/PlayerController.ts` | Player/tool interaction, selection and build/entityize flows; coordinates UI effects and delegates backpack operations, persistence and placement geometry to `inventory/`. |
+| `src/engine/controls/PlayerController.ts` | Coordinates input and build/entityize flows; retains compatibility accessors while delegating state to the control sessions below. |
+| `src/engine/controls/ToolInteractionSession.ts`, `SelectionSession.ts`, `PlacementSession.ts` | Own tool/input state, selection/gizmo state, and Hammer rotation/placement state respectively; communicate through explicit host ports. |
+| `src/engine/controls/PlayerCamera.ts`, `DrivingSession.ts` | Own perspective transitions and seat occupancy; update camera/rider poses through injected dependencies. |
 | `src/engine/controls/SelectionGeometry.ts`, `SelectionTypes.ts` | Component-local selection frames, virtual micro voxels, selection bounds and state contracts. |
 | `src/engine/controls/ControlBindings.ts`, `PreviewDragForce.ts` | Tool identifiers, reserved keys, perspective types and camera-relative drag-force math. |
 | `src/engine/inventory/InventoryImport.ts` | Bounded Protobuf input validation, with separate Item, Block Set, Entity and Color Set parsers. |
@@ -89,10 +91,23 @@ runs from the normal `typecheck` and `check` commands. Compile-only tests ensure
 resource categories and failed imports cannot be used without narrowing. The engine,
 client and hosted runtime use `strict: true`, including their TypeScript tests.
 Core voxel, component, rigid-body, terrain-worker, script-snapshot, inventory and
-selection data now have explicit contracts. Legacy dynamic action dispatch and
-some integration adapters still use explicit `any`; strict mode prevents new
-implicit `any` and unchecked nullable values, and does not by itself eliminate
-all dynamic boundaries.
+selection data now have explicit contracts. `actions/ActionContracts.ts` defines
+commands discriminated by domain/action, operation-specific query/mutation results,
+and the engine dependencies used by dispatch. `executeBasicAction` accepts typed
+commands; script adapters use `executeBasicActionInput` with unknown payloads and
+runtime validation. Completely untyped messages enter `executeUnknownBasicAction`
+and return `unknown`. Compile-only negative tests run with the engine typecheck.
+Some internal dispatch helpers and integration adapters still use explicit `any`;
+strict mode prevents new implicit `any` and unchecked nullable values, and does
+not by itself eliminate all dynamic boundaries.
+
+`BasicActions.ts` is the shared dispatch entry. World, entity, selection, query
+and physics actions live in separate domain modules. `ActionValues.ts` owns common
+input normalization; `SelectionState.ts` owns selection lifecycle operations;
+`EntityBoxSelection.ts` owns box matching. Entity mutations depend on selection
+state rather than the selection action dispatcher, keeping these layers acyclic.
+World, query and physics handlers narrow unknown payload fields before use; the
+entity and selection handlers still contain legacy dynamic payload adapters.
 
 The shared engine separates `Contraption` into `EntityVoxelMeshes.ts` (mesh/index
 construction), `ComponentScriptApi.ts` (component capabilities), `EntityInput.ts`
@@ -101,6 +116,64 @@ construction), `ComponentScriptApi.ts` (component capabilities), `EntityInput.ts
 and checkpoint capture/restore to `EntityStreaming.ts`. Browser UI and renderer
 code remain outside these engine modules. `PhysicsTerrain.ts` describes the
 terrain queries required by physics instead of accepting an untyped world.
+
+## State and persistence boundaries
+
+Control sessions own their state and receive explicit ports instead of the entire
+controller. Compatibility accessors on `PlayerController` expose that same state;
+there is no second copy. Tool transitions release selection, placement and grab
+state through those ports. The sessions can be instantiated without a browser.
+Selection bounds, selected voxels, brush state and gizmo drags use explicit
+contracts shared with rendering. Gizmo hits carry the handle axis/direction plus
+the hit point and distance; placement caches retain typed collision entries.
+
+`ui/react/store/UiPorts.ts` limits the engine/controller methods exposed to the UI.
+`SimulationViews.ts` captures mutable engine state into detached view values.
+Snapshots retain equal view objects so telemetry ticks do not rerender stationary
+nameplates, inspectors or modeling controls. Authored definition versions and
+explicit refreshes invalidate editor hierarchy views.
+
+Entity stream checkpoints reuse a frozen portable definition until
+`Contraption.markDefinitionChanged()` advances the authored version. Voxel,
+hierarchy, script, constraint and default-body edits must invalidate it; runtime
+pose, velocity and runtime-only body changes do not. The current pose is always
+captured in the checkpoint. `SpaceEntitySync` caches encoding/digests only for
+frozen definitions and retains at most one pending checkpoint per entity behind
+an in-flight write. An uncertain create retries the same operation/body before
+publishing the newest checkpoint.
+
+Verified surface bytes enter a bounded background cache queue; disk compression
+and IndexedDB writes do not block terrain publication. Disk usage is incrementally
+updated in the same transaction as cache entries. Legacy metadata is scanned once
+for accounting migration; later eviction scans stop once enough oldest entries
+have been removed.
+
+Hosted execution copies its inputs while holding the world lock, then performs
+validation and encoding outside that transaction. Commit reacquires the lock and
+checks world/entity revisions, execution epoch and lease, including validation
+faults. Quotas, accounting and billing remain in the fenced commit transaction.
+PostgreSQL concurrency tests exercise writers during prepare/result validation.
+
+## Script compiler boundary
+
+`AssemblyScriptCompiler.ts` exposes the shared compiler API and coalesces pending
+requests for identical source. It retains at most 128 compiled modules. The
+engine's private `#entity-script-compiler` package import selects the browser
+worker client or the Node in-process compiler; compiler implementation and SDK
+dependencies are not reachable from the browser's main module graph.
+
+The browser worker client bounds outstanding requests to 64, shares warmup
+requests and terminates a failed or timed-out worker. Pending requests reject
+together; a subsequent request creates a fresh worker. Direct compilation remains
+serialized because AssemblyScript/Binaryen share compiler state. Failed imports
+and compilations can retry, and the 64 KiB source limit applies at both entry
+points. Fuel instrumentation and WASM memory/import validation remain shared.
+
+The Vite compiler boundary plugin rejects AssemblyScript, Binaryen or the direct
+compiler in a main-thread chunk. The build also runs the emitted worker in a Node
+worker with browser globals to verify preload, structured cloning of the compiled
+WASM module, fuel enforcement and recovery from a compile error. This smoke check
+exercises production assets; it does not replace browser integration testing.
 
 ## Runtime data flow
 

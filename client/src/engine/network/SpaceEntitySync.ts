@@ -1,3 +1,4 @@
+import type { EntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import * as THREE from 'three';
 import { decode as decodeMessagePack, encode as encodeMessagePack } from '@msgpack/msgpack';
@@ -77,6 +78,10 @@ export class SpaceEntitySync {
   private readonly entityAliases = new Map<string, string>();
   private readonly localIdByServerId = new Map<string, string>();
   private readonly saveChains = new Map<string, Promise<void>>();
+  private readonly pendingSaves = new Map<string, { record: EntityStreamState; definitionChanged: boolean }>();
+  private readonly savingKeys = new Set<string>();
+  private readonly deletingKeys = new Set<string>();
+  private readonly encodedDefinitions = new WeakMap<object, Promise<{ definition: Uint8Array; digest: string }>>();
   private readonly createOperationIds = new Map<string, string>();
   private readonly initialCreateRecords = new Map<string, any>();
   private readonly pendingLocalRecords = new Map<string, any>();
@@ -890,24 +895,62 @@ export class SpaceEntitySync {
     return this.localIdByServerId.get(publicId) || publicId;
   }
 
-  private queueSave(record: any, options: { definitionChanged?: boolean } = {}) {
+  private queueSave(record: EntityStreamState, options: { definitionChanged?: boolean } = {}) {
     if (!record?.publicId || !record?.slot) return;
     if (record.serverManaged === true && record.serverCanEdit !== true) return;
     const publicId = String(record.publicId);
+    const key = this.queueKey(publicId);
+    if (this.deletingKeys.has(key) || this.deletedEntityIds.has(publicId)) return;
     if (record.serverManaged !== true) {
       this.pendingLocalRecords.set(publicId, record);
       if (!this.initialCreateRecords.has(publicId)) this.initialCreateRecords.set(publicId, record);
     }
-    const key = this.queueKey(publicId);
+    const previousPending = this.pendingSaves.get(key);
+    this.pendingSaves.set(key, {
+      record,
+      definitionChanged: previousPending?.definitionChanged === true || options.definitionChanged !== false,
+    });
+    if (this.savingKeys.has(key)) return this.saveChains.get(key);
+    this.savingKeys.add(key);
     const previous = this.saveChains.get(key) || Promise.resolve();
-    const next = previous
-      .catch(() => undefined)
-      .then(() => this.persistRecord(record, options.definitionChanged !== false))
-      .catch(error => console.warn(`Space entity ${publicId} could not be persisted.`, error));
+    const next = previous.catch(() => undefined).then(async () => {
+      try {
+        while (this.pendingSaves.has(key)) {
+          const pending = this.pendingSaves.get(key)!;
+          this.pendingSaves.delete(key);
+          try {
+            await this.persistRecord(pending.record, pending.definitionChanged);
+          } catch (error) {
+            console.warn(`Space entity ${publicId} could not be persisted.`, error);
+          }
+        }
+      } finally {
+        this.savingKeys.delete(key);
+      }
+    });
     this.saveChains.set(key, next);
     void next.finally(() => {
       if (this.saveChains.get(key) === next) this.saveChains.delete(key);
     });
+    return next;
+  }
+
+  private encodeDefinition(slot: object) {
+    // Only the engine's frozen checkpoint values are safe identity cache keys.
+    // Mutable legacy/caller-owned slots are always encoded afresh.
+    const cacheable = Object.isFrozen(slot);
+    const cached = cacheable ? this.encodedDefinitions.get(slot) : undefined;
+    if (cached) return cached;
+    const encoded = (async () => {
+      const definition = this.controller.encodeInventoryItem?.('entity', slot);
+      if (!(definition instanceof Uint8Array)) throw new Error('Entity definition could not be encoded.');
+      return { definition, digest: await sha256Hex(definition) };
+    })();
+    if (cacheable) {
+      this.encodedDefinitions.set(slot, encoded);
+      void encoded.catch(() => this.encodedDefinitions.delete(slot));
+    }
+    return encoded;
   }
 
   private async persistRecord(record: any, _definitionChanged: boolean) {
@@ -922,8 +965,7 @@ export class SpaceEntitySync {
       const createRecord = this.initialCreateRecords.get(originalPublicId) || record;
       const payload = this.snapshotPayload(createRecord);
       const snapshotJson = JSON.stringify(payload.snapshot);
-      const definition = this.controller.encodeInventoryItem?.('entity', createRecord.slot);
-      if (!(definition instanceof Uint8Array)) throw new Error('Entity definition could not be encoded.');
+      const { definition } = await this.encodeDefinition(createRecord.slot);
       let createOperationId = this.createOperationIds.get(originalPublicId);
       if (!createOperationId) {
         createOperationId = globalThis.crypto.randomUUID();
@@ -936,6 +978,9 @@ export class SpaceEntitySync {
       this.initialCreateRecords.delete(originalPublicId);
       this.pendingLocalRecords.delete(originalPublicId);
       this.lastSnapshotJson.set(created.id, snapshotJson);
+      // Coalescing can replace the queued pose while the first immutable create
+      // input is retained for retries. Publish that newer state after adoption.
+      if (createRecord !== record) await this.persistRecord(record, true);
       return;
     }
 
@@ -945,13 +990,11 @@ export class SpaceEntitySync {
     if (record.serverDesiredRunState === 'running' && !executing) return;
     const payload = this.snapshotPayload(record);
     const snapshotJson = JSON.stringify(payload.snapshot);
-    const definition = this.controller.encodeInventoryItem?.('entity', record.slot);
-    if (!(definition instanceof Uint8Array)) throw new Error('Entity definition could not be encoded.');
+    const { definition, digest: definitionDigest } = await this.encodeDefinition(record.slot);
     const active = this.contraptions.findActiveContraptionByPublicId?.(serverId);
     const revision = Number(active?.serverRevision ?? record.serverRevision);
     if (!Number.isSafeInteger(revision) || revision < 1) return;
     const currentDefinitionDigest = active?.serverDefinitionDigest || record.serverDefinitionDigest;
-    const definitionDigest = await sha256Hex(definition);
     const sendDefinition = !currentDefinitionDigest || definitionDigest !== currentDefinitionDigest;
     if (record.serverDesiredRunState === 'running' && (this.leasedUntil.get(serverId) || 0) <= Date.now()) return;
     if (!sendDefinition && this.lastSnapshotJson.get(serverId) === snapshotJson) return;
@@ -1005,6 +1048,7 @@ export class SpaceEntitySync {
     const id = String(publicId || '');
     if (!id) return;
     const key = this.queueKey(id);
+    this.deletingKeys.add(key);
     const previous = this.saveChains.get(key) || Promise.resolve();
     const next = previous
       .catch(() => undefined)
@@ -1037,6 +1081,7 @@ export class SpaceEntitySync {
         this.pendingLocalRecords.delete(localId);
       })
       .catch(error => {
+        this.deletingKeys.delete(key);
         if (reportErrors) throw error;
         console.warn(`Space entity ${id} could not be deleted.`, error);
       });

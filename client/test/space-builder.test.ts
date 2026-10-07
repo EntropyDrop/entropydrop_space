@@ -21,10 +21,10 @@ function createHarness() {
     getBlockMaterial(x: number, y: number, z: number) {
       return standard.get(`${x},${y},${z}`)?.materialId ?? 0;
     },
-    setBlock(x: number, y: number, z: number, block: number, _updateMesh: boolean, color = 0, materialId = 0) {
+    setBlock(x: number, y: number, z: number, block: number, _updateMesh = true, color: string | number = 0, materialId = 0) {
       const key = `${x},${y},${z}`;
       if (block === BlockTypes.AIR) standard.delete(key);
-      else standard.set(key, { block, color, materialId });
+      else standard.set(key, { block, color: Number(color), materialId });
       return true;
     },
     hasMicroInStandardCell(x: number, y: number, z: number) {
@@ -49,7 +49,7 @@ function createHarness() {
   const manager: any = {
     world,
     contraptions: [],
-    performBasicAction(command: { domain: string; action: string }) {
+    performBasicAction(command: import('@entropydrop/space-engine/actions/BasicActions.ts').BasicActionCommand) {
       return executeBasicAction({ world, manager }, command);
     },
     buildFromSlot(slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput, position: import('three').Vector3, _restore: unknown, _save: boolean, preparedBlocks: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel[]) {
