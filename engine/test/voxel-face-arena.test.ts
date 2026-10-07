@@ -31,7 +31,7 @@ test('bounded publication releases duplicate attributes and reconstructs all fac
   try {
     arena.sync(Infinity,128); assert.equal(arena.stats.copyFaces,128); assert.equal(arena.hasPendingWork,true);
     assert.ok(a.geometry.getAttribute('voxelOffset')); assert.equal(a.visible,true);
-    settle(arena); assert.equal(arena.stats.visibleFaces,10063); assert.equal(arena.stats.paddedFaces,10112);
+    settle(arena); assert.equal(arena.stats.visibleFaces,10063); assert.equal(arena.stats.paddedFaces,10064);
     assert.equal(arena.stats.draws,1); assert.equal(a.geometry.getAttribute('voxelOffset'),undefined);
     assert.equal(arena.stats.releasedSourceBytes,10063*32);
     const page=arena.pages[0], version=page.map.version, dataVersion=page.data.version;
@@ -51,7 +51,7 @@ test('unmerged draws split runs to preserve coplanar ordering', () => {
   try {
     settle(arena); const runs=arena.pages.flatMap(page=>page.runs).filter(mesh=>mesh.visible);
     assert.deepEqual(runs.map(mesh=>mesh.renderOrder),[a.id,b.id]); assert.equal(middle.renderOrder,middle.id);
-    assert.equal(runs[0].userData.voxelArenaBase,0); assert.equal(runs[1].userData.voxelArenaBase,1);
+    assert.equal(runs[0].userData.voxelArenaBase,0); assert.equal(runs[1].userData.voxelArenaBase,4);
     arena.restoreSources(); middle.visible=false; arena.sync(); assert.equal(arena.stats.draws,1); assert.equal(runs[1].visible,false);
   } finally { arena.dispose(); }
   assert.equal(middle.renderOrder,0);
@@ -110,4 +110,23 @@ test('permanent teardown does not reconstruct discarded source buffers', () => {
   const group=new THREE.BundleGroup(),a=source(65,0);group.add(a);
   const arena=new VoxelFaceArena(group,make);settle(arena);arena.dispose(false);
   assert.equal(arena.pages.length,0);assert.equal(a.geometry.getAttribute('voxelOffset'),undefined);
+});
+
+test('visibility guards reuse maps during motion and restore faces on reversal and coverage fades', () => {
+  const group = new THREE.BundleGroup(), mesh = source(32, 0);
+  mesh.geometry.userData.voxelVisibility = new Float32Array([0, 0, 0, 1, 1, 0, 0, 0, 5, 6, 5, 6, 0, 0, 0, 1, 1, 0, 0, 0, 5, 6, 5, 6]);
+  mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); mesh.material = mesh.userData.maskedMaterial;
+  mesh.userData.terrainCoverage = new THREE.Vector2(0, 1); group.add(mesh);
+  const data = new Uint8Array(1024 * 128 * 2), coverage = new THREE.DataTexture(data, 1024, 128, THREE.RGFormat);
+  const arena = new VoxelFaceArena(group, make), camera = new THREE.Vector3(-1000, 0, 0), frustum = new THREE.Frustum();
+  const tick = () => { arena.setView(camera, frustum, coverage, true); arena.restoreSources(); arena.sync(Infinity); };
+  try {
+    tick(); assert.equal(arena.stats.visibleFaces, 0); assert.equal(arena.stats.backFaces, 32);
+    const page = arena.pages[0], version = page.map.version;
+    camera.x += 10; tick(); assert.equal(page.map.version, version, 'small motion reuses the conservative map');
+    camera.x = 1000; tick(); assert.equal(arena.stats.visibleFaces, 32);
+    data[0] = 255; coverage.needsUpdate = true; tick(); assert.equal(arena.stats.coveredFaces, 32);
+    data[0] = 128; coverage.needsUpdate = true; tick(); assert.equal(arena.stats.visibleFaces, 32, 'partial coverage retains the masked far draw');
+    assert.equal(mesh.geometry.getAttribute('voxelOffset'), undefined, 'coverage changes do not recreate geometry');
+  } finally { arena.dispose(); coverage.dispose(); }
 });

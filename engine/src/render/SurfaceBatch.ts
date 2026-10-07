@@ -55,6 +55,7 @@ function copy(target: Mesh, source: Mesh, start: number, count: number) {
     existing.needsUpdate = true;
   }
   target.geometry.instanceCount = count;
+  target.geometry.userData = { ...source.geometry.userData };
 }
 
 /** At most two drawn generations and one coalesced pending generation per
@@ -72,10 +73,12 @@ export class SurfaceBatch {
   private readonly root: THREE.Object3D;
   private readonly key: string;
   private readonly make: (side: boolean, coverage: THREE.Vector2) => Mesh;
+  private readonly fadeMs: number;
 
   constructor(root: THREE.Object3D, key: string, bounds: THREE.Sphere,
-    make: (side: boolean, coverage: THREE.Vector2) => Mesh) {
+    make: (side: boolean, coverage: THREE.Vector2) => Mesh, fadeMs = TERRAIN_FADE_MS) {
     this.root = root; this.key = key; this.bounds = bounds.clone(); this.make = make;
+    this.fadeMs = Math.max(1, fadeMs);
     this.current = this.allocate();
   }
 
@@ -93,7 +96,7 @@ export class SurfaceBatch {
    * owner. Adopt its attributes without another O(faces) comparison/copy. Do not
    * queue a third generation: its later activation would bypass upload budgets. */
   submitPrepared(attributes: Record<string, THREE.InstancedBufferAttribute>, count: number,
-    animate: boolean, now = performance.now()) {
+    animate: boolean, now = performance.now(), metadata: Record<string, unknown> = {}) {
     if (this.previous || this.pending) return false;
     let target = this.slots.find(slot => slot !== this.current);
     if (!target) target = this.allocate();
@@ -103,6 +106,7 @@ export class SurfaceBatch {
     }
     for (const [name, attribute] of Object.entries(attributes)) target.top.geometry.setAttribute(name, attribute);
     target.top.geometry.instanceCount = count;
+    target.top.geometry.userData = metadata;
     target.side.geometry.instanceCount = 0;
     target.lastUsed = now;
     this.activate(target, animate, now);
@@ -166,7 +170,7 @@ export class SurfaceBatch {
     if (!this.previous && now < this.nextCleanupAt) return;
     if (now >= this.nextCleanupAt) this.cleanup(now);
     if (!this.previous) return;
-    const linear = Math.max(0, Math.min(1, (now - this.startedAt) / TERRAIN_FADE_MS));
+    const linear = Math.max(0, Math.min(1, (now - this.startedAt) / this.fadeMs));
     const t = linear * linear * (3 - 2 * linear);
     this.current.coverage.set(0, t);
     this.previous.coverage.set(t, 1);
@@ -192,6 +196,7 @@ export class SurfaceBatch {
           if (attribute instanceof THREE.InstancedBufferAttribute) mesh.geometry.deleteAttribute(name);
         }
         mesh.geometry.instanceCount = 0;
+        mesh.geometry.userData = {};
       }
     }
   }

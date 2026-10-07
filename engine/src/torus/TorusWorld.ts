@@ -18,7 +18,7 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 // the CPU bends one camera, frustum-culls chunk spheres, and unbends ray samples.
 // =============================================================================
 import * as THREE from 'three/webgpu';
-import { Fn, uniform, reference, vec3, vec4, mat3, sin, cos, float, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty } from 'three/tsl';
+import { Fn, uniform, reference, vec3, vec4, mat3, sin, cos, float, int, uint, storage, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty } from 'three/tsl';
 import { asNodeMaterial } from '../render/NodeMaterials.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
 import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
@@ -454,6 +454,31 @@ const hookedMaterials = new WeakSet<THREE.NodeMaterial>();
 const viewEnabledNode = reference('value', 'float', _viewEnabled);
 const viewOriginNode = uniform(_viewOrigin), viewMatrixNode = uniform(_viewMatrix);
 
+// Natural surface vertices lie on the metre lattice. Reuse immutable angular
+// coordinates instead of evaluating four transcendental functions per vertex.
+let voxelAngles: { ring: any; tube: any } | undefined;
+function voxelTorusBendNode(p: ReturnType<typeof vec3>) {
+  if (!voxelAngles) {
+    const ring = new Float32Array(TORUS_SIZE_X * 4), tube = new Float32Array(TORUS_SIZE_Z * 4);
+    for (let x = 0; x < TORUS_SIZE_X; x++) { ring[x * 4] = Math.cos(x * TORUS_K_THETA); ring[x * 4 + 1] = Math.sin(x * TORUS_K_THETA); }
+    for (let z = 0; z < TORUS_SIZE_Z; z++) {
+      torusTubeTrig(z, _tubeTrig);
+      tube[z * 4] = _tubeTrig.x; tube[z * 4 + 1] = _tubeTrig.y;
+    }
+    voxelAngles = {
+      ring: storage(new THREE.StorageBufferAttribute(ring, 4), 'vec4', TORUS_SIZE_X).toReadOnly(),
+      tube: storage(new THREE.StorageBufferAttribute(tube, 4), 'vec4', TORUS_SIZE_Z).toReadOnly(),
+    };
+  }
+  const ring = voxelAngles.ring.element(uint(int(p.x).bitAnd(TORUS_SIZE_X - 1))).toVar();
+  const tube = voxelAngles.tube.element(uint(int(p.z).bitAnd(TORUS_SIZE_Z - 1))).toVar();
+  const ct = ring.x, st = ring.y, cp = tube.x, sp = tube.y;
+  const rho = min(float(TORUS_RHO).add(p.y.sub(TORUS_GREF).mul(float(TORUS_R).add(cp.mul(TORUS_RHO))).div(TORUS_R)), TORUS_MAX_RHO).toVar();
+  const radius = float(TORUS_R).add(rho.mul(cp));
+  return { position: vec3(radius.mul(ct), rho.mul(sp), radius.mul(st)),
+    frame: mat3(vec3(st.negate(), 0, ct), vec3(cp.mul(ct), sp, cp.mul(st)), vec3(sp.mul(ct).negate(), cp, sp.mul(st).negate())) };
+}
+
 /** Same rational tube mapping as bendPoint(), including camera-local correction. */
 export const torusBendNode = (p: ReturnType<typeof vec3>) => {
   const half = p.z.mul(TORUS_K_PHI * .5), a = sin(half), b = cos(half);
@@ -479,13 +504,14 @@ function hookMaterialForTorus(source: THREE.Material) {
   const usesNormal = material.lights && !('flatShading' in material && material.flatShading);
   material.positionNode = Fn(() => {
     // positionLocal already includes instance and skin transforms at this point.
-    const world = modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz.toVar();
-    const torus = torusBendNode(world);
-    if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(torus.frame.mul(modelWorldMatrix.mul(vec4(flatNormal, 0)).xyz.normalize()), 0)).xyz.normalize());
+    const naturalVoxel = material.userData.voxelIntegerCoordinates === true;
+    const world = (naturalVoxel ? vec3(flatPosition) : modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz).toVar();
+    const torus = naturalVoxel ? voxelTorusBendNode(world) : torusBendNode(world);
+    if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(torus.frame.mul(naturalVoxel ? flatNormal : modelWorldMatrix.mul(vec4(flatNormal, 0)).xyz.normalize()), 0)).xyz.normalize());
     const delta = torus.position.sub(viewOriginNode);
     const blend = smoothstep(VIEW_FLAT_RADIUS, VIEW_TORUS_RADIUS, delta.length()).oneMinus().mul(viewEnabledNode);
     const corrected = torus.position.add(viewMatrixNode.mul(delta).sub(delta).mul(blend));
-    return modelWorldMatrixInverse.mul(vec4(corrected, 1)).xyz;
+    return naturalVoxel ? corrected : modelWorldMatrixInverse.mul(vec4(corrected, 1)).xyz;
   })();
   if (usesNormal) material.normalNode = bentNormal.normalize();
   material.userData.torusNode = true;

@@ -1,0 +1,408 @@
+{
+  "version": 1,
+  "world": "copper-metropolis",
+  "recordedAt": "2026-10-07T20:59:08.713Z",
+  "configuration": {
+    "canvas": [
+      3584,
+      1956
+    ],
+    "lighting": "high",
+    "shadows": false,
+    "resolution": {
+      "targetFps": 120,
+      "mode": "fixed",
+      "scale": 1,
+      "fixedScale": 1,
+      "averageFrameMs": 8.333333333333334,
+      "nativePixelRatio": 2,
+      "effectivePixelRatio": 2
+    },
+    "nearRenderDistanceChunks": 6,
+    "nearRenderDistanceMetres": 96,
+    "distantSurface": {
+      "subdivisionSizePx2": 128,
+      "renderDistanceChunks": 2048,
+      "dataBudgetMiB": 256,
+      "geometryBudgetMiB": 160
+    },
+    "position": [
+      7013.04,
+      58,
+      619
+    ],
+    "yaw": -2.41906565272146,
+    "pitch": 0
+  },
+  "protocol": {
+    "timing": "requestAnimationFrame intervals; diagnostics and GPU timestamp sampling disabled; native fixed resolution; one second without pending voxel work before each sample",
+    "sampleDurationMs": 16000,
+    "static": "Original viewpoint",
+    "rotation": "One full yaw revolution over 16 seconds",
+    "motion": "Out and back: x += 48*sin(pi*t), y += 24*sin(pi*t), z += 32*sin(pi*t); flying enabled during sampling; original position and mode restored",
+    "acceptance": "Average FPS >= 100 in each of the three scenarios; this is not a minimum-frame-rate guarantee"
+  },
+  "measurements": [
+    {
+      "mode": "static",
+      "nearRenderDistanceChunks": 6,
+      "settings": {
+        "subdivisionSizePx2": 128,
+        "renderDistanceChunks": 2048,
+        "dataBudgetMiB": 256,
+        "geometryBudgetMiB": 160
+      },
+      "canvas": [
+        3584,
+        1956
+      ],
+      "metrics": {
+        "count": 1977,
+        "elapsedMs": 16003.5,
+        "averageFps": 123.53547661449058,
+        "onePercentLowFps": 78.74015748030594,
+        "p50Ms": 8.299999999988358,
+        "p95Ms": 9.60000000000582,
+        "p99Ms": 10.299999999988358,
+        "maxMs": 24,
+        "over16_67ms": 1,
+        "over33_33ms": 0,
+        "over50ms": 0,
+        "over16_67Percent": 0.05058168942842691
+      },
+      "arena": {
+        "residentFaces": 2506046,
+        "bytes": 110100480,
+        "visibleFaces": 966187,
+        "paddedFaces": 970464,
+        "draws": 41,
+        "sourceDraws": 2048,
+        "mapUploadBytes": 0,
+        "copyFaces": 0,
+        "copyMs": 0,
+        "maxCopyMs": 2.5999999046325684,
+        "pendingSources": 0,
+        "releasedSourceBytes": 80193472,
+        "pages": 10,
+        "backFaces": 676336,
+        "outsideFaces": 831978,
+        "coveredFaces": 31545
+      },
+      "render": {
+        "drawCalls": 133,
+        "triangles": 2185075,
+        "frameCalls": 2
+      }
+    },
+    {
+      "mode": "rotation",
+      "nearRenderDistanceChunks": 6,
+      "settings": {
+        "subdivisionSizePx2": 128,
+        "renderDistanceChunks": 2048,
+        "dataBudgetMiB": 256,
+        "geometryBudgetMiB": 160
+      },
+      "canvas": [
+        3584,
+        1956
+      ],
+      "metrics": {
+        "count": 1881,
+        "elapsedMs": 16008.199999999983,
+        "averageFps": 117.50228008145838,
+        "onePercentLowFps": 51.18534482758461,
+        "p50Ms": 8.299999999988358,
+        "p95Ms": 10.39999999999418,
+        "p99Ms": 16.900000000023283,
+        "maxMs": 33.19999999998254,
+        "over16_67ms": 34,
+        "over33_33ms": 0,
+        "over50ms": 0,
+        "over16_67Percent": 1.8075491759702287
+      },
+      "arena": {
+        "residentFaces": 2506046,
+        "bytes": 110100480,
+        "visibleFaces": 963489,
+        "paddedFaces": 967792,
+        "draws": 43,
+        "sourceDraws": 2048,
+        "mapUploadBytes": 0,
+        "copyFaces": 0,
+        "copyMs": 0,
+        "maxCopyMs": 2.5999999046325684,
+        "pendingSources": 0,
+        "releasedSourceBytes": 80193472,
+        "pages": 10,
+        "backFaces": 676336,
+        "outsideFaces": 834676,
+        "coveredFaces": 31545
+      },
+      "render": {
+        "drawCalls": 135,
+        "triangles": 2179731,
+        "frameCalls": 2
+      }
+    },
+    {
+      "mode": "motion",
+      "nearRenderDistanceChunks": 6,
+      "settings": {
+        "subdivisionSizePx2": 128,
+        "renderDistanceChunks": 2048,
+        "dataBudgetMiB": 256,
+        "geometryBudgetMiB": 160
+      },
+      "canvas": [
+        3584,
+        1956
+      ],
+      "metrics": {
+        "count": 1818,
+        "elapsedMs": 16009.900000000023,
+        "averageFps": 113.55473800585871,
+        "onePercentLowFps": 38.39935327404651,
+        "p50Ms": 8.299999999988358,
+        "p95Ms": 15.600000000034925,
+        "p99Ms": 23.79999999998836,
+        "maxMs": 33.5,
+        "over16_67ms": 56,
+        "over33_33ms": 2,
+        "over50ms": 0,
+        "over16_67Percent": 3.08030803080308
+      },
+      "arena": {
+        "residentFaces": 2561343,
+        "bytes": 121110528,
+        "visibleFaces": 990378,
+        "paddedFaces": 994592,
+        "draws": 66,
+        "sourceDraws": 2048,
+        "mapUploadBytes": 0,
+        "copyFaces": 0,
+        "copyMs": 0.09999990463256836,
+        "maxCopyMs": 2.5999999046325684,
+        "pendingSources": 0,
+        "releasedSourceBytes": 81962976,
+        "pages": 11,
+        "backFaces": 695430,
+        "outsideFaces": 843990,
+        "coveredFaces": 31545
+      },
+      "render": {
+        "drawCalls": 158,
+        "triangles": 2233331,
+        "frameCalls": 2
+      }
+    },
+    {
+      "mode": "motion",
+      "nearRenderDistanceChunks": 6,
+      "settings": {
+        "subdivisionSizePx2": 128,
+        "renderDistanceChunks": 2048,
+        "dataBudgetMiB": 256,
+        "geometryBudgetMiB": 160
+      },
+      "canvas": [
+        3584,
+        1956
+      ],
+      "metrics": {
+        "count": 1859,
+        "elapsedMs": 16003.799999999988,
+        "averageFps": 116.15991202089512,
+        "onePercentLowFps": 40.860215053773665,
+        "p50Ms": 8.299999999988358,
+        "p95Ms": 13.200000000011642,
+        "p99Ms": 20.5,
+        "maxMs": 29.399999999965075,
+        "over16_67ms": 43,
+        "over33_33ms": 0,
+        "over50ms": 0,
+        "over16_67Percent": 2.3130715438407745
+      },
+      "arena": {
+        "residentFaces": 2561343,
+        "bytes": 121110528,
+        "visibleFaces": 990458,
+        "paddedFaces": 994672,
+        "draws": 66,
+        "sourceDraws": 2048,
+        "mapUploadBytes": 0,
+        "copyFaces": 0,
+        "copyMs": 0.09999990463256836,
+        "maxCopyMs": 2.5999999046325684,
+        "pendingSources": 0,
+        "releasedSourceBytes": 81962976,
+        "pages": 11,
+        "backFaces": 695398,
+        "outsideFaces": 843942,
+        "coveredFaces": 31545
+      },
+      "render": {
+        "drawCalls": 158,
+        "triangles": 2233491,
+        "frameCalls": 2
+      }
+    }
+  ],
+  "farStatus": {
+    "faces": 2567782,
+    "budget": 3495253,
+    "requestedAreaPx2": 128,
+    "effectiveAreaPx2": 128
+  },
+  "workerStatus": {
+    "backend": "worker",
+    "publications": 5434,
+    "pendingTiles": 0,
+    "queuedSources": 0,
+    "workMs": 0,
+    "publicationBytes": 0,
+    "sourceBytes": 0,
+    "oversizedTiles": 2,
+    "error": ""
+  },
+  "pixelChecks": {
+    "merged": {
+      "label": "Merged-buffer pixel check",
+      "quality": "high",
+      "shadows": false,
+      "width": 3584,
+      "height": 1956,
+      "camera": [
+        7013.04,
+        59.62,
+        619
+      ],
+      "rotation": [
+        0,
+        -0.9354509781013244,
+        0,
+        0.35345645781238105
+      ],
+      "caseLabels": [
+        "Retained merged buffers",
+        "Merged buffers OFF",
+        "Merged buffers ON",
+        "Merged buffers OFF repeat"
+      ],
+      "differences": [
+        {
+          "changedPixels": 4,
+          "maxChannelDelta": 1,
+          "peaks": [
+            {
+              "x": 2198,
+              "y": 391,
+              "delta": 1,
+              "before": [
+                150,
+                159,
+                172
+              ],
+              "after": [
+                151,
+                159,
+                172
+              ]
+            }
+          ]
+        },
+        {
+          "changedPixels": 1,
+          "maxChannelDelta": 1,
+          "peaks": [
+            {
+              "x": 1515,
+              "y": 693,
+              "delta": 1,
+              "before": [
+                47,
+                81,
+                113
+              ],
+              "after": [
+                47,
+                81,
+                112
+              ]
+            }
+          ]
+        },
+        {
+          "changedPixels": 4,
+          "maxChannelDelta": 1,
+          "peaks": [
+            {
+              "x": 2198,
+              "y": 391,
+              "delta": 1,
+              "before": [
+                150,
+                159,
+                172
+              ],
+              "after": [
+                151,
+                159,
+                172
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "culling": {
+      "changedPixelsOver2": 0,
+      "maxChannelDelta": 0
+    },
+    "shaderOptimization": {
+      "changedPixelsOver2": 1,
+      "maxChannelDelta": 16
+    },
+    "referenceRepeat": {
+      "changedPixelsOver2": 0,
+      "maxChannelDelta": 0
+    }
+  },
+  "notes": [
+    "All distant terrain remains enabled at 2048 chunks (32768 metres).",
+    "Near radius was reduced from 10 to 6 chunks; requested LOD area increased from 64 to 128 square pixels. These quality settings contribute to the result.",
+    "Earlier baseline canvas was 3584 x 2068; the current native browser canvas is 3584 x 1956. This is not an exactly matched pixel-count comparison.",
+    "Indexed resident pages trade additional index-buffer memory for higher GPU vertex throughput.",
+    "GPU timing is disabled; no stale GPU timestamp value is included."
+  ],
+  "validation": {
+    "engine": {
+      "passed": 520,
+      "failed": 0
+    },
+    "clientFullRun": {
+      "passed": 1114,
+      "failed": 1,
+      "failure": "The voxel surface test expected the old 32-byte face budget."
+    },
+    "clientFailureRecheck": {
+      "file": "client/test/voxel-surface.test.ts",
+      "passed": 5,
+      "failed": 0,
+      "resolution": "Updated the obsolete budget assertion to include indexed resident pages; production code unchanged after the full run."
+    },
+    "typecheck": "passed in npm run check:client",
+    "englishAndDocumentationChecks": "passed in npm run check:client",
+    "productionBuild": "passed, including four import-order checks and compiler-worker checks",
+    "diffWhitespaceCheck": "passed"
+  },
+  "baselineReport": "copper-far-rendering-2026-10-08.json",
+  "implementation": [
+    "Replace tiny per-face instances with indexed procedural quad pages and a packed 16-byte face record.",
+    "Look up integer-metre ring/tube angular samples instead of evaluating trigonometry per vertex.",
+    "Generate conservative 16-face bounds and normal cones in the worker; reject back-facing, outside-frustum and fully covered blocks.",
+    "Reuse guarded visibility maps across small camera movements and only invalidate coverage culling when ownership classes change.",
+    "Group storage-page submissions while preserving neighboring tile ordering, including periodic seams.",
+    "Account for quad indices and remap blocks in the geometry budget; retain bounded publication and reference-path reconstruction."
+  ]
+}

@@ -531,6 +531,8 @@ export function installFrameDiagnostics(game: any) {
       const value = values.summary(); stats.textContent += `${name}: ${fmt(value.p50)}/${fmt(value.p95)} ms\n`;
     }
     if (arena) stats.textContent += `Arena ${arena.pages} pages / ${arena.draws} draws | ${(arena.bytes/1048576).toFixed(1)} MiB | source freed ${(arena.releasedSourceBytes/1048576).toFixed(1)} MiB\nCopy ${arena.copyMs.toFixed(2)} ms (max ${arena.maxCopyMs.toFixed(2)}) | pending ${arena.pendingSources}\n`;
+    const authored = game.world.distantSurface?.authoredChunks.group.userData.authoredSurfaceStats;
+    if (authored) stats.textContent += `Authored ${authored.sourceBoxes} source boxes / ${authored.surfaceFaces} surface quads | pending ${authored.pending}${authored.error ? ` | ${authored.error}` : ''}\n`;
     if (comparison) stats.textContent += `A/B ${comparison.index + 1}/${comparison.cases.length}: ${comparison.cases[comparison.index].label}`;
     published = now;
   }
@@ -566,7 +568,8 @@ export function installFrameDiagnostics(game: any) {
             yaw: game.controller.yaw, pitch: game.controller.pitch, resolution: scene.getResolutionScaleState(),
             mergedBuffers: { ...game.world.distantSurface?.voxels.group.userData.voxelArenaStats },
           });
-          if (!run.warmed && game.world.distantSurface?.voxels.hasPendingWork) {
+          if (!run.warmed && (game.world.distantSurface?.voxels.hasPendingWork
+            || game.world.distantSurface?.authoredChunks.hasPendingWork)) {
             run.warmUntil = now + 1500; run.endAt = run.warmUntil + (run.fullTurn ? 8000 : 4000);
           }
           if (!run.warmed && now >= run.warmUntil) {
@@ -584,6 +587,7 @@ export function installFrameDiagnostics(game: any) {
               width:renderer.domElement.width,height:renderer.domElement.height,camera:scene.camera.position.toArray(),
               rotation:scene.camera.quaternion.toArray(),timings,frame:frameMetrics(metric('Frame').snapshot()),calls,triangles,
               geometry:game.world.distantSurface?.voxels.group.userData.voxelLodStats,
+              authoredSurface: {...game.world.distantSurface?.authoredChunks.group.userData.authoredSurfaceStats},
               mergedBuffers: {...game.world.distantSurface?.voxels.group.userData.voxelArenaStats},
               commandCache: {...game.world.distantSurface?.voxels.group.userData.commandCacheStats},
               nearOpaqueFastPath: game.world.distantSurface?.handoff.getOpaqueFastPathEnabled(),

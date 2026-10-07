@@ -82,7 +82,8 @@ test('detail status distinguishes source resolution from geometry budget pressur
   assert.equal(layer.getDetailStatus().sourceLimitedZones, 1);
   assert.equal(layer.getDetailStatus().geometryLimited, false);
   assert.equal(layer.getDetailStatus().effectiveAreaPx2, 1);
-  assert.equal(layer.voxels.group.userData.voxelLodStats.budget, 16 * 1024 * 1024);
+  // Resident pages include packed records, quad indices, remap blocks and slack.
+  assert.equal(layer.voxels.group.userData.voxelLodStats.budget, Math.floor(512 * 1024 * 1024 / 48));
   layer.removeZone(16,2);
   assert.equal(layer.getDetailStatus().sourceLimitedZones, 0);
   layer.setEnabled(false);

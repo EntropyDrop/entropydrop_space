@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { computeBentBoundsSphere } from '../torus/TorusWorld.ts';
 import { surfaceSubdivisionWorldArea, SURFACE_AREA_HYSTERESIS } from './SurfaceSubdivision.ts';
 import type { VoxelSurfaceMip } from '../voxel/SurfaceZoneSnapshot.ts';
+import { voxelFaceVisibility } from './VoxelFaceVisibility.ts';
 
 export type VoxelLodSource = { key: string; x: number; z: number; token: number; mips: VoxelSurfaceMip[] };
 export type VoxelLodView = { camera: [number, number, number]; focal: number; area: number;
@@ -10,16 +11,17 @@ export type VoxelLodStats = { faces: number; budget: number; requestedAreaPx2: n
 export type VoxelLodTile = { key: string; token: number; tile: number; count: number;
   bounds: [number, number, number, number]; offset: Uint16Array; span: Uint16Array;
   flatBounds: [number, number, number, number];
-  color: Uint8Array; direction: Uint8Array; emission: Uint8Array };
+  color: Uint8Array; direction: Uint8Array; emission: Uint8Array; visibility?: Float32Array };
 type Range = { start: number; end: number };
 type Brick = { x: number; y: number; z: number; size: number; bounds: THREE.Sphere };
 type Zone = { source: VoxelLodSource; mips: Map<number, { faces: Uint8Array; ranges: Map<number, Range> }>;
   sizes: number[]; bricks: Map<number, Brick>; signatures: Map<number, string> };
 const LINEAR = Uint8Array.from({ length: 256 }, (_, n) => Math.round(255 * (n / 255 <= .04045
   ? n / 255 / 12.92 : ((n / 255 + .055) / 1.055) ** 2.4)));
-export const voxelTileBytes = (tile: VoxelLodTile) => tile.count * 15;
+export const voxelTileBytes = (tile: VoxelLodTile) => tile.count * 15 + (tile.visibility?.byteLength ?? 0);
 export const voxelTileTransfers = (tile: VoxelLodTile) =>
-  [tile.offset.buffer, tile.span.buffer, tile.color.buffer, tile.direction.buffer, tile.emission.buffer] as ArrayBuffer[];
+  [tile.offset.buffer, tile.span.buffer, tile.color.buffer, tile.direction.buffer, tile.emission.buffer,
+    ...(tile.visibility ? [tile.visibility.buffer] : [])] as ArrayBuffer[];
 
 /** No scene objects or GPU resources. Yield boundaries also serve the cooperative
  * fallback when workers are unavailable. Sources remain immutable after install. */
@@ -154,10 +156,11 @@ export class VoxelLodPlanner {
         minX += zone.source.x * 512; maxX += zone.source.x * 512;
         minZ += zone.source.z * 512; maxZ += zone.source.z * 512;
         const bounds = computeBentBoundsSphere({ minX, maxX, minY, maxY, minZ, maxZ });
+        const visibility = yield* voxelFaceVisibility({ count, offset, span, direction }, zone.source.x * 512, zone.source.z * 512);
         zone.signatures.set(tile, signature);
         yield { key: zone.source.key, token: zone.source.token, tile, count,
           bounds: [bounds.center.x, bounds.center.y, bounds.center.z, bounds.radius],
-          flatBounds: [minX, maxX, minZ, maxZ], offset, span, color, direction, emission };
+          flatBounds: [minX, maxX, minZ, maxZ], offset, span, color, direction, emission, visibility };
       }
       yield;
     }

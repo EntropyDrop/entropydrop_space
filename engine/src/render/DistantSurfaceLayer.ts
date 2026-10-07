@@ -471,7 +471,7 @@ export class DistantSurfaceLayer {
 
   /** Includes publication and fades, not just downloaded snapshot residency. */
   get hasPendingWork(): boolean {
-    return this.enabled && (this.voxels.hasPendingWork || this.voxels.hasPendingTransitions
+    return this.enabled && (this.authoredChunks.hasPendingWork || this.voxels.hasPendingWork || this.voxels.hasPendingTransitions
       || (this.zones.size > 0 && (this.connectionsDirty || this.connectionBuildPending
         || this.rebuildTimer !== null || this.rebuildQueued
         || [...this.batches.values()].some(batch => batch.transitioning))));
@@ -503,13 +503,13 @@ export class DistantSurfaceLayer {
       this.previousProjection.copy(this.projection);
       this.frustum.setFromProjectionMatrix(this.projection, camera.coordinateSystem);
     }
-    this.authoredChunks.updateView(this.frustum, this.cameraPosition, (this.settings.renderDistanceChunks * CHUNK_SIZE));
+    const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
+    this.authoredChunks.updateView(this.frustum, this.cameraPosition, this.settings.renderDistanceChunks * CHUNK_SIZE, scale);
     const now = performance.now();
     for (const batch of this.batches.values()) {
       batch.advance(now);
       if (cullChanged) batch.setVisible(this.frustum.intersectsSphere(batch.bounds));
     }
-    const scale = Math.max(1, viewportHeight * camera.projectionMatrix.elements[5] / 2);
     this.voxels.updateView(this.frustum, this.cameraPosition, scale, this.settings.subdivisionSizePx2,
       this.settings.renderDistanceChunks * CHUNK_SIZE, voxelFaceBudget(this.settings.geometryBudgetMiB));
     this.syncVisibility();
@@ -641,6 +641,7 @@ export class DistantSurfaceLayer {
     if (next === this.enabled) return this.enabled;
     this.enabled = next;
     this.voxels.setActive(next);
+    this.authoredChunks.setActive(next);
     this.updateHandoffs();
     if (!next) {
       this.connectionBuildGeneration++;

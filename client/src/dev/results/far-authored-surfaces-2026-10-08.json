@@ -1,0 +1,201 @@
+{
+  "date": "2026-10-08",
+  "url": "http://localhost:5173/space/app/?dev_perf=1",
+  "conditions": {
+    "browser": "Local Chrome / WebGPU",
+    "viewportCss": [
+      1792,
+      1034
+    ],
+    "drawingBuffer": [
+      3584,
+      2068
+    ],
+    "resolutionScale": 1,
+    "nearRadiusChunks": 10,
+    "nearReadyChunks": 231,
+    "nearbyEntities": 1,
+    "position": [
+      6509.54,
+      19,
+      609.39
+    ],
+    "yaw": -2.88972449657266,
+    "shadows": false,
+    "farDistanceChunks": 2048,
+    "dataBudgetMiB": 256,
+    "geometryBudgetMiB": 160,
+    "gpuTimingDuringCadence": false
+  },
+  "methodology": [
+    "Frame cadence measures requestAnimationFrame intervals, not verified physical display presentation.",
+    "Baseline and intermediate rows below are transcribed summaries from Chrome measurements in this task. finalSamples are exported directly from the final browser run.",
+    "No draw/far/near/sky isolation is active in final measurements. Production workers produce authored exterior meshes without the earlier experimental replacement script.",
+    "Final settings were saved through the game UI and verified in a fresh tab. The 20-second final sample excludes shader/terrain warm-up.",
+    "360-degree tests each sample 8 seconds after 1.5-second warm-up. Rapid turns add vertical sweeps and can show less geometry when looking up or down.",
+    "Movement test travels out and back over 16 seconds, reaching +48m X, +32m Z, +24m Y. It restores the player position and flying state.",
+    "Measurements describe this scene and hardware. Short spikes remain; average FPS over 100 is not a guarantee that every frame finishes in 10ms."
+  ],
+  "baseline": {
+    "quality": "ultra",
+    "subdivisionSizePx2": 10,
+    "averageFps": 42.6,
+    "p50Ms": 24.6,
+    "p95Ms": 28,
+    "maxMs": 33.5,
+    "cpuP50Ms": 5.3,
+    "cpuP95Ms": 5.9,
+    "drawCalls": 432,
+    "triangles": 8471728
+  },
+  "isolation": [
+    {
+      "label": "No scene drawing",
+      "fps": 124.2
+    },
+    {
+      "label": "No distant terrain",
+      "fps": 121.5,
+      "triangles": 113816
+    },
+    {
+      "label": "No near terrain",
+      "fps": 43.5
+    },
+    {
+      "label": "50% resolution",
+      "fps": 48.8
+    },
+    {
+      "label": "Only distant authored boxes hidden",
+      "fps": 59.54,
+      "triangles": 3714480
+    }
+  ],
+  "productionBeforeReload": {
+    "quality": "high",
+    "subdivisionSizePx2": 64,
+    "averageFps": 111.56135874731116,
+    "p95Ms": 15.8,
+    "drawCalls": 300,
+    "triangles": 1849833
+  },
+  "rotationSummaries": [
+    {
+      "label": "First full turn",
+      "time": "2026-10-07T18:51:25.226Z",
+      "averageFps": 109.62225944351395,
+      "p50Ms": 8.3,
+      "p95Ms": 15.9,
+      "p99Ms": 23,
+      "maxMs": 46.4
+    },
+    {
+      "label": "Repeated full turn",
+      "time": "2026-10-07T18:51:34.735Z",
+      "averageFps": 112.8346259694771,
+      "p50Ms": 8.4,
+      "p95Ms": 15.1,
+      "p99Ms": 17.2,
+      "maxMs": 26.1
+    },
+    {
+      "label": "First rapid turns",
+      "time": "2026-10-07T18:53:29.751Z",
+      "averageFps": 120.40510127531884,
+      "p50Ms": 8.3,
+      "p95Ms": 9.5,
+      "p99Ms": 15.6,
+      "maxMs": 21.4
+    },
+    {
+      "label": "Repeated rapid turns",
+      "time": "2026-10-07T18:53:39.255Z",
+      "averageFps": 119.81070659522253,
+      "p50Ms": 8.3,
+      "p95Ms": 10.1,
+      "p99Ms": 16.6,
+      "maxMs": 24.1
+    }
+  ],
+  "finalSamples": [
+    {
+      "label": "cold-load-final-high64",
+      "time": "2026-10-07T19:01:47.934Z",
+      "fps": 120.22655582161482,
+      "samples": 2405,
+      "p50": 8.299999999995634,
+      "p95": 9.299999999995634,
+      "p99": 14.5,
+      "max": 20.900000000001455,
+      "quality": "high",
+      "resolution": {
+        "targetFps": 120,
+        "mode": "fixed",
+        "scale": 1,
+        "fixedScale": 1,
+        "averageFrameMs": 8.333333333333334,
+        "nativePixelRatio": 2,
+        "effectivePixelRatio": 2
+      },
+      "settings": {
+        "subdivisionSizePx2": 64,
+        "renderDistanceChunks": 2048,
+        "dataBudgetMiB": 256,
+        "geometryBudgetMiB": 160
+      },
+      "far": {
+        "faces": 1582849,
+        "budget": 5242880,
+        "requestedAreaPx2": 64,
+        "effectiveAreaPx2": 64
+      },
+      "arena": {
+        "residentFaces": 1502645,
+        "bytes": 27033600,
+        "visibleFaces": 595071,
+        "paddedFaces": 654720,
+        "draws": 127,
+        "sourceDraws": 1283,
+        "mapUploadBytes": 0,
+        "copyFaces": 0,
+        "copyMs": 0,
+        "maxCopyMs": 1.6999998092651367,
+        "pendingSources": 0,
+        "releasedSourceBytes": 48084640,
+        "pages": 25
+      },
+      "authored": {
+        "sourceBoxes": 193365,
+        "surfaceFaces": 34654,
+        "pending": 0,
+        "error": ""
+      },
+      "profiler": "Merged buffers ON\nFar command cache ON\n120.16 FPS | frame p50/p95 8.30/9.30 ms\nCPU p50/p95 4.00/4.80 ms | GPU OFF\nWhole-frame calls 299 | triangles 1599009\nCanvas 3584 x 2068 | high | scale 1\nCPU stages p50/p95 (nested, not additive):\nSimulation: 0.00/0.20 ms\nTerrain window: 0.00/0.00 ms\nTerrain publish: 0.00/0.10 ms\nPicking: 0.50/0.60 ms\nScene update: 0.00/0.10 ms\nHUD: 0.00/0.10 ms\nMinimap: 0.00/0.00 ms\nLOD view: 0.20/0.30 ms\nWebGPU submit: 2.90/3.50 ms\nRender total: 3.40/4.10 ms\nPipeline creation: 0.00/0.00 ms\nArena 25 pages / 127 draws | 25.8 MiB | source freed 45.9 MiB\nCopy 0.00 ms (max 1.70) | pending 0\nAuthored 193365 source boxes / 34654 surface quads | pending 0\n"
+    },
+    {
+      "label": "16s flight out and back: +48m X, +32m Z, +24m Y",
+      "fps": 107.1506669582331,
+      "samples": 1715,
+      "p50": 8.399999999965075,
+      "p95": 16.70000000001164,
+      "p99": 20.600000000034925,
+      "max": 33.100000000034925,
+      "authored": {
+        "sourceBoxes": 193365,
+        "surfaceFaces": 34654,
+        "pending": 0,
+        "error": ""
+      },
+      "time": "2026-10-07T19:06:17.872Z"
+    }
+  ],
+  "verification": {
+    "command": "npm run check:client",
+    "engineTests": 515,
+    "clientTests": 1115,
+    "failures": 0,
+    "productionBuild": "passed",
+    "visual": "Complete distant ring visible in the original view; reverse view and movement checked. No obvious LOD bands observed in these views."
+  }
+}

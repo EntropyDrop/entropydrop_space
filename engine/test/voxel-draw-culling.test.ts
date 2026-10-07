@@ -3,6 +3,21 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { voxelHandoffMode } from '../src/render/VoxelDrawCulling.ts';
 import { VoxelLodPlanner, type VoxelLodTile } from '../src/render/VoxelLodPlanner.ts';
+
+test('handoff opacity updates the GPU each step but invalidates visibility only at class boundaries', () => {
+  const handoff = new TerrainHandoff();
+  handoff.setReady(0, 0, true, true, 0); handoff.advance(100);
+  const visibility = handoff.texture.userData.voxelVisibilityVersion, version = handoff.texture.version;
+  handoff.advance(200);
+  assert.ok(handoff.texture.version > version, 'the intermediate opacity still uploads');
+  assert.equal(handoff.texture.userData.voxelVisibilityVersion, visibility);
+  handoff.advance(400);
+  assert.ok(handoff.texture.userData.voxelVisibilityVersion > visibility, 'complete coverage changes culling');
+  const full = handoff.texture.userData.voxelVisibilityVersion;
+  handoff.setReady(0, 0, false, true, 500); handoff.advance(510);
+  assert.ok(handoff.texture.userData.voxelVisibilityVersion > full, 'eviction restores hidden faces at the first fading step');
+  handoff.texture.dispose();
+});
 import { DistantVoxelLayer } from '../src/render/DistantVoxelLayer.ts';
 import { TerrainHandoff, TERRAIN_FADE_MS } from '../src/render/TerrainHandoff.ts';
 import { bendPoint, computeBentBoundsSphere, projectBentPointForView,
@@ -220,7 +235,9 @@ test('shared storage survives edited generations, handoff fades, culling and zon
     now=TERRAIN_FADE_MS+1;tick();assert.equal(originals().length,1);
     assert.equal(layer.group.userData.voxelArenaStats.visibleFaces,6);
     handoff.setReady(0,0,true,true,now);handoff.advance(now+100);tick();
-    assert.ok(originals()[0].geometry.getAttribute('voxelOffset'),'ownership fade reconstructs attributes');
+    assert.equal(originals()[0].geometry.getAttribute('voxelOffset'),undefined,'ownership fading keeps immutable shared storage');
+    assert.ok(layer.group.children.some(mesh=>mesh.userData.voxelArena && mesh.visible
+      && (mesh as THREE.Mesh).material === mesh.userData.maskedMaterial),'shared storage draws the handoff shader while coverage fades');
     handoff.advance(now+TERRAIN_FADE_MS);tick();assert.equal(layer.group.userData.voxelArenaStats.visibleFaces,0);
     handoff.setReady(0,0,false,false);tick();assert.equal(layer.group.userData.voxelArenaStats.visibleFaces,6);
     layer.setMergedBuffersEnabled(false);

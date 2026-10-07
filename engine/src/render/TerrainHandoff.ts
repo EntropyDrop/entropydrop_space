@@ -24,6 +24,7 @@ export class TerrainHandoff {
   private opaqueFastPath = true;
 
   constructor() {
+    this.texture.userData.voxelVisibilityVersion = 0;
     this.texture.name = 'TerrainHandoffCoverage';
     this.texture.magFilter = this.texture.minFilter = THREE.NearestFilter;
     this.texture.wrapS = this.texture.wrapT = THREE.RepeatWrapping;
@@ -36,8 +37,19 @@ export class TerrainHandoff {
   }
 
   setAuthored(cx: number, cz: number) {
-    this.data[this.index(cx, cz) + 1] = 255;
+    const index = this.index(cx, cz) + 1;
+    if (this.data[index] === 255) return;
+    this.data[index] = 255;
+    this.texture.userData.voxelVisibilityVersion++;
     this.texture.needsUpdate = true;
+  }
+
+  private setCoverage(index: number, value: number) {
+    const previous = this.data[index];
+    if (previous === value) return;
+    const classification = (v: number) => v === 0 ? 0 : v === 255 ? 2 : 1;
+    if (classification(previous) !== classification(value)) this.texture.userData.voxelVisibilityVersion++;
+    this.data[index] = value; this.texture.needsUpdate = true;
   }
 
   setReady(cx: number, cz: number, ready: boolean, animate: boolean, now = performance.now()) {
@@ -48,16 +60,15 @@ export class TerrainHandoff {
     const from = this.data[index];
     if (from === to) return;
     if (animate) this.changes.set(index, { from, to, start: now, duration: TERRAIN_FADE_MS * Math.abs(to - from) / 255 });
-    else { this.data[index] = to; this.texture.needsUpdate = true; }
+    else this.setCoverage(index, to);
   }
 
   private advanceOne(index: number, now: number) {
     const change = this.changes.get(index);
     if (!change) return;
     const t = Math.min(1, Math.max(0, (now - change.start) / change.duration));
-    this.data[index] = Math.round(change.from + (change.to - change.from) * t);
+    this.setCoverage(index, Math.round(change.from + (change.to - change.from) * t));
     if (t === 1) this.changes.delete(index);
-    this.texture.needsUpdate = true;
   }
 
   advance(now = performance.now()) {

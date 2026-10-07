@@ -1,10 +1,27 @@
 import * as THREE from 'three/webgpu';
-import { storage, instanceIndex, uint, float, vec3, varying, min, uniform, wgslFn } from 'three/tsl';
+import { storage, vertexIndex, uint, float, vec2, vec3, varying, min, uniform, wgslFn } from 'three/tsl';
+import { VOXEL_FACE_BLOCK, VOXEL_VISIBILITY_STRIDE, voxelBlockBackFacing } from './VoxelFaceVisibility.ts';
+import { voxelHandoffMode } from './VoxelDrawCulling.ts';
+import { orderVoxelPages } from './VoxelDrawOrder.ts';
 
 export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
-export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any };
-const BLOCK = 64;
-const PAGE_FACES = 64 * 1024;
+export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
+const BLOCK = VOXEL_FACE_BLOCK;
+const PAGE_FACES = 256 * 1024;
+let quadIndices: Uint32Array | undefined;
+function pageIndex(capacity: number) {
+  if (!quadIndices || quadIndices.length < capacity * 6) {
+    quadIndices = new Uint32Array(capacity * 6);
+    for (let i = 0; i < capacity; i++) {
+      const at = i * 6, vertex = i * 4;
+      quadIndices[at] = vertex; quadIndices[at + 1] = vertex + 1; quadIndices[at + 2] = vertex + 2;
+      quadIndices[at + 3] = vertex; quadIndices[at + 4] = vertex + 2; quadIndices[at + 5] = vertex + 3;
+    }
+  }
+  // Each page owns one GPU index buffer; runs share its lifetime. The immutable
+  // CPU template is shared without copying six megabytes for every page/run.
+  return new THREE.BufferAttribute(quadIndices, 1);
+}
 export const ARENA_COPY_FACES = 16 * 1024;
 export const ARENA_COPY_MS = .75;
 const names = ['voxelOffset', 'voxelSpan', 'voxelDirection', 'voxelEmission', 'color'] as const;
@@ -12,6 +29,8 @@ const unpackColor = wgslFn('fn voxelArenaColor(value: u32) -> vec3<f32> { return
 type Range = { start: number; count: number };
 type Entry = Range & { mesh: VoxelFaceMesh; geometry: THREE.InstancedBufferGeometry; page: Page; allocated: number; copied: number;
   attributes?: THREE.BufferAttribute[]; versions: number[]; origin: THREE.Vector3;
+  visibility?: { map: Float32Array; blocks: number; faces: number; view: number; mask: number; masked: boolean;
+    back: number; outside: number; covered: number };
   invalid: boolean; releasing: boolean; onDispose: () => void };
 type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; free: Range[];
   map: THREE.StorageBufferAttribute; data: THREE.StorageBufferAttribute; release: Set<() => void> };
@@ -20,24 +39,105 @@ type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; f
  * of 32-byte vertex attributes. Publication is bounded; incomplete/fading draws
  * retain their original attributes. Fully migrated sources release both their
  * CPU attributes and GPU buffers, and can reconstruct the reference path.
- * Runs preserve source draw order, including unmerged faces between them. */
+ * Page grouping preserves neighboring tile order and unmerged draw barriers,
+ * so coplanar boundary faces retain their reference depth-test ordering. */
 export class VoxelFaceArena {
+  groupPageDraws = true;
+  private groupedSources: VoxelFaceMesh[] = [];
+  private groupedPages: object[] = [];
+  private groupedOrder: VoxelFaceMesh[] = [];
+  private previousGrouping = true;
   readonly pages: Page[] = [];
   private readonly entries = new Map<VoxelFaceMesh, Entry>();
   private readonly orders = new Map<VoxelFaceMesh, number>();
   private hidden: VoxelFaceMesh[] = [];
   private drawing: (Entry | VoxelFaceMesh)[] = [];
+  private drawingMaterials: THREE.Material[] = [];
+  private readonly camera = new THREE.Vector3();
+  private readonly frustum = new THREE.Frustum();
+  private coverage: THREE.DataTexture | null = null;
+  private coverageVersion = -1;
+  private visibilityDirty = true;
+  private visibilityEnabled = false;
+  private viewEpoch = 0;
+  private emptyFrustum = false;
   readonly stats = { residentFaces: 0, bytes: 0, visibleFaces: 0, paddedFaces: 0, draws: 0,
     sourceDraws: 0, mapUploadBytes: 0, copyFaces: 0, copyMs: 0, maxCopyMs: 0, pendingSources: 0,
-    releasedSourceBytes: 0, pages: 0 };
+    releasedSourceBytes: 0, pages: 0, backFaces: 0, outsideFaces: 0, coveredFaces: 0 };
   private readonly root: THREE.BundleGroup;
   private readonly make: (inputs: ArenaInputs) => VoxelFaceMesh;
   constructor(root: THREE.BundleGroup, make: (inputs: ArenaInputs) => VoxelFaceMesh) { this.root = root; this.make = make; }
   get hasPendingWork() { return this.stats.pendingSources > 0; }
 
+  setView(camera: THREE.Vector3, frustum: THREE.Frustum, coverage: THREE.DataTexture, enabled: boolean) {
+    // Retain a conservative guard around the last visibility query. Ordinary
+    // motion then reuses GPU maps and command bundles instead of rebuilding
+    // every face-block list each frame. The padding below bounds all accepted
+    // camera translations, rotations and clip-plane offset changes.
+    if (!this.coverage || camera.distanceToSquared(this.camera) >= 16 ** 2 || frustum.planes.some((p, i) => {
+      const old = this.frustum.planes[i];
+      return p.normal.distanceToSquared(old.normal) >= .06 ** 2
+        || Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(this.camera)) >= 1;
+    })
+      || enabled !== this.visibilityEnabled) {
+      this.camera.copy(camera); this.frustum.copy(frustum); this.viewEpoch++;
+      this.emptyFrustum = frustum.planes.some(p => p.normal.lengthSq() === 0 && p.constant < 0);
+      this.visibilityEnabled = enabled; this.visibilityDirty = true;
+    }
+    const version = coverage.userData.voxelVisibilityVersion ?? coverage.version;
+    if (coverage !== this.coverage || version !== this.coverageVersion) {
+      this.coverage = coverage; this.coverageVersion = version; this.visibilityDirty = true;
+    }
+  }
+
+  private culled(entry: Entry, block: number, masked: boolean) {
+    const data = entry.geometry.userData.voxelVisibility as Float32Array | undefined;
+    if (!this.visibilityEnabled || !data) return 0;
+    if (this.emptyFrustum) return 2;
+    const at = block * VOXEL_VISIBILITY_STRIDE;
+    if (at + VOXEL_VISIBILITY_STRIDE > data.length) return 0;
+    if (masked && this.coverage && voxelHandoffMode(this.coverage.image.data!, data, at + 8) === 2) return 3;
+    const x = this.camera.x, y = this.camera.y, z = this.camera.z;
+    if (voxelBlockBackFacing(data, at, x, y, z, 18)) return 1;
+    // Nearby vertices receive view-local flattening, so their bent-space sphere
+    // cannot reject them. The source draw retains its conservative view bounds.
+    const distance = Math.hypot(x - data[at], y - data[at + 1], z - data[at + 2]);
+    if (distance - data[at + 3] > 274) {
+      for (const p of this.frustum.planes) if (p.normal.x * data[at] + p.normal.y * data[at + 1]
+        + p.normal.z * data[at + 2] + p.constant < -data[at + 3] - 18 - distance * .061) return 2;
+    }
+    return 0;
+  }
+
+  private visibleBlocks(entry: Entry, masked: boolean) {
+    const cached = entry.visibility;
+    if (cached && cached.view === this.viewEpoch && cached.masked === masked
+      && (!masked || cached.mask === this.coverageVersion)) return cached;
+    const result = cached ?? { map: new Float32Array(Math.ceil(entry.count / BLOCK) * 8),
+      blocks: 0, faces: 0, view: 0, mask: -1, masked, back: 0, outside: 0, covered: 0 };
+    result.blocks = result.faces = result.back = result.outside = result.covered = 0;
+    result.view = this.viewEpoch; result.mask = this.coverageVersion; result.masked = masked;
+    for (let offset = 0; offset < entry.count; offset += BLOCK) {
+      const count = Math.min(BLOCK, entry.count - offset), culled = this.culled(entry, offset / BLOCK, masked);
+      if (culled) {
+        if (culled === 1) result.back += count;
+        else if (culled === 2) result.outside += count;
+        else result.covered += count;
+        continue;
+      }
+      const dst = result.blocks++ * 8, map = result.map;
+      map[dst] = entry.start + offset; map[dst + 1] = count; map[dst + 2] = entry.origin.x;
+      map[dst + 3] = entry.origin.y; map[dst + 4] = entry.origin.z; result.faces += count;
+    }
+    entry.visibility = result; return result;
+  }
+
   private eligible(mesh: VoxelFaceMesh) {
+    const range = mesh.userData.terrainCoverage;
     return !mesh.userData.voxelArena && mesh.geometry.instanceCount > 0
-      && mesh.userData.voxelArenaCompatible === true && mesh.material === mesh.userData.opaqueMaterial;
+      && mesh.userData.voxelArenaCompatible === true
+      && (!range || (range.x === 0 && range.y === 1))
+      && (mesh.material === mesh.userData.opaqueMaterial || mesh.material === mesh.userData.maskedMaterial);
   }
   private createPage(capacity: number) {
     const data = new THREE.StorageBufferAttribute(new Uint32Array(capacity * 4), 4);
@@ -46,16 +146,20 @@ export class VoxelFaceArena {
     const records = storage(data, 'uvec4' as 'vec4', capacity).toReadOnly();
     const remap = storage(map, 'vec4', capacity / BLOCK * 2).toReadOnly();
     const base = uniform(uint(0)).onObjectUpdate(({ object }) => object?.userData.voxelArenaBase ?? 0);
-    const blockIndex = instanceIndex.div(uint(BLOCK)).add(base).mul(2);
+    const faceIndex = vertexIndex.div(uint(4)), corner = vertexIndex.mod(uint(4));
+    const blockIndex = faceIndex.div(uint(BLOCK)).add(base).mul(2);
     const block = remap.element(blockIndex), originZ = remap.element(blockIndex.add(1)).x;
-    const local = instanceIndex.mod(uint(BLOCK)), valid = local.lessThan(uint(block.y));
+    const local = faceIndex.mod(uint(BLOCK)), valid = local.lessThan(uint(block.y));
     const face = uint(block.x).add(uint(min(float(local), float(block.y).sub(1))));
     const record = records.element(face);
     const mesh = this.make({ origin: vec3(block.z, block.w, originZ),
       offset: vec3(float(uint(record.x).bitAnd(65535)), float(uint(record.x).shiftRight(16)), float(uint(record.y).bitAnd(65535))),
       span: vec3(float(uint(record.y).shiftRight(16)), float(uint(record.z).bitAnd(65535)), 0).xy,
       direction: float(uint(record.z).shiftRight(16).bitAnd(255)), emission: float(uint(record.z).shiftRight(24)),
-      color: varying(unpackColor(uint(record.w))), valid });
+      color: varying(unpackColor(uint(record.w))), valid,
+      quad: vec2(float(corner.equal(1).or(corner.equal(2))), float(corner.greaterThanEqual(2))) });
+    mesh.geometry.setIndex(pageIndex(capacity)); mesh.geometry.deleteAttribute('position'); mesh.geometry.deleteAttribute('normal');
+    (mesh.geometry as any).isInstancedBufferGeometry = false; mesh.geometry.setDrawRange(0, 0);
     mesh.userData.voxelArena = true; mesh.name = 'DistantVoxelArena'; mesh.visible = false;
     const page: Page = { mesh, runs: [mesh], entries: new Set(), free: [{ start: 0, count: capacity }],
       map, data, release: new Set() };
@@ -117,7 +221,8 @@ export class VoxelFaceArena {
   }
   private disposePage(page: Page) {
     for (const mesh of page.runs) { mesh.removeFromParent(); mesh.geometry.dispose(); }
-    page.mesh.material.dispose();
+    for (const material of new Set<THREE.Material>([page.mesh.material,
+      page.mesh.userData.opaqueMaterial, page.mesh.userData.maskedMaterial].filter(Boolean))) material.dispose();
     for (const release of page.release) release(); page.release.clear();
     this.pages.splice(this.pages.indexOf(page), 1);
   }
@@ -131,8 +236,7 @@ export class VoxelFaceArena {
     const sourceSet = new Set(sources);
     for (const [mesh, order] of this.orders) if (!sourceSet.has(mesh)) { mesh.renderOrder = order; this.orders.delete(mesh); }
     for (const mesh of sources) {
-      if (!this.orders.has(mesh)) this.orders.set(mesh, mesh.renderOrder);
-      mesh.renderOrder = mesh.id;
+      if (!this.orders.has(mesh)) { this.orders.set(mesh, mesh.renderOrder); mesh.renderOrder = mesh.id; }
     }
     for (const entry of this.entries.values()) {
       const mesh = entry.mesh;
@@ -181,7 +285,7 @@ export class VoxelFaceArena {
     this.stats.maxCopyMs = Math.max(this.stats.maxCopyMs, this.stats.copyMs);
     for(const page of [...this.pages]) {
       if(!page.entries.size) {this.disposePage(page);continue;}
-      this.stats.bytes += page.data.array.byteLength + page.map.array.byteLength;
+      this.stats.bytes += page.data.array.byteLength + page.map.array.byteLength + (page.mesh.geometry.index?.array.byteLength ?? 0);
       for(const entry of page.entries) if(!entry.attributes) {
         this.stats.residentFaces += entry.count; this.stats.releasedSourceBytes += entry.count * 32;
       }
@@ -190,49 +294,77 @@ export class VoxelFaceArena {
     const drawing = sources.filter(mesh=>mesh.visible).map(mesh=>{
       const entry=this.entries.get(mesh);return entry && !entry.attributes ? entry : mesh;
     });
-    const unchanged=drawing.length===this.drawing.length && drawing.every((item,i)=>item===this.drawing[i]);
+    const materials = drawing.map(item => 'page' in item ? item.mesh.material : item.material);
+    const unchanged=!this.visibilityDirty && this.previousGrouping === this.groupPageDraws && drawing.length===this.drawing.length
+      && drawing.every((item,i)=>item===this.drawing[i] && materials[i] === this.drawingMaterials[i]);
     this.drawing=drawing;
+    this.drawingMaterials=materials;
+    this.previousGrouping = this.groupPageDraws;
     if(unchanged) {
       for(const item of drawing) if('page' in item) {item.mesh.visible=false;this.hidden.push(item.mesh);}
       return;
     }
-    Object.assign(this.stats,{visibleFaces:0,paddedFaces:0,draws:0,sourceDraws:0});
+    this.visibilityDirty = false;
+    Object.assign(this.stats,{visibleFaces:0,paddedFaces:0,draws:0,sourceDraws:0,backFaces:0,outsideFaces:0,coveredFaces:0});
     const blocks = new Map<Page, number>(), runs = new Map<Page, number>(), changed = new Set<Page>();
     let lastPage: Page | null = null, run: VoxelFaceMesh | null = null;
+    let lastMaterial: THREE.Material | null = null;
     const active = new Set<VoxelFaceMesh>();
-    for (const mesh of sources) {
+    const pageFor = (mesh: VoxelFaceMesh) => {
+      const entry = this.entries.get(mesh); return entry && !entry.attributes ? entry.page : mesh;
+    };
+    if (this.groupPageDraws && (sources.length !== this.groupedSources.length
+      || sources.some((mesh, i) => mesh !== this.groupedSources[i] || pageFor(mesh) !== this.groupedPages[i]))) {
+      this.groupedSources = sources; this.groupedPages = sources.map(pageFor);
+      this.groupedOrder = orderVoxelPages(sources, pageFor, mesh => mesh.userData.voxelTile);
+    }
+    const drawSources = this.groupPageDraws ? this.groupedOrder : sources;
+    const ordered = this.groupPageDraws && drawSources.some(mesh => mesh.userData.voxelTile !== undefined);
+    for (let drawIndex = 0; drawIndex < drawSources.length; drawIndex++) {
+      const mesh = drawSources[drawIndex], drawOrder = ordered ? sources[0].id + drawIndex : mesh.id;
+      mesh.renderOrder = drawOrder;
       if (!mesh.visible) continue;
       const entry = this.entries.get(mesh);
       if (!entry || entry.attributes) { lastPage = null; continue; }
       const page = entry.page, at = blocks.get(page) ?? 0;
-      if (lastPage !== page) {
+      const masked = mesh.material === mesh.userData.maskedMaterial;
+      const visible = this.visibleBlocks(entry, masked);
+      this.stats.visibleFaces += visible.faces; this.stats.backFaces += visible.back;
+      this.stats.outsideFaces += visible.outside; this.stats.coveredFaces += visible.covered;
+      this.stats.sourceDraws++;
+      mesh.visible = false; this.hidden.push(mesh);
+      // An empty block list is no draw and must not split two otherwise
+      // contiguous runs from the same page/material.
+      if (!visible.blocks) continue;
+      const drawMaterial = (masked ? page.mesh.userData.maskedMaterial : page.mesh.userData.opaqueMaterial) ?? page.mesh.material;
+      if (lastPage !== page || lastMaterial !== drawMaterial) {
         const index = runs.get(page) ?? 0;
         if (!page.runs[index]) {
-          const clone = page.mesh.clone(false); clone.geometry = page.mesh.geometry.clone();
+          const runGeometry = new THREE.InstancedBufferGeometry(); runGeometry.setIndex(page.mesh.geometry.index);
+          const clone = new THREE.Mesh(runGeometry, drawMaterial);
+          (clone.geometry as any).isInstancedBufferGeometry = false;
+          clone.userData.voxelArena = true; clone.frustumCulled = false; clone.matrixAutoUpdate = false; clone.name = page.mesh.name;
           clone.onBeforeRender = page.mesh.onBeforeRender; page.runs.push(clone); this.root.add(clone);
         }
         run = page.runs[index]; runs.set(page, index + 1); active.add(run);
-        if (run.userData.voxelArenaBase !== at || run.renderOrder !== mesh.id || !run.visible) this.root.needsUpdate = true;
-        run.userData.voxelArenaBase = at; run.renderOrder = mesh.id; run.visible = true;
+        if (run.userData.voxelArenaBase !== at || run.renderOrder !== drawOrder || !run.visible || run.material !== drawMaterial) this.root.needsUpdate = true;
+        run.material = drawMaterial;
+        run.userData.voxelArenaBase = at; run.renderOrder = drawOrder; run.visible = true;
         // Remember the old count before assembling this run.
         run.userData.voxelArenaOldCount = run.geometry.instanceCount; run.geometry.instanceCount = 0;
         lastPage = page;
+        lastMaterial = drawMaterial;
       }
-      const array = page.map.array; let n = at;
-      for (let offset = 0; offset < entry.count; offset += BLOCK) {
-        const values = [entry.start + offset, Math.min(BLOCK, entry.count - offset), entry.origin.x, entry.origin.y, entry.origin.z, 0, 0, 0];
-        for (let i = 0; i < 8; i++) if (array[n * 8 + i] !== values[i]) { array[n * 8 + i] = values[i]; changed.add(page); }
-        n++;
-      }
+      const n = at + visible.blocks;
+      if (visible.blocks) { page.map.array.set(visible.map.subarray(0, visible.blocks * 8), at * 8); changed.add(page); }
       run!.geometry.instanceCount += (n - at) * BLOCK; blocks.set(page, n);
-      this.stats.visibleFaces += entry.count; this.stats.sourceDraws++;
-      mesh.visible = false; this.hidden.push(mesh);
     }
     for (const page of [...this.pages]) {
       if (!page.entries.size) { this.disposePage(page); continue; }
       for (const mesh of page.runs) {
         if (!active.has(mesh)) { if (mesh.visible) this.root.needsUpdate = true; mesh.visible = false; }
         else if (mesh.geometry.instanceCount !== mesh.userData.voxelArenaOldCount) this.root.needsUpdate = true;
+        mesh.geometry.setDrawRange(0, mesh.geometry.instanceCount * 6);
       }
       if (changed.has(page)) {
         const length = (blocks.get(page) ?? 0) * 8;

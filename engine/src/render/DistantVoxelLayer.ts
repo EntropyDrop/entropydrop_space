@@ -11,12 +11,14 @@ import { createCooperativeVoxelLodPort, createWorkerVoxelLodPort, type VoxelLodP
 import type { SurfaceZoneSnapshot, VoxelSurfaceMip } from '../voxel/SurfaceZoneSnapshot.ts';
 
 type FaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
-// Worker transport uses 15 bytes per face. Aligned WebGPU attributes use
-// 32 bytes per face, plus CPU staging and reusable transition slots.
+// Worker transport uses 15 bytes per face, plus block visibility metadata.
+// Aligned publication attributes use 32 bytes per face.
 export const MAX_VOXEL_LOD_FACES = 4 * 1024 * 1024;
 export const VOXEL_GPU_BYTES_PER_FACE = 32;
-// This budget describes resident GPU attributes; transition/CPU copies are extra.
-export const voxelFaceBudget = (mib: number) => Math.floor(mib * 1024 * 1024 / VOXEL_GPU_BYTES_PER_FACE);
+// Settled pages use 16-byte records, 24-byte quad indices and 2-byte block maps
+// per face. Reserve some page slack; transition/CPU copies remain extra.
+export const VOXEL_RESIDENT_BYTES_PER_FACE = 48;
+export const voxelFaceBudget = (mib: number) => Math.floor(mib * 1024 * 1024 / VOXEL_RESIDENT_BYTES_PER_FACE);
 
 function geometry() {
   const result = new THREE.InstancedBufferGeometry();
@@ -37,7 +39,7 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THRE
   const dir = arena?.direction ?? attribute<'float'>('voxelDirection', 'float');
   const normal = dir.lessThan(2).select(vec3(1,0,0), dir.lessThan(4).select(vec3(0,1,0), vec3(0,0,1))).mul(dir.mod(2).mul(2).sub(1));
   const flat = Fn(() => {
-    const uv = positionGeometry.xy.toVar();
+    const uv = (arena?.quad ?? positionGeometry.xy).toVar();
     uv.x.assign(dir.mod(2).lessThan(.5).select(uv.x.oneMinus(), uv.x));
     const p = uv.mul(arena?.span ?? attribute<'vec2'>('voxelSpan', 'vec2')).mul(.125);
     return (arena?.origin ?? uniform(new THREE.Vector3()).onObjectUpdate(({object}) => object?.userData.voxelOrigin ?? origin)).add((arena?.offset ?? attribute<'vec3'>('voxelOffset', 'vec3')).mul(.125)).add(
@@ -64,6 +66,7 @@ function material(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THRE
     reference('value', 'float', emissionMask).add(1)), output);
   result.userData.sharedTerrainMaterial = true;
   result.userData.voxelArenaPosition = true;
+  result.userData.voxelIntegerCoordinates = true;
   if (!arena) {
     mask.addEventListener('dispose', () => result.dispose());
     cache.set(mask, result);
@@ -187,6 +190,10 @@ export class DistantVoxelLayer {
         const mesh = new THREE.Mesh(geometry(), material(this.mask, new THREE.Vector2(0, 1),
           new THREE.Vector3(), this.drawOptimizations, true, inputs));
         mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
+        mesh.userData.opaqueMaterial = mesh.material;
+        mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs);
+        hookSceneMaterials(mesh); mesh.userData.maskedMaterial = mesh.material;
+        mesh.material = mesh.userData.opaqueMaterial;
         return mesh;
       });
       this.group.userData.voxelArenaStats = this.arena.stats; this.arena.sync();
@@ -288,7 +295,12 @@ export class DistantVoxelLayer {
         // The full tile covers BOTH generations during a geometry transition.
         const loose = computeBentBoundsSphere({ minX: x, maxX: x + 128, minY: 0, maxY: 256, minZ: z, maxZ: z + 128 });
         batch = new SurfaceBatch(this.group, `voxel:${tile.key}:${tile.tile}`, loose,
-          (_side, coverage) => this.make(coverage, origin, mode));
+          (_side, coverage) => {
+            const mesh = this.make(coverage, origin, mode);
+            mesh.userData.voxelTile = (((zone.snapshot.zoneX * 4 + (tile.tile >> 2)) % 128 + 128) % 128) * 16
+              + ((zone.snapshot.zoneZ * 4 + (tile.tile & 3)) % 16 + 16) % 16;
+            return mesh;
+          }, 200);
         this.drawStates.set(batch, { tight: bounds, flatBounds: tile.flatBounds,
           looseFlatBounds: [x, x + 128, z, z + 128], maskVersion: -1,
           transitioning: false, inView: true, handoffMode: mode });
@@ -304,9 +316,11 @@ export class DistantVoxelLayer {
         const source = new THREE.Mesh(geometry(), new THREE.MeshStandardNodeMaterial());
         for (const [name, attribute] of Object.entries(attributes)) source.geometry.setAttribute(name, attribute);
         source.geometry.instanceCount = tile.count;
+        source.geometry.userData.voxelVisibility = tile.visibility;
         batch.submit(source, 0, tile.count, source, 0, 0, this.view.hasView);
         source.geometry.dispose(); source.material.dispose();
-      } else if (!batch.submitPrepared(attributes, tile.count, this.view.hasView)) return false;
+      } else if (!batch.submitPrepared(attributes, tile.count, this.view.hasView, performance.now(),
+        { voxelVisibility: tile.visibility })) return false;
       const state = this.drawStates.get(batch)!;
       state.tight.copy(bounds); state.flatBounds = tile.flatBounds; state.maskVersion = -1;
       // Publication happens after the normal culling pass; cull new meshes now.
@@ -321,7 +335,8 @@ export class DistantVoxelLayer {
     const state = this.drawStates.get(batch)!;
     const transitionChanged = state.transitioning !== batch.transitioning;
     state.transitioning = batch.transitioning;
-    if (changed || transitionChanged) {
+    const blockVisibility = !!this.arena && !batch.transitioning && !!batch.top.geometry.userData.voxelVisibility;
+    if (!blockVisibility && (changed || transitionChanged)) {
       const bounds = this.drawCullingEnabled && !batch.transitioning ? state.tight : batch.bounds;
       // Tightening must still cover the camera-local flattening deformation.
       projectBentSphereForView(bounds, this.projectedBounds);
@@ -331,13 +346,17 @@ export class DistantVoxelLayer {
     // Ownership is resident state, independent of camera direction. Classify
     // hidden tiles too so the entry gate can finish their arena migration;
     // turning must not retire attributes or create new storage pages/shaders.
-    if (state.maskVersion !== this.mask.version || transitionChanged) {
+    const maskVersion = this.mask.userData.voxelVisibilityVersion ?? this.mask.version;
+    if (state.maskVersion !== maskVersion || transitionChanged) {
       // The owned DataTexture always retains the CPU mask allocated at construction.
       state.handoffMode.value = voxelHandoffMode(this.mask.image.data!,
         batch.transitioning ? state.looseFlatBounds : state.flatBounds);
-      state.maskVersion = this.mask.version;
+      state.maskVersion = maskVersion;
     }
-    batch.setVisible(state.inView && (!this.drawCullingEnabled || state.handoffMode.value !== 2));
+    // Immutable shared-storage blocks already carry guarded visibility bounds.
+    // Keeping their source list stable avoids rebuilding the arena and native
+    // command bundles whenever an unrelated 128 m tile touches the frustum.
+    batch.setVisible((blockVisibility || state.inView) && (!this.drawCullingEnabled || state.handoffMode.value !== 2));
     batch.forEachActiveMesh(this.selectMaterial);
   }
 
@@ -421,15 +440,18 @@ export class DistantVoxelLayer {
     }
     if (this.planner && this.dirty) this.buildSynchronously();
     const now = performance.now();
-    const maskChanged = this.maskVersion !== this.mask.version;
-    this.maskVersion = this.mask.version;
+    this.arena?.setView(camera, frustum, this.mask, this.drawCullingEnabled);
+    const maskVersion = this.mask.userData.voxelVisibilityVersion ?? this.mask.version;
+    const maskChanged = this.maskVersion !== maskVersion;
+    this.maskVersion = maskVersion;
     const arenaWork = cullChanged || maskChanged || this.arenaDirty || this.arena?.hasPendingWork || !!this.packet
       || [...this.zones.values()].some(zone => [...zone.batches.values()].some(batch => batch.transitioning));
     if (arenaWork) this.arena?.restoreSources();
     for (const zone of this.zones.values()) for (const batch of zone.batches.values()) {
       const transitioning = batch.transitioning;
       batch.advance(now);
-      if (cullChanged || maskChanged || transitioning) this.cullBatch(batch, cullChanged, frustum);
+      const blockVisibility = !!this.arena && !batch.transitioning && !!batch.top.geometry.userData.voxelVisibility;
+      if ((!blockVisibility && cullChanged) || maskChanged || transitioning || this.arenaDirty) this.cullBatch(batch, cullChanged, frustum);
     }
     try { this.processPending(); }
     catch (error) { this.fail(String(error)); }
