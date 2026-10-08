@@ -309,7 +309,7 @@ export function CodeEditorModal() {
             <div className="code-tab-bar" id="code-tab-bar">{nodes.map((node: any) => {
               const code = contraption.getNodeScript(node.id);
               const enabled = contraption.isNodeScriptEnabled(node.id);
-              return <button type="button" tabIndex={-1} key={node.id} className={`code-tab ${state.selectedComponentNodeId === node.id ? 'active' : ''} ${code?.trim?.() ? 'has-script' : ''} ${enabled ? 'enabled' : 'disabled'}`} onClick={() => spaceUiStore.selectComponentTreeNode(node.id)}><span>{node.id}.ts</span></button>;
+              return <button type="button" tabIndex={-1} key={node.id} className={`code-tab ${state.selectedComponentNodeId === node.id ? 'active' : ''} ${code?.trim?.() ? 'has-script' : ''} ${enabled ? 'enabled' : 'disabled'}`} onClick={() => spaceUiStore.selectComponentTreeNode(node.id)}><span>{node.id}</span></button>;
             })}</div>
             <div className="code-editor-main"><div className="code-gutter" id="code-gutter" /><textarea id="script-textarea" className="code-textarea" spellCheck={false} placeholder="// AssemblyScript controller body (self: Component, ctx: Context)" value={state.scriptDraft} onChange={event => spaceUiStore.setScriptDraft(event.target.value)} /></div>
             <div className="code-footer-hint" id="code-footer-hint"><span id="code-target-hint">Editing: {state.selectedComponentNodeId}{contraption.getEntityNode?.(state.selectedComponentNodeId)?.parentId === null ? ' (body)' : ''}</span><span id="code-api-hint" className="code-api-hint">entityAPI: self · ctx</span></div>

@@ -2080,6 +2080,8 @@ export class ContraptionPhysics {
     }
 
     if (!hasNearbyTerrain && this.canSkipEmptyTerrainSamples(bodyObbs, shouldSweep, completeCoverage)) return;
+    if (!hasNearbyTerrain && shouldSweep && completeCoverage && previousPose
+      && this.emptySweptTerrainEnvelope(bodyObbs, body, previousPose)) return;
     const samplePoints = contraption.getCollisionSamplePoints(body.id, true);
     if (!bodyObbs.length && !samplePoints.length) return 0;
 
@@ -2232,6 +2234,40 @@ export class ContraptionPhysics {
     // contact slop without positive overlap. Keep that manifold until the next
     // pre-solve validates its pose and supporting cells, rather than alternating
     // between a fresh impact and a missing support every other substep.
+  }
+
+  /** Conservative envelope for every point segment probed by terrain CCD. */
+  private emptySweptTerrainEnvelope(obbs: BodyObb[], body: EntityRigidBody,
+    previous: { position: THREE.Vector3; quaternion: THREE.Quaternion }): boolean {
+    // A raycast-only host may expose thin micro walls without an occupancy
+    // query. Only batch collision occupancy can certify empty swept space.
+    if (typeof this.world.getMicroCollisionBoxesInAABB !== 'function'
+      && typeof this.world.getMicroBlocksInAABB !== 'function') return false;
+    if (!obbs.length || obbs.some(obb => !obb.coversSamples)) return false;
+    const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity,
+      maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
+    let radius = 0;
+    for (const obb of obbs) {
+      bounds.minX = Math.min(bounds.minX, obb.minX); bounds.maxX = Math.max(bounds.maxX, obb.maxX);
+      bounds.minY = Math.min(bounds.minY, obb.minY); bounds.maxY = Math.max(bounds.maxY, obb.maxY);
+      bounds.minZ = Math.min(bounds.minZ, obb.minZ); bounds.maxZ = Math.max(bounds.maxZ, obb.maxZ);
+      radius = Math.max(radius, obb.center.distanceTo(body.position) + Math.hypot(...obb.halfExtents));
+    }
+    // Rotation displaces any point by at most radius * angle. Include both
+    // translation endpoints, rotation allowance, and the ray's 2 mm extension.
+    const pad = radius * body.quaternion.angleTo(previous.quaternion) + 0.002;
+    const delta = previous.position.clone().sub(body.position);
+    bounds.minX += Math.min(0, delta.x) - pad; bounds.maxX += Math.max(0, delta.x) + pad;
+    bounds.minY += Math.min(0, delta.y) - pad; bounds.maxY += Math.max(0, delta.y) + pad;
+    bounds.minZ += Math.min(0, delta.z) - pad; bounds.maxZ += Math.max(0, delta.z) + pad;
+    const cells = (Math.ceil(bounds.maxX) - Math.floor(bounds.minX))
+      * (Math.ceil(bounds.maxY) - Math.floor(bounds.minY))
+      * (Math.ceil(bounds.maxZ) - Math.floor(bounds.minZ));
+    // Huge teleports/rotations retain the existing path instead of scanning
+    // an unbounded conservative volume.
+    if (!Number.isFinite(cells) || cells > 4096) return false;
+    const coverage = { complete: false };
+    return this.terrainBoxesOverlapping(bounds, coverage).length === 0 && coverage.complete;
   }
 
   private canSkipEmptyTerrainSamples(obbs: BodyObb[], shouldSweep: boolean, completeCoverage: boolean) {
