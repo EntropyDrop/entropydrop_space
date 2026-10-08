@@ -578,8 +578,33 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
     });
   }
 
+  // These values belong to the entity's frozen frame, not to an individual
+  // component. Keep node-bound capabilities below separate from this snapshot.
+  const buildSharedContextData = () => Object.freeze({
+    apiVersion: 3,
+    entityId: String(frame.entityId || ''),
+    time: finite(frame.time),
+    deltaTime: finite(frame.deltaTime),
+    tick: finite(frame.tick),
+    position: frozenClone(frame.position || [0, 0, 0]),
+    velocity: frozenClone(frame.velocity || [0, 0, 0]),
+    rotation: frozenClone(frame.rotation || [0, 0, 0]),
+    angularVelocity: frozenClone(frame.angularVelocity || [0, 0, 0]),
+    groundDistance: finite(frame.groundDistance),
+    isOnGround: frame.isOnGround === true,
+    mass: finite(frame.mass),
+    bodyType: frame.bodyType || 'dynamic',
+    gravity: frozenClone(frame.gravity || [0, -18, 0]),
+    limits: frozenClone(frame.limits || { maxForce: 0, maxTorque: 0 }),
+    players: frozenClone(frame.players || []),
+    driver: frozenClone(frame.driver || null),
+    contacts: frozenClone(frame.contacts || []),
+  });
+  let sharedContextData: ReturnType<typeof buildSharedContextData> | null = null;
+
   const beginTick = (snapshot: ScriptSnapshot) => {
     frame = snapshot;
+    sharedContextData = null;
     states = clone(frame.states) || Object.create(null);
     componentMap = new Map((frame.components || []).map(node => [String(node.id), node]));
     rootComponentId = String(
@@ -607,21 +632,7 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
     const input = frame.input || { down: [], pressed: [], released: [] };
     const blocks = frame.blocks || {};
     const ctx = Object.freeze({
-      apiVersion: 3,
-      entityId: String(frame.entityId || ''),
-      time: finite(frame.time),
-      deltaTime: finite(frame.deltaTime),
-      tick: finite(frame.tick),
-      position: frozenClone(frame.position || [0, 0, 0]),
-      velocity: frozenClone(frame.velocity || [0, 0, 0]),
-      rotation: frozenClone(frame.rotation || [0, 0, 0]),
-      angularVelocity: frozenClone(frame.angularVelocity || [0, 0, 0]),
-      groundDistance: finite(frame.groundDistance),
-      isOnGround: frame.isOnGround === true,
-      mass: finite(frame.mass),
-      bodyType: frame.bodyType || 'dynamic',
-      gravity: frozenClone(frame.gravity || [0, -18, 0]),
-      limits: frozenClone(frame.limits || { maxForce: 0, maxTorque: 0 }),
+      ...(sharedContextData ||= buildSharedContextData()),
       root: getSelf(rootComponentId),
       blocks: Object.freeze({
         pressed: (type: unknown) => !!blocks.changed && (type === undefined || type === null || blocks.event?.type === type),
@@ -632,9 +643,6 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
         pressed: (code: unknown) => codeActive(input.pressed || [], code),
         released: (code: unknown) => codeActive(input.released || [], code)
       }),
-      players: frozenClone(frame.players || []),
-      driver: frozenClone(frame.driver || null),
-      contacts: frozenClone(frame.contacts || []),
       messages: makeEntityMessagesApi(nodeId),
       world: makeWorldApi(),
       selection: makeSelectionApi(),

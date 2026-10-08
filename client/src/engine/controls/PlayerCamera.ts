@@ -3,8 +3,11 @@ import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
 import { type PlayerPerspective } from './ControlBindings.ts';
 import type { PlayerController } from './PlayerController.ts';
 
+const UPRIGHT = new THREE.Quaternion();
+
 export interface PlayerCameraPort {
   camera: PlayerController['camera'];
+  bodyQuaternion: PlayerController['bodyQuaternion'];
   physics: PlayerController['physics'];
   sceneRenderer: PlayerController['sceneRenderer'];
   ui: PlayerController['ui'];
@@ -13,6 +16,8 @@ export interface PlayerCameraPort {
 /** Owns free-look angles, perspective transitions and camera projection settings. */
 export class PlayerCamera {
   private readonly host: PlayerCameraPort;
+  private readonly bodyTilt = new THREE.Quaternion();
+  private readonly inverseBodyHeading = new THREE.Quaternion();
   constructor(host: PlayerCameraPort) { this.host = host; }
   pitch = 0;
   yaw = 0;
@@ -89,7 +94,7 @@ export class PlayerCamera {
   }
 
   updateCameraRotation(): THREE.Vector3 {
-    const { angle } = this.getCameraPerspectiveTransition().pose;
+    const { angle, distance } = this.getCameraPerspectiveTransition().pose;
     // Derive every pose from current free look, never from the previous render
     // quaternion (which is reversed in front view). Mouse look itself is not eased.
     const pitch = Number.isFinite(this.pitch) ? this.pitch : this.host.camera.rotation.x;
@@ -102,12 +107,42 @@ export class PlayerCamera {
       const rotation = new THREE.Matrix4().lookAt(orbitDirection, new THREE.Vector3(), this.host.camera.up);
       this.host.camera.quaternion.setFromRotationMatrix(rotation);
     }
+    // Split the body's rotation into tilt and heading. Only inherit tilt so
+    // a seat cannot lock free look or add its heading to the mouse yaw.
+    const body = this.host.bodyQuaternion;
+    this.bodyTilt.identity();
+    if (body) {
+      const headingLength = Math.hypot(body.y, body.w);
+      // Heading is undefined exactly upside down. Retain the last heading
+      // there so a continuous roll does not flip the camera at inversion.
+      if (headingLength > 1e-8) {
+        this.inverseBodyHeading.set(0, -body.y / headingLength, 0, body.w / headingLength);
+      }
+      this.bodyTilt.copy(body).multiply(this.inverseBodyHeading);
+      // Fade with the existing perspective transition, including reversals.
+      this.bodyTilt.slerp(UPRIGHT, THREE.MathUtils.clamp(distance, 0, 1));
+      this.host.camera.quaternion.premultiply(this.bodyTilt);
+      orbitDirection.applyQuaternion(this.bodyTilt);
+    } else {
+      this.inverseBodyHeading.identity();
+    }
     return orbitDirection;
   }
 
-  updateCameraPosition() {
+  /** Eye anchor for both camera placement and crosshair picking, before orbit. */
+  getEyePosition() {
     const eyePos = this.host.physics.getEyePosition();
+    // The rider's eye offset follows the same body frame as the camera, so
+    // banking moves the cockpit eye with the head instead of above the seat.
+    if (!this.bodyTilt.equals(UPRIGHT)) {
+      eyePos.sub(this.host.physics.position).applyQuaternion(this.bodyTilt).add(this.host.physics.position);
+    }
+    return eyePos;
+  }
+
+  updateCameraPosition() {
     const orbitDirection = this.updateCameraRotation();
+    const eyePos = this.getEyePosition();
     const { distance } = this.getCameraPerspectiveTransition().pose;
     this.host.camera.position.copy(eyePos).addScaledVector(orbitDirection, distance * this.thirdPersonDistance);
     this.syncCameraViewVisibility();

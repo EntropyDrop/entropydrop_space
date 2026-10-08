@@ -13,6 +13,7 @@ import {
 } from '../src/engine/controls/PlayerController.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
+import { bendDirection, bendPointForView } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 
 function inputProbe() {
   return {
@@ -152,7 +153,7 @@ test('mounted camera re-seats from the vehicle pose solved later in the frame', 
   assert.deepEqual(controller.physics.position.toArray(), [2.5, 3.25, -4]);
 });
 
-test('a fixed-orientation seat rotates the body without rotating or clamping the camera', () => {
+test('a fixed-orientation seat rotates the body without changing or clamping mouse-look angles', () => {
   const controller = Object.create(PlayerController.prototype) as any;
   const seatWorldRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
   controller.isDriving = true;
@@ -185,7 +186,7 @@ test('a fixed-orientation seat rotates the body without rotating or clamping the
   assert.ok(controller.bodyQuaternion.angleTo(seatWorldRotation) < 1e-7, 'body follows seat pitch and roll too');
 });
 
-test('seat rotation leaves all three camera perspectives stable and independent', () => {
+test('seat rotation leaves both third-person camera perspectives stable and independent', () => {
   const seatRotation = new THREE.Quaternion();
   const eye = new THREE.Vector3(1, 2, 3);
   const controller: any = Object.assign(Object.create(PlayerController.prototype), {
@@ -196,7 +197,7 @@ test('seat rotation leaves all three camera perspectives stable and independent'
     physics: { getEyePosition: () => eye.clone() },
     yaw: 0.3, pitch: -0.2, thirdPersonDistance: 4
   });
-  for (const perspective of ['first_person', 'third_person', 'third_person_front']) {
+  for (const perspective of ['third_person', 'third_person_front']) {
     controller.perspective = perspective;
     controller.updateCameraPosition();
     const position = controller.camera.position.clone();
@@ -210,6 +211,133 @@ test('seat rotation leaves all three camera perspectives stable and independent'
     }
     seatRotation.identity();
   }
+});
+
+function mountedCameraFixture() {
+  const seatRotation = new THREE.Quaternion();
+  const position = new THREE.Vector3(1, 2, 3);
+  let fixedOrientation = true;
+  const controller: any = Object.assign(Object.create(PlayerController.prototype), {
+    isDriving: true, drivenSeat: { componentId: 'cab', seatIndex: 0 },
+    drivenContraption: {
+      getSeatWorldQuaternion: () => seatRotation.clone(),
+      getComponentSeats: () => [{ fixedOrientation }],
+    },
+    camera: new THREE.PerspectiveCamera(),
+    physics: { position, getEyePosition: () => position.clone().add(new THREE.Vector3(0, 1.6, 0)) },
+    yaw: 0, pitch: 0, thirdPersonDistance: 4, processBulkEditFrame() {},
+  });
+  return { controller, seatRotation, position,
+    setFixedOrientation(value: boolean) { fixedOrientation = value; } };
+}
+
+test('first-person driving follows body bank and eye offset while mouse look remains free', () => {
+  const { controller, seatRotation, position } = mountedCameraFixture();
+  seatRotation.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 4);
+  controller.yaw = 4 * Math.PI + 0.4;
+  controller.pitch = -0.3;
+  const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(controller.pitch, controller.yaw, 0, 'YXZ'));
+  const expectedView = seatRotation.clone().multiply(look);
+  const expectedEye = new THREE.Vector3(0, 1.6, 0).applyQuaternion(seatRotation).add(position);
+  for (let i = 0; i < 4; i++) {
+    controller.updateCameraPosition();
+    assert.ok(controller.camera.quaternion.angleTo(expectedView) < 1e-7);
+    assert.ok(controller.camera.position.distanceTo(expectedEye) < 1e-8);
+  }
+  assert.equal(controller.yaw, 4 * Math.PI + 0.4);
+  assert.equal(controller.pitch, -0.3);
+  // A new solved seat pose is observed on the next aim/render pass.
+  seatRotation.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.6);
+  position.add(new THREE.Vector3(2, 3, 4));
+  controller.updateCameraPosition();
+  assert.ok(controller.camera.quaternion.angleTo(seatRotation.clone().multiply(look)) < 1e-7);
+  assert.ok(controller.camera.position.distanceTo(
+    new THREE.Vector3(0, 1.6, 0).applyQuaternion(seatRotation).add(position)) < 1e-8);
+});
+
+test('first-person driving matches the body up direction without inheriting seat heading', () => {
+  const { controller, seatRotation } = mountedCameraFixture();
+  controller.yaw = 0.3;
+  seatRotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1.2);
+  controller.updateCameraPosition();
+  const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.3, 0, 'YXZ'));
+  assert.ok(controller.camera.quaternion.angleTo(look) < 1e-7);
+  seatRotation.setFromEuler(new THREE.Euler(0.5, 1.2, -0.8, 'YXZ'));
+  controller.updateCameraPosition();
+  const bodyUp = new THREE.Vector3(0, 1, 0).applyQuaternion(seatRotation);
+  const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(controller.camera.quaternion);
+  assert.ok(cameraUp.distanceTo(bodyUp) < 1e-8);
+});
+
+test('mounted first-person crosshair picking starts at the tilted camera eye', () => {
+  const { controller, seatRotation } = mountedCameraFixture();
+  seatRotation.setFromEuler(new THREE.Euler(0.4, 0.6, 0.7, 'YXZ'));
+  controller.pitch = -0.2;
+  controller.updateCameraPosition();
+  let query: any;
+  controller.performBasicAction = (command: unknown) => { query = command; };
+  controller.performAimRaycast();
+  const eye = controller.camera.position;
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.camera.quaternion);
+  assert.ok(query.origin.distanceTo(bendPointForView(eye.x, eye.y, eye.z)) < 1e-8);
+  assert.ok(query.direction.distanceTo(bendDirection(eye.x, eye.y, eye.z, forward)) < 1e-8);
+});
+
+test('first-person tilt stays continuous through vertical pitch and an upside-down roll', () => {
+  const { controller, seatRotation } = mountedCameraFixture();
+  const heading = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1.2);
+  const inverseHeading = heading.clone().invert();
+  for (const axis of [new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)]) {
+    for (let degrees = 0; degrees <= 360; degrees++) {
+      seatRotation.copy(heading).multiply(new THREE.Quaternion().setFromAxisAngle(axis, degrees * Math.PI / 180));
+      controller.updateCameraPosition();
+      assert.ok(controller.camera.quaternion.angleTo(seatRotation.clone().multiply(inverseHeading)) < 1e-7,
+        `body tilt must not flip at ${degrees} degrees`);
+    }
+  }
+});
+
+test('first-person body tilt resets when seat orientation is released or driving ends', () => {
+  const { controller, seatRotation, position, setFixedOrientation } = mountedCameraFixture();
+  seatRotation.setFromEuler(new THREE.Euler(0.4, 0, 0.7, 'YXZ'));
+  controller.updateCameraPosition();
+  assert.ok(controller.camera.quaternion.angleTo(new THREE.Quaternion()) > 0.5);
+  setFixedOrientation(false);
+  controller.updateCameraPosition();
+  assert.ok(controller.camera.quaternion.angleTo(new THREE.Quaternion()) < 1e-7);
+  assert.ok(controller.camera.position.distanceTo(position.clone().add(new THREE.Vector3(0, 1.6, 0))) < 1e-8);
+  setFixedOrientation(true);
+  controller.updateCameraPosition();
+  assert.ok(controller.camera.quaternion.angleTo(new THREE.Quaternion()) > 0.5);
+  controller.isDriving = false;
+  controller.updateCameraPosition();
+  assert.ok(controller.camera.quaternion.angleTo(new THREE.Quaternion()) < 1e-7);
+});
+
+test('mounted tilt and eye offset ease with perspective switches and interrupted transitions', () => {
+  const { controller, seatRotation, position } = mountedCameraFixture();
+  seatRotation.setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0.8);
+  controller.updateCameraPosition();
+  const initialEye = controller.camera.position.clone();
+  const initialRotation = controller.camera.quaternion.clone();
+  controller.setPerspective('third_person_front');
+  controller.updateCameraPosition();
+  assert.ok(controller.camera.position.distanceTo(initialEye) < 1e-8);
+  assert.ok(controller.camera.quaternion.angleTo(initialRotation) < 1e-7);
+  controller.updateRender(0.14);
+  const halfwayEye = controller.camera.position.clone();
+  const halfwayRotation = controller.camera.quaternion.clone();
+  controller.setPerspective('first_person');
+  controller.updateCameraPosition();
+  assert.ok(controller.camera.position.distanceTo(halfwayEye) < 1e-8);
+  assert.ok(controller.camera.quaternion.angleTo(halfwayRotation) < 1e-7);
+  controller.updateRender(0.28);
+  assert.ok(controller.camera.position.distanceTo(initialEye) < 1e-8);
+  assert.ok(controller.camera.quaternion.angleTo(initialRotation) < 1e-7);
+  controller.setPerspective('third_person');
+  controller.updateRender(0.28);
+  assert.ok(controller.camera.position.distanceTo(position.clone().add(new THREE.Vector3(0, 1.6, 4))) < 1e-8);
+  assert.ok(controller.camera.quaternion.angleTo(new THREE.Quaternion()) < 1e-7);
 });
 
 test('leaving a fixed-orientation seat preserves free look and resets body orientation', () => {

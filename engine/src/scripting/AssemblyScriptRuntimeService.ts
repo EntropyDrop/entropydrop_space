@@ -1,30 +1,12 @@
 import { compileEntityScript, getCompiledEntityScript, getEntityScriptMemoryPages, ENTITY_FUEL } from './AssemblyScriptCompiler.ts';
 import { createEntityScriptHost } from './EntityScriptHost.ts';
+import { copyScriptData as dataCopy, validateScriptData, validateScriptDataWrite,
+  ScriptBudgetError as BudgetError, SCRIPT_DATA_LIMIT_BYTES as DATA_LIMIT,
+  BLOCKED_SCRIPT_DATA_KEYS as BLOCKED_KEYS } from './BoundedScriptData.ts';
 export { preloadAssemblyScriptRuntime } from './AssemblyScriptCompiler.ts';
 
 const MEMORY_LIMIT = 4 * 1024 * 1024;
-const DATA_LIMIT = 1024 * 1024;
-const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const own = (value: any, key: string) => value != null && Object.prototype.hasOwnProperty.call(value, key);
-class BudgetError extends Error {}
-
-/** Clone only bounded JSON data. Never copy API functions or prototype properties. */
-function dataCopy(value: any, budget = { bytes: 0, nodes: 0 }, depth = 0): any {
-  if (++budget.nodes > 16384 || depth > 32) throw new BudgetError('Entity data exceeds structural limits');
-  budget.bytes += typeof value === 'string' ? value.length * 2 : 8;
-  if (budget.bytes > DATA_LIMIT) throw new BudgetError('Entity data exceeds 1 MiB');
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value !== 'object') throw new Error('Only JSON data may cross the WASM boundary');
-  const out: any = Array.isArray(value) ? [] : Object.create(null);
-  for (const key of Object.keys(value)) {
-    if (BLOCKED_KEYS.has(key)) throw new Error('Reserved entity data key');
-    budget.bytes += key.length * 2;
-    out[key] = dataCopy(value[key], budget, depth + 1);
-  }
-  return out;
-}
 
 type ComponentMemory = { module: WebAssembly.Module; memory: WebAssembly.Memory; initialBytes: number; inUse: boolean };
 type Entity = { modules: Map<string, WebAssembly.Module>; memories: Map<string, ComponentMemory>; revisions: Map<string, number>; pending: Set<Promise<any>>; disposed: boolean };
@@ -52,7 +34,7 @@ export function createAssemblyScriptRuntimeService() {
     const errors: any[] = [], executionTimes: Record<string, number> = {};
     const scriptsStarted = performance.now();
     try {
-      dataCopy(snapshot.states || {});
+      validateScriptData(snapshot.states || {});
       host.beginTick(snapshot);
       const order = (snapshot.scriptOrder || [...entity.modules.keys()]).slice(0, 64);
       for (const nodeId of order) {
@@ -144,7 +126,7 @@ export function createAssemblyScriptRuntimeService() {
             bridgeBytes += allocation.bytes;
             if (bridgeBytes > DATA_LIMIT) throw new BudgetError('Entity bridge allocation exceeds 1 MiB');
             // Validate the complete value BEFORE writing, including aliases and growth.
-            dataCopy({ ...target, [key]: copy });
+            validateScriptDataWrite(target, key, copy);
             target[key] = copy;
             allowWrite(copy);
           },
@@ -219,7 +201,7 @@ export function createAssemblyScriptRuntimeService() {
         if (host.shouldStop()) break;
       }
       const result = host.finish();
-      dataCopy(result.states);
+      validateScriptData(result.states);
       return { requestId: message.requestId, ...result, errors, executionTimes, fuelUsed: ENTITY_FUEL - fuel, elapsedMs: performance.now() - started };
     } catch (error: any) {
       // Never apply partially emitted commands or state after a budget/memory trap.

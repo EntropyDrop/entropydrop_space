@@ -429,6 +429,7 @@ export class PlayerController {
     return this._cameraSession = new PlayerCamera({
       get camera() { return host.camera; },
       set camera(value) { host.camera = value; },
+      get bodyQuaternion() { return host.bodyQuaternion; },
       get physics() { return host.physics; },
       set physics(value) { host.physics = value; },
       get sceneRenderer() { return host.sceneRenderer; },
@@ -767,8 +768,8 @@ export class PlayerController {
         return;
       }
 
-      // Seat orientation belongs to the rider's body. Mouse look remains in
-      // world space, including unrestricted horizontal turns while mounted.
+      // Keep unrestricted mouse-look angles; the camera separately composes
+      // the mounted body's tilt when rendering a first-person view.
       this.yaw -= e.movementX * this.mouseSensitivity;
       this.pitch -= e.movementY * this.mouseSensitivity;
 
@@ -6206,7 +6207,7 @@ export class PlayerController {
     return this.cameraSession.togglePerspective();
   }
 
-  /** Camera look stays independent of a mounted seat's body orientation. */
+  /** Free-look heading stays independent of the mounted body's tilt. */
   get viewYaw(): number {
     return this.cameraSession.viewYaw;
   }
@@ -6432,7 +6433,7 @@ export class PlayerController {
     if (this.worldPickingSuspended) {
       return { kind: null, worldHit: { hit: false }, entityHit: null };
     }
-    const eyePos = this.physics.getEyePosition();
+    const eyePos = this.cameraSession.getEyePosition();
     const eyeBent = PlayerController._bentEye.copy(eyePos);
     bendPointForView(eyePos.x, eyePos.y, eyePos.z, eyeBent);
     const forwardFlat = PlayerController._forwardFlat

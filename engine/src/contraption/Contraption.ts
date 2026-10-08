@@ -321,13 +321,24 @@ export type EntityCollisionBounds = CollisionBounds & {
   entityId: string; bodyId: string; contraption: Contraption;
 };
 
+type NodeBlockBounds = Readonly<{
+  min: readonly number[]; max: readonly number[];
+  size: readonly number[]; center: readonly number[];
+}>;
+
 export class Contraption {
   /** Authored content revision; simulation poses and runtime overrides do not change it. */
   definitionVersion = 0;
 
   markDefinitionChanged() {
     this.definitionVersion++;
+    this.nodeBlockBoundsCache = null;
   }
+
+  private nodeBlockBoundsCache: {
+    blocks: RuntimeVoxel[]; length: number; bounds: Map<string, NodeBlockBounds>;
+  } | null = null;
+  private collisionNodeTransforms = new WeakMap<EntityNode, { matrix: THREE.Matrix4; pivot: THREE.Vector3 }>();
 
   decorations: DecorationDefinition[];
   // Effective runtime values are checkpointed separately from authored definitions.
@@ -2441,6 +2452,7 @@ export class Contraption {
   }
 
   buildCollisionCells() {
+    this.nodeBlockBoundsCache = null;
     this.blockMap = new Map();
     const cells = new Map<string, { x: number; y: number; z: number; span: number }>();
     const entries = new Map<string, { x: number; y: number; z: number; span: number; entityId: string }>();
@@ -2529,6 +2541,7 @@ export class Contraption {
   }
 
   updateCollisionIncremental(addedBlocks: RuntimeVoxel[] = [], removedBlocks: RuntimeVoxel[] = []) {
+    this.nodeBlockBoundsCache = null;
     if (!this.collisionEntryMap || !this.collisionCellMap || !this.collisionSurfaceSet || !this.collisionRegionEntries) {
       this.buildCollisionCells();
       return;
@@ -3265,6 +3278,9 @@ export class Contraption {
       const definition = this.childDefinitions.get(id);
       if (definition) definition.bodyType = type;
     }
+    // Changing a child's body type changes the parent's attached collision
+    // samples even when every component stays in the same pose.
+    this.invalidateCollisionPoseCache();
     return true;
   }
 
@@ -3490,9 +3506,14 @@ export class Contraption {
       .add(body.position);
     node.localPosition.copy(parent.group.worldToLocal(pivotWorld.clone()));
     node.localQuaternion.copy(parentQuaternion.invert().multiply(body.quaternion).normalize());
+    const changed = !node.group.position.equals(node.localPosition)
+      || !node.group.quaternion.equals(node.localQuaternion);
     node.group.position.copy(node.localPosition);
     node.group.quaternion.copy(node.localQuaternion);
     node.group.updateWorldMatrix(true, true);
+    // Dynamic children are projected after updateTransform in a physics substep.
+    // Their new poses must invalidate cached boxes even when the root is still.
+    if (changed) this.invalidateCollisionPoseCache();
   }
 
   syncAllBodyTransforms() {
@@ -3783,24 +3804,40 @@ export class Contraption {
     });
   }
 
-  /** Entity-local block bounds for a component, or null when it has no blocks. */
-  getNodeBlocksBounds(nodeId: string) {
+  /** Authored bounds change with geometry/ownership, not simulation poses.
+   * Build all component bounds in one pass after an edit; snapshots then read
+   * immutable cached values instead of scanning all voxels for every component. */
+  getNodeBlocksBounds(nodeId: string): NodeBlockBounds | null {
     const id = String(nodeId || this.rootComponentId);
-    const nodeBlocks = this.blocks.filter(b => (b.entityId || this.rootComponentId) === id);
-    if (nodeBlocks.length === 0) return null;
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const b of nodeBlocks) {
-      const size = b.size || 1;
-      minX = Math.min(minX, b.localX); minY = Math.min(minY, b.localY); minZ = Math.min(minZ, b.localZ);
-      maxX = Math.max(maxX, b.localX + size); maxY = Math.max(maxY, b.localY + size); maxZ = Math.max(maxZ, b.localZ + size);
+    if (!this.nodeBlockBoundsCache || this.nodeBlockBoundsCache.blocks !== this.blocks
+      || this.nodeBlockBoundsCache.length !== this.blocks.length) {
+      const ranges = new Map<string, CollisionBounds>();
+      for (const block of this.blocks) {
+        const owner = block.entityId || this.rootComponentId;
+        const size = block.size || 1;
+        const bounds = ranges.get(owner);
+        if (bounds) {
+          bounds.minX = Math.min(bounds.minX, block.localX);
+          bounds.minY = Math.min(bounds.minY, block.localY);
+          bounds.minZ = Math.min(bounds.minZ, block.localZ);
+          bounds.maxX = Math.max(bounds.maxX, block.localX + size);
+          bounds.maxY = Math.max(bounds.maxY, block.localY + size);
+          bounds.maxZ = Math.max(bounds.maxZ, block.localZ + size);
+        } else ranges.set(owner, { minX: block.localX, minY: block.localY, minZ: block.localZ,
+          maxX: block.localX + size, maxY: block.localY + size, maxZ: block.localZ + size });
+      }
+      const bounds = new Map<string, NodeBlockBounds>();
+      for (const [owner, { minX, minY, minZ, maxX, maxY, maxZ }] of ranges) {
+        bounds.set(owner, Object.freeze({
+          min: Object.freeze([minX, minY, minZ]),
+          max: Object.freeze([maxX, maxY, maxZ]),
+          size: Object.freeze([maxX - minX, maxY - minY, maxZ - minZ]),
+          center: Object.freeze([(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]),
+        }));
+      }
+      this.nodeBlockBoundsCache = { blocks: this.blocks, length: this.blocks.length, bounds };
     }
-    return Object.freeze({
-      min: Object.freeze([minX, minY, minZ]),
-      max: Object.freeze([maxX, maxY, maxZ]),
-      size: Object.freeze([maxX - minX, maxY - minY, maxZ - minZ]),
-      center: Object.freeze([(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2])
-    });
+    return this.nodeBlockBoundsCache.bounds.get(id) || null;
   }
 
   /**
@@ -4525,16 +4562,19 @@ export class Contraption {
     this.previousPosition.copy(this.position);
     this.previousQuaternion.copy(this.quaternion);
     this.rootGroup.updateMatrixWorld(true);
+    let historyChanged = false;
     for (const node of this.entityNodes.values()) {
       node.previousLocalPosition ||= node.localPosition.clone();
       node.previousLocalQuaternion ||= node.localQuaternion.clone();
       node.previousLocalPosition.copy(node.localPosition);
       node.previousLocalQuaternion.copy(node.localQuaternion);
       node.group.updateWorldMatrix(true, false);
+      if (!node.previousWorldMatrix || !node.previousWorldMatrix.equals(node.group.matrixWorld)) historyChanged = true;
       if (!node.previousWorldMatrix) node.previousWorldMatrix = new THREE.Matrix4();
       node.previousWorldMatrix.copy(node.group.matrixWorld);
     }
-    this.invalidateCollisionPoseCache();
+    // Even a newly stopped body needs one update to settle its swept history.
+    if (historyChanged) this.invalidateCollisionPoseCache();
   }
 
   /** Project a received trajectory without running code, forces or constraints.
@@ -5724,7 +5764,21 @@ export class Contraption {
     this.rootGroup.position.copy(this.position);
     this.rootGroup.quaternion.copy(this.quaternion);
     this.rootGroup.updateMatrixWorld(true);
-    this.invalidateCollisionPoseCache();
+    let changed = false;
+    for (const node of this.entityNodes.values()) {
+      const saved = this.collisionNodeTransforms.get(node);
+      if (!saved) {
+        this.collisionNodeTransforms.set(node, { matrix: node.group.matrixWorld.clone(), pivot: node.pivotLocal.clone() });
+        changed = true;
+      } else if (!saved.matrix.equals(node.group.matrixWorld) || !saved.pivot.equals(node.pivotLocal)) {
+        saved.matrix.copy(node.group.matrixWorld);
+        saved.pivot.copy(node.pivotLocal);
+        changed = true;
+      }
+    }
+    // Reuse pose caches across stationary ticks. No per-tick arrays or matrix
+    // copies are needed; geometry and collision edits still invalidate explicitly.
+    if (changed) this.invalidateCollisionPoseCache();
   }
 
   /** Apply a temporary presentation pose between the last two fixed entity
