@@ -26,7 +26,7 @@ class SpaceStaticRouterTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_extensionless_space_pages_use_current_generated_entries(self):
-        for uri in ['/space', '/space/intro', '/space/apikeys', '/space/authorize', '/space/login', '/space/monitor', '/space/monitoring']:
+        for uri in ['/space', '/space/intro', '/space/authorize', '/space/login', '/space/monitor', '/space/monitoring']:
             with self.subTest(uri=uri):
                 self.assertEqual(self.route(uri)['uri'], uri + '/index.html')
 

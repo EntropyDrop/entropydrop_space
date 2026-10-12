@@ -14,7 +14,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 
 
 MAIN_ROUTES = (
-    'space', 'space/intro', 'space/apikeys', 'space/authorize', 'space/login',
+    'space', 'space/intro', 'space/authorize', 'space/login',
     'space/monitor', 'space/monitoring',
 )
 LEGACY_ROUTES = ('/space/app', '/space/app/', '/space/app/index.html')
