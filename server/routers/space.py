@@ -474,12 +474,12 @@ def _chunk_for_micro(mx: int, mz: int) -> tuple[int, int]:
 
 def _overlay_maps(payload: dict) -> tuple[dict[str, list], dict[str, list]]:
     standard = {
-        f"{int(edit[0])},{int(edit[1])},{int(edit[2])}": list(edit[:5])
+        f"{int(edit[0])},{int(edit[1])},{int(edit[2])}": list(edit[:6])
         for edit in payload["standard"]
         if isinstance(edit, list) and len(edit) >= 5
     }
     micro = {
-        f"{int(edit[0])},{int(edit[1])},{int(edit[2])}": list(edit[:5])
+        f"{int(edit[0])},{int(edit[1])},{int(edit[2])}": list(edit[:6])
         for edit in payload["micro"]
         if isinstance(edit, list) and len(edit) >= 4
     }

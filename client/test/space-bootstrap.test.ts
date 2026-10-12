@@ -153,6 +153,23 @@ test('Space loads every terrain snapshot page and posts authenticated mutation b
   });
 });
 
+test('terrain conflicts are recoverable rejections while position and quota errors remain retryable', async () => {
+  for (const [code, status, permanent] of [
+    ['STANDARD_CELL_OCCUPIED', 409, true],
+    ['TERRAIN_BATCH_EXPIRED', 409, true],
+    ['TERRAIN_PLAYER_POSITION_STALE', 409, false],
+    ['TERRAIN_EDIT_QUOTA_REACHED', 429, false],
+  ] as const) {
+    const remote = await loadTerrainEditRemote('https://api.entropydrop.com', 'token', 'world', async (_url, init) => (
+      init?.method === 'POST'
+        ? Response.json({ detail: { code } }, { status, headers: { 'Retry-After': '2' } })
+        : Response.json({ chunks: [], next_cursor: null })
+    ));
+    await assert.rejects(remote.sendBatch('batch', [{ kind: 'set_micro', mx: 8, my: 640, mz: 8, color: 1 }]),
+      (error: any) => error.code === code && (error.permanent === true) === permanent && error.retryAfterMs === 2000);
+  }
+});
+
 test('terrain AOI windows are tiled, wrapped, and capped at 16 chunks', () => {
   assert.deepEqual(terrainStreamAreaForPosition(8192, 1024), {
     centerChunkX: 516,

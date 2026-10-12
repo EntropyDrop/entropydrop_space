@@ -115,9 +115,8 @@ class Game {
         remote: session.terrain_edit_remote,
         storage: persistentStorage,
         onSyncStatus: status => spaceUiStore.setWorldEditSync(status),
-        // A batch older than the bounded server dedupe window is intentionally
-        // not replayed over newer shared-world edits. Reload the authoritative
-        // AOI after removing that stale outbox entry.
+        // Rejected/expired edits must not remain visible locally. Persistence
+        // drains valid edits and durably clears the outbox before this reload.
         onResyncRequired: () => {
           window.location.reload();
         }

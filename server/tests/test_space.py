@@ -613,6 +613,36 @@ def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(cli
     assert chunks[0]["micro"] == [[809, 401, 803, 0xABCDEF, "tip", 1]]
 
 
+def test_later_terrain_batches_preserve_existing_standard_and_micro_materials(client, db):
+    user = _user(db, "space-material-reedit", None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    path = f"/space/api/v2/worlds/{world_id}/terrain-edits"
+    mutations = [
+        {"kind": "set_standard", "x": 100, "y": 50, "z": 100,
+         "block": 1, "color": 0x123456, "material": 1},
+        {"kind": "set_micro", "mx": 809, "my": 401, "mz": 803,
+         "color": 0xABCDEF, "part": "tip", "material": 1},
+    ]
+    first = client.post(path + "/batches", json={"batch_id": str(uuid.uuid4()), "mutations": mutations})
+    assert first.status_code == 200, first.text
+    second = client.post(path + "/batches", json={
+        "batch_id": str(uuid.uuid4()), "mutations": [
+            {"kind": "set_standard", "x": 102, "y": 50, "z": 100, "block": 1, "color": 42},
+        ],
+    })
+    assert second.status_code == 200, second.text
+    chunk = client.get(path).json()["chunks"][0]
+    assert chunk["standard"] == [[100, 50, 100, 1, 0x123456, 1], [102, 50, 100, 1, 42]]
+    assert chunk["micro"] == [[809, 401, 803, 0xABCDEF, "tip", 1]]
+
+    unchanged = client.post(path + "/batches", json={"batch_id": str(uuid.uuid4()), "mutations": mutations})
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["effective_changes"] == 0
+    assert unchanged.json()["terrain_revision"] == second.json()["terrain_revision"]
+    assert client.get(path).json()["chunks"][0] == chunk
+
+
 def test_space_terrain_height_is_256_metres(client, db):
     user = _user(db, "space-height-01", "https://cdn.entropydrop.com/skins/height.png")
     app.dependency_overrides[get_current_user] = lambda: user

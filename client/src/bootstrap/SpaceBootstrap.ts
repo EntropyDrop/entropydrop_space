@@ -657,7 +657,7 @@ export async function loadTerrainEditRemote(
           detail?.message || `Space terrain batch was not accepted: ${code}`
         );
         error.code = code;
-        if (code === 'TERRAIN_BATCH_EXPIRED') error.permanent = true;
+        if (code === 'TERRAIN_BATCH_EXPIRED' || code === 'STANDARD_CELL_OCCUPIED') error.permanent = true;
         const retryAfter = response.headers?.get?.('Retry-After');
         if (retryAfter) {
           const seconds = Number(retryAfter);

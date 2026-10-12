@@ -303,6 +303,7 @@ export class WorldEditPersistence {
   private blockedCode: string | null = null;
   private lastSyncStatusKey = '';
   private dirty = false;
+  private resyncRequired = false;
 
   constructor(options: WorldEditPersistenceOptions) {
     this.worldId = String(options.worldId || '').trim();
@@ -865,7 +866,7 @@ export class WorldEditPersistence {
   }
 
   private scheduleRemoteFlush(delay = this.saveDelayMs) {
-    if (!this.remote || this.sendingBatchId || this.pendingBatches.length === 0) return;
+    if (!this.remote || this.sendingBatchId || (this.pendingBatches.length === 0 && !this.resyncRequired)) return;
     if (this.remoteRetryTimer !== null) return;
     this.remoteRetryTimer = setTimeout(() => {
       this.remoteRetryTimer = null;
@@ -874,16 +875,22 @@ export class WorldEditPersistence {
   }
 
   private async flushNextRemoteBatch() {
-    if (!this.remote || this.sendingBatchId || this.pendingBatches.length === 0) return;
+    if (!this.remote || this.sendingBatchId || (this.pendingBatches.length === 0 && !this.resyncRequired)) return;
     const batch = this.pendingBatches[0];
-    this.sealedBatchIds.add(batch.batchId);
+    if (batch) this.sealedBatchIds.add(batch.batchId);
     // Reserve the batch while its IndexedDB transaction commits so another
     // zero-delay mutation timer cannot start a concurrent send of the same id.
-    this.sendingBatchId = batch.batchId;
+    // The final resync also reserves the queue while its removal commits.
+    this.sendingBatchId = batch?.batchId ?? 'resync';
     this.currentRetryDelayMs = 0;
     this.notifySyncStatus();
     this.flush();
     try {
+      // flush() retains dirty on a synchronous storage failure. An unchanged
+      // already-saved outbox needs no write, but still awaits IndexedDB below.
+      if (this.storage && this.worldId && this.dirty) {
+        throw new Error('The terrain outbox could not be saved to browser storage.');
+      }
       await this.storage?.whenIdle?.();
     } catch (error) {
       // Never transmit an outbox batch that did not become durable. Keep its
@@ -896,6 +903,20 @@ export class WorldEditPersistence {
       this.currentRetryDelayMs = delay;
       this.scheduleRemoteFlush(delay);
       this.notifySyncStatus();
+      return;
+    }
+    if (!batch) {
+      this.sendingBatchId = null;
+      this.remoteFailureCount = 0;
+      this.currentRetryDelayMs = 0;
+      if (this.pendingBatches.length === 0) {
+        this.resyncRequired = false;
+        this.notifySyncStatus();
+        this.onResyncRequired?.();
+      } else {
+        // A local edit may have arrived while the final storage write settled.
+        this.scheduleRemoteFlush(this.remoteBatchDelayMs);
+      }
       return;
     }
     try {
@@ -928,6 +949,7 @@ export class WorldEditPersistence {
           this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_CHUNKS'
           || this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_ZONES'
           || this.blockedCode === 'TERRAIN_EVENT_TOO_LARGE'
+          || this.blockedCode === 'STANDARD_CELL_OCCUPIED'
         )
         && this.splitRejectedBatch(batch)
       ) {
@@ -944,6 +966,7 @@ export class WorldEditPersistence {
         this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_CHUNKS'
         || this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_ZONES'
         || this.blockedCode === 'TERRAIN_EVENT_TOO_LARGE'
+        || this.blockedCode === 'STANDARD_CELL_OCCUPIED'
       ) {
         (error as any).permanent = true;
       }
@@ -954,11 +977,14 @@ export class WorldEditPersistence {
         this.sealedBatchIds.delete(batch.batchId);
         this.remoteFailureCount = 0;
         this.currentRetryDelayMs = 0;
+        // Preserve valid edits from split/remainder batches before reloading
+        // authoritative terrain. The final pass awaits durable outbox removal.
+        this.resyncRequired = true;
         this.dirty = true;
         this.flush();
         this.refreshBackpressure();
         this.notifySyncStatus();
-        this.onResyncRequired?.();
+        this.scheduleRemoteFlush(this.remoteBatchDelayMs);
         return;
       }
       console.warn('Space terrain batch remains queued for retry.', error);

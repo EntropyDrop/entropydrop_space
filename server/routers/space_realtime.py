@@ -24,6 +24,7 @@ from space.database import SessionLocal, get_db
 from rate_limit import limiter, get_authenticated_or_remote_address
 from routers import space as space_api
 from space.entity_pose import MAX_ENTITY_POSE_BYTES, MAX_SESSION_ENTITY_POSES, parse_entity_pose, authorize_entity_poses, parse_hosted_trajectory
+from space.hosting_cores import MAX_HOSTING_CORES
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ SPACE_REALTIME_MAX_BUFFERED_SEND_SECONDS = 0.05
 SPACE_ADMISSION_RESERVATION_SECONDS = 60
 SPACE_ADMISSION_QUEUE_LEASE_SECONDS = 30
 SPACE_ADMISSION_POLL_AFTER_MS = 2_000
+HOSTED_TRAJECTORY_TTL_SECONDS = 2
 
 _ticket_redis = Redis.from_url(
     settings.REDIS_URL,
@@ -567,12 +569,17 @@ class SpaceRealtimeHub:
     def _accept_hosted_trajectory(self, world_id, trajectory):
         trajectory = parse_hosted_trajectory(trajectory)
         states = self.hosted_trajectories.setdefault(world_id, {})
+        now = time.monotonic()
+        for entity_id, state in list(states.items()):
+            if now - state["received_at"] > HOSTED_TRAJECTORY_TTL_SECONDS:
+                states.pop(entity_id)
         old = states.get(trajectory["entity_id"])
         if old and (old["execution_epoch"], old["revision"]) >= (trajectory["execution_epoch"], trajectory["revision"]):
             return
-        states[trajectory["entity_id"]] = {**trajectory, "received_at": time.monotonic()}
-        if len(states) > 4:
-            states.pop(next(iter(states)))
+        states[trajectory["entity_id"]] = {**trajectory, "received_at": now}
+        if len(states) > MAX_HOSTING_CORES:
+            oldest = min(states, key=lambda entity_id: states[entity_id]["received_at"])
+            states.pop(oldest)
 
     def _record_terrain_revision(self, world_id: str, revision: int) -> None:
         self.terrain_revisions[world_id] = max(
@@ -642,7 +649,7 @@ class SpaceRealtimeHub:
         candidates += [p for p in self.remote_entity_candidates.get(world_id, {}).values() if now - p["received_at"] < 0.5]
         for trajectory in self.hosted_trajectories.get(world_id, {}).values():
             age = now - trajectory["received_at"]
-            if age > 2:
+            if age > HOSTED_TRAJECTORY_TTL_SECONDS:
                 continue
             index = min(len(trajectory["poses"]) - 1, max(0, int(age / 0.05)))
             candidates.append({"source": "hosting", "entity_id": trajectory["entity_id"],

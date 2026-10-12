@@ -535,6 +535,134 @@ test('remote terrain outbox waits for IndexedDB durability before transmission',
   assert.equal(new Set(sent.map(batch => batch.batchId)).size, 2);
 });
 
+for (const failure of ['synchronous', 'asynchronous'] as const) {
+  test(`remote terrain retains a stable outbox after ${failure} storage failure`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.mock.method(console, 'warn', () => {});
+    let failing = true;
+    const savedIds: string[] = [];
+    const sent: string[] = [];
+    class FailingStorage extends MemoryStorage {
+      override setItem(key: string, value: string) {
+        savedIds.push(JSON.parse(value).pendingBatches[0].batchId);
+        if (failing && failure === 'synchronous') throw new Error('QuotaExceededError');
+        super.setItem(key, value);
+      }
+      async whenIdle() {
+        if (failing && failure === 'asynchronous') throw new Error('IndexedDB transaction aborted');
+      }
+    }
+    const storage = new FailingStorage();
+    const persistence = new WorldEditPersistence({
+      worldId: `failed-${failure}-outbox`, storage, saveDelayMs: 0,
+      remote: { chunks: [], async sendBatch(id) { sent.push(id); } },
+    });
+    persistence.recordStandard(10, 80, 10, BlockTypes.COLOR_BLOCK, 0x123456);
+    t.mock.timers.tick(0);
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+    assert.deepEqual(sent, []);
+    assert.equal(persistence.getSyncStatus().pendingMutations, 1);
+    assert.equal(persistence.getSyncStatus().retrying, true);
+
+    failing = false;
+    t.mock.timers.tick(2000);
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+    assert.deepEqual(sent, [savedIds[0]], 'the recovered send keeps the original idempotency key');
+    assert.ok(savedIds.every(id => id === sent[0]));
+    assert.equal(persistence.getSyncStatus().pendingMutations, 0);
+    assert.equal(storage.getItem(persistence.storageKey), null);
+  });
+}
+
+test('terrain conflicts preserve valid edits and resync once after durable queue removal', async () => {
+  const committed: number[] = [];
+  let finalWritePending = false;
+  let finishFinalWrite!: () => void;
+  const finalWrite = new Promise<void>(resolve => { finishFinalWrite = resolve; });
+  class ResyncStorage extends MemoryStorage {
+    async whenIdle() {
+      if (committed.length === 3 && this.values.size === 0) {
+        finalWritePending = true;
+        await finalWrite;
+      }
+    }
+  }
+  const storage = new ResyncStorage();
+  let resyncs = 0;
+  let persistence: WorldEditPersistence;
+  let attempts = 0;
+  persistence = new WorldEditPersistence({
+    worldId: 'conflict-outbox', storage, saveDelayMs: 0,
+    onResyncRequired: () => { resyncs++; },
+    remote: {
+      chunks: [],
+      async sendBatch(_id, mutations) {
+        attempts++;
+        if (attempts === 1) {
+          // Another local edit queued while the original batch is in flight.
+          persistence.recordStandard(14, 80, 10, BlockTypes.COLOR_BLOCK, 3);
+        }
+        if (mutations.some(mutation => mutation.kind === 'set_micro')) {
+          throw Object.assign(new Error('occupied'), { code: 'STANDARD_CELL_OCCUPIED', permanent: true });
+        }
+        for (const mutation of mutations) {
+          assert.equal(mutation.kind, 'set_standard');
+          if (mutation.kind === 'set_standard') committed.push(mutation.x);
+        }
+      },
+    },
+  });
+  persistence.recordStandard(10, 80, 10, BlockTypes.COLOR_BLOCK, 1);
+  persistence.recordMicro(88, 640, 80, 2);
+  persistence.recordStandard(12, 80, 10, BlockTypes.COLOR_BLOCK, 3);
+  persistence.recordMicro(104, 640, 80, 4);
+  await waitFor(() => finalWritePending);
+  assert.deepEqual(committed, [10, 12, 14], 'valid edits in the same batch and later batches all survive');
+  assert.equal(persistence.getSyncStatus().pendingMutations, 0);
+  assert.equal(resyncs, 0, 'reloading must wait until outbox removal is durable');
+  assert.equal(attempts, 8, 'only failed branches are split, without endless conflict retries');
+  finishFinalWrite();
+  await waitFor(() => resyncs === 1);
+});
+
+test('resync retries failed outbox removal before requesting a reload', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(console, 'warn', () => {});
+  let failing = true;
+  let resyncs = 0;
+  let sends = 0;
+  class FailingRemovalStorage extends MemoryStorage {
+    override removeItem(key: string) {
+      if (failing) throw new Error('Storage unavailable');
+      super.removeItem(key);
+    }
+  }
+  const storage = new FailingRemovalStorage();
+  const persistence = new WorldEditPersistence({
+    worldId: 'resync-removal-failure', storage, saveDelayMs: 0,
+    onResyncRequired: () => { resyncs++; },
+    remote: { chunks: [], async sendBatch() {
+      sends++;
+      throw Object.assign(new Error('expired'), { code: 'TERRAIN_BATCH_EXPIRED', permanent: true });
+    } },
+  });
+  persistence.recordStandard(10, 80, 10, BlockTypes.COLOR_BLOCK, 1);
+  for (let turn = 0; turn < 10; turn++) {
+    t.mock.timers.tick(0);
+    await Promise.resolve();
+  }
+  assert.equal(sends, 1);
+  assert.equal(resyncs, 0);
+  assert.equal(persistence.getSyncStatus().retrying, true);
+  assert.notEqual(storage.getItem(persistence.storageKey), null);
+  failing = false;
+  t.mock.timers.tick(2000);
+  for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+  assert.equal(resyncs, 1);
+  assert.equal(sends, 1);
+  assert.equal(storage.getItem(persistence.storageKey), null);
+});
+
 test('obsolete browser-local grids are ignored without replay or upload', async () => {
   const storage = new MemoryStorage();
   const worldId = 'legacy-upload-world';
