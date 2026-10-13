@@ -45,6 +45,16 @@ The ephemeral entity-to-entity message API is described in
 [entity-messaging.md](docs/entity-messaging.md).
 Development deploys reuse the existing isolated volumes.
 
+In `ENVIRONMENT=development` (also `dev` or `local`), browser checkpoints allow
+120 requests/minute and 6000/hour per credential. This covers eight running
+entities saving every six seconds (80/minute, 4800/hour) plus editing headroom.
+Bootstrap allows 60/minute and 1000/hour for repeated reloads. Production and
+unrecognized environments retain 10/minute and 100/hour for both routes.
+Application-wide IP limits, authentication, checkpoint byte quotas, and entity
+capacity limits remain enabled. Restart the development API after changing
+these policies. The browser respects `Retry-After` on 429 save responses and
+coalesces pending changes to the latest snapshot before retrying.
+
 Monitoring workers retain separate minute buffers and publish cumulative latency
 counters to shared Redis every five seconds. Atomic, per-worker updates make retries
 idempotent; completed-minute snapshots are stored in the world database without

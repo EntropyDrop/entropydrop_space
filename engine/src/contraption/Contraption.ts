@@ -12,7 +12,8 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { normalizeDecorations, offsetDecorations, patchDecoration, freezeDecorationSnapshot, type DecorationDefinition } from './Decorations.ts';
-import { createDecorationGroup, raycastDecorationGroup, updateDecorationMesh } from './DecorationMeshes.ts';
+import { createDecorationGroup, raycastDecorationGroup, updateDecorationMesh,
+  captureDecorationTransforms, interpolateDecorationTransforms, restoreDecorationTransforms } from './DecorationMeshes.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import {
   normalizeVoxelMaterialId,
@@ -552,6 +553,8 @@ export class Contraption {
   }>;
   scriptLogs: string[];
   lastExecutionTimeMs: number;
+  lastInitializationTimeMs: number;
+  lastScriptTickTimeMs: number;
   tickCount: number;
   scriptCommandSequence: number;
   scriptRuntime: number;
@@ -676,6 +679,8 @@ export class Contraption {
     this.decorations = normalizeDecorations(options.decorations);
     this.scriptLogs = [];
     this.lastExecutionTimeMs = 0;
+    this.lastInitializationTimeMs = 0;
+    this.lastScriptTickTimeMs = 0;
     this.tickCount = 0;
     this.scriptCommandSequence = Number.isSafeInteger(options.scriptCommandSequence)
       && (options.scriptCommandSequence ?? -1) >= 0
@@ -1443,6 +1448,8 @@ export class Contraption {
     this.pendingEntityMessageBatchSize = 0;
     this.consumedEntityMessageCount = 0;
     this.lastExecutionTimeMs = 0;
+    this.lastInitializationTimeMs = 0;
+    this.lastScriptTickTimeMs = 0;
     this.slowScriptFrames.clear();
     this.scriptRuntimeClient.reset(this.getSerializableComponentStates());
     this.log('[RESET] All component state reset (state/clock/transforms/forces cleared)');
@@ -4559,6 +4566,7 @@ export class Contraption {
   }
 
   capturePreviousEntityTransforms() {
+    for (const group of this.decorationGroups.values()) captureDecorationTransforms(group);
     this.previousPosition.copy(this.position);
     this.previousQuaternion.copy(this.quaternion);
     this.rootGroup.updateMatrixWorld(true);
@@ -4958,7 +4966,9 @@ export class Contraption {
 
   applyScriptRuntimeResult(result: ScriptRuntimeResult | null, runtimeContext: ScriptRuntimeContext | null) {
     if (!result) return;
-    this.lastExecutionTimeMs = Number(result.elapsedMs) || 0;
+    this.lastInitializationTimeMs = Number(result.initializationMs) || 0;
+    this.lastScriptTickTimeMs = Number(result.elapsedMs) || 0;
+    this.lastExecutionTimeMs = Number(result.executionMs ?? result.elapsedMs) || 0;
     if (result.fatal) {
       const message = result.error || 'AssemblyScript/WASM runtime failed';
       this.scriptError = message;
@@ -5799,6 +5809,7 @@ export class Contraption {
       this.renderSimulationQuaternion,
       amount
     );
+    for (const group of this.decorationGroups.values()) interpolateDecorationTransforms(group, amount);
     for (const node of this.entityNodes.values()) {
       if (node.parentId === null) continue;
       node.group.position.lerpVectors(
@@ -5820,6 +5831,7 @@ export class Contraption {
     if (!this.renderInterpolated) return;
     this.rootGroup.position.copy(this.renderSimulationPosition);
     this.rootGroup.quaternion.copy(this.renderSimulationQuaternion);
+    for (const group of this.decorationGroups.values()) restoreDecorationTransforms(group);
     for (const node of this.entityNodes.values()) {
       if (node.parentId === null) continue;
       node.group.position.copy(node.localPosition);

@@ -359,3 +359,21 @@ test('three consecutive returned slow frames automatically stop the whole entity
   assert.equal(contraption.isNodeScriptEnabled('root'), false);
   assert.match(contraption.nodeScriptErrors.get('arm'), /exceeded 50 ms/);
 });
+
+
+test('initialization telemetry does not count toward the slow script execution guard', async () => {
+  const { contraption } = makeContraption();
+  await setNodeScript(contraption, 'root', 'self.state.setBoolean("runs", true);');
+  for (let i = 0; i < 4; i++) {
+    contraption.applyScriptRuntimeResult({ ok: true, elapsedMs: 84, initializationMs: 80, executionMs: 2,
+      initializationTimes: { root: 80 }, executionTimes: { root: 2 }, states: { root: { runs: true } }, commands: [] }, {});
+  }
+  assert.equal(contraption.isNodeScriptEnabled('root'), true);
+  assert.equal(contraption.lastInitializationTimeMs, 80);
+  assert.equal(contraption.lastExecutionTimeMs, 2);
+  assert.equal(contraption.lastScriptTickTimeMs, 84);
+  contraption.resetAllComponentState();
+  assert.equal(contraption.lastInitializationTimeMs, 0);
+  assert.equal(contraption.lastExecutionTimeMs, 0);
+  assert.equal(contraption.lastScriptTickTimeMs, 0);
+});

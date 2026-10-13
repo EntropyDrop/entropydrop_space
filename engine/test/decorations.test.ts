@@ -99,3 +99,39 @@ test('component installation rebases decoration positions together with voxels a
     assert.equal(requireValue(target).getDecorationCount(), 2);
   } finally { requireValue(target).dispose(); }
 });
+
+test('animated decorations interpolate with the owning frame without changing runtime or checkpoint poses', () => {
+  const entity = new Contraption(3, [block(0)], new THREE.Vector3(), new THREE.Scene(), {
+    rootComponentId: 'base', decorations: [decoration]
+  });
+  try {
+    const mesh = entity.decorationGroups.get('base')!.children[0];
+    const oldPosition = mesh.position.clone(), oldScale = mesh.scale.clone();
+    entity.capturePreviousEntityTransforms();
+    const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 3);
+    entity.editRuntimeDecoration('base', 'trim', { position: [6, 3, 2], rotation: rotation.toArray(), scale: [4, .2, 2] });
+    const currentPosition = mesh.position.clone(), currentScale = mesh.scale.clone();
+    const saved = entity.captureRuntimeDecorations();
+    for (const alpha of [0, .25, .5, .75, 1]) {
+      entity.beginRenderInterpolation(alpha);
+      assert.ok(mesh.position.distanceTo(oldPosition.clone().lerp(currentPosition, alpha)) < 1e-9);
+      assert.ok(mesh.scale.distanceTo(oldScale.clone().lerp(currentScale, alpha)) < 1e-9);
+      assert.ok(mesh.quaternion.angleTo(new THREE.Quaternion().slerp(rotation, alpha)) < 1e-7);
+      assert.deepEqual(entity.captureRuntimeDecorations(), saved, 'rendering never contaminates persistence');
+      entity.endRenderInterpolation();
+      assert.ok(mesh.position.equals(currentPosition));
+      assert.ok(mesh.scale.equals(currentScale));
+      assert.ok(mesh.quaternion.angleTo(rotation) < 1e-7);
+    }
+    entity.capturePreviousEntityTransforms();
+    entity.beginRenderInterpolation(.25);
+    assert.ok(mesh.position.equals(currentPosition), 'an idle tick settles the previous pose');
+    entity.endRenderInterpolation();
+    entity.clearRuntimeDecorations();
+    const resetMesh = entity.decorationGroups.get('base')!.children[0];
+    const resetPosition = resetMesh.position.clone();
+    entity.beginRenderInterpolation(.25);
+    assert.ok(resetMesh.position.equals(resetPosition), 'Stop cannot interpolate through obsolete runtime values');
+    entity.endRenderInterpolation();
+  } finally { entity.dispose(); }
+});

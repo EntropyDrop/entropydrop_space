@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { decode as decodeMessagePack, encode as encodeMessagePack } from '@msgpack/msgpack';
 import {
   SpaceEntityClient,
+  SpaceEntityApiError,
   type SpaceEntityMessageSendResult,
   type SpaceEntityMessageTicket,
   type SpaceEntityRunState,
@@ -79,6 +80,8 @@ export class SpaceEntitySync {
   private readonly localIdByServerId = new Map<string, string>();
   private readonly saveChains = new Map<string, Promise<void>>();
   private readonly pendingSaves = new Map<string, { record: EntityStreamState; definitionChanged: boolean }>();
+  private saveRetryAt = 0;
+  private saveRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly savingKeys = new Set<string>();
   private readonly deletingKeys = new Set<string>();
   private readonly encodedDefinitions = new WeakMap<object, Promise<{ definition: Uint8Array; digest: string }>>();
@@ -132,6 +135,7 @@ export class SpaceEntitySync {
   start() {
     if (this.timer) return;
     this.stopped = false;
+    if (this.pendingSaves.size) this.schedulePendingSaves();
     this.contraptions?.setRemoteEntityPersistence?.({
       save: (record: Parameters<SpaceEntitySync['queueSave']>[0], options: { definitionChanged?: boolean }) => this.queueSave(record, options),
       remove: (publicId: string) => this.queueDelete(publicId),
@@ -151,6 +155,8 @@ export class SpaceEntitySync {
 
   stop() {
     this.stopped = true;
+    if (this.saveRetryTimer) clearTimeout(this.saveRetryTimer);
+    this.saveRetryTimer = null;
     for (const entityId of [...this.entityMessageConnections.keys()]) this.closeEntityMessageConnection(entityId);
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
@@ -895,7 +901,19 @@ export class SpaceEntitySync {
     return this.localIdByServerId.get(publicId) || publicId;
   }
 
+  private schedulePendingSaves() {
+    if (this.stopped || this.saveRetryTimer || !this.pendingSaves.size) return;
+    this.saveRetryTimer = setTimeout(() => {
+      this.saveRetryTimer = null;
+      for (const pending of this.pendingSaves.values()) {
+        void this.queueSave(pending.record, { definitionChanged: pending.definitionChanged });
+      }
+    }, Math.max(1, Math.min(2_147_483_647, this.saveRetryAt - Date.now())));
+    this.saveRetryTimer.unref?.();
+  }
+
   private queueSave(record: EntityStreamState, options: { definitionChanged?: boolean } = {}) {
+    if (this.stopped) return;
     if (!record?.publicId || !record?.slot) return;
     if (record.serverManaged === true && record.serverCanEdit !== true) return;
     const publicId = String(record.publicId);
@@ -910,17 +928,34 @@ export class SpaceEntitySync {
       record,
       definitionChanged: previousPending?.definitionChanged === true || options.definitionChanged !== false,
     });
+    if (Date.now() < this.saveRetryAt) {
+      this.schedulePendingSaves();
+      return this.saveChains.get(key);
+    }
     if (this.savingKeys.has(key)) return this.saveChains.get(key);
     this.savingKeys.add(key);
     const previous = this.saveChains.get(key) || Promise.resolve();
     const next = previous.catch(() => undefined).then(async () => {
       try {
-        while (this.pendingSaves.has(key)) {
+        while (!this.stopped && !this.deletingKeys.has(key) && this.pendingSaves.has(key)) {
+          if (Date.now() < this.saveRetryAt) { this.schedulePendingSaves(); break; }
           const pending = this.pendingSaves.get(key)!;
           this.pendingSaves.delete(key);
           try {
             await this.persistRecord(pending.record, pending.definitionChanged);
           } catch (error) {
+            if (error instanceof SpaceEntityApiError && error.status === 429) {
+              // The route budget is shared by all entities for this credential.
+              // Retain the latest pose and any authored edits without accumulating retries.
+              const latest = this.pendingSaves.get(key);
+              if (!this.deletingKeys.has(key)) this.pendingSaves.set(key, {
+                record: latest?.record || pending.record,
+                definitionChanged: latest?.definitionChanged === true || pending.definitionChanged,
+              });
+              this.saveRetryAt = Math.max(this.saveRetryAt, Date.now() + Math.max(1000, error.retryAfterMs ?? 60_000));
+              this.schedulePendingSaves();
+              break;
+            }
             console.warn(`Space entity ${publicId} could not be persisted.`, error);
           }
         }
@@ -942,7 +977,15 @@ export class SpaceEntitySync {
     const cached = cacheable ? this.encodedDefinitions.get(slot) : undefined;
     if (cached) return cached;
     const encoded = (async () => {
-      const definition = this.controller.encodeInventoryItem?.('entity', slot);
+      // World playback has one entity-wide running/stopped state. Start enables
+      // every component; Stop's temporary disabled mask belongs to playback,
+      // not the authored definition. Persisting that mask changes the digest on
+      // Start and makes every subsequent live checkpoint fail MUST_BE_STOPPED.
+      const source = slot as { enabled?: Array<{ id: string; enabled: boolean }> };
+      const authored = Array.isArray(source.enabled)
+        ? { ...slot, enabled: source.enabled.map(entry => ({ ...entry, enabled: true })) }
+        : slot;
+      const definition = this.controller.encodeInventoryItem?.('entity', authored);
       if (!(definition instanceof Uint8Array)) throw new Error('Entity definition could not be encoded.');
       return { definition, digest: await sha256Hex(definition) };
     })();
@@ -995,7 +1038,11 @@ export class SpaceEntitySync {
     const revision = Number(active?.serverRevision ?? record.serverRevision);
     if (!Number.isSafeInteger(revision) || revision < 1) return;
     const currentDefinitionDigest = active?.serverDefinitionDigest || record.serverDefinitionDigest;
-    const sendDefinition = !currentDefinitionDigest || definitionDigest !== currentDefinitionDigest;
+    // Live checkpoints only publish execution state: the server rejects authored
+    // replacements until Stop. This also permits older saved disabled masks to
+    // resume without requiring an immediate definition migration while running.
+    const sendDefinition = record.serverDesiredRunState !== 'running'
+      && (!currentDefinitionDigest || definitionDigest !== currentDefinitionDigest);
     if (record.serverDesiredRunState === 'running' && (this.leasedUntil.get(serverId) || 0) <= Date.now()) return;
     if (!sendDefinition && this.lastSnapshotJson.get(serverId) === snapshotJson) return;
     let updated: SpaceWorldEntityRecord;
@@ -1049,6 +1096,7 @@ export class SpaceEntitySync {
     if (!id) return;
     const key = this.queueKey(id);
     this.deletingKeys.add(key);
+    this.pendingSaves.delete(key);
     const previous = this.saveChains.get(key) || Promise.resolve();
     const next = previous
       .catch(() => undefined)

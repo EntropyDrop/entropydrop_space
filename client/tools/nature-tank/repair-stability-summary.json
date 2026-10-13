@@ -1,0 +1,38 @@
+{
+  "samples": 926,
+  "durationSeconds": 92.5032999997139,
+  "crossings": 6,
+  "minWheelBottomGap": 0.07317462477869441,
+  "worst": {
+    "tick": 6804,
+    "wheel": "wheel_7",
+    "center": [
+      6493.003922172709,
+      25.948174624778694,
+      632.3961541863039
+    ],
+    "ground": 25
+  },
+  "allRunning": true,
+  "allErrorFree": true,
+  "allFinalCode": true,
+  "start": [
+    6490.976835475557,
+    27.91609453162936,
+    647.6200634084735
+  ],
+  "end": [
+    6490.9412379751675,
+    27.916094159647905,
+    647.8127836608895
+  ],
+  "travelRange": [
+    0.12,
+    1.25
+  ],
+  "maxSuspensionDifference": 0.9921547139364358,
+  "completeClearanceThresholds": {
+    "beforeZ": 626.8,
+    "afterZ": 641.3
+  }
+}

@@ -3,11 +3,54 @@ import { bendPointForView, hookSceneMaterials } from '../torus/TorusWorld.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import type { DecorationDefinition } from './Decorations.ts';
 
+type DecorationPose = { position: THREE.Vector3; rotation: THREE.Quaternion; scale: THREE.Vector3 };
+const poses = new WeakMap<THREE.Object3D, { previous: DecorationPose; current: DecorationPose }>();
+const poseOf = (mesh: THREE.Object3D): DecorationPose => ({
+  position: mesh.position.clone(), rotation: mesh.quaternion.clone(), scale: mesh.scale.clone()
+});
+
+/** Use the same fixed-step history as the owning body and suspended wheels. */
+export function captureDecorationTransforms(group: THREE.Group) {
+  for (const mesh of group.children) {
+    const state = poses.get(mesh);
+    if (!state) continue;
+    state.previous.position.copy(state.current.position);
+    state.previous.rotation.copy(state.current.rotation);
+    state.previous.scale.copy(state.current.scale);
+  }
+}
+
+export function interpolateDecorationTransforms(group: THREE.Group, amount: number) {
+  for (const mesh of group.children) {
+    const state = poses.get(mesh);
+    if (!state) continue;
+    mesh.position.lerpVectors(state.previous.position, state.current.position, amount);
+    mesh.quaternion.slerpQuaternions(state.previous.rotation, state.current.rotation, amount);
+    mesh.scale.lerpVectors(state.previous.scale, state.current.scale, amount);
+  }
+}
+
+export function restoreDecorationTransforms(group: THREE.Group) {
+  for (const mesh of group.children) {
+    const state = poses.get(mesh);
+    if (!state) continue;
+    mesh.position.copy(state.current.position);
+    mesh.quaternion.copy(state.current.rotation);
+    mesh.scale.copy(state.current.scale);
+  }
+}
+
 /** Transform/color animation reuses geometry and materials. */
 export function updateDecorationMesh(mesh: THREE.Mesh, value: DecorationDefinition, pivot: THREE.Vector3) {
   mesh.position.fromArray(value.position || [0, 0, 0]).sub(pivot);
   mesh.quaternion.fromArray(value.rotation || [0, 0, 0, 1]);
   mesh.scale.fromArray(value.scale || [1, 1, 1]);
+  const state = poses.get(mesh);
+  if (state) {
+    state.current.position.copy(mesh.position);
+    state.current.rotation.copy(mesh.quaternion);
+    state.current.scale.copy(mesh.scale);
+  } else poses.set(mesh, { previous: poseOf(mesh), current: poseOf(mesh) });
   if (mesh.userData.decorationColor !== value.color) {
     (mesh.material as THREE.MeshStandardNodeMaterial).color.setHex(value.color);
     const colors = mesh.geometry.getAttribute('color');

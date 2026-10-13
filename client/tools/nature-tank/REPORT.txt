@@ -1,0 +1,154 @@
+TERRA-8 tracked tank repair - local Nature
+2026-10-13
+
+This report supersedes the original wheel-only demo report. Its earlier
+crossing results did not validate tire clearance and must not be used as
+proof that the old suspension kept the wheels above ground.
+
+ENTITY AND CONTROLS
+Local page: http://localhost:5173/space/app/?world=nature
+World: 00000000-0000-4000-8000-000000000002
+Existing tank: 5e6dd2c8-3cd7-447f-b9b5-8a13af1cc19c (updated, no duplicate)
+Construction origin: [6491, 26.875, 623]; root COM: [6491, 28, 622.875].
+Aim at a tank block nearby and press V to enter/leave the configured seat.
+W/S drive forward/reverse; A/D steer; Space brakes; Shift requests higher speed.
+No autonomous shuttle. Without a mounted driver, input cannot propel the tank.
+
+FIXES
+- Two persistent closed tread loops, 32 shoes per side (64 total), animated
+  from left/right travel and following the eight suspension stations.
+- A forward-facing driver seat and actual ctx.driver / ctx.input controls.
+- Ground height comes from ray-origin Y minus hit distance. The returned
+  voxel position is its integer origin, one metre below its upper face.
+- Suspension probes follow wheel centers when the hull pitches. Horizontal
+  probes locate ledge faces, then vertical probes find their true top. Tire
+  clearance uses the circular contact envelope and a small swept margin.
+- A bounded retry defers only an untouched frame whose WASM preparation
+  stalled before any component tick or host operation. At most two such
+  deferrals are allowed; guest execution, aggregate time, memory and fuel
+  failures still stop immediately. Existing 50 ms / 250 ms budgets remain.
+
+MODEL
+8,495 voxels, 10 components, 64 decoration shoes, one seat, one 20 Hz script.
+Dynamic 3,500 kg hull with gravity and collision. Eight independently sprung
+kinematic wheel visuals; tire radius 0.875 m and tread outer radius 1.035 m.
+Spring 16,000 N/m; damping 2,300 Ns/m; travel limited to 0.12..1.25 m.
+The hull moves through forces and torques, not scripted pose/velocity changes.
+Contact is a raycast suspension approximation, not eight rigid tire colliders
+or a physically simulated linked chain. All queries fit the 64-ray tick cap.
+
+ACTUAL BROWSER VALIDATION
+The existing 344-block proving ground has a flat top at Y=25 and a vertical
+one-metre step at Y=26, Z=634..637. No ramp.
+V successfully mounted and dismounted the seat. Native held-key tests verified
+W/S, A/D and Space. Final forward braking reduced planar speed below 0.01 m/s.
+A/D changed yaw in opposite directions; unmounted W is ignored in the script.
+
+A continuous 92.50-second run recorded 926 samples and six complete
+crossings (three each way), including whole-vehicle clearance on each side.
+Every sample used the final controller, stayed running, and had no script error.
+Across 7,408 wheel samples, minimum nominal tire-bottom clearance above the
+surface directly beneath its center was 0.0732 m. No sampled nominal tire envelope
+was below that surface. This is sampled evidence, not continuous collision proof.
+Suspension lengths ranged 0.12..1.25 m, with up to 0.992 m difference
+between wheels at one instant. The final screenshot shows the tank straddling
+the step with the rear road wheels raised and the lower track on the floor.
+
+PERFORMANCE
+Chrome on this Mac, high quality, shadows off, fixed 100% resolution,
+3584 x 1956 canvas at DPR 2. Each static sample records eight seconds after
+one second warmup. Driving records twelve seconds with the seated camera.
+The first three rows use the same fixed camera and preserve the vehicle pose;
+only visibility and script/physics activity change. Other demo vehicles were
+stopped for these measurements. CH-47 is restored afterward.
+
+Condition                    CPU p50   CPU p95   RAF FPS
+Hidden, frozen                 4.2 ms    4.9 ms   120.0
+Visible, frozen                5.6 ms    6.4 ms   119.7
+Visible, idle                  5.7 ms   13.6 ms   117.9
+Manual driving over step       7.2 ms   21.2 ms    91.7
+
+The tank adds 149 draw calls in the paired fixed view. Visible versus hidden
+costs about 1.4 ms of median main-thread frame work. The moving seated view is
+a separate workload and must not be subtracted as a controlled frame-time delta.
+A preliminary 80-shoe version measured about 74 FPS while driving; 64 shoes
+measured about 92 FPS here. These are sequential observations, not a universal
+speedup guarantee. Animation still costs more than idling.
+CPU timings exclude GPU completion, other browser tasks and worker CPU. RAF
+cadence is not calibrated display-presented FPS. Results depend on resolution,
+camera, terrain, concurrent entities and host load.
+
+CHECKS
+- AssemblyScript compilation, protobuf round trip, authored-grid alignment,
+  voxel overlap and quota validation passed.
+- Five vehicle regressions passed: floor surface, pitched ledge contact,
+  swept corner contact, driver controls/brake, persistent seat and tracks.
+- Runtime sandbox suite: 28 passed. Full client suite: 1,128 passed, including
+  the vehicle and entity-sync regressions. English-only check passed (764 files).
+- Engine suite: 542/543 passed in the broad run; its unrelated castle editing
+  timing case exceeded 15 ms while the production build ran concurrently.
+  Isolated rerun passed (maximum 8.511 ms, median 3.806 ms).
+- Engine and client type checks passed. Production build and compiler-worker /
+  module-initialization checks passed. git diff --check passed.
+
+PERSISTENCE
+The final save and a fresh page reload verified the controller, seat and all
+64 tread shoes. The portable assets are tank.pb and course.pb. During the original
+repair, the old 100-checkpoint/hour limit delayed the save until its quota reset.
+On October 13 a subsequent backend repair raised development checkpoints to
+120/minute and 6000/hour and added client Retry-After backoff with coalesced saves.
+Twelve consecutive real tank checkpoints then returned 200 with no pending saves.
+Production request limits, byte quotas and authentication remain unchanged.
+
+EVIDENCE
+Committed summaries: repair-stability-summary.json; repair-final-performance.json
+Final image: repair-final.jpg
+controller.ts; tracks.ts; model.ts; ../../test/nature-tank.test.ts
+Raw trials, per-frame traces, intermediate images, the original report and
+repair-persistence.json are retained in the ignored local evidence archive:
+.local/nature-vehicle-evidence/<run>/client/tools/nature-tank/ at the repository root.
+These local records are optional evidence, not dependencies of the example.
+
+REPRODUCTION
+From the repository root: node client/tools/nature-tank/export.ts
+The exporter validates compilation, grid alignment, overlap, quota and protobuf
+round trips, then writes tank.pb and course.pb beside the sources. Decoded
+tank.json, course.json and model-stats.json are written under the ignored
+.local/nature-vehicle-exports/nature-tank/ directory. Save new raw profiles in
+.local/ as well. The model and probe coordinates target this local Nature course;
+adjust them for other placements. The probe reads the existing tank and does not
+replay its creation. Course building is an explicit local development action.
+
+RELOAD VERIFIED
+After a fresh page reload, all 64 shoes, the seat and the final controller
+were restored from the server. V mounted, W moved the tank 2.77 metres,
+A/D steered in opposite directions, Space braked and V dismounted.
+Final tank state: running, unoccupied, ready to drive. CH-47 restored running.
+
+TREAD JITTER FOLLOW-UP - 2026-10-13
+Decoration transforms previously snapped to each 20 Hz script result while the
+hull and wheels interpolated between fixed updates. Decorations now interpolate
+position, shortest-path quaternion rotation and scale using the same history;
+after rendering, solved transforms are restored and checkpoints remain unchanged.
+Tread rotation now blends adjacent path tangents instead of snapping 22.5 degrees
+at each wheel-arc vertex. A normalized cycle preserves phase as suspension travel
+changes the perimeter. The 64-shoe, 64-ray and 256-command limits are unchanged.
+A bounded preparation retry now also covers pauses before WASM instantiation,
+when allocating/clearing memory. Guest startup/execution and resource failures
+remain non-retryable; retries remain limited to two untouched frames.
+
+The original local tank was updated in place. A 36-second browser trial crossed
+the one-metre step forward and backward without any script error. Comparing the
+same updated trajectory, rendering interpolation reduced local shoe displacement
+P95 from 0.0946 m to 0.0523 m per sampled render frame. Peak angular change fell
+from 10.40 to 5.70 degrees. This measures interpolation, not the full old/new
+controller or FPS; the summary records sampling exclusions and exact values.
+The original position/orientation and stopped state were restored after testing.
+
+Checks: 552 engine tests; seven vehicle regressions; seven hosting tests; engine
+and client type checks; production bundle/worker checks; protobuf export validation.
+The current runtime separately limits initialization to 100 ms per component
+and execution to 50 ms, with independent 250 ms entity totals and a 500 ms tick
+ceiling. Fuel and WASM linear-memory limits remain 100,000 entries and 4 MiB.
+Summary: tread-stability-summary.json. Raw trace and screenshots are under
+.local/tank-track-fix/ and are not required to use the model.

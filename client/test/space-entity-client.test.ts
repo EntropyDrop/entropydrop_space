@@ -16,6 +16,25 @@ const definitionDigest = '0caed08c0cdfe078464c77fbc4032b985d9757db85e8fac65733d5
 const snapshot = new TextEncoder().encode('{"position":[1,32,2]}');
 const snapshotDigest = '8ac8c3d59ef8d0cb5704fde86de4e635578b7f9fa8f32536d2fdf9572e3df2c2';
 
+test('429 errors preserve Retry-After seconds and dates, including non-JSON gateway responses', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  for (const [header, expected] of [
+    ['1482', 1_482_000], [new Date(Date.now() + 30_000).toUTCString(), 30_000],
+    ['0', 0], ['', null], ['invalid', null], ['-1', null],
+  ] as const) {
+    for (const body of ['{"detail":"Too many requests."}', '<html>Too many requests</html>']) {
+      const client = new SpaceEntityClient('https://api.test', 'token', 'world-1',
+        (async () => new Response(body, { status: 429, headers: { 'Retry-After': header } })) as typeof fetch);
+      await assert.rejects(() => client.list(1, 2, 100), (error: any) => {
+        assert.ok(error instanceof SpaceEntityApiError);
+        assert.equal(error.status, 429);
+        assert.equal(error.retryAfterMs, expected);
+        return true;
+      });
+    }
+  }
+});
+
 test('entity identity display fields accept older servers, validate names, and reject invalid expiry', async () => {
   let record: any = entity();
   const client = new SpaceEntityClient('https://api.test', 'token', 'world-1',

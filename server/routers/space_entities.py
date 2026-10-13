@@ -25,7 +25,7 @@ from config import settings
 from space.contracts import space_api_pb2
 from space.database import get_db
 from space.decorations import MAX_DECORATIONS, normalize_decoration
-from rate_limit import limiter, get_authenticated_or_remote_address
+from rate_limit import limiter, get_authenticated_or_remote_address, development_limit
 from routers.space import (
     MAX_PLAYER_Y_CM,
     MIN_PLAYER_Y_CM,
@@ -57,7 +57,11 @@ entity_security = HTTPBearer(auto_error=False)
 SPACE_ENTITY_RATE_LIMIT = "120/minute; 2000/hour"
 SPACE_ENTITY_CREATE_RATE_LIMIT = "30/minute; 300/hour"
 SPACE_ENTITY_WRITE_RATE_LIMIT = "30/minute; 300/hour"
-SPACE_ENTITY_CHECKPOINT_RATE_LIMIT = "10/minute; 100/hour"
+# Eight browser executors checkpoint every six seconds: 80/minute, 4800/hour.
+# Leave headroom for authored edits during sustained development testing.
+SPACE_ENTITY_CHECKPOINT_RATE_LIMIT = development_limit(
+    "10/minute; 100/hour", "120/minute; 6000/hour"
+)
 SPACE_ENTITY_MAX_PER_OWNER = 256
 SPACE_ENTITY_MAX_DEFINITION_BYTES = 8 * 1024 * 1024
 SPACE_ENTITY_MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024

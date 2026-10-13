@@ -313,7 +313,7 @@ const EMPTY_TELEMETRY: TelemetryView = {
   mass: '0.0 kg',
   powerPercent: 0,
   status: 'stopped',
-  executionTime: '0.00 ms',
+  executionTime: 'Init 0.00 ms · Run 0.00 ms',
   logs: ['Terminal ready, waiting for script output...']
 };
 
@@ -2304,7 +2304,7 @@ export class SpaceUiStore {
         mass: `${editingContraption.mass.toFixed(1)} kg`,
         powerPercent,
         status: editingContraption.scriptRuntimeClient?.compiling?.size ? 'compiling' : editingContraption.scriptStatus || 'stopped',
-        executionTime: `${(editingContraption.lastExecutionTimeMs || 0).toFixed(2)} ms`,
+        executionTime: `Init ${(editingContraption.lastInitializationTimeMs || 0).toFixed(2)} ms · Run ${(editingContraption.lastExecutionTimeMs || 0).toFixed(2)} ms`,
         logs: editingContraption.scriptLogs?.length ? [...editingContraption.scriptLogs].map(String) : ['No log output yet...']
       };
     }

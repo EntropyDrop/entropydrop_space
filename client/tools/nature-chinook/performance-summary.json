@@ -1,0 +1,142 @@
+{
+  "dateLocal": "2026-10-13",
+  "timezone": "Asia/Shanghai",
+  "entity": {
+    "definition_digest": "bcaed91e5e8f11a35c958124431eafd046522c19cef8c083ac2e23adcc9cc8d0",
+    "definition_size_bytes": 350230,
+    "desired_run_state": "stopped",
+    "id": "b30dd916-0ce6-4b00-9cc3-71097cc02192",
+    "name": "CH-47 Chinook | Tandem Rotor",
+    "position": {
+      "x_cm": 653600,
+      "y_cm": 2700,
+      "z_cm": 62500
+    },
+    "revision": 1
+  },
+  "model": {
+    "anchor": [
+      6536,
+      27,
+      625
+    ],
+    "bytes": 350230,
+    "components": 3,
+    "voxels": 18306,
+    "standardVoxels": 48,
+    "decorations": 0,
+    "compiledScripts": 3,
+    "nonoverlapping": true,
+    "perComponent": [
+      {
+        "id": "fuselage",
+        "voxels": 14208
+      },
+      {
+        "id": "forward_rotor",
+        "voxels": 2112
+      },
+      {
+        "id": "aft_rotor",
+        "voxels": 1986
+      }
+    ]
+  },
+  "methodology": {
+    "runsPerCondition": 3,
+    "warmupMs": 2000,
+    "sampleMs": 8000,
+    "otherAircraft": "VOLNA-01 kept running in every condition",
+    "fixedSettings": {
+      "canvas": [
+        3584,
+        2068
+      ],
+      "quality": "high",
+      "shadows": false,
+      "position": [
+        6509.54,
+        19,
+        609.39
+      ],
+      "camera": [
+        6509.54,
+        20.62,
+        609.39
+      ],
+      "yaw": -2.103791188194025,
+      "pitch": 0.23575631520228943,
+      "chunks": 91,
+      "world": {
+        "height": 256,
+        "id": "00000000-0000-4000-8000-000000000002",
+        "length": 2048,
+        "name": "EntropyDrop Space (Development)",
+        "seed": 20260827,
+        "slug": "nature",
+        "terrainGeneratorVersion": 1,
+        "width": 16384
+      }
+    },
+    "gpuTiming": false,
+    "cpu": "Synchronous game.animate wall time, not GPU completion",
+    "fps": "Reciprocal mean RAF interval, not confirmed presentation rate"
+  },
+  "groups": [
+    {
+      "label": "before-ch47",
+      "averageFps": 123.82131318525023,
+      "cpuMeanMs": 3.2788347103249422,
+      "medianOfCpuMediansMs": 3.0999999046325684,
+      "cpuP95Ms": [
+        4.099999904632568,
+        4.199999809265137,
+        4.099999904632568
+      ],
+      "maxFrameIntervalMs": 21.5,
+      "drawCalls": 161,
+      "triangles": 888005
+    },
+    {
+      "label": "stopped",
+      "averageFps": 124.18152815320336,
+      "cpuMeanMs": 3.602444071669686,
+      "medianOfCpuMediansMs": 3.4000000953674316,
+      "cpuP95Ms": [
+        4.5,
+        4.5,
+        4.5
+      ],
+      "maxFrameIntervalMs": 15.29999999993015,
+      "drawCalls": 202,
+      "triangles": 975245
+    },
+    {
+      "label": "flying",
+      "averageFps": 122.21443893325937,
+      "cpuMeanMs": 3.82321318383493,
+      "medianOfCpuMediansMs": 3.5999999046325684,
+      "cpuP95Ms": [
+        5.200000286102295,
+        5.199999809265137,
+        5.199999809265137
+      ],
+      "maxFrameIntervalMs": 17.300000000046566,
+      "drawCalls": 202,
+      "triangles": 975245
+    }
+  ],
+  "increment": {
+    "fpsPercent": -1.2977363998609825,
+    "cpuMedianMs": 0.5,
+    "drawCalls": 41,
+    "triangles": 87240
+  },
+  "limitations": [
+    "Single scene and one added helicopter; no population or low-end hardware test.",
+    "FPS difference is within observed run-to-run variation.",
+    "No GPU time, GPU memory or power measurement.",
+    "At the original measurement, model and running intent were saved; the old checkpoint quota blocked motion autosave. The later development quota repair is documented in README.md.",
+    "The final screenshot uses a closer camera after measurements; the player was then restored."
+  ]
+}

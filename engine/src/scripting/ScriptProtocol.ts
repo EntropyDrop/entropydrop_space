@@ -21,11 +21,20 @@ export interface ScriptRuntimeResult {
   pending?: boolean;
   fatal?: boolean;
   elapsedMs?: number;
+  /** Per-tick totals; compilation is asynchronous and excluded. */
+  initializationMs?: number;
+  executionMs?: number;
+  initializationTimes?: Record<string, number>;
+  instancesCreated?: number;
+  instancesReused?: number;
+  fuelUsed?: number;
+  budgetPhase?: 'initialization' | 'execution' | 'tick';
   stopped?: boolean;
   errors?: Array<{ nodeId?: string; error?: string }>;
   commands?: ScriptCommand[];
   states?: Record<string, unknown>;
   frozenStatePaths?: string[][];
+  /** Guest tick execution only, including synchronous host API calls. */
   executionTimes?: Record<string, number>;
 }
 export interface ScriptPlayer {

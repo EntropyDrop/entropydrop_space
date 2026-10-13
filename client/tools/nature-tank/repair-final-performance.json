@@ -1,0 +1,242 @@
+{
+  "frozen": {
+    "calls": {
+      "count": 958,
+      "max": 384,
+      "mean": 384,
+      "p50": 384,
+      "p95": 384
+    },
+    "camera": [
+      6506,
+      30.62,
+      644
+    ],
+    "canvas": [
+      3584,
+      1956
+    ],
+    "chunks": 91,
+    "cpu": {
+      "count": 958,
+      "max": 13.300000190734863,
+      "mean": 5.66461376357427,
+      "p50": 5.599999904632568,
+      "p95": 6.400000095367432
+    },
+    "cpuExcludesGpuAndOtherTasks": true,
+    "durationMs": 8000,
+    "entities": 4,
+    "fps": 119.7267677525904,
+    "frame": {
+      "count": 957,
+      "max": 16.70000000001164,
+      "mean": 8.352351097178635,
+      "p50": 8.299999999988358,
+      "p95": 9.5
+    },
+    "gpuTiming": false,
+    "label": "64-shoe visible frozen same pose and view",
+    "onePercentLow": 86.50519031147967,
+    "pitch": 0.011494465971382052,
+    "position": [
+      6506,
+      29,
+      644
+    ],
+    "quality": "high",
+    "resolution": {
+      "averageFrameMs": 8.333333333333334,
+      "effectivePixelRatio": 2,
+      "fixedScale": 1,
+      "mode": "fixed",
+      "nativePixelRatio": 2,
+      "scale": 1,
+      "targetFps": 120
+    },
+    "shadows": false,
+    "stagesNested": true,
+    "time": "2026-10-13T04:15:17.745Z",
+    "triangles": {
+      "count": 958,
+      "max": 1018023,
+      "mean": 1018023,
+      "p50": 1018023,
+      "p95": 1018023
+    },
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "visibility": "visible",
+    "warmupMs": 1000,
+    "world": {
+      "height": 256,
+      "id": "00000000-0000-4000-8000-000000000002",
+      "length": 2048,
+      "name": "EntropyDrop Space (Development)",
+      "seed": 20260827,
+      "slug": "nature",
+      "terrainGeneratorVersion": 1,
+      "width": 16384
+    },
+    "yaw": 1.2699263791740238
+  },
+  "hidden": {
+    "calls": {
+      "count": 960,
+      "max": 235,
+      "mean": 235,
+      "p50": 235,
+      "p95": 235
+    },
+    "camera": [
+      6506,
+      30.62,
+      644
+    ],
+    "canvas": [
+      3584,
+      1956
+    ],
+    "chunks": 91,
+    "cpu": {
+      "count": 960,
+      "max": 5.800000190734863,
+      "mean": 4.246979166567326,
+      "p50": 4.199999809265137,
+      "p95": 4.900000095367432
+    },
+    "cpuExcludesGpuAndOtherTasks": true,
+    "durationMs": 8000,
+    "entities": 4,
+    "fps": 120.00400430462712,
+    "frame": {
+      "count": 959,
+      "max": 10.300000000046566,
+      "mean": 8.333055265902006,
+      "p50": 8.300000000046566,
+      "p95": 9.5
+    },
+    "gpuTiming": false,
+    "label": "64-shoe hidden frozen same pose and view",
+    "onePercentLow": 97.65625000008882,
+    "pitch": 0.011494465971382052,
+    "position": [
+      6506,
+      29,
+      644
+    ],
+    "quality": "high",
+    "resolution": {
+      "averageFrameMs": 8.333333333333334,
+      "effectivePixelRatio": 2,
+      "fixedScale": 1,
+      "mode": "fixed",
+      "nativePixelRatio": 2,
+      "scale": 1,
+      "targetFps": 120
+    },
+    "shadows": false,
+    "stagesNested": true,
+    "time": "2026-10-13T04:15:26.748Z",
+    "triangles": {
+      "count": 960,
+      "max": 974899,
+      "mean": 974899,
+      "p50": 974899,
+      "p95": 974899
+    },
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "visibility": "visible",
+    "warmupMs": 1000,
+    "world": {
+      "height": 256,
+      "id": "00000000-0000-4000-8000-000000000002",
+      "length": 2048,
+      "name": "EntropyDrop Space (Development)",
+      "seed": 20260827,
+      "slug": "nature",
+      "terrainGeneratorVersion": 1,
+      "width": 16384
+    },
+    "yaw": 1.2699263791740238
+  },
+  "idle": {
+    "calls": {
+      "count": 943,
+      "max": 384,
+      "mean": 384,
+      "p50": 384,
+      "p95": 384
+    },
+    "camera": [
+      6506,
+      30.62,
+      644
+    ],
+    "canvas": [
+      3584,
+      1956
+    ],
+    "chunks": 91,
+    "cpu": {
+      "count": 943,
+      "max": 24.09999990463257,
+      "mean": 7.051961829528323,
+      "p50": 5.699999809265137,
+      "p95": 13.599999904632568
+    },
+    "cpuExcludesGpuAndOtherTasks": true,
+    "durationMs": 8000,
+    "entities": 4,
+    "fps": 117.88261794518834,
+    "frame": {
+      "count": 942,
+      "max": 25.20000000001164,
+      "mean": 8.483014861995754,
+      "p50": 8.299999999988358,
+      "p95": 9.600000000034925
+    },
+    "gpuTiming": false,
+    "label": "64-shoe idle same fixed view",
+    "onePercentLow": 55.58643690938691,
+    "pitch": 0.011494465971382052,
+    "position": [
+      6506,
+      29,
+      644
+    ],
+    "quality": "high",
+    "resolution": {
+      "averageFrameMs": 8.333333333333334,
+      "effectivePixelRatio": 2,
+      "fixedScale": 1,
+      "mode": "fixed",
+      "nativePixelRatio": 2,
+      "scale": 1,
+      "targetFps": 120
+    },
+    "shadows": false,
+    "stagesNested": true,
+    "time": "2026-10-13T04:15:08.744Z",
+    "triangles": {
+      "count": 943,
+      "max": 1018023,
+      "mean": 1018023,
+      "p50": 1018023,
+      "p95": 1018023
+    },
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "visibility": "visible",
+    "warmupMs": 1000,
+    "world": {
+      "height": 256,
+      "id": "00000000-0000-4000-8000-000000000002",
+      "length": 2048,
+      "name": "EntropyDrop Space (Development)",
+      "seed": 20260827,
+      "slug": "nature",
+      "terrainGeneratorVersion": 1,
+      "width": 16384
+    },
+    "yaw": 1.2699263791740238
+  }
+}

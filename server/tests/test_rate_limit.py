@@ -2,8 +2,69 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
+import pytest
+from limits import parse_many
+from limits.storage import MemoryStorage
+from limits.strategies import FixedWindowRateLimiter
 
 import rate_limit
+
+
+@pytest.mark.parametrize("environment,is_dev", [
+    ("development", True), (" DEV ", True), ("local", True),
+    ("production", False), ("prod", False), ("staging", False), ("", False),
+])
+def test_development_budgets_require_an_explicit_dev_environment(monkeypatch, environment, is_dev):
+    monkeypatch.setattr(rate_limit.settings, "ENVIRONMENT", environment)
+    assert rate_limit.development_limit("10/minute; 100/hour", "120/minute; 6000/hour") == (
+        "120/minute; 6000/hour" if is_dev else "10/minute; 100/hour"
+    )
+
+
+def test_checkpoint_budget_supports_eight_entities_for_two_hours(monkeypatch):
+    from routers import space_entities
+    # Exercise the actual configured route limits, with an accelerated storage clock.
+    assert space_entities.SPACE_ENTITY_CHECKPOINT_RATE_LIMIT == rate_limit.development_limit(
+        "10/minute; 100/hour", "120/minute; 6000/hour"
+    )
+    monkeypatch.setattr(rate_limit.settings, "ENVIRONMENT", "development")
+    budgets = parse_many(rate_limit.development_limit("10/minute; 100/hour", "120/minute; 6000/hour"))
+    now = 1_800_000_000
+    monkeypatch.setattr("limits.storage.memory.time.time", lambda: now)
+    counter = FixedWindowRateLimiter(MemoryStorage())
+    for tick in range(1200):
+        now = 1_800_000_000 + tick * 6
+        for _ in range(8):
+            assert all(counter.hit(budget, "checkpoint", "one-account") for budget in budgets)
+
+
+@pytest.mark.parametrize("environment,allowed", [("development", 120), ("production", 10)])
+def test_checkpoint_burst_is_still_bounded_and_returns_retry_after(monkeypatch, environment, allowed):
+    from http_middleware import rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    monkeypatch.setattr(rate_limit.settings, "ENVIRONMENT", environment)
+    test_limiter = rate_limit.HeaderSafeLimiter(
+        key_func=lambda request: "one-account", headers_enabled=True,
+        application_limits=["1200/minute", "50000/hour"],
+        storage_uri="memory://", key_style="endpoint",
+    )
+    app = FastAPI()
+    app.state.limiter = test_limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.middleware("http")(rate_limit.ensure_rate_limit_headers)
+
+    @app.put("/checkpoint")
+    @test_limiter.limit(rate_limit.development_limit("10/minute; 100/hour", "120/minute; 6000/hour"))
+    def checkpoint(request: Request):
+        return {"ok": True}
+
+    app.add_middleware(SlowAPIMiddleware)
+    with TestClient(app) as client:
+        for _ in range(allowed):
+            assert client.put("/checkpoint").status_code == 200
+        blocked = client.put("/checkpoint")
+        assert blocked.status_code == 429
+        assert int(blocked.headers["Retry-After"]) > 0
 
 
 def make_request(client_host: str, headers: dict[str, str] | None = None) -> Request:

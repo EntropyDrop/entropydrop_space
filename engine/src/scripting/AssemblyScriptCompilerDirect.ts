@@ -1,5 +1,5 @@
 import { ENTITY_SCRIPT_SDK } from './EntityScriptSDK.generated.ts';
-import { ENTITY_FUEL, MAX_SCRIPT_SOURCE_BYTES, MEMORY_PAGES_SECTION } from './EntityScriptModule.ts';
+import { ENTITY_FUEL, MAX_SCRIPT_SOURCE_BYTES, MEMORY_PAGES_SECTION, INSTANCE_POLICY_SECTION } from './EntityScriptModule.ts';
 
 type CompilerDependencies = [typeof import('assemblyscript/asc'), typeof import('binaryen')];
 let compiler: Promise<CompilerDependencies> | null = null;
@@ -39,9 +39,14 @@ function meter(binary: Uint8Array, b: any): Uint8Array {
     };
     const leaves = new Set([b.ConstId, b.LocalGetId, b.GlobalGetId, b.NopId, b.UnreachableId, b.MemorySizeId, b.DataDropId]);
     const checkpoint = () => m.call('__entityMeter', [], b.none);
+    // Tables cannot be reset by restoring linear memory/globals. Keep modules
+    // with tables or consumable passive data on the fresh-instance path.
+    let resettable = m.getNumTables() === 0;
     const visit = (ref: number) => {
       if (!ref) return;
-      if (leaves.has(b._BinaryenExpressionGetId(ref))) return;
+      const id = b._BinaryenExpressionGetId(ref);
+      if (id === b.MemoryInitId || id === b.DataDropId) resettable = false;
+      if (leaves.has(id)) return;
       const info = b.getExpressionInfo(ref);
       const fields = keys[info.id];
       if (!fields) throw new Error(`Unsupported WASM instruction in sandbox: ${info.id}`);
@@ -72,6 +77,29 @@ function meter(binary: Uint8Array, b: any): Uint8Array {
     m.addFunctionExport('__setFuel', '__setFuel');
     m.addFunction('__fuel', b.none, b.i32, [], m.global.get('__entityFuel', b.i32));
     m.addFunctionExport('__fuel', '__fuel');
+    // Expose startup so the host can set the shared fuel allowance BEFORE any
+    // guest initializer runs. It is metered above, just like the tick function.
+    const start = m.getStart();
+    m.addFunction('__initialize', b.none, b.none, [], start
+      ? m.call(b.getFunctionInfo(start).name, [], b.none) : m.nop());
+    m.addFunctionExport('__initialize', '__initialize');
+    m.setStart(0);
+    const resets = [];
+    for (let i = 0; i < m.getNumGlobals(); i++) {
+      const global = b.getGlobalInfo(m.getGlobalByIndex(i));
+      if (!global.mutable) continue;
+      if (!global.init || b.getExpressionInfo(global.init).id !== b.ConstId
+        || ![b.i32, b.i64, b.f32, b.f64].includes(global.type)) {
+        resettable = false;
+        continue;
+      }
+      resets.push(m.global.set(global.name, m.copyExpression(global.init)));
+    }
+    if (resettable) {
+      m.addFunction('__resetGlobals', b.none, b.none, [], m.block(null, resets));
+      m.addFunctionExport('__resetGlobals', '__resetGlobals');
+    }
+    m.addCustomSection(INSTANCE_POLICY_SECTION, Uint8Array.of(1, resettable ? 3 : 1));
     if (!m.validate()) throw new Error('Invalid metered entity WASM');
     return m.emitBinary();
   } finally { m.dispose(); }

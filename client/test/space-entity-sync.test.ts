@@ -2,11 +2,77 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SpaceEntitySync } from '../src/engine/network/SpaceEntitySync.ts';
+import { SpaceEntityApiError } from '../src/bootstrap/SpaceEntityClient.ts';
 import { hostingList, hostingStatus } from './hosting-fixtures.ts';
 
 
 const definition = Uint8Array.from([8, 4, 26, 0]);
 const definitionDigest = '0caed08c0cdfe078464c77fbc4032b985d9757db85e8fac65733d57ee7fb5917';
+
+test('429 pauses all autosaves, retains only the latest edits, and resumes at Retry-After', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const { sync } = harness('owner-1');
+  t.after(() => sync.stop());
+  const internal = sync as any;
+  const writes: any[] = [];
+  internal.persistRecord = async (value: any, definitionChanged: boolean) => {
+    writes.push({ value, definitionChanged });
+    if (writes.length === 1) throw new SpaceEntityApiError(429, 'HTTP_429', 'limited', null, 30_000);
+  };
+  const first = { publicId: 'entity-a', slot: {}, position: [0, 0, 0] };
+  await internal.queueSave(first);
+  t.mock.timers.tick(6_000);
+  await internal.queueSave({ ...first, position: [1, 2, 3] }, { definitionChanged: false });
+  await internal.queueSave({ ...first, publicId: 'entity-b' }, { definitionChanged: false });
+  assert.equal(writes.length, 1, 'other entities share the same cooldown');
+  assert.equal(internal.pendingSaves.size, 2);
+  t.mock.timers.tick(23_999);
+  await Promise.resolve();
+  assert.equal(writes.length, 1);
+  t.mock.timers.tick(1);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(writes.length, 3);
+  assert.deepEqual(writes[1].value.position, [1, 2, 3]);
+  assert.equal(writes[1].definitionChanged, true, 'a failed authored edit must survive pose-only updates');
+  assert.equal(internal.pendingSaves.size, 0);
+});
+
+test('429 without Retry-After waits a minute and stopping cancels automatic retries', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const { sync } = harness('owner-1');
+  t.after(() => sync.stop());
+  const internal = sync as any;
+  let calls = 0;
+  internal.persistRecord = async () => { calls++; throw new SpaceEntityApiError(429, 'HTTP_429', 'limited', null); };
+  const saved = { publicId: 'entity-a', slot: {} };
+  await internal.queueSave(saved);
+  t.mock.timers.tick(59_999);
+  await internal.queueSave(saved);
+  assert.equal(calls, 1);
+  sync.stop();
+  t.mock.timers.tick(60_000);
+  await internal.queueSave(saved);
+  assert.equal(calls, 1);
+  assert.equal(internal.saveRetryTimer, null);
+});
+
+test('deleting during a save cooldown removes the pending retry without delaying deletion', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const { sync } = harness('owner-1');
+  t.after(() => sync.stop());
+  const internal = sync as any;
+  let saves = 0;
+  let deletes = 0;
+  internal.persistRecord = async () => { saves++; throw new SpaceEntityApiError(429, 'HTTP_429', 'limited', null, 30_000); };
+  internal.client.delete = async () => { deletes++; };
+  await internal.queueSave({ publicId: 'entity-a', slot: {} });
+  await internal.queueDelete('entity-a');
+  assert.equal(deletes, 1);
+  assert.equal(internal.pendingSaves.size, 0);
+  t.mock.timers.tick(30_000);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(saves, 1);
+});
 
 function aoiUnloadHarness() {
   const entity = { ...record(), desired_run_state: 'stopped' };
@@ -797,6 +863,41 @@ test('pose-only checkpoints encode a frozen definition once and coalesce a block
   assert.equal(writes[1].definition, undefined);
   await internal.queueSave({ ...savedRecord(created[0]), slot: Object.freeze({ name: 'Edited' }), position: [1, 99, 2] });
   assert.equal(encodes, 2, 'a changed definition must be re-encoded');
+});
+
+test('Stop and Start keep the world definition digest stable and live checkpoints omit definition bytes', async t => {
+  const { sync, created } = harness('owner-1', { desired_run_state: 'stopped', can_edit: true });
+  t.after(() => sync.stop());
+  await sync.poll();
+  const internal = sync as any;
+  const entity = created[0];
+  internal.contraptions.findActiveContraptionByPublicId = () => entity;
+  internal.controller.encodeInventoryItem = (_kind: string, value: object) =>
+    new TextEncoder().encode(JSON.stringify(value));
+  const stopped = Object.freeze({ name: 'Orb', enabled: [{ id: 'root', enabled: false }, { id: 'fan', enabled: false }] });
+  const running = Object.freeze({ name: 'Orb', enabled: [{ id: 'root', enabled: true }, { id: 'fan', enabled: true }] });
+  const saved = await internal.encodeDefinition(stopped);
+  const restarted = await internal.encodeDefinition(running);
+  assert.equal(saved.digest, restarted.digest);
+  assert.equal(stopped.enabled[0].enabled, false, 'encoding must not change live playback or frozen input');
+  entity.serverDefinitionDigest = saved.digest;
+  entity.serverDesiredRunState = 'running';
+  internal.leasedUntil.set(entity.publicId, Date.now() + 60_000);
+  internal.executionEpochs.set(entity.publicId, 1);
+  const writes: any[] = [];
+  internal.client.checkpointBrowser = async (_id: string, revision: number, payload: any) => {
+    writes.push(payload);
+    assert.equal(payload.definition, undefined, 'a live pose update must not submit a changed definition');
+    return { ...record(), revision: revision + 1, definition_digest: saved.digest };
+  };
+  await internal.persistRecord({ ...savedRecord(entity), slot: running, serverDesiredRunState: 'running' }, false);
+  assert.equal(writes.length, 1);
+  entity.serverDefinitionDigest = 'legacy-disabled-mask';
+  await internal.persistRecord({ ...savedRecord(entity), slot: running,
+    position: [1, 33, 2], serverDesiredRunState: 'running' }, false);
+  assert.equal(writes.length, 2, 'older persisted playback masks also allow pose-only checkpoints');
+  const edited = await internal.encodeDefinition(Object.freeze({ ...running, name: 'Edited orb' }));
+  assert.notEqual(edited.digest, saved.digest, 'actual authored edits still change the digest');
 });
 
 test('coalesced create retries retain the original operation body then checkpoint the latest pose', async t => {

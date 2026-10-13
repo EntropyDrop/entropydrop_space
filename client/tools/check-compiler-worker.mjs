@@ -41,11 +41,17 @@ if (!isMainThread) {
     assert.equal(sections.length, 1);
     const pages = new Uint8Array(sections[0])[0];
     assert.ok(pages >= 1 && pages <= 64);
+    const policies = WebAssembly.Module.customSections(compiled.module, 'entity-instance-policy');
+    assert.equal(policies.length, 1);
+    assert.deepEqual([...new Uint8Array(policies[0])], [1, 3]);
     const instance = new WebAssembly.Instance(compiled.module, {
       env: { memory: new WebAssembly.Memory({ initial: pages, maximum: 64 }),
         abort() { throw new Error('Unexpected WASM abort'); }, seed: () => 0, trace() {} },
       entity: { budget() { throw new Error('fuel budget exhausted'); } },
     });
+    instance.exports.__setFuel(100_000);
+    instance.exports.__initialize();
+    instance.exports.__resetGlobals();
     instance.exports.__setFuel(0);
     assert.throws(() => instance.exports.__tick(0, 0), /fuel budget exhausted/);
     assert.equal((await request({ id: 3, kind: 'compile', source: 'invalid syntax!!!' })).kind, 'error');

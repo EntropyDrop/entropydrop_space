@@ -6,6 +6,13 @@ import itertools
 from config import settings
 
 
+def development_limit(production: str, development: str) -> str:
+    """Use finite development budgets only in explicitly named dev environments."""
+    if settings.ENVIRONMENT.strip().lower() in {"dev", "development", "local"}:
+        return development
+    return production
+
+
 class HeaderSafeLimiter(Limiter):
     """Let middleware add headers when an endpoint returns a plain JSON value."""
 

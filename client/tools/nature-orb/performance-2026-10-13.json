@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "dateLocal": "2026-10-13",
+  "timezone": "Asia/Shanghai",
+  "source": "Per-run summaries captured from the real browser probe during this task; individual frame arrays were not retained. Millisecond values rounded where noted.",
+  "entity": {
+    "id": "a9398ea9-3c55-45f7-8b59-08c67180add3",
+    "name": "VOLNA-01 | Atomic Sphere",
+    "anchor": [
+      6512,
+      25,
+      620.5
+    ],
+    "components": 3,
+    "voxels": 7747,
+    "standardVoxels": 8,
+    "microVoxels": 7739,
+    "decorations": 0,
+    "protobufBytes": 146667
+  },
+  "environment": {
+    "url": "http://localhost:5173/space/app/?world=nature",
+    "worldId": "00000000-0000-4000-8000-000000000002",
+    "seed": 20260827,
+    "generatorVersion": 1,
+    "browser": "Chrome 154 / macOS",
+    "buffer": [
+      3584,
+      2068
+    ],
+    "devicePixelRatio": 2,
+    "resolutionScale": 1,
+    "quality": "high",
+    "shadows": false,
+    "nearChunks": 91,
+    "farZones": 128,
+    "player": [
+      6509.54,
+      19,
+      609.39
+    ],
+    "camera": [
+      6509.54,
+      20.62,
+      609.39
+    ],
+    "yaw": -2.9236862659514165,
+    "pitch": 0.3674361438387804,
+    "existingEntitiesInBaseline": 1
+  },
+  "methodology": {
+    "warmupMs": 2000,
+    "sampleMs": 8000,
+    "runsPerPrimaryCondition": 3,
+    "cpu": "performance.now around game.animate, excluding other browser tasks and GPU completion",
+    "cadence": "requestAnimationFrame interval; reciprocal mean, not presentation or GPU timing",
+    "gpuTiming": false,
+    "noReadbacksDuringSamples": true
+  },
+  "groups": [
+    {
+      "label": "baseline",
+      "meanFps": 124.81877215028209,
+      "drawCalls": 187,
+      "triangles": 726205,
+      "samples": [
+        {
+          "time": "2026-10-12T17:56:57.460Z",
+          "fps": 124.94684443555052,
+          "cpuMeanMs": 3.6164,
+          "cpuP50Ms": 3.6,
+          "cpuP95Ms": 4.2,
+          "cpuMaxMs": 5,
+          "frameMaxMs": 15.7
+        },
+        {
+          "time": "2026-10-12T17:57:07.462Z",
+          "fps": 126.70113805666512,
+          "cpuMeanMs": 3.6317868,
+          "cpuP50Ms": 3.6,
+          "cpuP95Ms": 4.3,
+          "cpuMaxMs": 4.7,
+          "frameMaxMs": 15.3
+        },
+        {
+          "time": "2026-10-12T17:57:17.464Z",
+          "fps": 122.8083339586306,
+          "cpuMeanMs": 3.626043,
+          "cpuP50Ms": 3.6,
+          "cpuP95Ms": 4.3,
+          "cpuMaxMs": 5.4,
+          "frameMaxMs": 14.1
+        }
+      ]
+    },
+    {
+      "label": "optimized-stopped",
+      "meanFps": 124.61334296666666,
+      "drawCalls": 231,
+      "triangles": 755653,
+      "samples": [
+        {
+          "time": "2026-10-12T18:03:50.426Z",
+          "fps": 123.6883903,
+          "cpuMeanMs": 4.1939394,
+          "cpuP50Ms": 4.2,
+          "cpuP95Ms": 4.9,
+          "cpuMaxMs": 6.6,
+          "frameMaxMs": 14.7
+        },
+        {
+          "time": "2026-10-12T18:04:00.427Z",
+          "fps": 124.78253795,
+          "cpuMeanMs": 4.2001002,
+          "cpuP50Ms": 4.2,
+          "cpuP95Ms": 4.9,
+          "cpuMaxMs": 7.2,
+          "frameMaxMs": 12.8
+        },
+        {
+          "time": "2026-10-12T18:04:10.432Z",
+          "fps": 125.36910065,
+          "cpuMeanMs": 4.394616,
+          "cpuP50Ms": 4.4,
+          "cpuP95Ms": 5.2,
+          "cpuMaxMs": 7.5,
+          "frameMaxMs": 18.5
+        }
+      ]
+    },
+    {
+      "label": "optimized-flying",
+      "meanFps": 123.57053972033333,
+      "drawCalls": 231,
+      "triangles": 755653,
+      "samples": [
+        {
+          "time": "2026-10-12T18:04:41.313Z",
+          "fps": 123.317683881,
+          "cpuMeanMs": 4.93691684,
+          "cpuP50Ms": 4.7,
+          "cpuP95Ms": 6,
+          "cpuMaxMs": 51.5,
+          "frameMaxMs": 53.7
+        },
+        {
+          "time": "2026-10-12T18:04:51.318Z",
+          "fps": 123.274470295,
+          "cpuMeanMs": 4.8673428,
+          "cpuP50Ms": 4.8,
+          "cpuP95Ms": 6.1,
+          "cpuMaxMs": 7.3,
+          "frameMaxMs": 18
+        },
+        {
+          "time": "2026-10-12T18:05:01.320Z",
+          "fps": 124.119464985,
+          "cpuMeanMs": 4.8064451,
+          "cpuP50Ms": 4.7,
+          "cpuP95Ms": 5.9,
+          "cpuMaxMs": 14,
+          "frameMaxMs": 16.5
+        }
+      ]
+    }
+  ],
+  "prototype": {
+    "decorations": 829,
+    "voxels": 10,
+    "time": "2026-10-12T17:59:37.461Z",
+    "fps": 90.53683459,
+    "cpuP50Ms": 10.6,
+    "cpuP95Ms": 11.7,
+    "drawCalls": 1047,
+    "triangles": 736369
+  },
+  "limitations": [
+    "Single view, one aircraft, warm loaded terrain; no population scaling test.",
+    "FPS difference is smaller than run-to-run variation; no significant FPS regression can be established.",
+    "One flying sample included a 53.7 ms frame interval; cause not established.",
+    "No GPU time, GPU memory or power measurement.",
+    "Primary comparison predates checkpoint serialization fix; a separate final-code sample is retained in the local evidence archive as final-flight-sample.json. After reload it had 213 calls with the same 755653 triangles; it is not pooled into the earlier matched comparison.",
+    "Definition and running intent persisted and survived reload. Motion checkpoint verification after the fix was blocked by the existing 100/hour backend quota; last observed Retry-After was 1988 seconds at 2026-10-12T18:20:05Z."
+  ]
+}

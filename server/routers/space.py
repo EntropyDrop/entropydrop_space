@@ -23,7 +23,7 @@ import space_surface
 from config import settings
 from space.database import get_db
 from space.metrics import metrics_collector
-from rate_limit import limiter, get_authenticated_or_remote_address
+from rate_limit import limiter, get_authenticated_or_remote_address, development_limit
 from space_quota import QuotaWindow, UTC_DAY_SECONDS, reserve as reserve_quota, usage as quota_usage
 
 
@@ -33,7 +33,9 @@ router = APIRouter(prefix="/space/api/v2", tags=["space"])
 SPACE_HIGH_FREQ_RATE_LIMIT = "180/minute; 10000/hour; 100000/day"
 SPACE_SURFACE_RATE_LIMIT = "1200/minute; 30000/hour; 150000/day"
 SPACE_TERRAIN_WRITE_RATE_LIMIT = "120/minute; 5000/hour; 100000/day"
-SPACE_BOOTSTRAP_RATE_LIMIT = "10/minute; 100/hour"
+SPACE_BOOTSTRAP_RATE_LIMIT = development_limit(
+    "10/minute; 100/hour", "60/minute; 1000/hour"
+)
 SPACE_HEARTBEAT_RATE_LIMIT = "120/minute; 5000/hour; 100000/day"
 SPACE_PING_RATE_LIMIT = "120/minute; 5000/hour"
 SPACE_PUBLIC_STATUS_RATE_LIMIT = "120/minute; 2000/hour"

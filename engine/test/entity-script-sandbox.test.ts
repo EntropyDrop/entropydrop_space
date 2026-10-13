@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAssemblyScriptRuntimeService } from '../src/scripting/AssemblyScriptRuntimeService.ts';
 import { compileEntityScript, getEntityScriptMemoryPages } from '../src/scripting/AssemblyScriptCompiler.ts';
+import { getEntityScriptInstancePolicy } from '../src/scripting/EntityScriptModule.ts';
 import { remapEntityScriptChildIds } from '../src/scripting/EntityScriptRuntime.ts';
 import { SPACE_SCRIPT_API_V3 } from '../src/contraption/ScriptApiContract.ts';
 
@@ -19,6 +20,66 @@ function fixture() {
   } });
   return { service, send, set, tick };
 }
+
+test('a bounded slow WASM preparation defers an untouched frame and then executes it once', async t => {
+  const f=fixture();
+  await f.set('self.state.setNumber("count", self.state.getNumber("count")+1); self.applyForce([0,10,0]);');
+  const NativeInstance=WebAssembly.Instance;
+  let clock=0;
+  t.mock.method(performance,'now',()=>clock);
+  t.mock.method(WebAssembly,'Instance',function(module:WebAssembly.Module,imports:WebAssembly.Imports){
+    const instance=new NativeInstance(module,imports);clock+=125;return instance;
+  });
+  const deferred=f.tick();
+  assert.equal(deferred.pending,true);
+  assert.equal(deferred.deferredReason,'wasm-preparation');
+  assert.equal(deferred.commands,undefined);
+  assert.equal(deferred.states,undefined);
+  t.mock.restoreAll();
+  const completed=f.tick();
+  assert.equal(completed.ok,true,completed.error);
+  assert.equal(completed.states.root.count,1);
+  assert.equal(completed.commands.length,1);
+  assert.equal(completed.instancesCreated,0);
+  assert.equal(completed.instancesReused,1);
+  assert.equal(deferred.initializationMs,125);
+  assert.equal(deferred.executionMs,0);
+});
+
+test('WASM preparation retries are bounded and never bypass the aggregate budget', async t => {
+  const f=fixture();
+  await f.set('self.state.setNumber("ran",1);');
+  const NativeInstance=WebAssembly.Instance;
+  let clock=0,delay=125;
+  t.mock.method(performance,'now',()=>clock);
+  t.mock.method(WebAssembly,'Instance',function(module:WebAssembly.Module,imports:WebAssembly.Imports){
+    const instance=new NativeInstance(module,imports);clock+=delay;return instance;
+  });
+  const nativeSet=Uint8Array.prototype.set;
+  t.mock.method(Uint8Array.prototype,'set',function(this: Uint8Array, source: ArrayLike<number>, offset?: number) {
+    nativeSet.call(this,source,offset);clock+=delay;
+  });
+  assert.equal(f.tick().pending,true);
+  assert.equal(f.tick().pending,true);
+  const exhausted=f.tick();
+  assert.equal(exhausted.fatal,true);
+  assert.equal(exhausted.states,undefined);
+  f.send({type:'reset'});
+  delay=260;
+  assert.equal(f.tick().fatal,true);
+});
+
+test('a slow guest host call still stops immediately without a preparation retry', async t => {
+  const f=fixture();
+  await f.set('ctx.world.raycast([0,3,0],[0,-1,0],5); self.state.setNumber("ran",1);');
+  let clock=0;
+  t.mock.method(performance,'now',()=>clock);
+  const result=f.tick({}, {worldRaycast:()=>{clock+=60;return null;}});
+  assert.equal(result.fatal,true);
+  assert.equal(result.pending,undefined);
+  assert.equal(result.states,undefined);
+  assert.match(result.error,/50 ms/);
+});
 
 test('typed decoration API provides shared optimistic reads, immutable snapshots and command receipts', async () => {
   const f = fixture();
@@ -276,10 +337,11 @@ test('imported memory is reused while globals, allocator and every guest byte re
       states = result.states;
     }
     assert.equal(allocations, 1);
-    assert.equal(instances, 20, 'globals and start functions still belong to a fresh instance');
+    assert.equal(instances, 1, 'the certified instance is reset and reused');
     f.send({ type: 'reset' });
     assert.equal(f.tick().states.root.scratch, 0);
     assert.equal(allocations, 1);
+    assert.equal(instances, 1);
   } finally { t.mock.restoreAll(); }
 });
 
@@ -330,15 +392,16 @@ test('worker-cloned modules preserve the initial memory size needed for large st
 
 test('a reentrant host query never clears the active guest memory', async t => {
   const f = fixture();
-  await f.set('const array: i32[] = [7,9]; ctx.world.raycast([0,0,0], [0,-1,0]); self.state.setNumber("value", array[1]);');
+  await f.set('const array: i32[] = [7,9]; ctx.world.raycast([0,0,0], [0,-1,0]); self.state.setNumber("value", array[1]); self.state.setNumber("tick", ctx.tick);');
   const Memory = WebAssembly.Memory;
   let allocations = 0;
   t.mock.method(WebAssembly, 'Memory', function (descriptor: WebAssembly.MemoryDescriptor) { allocations++; return new Memory(descriptor); });
   try {
     let nested: any;
-    const result = f.tick({}, { worldRaycast: () => { nested = f.tick(); return null; } });
+    const result = f.tick({ tick: 7 }, { worldRaycast: () => { nested = f.tick({ tick: 9 }); return null; } });
     assert.equal(result.ok, true, result.error); assert.equal(nested.ok, true, nested.error);
     assert.equal(result.states.root.value, 9); assert.equal(nested.states.root.value, 9);
+    assert.equal(result.states.root.tick, 7); assert.equal(nested.states.root.tick, 9);
     assert.equal(allocations, 2);
   } finally { t.mock.restoreAll(); }
 });
@@ -347,7 +410,7 @@ test('inactive components cannot retain more than the entity memory allowance', 
   const f = fixture();
   const code = `self.state.setString("text", "${'x'.repeat(40_000)}");`;
   const module = await compileEntityScript(code);
-  const capacity = Math.floor(64 / getEntityScriptMemoryPages(module));
+  const capacity = Math.floor(64 / (2 * getEntityScriptMemoryPages(module)));
   assert.ok(capacity < 64);
   for (let i = 0; i <= capacity; i++) await f.set(code, `node${i}`);
   const Memory = WebAssembly.Memory;
@@ -364,7 +427,7 @@ test('inactive components cannot retain more than the entity memory allowance', 
 });
 
 
-test('50 ms failures identify setup or guest execution and discard the entire tick', async t => {
+test('time failures identify initialization or execution and discard the entire tick', async t => {
   for (const phase of ['wasm-instantiation', 'wasm-execution']) {
     const f = fixture();
     await f.set(`
@@ -378,20 +441,203 @@ test('50 ms failures identify setup or guest execution and discard the entire ti
     if (phase === 'wasm-instantiation') {
       const Instance = WebAssembly.Instance;
       t.mock.method(WebAssembly, 'Instance', function (module: WebAssembly.Module, imports: WebAssembly.Imports | undefined) {
-        clock = 75;
-        return new Instance(module, imports);
+        const instance = new Instance(module, imports); clock += 260; return instance;
       });
     }
     try {
-      const result = f.tick({}, { worldRaycast: () => { clock = 75; return null; } });
+      const result = f.tick({}, { worldRaycast: () => { clock += 75; return null; } });
       assert.equal(result.fatal, true);
+      assert.equal(result.pending, undefined);
       assert.equal(result.states, undefined);
       assert.equal(result.commands, undefined);
-      assert.match(result.error, /Script exceeded 50 ms/);
+      assert.equal(result.budgetPhase, phase === 'wasm-instantiation' ? 'initialization' : 'execution');
       assert.ok(result.error.includes(`phase=${phase}`), result.error);
-      assert.match(result.error, /elapsed=75\.0 ms/);
-      assert.match(result.error, phase === 'wasm-instantiation'
-        ? /hostOps=0, lastHostCall=none/ : /lastHostCall=raycast/);
+      if (phase === 'wasm-instantiation') {
+        assert.match(result.error, /WASM initialization exceeded 100 ms.*elapsed=260.0 ms/);
+        assert.equal(result.initializationMs, 260);
+        assert.equal(result.executionMs, 0);
+      } else {
+        assert.match(result.error, /Script exceeded 50 ms.*elapsed=75.0 ms.*lastHostCall=raycast/);
+        assert.equal(result.initializationMs, 0);
+        assert.equal(result.executionMs, 75);
+      }
     } finally { t.mock.restoreAll(); }
+  }
+});
+
+test('initialization and execution have independent per-component and aggregate clocks', async t => {
+  const f = fixture();
+  const code = 'ctx.world.raycast([0,0,0], [0,-1,0]); self.state.setNumber("tick", ctx.tick);';
+  await f.set(code); await f.set(code, 'arm');
+  const Instance = WebAssembly.Instance;
+  let clock = 0;
+  t.mock.method(performance, 'now', () => clock);
+  t.mock.method(WebAssembly, 'Instance', function(module: WebAssembly.Module, imports: WebAssembly.Imports) {
+    const instance = new Instance(module, imports); clock += 80; return instance;
+  });
+  const first = f.tick({}, { worldRaycast: () => { clock += 40; return null; } });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.initializationMs, 160);
+  assert.equal(first.executionMs, 80);
+  assert.equal(first.elapsedMs, 240);
+  assert.deepEqual(first.initializationTimes, { root: 80, arm: 80 });
+  assert.deepEqual(first.executionTimes, { root: 40, arm: 40 });
+  assert.equal(first.instancesCreated, 2);
+  assert.equal(first.instancesReused, 0);
+  const next = f.tick({ tick: 21, states: first.states }, { worldRaycast: () => { clock += 30; return null; } });
+  assert.equal(next.ok, true, next.error);
+  assert.equal(next.initializationMs, 0);
+  assert.equal(next.executionMs, 60);
+  assert.equal(next.instancesCreated, 0);
+  assert.equal(next.instancesReused, 2);
+  assert.equal(next.states.root.tick, 21, 'reused imports read the current snapshot');
+});
+
+test('each aggregate budget stops a multi-component tick even when individual invocations fit', async t => {
+  const code = 'ctx.world.raycast([0,0,0], [0,-1,0]); self.state.setNumber("ran",1);';
+  for (const budgetPhase of ['initialization', 'execution']) {
+    const f = fixture();
+    const ids = Array.from({ length: 6 }, (_, i) => `n${i}`);
+    for (const id of ids) await f.set(code, id);
+    let clock = 0;
+    const Instance = WebAssembly.Instance;
+    t.mock.method(performance, 'now', () => clock);
+    t.mock.method(WebAssembly, 'Instance', function(module: WebAssembly.Module, imports: WebAssembly.Imports) {
+      const instance = new Instance(module, imports);
+      if (budgetPhase === 'initialization') clock += 45;
+      return instance;
+    });
+    try {
+      const result = f.tick({ rootComponentId: ids[0], scriptOrder: ids,
+        components: ids.map(id => ({ id, parentId: null, children: [] })) }, {
+        worldRaycast: () => { if (budgetPhase === 'execution') clock += 45; return null; }
+      });
+      assert.equal(result.fatal, true);
+      assert.equal(result.budgetPhase, budgetPhase);
+      assert.match(result.error, new RegExp(`aggregate 250 ms ${budgetPhase}`));
+      assert.equal(result.states, undefined);
+      assert.equal(result.commands, undefined);
+    } finally { t.mock.restoreAll(); }
+  }
+});
+
+test('startup and tick share fuel, including on reused instances', async () => {
+  const f = fixture();
+  assert.equal((await f.set(`
+    self.state.setNumber("startup", startup);
+    for (let i = 0; i < 60000; i++) store<i32>(50000, i);
+  } const startup: i32 = initialize();
+    function initialize(): i32 {
+      for (let i = 0; i < 60000; i++) store<i32>(50000, i);
+      return load<i32>(50000);
+    }
+    function unused(): void {
+  `)).ok, true);
+  for (let tick = 0; tick < 2; tick++) {
+    const result = f.tick({ tick });
+    assert.equal(result.fatal, true);
+    assert.match(result.error, /fuel budget/);
+    assert.ok(result.fuelUsed > 100_000);
+    assert.equal(result.instancesReused, tick);
+    assert.equal(result.states, undefined);
+  }
+});
+
+test('global startup is charged to initialization and is never retried as engine preparation', async t => {
+  const f = fixture();
+  assert.equal((await f.set('self.state.setNumber("seeded", seeded); } let seeded: f64 = Math.random(); function unused(): void {')).ok, true);
+  const Instance = WebAssembly.Instance;
+  let clock = 0;
+  t.mock.method(performance, 'now', () => clock);
+  t.mock.method(WebAssembly, 'Instance', function(module: WebAssembly.Module, imports: any) {
+    const seed = imports.env.seed;
+    imports.env.seed = () => { const value = seed(); clock += 125; return value; };
+    return new Instance(module, imports);
+  });
+  for (let tick = 0; tick < 2; tick++) {
+    const result = f.tick({ tick });
+    assert.equal(result.fatal, true);
+    assert.equal(result.pending, undefined);
+    assert.equal(result.budgetPhase, 'initialization');
+    assert.match(result.error, /phase=wasm-start/);
+    assert.equal(result.initializationMs, 125);
+    assert.equal(result.executionMs, 0);
+    assert.equal(result.states, undefined);
+  }
+});
+
+test('modules with function tables use fresh instances and retain normal behavior', async () => {
+  const f = fixture();
+  const code = `
+    const fn: (x: i32) => i32 = ctx.tick == 1 ? plus : minus;
+    self.state.setNumber("value", fn(4));
+  } function plus(x: i32): i32 { return x + 1; }
+    function minus(x: i32): i32 { return x - 1; }
+    function unused(): void {
+  `;
+  const module = await compileEntityScript(code);
+  assert.deepEqual(getEntityScriptInstancePolicy(structuredClone(module)), { explicitStart: true, resettable: false });
+  await f.set(code);
+  for (let tick = 1; tick <= 2; tick++) {
+    const result = f.tick({ tick });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.states.root.value, tick === 1 ? 5 : 3);
+    assert.equal(result.instancesCreated, 1);
+    assert.equal(result.instancesReused, 0);
+  }
+});
+
+test('failed preparation cannot grow the retained cache beyond its memory allowance', async t => {
+  const f = fixture();
+  const code = 'self.state.setNumber("ran",1);';
+  const module = await compileEntityScript(code);
+  const capacity = Math.floor(64 / (2 * getEntityScriptMemoryPages(module)));
+  for (let i = 0; i <= capacity; i++) await f.set(code, `node${i}`);
+  const run = (id: string) => f.tick({ rootComponentId: id, scriptOrder: [id],
+    components: [{ id, parentId: null, children: [] }] });
+  for (let i = 0; i < capacity; i++) assert.equal(run(`node${i}`).ok, true);
+  let clock = 0;
+  const fill = Uint8Array.prototype.fill;
+  t.mock.method(performance, 'now', () => clock);
+  t.mock.method(Uint8Array.prototype, 'fill', function(this: Uint8Array, value: number, start?: number, end?: number) {
+    clock += 260;
+    return fill.call(this, value, start, end);
+  });
+  const failed = run(`node${capacity}`);
+  assert.equal(failed.fatal, true);
+  assert.equal(failed.budgetPhase, 'initialization');
+  t.mock.restoreAll();
+  const first = run('node0');
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.instancesCreated, 1, 'even a failed preparation must evict the oldest retained instance');
+});
+
+test('a bounded pause during memory allocation defers before guest startup and keeps retries bounded', async t => {
+  const f = fixture();
+  await f.set('self.state.setNumber("runs",self.state.getNumber("runs")+1);');
+  const Memory = WebAssembly.Memory;
+  let clock = 0;
+  t.mock.method(performance, 'now', () => clock);
+  t.mock.method(WebAssembly, 'Memory', function (descriptor: WebAssembly.MemoryDescriptor) {
+    const memory = new Memory(descriptor); clock += 125; return memory;
+  });
+  const deferred = f.tick();
+  assert.equal(deferred.pending, true);
+  assert.equal(deferred.instancesCreated, 0);
+  assert.equal(deferred.executionMs, 0);
+  assert.equal(deferred.states, undefined);
+  const completed = f.tick();
+  assert.equal(completed.ok, true, completed.error);
+  assert.equal(completed.states.root.runs, 1);
+  const fill = Uint8Array.prototype.fill;
+  t.mock.method(Uint8Array.prototype, 'fill', function(this: Uint8Array, value: number, start?: number, end?: number) {
+    clock += 125; return fill.call(this, value, start, end);
+  });
+  // Editing invalidates the cache but does not replenish a pending retry budget.
+  for (let i = 0; i < 3; i++) {
+    await f.set('self.state.setNumber("other",1);');
+    const result = f.tick();
+    assert.equal(i < 2 ? result.pending : result.fatal, true);
+    assert.equal(result.states, undefined);
   }
 });

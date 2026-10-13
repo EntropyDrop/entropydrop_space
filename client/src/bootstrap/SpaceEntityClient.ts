@@ -127,14 +127,26 @@ export class SpaceEntityApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly detail: any;
+  readonly retryAfterMs: number | null;
 
-  constructor(status: number, code: string, message: string, detail: any) {
+  constructor(status: number, code: string, message: string, detail: any, retryAfterMs: number | null = null) {
     super(message);
     this.name = 'SpaceEntityApiError';
     this.status = status;
     this.code = code;
     this.detail = detail;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+function retryAfterMs(response: Response): number | null {
+  if (response.status !== 429) return null;
+  const value = response.headers.get('Retry-After')?.trim();
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return seconds >= 0 ? seconds * 1000 : null;
+  const deadline = Date.parse(value);
+  return Number.isFinite(deadline) ? Math.max(0, deadline - Date.now()) : null;
 }
 
 function isInteger(value: unknown): value is number {
@@ -257,6 +269,7 @@ export class SpaceEntityClient {
         'ENTITY_API_INVALID_RESPONSE',
         'The Space entity API returned an invalid or oversized response.',
         error,
+        retryAfterMs(response),
       );
     }
     if (!response.ok) {
@@ -266,6 +279,7 @@ export class SpaceEntityClient {
         detail?.code || `HTTP_${response.status}`,
         detail?.message || 'Space entity request failed.',
         detail,
+        retryAfterMs(response),
       );
     }
     return body;
