@@ -94,6 +94,8 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
     await game.preloadInitialTerrain((_value, message) => {
       if (status) status.textContent = `Offline development: ${message}`;
     });
+    if (status) status.textContent = 'Offline development: Preparing character animations…';
+    await game.sceneRenderer.preparePlayerPipelines();
     if (gate) { gate.hidden = true; gate.style.display = 'none'; }
     if (busyStreaming) {
       // Deterministic busy-browser fixture: no idle opportunity is available,

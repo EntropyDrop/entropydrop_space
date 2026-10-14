@@ -48,6 +48,7 @@ import { entityDisplayName, entityRunStatus } from '../utils/entityNameplate.ts'
 import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
 import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
 import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
+import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
@@ -216,6 +217,7 @@ export interface SpaceUiSnapshot {
   sceneRenderer: UiSceneRenderer | null;
   navigationSystem: UiNavigationSystem | null;
   minimap: UiMinimap | null;
+  linkedWorlds: LinkedWorldState;
   hasStarted: boolean;
   pointerLocked: boolean;
   activeModal: SpaceModal;
@@ -380,6 +382,7 @@ export class SpaceUiStore {
   private apiKeyClient: SpaceApiKeyClient | null = null;
   private queueCancelHandler: (() => Promise<void>) | null = null;
   private enterOnlineHandler: (() => void) | null = null;
+  private linkedWorldsHandler: ((enabled: boolean) => void) | null = null;
   private entityHostingHandlers: EntityHostingHandlers | null = null;
 
   private snapshot: SpaceUiSnapshot = {
@@ -445,6 +448,7 @@ export class SpaceUiStore {
     cameraDistance: 4,
     renderDistance: 12,
     minimapEnabled: false,
+    linkedWorlds: { ...LINKED_WORLDS_OFF },
     particlesEnabled: true,
     distantSurfaceSettings: { ...DEFAULT_DISTANT_SURFACE_SETTINGS },
     resolutionScaleMode: 'auto',
@@ -2056,6 +2060,22 @@ export class SpaceUiStore {
     const value = this.snapshot.minimap?.setEnabled?.(Boolean(enabled)) ?? Boolean(enabled);
     this.patch({ minimapEnabled: value });
     if (persist) try { localStorage.setItem('space_setting_minimap', String(value)); } catch { }
+  }
+
+  connectLinkedWorlds(handler: (enabled: boolean) => void): void {
+    this.linkedWorldsHandler = handler;
+    let enabled = false;
+    try { enabled = localStorage.getItem(LINKED_WORLDS_SETTING_KEY) === 'true'; } catch { }
+    this.setLinkedWorldsEnabled(enabled, false);
+  }
+
+  setLinkedWorldState(state: LinkedWorldState): void {
+    this.patch({ linkedWorlds: { ...state } });
+  }
+
+  setLinkedWorldsEnabled(enabled: boolean, persist = true): void {
+    this.linkedWorldsHandler?.(enabled);
+    if (persist) try { localStorage.setItem(LINKED_WORLDS_SETTING_KEY, String(enabled)); } catch { }
   }
 
   setParticlesEnabled(enabled: boolean, persist = true): void {

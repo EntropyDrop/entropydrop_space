@@ -1,0 +1,41 @@
+{
+  "crossings": 2,
+  "date": "2026-10-13T06:18:47.452Z",
+  "error": null,
+  "frames": 3276,
+  "interpolatedAngle": {
+    "count": 209664,
+    "max": 5.698989896323698,
+    "p95": 0.9888083396435564
+  },
+  "interpolatedPosition": {
+    "count": 209664,
+    "max": 0.24517428568348856,
+    "p95": 0.052257556913323434
+  },
+  "rawAngle": {
+    "count": 209664,
+    "max": 10.399616743917344,
+    "p95": 0.7683281195093522
+  },
+  "rawPosition": {
+    "count": 209664,
+    "max": 0.44577142851543405,
+    "p95": 0.09464473441034452
+  },
+  "status": "running",
+  "entityId": "5e6dd2c8-3cd7-447f-b9b5-8a13af1cc19c",
+  "method": "Same updated trajectory: latest fixed-step decoration poses versus the interpolated rendered poses. 36 seconds, 1.5 second warmup; frame gaps of 60 ms or more excluded. Local decoration transforms, all 64 shoes. This isolates interpolation and is not a full old/new controller or FPS comparison.",
+  "scriptSamples": 720,
+  "failedSamples": 0,
+  "restoredOriginalPose": true,
+  "savedRevision": 220,
+  "checks": {
+    "engineTests": 552,
+    "vehicleTests": 7,
+    "hostingTests": 7,
+    "engineAndClientTypecheck": true,
+    "productionBuildAndCompilerWorker": true,
+    "protobufRoundTrip": true
+  }
+}

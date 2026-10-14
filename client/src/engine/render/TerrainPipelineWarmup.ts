@@ -8,7 +8,7 @@ type TerrainObject = THREE.Object3D & { isBundleGroup?: boolean; needsUpdate?: b
  * gate. Three r183's compileAsync skips BundleGroup render lists, and normal
  * culling hides the very pipelines that cause Firefox's first-turn stalls. */
 export async function warmTerrainPipelines(renderer: Compiler, scene: THREE.Scene, camera: THREE.Camera,
-  roots: Iterable<THREE.Object3D>, target: THREE.RenderTarget | null) {
+  roots: Iterable<THREE.Object3D>, target: THREE.RenderTarget | null, drawWarmFrame?: () => void) {
   const saved = new Map<TerrainObject, { visible: boolean; frustumCulled: boolean; bundle?: boolean }>();
   const previousTarget = renderer.getRenderTarget();
   try {
@@ -24,6 +24,9 @@ export async function warmTerrainPipelines(renderer: Compiler, scene: THREE.Scen
     });
     renderer.setRenderTarget(target);
     await renderer.compileAsync(scene, camera);
+    // Character view changes also need first-draw bindings/upload work. Keep
+    // the hidden variants visible until that real pass has been submitted.
+    drawWarmFrame?.();
   } finally {
     renderer.setRenderTarget(previousTarget);
     for (const [object, state] of saved) {

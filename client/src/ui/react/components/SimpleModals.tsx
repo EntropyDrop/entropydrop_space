@@ -4,6 +4,7 @@ import { SpaceAgentInstructions } from './SpaceAgentInstructions.tsx';
 import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
 import { CharacterSkinPreview } from './CharacterSkinPreview.tsx';
 import { LIGHTING_PRESETS, LIGHTING_QUALITY_LEVELS } from '../../../engine/render/LightingQuality.ts';
+import { LINKED_WORLD_CLEARANCE, LINKED_WORLD_ROTATION_PERIOD_SECONDS } from '../../../engine/render/LinkedWorldGeometry.ts';
 import type { SpaceApiKeyRecord, SpaceApiUsage } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
@@ -249,7 +250,7 @@ export function SpaceApiKeysSettings() {
 
 export function GlobalSettingsModal() {
   const state = useSpaceUiFields(
-    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceSettings', 'world', 'musicEnabled', 'effectsEnabled'
+    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceSettings', 'world', 'musicEnabled', 'effectsEnabled'
   );
   const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>('character');
   if (state.activeModal !== 'settings') return null;
@@ -323,6 +324,23 @@ export function GlobalSettingsModal() {
           {tab === 'graphics' ? <>
             <div className="settings-section">
               <div className="settings-section-title">CAMERA &amp; VIEW</div>
+              <div className="settings-row">
+                <div className="settings-label-group">
+                  <label className="settings-label" htmlFor="setting-linked-worlds">Chain-Linked Worlds (Experimental)</label>
+                  <span className="settings-desc" id="setting-linked-worlds-description">Keep this world as the fixed middle link of a three-ring chain. Two equal-size, read-only snapshot worlds loop through opposite sides of it. The left and right rings spin around their own axes in opposite directions, once every {LINKED_WORLD_ROTATION_PERIOD_SECONDS[0] / 60} and {LINKED_WORLD_ROTATION_PERIOD_SECONDS[1] / 60} minutes. Uses extra memory; snapshot data does not update.</span>
+                  <span className="settings-desc" id="setting-linked-worlds-clearance">
+                    Minimum reference-surface gap: {LINKED_WORLD_CLEARANCE.referenceSurface.toLocaleString('en-US', { maximumFractionDigits: 1 })} m.
+                    {' '}Full-height terrain envelopes: at least {LINKED_WORLD_CLEARANCE.terrainEnvelope.toLocaleString('en-US', { maximumFractionDigits: 1 })} m throughout rotation. Only neighboring links interlock. The two end worlds are display-only.
+                  </span>
+                  {state.linkedWorlds.message && <span className="settings-desc" role="status">{state.linkedWorlds.message}</span>}
+                </div>
+                <div className="settings-control-group">
+                  {state.linkedWorlds.status === 'error' && <button type="button" className="segment-btn" onClick={() => spaceUiStore.setLinkedWorldsEnabled(true)}>Retry</button>}
+                  <input id="setting-linked-worlds" type="checkbox" checked={state.linkedWorlds.enabled}
+                    aria-describedby="setting-linked-worlds-description setting-linked-worlds-clearance"
+                    onChange={event => spaceUiStore.setLinkedWorldsEnabled(event.target.checked)} />
+                </div>
+              </div>
               <div className="settings-row">
                 <div className="settings-label-group"><span className="settings-label">Field of View (FOV)</span><span className="settings-desc">Camera lens angle (50° ~ 110°)</span></div>
                 <div className="settings-control-group"><input id="setting-fov-slider" className="settings-slider" type="range" min="50" max="110" step="1" value={state.fov} onChange={event => spaceUiStore.setFov(Number(event.target.value))} /><span id="setting-fov-val" className="settings-value-badge">{state.fov}°</span></div>
@@ -574,6 +592,7 @@ export function PauseScreen() {
         <div className="controls-guide">
           <span><kbd className="key-badge">W</kbd><kbd className="key-badge">A</kbd><kbd className="key-badge">S</kbd><kbd className="key-badge">D</kbd> Move / Drive</span>
           <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
+          <span><kbd className="key-badge">Space</kbd> again in midair: Tap to dash 5 m · Hold to keep dashing toward the crosshair</span>
           <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
           <span><kbd className="key-badge">E</kbd> Backpack / Color sets</span>
           <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy</span>

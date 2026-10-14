@@ -26,6 +26,9 @@ export type CuteCharacterMotion = {
   maxSpeed?: number;
   grounded?: boolean;
   flying?: boolean;
+  /** Eased air-dash strength, independent of ordinary running and flight. */
+  dashIntensity?: number;
+  sprinting?: boolean;
   /** Use the stable vehicle-riding pose; the character root remains the seat anchor. */
   seated?: boolean;
   lookPitch?: number;
@@ -519,6 +522,8 @@ export class CuteCharacter {
   private airborneBlend = 0;
   private flightBlend = 0;
   private seatedBlend = 0;
+  private dashBlend = 0;
+  private sprintBlend = 0;
   private smoothedSpeed = 0;
   private smoothedForward = 0;
   private smoothedSide = 0;
@@ -718,6 +723,15 @@ export class CuteCharacter {
     for (const overlay of this.overlayGroups) overlay.visible = visible;
   }
 
+  /** Build both perspective variants before their first visible frame. */
+  prepareHeldTools() {
+    const selected = this.heldTool;
+    for (const tool of ['selector', 'hammer', 'wrench', 'shovel', 'spoon', 'brush', 'modeling'] as const) {
+      this.setHeldTool(tool);
+    }
+    this.setHeldTool(selected);
+  }
+
   /** Cached meshes switch together in both perspectives, without per-frame allocations. */
   setHeldTool(value: string | null | undefined): boolean {
     const tool = normalizeHeldTool(value);
@@ -837,6 +851,11 @@ export class CuteCharacter {
     this.airborneBlend = damp(this.airborneBlend, grounded ? 0 : 1, grounded ? 14 : 9, dt);
     this.flightBlend = damp(this.flightBlend, flying ? 1 : 0, flying ? 7 : 10, dt);
     this.seatedBlend = damp(this.seatedBlend, seated ? 1 : 0, seated ? 16 : 10, dt);
+    const dashTarget = !grounded && !flying && !seated
+      ? THREE.MathUtils.clamp(Number(motion.dashIntensity) || 0, 0, 1) : 0;
+    this.dashBlend = damp(this.dashBlend, dashTarget, dashTarget > this.dashBlend ? 24 : 16, dt);
+    this.sprintBlend = damp(this.sprintBlend,
+      motion.sprinting && grounded && !seated && !flying ? movingTarget : 0, 10, dt);
 
     const directionDenominator = Math.max(0.05, speed);
     const targetForward = speed > 0.05
@@ -864,7 +883,7 @@ export class CuteCharacter {
     // pose while W/S were alternated. Keep the cycle continuous; velocity and
     // body lean still transition through zero independently.
     const gait = Math.sin(this.gaitPhase);
-    const stride = THREE.MathUtils.lerp(0.3, 0.62, speedRatio) * blend;
+    const stride = THREE.MathUtils.lerp(0.3, 0.62 + this.sprintBlend * 0.18, speedRatio) * blend;
     const armSwing = stride * 0.78;
     const seat = this.seatedBlend;
     const idleWeight = (1 - blend) * (1 - air) * (1 - seat);
@@ -880,7 +899,7 @@ export class CuteCharacter {
     const idleArmMotion = idleBreath * 0.012 * idleWeight;
     let leftArmX = -gait * armSwing + idleArmMotion;
     let rightArmX = gait * armSwing - idleArmMotion;
-    let bodyPitch = this.smoothedForward * speedRatio * 0.055 * blend;
+    let bodyPitch = this.smoothedForward * speedRatio * (0.055 + this.sprintBlend * 0.15) * blend;
     let bodyYaw = -this.smoothedSide * 0.045 * blend;
     let bodyRoll = (-this.smoothedSide * 0.07 + Math.sin(this.gaitPhase) * 0.018) * blend;
     let bodyY = 8.5 + idleBreath * 0.07 * idleWeight + walkBob;
@@ -930,6 +949,20 @@ export class CuteCharacter {
       bodyY = THREE.MathUtils.lerp(bodyY, 8.58, air);
     }
 
+    // One forward burst, then recover into the existing jump/landing pose.
+    // The gaze stays level while the torso leans and the limbs trail behind.
+    const dash = this.dashBlend * (1 - seat);
+    if (dash > 0.001) {
+      bodyPitch = THREE.MathUtils.lerp(bodyPitch, 0.85, dash);
+      bodyYaw = THREE.MathUtils.lerp(bodyYaw, 0, dash);
+      bodyRoll = THREE.MathUtils.lerp(bodyRoll, 0, dash);
+      leftArmX = THREE.MathUtils.lerp(leftArmX, 0.55, dash);
+      rightArmX = THREE.MathUtils.lerp(rightArmX, 0.4, dash);
+      leftLegX = THREE.MathUtils.lerp(leftLegX, -0.3, dash);
+      rightLegX = THREE.MathUtils.lerp(rightLegX, 0.55, dash);
+      bodyY -= dash * 0.18;
+    }
+
     if (seat > 0.001) {
       // The rig root does not move: `seats[].position` remains the documented
       // player/character anchor. The hip stays 0.567 m above it at 1.8 m model
@@ -951,7 +984,7 @@ export class CuteCharacter {
     setRotation(this.parts.leftLeg, leftLegX, slim ? 0.04 : 0, 0);
     setRotation(this.parts.rightLeg, rightLegX, slim ? -0.04 : 0, 0);
     setRotation(this.parts.body, bodyPitch, bodyYaw, bodyRoll);
-    setRotation(this.parts.head, lookPitch - bodyPitch * 0.35, -bodyYaw * 0.4, -bodyRoll * 0.55);
+    setRotation(this.parts.head, lookPitch - bodyPitch * (0.35 + dash * 0.35), -bodyYaw * 0.4, -bodyRoll * 0.55);
     this.parts.body.position.set(0, bodyY, 0);
 
     // A small camera-local sway keeps the first-person hand grounded in the
@@ -961,22 +994,22 @@ export class CuteCharacter {
     const handFlight = air * this.flightBlend;
     this.firstPersonHandPose.position.set(
       FIRST_PERSON_REST_POSITION.x + this.smoothedSide * 0.008 * handGround - useSwing * 0.04,
-      FIRST_PERSON_REST_POSITION.y - Math.abs(handGait) * 0.01 + handFlight * 0.015 - useSwing * 0.015,
-      FIRST_PERSON_REST_POSITION.z - Math.abs(handGait) * 0.008 - handFlight * 0.04 - useSwing * 0.06
+      FIRST_PERSON_REST_POSITION.y - Math.abs(handGait) * 0.01 + handFlight * 0.015 - useSwing * 0.015 - dash * 0.06,
+      FIRST_PERSON_REST_POSITION.z - Math.abs(handGait) * 0.008 - handFlight * 0.04 - useSwing * 0.06 + dash * 0.09
     );
     this.firstPersonHandPose.rotation.set(
-      FIRST_PERSON_REST_ROTATION.x + handGait * 0.025 - handFlight * 0.04 - useSwing * 0.42,
+      FIRST_PERSON_REST_ROTATION.x + handGait * 0.025 - handFlight * 0.04 - useSwing * 0.42 - dash * 0.2,
       FIRST_PERSON_REST_ROTATION.y - this.smoothedSide * 0.015 * handGround,
       FIRST_PERSON_REST_ROTATION.z + handGait * 0.02 + useSwing * 0.12,
       FIRST_PERSON_REST_ROTATION.order
     );
     this.firstPersonToolPose.position.set(
       FIRST_PERSON_TOOL_POSITION.x + this.smoothedSide * 0.008 * handGround - useSwing * 0.1,
-      FIRST_PERSON_TOOL_POSITION.y - Math.abs(handGait) * 0.01 + handFlight * 0.015 + useSwing * 0.025,
-      FIRST_PERSON_TOOL_POSITION.z - Math.abs(handGait) * 0.008 - handFlight * 0.04 - useSwing * 0.07
+      FIRST_PERSON_TOOL_POSITION.y - Math.abs(handGait) * 0.01 + handFlight * 0.015 + useSwing * 0.025 - dash * 0.055,
+      FIRST_PERSON_TOOL_POSITION.z - Math.abs(handGait) * 0.008 - handFlight * 0.04 - useSwing * 0.07 + dash * 0.065
     );
     this.firstPersonToolPose.rotation.set(
-      handGait * 0.025 - useSwing * 0.65,
+      handGait * 0.025 - useSwing * 0.65 - dash * 0.18,
       -this.smoothedSide * 0.015 * handGround - useSwing * 0.1,
       handGait * 0.02 + useSwing * 0.12
     );

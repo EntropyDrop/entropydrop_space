@@ -311,6 +311,53 @@ test('jumping extends all limbs once and holds the maximum pose', () => {
   character.dispose();
 });
 
+test('air dash leans the body, retracts the hand and tool, then blends back without changing the anchor', () => {
+  const character = createTestCharacter();
+  character.setHeldTool('hammer');
+  const rig = character as any;
+  const anchor = character.object3d.position.clone();
+  const motion = { grounded: false, speed: 15, forwardSpeed: 15, maxSpeed: 5 };
+  for (let frame = 0; frame < 60; frame++) character.update(1 / 60, motion);
+  const handStart = rig.firstPersonHandPose.position.clone();
+  const toolStart = rig.firstPersonToolPose.position.clone();
+  let lastPitch = rig.parts.body.rotation.x;
+  let largestStep = 0;
+  for (let frame = 0; frame < 15; frame++) {
+    character.update(1 / 60, { ...motion, dashIntensity: 1 });
+    largestStep = Math.max(largestStep, Math.abs(rig.parts.body.rotation.x - lastPitch));
+    lastPitch = rig.parts.body.rotation.x;
+  }
+  assert.ok(rig.parts.body.rotation.x > 0.75);
+  assert.ok(rig.parts.head.rotation.x < -0.45, 'the head counter-rotates to keep looking ahead');
+  assert.ok(rig.parts.leftArm.rotation.x > 0.4, 'the arm trails behind during the burst');
+  assert.ok(rig.firstPersonHandPose.position.y < handStart.y - 0.05);
+  assert.ok(rig.firstPersonHandPose.position.z > handStart.z + 0.08);
+  assert.ok(rig.firstPersonToolPose.position.y < toolStart.y - 0.045);
+  assert.ok(largestStep < 0.3, 'dash posture must blend instead of snapping in one frame');
+  assert.deepEqual(character.object3d.position.toArray(), anchor.toArray());
+  for (let frame = 0; frame < 60; frame++) character.update(1 / 60, motion);
+  assert.ok(Math.abs(rig.parts.body.rotation.x) < 0.03);
+  assert.ok(rig.firstPersonToolPose.position.distanceTo(toolStart) < 0.001);
+  character.dispose();
+});
+
+test('held-tool preloading reuses both variants and restores the selected tool', () => {
+  const character = createTestCharacter();
+  character.setHeldTool('selector');
+  character.prepareHeldTools();
+  const rig = character as any;
+  assert.equal(rig.heldTool, 'selector');
+  assert.equal(rig.heldToolMeshes.size, 7);
+  const meshes = new Map(rig.heldToolMeshes);
+  character.prepareHeldTools();
+  for (const [tool, pair] of meshes) {
+    assert.equal(rig.heldToolMeshes.get(tool), pair);
+    assert.equal((pair as any).world.visible, tool === 'selector');
+    assert.equal((pair as any).view.visible, tool === 'selector');
+  }
+  character.dispose();
+});
+
 test('rapid forward/backward switches keep the gait continuous', () => {
   const character = createTestCharacter();
   const rig = character as any;

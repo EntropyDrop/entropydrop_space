@@ -67,6 +67,23 @@ to the current eye position, and rear/front third-person switches orbit around
 the rider instead of cutting through the body. Interrupted switches continue
 from the displayed pose. Mouse look and player/seat movement remain immediate;
 saved perspective settings restore without an initial animation.
+Both character perspectives and all held tools are compiled during entry so
+the first F3 does not discover hidden skin/tool pipelines. Holding F3 cycles once.
+
+Press **Space** to jump, then release and press it again in midair to dash along
+the crosshair's full 3D direction: look up to climb or down to dive. A quick tap
+locks that direction for a 5 m dash, easing in and out over 0.4 seconds. Keep the
+second press held to sustain peak speed and smoothly steer with the crosshair.
+Releasing Space finishes the eased deceleration; a sustained dash settles over
+0.2 seconds. The dash pauses gravity and stops at walls, ceilings and floors.
+It becomes available again on landing, and gravity resumes after it finishes.
+Holding the first jump does not trigger a dash or repeat jumps. In flight mode,
+Space still ascends continuously.
+The dash leans the torso, tucks the legs and lets the arms trail, with a smooth
+return to the airborne pose. The first-person hand/tool retracts slightly and
+the FOV opens by up to 4.5 degrees without rotating the aim. Render frames sample
+the dash curve between simulation ticks; held forward movement carries through
+the end instead of braking to zero. A short tap still covers exactly 5 m.
 
 ## Documentation map
 
@@ -167,6 +184,43 @@ An AI-native programmable voxel physics prototype:
 The renderer always uses the seamless torus donut terrain. World shape is not a
 per-player setting, so rendering, picking, distant LOD and physics all share the
 same wrapped topology.
+
+Settings → Graphics → Camera & View includes an experimental **Chain-Linked
+Worlds** checkbox, off by default and saved locally. The current world stays live
+as the fixed middle link of a three-ring chain. Two other worlds (preferring
+Nature, Copper Metropolis and Aether Archipelago) are loaded once from
+authenticated distant terrain snapshots, at the same size as the live world.
+The live ring lies in XZ; the two snapshot rings lie in XY, centered at x=-4R/3
+and x=+4R/3. Each end ring links the middle once. The two ends are separate and
+do not link each other. There are no connecting shafts or bearings.
+
+The left and right snapshot rings rotate in opposite directions around their
+own normals, once every 12 and 18 minutes respectively. Their centers and planes
+stay fixed, preserving the chain links and terrain-envelope clearance. Only
+render transforms animate; geometry and snapshot data stay frozen. Rotation
+uses the bounded display-frame delta, pauses during loading, and resets on
+disable. The live world's coordinates, rendering and physics are unchanged.
+
+Additional worlds are display-only, with no editing, picking, collisions,
+entities, player presence or realtime connections. Snapshot access uses the
+existing membership join endpoint when necessary, without admission,
+player-position writes or simulation. Both complete snapshots must load before
+either is displayed. Errors leave the live world usable and offer Retry;
+unchecking cancels downloads and releases geometry and materials. Re-enabling
+loads fresh snapshots. This view adds rendering/memory cost and starts only
+after the primary world's entry gate completes.
+
+For equal-radius circles in this orthogonal chain, let d be the adjacent center
+offset, with R < d < 2R. Adjacent centerline clearance is 2R-d, while the two ends
+have clearance 2d-2R. Balancing these at d=4R/3 maximizes the minimum within this
+layout family, giving every pair centerline clearance 2R/3. With
+R=16384/(2*pi) and tube radius r=2048/(2*pi), the reference-surface gap is
+2R/3-2r = 1086.5 m. The complete 0..256 m terrain height range fits inside a tube
+of radius r+(256-16)*(1+r/R) = 595.95 m, giving a conservative terrain-envelope
+gap of 546.5 m throughout rotation. Settings show both values. The bound excludes
+entities and camera-local rendering correction and is not an exact live terrain
+mesh distance. Run `node client/tools/linked-world-clearance.ts` from the
+workspace root to verify every pair numerically at multiple rotation phases.
 
 ## Player spawn and reconnect
 

@@ -461,6 +461,7 @@ export class PlayerController {
   // Reusable temporary vectors for torus-world aiming.
   static _bentEye = new THREE.Vector3();
   static _forwardFlat = new THREE.Vector3();
+  private static _dashDirection = new THREE.Vector3();
   static _forwardBent = new THREE.Vector3();
 
   // --- Injected engine dependencies ---
@@ -485,6 +486,7 @@ export class PlayerController {
     left: boolean;
     right: boolean;
     jump: boolean;
+    jumpPressed: boolean;
     crouch: boolean;
     sprint: boolean;
   };
@@ -572,6 +574,7 @@ export class PlayerController {
       left: false,
       right: false,
       jump: false,
+      jumpPressed: false,
       crouch: false,
       sprint: false
     };
@@ -944,7 +947,7 @@ export class PlayerController {
     // mounted script never receives a global camera command.
     if (isPerspectiveToggleCode(e.code)) {
       e.preventDefault();
-      this.togglePerspective();
+      if (!e.repeat) this.togglePerspective();
       return;
     }
 
@@ -974,6 +977,7 @@ export class PlayerController {
       case 'KeyD': this.keys.right = true; break;
       case 'Space':
         e.preventDefault();
+        if (!e.repeat) this.keys.jumpPressed = true;
         this.keys.jump = true;
         break;
       case 'ShiftLeft':
@@ -1275,6 +1279,10 @@ export class PlayerController {
   }
 
   resetEntityInputState() {
+    if (this.keys) {
+      this.keys.jump = false;
+      this.keys.jumpPressed = false;
+    }
     return this.toolSession.resetEntityInputState();
   }
 
@@ -6248,14 +6256,24 @@ export class PlayerController {
   }
 
   updateSimulation(dt: number) {
+    if (this.isDriving || this.navigationSystem?.isNavigating) {
+      this.physics.resetJumpState?.(this.keys?.jump);
+    }
     if (this.isDriving) this.physics.capturePreviousPosition?.();
     if (!this.syncDrivenVehiclePose()) {
       if (this.navigationSystem?.isNavigating) {
         this.navigationSystem.update(dt);
       } else {
-        this.physics.update(dt, this.keys, this.viewYaw);
+        let dashDirection: THREE.Vector3 | undefined;
+        if ((this.keys?.jumpPressed || (this.keys?.jump && this.physics.isDashing)) && this.camera) {
+          // Sample the displayed crosshair, including pitch and front-view orbit.
+          this.updateCameraRotation();
+          dashDirection = PlayerController._dashDirection.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+        }
+        this.physics.update(dt, this.keys, this.viewYaw, dashDirection);
       }
     }
+    if (this.keys) this.keys.jumpPressed = false;
 
     if (this.wrenchGrab?.active && this.wrenchGrab.contraption) {
       const grab = this.wrenchGrab;
@@ -6352,6 +6370,7 @@ export class PlayerController {
   updateRender(dt = 0) {
     this.processBulkEditFrame();
     this.getCameraPerspectiveTransition().advance(dt);
+    this.cameraSession.updateMotion(dt);
     this.updateCameraPosition();
   }
 
@@ -6361,6 +6380,7 @@ export class PlayerController {
     this.processBulkEditFrame();
     this.updateSimulation(dt);
     this.getCameraPerspectiveTransition().advance(dt);
+    this.cameraSession.updateMotion(dt);
     this.updateCameraPosition();
   }
 

@@ -250,6 +250,7 @@ export class SceneRenderer {
   declare selectionGizmoOrigin: THREE.Mesh;
   declare playerAvatar: THREE.Group;
   declare playerAvatarCharacter: CuteCharacter | null;
+  private declare playerAvatarReady: Promise<void>;
   declare playerFirstPersonHand: THREE.Group | null;
   declare remotePlayersGroup: THREE.Group;
   declare remotePlayers: Map<string, RemotePlayerRecord>;
@@ -2214,7 +2215,7 @@ export class SceneRenderer {
     this.playerAvatar.visible = false;
     this.scene.add(this.playerAvatar);
 
-    void loadCuteCharacter(this.playerAppearance.skinUrl, {
+    this.playerAvatarReady = loadCuteCharacter(this.playerAppearance.skinUrl, {
       model: this.playerAppearance.skinModel,
       height: 1.8,
       showOverlay: true,
@@ -2555,6 +2556,8 @@ export class SceneRenderer {
         maxSpeed: playerMotion?.maxSpeed,
         grounded: playerMotion?.grounded,
         flying: playerMotion?.flying,
+        dashIntensity: playerMotion?.dashIntensity,
+        sprinting: playerMotion?.sprinting,
         seated: playerMotion?.seated,
         lookPitch: playerMotion?.lookPitch,
         toolUseSequence: playerMotion?.toolUseSequence
@@ -2707,6 +2710,23 @@ export class SceneRenderer {
     // the canvas would leave its HDR pipeline cold when the camera first turns.
     const target = this.lightingQuality === 'ultra' ? this.cinematicEffects?.sceneTarget ?? null : null;
     await warmTerrainPipelines(this.renderer, this.scene, this.camera, roots, target);
+  }
+
+  /** Hidden third-person skin/tool pipelines must be ready before the first F3. */
+  async preparePlayerPipelines() {
+    await this.ready;
+    await this.playerAvatarReady;
+    if (!this.playerAvatarCharacter) return;
+    this.playerAvatarCharacter.prepareHeldTools();
+    hookSceneMaterials(this.playerAvatarCharacter.object3d);
+    // Initialize the real render attachments, including Ultra's HDR target.
+    this.render(false, true);
+    const roots = [this.playerAvatar];
+    if (this.playerFirstPersonHand) roots.push(this.playerFirstPersonHand);
+    const target = this.lightingQuality === 'ultra' ? this.cinematicEffects?.sceneTarget ?? null : null;
+    await warmTerrainPipelines(this.renderer, this.scene, this.camera, roots, target, () => this.render(false, true));
+    await (this.renderer.backend as any).device.queue.onSubmittedWorkDone();
+    this.render(false, true);
   }
 
   render(cleanScreenshot = false, preparingTerrain = false) {

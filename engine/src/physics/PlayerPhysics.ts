@@ -7,7 +7,13 @@ import type { PlayerTerrain } from './PhysicsTerrain.ts';
 
 const AXIS_SUFFIX = { x: 'X', y: 'Y', z: 'Z' } as const;
 type SolidBlock = { x: number; y: number; z: number; size?: number; block?: number };
-export interface PlayerMoveInput { forward?: boolean; backward?: boolean; right?: boolean; left?: boolean; jump?: boolean; crouch?: boolean }
+export interface PlayerMoveInput {
+  forward?: boolean; backward?: boolean; right?: boolean; left?: boolean;
+  jump?: boolean;
+  /** A fresh press latched until the next physics tick, including short taps. */
+  jumpPressed?: boolean;
+  crouch?: boolean;
+}
 
 const COLLISION_EPSILON = 1e-5;
 const FACE_TOLERANCE = 0.08;
@@ -17,6 +23,29 @@ const STAND_TOLERANCE = 0.4;
 
 export const PLAYER_MASS_KG = 50;
 export const PLAYER_GRAVITY_MPS2 = -24;
+export const PLAYER_AIR_DASH_DISTANCE = 5;
+export const PLAYER_AIR_DASH_DURATION = 0.4;
+const DASH_HOLD_TIME = PLAYER_AIR_DASH_DURATION / 2;
+
+function dashEase(progress: number, entrySlope = 0, exitSlope = 0): number {
+  const squared = progress * progress;
+  const cubed = squared * progress;
+  return squared * (3 - 2 * progress)
+    + entrySlope * (cubed - 2 * squared + progress)
+    + exitSlope * (cubed - squared);
+}
+
+/** Extend the midpoint's peak speed while held, without repeating the easing. */
+function dashDistance(start: number, dt: number, held: boolean, entrySlope: number, exitSlope: number): number {
+  const end = Math.min(held ? DASH_HOLD_TIME : PLAYER_AIR_DASH_DURATION, start + dt);
+  const eased = PLAYER_AIR_DASH_DISTANCE * (
+    dashEase(end / PLAYER_AIR_DASH_DURATION, entrySlope, exitSlope)
+    - dashEase(start / PLAYER_AIR_DASH_DURATION, entrySlope, exitSlope)
+  );
+  const cruiseTime = held ? Math.max(0, start + dt - DASH_HOLD_TIME) : 0;
+  const cruiseSpeed = PLAYER_AIR_DASH_DISTANCE / PLAYER_AIR_DASH_DURATION * (1.5 - (entrySlope + exitSlope) / 4);
+  return eased + cruiseTime * cruiseSpeed;
+}
 
 function entityBodyId(contraption: Contraption | null | undefined, value?: unknown): string {
   if (value !== undefined && value !== null) return String(value);
@@ -64,6 +93,47 @@ export class PlayerPhysics {
   isCrouching: boolean;
   isSprinting: boolean;
   isInWater: boolean;
+  private jumpHeld = false;
+  private airJumpAvailable = false;
+  private dashElapsed = PLAYER_AIR_DASH_DURATION;
+  private dashDirection = new THREE.Vector3();
+  private dashEntrySlope = 0;
+  private dashExitSlope = 0;
+  private dashHoldAllowed = false;
+  private dashAim = new THREE.Vector3();
+  private dashTurn = new THREE.Quaternion();
+  private dashTurnTarget = new THREE.Quaternion();
+  private dashRenderStep: { start: number; end: number; dt: number; held: boolean;
+    entrySlope: number; exitSlope: number } | null = null;
+  private renderedDashElapsed: number | null = null;
+
+  get isDashing(): boolean {
+    return this.dashElapsed < PLAYER_AIR_DASH_DURATION;
+  }
+
+  get dashIntensity(): number {
+    const elapsed = this.renderInterpolated && this.renderedDashElapsed !== null
+      ? this.renderedDashElapsed : this.dashElapsed;
+    if (elapsed <= 0 || elapsed >= PLAYER_AIR_DASH_DURATION) return 0;
+    return Math.sin(Math.PI * elapsed / PLAYER_AIR_DASH_DURATION) ** 2;
+  }
+
+  private stopDash() {
+    if (this.isDashing) {
+      this.velocity.set(0, 0, 0);
+    }
+    this.dashElapsed = PLAYER_AIR_DASH_DURATION;
+    this.dashHoldAllowed = false;
+  }
+
+  /** Discard airborne actions when teleporting, flying, navigating or seated. */
+  resetJumpState(jumpHeld = false) {
+    this.stopDash();
+    this.dashRenderStep = null;
+    this.renderedDashElapsed = null;
+    this.airJumpAvailable = false;
+    this.jumpHeld = jumpHeld;
+  }
 
   // Moving Platform attachment (when standing on a moving contraption)
   ridingContraption: Contraption | null;
@@ -149,6 +219,8 @@ export class PlayerPhysics {
     this.previousPosition.copy(this.position);
     this.renderSimulationPosition.copy(this.position);
     this.renderInterpolated = false;
+    this.dashRenderStep = null;
+    this.renderedDashElapsed = null;
   }
 
   /**
@@ -158,6 +230,7 @@ export class PlayerPhysics {
    * character permanently embedded.
    */
   setInitialPosition(x: number, y: number, z: number) {
+    this.resetJumpState();
     this.world.preparePlayerSpawnArea?.(x, z, this.width / 2);
     const requestedY = Number(y) || 0;
     const initialY = Math.max(0, requestedY);
@@ -183,6 +256,7 @@ export class PlayerPhysics {
 
   capturePreviousPosition() {
     this.previousPosition.copy(this.position);
+    this.dashRenderStep = null;
   }
 
   beginRenderInterpolation(alpha: number) {
@@ -190,6 +264,18 @@ export class PlayerPhysics {
     const amount = Math.max(0, Math.min(1, Number(alpha) || 0));
     this.renderSimulationPosition.copy(this.position);
     this.position.lerpVectors(this.previousPosition, this.renderSimulationPosition, amount);
+    this.renderedDashElapsed = null;
+    const dash = this.dashRenderStep;
+    if (dash) {
+      const elapsed = Math.min(dash.end, dash.start + dash.dt * amount);
+      const distanceAt = (delta: number) => dashDistance(dash.start, delta, dash.held, dash.entrySlope, dash.exitSlope);
+      const span = distanceAt(dash.dt);
+      const easedAmount = span > 1e-12 ? distanceAt(dash.dt * amount) / span : amount;
+      // Evaluate the same curve between 20 Hz ticks, avoiding stepped speed in
+      // first person. Interrupted/colliding steps retain linear safe positions.
+      this.position.lerpVectors(this.previousPosition, this.renderSimulationPosition, easedAmount);
+      this.renderedDashElapsed = elapsed;
+    }
     this.renderInterpolated = true;
   }
 
@@ -199,9 +285,12 @@ export class PlayerPhysics {
     this.renderInterpolated = false;
   }
 
-  update(dt: number, moveInput: PlayerMoveInput, cameraYaw: number) {
+  update(dt: number, moveInput: PlayerMoveInput, cameraYaw: number, cameraDirection?: THREE.Vector3) {
     this.capturePreviousPosition();
     if (dt > 0.1) dt = 0.1;
+    if (!(dt > 0)) return;
+    const jumpPressed = moveInput.jumpPressed ?? (!!moveInput.jump && !this.jumpHeld);
+    this.jumpHeld = !!moveInput.jump;
 
     // Follow the solved contact-point transform, not velocity * dt. Collision
     // push-outs and scripted rotations can change the pose without matching
@@ -227,6 +316,7 @@ export class PlayerPhysics {
       : (this.isSprinting ? this.sprintSpeed : this.walkSpeed);
 
     if (this.isFlying) {
+      this.resetJumpState(!!moveInput.jump);
       // 3D Flying Mode
       this.velocity.x = targetMove.x * speed;
       this.velocity.z = targetMove.z * speed;
@@ -245,25 +335,102 @@ export class PlayerPhysics {
       return;
     }
 
-    // Ground/Walk Physics
+    if (this.isOnGround) {
+      this.stopDash();
+      this.airJumpAvailable = true;
+    }
     const accel = this.isOnGround ? 14.0 : 4.0;
-    this.velocity.x += (targetMove.x * speed - this.velocity.x) * Math.min(1.0, accel * dt);
-    this.velocity.z += (targetMove.z * speed - this.velocity.z) * Math.min(1.0, accel * dt);
 
-    // Gravity
-    this.velocity.y += this.gravity * dt;
-    if (this.velocity.y < -30) this.velocity.y = -30;
+    // A release ends the sustained portion permanently. A third fresh press
+    // also implies a release between ticks and cannot extend the spent dash.
+    if (this.isDashing && (!moveInput.jump || jumpPressed)) this.dashHoldAllowed = false;
+
+    // A dash controls all three axes; gravity resumes when it finishes.
+    if (!this.isDashing) {
+      this.velocity.y += this.gravity * dt;
+      if (this.velocity.y < -30) this.velocity.y = -30;
+    }
 
     // Jump
-    if (moveInput.jump && this.isOnGround) {
-      this.velocity.y = this.jumpForce;
+    if (jumpPressed && (this.isOnGround || this.airJumpAvailable)) {
+      if (!this.isOnGround) {
+        this.airJumpAvailable = false;
+        this.dashElapsed = 0;
+        this.dashHoldAllowed = !!moveInput.jump;
+        // Lock the crosshair's full 3D direction at takeoff, independent of WASD.
+        // Headless callers without a camera retain the yaw-aligned default.
+        this.dashDirection.copy(forward);
+        const directionLengthSq = cameraDirection?.lengthSq() ?? 0;
+        if (cameraDirection && Number.isFinite(directionLengthSq) && directionLengthSq > 1e-12) {
+          this.dashDirection.copy(cameraDirection).normalize();
+        }
+        const slopeScale = PLAYER_AIR_DASH_DURATION / PLAYER_AIR_DASH_DISTANCE;
+        this.dashEntrySlope = THREE.MathUtils.clamp(this.velocity.dot(this.dashDirection), 0, speed) * slopeScale;
+        this.dashExitSlope = Math.max(0, targetMove.dot(this.dashDirection)) * speed * slopeScale;
+      } else {
+        this.velocity.y = this.jumpForce;
+      }
       this.isOnGround = false;
       this.ridingContraption = null;
       this.ridingBodyId = null;
     }
 
+    const dashing = this.isDashing;
+    let nextDashElapsed = this.dashElapsed;
+    if (dashing) {
+      const holding = this.dashHoldAllowed;
+      nextDashElapsed = Math.min(holding ? DASH_HOLD_TIME : PLAYER_AIR_DASH_DURATION, this.dashElapsed + dt);
+      if (holding && this.dashElapsed >= DASH_HOLD_TIME - 1e-9) {
+        // Steer sustained flight toward the live crosshair. Quaternion rotation
+        // keeps speed stable even through a 180-degree turn.
+        this.dashAim.copy(forward);
+        const directionLengthSq = cameraDirection?.lengthSq() ?? 0;
+        if (cameraDirection && Number.isFinite(directionLengthSq) && directionLengthSq > 1e-12) {
+          this.dashAim.copy(cameraDirection).normalize();
+        }
+        this.dashTurnTarget.setFromUnitVectors(this.dashDirection, this.dashAim);
+        this.dashTurn.identity().slerp(this.dashTurnTarget, 1 - Math.exp(-12 * dt));
+        this.dashDirection.applyQuaternion(this.dashTurn).normalize();
+      }
+      // A tap still integrates to exactly 5 m. Holding extends only the cruise
+      // phase; releasing resumes the original eased deceleration.
+      const distance = dashDistance(this.dashElapsed, dt, holding, this.dashEntrySlope, this.dashExitSlope);
+      this.velocity.copy(this.dashDirection).multiplyScalar(distance / dt);
+    } else {
+      this.velocity.x += (targetMove.x * speed - this.velocity.x) * Math.min(1.0, accel * dt);
+      this.velocity.z += (targetMove.z * speed - this.velocity.z) * Math.min(1.0, accel * dt);
+    }
+
     // Step-by-step collision resolution with terrain AND contraptions
+    const startX = this.position.x;
+    const startY = this.position.y;
+    const startZ = this.position.z;
+    const expectedX = this.velocity.x * dt;
+    const expectedY = this.velocity.y * dt;
+    const expectedZ = this.velocity.z * dt;
     this.moveWithCollision(dt);
+    if (dashing) {
+      const blocked = Math.abs(this.position.x - startX - expectedX) > COLLISION_EPSILON
+        || Math.abs(this.position.y - startY - expectedY) > COLLISION_EPSILON
+        || Math.abs(this.position.z - startZ - expectedZ) > COLLISION_EPSILON;
+      const completed = nextDashElapsed >= PLAYER_AIR_DASH_DURATION - 1e-9;
+      if (!blocked && !this.isOnGround) {
+        this.dashRenderStep = { start: this.dashElapsed, end: nextDashElapsed,
+          dt, held: this.dashHoldAllowed,
+          entrySlope: this.dashEntrySlope, exitSlope: this.dashExitSlope };
+      }
+      if (blocked || this.isOnGround || completed) {
+        this.stopDash();
+        if (completed && !blocked && !this.isOnGround) {
+          // Continue held forward movement instead of braking to zero for a tick.
+          const exitSpeed = Math.max(0, targetMove.dot(this.dashDirection)) * speed;
+          this.velocity.copy(this.dashDirection).multiplyScalar(exitSpeed);
+        }
+      } else {
+        this.dashElapsed = nextDashElapsed;
+      }
+    }
+    if (this.isOnGround) this.airJumpAvailable = true;
   }
 
   moveWithCollision(dt: number) {
@@ -279,7 +446,7 @@ export class PlayerPhysics {
 
     // 1a. World Voxel Collision Y
     let aabb = this.getAABB();
-    const blocksY = this.getIntersectingSolidBlocks(aabb);
+    const blocksY = this.getIntersectingSolidBlocks(this.sweptBounds(previousYAABB, aabb));
     const worldVerticalHit = this.resolveWorldVerticalCollision(blocksY, dy, previousYAABB);
 
     // 1b. Contraption collision Y. Only a downward face crossing can count as
@@ -309,7 +476,7 @@ export class PlayerPhysics {
     aabb = this.getAABB();
 
     // 2a. World Voxel Collision X
-    const blocksX = this.getIntersectingSolidBlocks(aabb);
+    const blocksX = this.getIntersectingSolidBlocks(this.sweptBounds(previousXAABB, aabb));
     this.resolveWorldHorizontalCollision(blocksX, 'x', dx);
 
     // 2b. Swept cell collision catches a face even when one frame crosses the
@@ -326,7 +493,7 @@ export class PlayerPhysics {
     aabb = this.getAABB();
 
     // 3a. World Voxel Collision Z
-    const blocksZ = this.getIntersectingSolidBlocks(aabb);
+    const blocksZ = this.getIntersectingSolidBlocks(this.sweptBounds(previousZAABB, aabb));
     this.resolveWorldHorizontalCollision(blocksZ, 'z', dz);
 
     // 3b. Contraption Collision Z

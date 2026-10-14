@@ -36,6 +36,7 @@ import { logConsoleSecurityWarning } from './bootstrap/ConsoleSecurityWarning.ts
 import { isMonitoringRoute } from './bootstrap/MonitoringRoute.ts';
 import { installNetworkTrafficMonitor } from './bootstrap/NetworkTraffic.ts';
 import { preloadInitialDistantTerrain } from './bootstrap/InitialDistantTerrain.ts';
+import { LinkedWorldSnapshots } from './bootstrap/LinkedWorldSnapshots.ts';
 
 installNetworkTrafficMonitor();
 logConsoleSecurityWarning();
@@ -89,6 +90,7 @@ class Game {
   terrainAreaRetryAt: number;
   started: boolean;
   surfaceSnapshotRemote: ReadySpaceSession['surface_snapshot_remote'];
+  linkedWorldSnapshots: LinkedWorldSnapshots;
 
   constructor(
     session: ReadySpaceSession,
@@ -141,6 +143,13 @@ class Game {
 
     this.playerPhysics = new PlayerPhysics(this.world, this.contraptionManager);
     this.uiStore = spaceUiStore;
+    this.linkedWorldSnapshots = new LinkedWorldSnapshots({
+      scene: this.sceneRenderer.scene,
+      apiOrigin: session.api_origin,
+      token: session.token,
+      currentWorldId: session.world.id,
+      onState: state => this.uiStore.setLinkedWorldState(state),
+    });
     this.uiStore.setAuthenticatedSession(
       session.api_origin,
       session.token,
@@ -411,6 +420,11 @@ class Game {
     this.frameCount = 0;
     this.lastFpsTime = performance.now();
     requestAnimationFrame(this.animate);
+    this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
+    window.addEventListener('pagehide', () => this.linkedWorldSnapshots.dispose());
+    window.addEventListener('pageshow', event => {
+      if (event.persisted) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
+    });
     // Initial preparation owns the first downloads. Only then begin refreshes.
     window.setTimeout(() => { void this.syncSurfaceSnapshots(); }, 1000);
   }
@@ -534,6 +548,7 @@ class Game {
     // movement, entity code, and entity physics advance only on the immutable
     // 20 Hz simulation clock below.
     this.controller.updateRender(dt);
+    this.linkedWorldSnapshots.update(dt);
     const simulation = this.entitySimulationClock.advance(dt, simulationDt => {
       this.entitySync?.enforceExecutionLeases();
       this.entitySync?.updateReplicaPoses(simulationDt);
@@ -589,6 +604,8 @@ class Game {
       velocity: this.playerPhysics.velocity,
       grounded: this.playerPhysics.isOnGround,
       flying: this.playerPhysics.isFlying,
+      dashIntensity: this.playerPhysics.dashIntensity,
+      sprinting: this.playerPhysics.isSprinting,
       seated: this.controller.isDriving,
       maxSpeed: this.playerPhysics.isFlying
         ? this.playerPhysics.flySpeed
@@ -679,6 +696,8 @@ window.addEventListener('DOMContentLoaded', () => {
       await game.sceneRenderer.ready;
       await game.preloadInitialTerrain(reportProgress);
       await game.preloadInitialDistantTerrain(reportProgress);
+      reportProgress(99, 'Preparing character animations…');
+      await game.sceneRenderer.preparePlayerPipelines();
       game.start();
       if (session.entry_warning) {
         requestAnimationFrame(() => {
