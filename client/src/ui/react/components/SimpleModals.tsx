@@ -14,6 +14,7 @@ import {
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi, useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
+import { THIRD_PERSON_DISTANCE_LIMITS } from '../../../engine/controls/ControlBindings.ts';
 
 const DISTANT_LOD_CONTROLS: ReadonlyArray<{
   key: DistantSurfaceSettingKey; label: string; description: string; unit: string;
@@ -356,8 +357,8 @@ export function GlobalSettingsModal() {
                 </div>
               </div>
               <div className="settings-row" id="setting-cam-dist-row" style={{ display: state.perspective === 'first_person' ? 'none' : 'flex' }}>
-                <div className="settings-label-group"><span className="settings-label">Third Person Distance</span><span className="settings-desc">Camera offset distance from player</span></div>
-                <div className="settings-control-group"><input id="setting-cam-dist-slider" className="settings-slider" type="range" min="2" max="8" step="0.5" value={state.cameraDistance} onChange={event => spaceUiStore.setCameraDistance(Number(event.target.value))} /><span id="setting-cam-dist-val" className="settings-value-badge">{state.cameraDistance.toFixed(1)} m</span></div>
+                <div className="settings-label-group"><span className="settings-label">Third Person Distance</span><span className="settings-desc">On-foot distance; auto-fit the entire vehicle bounding box with margin. Scroll to zoom · Shift+Scroll for tools</span></div>
+                <div className="settings-control-group"><input id="setting-cam-dist-slider" className="settings-slider" type="range" min={THIRD_PERSON_DISTANCE_LIMITS.min} max={THIRD_PERSON_DISTANCE_LIMITS.max} step="0.5" value={state.cameraDistance} onChange={event => spaceUiStore.setCameraDistance(Number(event.target.value))} /><span id="setting-cam-dist-val" className="settings-value-badge">{state.cameraDistance.toFixed(1)} m</span></div>
               </div>
               <div className="settings-row">
                 <div className="settings-label-group"><span className="settings-label">Minimap</span><span className="settings-desc">Continuously updates nearby terrain and entities · may reduce performance while moving</span></div>

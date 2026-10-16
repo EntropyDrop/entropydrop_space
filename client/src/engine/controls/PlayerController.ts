@@ -430,6 +430,8 @@ export class PlayerController {
       get camera() { return host.camera; },
       set camera(value) { host.camera = value; },
       get bodyQuaternion() { return host.bodyQuaternion; },
+      get isDriving() { return host.isDriving; },
+      get drivenContraption() { return host.drivenContraption; },
       get physics() { return host.physics; },
       set physics(value) { host.physics = value; },
       get sceneRenderer() { return host.sceneRenderer; },
@@ -1117,8 +1119,17 @@ export class PlayerController {
     }
   }
 
-  handleWheel(e: { deltaY: number; deltaMode?: number; shiftKey?: boolean; ctrlKey?: boolean; preventDefault?: () => void }) {
+  handleWheel(e: { deltaY: number; deltaMode?: number; shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean; preventDefault?: () => void }) {
     if (this.worldPickingSuspended) return;
+    if (!Number.isFinite(e.deltaY) || e.deltaY === 0) return;
+    if (this.isLocked && this.perspective !== 'first_person'
+      && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const unitScale = e.deltaMode === 1 ? 16
+        : e.deltaMode === 2 ? (typeof window !== 'undefined' ? window.innerHeight : 800) : 1;
+      this.cameraSession.zoomThirdPerson(e.deltaY * unitScale);
+      e.preventDefault?.();
+      return;
+    }
     if (this.activeTool === SpecialTool.MODELING && this.modeling?.creationWheel(e)) return;
     if (this.activeTool === SpecialTool.WRENCH) {
       const unitScale = e.deltaMode === 1
@@ -6241,8 +6252,8 @@ export class PlayerController {
     return this.cameraSession.updateCameraRotation();
   }
 
-  updateCameraPosition() {
-    return this.cameraSession.updateCameraPosition();
+  updateCameraPosition(dt = 0) {
+    return this.cameraSession.updateCameraPosition(dt);
   }
 
   /**
@@ -6371,7 +6382,7 @@ export class PlayerController {
     this.processBulkEditFrame();
     this.getCameraPerspectiveTransition().advance(dt);
     this.cameraSession.updateMotion(dt);
-    this.updateCameraPosition();
+    this.updateCameraPosition(dt);
   }
 
   /** Compatibility one-call form used by focused controller tests. The game
@@ -6381,7 +6392,7 @@ export class PlayerController {
     this.updateSimulation(dt);
     this.getCameraPerspectiveTransition().advance(dt);
     this.cameraSession.updateMotion(dt);
-    this.updateCameraPosition();
+    this.updateCameraPosition(dt);
   }
 
   /**

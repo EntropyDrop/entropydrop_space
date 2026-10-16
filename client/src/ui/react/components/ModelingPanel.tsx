@@ -28,7 +28,7 @@ function NumberField({ label, value, step, onCommit }: {
 }
 
 export function ModelingPanel() {
-  const { controller, modelingView } = useSpaceUiFields('controller', 'modelingView');
+  const { controller, modelingView, perspective } = useSpaceUiFields('controller', 'modelingView', 'perspective');
   const tool = controller?.modeling;
   const { selection, editable, creationDimensions } = modelingView;
   const value = selection?.value;
@@ -57,7 +57,7 @@ export function ModelingPanel() {
       <span className="palette-title">Modeling</span>
       <span className="mode-badge std">DECORATION</span>
     </div>
-    {creationDimensions && <div className="modeling-hint" role="status">Creating {creationDimensions.map((value: number) => Number(value.toFixed(3))).join(' × ')} m<br />Wheel: thickness · release RMB: create · Esc: cancel</div>}
+    {creationDimensions && <div className="modeling-hint" role="status">Creating {creationDimensions.map((value: number) => Number(value.toFixed(3))).join(' × ')} m<br />{perspective === 'first_person' ? 'Wheel' : 'Shift+Wheel'}: thickness · release RMB: create · Esc: cancel</div>}
     {selection ? <>
       <div className="modeling-owner">{selection.componentName || selection.componentId} · {selection.decorationId}</div>
       <fieldset disabled={!editable} key={`${selection.contraption.id}:${selection.componentId}:${selection.decorationId}`}>

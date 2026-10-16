@@ -11,6 +11,7 @@ import {
 import { compareComponentIds, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import {
   SpecialTool,
+  THIRD_PERSON_DISTANCE_LIMITS,
   type PlayerPerspective
 } from '../../../engine/controls/ControlBindings.ts';
 import type { SelectorShape } from '../../../engine/controls/SelectorShapes.ts';
@@ -2030,7 +2031,8 @@ export class SpaceUiStore {
   }
 
   setCameraDistance(distance: number, persist = true): void {
-    const value = Math.max(2, Math.min(8, Number(distance) || 4));
+    const { min, max, default: fallback } = THIRD_PERSON_DISTANCE_LIMITS;
+    const value = Math.max(min, Math.min(max, Number(distance) || fallback));
     this.snapshot.controller?.setThirdPersonDistance?.(value);
     this.patch({ cameraDistance: value });
     if (persist) try { localStorage.setItem('space_setting_cam_dist', String(value)); } catch { }

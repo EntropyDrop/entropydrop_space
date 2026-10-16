@@ -15,6 +15,8 @@ export function isPerspectiveToggleCode(code: string) {
 
 export type PlayerPerspective = 'first_person' | 'third_person' | 'third_person_front';
 
+export const THIRD_PERSON_DISTANCE_LIMITS = { min: 1.5, max: 12, default: 4 } as const;
+
 export const SpecialTool = {
   SELECTOR: 'selector',     // 1. Selector (world/component selection and copy)
   HAMMER: 'hammer',         // 2. Hammer (preview/place inventory items)

@@ -70,6 +70,18 @@ saved perspective settings restore without an initial animation.
 Both character perspectives and all held tools are compiled during entry so
 the first F3 does not discover hidden skin/tool pipelines. Holding F3 cycles once.
 
+Third-person distance adapts to the character and mounted vehicle. The combined
+world bounding box of the rider, vehicle components and decorations stays fully
+inside the viewport, with 10% padding on each edge. Framing accounts for width,
+height and depth, and is recalculated for free look, FOV, viewport shape and
+animated parts.
+The camera pulls back immediately when more clearance is needed and eases inward
+when the subject gets smaller or the player dismounts. While pointer-locked,
+**Scroll** zooms in/out in both third-person views; **Shift+Scroll** keeps the
+active tool's wheel action. Vehicle zoom stops at the automatic framing limit
+and is separate from the saved 1.5–12 m walking distance. First-person wheel
+bindings remain the same.
+
 Press **Space** to jump, then release and press it again in midair to dash along
 the crosshair's full 3D direction: look up to climb or down to dive. A quick tap
 locks that direction for a 5 m dash, easing in and out over 0.4 seconds. Keep the

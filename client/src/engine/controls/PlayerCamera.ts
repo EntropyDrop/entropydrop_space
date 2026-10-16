@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
-import { type PlayerPerspective } from './ControlBindings.ts';
+import { THIRD_PERSON_DISTANCE_LIMITS, type PlayerPerspective } from './ControlBindings.ts';
 import type { PlayerController } from './PlayerController.ts';
+import { ThirdPersonFraming } from './ThirdPersonFraming.ts';
 
 const UPRIGHT = new THREE.Quaternion();
 
 export interface PlayerCameraPort {
   camera: PlayerController['camera'];
   bodyQuaternion: PlayerController['bodyQuaternion'];
+  isDriving: PlayerController['isDriving'];
+  drivenContraption: PlayerController['drivenContraption'];
   physics: PlayerController['physics'];
   sceneRenderer: PlayerController['sceneRenderer'];
   ui: PlayerController['ui'];
@@ -19,12 +22,16 @@ export class PlayerCamera {
   private readonly bodyTilt = new THREE.Quaternion();
   private readonly inverseBodyHeading = new THREE.Quaternion();
   private dashFov = 0;
+  private readonly framing = new ThirdPersonFraming();
+  private framingVehicle: PlayerController['drivenContraption'] = null;
+  private vehicleZoom = 1;
+  private followDistance: number | null = null;
   constructor(host: PlayerCameraPort) { this.host = host; }
   pitch = 0;
   yaw = 0;
   fov = 75;
   perspective: PlayerPerspective = 'first_person';
-  thirdPersonDistance = 4;
+  thirdPersonDistance: number = THIRD_PERSON_DISTANCE_LIMITS.default;
   cameraPerspectiveTransition?: CameraPerspectiveTransition;
 
   setFov(fov: number) {
@@ -65,7 +72,30 @@ export class PlayerCamera {
   }
 
   setThirdPersonDistance(dist: number) {
-    this.thirdPersonDistance = Math.max(1.5, Math.min(12, Number(dist) || 4));
+    const { min, max, default: fallback } = THIRD_PERSON_DISTANCE_LIMITS;
+    this.thirdPersonDistance = THREE.MathUtils.clamp(Number(dist) || fallback, min, max);
+  }
+
+  private getFramingVehicle() {
+    const vehicle = this.host.isDriving ? this.host.drivenContraption : null;
+    if (vehicle !== this.framingVehicle) {
+      this.framingVehicle = vehicle;
+      this.vehicleZoom = 1;
+    }
+    return vehicle;
+  }
+
+  zoomThirdPerson(deltaPixels: number) {
+    if (!Number.isFinite(deltaPixels) || deltaPixels === 0) return;
+    const factor = Math.exp(THREE.MathUtils.clamp(deltaPixels, -250, 250) * 0.002);
+    if (this.getFramingVehicle()) {
+      // Keep manual zoom relative to the vehicle fit, independently of walking.
+      // Zooming in stops at the framing limit instead of clipping the hull.
+      this.vehicleZoom = THREE.MathUtils.clamp(this.vehicleZoom * factor, 1, 8);
+    } else {
+      this.setThirdPersonDistance(this.thirdPersonDistance * factor);
+      this.host.ui?.setCameraDistance?.(this.thirdPersonDistance);
+    }
   }
 
   togglePerspective() {
@@ -103,7 +133,7 @@ export class PlayerCamera {
 
   syncCameraViewVisibility() {
     const pose = this.getCameraPerspectiveTransition().pose;
-    const distance = pose.distance * this.thirdPersonDistance;
+    const distance = pose.distance * (this.followDistance ?? this.thirdPersonDistance);
     // Hide the body near the eye, and show the viewmodel only once back in
     // first person. This avoids flying through the head or carrying a floating hand.
     this.host.sceneRenderer?.setPlayerAvatarVisible?.(
@@ -159,11 +189,24 @@ export class PlayerCamera {
     return eyePos;
   }
 
-  updateCameraPosition() {
+  updateCameraPosition(dt = 0) {
     const orbitDirection = this.updateCameraRotation();
     const eyePos = this.getEyePosition();
     const { distance } = this.getCameraPerspectiveTransition().pose;
-    this.host.camera.position.copy(eyePos).addScaledVector(orbitDirection, distance * this.thirdPersonDistance);
+    const vehicle = this.getFramingVehicle();
+    if (distance > 0) {
+      const minimum = this.framing.measure(this.host.camera, eyePos, vehicle, this.host.physics.getAABB?.());
+      const target = Math.max(this.thirdPersonDistance, minimum) * (vehicle ? this.vehicleZoom : 1);
+      if (this.followDistance === null) this.followDistance = target;
+      if (Number.isFinite(dt) && dt > 0) {
+        this.followDistance = THREE.MathUtils.damp(this.followDistance, target, 10, dt);
+      }
+      // Fit immediately after mounting, turning or resizing; ease back inward.
+      this.followDistance = Math.max(minimum, this.followDistance);
+    } else {
+      this.followDistance = this.thirdPersonDistance;
+    }
+    this.host.camera.position.copy(eyePos).addScaledVector(orbitDirection, distance * this.followDistance);
     this.syncCameraViewVisibility();
   }
 }
