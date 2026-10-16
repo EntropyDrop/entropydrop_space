@@ -46,3 +46,23 @@ test('frame data is isolated across different entity hosts', () => {
   assert.deepEqual(second.context('root').position, [4, 5, 6]);
   assert.notEqual(first.context('root').position, second.context('root').position);
 });
+
+test('indexed decoration overlays retain sorted immutable reads and reset at each tick', () => {
+  const host = createEntityScriptHost(() => null, () => null);
+  const snapshot: ScriptSnapshot = { rootComponentId: 'root', components: [{ id: 'root', parentId: null,
+    decorations: [{ id: 'a', color: 1, position: [1, 2, 3] }, { id: 'z', color: 2 }] }] };
+  host.beginTick(snapshot);
+  const api = host.getSelf('root')!.decorations;
+  const before = api.all()!;
+  api.upsert('b', { color: 3 });
+  api.upsert('a', { color: 4 });
+  api.remove('z');
+  api.upsert('z', { color: 5 });
+  assert.deepEqual(api.all()!.map(value => value.id), ['a', 'b', 'z']);
+  assert.equal(api.get('a')!.color, 4);
+  assert.throws(() => { api.get('a')!.position![0] = 999; }, TypeError);
+  assert.equal(before[0].color, 1);
+  assert.deepEqual(snapshot.components![0].decorations, before);
+  host.beginTick(snapshot);
+  assert.deepEqual(host.getSelf('root')!.decorations.all(), before);
+});

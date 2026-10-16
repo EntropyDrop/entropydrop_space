@@ -1,5 +1,5 @@
 import type { Contraption, EntityCollisionBounds } from '../contraption/Contraption.ts';
-import type { EntityRigidBody, EntityNode, RuntimeConstraint } from '../contraption/EntityTypes.ts';
+import type { EntityRigidBody, EntityNode, RuntimeConstraint, CollisionEntry } from '../contraption/EntityTypes.ts';
 import type { CollisionBounds, CollisionBox } from './CollisionGeometry.ts';
 import { collisionShapeSpans } from './CollisionGeometry.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
@@ -52,7 +52,9 @@ function* collisionPairBatches(boxesA: PhysicsBox[], boxesB: PhysicsBox[], index
 type PhysicsBox = Omit<EntityCollisionBounds, 'cell' | 'contraption' | 'entityId' | 'bodyId'> & Partial<Pick<EntityCollisionBounds, 'cell' | 'contraption' | 'entityId' | 'bodyId'>>;
 const AXIS_SUFFIX = { x: 'X', y: 'Y', z: 'Z' } as const;
 interface PhysicsObb { center: THREE.Vector3; axes: THREE.Vector3[]; halfExtents: number[] }
-interface BodyObb extends PhysicsObb, CollisionBounds { coversSamples?: boolean }
+interface BodyObb extends PhysicsObb, CollisionBounds { coversSamples?: boolean; cell?: CollisionEntry | CollisionBox }
+type LocalTerrainShape = CollisionBounds & { cell: CollisionEntry | CollisionBox; center: THREE.Vector3; halfExtents: number[] };
+type LocalTerrainNode = { shapes: LocalTerrainShape[]; bounds: THREE.Box3; index?: CollisionBoxIndex<LocalTerrainShape> };
 type EntityFrame = NonNullable<ReturnType<ContraptionPhysics['prepareContraptionFrame']>>;
 interface PairFrame { colliders: Contraption[]; collisionCandidates?: [number, number][]; dynamicCandidates?: [number, number][] }
 
@@ -74,6 +76,64 @@ export class ContraptionPhysics {
   private collisionIndexes = new WeakMap<PhysicsBox[], CollisionBoxIndex<PhysicsBox>>();
   private collisionBounds = new WeakMap<PhysicsBox[], ReturnType<typeof collisionBoundsOf>>();
   private restingTerrainSupports = new WeakMap<object, RestingTerrainSupport>();
+  private localTerrainGeometry = new WeakMap<Contraption, {
+    source: (CollisionEntry | CollisionBox)[]; nodes: Map<string, LocalTerrainNode>;
+  }>();
+
+  /** Static local geometry survives movement; edits replace the source array. */
+  private terrainGeometry(contraption: Contraption) {
+    const source = contraption.collisionTerrainBoxes || contraption.collisionSurfaceEntries || contraption.collisionEntries;
+    let cached = this.localTerrainGeometry.get(contraption);
+    if (cached?.source === source) return cached.nodes;
+    const nodes = new Map<string, LocalTerrainNode>();
+    for (const cell of source || []) {
+      let node = nodes.get(cell.entityId);
+      if (!node) nodes.set(cell.entityId, node = { shapes: [], bounds: new THREE.Box3() });
+      const halfExtents = collisionShapeSpans(cell).map(span => span * MICRO_SIZE / 2);
+      const min = new THREE.Vector3(cell.x * MICRO_SIZE, cell.y * MICRO_SIZE, cell.z * MICRO_SIZE);
+      const half = new THREE.Vector3(...halfExtents);
+      node.shapes.push({ cell, center: min.clone().add(half), halfExtents,
+        minX: min.x, minY: min.y, minZ: min.z,
+        maxX: min.x + 2 * half.x, maxY: min.y + 2 * half.y, maxZ: min.z + 2 * half.z });
+      node.bounds.expandByPoint(min).expandByPoint(min.addScaledVector(half, 2));
+    }
+    this.localTerrainGeometry.set(contraption, { source, nodes });
+    return nodes;
+  }
+
+  /** Transform only each attached node's bounds before considering its cells. */
+  private bodyTerrainEnvelope(contraption: Contraption, body: EntityRigidBody,
+    previous: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null) {
+    const attached = contraption.getAttachedNodeIds?.(body.id) || new Set([body.id]);
+    const bounds = new THREE.Box3();
+    let radius = 0;
+    for (const [id, geometry] of this.terrainGeometry(contraption)) {
+      if (!attached.has(id) || contraption.isNodeCollisionEnabled?.(id) === false) continue;
+      const node = contraption.getEntityNode?.(id);
+      if (!node?.group) return null;
+      node.group.updateWorldMatrix(true, false);
+      const matrix = node.group.matrixWorld;
+      // Unusual scaled/sheared hosts retain the established point-probe path.
+      const axes = [0, 1, 2].map(i => new THREE.Vector3().setFromMatrixColumn(matrix, i));
+      if (Math.abs(matrix.determinant() - 1) > 1e-10 || axes.some(axis => Math.abs(axis.lengthSq() - 1) > 1e-10)
+        || Math.abs(axes[0].dot(axes[1])) > 1e-10 || Math.abs(axes[0].dot(axes[2])) > 1e-10
+        || Math.abs(axes[1].dot(axes[2])) > 1e-10) return null;
+      const local = geometry.bounds.clone().translate(node.pivotLocal.clone().negate());
+      const center = local.getCenter(new THREE.Vector3()).applyMatrix4(matrix);
+      radius = Math.max(radius, center.distanceTo(body.position) + local.getSize(new THREE.Vector3()).length() / 2);
+      bounds.union(local.applyMatrix4(matrix));
+    }
+    if (bounds.isEmpty()) return null;
+    const pad = 0.002 + (previous ? radius * body.quaternion.angleTo(previous.quaternion) : 0);
+    const delta = previous ? previous.position.clone().sub(body.position) : new THREE.Vector3();
+    bounds.expandByScalar(pad);
+    if (previous) {
+      bounds.min.add(new THREE.Vector3(Math.min(0, delta.x), Math.min(0, delta.y), Math.min(0, delta.z)));
+      bounds.max.add(new THREE.Vector3(Math.max(0, delta.x), Math.max(0, delta.y), Math.max(0, delta.z)));
+    }
+    return { bounds: { minX: bounds.min.x, minY: bounds.min.y, minZ: bounds.min.z,
+      maxX: bounds.max.x, maxY: bounds.max.y, maxZ: bounds.max.z }, pad, delta };
+  }
 
   physicsBoxes(contraption: Contraption) {
     return contraption.getPhysicsCollisionWorldAABBs?.() || contraption.getCollisionWorldAABBs?.() || [];
@@ -1321,66 +1381,79 @@ export class ContraptionPhysics {
    * face. Keeping the OBBs here lets the terrain solver cover that topology
    * with a separating-axis test.
    */
-  getBodyCollisionWorldOBBs(contraption: Contraption, body: EntityRigidBody): BodyObb[] {
+  getBodyCollisionWorldOBBs(contraption: Contraption, body: EntityRigidBody, regions?: CollisionBoxIndex<CollisionBounds>): BodyObb[] {
     if (!contraption || !body) return [];
     const attached = contraption.getAttachedNodeIds?.(body.id) || new Set([body.id]);
     const boxes = [];
-    const nodeTransforms = new Map<string, { matrix: THREE.Matrix4 | null; pivot: THREE.Vector3;
-      axes: THREE.Vector3[]; coversSamples?: boolean }>();
-    for (const cell of contraption.collisionTerrainBoxes || contraption.collisionSurfaceEntries || contraption.collisionEntries || []) {
-      if (!attached.has(cell.entityId)) continue;
-      if (contraption.isNodeCollisionEnabled?.(cell.entityId) === false) continue;
-      const node = contraption.getEntityNode?.(cell.entityId) || contraption.getEntityNode?.();
-      let transform = nodeTransforms.get(cell.entityId);
-      if (!transform) {
-        node?.group?.updateWorldMatrix?.(true, false);
-        const quaternion = node?.group?.getWorldQuaternion?.(new THREE.Quaternion())
-          || body.quaternion.clone();
-        transform = {
-          matrix: node?.group?.matrixWorld || null,
-          pivot: node?.pivotLocal || new THREE.Vector3(),
-          axes: [
-            new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion).normalize(),
-            new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion).normalize(),
-            new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion).normalize()
-          ]
-        };
-        // Only certify coverage for the unit-scale rigid transform used by the
-        // OBBs. Custom/scaled hosts must retain the point-probe fallback.
-        transform.coversSamples = !!transform.matrix && transform.axes.every((axis, i) => (
-          Math.abs(transform!.matrix!.elements[i * 4] - axis.x) < 1e-10
-          && Math.abs(transform!.matrix!.elements[i * 4 + 1] - axis.y) < 1e-10
-          && Math.abs(transform!.matrix!.elements[i * 4 + 2] - axis.z) < 1e-10
-        ));
-        nodeTransforms.set(cell.entityId, transform);
+    for (const [id, geometry] of this.terrainGeometry(contraption)) {
+      if (!attached.has(id)) continue;
+      if (contraption.isNodeCollisionEnabled?.(id) === false) continue;
+      const node = contraption.getEntityNode?.(id) || contraption.getEntityNode?.();
+      node?.group?.updateWorldMatrix?.(true, false);
+      const quaternion = node?.group?.getWorldQuaternion?.(new THREE.Quaternion())
+        || body.quaternion.clone();
+      const transform: { matrix: THREE.Matrix4 | null; pivot: THREE.Vector3;
+        axes: THREE.Vector3[]; coversSamples?: boolean } = {
+        matrix: node?.group?.matrixWorld || null,
+        pivot: node?.pivotLocal || new THREE.Vector3(),
+        axes: [
+          new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion).normalize(),
+          new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion).normalize(),
+          new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion).normalize()
+        ]
+      };
+      // Only certify coverage for the unit-scale rigid transform used by the
+      // OBBs. Custom/scaled hosts must retain the point-probe fallback.
+      transform.coversSamples = !!transform.matrix && transform.axes.every((axis, i) => (
+        Math.abs(transform!.matrix!.elements[i * 4] - axis.x) < 1e-10
+        && Math.abs(transform!.matrix!.elements[i * 4 + 1] - axis.y) < 1e-10
+        && Math.abs(transform!.matrix!.elements[i * 4 + 2] - axis.z) < 1e-10
+      ));
+      let shapes = geometry.shapes;
+      if (regions && transform.matrix && transform.coversSamples) {
+        geometry.index ??= new CollisionBoxIndex(shapes);
+        const e = transform.matrix.elements, p = transform.pivot;
+        // Query the static local tree through conservative world bounds. Only
+        // surviving leaves allocate OBB vectors and enter terrain narrowphase.
+        const worldBounds = { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 };
+        shapes = geometry.index.queryMatchingBounds(b => {
+          const x = (b.minX + b.maxX) / 2 - p.x, y = (b.minY + b.maxY) / 2 - p.y, z = (b.minZ + b.maxZ) / 2 - p.z;
+          const hx = (b.maxX - b.minX) / 2, hy = (b.maxY - b.minY) / 2, hz = (b.maxZ - b.minZ) / 2;
+          const cx = e[0] * x + e[4] * y + e[8] * z + e[12];
+          const cy = e[1] * x + e[5] * y + e[9] * z + e[13];
+          const cz = e[2] * x + e[6] * y + e[10] * z + e[14];
+          const rx = Math.abs(e[0]) * hx + Math.abs(e[4]) * hy + Math.abs(e[8]) * hz;
+          const ry = Math.abs(e[1]) * hx + Math.abs(e[5]) * hy + Math.abs(e[9]) * hz;
+          const rz = Math.abs(e[2]) * hx + Math.abs(e[6]) * hy + Math.abs(e[10]) * hz;
+          worldBounds.minX = cx - rx; worldBounds.maxX = cx + rx;
+          worldBounds.minY = cy - ry; worldBounds.maxY = cy + ry;
+          worldBounds.minZ = cz - rz; worldBounds.maxZ = cz + rz;
+          return regions.intersects(worldBounds);
+        });
       }
-      const axes = transform.axes;
-      const sizes = collisionShapeSpans(cell);
-      const halfExtents = sizes.map(span => span * MICRO_SIZE / 2);
-      const center = new THREE.Vector3(
-        (cell.x + sizes[0] / 2) * MICRO_SIZE,
-        (cell.y + sizes[1] / 2) * MICRO_SIZE,
-        (cell.z + sizes[2] / 2) * MICRO_SIZE
-      );
-      if (transform.matrix) center.sub(transform.pivot).applyMatrix4(transform.matrix);
-      else center.copy(contraption.localToWorld(center));
-      const radiusX = halfExtents.reduce((sum, half, index) => sum + half * Math.abs(axes[index].x), 0);
-      const radiusY = halfExtents.reduce((sum, half, index) => sum + half * Math.abs(axes[index].y), 0);
-      const radiusZ = halfExtents.reduce((sum, half, index) => sum + half * Math.abs(axes[index].z), 0);
-      boxes.push({
-        center,
-        axes,
-        halfExtents,
-        minX: center.x - radiusX,
-        maxX: center.x + radiusX,
-        minY: center.y - radiusY,
-        maxY: center.y + radiusY,
-        minZ: center.z - radiusZ,
-        maxZ: center.z + radiusZ,
-        cell,
-        body,
-        coversSamples: transform.coversSamples,
-      });
+      for (const { cell, center: localCenter, halfExtents } of shapes) {
+        const axes = transform.axes;
+        const center = localCenter.clone();
+        if (transform.matrix) center.sub(transform.pivot).applyMatrix4(transform.matrix);
+        else center.copy(contraption.localToWorld(center));
+        const radiusX = halfExtents.reduce((sum, half, index) => sum + half * Math.abs(axes[index].x), 0);
+        const radiusY = halfExtents.reduce((sum, half, index) => sum + half * Math.abs(axes[index].y), 0);
+        const radiusZ = halfExtents.reduce((sum, half, index) => sum + half * Math.abs(axes[index].z), 0);
+        boxes.push({
+          center,
+          axes,
+          halfExtents,
+          minX: center.x - radiusX,
+          maxX: center.x + radiusX,
+          minY: center.y - radiusY,
+          maxY: center.y + radiusY,
+          minZ: center.z - radiusZ,
+          maxZ: center.z + radiusZ,
+          cell,
+          body,
+          coversSamples: transform.coversSamples,
+        });
+      }
     }
     return boxes;
   }
@@ -1442,16 +1515,16 @@ export class ContraptionPhysics {
     return { normal, penetration, hitPosition };
   }
 
-  terrainBoxesOverlapping(obb: CollisionBounds, coverage?: { complete: boolean }) {
+  terrainBoxesOverlapping(obb: CollisionBounds, coverage?: { complete: boolean }, microIndex?: CollisionBoxIndex<CollisionBounds>) {
     if (coverage) coverage.complete = false;
-    const boxes = [];
+    const boxes: CollisionBounds[] = this.world.getStandardCollisionBoxesInAABB?.(obb) ?? [];
     // SAT requires positive overlap, so a box whose maximum lies exactly on a
     // voxel boundary does not overlap the cell on the far side. Half-open
     // ranges turn the common aligned case from eight queries into one.
     const maxX = Math.floor(obb.maxX - 1e-7);
     const maxY = Math.floor(obb.maxY - 1e-7);
     const maxZ = Math.floor(obb.maxZ - 1e-7);
-    for (let x = Math.floor(obb.minX); x <= maxX; x++) {
+    if (!this.world.getStandardCollisionBoxesInAABB) for (let x = Math.floor(obb.minX); x <= maxX; x++) {
       for (let y = Math.floor(obb.minY); y <= maxY; y++) {
         for (let z = Math.floor(obb.minZ); z <= maxZ; z++) {
           if (this.world.getBlock(x, y, z) === BlockTypes.AIR) continue;
@@ -1470,7 +1543,7 @@ export class ContraptionPhysics {
     };
     // Production worlds expose cached merged geometry. Small hosts and test
     // worlds can retain the cell reader without losing exact collision semantics.
-    const mergedMicro = this.world.getMicroCollisionBoxesInAABB?.(bounds);
+    const mergedMicro = microIndex ? microIndex.query(bounds) : this.world.getMicroCollisionBoxesInAABB?.(bounds);
     if (Array.isArray(mergedMicro)) {
       if (coverage) coverage.complete = true;
       boxes.push(...mergedMicro);
@@ -2048,7 +2121,26 @@ export class ContraptionPhysics {
     // attached to it: after a child component is split off, the child's cells
     // still move with the body (scene-graph parent), so they must keep the
     // structure supported instead of silently losing that ground contact.
-    const bodyObbs = this.getBodyCollisionWorldOBBs(contraption, body);
+    const envelope = this.world.prepareTerrainCollisionQuery ? this.bodyTerrainEnvelope(contraption, body, previousPose) : null;
+    const terrainQuery = envelope ? this.world.prepareTerrainCollisionQuery!(envelope.bounds) : null;
+    if (terrainQuery && !terrainQuery.regions.length) return;
+    const sweptBounds = (bounds: CollisionBounds): CollisionBounds => {
+      const { delta, pad } = envelope!;
+      return { minX: bounds.minX + Math.min(0, delta.x) - pad, maxX: bounds.maxX + Math.max(0, delta.x) + pad,
+        minY: bounds.minY + Math.min(0, delta.y) - pad, maxY: bounds.maxY + Math.max(0, delta.y) + pad,
+        minZ: bounds.minZ + Math.min(0, delta.z) - pad, maxZ: bounds.maxZ + Math.max(0, delta.z) + pad };
+    };
+    // Expand the terrain regions in the opposite direction of the sweep so
+    // current local boxes whose *previous* pose crossed a wall remain candidates.
+    const candidateRegions = terrainQuery?.regions.map(region => {
+      const { delta, pad } = envelope!;
+      return { minX: region.minX - Math.max(0, delta.x) - pad, maxX: region.maxX - Math.min(0, delta.x) + pad,
+        minY: region.minY - Math.max(0, delta.y) - pad, maxY: region.maxY - Math.min(0, delta.y) + pad,
+        minZ: region.minZ - Math.max(0, delta.z) - pad, maxZ: region.maxZ - Math.min(0, delta.z) + pad };
+    });
+    const bodyObbs = this.getBodyCollisionWorldOBBs(contraption, body,
+      candidateRegions ? new CollisionBoxIndex(candidateRegions) : undefined);
+    const microIndex = terrainQuery ? new CollisionBoxIndex(terrainQuery.microBoxes) : undefined;
 
     const translationDistance = previousPose
       ? body.position.distanceTo(previousPose.position)
@@ -2064,13 +2156,15 @@ export class ContraptionPhysics {
     let maxTerrainY = -Infinity;
     let minTerrainY = Infinity;
     const cachedTerrainBoxes = new Map();
+    const terrainCells = new Set<CollisionEntry | CollisionBox>();
     const coverage = { complete: false };
     let completeCoverage = true;
     for (const obb of bodyObbs) {
-      const tBoxes = this.terrainBoxesOverlapping(obb, coverage);
+      const tBoxes = this.terrainBoxesOverlapping(terrainQuery ? sweptBounds(obb) : obb, coverage, microIndex);
       completeCoverage = completeCoverage && coverage.complete;
-      cachedTerrainBoxes.set(obb, tBoxes);
+      cachedTerrainBoxes.set(obb, terrainQuery ? tBoxes.filter(box => collisionBoundsOverlap(obb, box)) : tBoxes);
       if (tBoxes.length > 0) {
+        if (obb.cell) terrainCells.add(obb.cell);
         hasNearbyTerrain = true;
         for (const tb of tBoxes) {
           if (tb.maxY > maxTerrainY) maxTerrainY = tb.maxY;
@@ -2079,10 +2173,16 @@ export class ContraptionPhysics {
       }
     }
 
-    if (!hasNearbyTerrain && this.canSkipEmptyTerrainSamples(bodyObbs, shouldSweep, completeCoverage)) return;
-    if (!hasNearbyTerrain && shouldSweep && completeCoverage && previousPose
+    if (!terrainQuery && !hasNearbyTerrain && this.canSkipEmptyTerrainSamples(bodyObbs, shouldSweep, completeCoverage)) return;
+    if (!terrainQuery && !hasNearbyTerrain && shouldSweep && completeCoverage && previousPose
       && this.emptySweptTerrainEnvelope(bodyObbs, body, previousPose)) return;
-    const samplePoints = contraption.getCollisionSamplePoints(body.id, true);
+    if (terrainQuery && !hasNearbyTerrain && completeCoverage && bodyObbs.every(obb => obb.coversSamples)) return;
+    const rotationAllowance = envelope?.pad ?? rotationDistance;
+    const maxTravelDown = previousPose ? Math.max(0, body.position.y - previousPose.position.y) + rotationAllowance : 0;
+    const maxTravelUp = previousPose ? Math.max(0, previousPose.position.y - body.position.y) + rotationAllowance : 0;
+    const samplePoints = contraption.getCollisionSamplePoints(body.id, true, terrainQuery ? {
+      min: minTerrainY - maxTravelUp - 0.02, max: maxTerrainY + maxTravelDown + 0.02,
+    } : undefined, terrainQuery ? terrainCells : undefined);
     if (!bodyObbs.length && !samplePoints.length) return 0;
 
     const contacts = new Map<string, { normal: THREE.Vector3; penetration: number;
@@ -2104,9 +2204,6 @@ export class ContraptionPhysics {
       group.count++;
       contacts.set(key, group);
     };
-
-    const maxTravelDown = previousPose ? Math.max(0, body.position.y - previousPose.position.y) + rotationDistance : 0;
-    const maxTravelUp = previousPose ? Math.max(0, previousPose.position.y - body.position.y) + rotationDistance : 0;
 
     for (let index = 0; index < samplePoints.length; index++) {
       const pt = samplePoints[index];
@@ -2265,7 +2362,9 @@ export class ContraptionPhysics {
       * (Math.ceil(bounds.maxZ) - Math.floor(bounds.minZ));
     // Huge teleports/rotations retain the existing path instead of scanning
     // an unbounded conservative volume.
-    if (!Number.isFinite(cells) || cells > 4096) return false;
+    if (!Number.isFinite(cells)) return false;
+    if (this.world.hasTerrainCollisionInAABB) return !this.world.hasTerrainCollisionInAABB(bounds);
+    if (cells > 4096) return false;
     const coverage = { complete: false };
     return this.terrainBoxesOverlapping(bounds, coverage).length === 0 && coverage.complete;
   }

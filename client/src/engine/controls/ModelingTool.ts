@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { normalizeDecoration, type DecorationDefinition } from '@entropydrop/space-engine/contraption/Decorations.ts';
-import { createDecorationGroup } from '@entropydrop/space-engine/contraption/DecorationMeshes.ts';
+import { createDecorationGroup, syncDecorationMeshTransform } from '@entropydrop/space-engine/contraption/DecorationMeshes.ts';
 import { hookSceneMaterials } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import type { PlayerController } from './PlayerController.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
@@ -409,6 +409,7 @@ export class ModelingTool {
       object.position.fromArray(value.position || [0, 0, 0]).sub(node.pivotLocal);
       object.quaternion.fromArray(value.rotation || [0, 0, 0, 1]);
       object.scale.fromArray(value.scale || [1, 1, 1]);
+      if (object.userData.decorationId) syncDecorationMeshTransform(object as THREE.Mesh);
     }
   }
 

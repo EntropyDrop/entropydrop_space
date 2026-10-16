@@ -5,14 +5,17 @@ export interface CollisionSampleTemplate {
   positions: Float64Array;
   owners: Uint32Array;
   entityIds: string[];
+  ranges: { cell: CollisionEntry | CollisionBox; start: number; end: number }[];
 }
 
 /** Geometry-only probes: pivots, pose, body attachment and enable flags stay live. */
 export function createCollisionSampleTemplate(cells: readonly (CollisionEntry | CollisionBox)[], hasMicro: boolean): CollisionSampleTemplate | null {
   const positions: number[] = [], owners: number[] = [], entityIds: string[] = [];
   const ids = new Map<string, number>();
+  const ranges: CollisionSampleTemplate['ranges'] = [];
   const low = 0.001, high = 0.999;
   for (const cell of cells) {
+    const start = owners.length;
     let owner = ids.get(cell.entityId);
     if (owner === undefined) { owner = entityIds.length; entityIds.push(cell.entityId); ids.set(cell.entityId, owner); }
     const [spanX, spanY, spanZ] = collisionShapeSpans(cell);
@@ -33,6 +36,7 @@ export function createCollisionSampleTemplate(cells: readonly (CollisionEntry | 
       }
       if (ny > 1) for (let iy = 1; iy < ny; iy++) for (const x of [low, high]) for (const z of [low, high]) push(x, iy / ny, z);
     } else for (const y of [low, high]) push(0.5, y, 0.5);
+    ranges.push({ cell, start, end: owners.length });
   }
-  return { positions: Float64Array.from(positions), owners: Uint32Array.from(owners), entityIds };
+  return { positions: Float64Array.from(positions), owners: Uint32Array.from(owners), entityIds, ranges };
 }

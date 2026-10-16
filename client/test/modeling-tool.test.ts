@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { DecorationBatchMesh } from '@entropydrop/space-engine/contraption/DecorationMeshes.ts';
 import { ModelingTool, MODELING_DIMENSIONS_STORAGE_KEY } from '../src/engine/controls/ModelingTool.ts';
 import { DecorationOwnershipLink } from '../src/engine/render/DecorationOwnershipLink.ts';
 import { getInventoryPreviewBlocks } from '../src/engine/render/SceneRenderer.ts';
@@ -203,6 +204,40 @@ test('rotation, nonuniform resize and Shift snapping preserve other transform co
       assert.equal(value.position, undefined);
     } finally { f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); }
   }
+});
+
+test('batched decoration drag updates rendered instances, cancels cleanly and remains undoable', () => {
+  const f = dragFixture();
+  try {
+    const values = [f.start, ...Array.from({ length: 8 }, (_, i) => ({ id: `zz${i}`, color: 0x112233 }))];
+    f.entity.setComponentDecorations('base', values);
+    const group = f.entity.decorationGroups.get('base')!;
+    const handle = group.children.find(object => object.userData.decorationId === f.start.id)!;
+    const batch = group.children.find(object => object instanceof DecorationBatchMesh) as DecorationBatchMesh;
+    const readPose = () => {
+      const matrix = new THREE.Matrix4();
+      batch.getMatrixAt(0, matrix);
+      return matrix.elements;
+    };
+    const original = readPose();
+    const drag = () => {
+      assert.equal(f.tool.beginDrag(f.handle('move', 'x'), { clientX: 0, clientY: 0 }), true);
+      const delta = f.screenDelta('x', 1);
+      f.tool.updateDrag({ clientX: delta.x, clientY: delta.y });
+      handle.updateMatrix();
+      assert.deepEqual(readPose(), handle.matrix.elements.map(Math.fround));
+      assert.notDeepEqual(readPose(), original);
+      assert.deepEqual(f.entity.getComponentDecorations('base'), values, 'preview never mutates saved definitions');
+    };
+    drag();
+    f.tool.cancelDrag();
+    assert.deepEqual(readPose(), original);
+    drag();
+    assert.equal(f.tool.endDrag(), true);
+    assert.equal(f.saves(), 1);
+    assert.equal(f.tool.undo(), true);
+    assert.deepEqual(f.entity.getComponentDecorations('base'), values);
+  } finally { f.tool.deactivate(); f.entity.dispose(); setTorusViewCorrection(null); }
 });
 
 test('Esc cancels a preview, preserves selection and opens precise values; stale or unauthorized drags cannot commit', () => {

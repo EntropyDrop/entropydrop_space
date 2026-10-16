@@ -503,7 +503,8 @@ function hookMaterialForTorus(source: THREE.Material) {
   const bentNormal = varyingProperty('vec3', 'spaceTorusNormal');
   const usesNormal = material.lights && !('flatShading' in material && material.flatShading);
   material.positionNode = Fn(() => {
-    // positionLocal already includes instance and skin transforms at this point.
+    // Instanced callers supply explicit flat attributes: automatic instance
+    // transforms can be emitted after this position node by the shader builder.
     const naturalVoxel = material.userData.voxelIntegerCoordinates === true;
     const world = (naturalVoxel ? vec3(flatPosition) : modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz).toVar();
     const torus = naturalVoxel ? voxelTorusBendNode(world) : torusBendNode(world);

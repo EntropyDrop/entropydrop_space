@@ -103,6 +103,16 @@ export class CollisionBoxIndex<T extends CollisionBounds> {
     return this.queryMatchingBounds(candidate => collisionBoundsOverlap(candidate, bounds));
   }
 
+  /** Broadphase existence check without allocating/sorting a result array. */
+  intersects(bounds: CollisionBounds): boolean {
+    const visit = (node: IndexNode): boolean => {
+      if (!collisionBoundsOverlap(node, bounds)) return false;
+      if (node.indices) return node.indices.some(index => collisionBoundsOverlap(this.boxes[index], bounds));
+      return visit(node.left!) || visit(node.right!);
+    };
+    return visit(this.root);
+  }
+
   /** Query a local-space tree through conservative transformed bounds. This
    * keeps a moving entity's authored geometry indexed without rebuilding a
    * world-space tree for every physics pose or camera ray. */

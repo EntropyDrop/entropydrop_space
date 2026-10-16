@@ -1,7 +1,7 @@
 import type { ScriptCommand, ScriptSnapshot, ScriptComponentSnapshot } from './ScriptProtocol.ts';
 import type { DecorationDefinition } from '../contraption/Decorations.ts';
 import { readRecord } from '../contraption/EntityInput.ts';
-import { normalizeDecorations, patchDecoration } from '../contraption/Decorations.ts';
+import { patchDecoration } from '../contraption/Decorations.ts';
 import { MAX_ENTITY_DECORATIONS } from '../constants/SpaceConstants.ts';
 // Trusted host API. Guest programs only reach this through the bounded WASM handle bridge.
 export function createEntityScriptHost(hostWorldReadCall: (kind: string, position: unknown, offset: unknown) => unknown, hostRaycastCall: (origin: unknown, direction: unknown, options: unknown) => unknown) {
@@ -17,7 +17,7 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
   let stopped = false;
   let worldVoxelOverlays = new Map<string, Record<string, unknown>>();
   let worldMicroVoxelOverlays = new Map<string, Record<string, unknown>>();
-  let decorationOverlays = new Map<string, DecorationDefinition[]>();
+  let decorationOverlays = new Map<string, Map<string, DecorationDefinition>>();
   const STOP = Object.freeze({ kind: 'space-stop' });
   const MAX_COMMANDS = 256;
   const MAX_BODY_VECTOR_COMPONENT = 1e12;
@@ -273,30 +273,39 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
       },
       remove: (constraintId: unknown) => !!emit('component', id, 'constraints.remove', [constraintId])
     });
-    const decorations = () => decorationOverlays.get(id) || node.decorations || [];
+    const decorations = () => {
+      let values = decorationOverlays.get(id);
+      if (!values) {
+        values = new Map((node.decorations || []).map(value => [value.id, value]));
+        decorationOverlays.set(id, values);
+      }
+      return values;
+    };
     const decorationApi = Object.freeze({
-      all: () => frozenClone(decorations()),
-      get: (decorationId: string) => frozenClone(decorations().find(value => value.id === decorationId) || null),
+      all: () => frozenClone([...decorations().values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+      get: (decorationId: string) => frozenClone(decorations().get(decorationId) || null),
       upsert: (decorationId: string, patch: unknown) => {
         const values = decorations();
-        const previous = values.find(value => value.id === decorationId);
+        const previous = values.get(decorationId);
         let next;
         try { next = patchDecoration(decorationId, patch, previous); }
         catch { return Object.freeze({ ok: false, reason: 'invalid_decoration' }); }
-        let count = 0;
-        for (const [componentId, component] of componentMap) {
-          count += (decorationOverlays.get(componentId) || component.decorations || []).length;
+        if (!previous) {
+          let count = 0;
+          for (const [componentId, component] of componentMap) {
+            count += decorationOverlays.get(componentId)?.size ?? component.decorations?.length ?? 0;
+          }
+          if (count >= MAX_ENTITY_DECORATIONS) return Object.freeze({ ok: false, reason: 'too_many_decorations' });
         }
-        if (!previous && count >= MAX_ENTITY_DECORATIONS) return Object.freeze({ ok: false, reason: 'too_many_decorations' });
         const accepted = emit('component', id, 'decorations.upsert', [decorationId, patch]);
-        if (accepted) decorationOverlays.set(id, normalizeDecorations([...values.filter(value => value.id !== decorationId), next]));
+        if (accepted) values.set(decorationId, next);
         return queuedResult(accepted, { id: decorationId });
       },
       remove: (decorationId: string) => {
         const values = decorations();
-        if (!values.some(value => value.id === decorationId)) return Object.freeze({ ok: false, reason: 'decoration_not_found' });
+        if (!values.has(decorationId)) return Object.freeze({ ok: false, reason: 'decoration_not_found' });
         const accepted = emit('component', id, 'decorations.remove', [decorationId]);
-        if (accepted) decorationOverlays.set(id, values.filter(value => value.id !== decorationId));
+        if (accepted) values.delete(decorationId);
         return queuedResult(accepted, { id: decorationId });
       }
     });

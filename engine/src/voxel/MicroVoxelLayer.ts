@@ -781,6 +781,7 @@ export class MicroVoxelLayer {
     partitionAllowed?: (mx: number, mz: number) => boolean,
   ): CollisionBounds[] {
     const result: CollisionBounds[] = [];
+    if (published ? this.publishedCollisionPartitions.size === 0 : this.chunkCells.size === 0) return result;
     const partitionSize = MICRO_MESH_CHUNK_SIZE * MICRO_SIZE;
     const minCx = Math.ceil(bounds.minX / partitionSize) - 1;
     const maxCx = Math.floor(bounds.maxX / partitionSize);
@@ -792,17 +793,21 @@ export class MicroVoxelLayer {
       for (let cz = minCz; cz <= maxCz; cz++) {
         const mx = cx * MICRO_MESH_CHUNK_SIZE;
         const mz = cz * MICRO_MESH_CHUNK_SIZE;
-        if (partitionAllowed && !partitionAllowed(mx, mz)) continue;
         const columnKey = `${Math.floor(wrapMicroX(mx) / MICRO_MESH_CHUNK_SIZE)},${Math.floor(wrapMicroZ(mz) / MICRO_MESH_CHUNK_SIZE)}`;
+        const partitions = this.horizontalColumnPartitions.get(columnKey);
+        if (!partitions) continue;
         const offsetX = (mx - wrapMicroX(mx)) * MICRO_SIZE;
         const offsetZ = (mz - wrapMicroZ(mz)) * MICRO_SIZE;
         const query = { ...bounds,
           minX: bounds.minX - offsetX, maxX: bounds.maxX - offsetX,
           minZ: bounds.minZ - offsetZ, maxZ: bounds.maxZ - offsetZ };
-        for (const chunkKey of this.horizontalColumnPartitions.get(columnKey) ?? []) {
+        let allowed: boolean | undefined;
+        for (const chunkKey of partitions) {
           if (published ? !this.publishedCollisionPartitions.has(chunkKey) : !this.chunkCells.has(chunkKey)) continue;
           const cy = Number(chunkKey.slice(chunkKey.lastIndexOf(',') + 1));
           if (cy < minCy || cy > maxCy) continue;
+          allowed ??= !partitionAllowed || partitionAllowed(mx, mz);
+          if (!allowed) break;
           for (const box of this.collisionIndexForPartition(chunkKey, published).query(query)) {
             result.push(offsetX === 0 && offsetZ === 0 ? box : { ...box,
               minX: box.minX + offsetX, maxX: box.maxX + offsetX,

@@ -731,6 +731,81 @@ export class World {
     return chunk.getLocalBlock(lx, wy, lz);
   }
 
+  /** Visit solid standard cells through chunk storage, skipping empty height.
+   * Coordinates stay in the query's unwrapped frame, including torus seams. */
+  private visitStandardCollisionCells(bounds: CollisionBounds,
+    visit: (x: number, y: number, z: number) => boolean): boolean {
+    const minX = Math.floor(bounds.minX), maxX = Math.floor(bounds.maxX - 1e-7);
+    const minZ = Math.floor(bounds.minZ), maxZ = Math.floor(bounds.maxZ - 1e-7);
+    const minY = Math.max(0, Math.floor(bounds.minY));
+    const maxY = Math.min(CHUNK_SIZE_Y - 1, Math.floor(bounds.maxY - 1e-7));
+    if (minY > maxY) return false;
+    for (let cx = Math.floor(minX / CHUNK_SIZE_X); cx <= Math.floor(maxX / CHUNK_SIZE_X); cx++) {
+      for (let cz = Math.floor(minZ / CHUNK_SIZE_Z); cz <= Math.floor(maxZ / CHUNK_SIZE_Z); cz++) {
+        const chunk = this.getChunk(wrapChunkX(cx), wrapChunkZ(cz));
+        const occupied = chunk?.getOccupiedYRange();
+        if (!chunk || !occupied || occupied.min > maxY || occupied.max < minY) continue;
+        const ox = cx * CHUNK_SIZE_X, oz = cz * CHUNK_SIZE_Z;
+        const x0 = Math.max(0, minX - ox), x1 = Math.min(CHUNK_SIZE_X - 1, maxX - ox);
+        const z0 = Math.max(0, minZ - oz), z1 = Math.min(CHUNK_SIZE_Z - 1, maxZ - oz);
+        for (let y = Math.max(minY, occupied.min); y <= Math.min(maxY, occupied.max); y++) {
+          for (let z = z0; z <= z1; z++) {
+            let index = Chunk.getIndex(x0, y, z);
+            for (let x = x0; x <= x1; x++, index++) {
+              if (chunk.blocks[index] !== BlockTypes.AIR && visit(x + ox, y, z + oz)) return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Same unit colliders as getBlock(), without repeating coordinate wrapping
+   * and chunk lookup for every voxel in every moving body box. */
+  getStandardCollisionBoxesInAABB(bounds: CollisionBounds): CollisionBounds[] {
+    const boxes: CollisionBounds[] = [];
+    this.visitStandardCollisionCells(bounds, (x, y, z) => {
+      boxes.push({ minX: x, maxX: x + 1, minY: y, maxY: y + 1, minZ: z, maxZ: z + 1 });
+      return false;
+    });
+    // Keep the legacy x/y/z contact ordering independent of chunk boundaries.
+    boxes.sort((a, b) => a.minX - b.minX || a.minY - b.minY || a.minZ - b.minZ);
+    return boxes;
+  }
+
+  /** A conservative empty-space certificate for a whole swept rigid body.
+   * Chunk height bounds make large airborne vehicles cheap without weakening CCD. */
+  hasTerrainCollisionInAABB(bounds: CollisionBounds): boolean {
+    const columns = (Math.ceil(bounds.maxX / CHUNK_SIZE_X) - Math.floor(bounds.minX / CHUNK_SIZE_X))
+      * (Math.ceil(bounds.maxZ / CHUNK_SIZE_Z) - Math.floor(bounds.minZ / CHUNK_SIZE_Z));
+    // Pathological teleports keep the ordinary solver; never scan an unbounded region.
+    if (!Object.values(bounds).every(Number.isFinite) || columns > 4096) return true;
+    if (this.visitStandardCollisionCells(bounds, () => true)) return true;
+    return this.getMicroCollisionBoxesInAABB(bounds).length > 0;
+  }
+
+  /** Coarse standard regions plus exact published micro geometry, shared by
+   * every collider of a body for one substep. Empty regions certify empty space. */
+  prepareTerrainCollisionQuery(bounds: CollisionBounds) {
+    const columns = (Math.ceil(bounds.maxX / CHUNK_SIZE_X) - Math.floor(bounds.minX / CHUNK_SIZE_X))
+      * (Math.ceil(bounds.maxZ / CHUNK_SIZE_Z) - Math.floor(bounds.minZ / CHUNK_SIZE_Z));
+    if (!Object.values(bounds).every(Number.isFinite) || columns > 4096) return null;
+    const regions: CollisionBounds[] = [];
+    for (let cx = Math.floor(bounds.minX / CHUNK_SIZE_X); cx <= Math.floor(bounds.maxX / CHUNK_SIZE_X); cx++) {
+      for (let cz = Math.floor(bounds.minZ / CHUNK_SIZE_Z); cz <= Math.floor(bounds.maxZ / CHUNK_SIZE_Z); cz++) {
+        const occupied = this.getChunk(wrapChunkX(cx), wrapChunkZ(cz))?.getOccupiedYRange();
+        if (!occupied || occupied.min > bounds.maxY || occupied.max + 1 < bounds.minY) continue;
+        regions.push({ minX: cx * CHUNK_SIZE_X, maxX: (cx + 1) * CHUNK_SIZE_X,
+          minZ: cz * CHUNK_SIZE_Z, maxZ: (cz + 1) * CHUNK_SIZE_Z,
+          minY: occupied.min, maxY: occupied.max + 1 });
+      }
+    }
+    const microBoxes = this.getMicroCollisionBoxesInAABB(bounds);
+    regions.push(...microBoxes);
+    return { regions, microBoxes };
+  }
+
   getBlockColor(wx: number, wy: number, wz: number) {
     if (wy < 0 || wy >= CHUNK_SIZE_Y) return DEFAULT_BLOCK_COLOR;
     const { cx, cz, lx, lz } = this.worldToChunkCoords(wx, wz);

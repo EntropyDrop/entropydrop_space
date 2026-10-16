@@ -8,7 +8,9 @@ export type TerrainRayHit = { hit: false; distance?: number } | {
 };
 export interface PhysicsTerrain extends Pick<World, 'getBlock'>,
   Partial<Pick<World, 'getMicroCollisionBlock' | 'getMicroBlock' | 'getMicroBlocksInAABB'
-    | 'getMicroCollisionBoxesInAABB' | 'terrainVersion' | 'activeChunkKeys' | 'getTerrainCollisionStamp'>> {
+    | 'getMicroCollisionBoxesInAABB' | 'getStandardCollisionBoxesInAABB' | 'hasTerrainCollisionInAABB'
+    | 'prepareTerrainCollisionQuery'
+    | 'terrainVersion' | 'activeChunkKeys' | 'getTerrainCollisionStamp'>> {
   raycast(origin: THREE.Vector3, direction: THREE.Vector3, distance: number): TerrainRayHit;
   raycastMicro(origin: THREE.Vector3, direction: THREE.Vector3, distance: number): TerrainRayHit;
   raycastMicroCollision?(origin: THREE.Vector3, direction: THREE.Vector3, distance: number): TerrainRayHit;

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Decoration GPU regression check</title>
+<h1>Decoration GPU regression check</h1>
+<pre id="result">Running…</pre>
+<script type="module">
+  import { runStandalone } from './decoration-render-probe.ts';
+  const result = document.querySelector('#result');
+  try {
+    const checks = await runStandalone((phase, expected, actual) => {
+      const row = document.createElement('section');
+      row.textContent = `${phase}: separate meshes / batched meshes`;
+      row.append(document.createElement('br'));
+      for (const pixels of [expected, actual]) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512; canvas.height = 256;
+        canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(pixels), 512, 256), 0, 0);
+        row.append(canvas);
+      }
+      document.body.append(row);
+    });
+    result.textContent = JSON.stringify(checks, null, 2);
+    document.title = 'PASS — Decoration GPU regression check';
+  } catch (error) {
+    result.textContent = String(error.stack || error);
+    document.title = 'FAIL — Decoration GPU regression check';
+    console.error(error);
+  }
+</script>
+</html>

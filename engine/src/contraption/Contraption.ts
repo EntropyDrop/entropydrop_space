@@ -12,7 +12,7 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { normalizeDecorations, offsetDecorations, patchDecoration, freezeDecorationSnapshot, type DecorationDefinition } from './Decorations.ts';
-import { createDecorationGroup, raycastDecorationGroup, updateDecorationMesh,
+import { createDecorationGroup, raycastDecorationGroup, editDecorationGroup,
   captureDecorationTransforms, interpolateDecorationTransforms, restoreDecorationTransforms } from './DecorationMeshes.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
 import {
@@ -343,7 +343,7 @@ export class Contraption {
 
   decorations: DecorationDefinition[];
   // Effective runtime values are checkpointed separately from authored definitions.
-  runtimeDecorations = new Map<string, DecorationDefinition[]>();
+  runtimeDecorations = new Map<string, Map<string, DecorationDefinition>>();
   decorationGroups = new Map<string, THREE.Group>();
   selectedDecoration: { componentId: string; decorationId: string } | null = null;
   // --- Identity & data ---
@@ -979,20 +979,25 @@ export class Contraption {
   }
 
   getRuntimeComponentDecorations(nodeId: string = this.rootComponentId): DecorationDefinition[] {
-    return normalizeDecorations(this.runtimeDecorations.get(nodeId) ?? this.getComponentDecorations(nodeId));
+    const runtime = this.runtimeDecorations.get(nodeId);
+    return runtime ? normalizeDecorations([...runtime.values()]) : this.getComponentDecorations(nodeId);
   }
 
   getRuntimeDecorationCount(): number {
     let count = 0;
-    for (const id of this.entityNodes.keys()) count += this.getRuntimeComponentDecorations(id).length;
+    for (const id of this.entityNodes.keys()) {
+      count += this.runtimeDecorations.get(id)?.size
+        ?? (id === this.rootComponentId ? this.decorations.length : this.childDefinitions.get(id)?.decorations?.length ?? 0);
+    }
     return count;
   }
 
   editRuntimeDecoration(nodeId: string, id: string, patch?: unknown, remove = false) {
     const fail = (reason: string) => Object.freeze({ ok: false, reason });
     if (!this.entityNodes.has(nodeId)) return fail('component_not_found');
-    const values = this.getRuntimeComponentDecorations(nodeId);
-    const previous = values.find(value => value.id === id);
+    const values = this.runtimeDecorations.get(nodeId)
+      ?? new Map(this.getComponentDecorations(nodeId).map(value => [value.id, value]));
+    const previous = values.get(id);
     if (remove && !previous) return fail('decoration_not_found');
     let next: DecorationDefinition | undefined;
     if (!remove) {
@@ -1000,24 +1005,16 @@ export class Contraption {
       catch { return fail('invalid_decoration'); }
       if (!previous && this.getRuntimeDecorationCount() >= MAX_ENTITY_DECORATIONS) return fail('too_many_decorations');
     }
-    const updated = values.filter(value => value.id !== id);
-    if (next) updated.push(next);
-    this.runtimeDecorations.set(nodeId, normalizeDecorations(updated));
+    if (next) values.set(id, next);
+    else values.delete(id);
+    this.runtimeDecorations.set(nodeId, values);
     const group = this.decorationGroups.get(nodeId);
     if (group) {
-      const mesh = group.children.find(value => value.userData.decorationId === id) as THREE.Mesh;
       const pivot = this.entityNodes.get(nodeId)!.pivotLocal;
-      if (next && mesh && mesh.userData.decorationMaterialId === (next.materialId || 0)) {
-        updateDecorationMesh(mesh, next, pivot);
-      } else {
-        if (mesh) {
-          group.remove(mesh);
-          mesh.geometry.dispose();
-          (mesh.material as THREE.Material).dispose();
-        }
-        if (next) group.add(createDecorationGroup([next], pivot).children[0]);
+      editDecorationGroup(group, id, next, pivot);
+      if (this.selectedDecoration?.componentId === nodeId && this.selectedDecoration.decorationId === id) {
+        this.setDecorationSelection(this.selectedDecoration);
       }
-      if (this.selectedDecoration?.componentId === nodeId) this.setDecorationSelection(this.selectedDecoration);
     } else this.rebuildDecorationMeshes(nodeId);
     return Object.freeze({ ok: true, reason: 'applied', id });
   }
@@ -1034,15 +1031,15 @@ export class Contraption {
 
   restoreRuntimeDecorations(records: unknown = []) {
     if (!Array.isArray(records) || records.length > this.entityNodes.size) throw new Error('Invalid runtime decorations.');
-    const restored = new Map<string, DecorationDefinition[]>();
+    const restored = new Map<string, Map<string, DecorationDefinition>>();
     for (const record of records) {
       if (!record || !this.entityNodes.has(record.id) || restored.has(record.id) || !Array.isArray(record.decorations)) {
         throw new Error('Invalid runtime decoration component.');
       }
-      restored.set(record.id, normalizeDecorations(record.decorations));
+      restored.set(record.id, new Map(normalizeDecorations(record.decorations).map(value => [value.id, value])));
     }
     let count = 0;
-    for (const id of this.entityNodes.keys()) count += (restored.get(id) ?? this.getComponentDecorations(id)).length;
+    for (const id of this.entityNodes.keys()) count += restored.get(id)?.size ?? this.getComponentDecorations(id).length;
     if (count > MAX_ENTITY_DECORATIONS) throw new Error('Too many runtime decorations.');
     const changed = new Set([...this.runtimeDecorations.keys(), ...restored.keys()]);
     this.runtimeDecorations = restored;
@@ -2819,14 +2816,19 @@ export class Contraption {
 
   disposeGroupChildren(group: THREE.Object3D | null | undefined) {
     if (!group) return;
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
     group.traverse(child => {
       if (child === group || !(child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.Points)) return;
-      if (child.geometry) child.geometry.dispose();
+      if (child instanceof THREE.InstancedMesh) child.dispose();
+      if (child.geometry) geometries.add(child.geometry);
       if (child.material) {
-        if (Array.isArray(child.material)) child.material.forEach(material => material.dispose());
-        else child.material.dispose();
+        if (Array.isArray(child.material)) child.material.forEach(material => materials.add(material));
+        else materials.add(child.material);
       }
     });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
     group.clear();
   }
 
@@ -5191,13 +5193,15 @@ export class Contraption {
     return this.getNodeCollisionEnabled(nodeId) !== false;
   }
 
-  getCollisionSamplePoints(bodyId: string | null = null, includeAttached = false) {
+  getCollisionSamplePoints(bodyId: string | null = null, includeAttached = false,
+    heightRange?: { min: number; max: number }, terrainCells?: ReadonlySet<CollisionEntry | CollisionBox>) {
     const cacheKey = `${bodyId || '*'}:${includeAttached ? 1 : 0}`;
     const cached = this.collisionSamplePointCache.get(cacheKey);
-    if (cached?.version === this.collisionPoseVersion) return cached.points;
-    const packed = this.getPackedCollisionSamplePoints(bodyId, includeAttached);
+    if (!terrainCells && cached?.version === this.collisionPoseVersion) return heightRange
+      ? cached.points.filter(point => point.y >= heightRange.min && point.y <= heightRange.max) : cached.points;
+    const packed = this.getPackedCollisionSamplePoints(bodyId, includeAttached, heightRange, terrainCells);
     if (packed) {
-      this.collisionSamplePointCache.set(cacheKey, { version: this.collisionPoseVersion, points: packed });
+      if (!heightRange) this.collisionSamplePointCache.set(cacheKey, { version: this.collisionPoseVersion, points: packed });
       return packed;
     }
     const points = [];
@@ -5318,9 +5322,10 @@ export class Contraption {
     return points;
   }
 
-  private getPackedCollisionSamplePoints(bodyId: string | null, includeAttached: boolean): THREE.Vector3[] | null {
+  private getPackedCollisionSamplePoints(bodyId: string | null, includeAttached: boolean,
+    heightRange?: { min: number; max: number }, terrainCells?: ReadonlySet<CollisionEntry | CollisionBox>): THREE.Vector3[] | null {
     const kernels = getTerrainKernels();
-    if (!kernels) return null;
+    if (!kernels && !heightRange) return null;
     const surface = this.collisionSurfaceEntries || this.collisionEntries;
     const terrain = this.collisionTerrainBoxes;
     if (!this.collisionSampleTemplate || this.collisionSampleTemplate.surface !== surface
@@ -5346,8 +5351,32 @@ export class Contraption {
       matrices[i * 20 + 18] = node.pivotLocal.z;
       matrices[i * 20 + 19] = 1;
     }
-    const coordinates = kernels.transformCollisionSamples(template.positions, template.owners, matrices);
     const points: THREE.Vector3[] = [];
+    if (heightRange) {
+      // Cull using the same swept height interval as the terrain solver before
+      // allocating/translating tens of thousands of airborne wing samples.
+      const { positions, owners } = template;
+      // Micro models sample merged terrain boxes. Standard-only models retain
+      // their authored-cell probes; a merged-box selection must not remove them.
+      const filterCells = terrainCells && template.ranges[0] && 'spanX' in template.ranges[0].cell;
+      for (const range of template.ranges) {
+        if (filterCells && !terrainCells!.has(range.cell)) continue;
+        for (let i = range.start; i < range.end; i++) {
+          const m = owners[i] * 20;
+          if (!matrices[m + 19]) continue;
+          const x = positions[i * 3] - matrices[m + 16];
+          const y = positions[i * 3 + 1] - matrices[m + 17];
+          const z = positions[i * 3 + 2] - matrices[m + 18];
+          const worldY = matrices[m + 1] * x + matrices[m + 5] * y + matrices[m + 9] * z + matrices[m + 13];
+          if (worldY < heightRange.min || worldY > heightRange.max) continue;
+          points.push(new THREE.Vector3(
+            matrices[m] * x + matrices[m + 4] * y + matrices[m + 8] * z + matrices[m + 12], worldY,
+            matrices[m + 2] * x + matrices[m + 6] * y + matrices[m + 10] * z + matrices[m + 14]));
+        }
+      }
+      return points;
+    }
+    const coordinates = kernels!.transformCollisionSamples(template.positions, template.owners, matrices);
     for (let i = 0; i < coordinates.length; i += 3) points.push(new THREE.Vector3(coordinates[i], coordinates[i + 1], coordinates[i + 2]));
     return points;
   }
@@ -5901,15 +5930,7 @@ export class Contraption {
     this.clearGlueSelection();
     if (this.rootGroup && this.scene) {
       this.scene.remove(this.rootGroup);
-      this.rootGroup.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          if (child.geometry) child.geometry.dispose();
-          if (child.material) {
-            if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-            else child.material.dispose();
-          }
-        }
-      });
+      this.disposeGroupChildren(this.rootGroup);
     }
   }
 }
