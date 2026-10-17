@@ -143,3 +143,113 @@ def test_idempotency_replays_the_original_result_and_rejects_key_reuse(monkeypat
     with pytest.raises(HTTPException) as conflict:
         messages._begin_idempotent_send("world", "source", "operation:1", different)
     assert conflict.value.detail["code"] == "ENTITY_MESSAGE_IDEMPOTENCY_CONFLICT"
+
+
+def clicked_block(**overrides):
+    return {"eventId": "click-1", "entityId": "untrusted", "playerId": "untrusted", "nodeId": "door",
+            "kind": "decoration", "position": [1, 2, 3], "size": None, "decorationId": "handle",
+            "point": [4, 5, 6], "localPoint": [1, 2, 3.5], **overrides}
+
+
+def test_native_click_validation_stamps_actor_and_target_and_supports_all_kinds():
+    value = messages.normalize_clicked_block(clicked_block(), "target", "visitor")
+    assert value["entityId"] == "target"
+    assert value["playerId"] == "visitor"
+    assert value["decorationId"] == "handle"
+    for kind, size in (("standard", 1), ("micro", 0.125)):
+        assert messages.normalize_clicked_block(clicked_block(kind=kind, size=size, decorationId=None), "target", "visitor")["size"] == size
+    for fields in ({"point": [float("nan"), 1, 2]}, {"point": [1, 2]}, {"size": 1},
+                   {"kind": "unknown"}, {"nodeId": ""}, {"decorationId": ""}, {"point": [True, 1, 2]}, {"point": [10**400, 1, 2]}):
+        with pytest.raises(HTTPException) as invalid:
+            messages.normalize_clicked_block(clicked_block(**fields), "target", "visitor")
+        assert invalid.value.detail["code"] == "ENTITY_CLICK_INVALID"
+
+
+def test_native_click_routes_to_current_executor_with_per_player_limit_and_no_source_entity(monkeypatch):
+    routed, limited = [], []
+
+    class Hub:
+        async def route(self, *args):
+            routed.append(args)
+            return True
+
+    monkeypatch.setattr(messages, "entity_message_hub", Hub())
+    monkeypatch.setattr(messages, "_check_entity_rate_limit", lambda *args: (limited.append(args) or True, 0))
+    monkeypatch.setattr(messages, "_target_execution_epoch", lambda *_args: 9)
+    click = messages.normalize_clicked_block(clicked_block(), "target", "visitor")
+    result = asyncio.run(messages._route_entity_message("world", "visitor", "target", "clicked_block", "utf8", json.dumps(click), native_click=click, expected_target_epoch=9))
+    assert result == {"message_id": "click-1", "status": "routed"}
+    assert limited == [("world", "player:visitor")]
+    assert routed[0][:3] == ("world", "target", 9)
+    assert routed[0][3]["clicked_block"] is True
+    assert json.loads(routed[0][3]["payload"])["playerId"] == "visitor"
+    stale = asyncio.run(messages._route_entity_message("world", "visitor", "target", "clicked_block", "utf8", json.dumps(click), native_click=click, expected_target_epoch=8))
+    assert stale == {"message_id": "click-1", "status": "dropped", "reason": "target_epoch_changed"}
+    assert len(routed) == 1, 'a delayed click must not be upgraded to the current execution epoch'
+    monkeypatch.setattr(messages, "_target_execution_epoch", lambda *_args: None)
+    result = asyncio.run(messages._route_entity_message("world", "visitor", "target", "clicked_block", "utf8", json.dumps(click), native_click=click, expected_target_epoch=9))
+    assert result["status"] == "dropped"
+    assert len(routed) == 1
+
+
+def test_click_authorization_requires_world_membership_and_releases_transaction(monkeypatch):
+    calls = []
+    user = SimpleNamespace(id="visitor")
+    db = SimpleNamespace(rollback=lambda: calls.append("rollback"))
+    def membership(database, world_id, actor):
+        assert (database, world_id, actor) == (db, "world", user)
+        calls.append("membership")
+        return SimpleNamespace(id="world")
+    monkeypatch.setattr(messages.space_api, "_require_world_membership", membership)
+    assert messages._authorize_player_click(db, "world", user) == ("world", "visitor")
+    assert calls == ["membership", "rollback"]
+
+
+def test_player_click_http_route_stamps_identity_and_replays_without_double_delivery(client, db, monkeypatch):
+    import uuid
+    from space.auth import get_current_user
+    from space.main import app
+    from tests.test_space_entities import _user
+
+    actor = _user(db, "click-visitor")
+    app.dependency_overrides[get_current_user] = lambda: actor
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    target = str(uuid.uuid4())
+    routed = []
+
+    class Hub:
+        async def route(self, *args):
+            routed.append(args)
+            return True
+
+    monkeypatch.setattr(messages, "_ticket_redis", IdempotencyRedis())
+    monkeypatch.setattr(messages, "entity_message_hub", Hub())
+    monkeypatch.setattr(messages, "_check_entity_rate_limit", lambda *_args: (True, 0))
+    monkeypatch.setattr(messages, "_target_execution_epoch", lambda *_args: 5)
+    url = f"/space/api/v2/worlds/{world_id}/entities/{target}/clicked-block"
+    headers = {"Idempotency-Key": "click-1", "Entity-Target-Execution-Epoch": "5"}
+    first = client.post(url, json=clicked_block(), headers=headers)
+    assert first.status_code == 202, first.text
+    assert client.post(url, json=clicked_block(), headers=headers).json() == first.json()
+    assert len(routed) == 1
+    record = json.loads(routed[0][3]["payload"])
+    assert record["playerId"] == actor.id
+    assert record["entityId"] == target
+    assert client.post(url, json=clicked_block(position=[3, 2, 1]), headers=headers).status_code == 409
+    assert client.post(url, json=clicked_block(), headers={**headers, "Entity-Target-Execution-Epoch": "6"}).status_code == 409
+    for epoch in ("", "0", "-1", "1.5", "9007199254740992"):
+        invalid = client.post(url, json=clicked_block(), headers={**headers, "Entity-Target-Execution-Epoch": epoch})
+        assert invalid.status_code == 400
+        assert invalid.json()["detail"]["code"] == "ENTITY_CLICK_EXECUTION_EPOCH_INVALID"
+    assert client.post(url, json=clicked_block(), headers={"Idempotency-Key": "wrong"}).status_code == 400
+    assert client.post(url, content=b"{" * 4097).status_code == 413
+    assert len(routed) == 1
+
+
+def test_native_click_identity_limits_match_javascript_utf16_units():
+    astral = chr(0x1F600)
+    assert messages.normalize_clicked_block(clicked_block(nodeId=astral * 64, decorationId=astral * 64), "target", "visitor")
+    for field in ("nodeId", "decorationId"):
+        with pytest.raises(HTTPException) as invalid:
+            messages.normalize_clicked_block(clicked_block(**{field: astral * 65}), "target", "visitor")
+        assert invalid.value.detail["code"] == "ENTITY_CLICK_INVALID"

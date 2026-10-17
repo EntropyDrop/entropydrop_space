@@ -191,6 +191,7 @@ export class Context extends Value {
   get messages(): Messages { return new Messages(read(this.handle, "messages")); }
   get commands(): CommandResults { return new CommandResults(read(this.handle, "commands")); }
   get blocks(): Blocks { return new Blocks(read(this.handle, "blocks")); }
+  get clickedBlock(): Value { return this.get("clickedBlock"); }
   get selection(): Selection { return new Selection(read(this.handle, "selection")); }
   log(message: string): void { this.call("log", args1(Value.string(message))); }
   get time(): f64 { return this.getNumber("time"); }

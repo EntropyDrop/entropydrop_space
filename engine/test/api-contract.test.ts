@@ -22,6 +22,7 @@ test('entityAPI V3 contract is valid and renders every supported view', () => {
     'ctx.world.getInfo',
     'ctx.selection.createChild',
     'ctx.groundDistance',
+    'ctx.clickedBlock',
     'ctx.messages.received',
     'self.state.getNumber',
     'AssemblyScript',

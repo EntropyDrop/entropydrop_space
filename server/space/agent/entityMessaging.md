@@ -117,6 +117,63 @@ holder, `409` when the source lease or idempotency state is invalid, `413` for
 a payload over 4096 bytes, `415` unless the body uses
 `application/octet-stream`, and `503` when Redis routing is unavailable.
 
+## Player block clicks
+
+Game clients send a crosshair left-click hit through:
+
+```text
+POST /space/api/v2/worlds/{world_id}/entities/{target_id}/clicked-block
+Authorization: Bearer <account token>
+Content-Type: application/json
+Idempotency-Key: <eventId>
+Entity-Target-Execution-Epoch: <target epoch observed at click time>
+```
+
+The JSON body is `{eventId,nodeId,kind,position,size,decorationId,point,localPoint}`.
+`kind` is `standard`, `micro`, or `decoration`; `size` is respectively `1`,
+`0.125`, or `null`. Decorations require their `decorationId`; voxels use `null`.
+The three vectors contain finite coordinates in metres. `position` is the voxel
+minimum corner or decoration center in authored component coordinates; `point`
+is the flat world hit and `localPoint` is that hit in authored component coordinates.
+The service stamps `entityId` from the URL and `playerId` from authentication,
+ignoring any submitted identities. World membership is required; a player does
+not need to own or execute an entity to click it. The service bounds and validates
+the reported input; it does not verify block existence, reach, or line of sight
+against server geometry. A click is interaction input, not proof of authorization;
+scripts must enforce access rules for protected actions. Identifier limits are
+measured in UTF-16 code units, matching the JavaScript runtime (64 for `eventId`,
+128 for `nodeId` and `decorationId`).
+
+The 4 KiB request limit, five-minute idempotency rules, routed/dropped responses,
+and execution-epoch fencing also apply. The rate limit is 20 clicks per second
+per player in a world. Clicks are ephemeral and dropped for inactive receivers.
+The target epoch header is required and must be a positive safe integer. A
+missing or invalid epoch returns `400` (`ENTITY_CLICK_EXECUTION_EPOCH_INVALID`).
+The server compares the supplied epoch with the active target epoch; a mismatch
+returns `200`, `status: "dropped"`, `reason: "target_epoch_changed"`. It never
+upgrades a delayed click to a restarted execution. Idempotency includes the epoch;
+reusing an event ID with a different epoch returns `409`. The epoch is transport
+metadata and does not change the `ctx.clickedBlock` record.
+The receiver sees an `entity_message` envelope with `message_type: "clicked_block"`,
+`encoding: "utf8"`, and the trusted native marker `clicked_block: true`.
+Its payload contains the normalized JSON record. Only this player endpoint can
+set the marker; a script-authored message with the same type stays an ordinary message.
+
+The runtime exposes native input as the immutable nullable `ctx.clickedBlock`
+to every enabled component, at most one click per submitted frame, instead of
+adding it to `ctx.messages.received`. Clicks have an independent 64-entry queue;
+overflow drops the oldest click. Messages have a separate capacity and frame
+budget, so clicks cannot block or evict messages, and messages cannot evict clicks.
+The runtime deduplicates the latest 256 `(playerId, eventId)` pairs per entity
+execution, allowing different players to use the same event ID. Stop clears
+queued clicks and deduplication, and checkpoints do not persist them. The entityAPI
+reference linked above describes SDK fields and an example.
+
+The hosted runtime acknowledges original inbox indices, including rejected or
+duplicate entries, instead of a consumed-prefix count. The worker validates these
+indices before committing the simulation and removes only the acknowledged
+entries after a successful commit; a failed commit retains the batch for retry.
+
 ## Receive
 
 Entity scripts do not open a socket or request tickets themselves. Browser

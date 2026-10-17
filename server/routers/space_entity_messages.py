@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import math
 import re
 import secrets
 import time
@@ -349,6 +350,96 @@ def _authorize_message_source(db, world_id, source_id, user, instance_id, epoch)
         db.rollback()
 
 
+def normalize_clicked_block(value, target_id: str, player_id: str) -> dict:
+    """Validate native input and stamp identities from the authenticated route."""
+    def invalid():
+        raise HTTPException(400, detail={"code": "ENTITY_CLICK_INVALID"})
+
+    def valid_id(value, limit):
+        # Match JavaScript String.length at the executor boundary (UTF-16 units).
+        return isinstance(value, str) and 0 < len(value.encode("utf-16-le", errors="surrogatepass")) // 2 <= limit
+
+    if not isinstance(value, dict):
+        invalid()
+    for key, limit in (("eventId", 64), ("nodeId", 128)):
+        if not valid_id(value.get(key), limit):
+            invalid()
+    result = {key: value[key] for key in ("eventId", "nodeId")}
+    for key in ("position", "point", "localPoint"):
+        vector = value.get(key)
+        if not isinstance(vector, list) or len(vector) != 3 or any(
+            type(n) not in (int, float) or abs(n) > 1e9 or not math.isfinite(n) for n in vector
+        ):
+            invalid()
+        result[key] = vector[:]
+    kind = value.get("kind")
+    size = value.get("size")
+    decoration_id = value.get("decorationId")
+    if kind == "decoration":
+        if size is not None or not valid_id(decoration_id, 128):
+            invalid()
+    elif kind in ("standard", "micro"):
+        if type(size) not in (int, float) or size != (1 if kind == "standard" else 0.125) or decoration_id is not None:
+            invalid()
+    else:
+        invalid()
+    return {**result, "entityId": target_id, "playerId": player_id,
+            "kind": kind, "size": size, "decorationId": decoration_id}
+
+
+def _authorize_player_click(db, world_id, user):
+    try:
+        world = space_api._require_world_membership(db, world_id, user)
+        return str(world.id), str(user.id)
+    finally:
+        db.rollback()
+
+
+@router.post("/space/api/v2/worlds/{world_id}/entities/{target_id}/clicked-block", status_code=202)
+@limiter.limit("1200/minute; 50000/hour", key_func=get_authenticated_or_remote_address)
+async def click_entity_block(
+    request: Request,
+    world_id: uuid.UUID,
+    target_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    creator: EntityCreator = Depends(_entity_creator),
+):
+    resolved_world, player_id = await run_in_threadpool(_authorize_player_click, db, str(world_id), creator.user)
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_PAYLOAD_BYTES:
+            raise HTTPException(413, detail={"code": "ENTITY_CLICK_TOO_LARGE"})
+    try:
+        value = json.loads(body)
+    except (ValueError, UnicodeDecodeError, RecursionError) as exc:
+        raise HTTPException(400, detail={"code": "ENTITY_CLICK_INVALID"}) from exc
+    click = normalize_clicked_block(value, str(target_id), player_id)
+    epoch_header = request.headers.get("entity-target-execution-epoch", "")
+    if not re.fullmatch(r"[1-9][0-9]{0,15}", epoch_header) or int(epoch_header) > 9007199254740991:
+        raise HTTPException(400, detail={"code": "ENTITY_CLICK_EXECUTION_EPOCH_INVALID"})
+    target_epoch = int(epoch_header)
+    key = request.headers.get("idempotency-key", "")
+    if key != click["eventId"] or not _IDEMPOTENCY_KEY_RE.fullmatch(key):
+        raise HTTPException(400, detail={"code": "ENTITY_CLICK_IDEMPOTENCY_KEY_INVALID"})
+    payload = json.dumps(click, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    source = f"player:{player_id}"
+    fingerprint = _message_fingerprint(str(target_id), "clicked_block", "utf8", str(target_epoch).encode() + b"\n" + payload)
+    pending, replay = await asyncio.to_thread(_begin_idempotent_send, resolved_world, source, key, fingerprint)
+    if replay is not None:
+        return JSONResponse(status_code=202 if replay["status"] == "routed" else 200, content=replay)
+    try:
+        result = await _route_entity_message(
+            resolved_world, player_id, str(target_id), "clicked_block", "utf8", payload,
+            native_click=click, expected_target_epoch=target_epoch,
+        )
+    except Exception:
+        await asyncio.to_thread(_release_idempotent_send, resolved_world, source, key, pending)
+        raise
+    await asyncio.to_thread(_finish_idempotent_send, resolved_world, source, key, fingerprint, pending, result)
+    return JSONResponse(status_code=202 if result["status"] == "routed" else 200, content=result)
+
+
 @router.post(
     "/space/api/v2/worlds/{world_id}/entities/{source_id}/messages/{target_id}/{message_type}/{encoding}",
     status_code=202,
@@ -616,12 +707,18 @@ async def _route_entity_message(
     *,
     source_is_active: Callable[[], bool] | None = None,
     inactive_source_is_error: bool = True,
+    native_click: dict | None = None,
+    expected_target_epoch: int | None = None,
 ) -> dict:
     _validate_message_type(message_type, encoding)
     body = _normalize_entity_message_payload(payload, encoding)
+    if native_click is not None and (type(expected_target_epoch) is not int
+            or not 0 < expected_target_epoch <= 9007199254740991):
+        raise HTTPException(400, detail={"code": "ENTITY_CLICK_EXECUTION_EPOCH_INVALID"})
 
     try:
-        allowed, retry_after_ms = await asyncio.to_thread(_check_entity_rate_limit, world_id, source_id)
+        rate_source = f"player:{source_id}" if native_click is not None else source_id
+        allowed, retry_after_ms = await asyncio.to_thread(_check_entity_rate_limit, world_id, rate_source)
     except Exception as exc:
         logger.exception("Redis is required for entity message rate limits")
         raise HTTPException(503, detail={"code": "ENTITY_MESSAGE_SERVICE_UNAVAILABLE"}) from exc
@@ -633,10 +730,12 @@ async def _route_entity_message(
             headers={"Retry-After": str(retry_after)},
         )
 
-    message_id = str(uuid.uuid4())
+    message_id = native_click["eventId"] if native_click is not None else str(uuid.uuid4())
     target_epoch = await asyncio.to_thread(_target_execution_epoch, world_id, target_id)
     if target_epoch is None:
         return {"message_id": message_id, "status": "dropped", "reason": "target_inactive"}
+    if expected_target_epoch is not None and target_epoch != expected_target_epoch:
+        return {"message_id": message_id, "status": "dropped", "reason": "target_epoch_changed"}
     if source_is_active is not None and not await asyncio.to_thread(source_is_active):
         if inactive_source_is_error:
             raise HTTPException(409, detail={"code": "ENTITY_EXECUTION_NOT_ACTIVE"})
@@ -653,6 +752,7 @@ async def _route_entity_message(
                 "message_type": message_type,
                 "encoding": encoding,
                 "payload": body,
+                **({"clicked_block": True} if native_click is not None else {}),
             },
         )
     except Exception as exc:
