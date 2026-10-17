@@ -1,4 +1,5 @@
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import type { ScriptClickedBlock } from '@entropydrop/space-engine/scripting/ScriptProtocol.ts';
 import type { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
 import type { ContraptionOptions, RuntimeVoxel } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
 import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
@@ -180,6 +181,7 @@ export class PlayerController {
       set focusBlockPreview(value) { host.focusBlockPreview = value; },
       get handleBrushRightClick() { return host.handleBrushRightClick.bind(host); },
       get handleRunningEntityInteraction() { return host.handleRunningEntityInteraction.bind(host); },
+      get tryClickRunningEntity() { return host.tryClickRunningEntity.bind(host); },
       get hoveredContraption() { return host.hoveredContraption; },
       set hoveredContraption(value) { host.hoveredContraption = value; },
       get hoveredContraptionHit() { return host.hoveredContraptionHit; },
@@ -240,9 +242,6 @@ export class PlayerController {
       set ui(value) { host.ui = value; },
     });
   }
-
-  get pendingInteractionStops(): ToolInteractionSession['pendingInteractionStops'] { return this.toolSession.pendingInteractionStops; }
-  set pendingInteractionStops(value: ToolInteractionSession['pendingInteractionStops']) { this.toolSession.pendingInteractionStops = value; }
 
   get worldPickingSuspended(): ToolInteractionSession['worldPickingSuspended'] { return this.toolSession.worldPickingSuspended; }
   set worldPickingSuspended(value: ToolInteractionSession['worldPickingSuspended']) { this.toolSession.worldPickingSuspended = value; }
@@ -532,6 +531,7 @@ export class PlayerController {
   bulkEditJob: BulkEditJob | null;
   serverEntityRunStateHandler: ((contraption: any, state: 'running' | 'stopped') => Promise<any>) | null;
   serverEntityDeleteHandler: ((contraption: any) => Promise<any>) | null = null;
+  serverEntityClickHandler: ((contraption: Contraption, click: ScriptClickedBlock) => Promise<unknown>) | null = null;
 
   // --- Camera / View Settings ---
   sceneRenderer: SceneRenderer | null;
@@ -600,7 +600,6 @@ export class PlayerController {
     this.currentRaycast = { hit: false };
     this.hoveredContraption = null;
     this.hoveredContraptionHit = null;
-    this.pendingInteractionStops = new WeakSet();
     this.wrenchGrab = null;
     this.wrenchPivotTarget = null;
     this.hoveredWrenchGizmoHandle = null;
@@ -1176,8 +1175,7 @@ export class PlayerController {
       this.ui?.showToast?.('This entity is read-only or occupied by another endpoint', { tone: 'warning' });
       return true;
     }
-    if (this.handleRunningEntityInteraction(contraption)
-      && (this.pendingInteractionStops?.has(contraption) || this.isEntityRunning(contraption))) return true;
+    if (this.handleRunningEntityInteraction(contraption)) return true;
     if (!this.canEditEntityInternals(contraption)) return true;
 
     const eyePosition = this.physics?.getEyePosition?.() || this.camera?.position;
@@ -1259,9 +1257,6 @@ export class PlayerController {
       { world: this.world, manager: this.contraptions, selectionHost: this },
       { actor: { source: 'player' }, ...command }
     );
-    if (interactive && result && 'reason' in result && result.reason === 'entity_not_stopped') {
-      this.handleRunningEntityInteraction(contraption ?? null);
-    }
     return result;
   }
 
@@ -1332,7 +1327,7 @@ export class PlayerController {
    *   mode.
    *
    * Only stopped entities expose their construction grid. An attempt on a
-   * running entity immediately stops it without also selecting or editing.
+   * running entity is ignored until the user explicitly stops it.
    */
   selectorOnEntityClick(hit: EntityHit, e: Pick<MouseEvent, "shiftKey"> | null = null) {
     const contraption = hit.contraption;
@@ -1341,7 +1336,7 @@ export class PlayerController {
       : contraptionRootId(contraption);
     const shiftHeld = !!(e?.shiftKey || this.keys?.crouch);
 
-    // Consume the interaction as Stop before opening the construction grid,
+    // Ignore running entities before opening the construction grid,
     // including attempts made while a world-space selection is in progress.
     if (this.handleRunningEntityInteraction(contraption)) return;
 
@@ -1486,7 +1481,7 @@ export class PlayerController {
 
   canEditEntityInternals(contraption: Contraption | null) {
     return !!contraption && (contraption.serverManaged !== true || contraption.serverCanEdit === true)
-      && !this.pendingInteractionStops?.has(contraption) && !this.isEntityRunning(contraption);
+      && !this.isEntityRunning(contraption);
   }
 
   /** A preselected subtree or Shift-picked cells are not a confirmed A/B box. */
@@ -1524,58 +1519,9 @@ export class PlayerController {
     return true;
   }
 
-  /** A running-entity interaction immediately performs Stop, never the attempted edit. */
-  handleRunningEntityInteraction(contraption: Contraption | null) {
-    if (!contraption) return false;
-    const label = `Entity #${contraption.id}`;
-    if (this.pendingInteractionStops?.has(contraption)) {
-      this.ui?.showToast?.(`${label} is stopping — please wait`, { tone: 'warning' });
-      return true;
-    }
-    if (!this.isEntityRunning(contraption)) return false;
-    if (contraption.serverManaged === true) {
-      if (contraption.serverCanControl !== true || !this.serverEntityRunStateHandler) {
-        this.ui?.showToast?.(contraption.serverCanControl !== true
-          ? 'This entity is read-only or occupied by another endpoint'
-          : 'Entity control is temporarily unavailable', { tone: 'warning' });
-        return true;
-      }
-      this.clearSelection();
-      this.pendingInteractionStops ||= new WeakSet();
-      this.pendingInteractionStops.add(contraption);
-      const requestedRevision = contraption.serverRevision;
-      const previousRunState = contraption.serverDesiredRunState;
-      this.ui?.showToast?.(`${label} is stopping — please wait`);
-      void this.requestServerEntityRunState(contraption, 'stopped', { silent: true }).then(stopped => {
-        this.pendingInteractionStops.delete(contraption);
-        if (!stopped) {
-          if (contraption.serverRevision === requestedRevision) contraption.serverDesiredRunState = previousRunState;
-          this.ui?.showToast?.(`${label} could not be stopped — try again`, { tone: 'warning' });
-          return;
-        }
-        // A delayed stop acknowledgement must not overwrite a newer remote Start.
-        if (contraption.serverRevision !== requestedRevision && contraption.serverDesiredRunState !== 'stopped') {
-          this.ui?.showToast?.(`${label} state changed elsewhere — try again`, { tone: 'warning' });
-          return;
-        }
-        contraption.serverDesiredRunState = 'stopped';
-        executeBasicAction({ world: this.world, manager: this.contraptions, selectionHost: this }, {
-          domain: ActionDomain.ENTITY, action: 'stop-scripts', target: { contraption }, actor: { source: 'server-sync' }
-        });
-        this.sound?.playWrenchClick?.();
-        this.ui?.showToast?.(`${label} stopped`);
-      });
-      return true;
-    }
-    this.clearSelection();
-    const result = this.performBasicAction({ domain: ActionDomain.ENTITY, action: 'stop-scripts', target: { contraption } });
-    if (result.ok || result.reason === 'already_stopped') {
-      this.sound?.playWrenchClick?.();
-      this.ui?.showToast?.(`${label} stopped`);
-    } else {
-      this.ui?.showToast?.(`${label} could not be stopped`, { tone: 'warning' });
-    }
-    return true;
+  /** Consume construction-tool attempts without changing a running entity. */
+  handleRunningEntityInteraction(contraption: Contraption | null | undefined) {
+    return this.isEntityRunning(contraption);
   }
 
   getSelectorSelectAllTarget() {
@@ -1647,7 +1593,7 @@ export class PlayerController {
    * True while an entity still simulates scripts or physics, i.e. it must be
    * stopped before its construction grid becomes selectable.
    */
-  isEntityRunning(contraption: Contraption | null) {
+  isEntityRunning(contraption: Contraption | null | undefined) {
     if (!contraption) return false;
     if (contraption.serverManaged === true && contraption.serverDesiredRunState === 'running') return true;
     if (typeof contraption.canEditInternalSelection === 'function') {
@@ -4171,8 +4117,8 @@ export class PlayerController {
 
   private renderWrenchPivotTarget() {
     const target = this.wrenchPivotTarget;
-    if (!target?.position) {
-      this.sceneRenderer?.clearWrenchPivotGizmo?.();
+    if (!target?.position || this.isEntityRunning(target.contraption)) {
+      this.clearWrenchPivotDisplay();
       return false;
     }
     this.sceneRenderer?.setWrenchPivotGizmo?.(
@@ -4193,8 +4139,8 @@ export class PlayerController {
   }
 
   updateWrenchGizmoPointerHover(e: MouseEvent) {
-    if (this.worldPickingSuspended) {
-      this.hoveredWrenchGizmoHandle = null;
+    if (this.worldPickingSuspended || this.isEntityRunning(this.wrenchPivotTarget?.contraption)) {
+      this.clearWrenchPivotDisplay();
       return null;
     }
     if (this.activeTool !== SpecialTool.WRENCH || !this.wrenchPivotTarget || !this.sceneRenderer) {
@@ -4233,6 +4179,12 @@ export class PlayerController {
       this.sceneRenderer?.clearWrenchPivotGizmo?.();
       return null;
     }
+
+    if (this.isEntityRunning(entityHit?.contraption)) {
+      this.clearWrenchPivotDisplay();
+      return null;
+    }
+    if (this.isEntityRunning(this.wrenchPivotTarget?.contraption)) this.clearWrenchPivotDisplay();
 
     if (this.activeWrenchGizmoDrag) {
       const active = this.refreshWrenchPivotTargetPose();
@@ -4332,6 +4284,7 @@ export class PlayerController {
     const target = this.refreshWrenchPivotTargetPose();
     if (!hit || !target?.contraption || !['move', 'rotate'].includes(hit.kind)) return false;
     const contraption = target.contraption;
+    if (this.handleRunningEntityInteraction(contraption)) return false;
     const bodyId = target.bodyId || contraptionRootId(contraption);
     const axis = String(hit.axis) as 'x' | 'y' | 'z';
     if (!['x', 'y', 'z'].includes(axis)) return false;
@@ -4503,13 +4456,14 @@ export class PlayerController {
   startWrenchGrab() {
     const contraption = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
     if (!contraption) {
-      this.ui?.showToast?.('Wrench: hold left-click on an entity to stop and lift it');
+      this.ui?.showToast?.('Wrench: hold left-click on a stopped entity to lift it');
       return false;
     }
 
     if (this.wrenchGrab?.contraption === contraption && this.wrenchGrab.active === true) {
       return true;
     }
+    if (this.handleRunningEntityInteraction(contraption)) return false;
 
     const bodyId = this.getWrenchGrabBodyId(
       contraption,
@@ -4528,7 +4482,7 @@ export class PlayerController {
     // Point-grabbing uses the existing velocity servo, unlike the COM gizmo's
     // direct stopped transform. Kinematic bodies temporarily become dynamic
     // while held so the same collision-aware servo can move them.
-    const wasRunning = this.beginWrenchManipulation(contraption, true);
+    this.beginWrenchManipulation(contraption, true);
     if (originalBodyType === BodyType.KINEMATIC
       && !contraption.setNodeBodyType(bodyId, BodyType.DYNAMIC, { runtimeOnly: true, captureDefault: false })) {
       contraption.isWrenchGrabbed = false;
@@ -4571,8 +4525,7 @@ export class PlayerController {
       active: true
     };
     this.sound?.playWrenchClick?.();
-    const actionLabel = wasRunning ? 'stopped and lifted' : 'lifted';
-    this.ui?.showToast?.(`Wrench: ${actionLabel} Entity #${contraption.id}`);
+    this.ui?.showToast?.(`Wrench: lifted Entity #${contraption.id}`);
     return true;
   }
 
@@ -4728,6 +4681,10 @@ export class PlayerController {
 
   setServerEntityDeleteHandler(handler: PlayerController['serverEntityDeleteHandler']) {
     this.serverEntityDeleteHandler = typeof handler === 'function' ? handler : null;
+  }
+
+  setServerEntityClickHandler(handler: PlayerController['serverEntityClickHandler']) {
+    this.serverEntityClickHandler = typeof handler === 'function' ? handler : null;
   }
 
   private applyEntityRotation(contraption: Contraption, targetRotation: THREE.Quaternion, options: any = {}): boolean {
@@ -6427,7 +6384,8 @@ export class PlayerController {
     }
 
     if (this.hoveredContraption) {
-      if (this.activeTool === SpecialTool.WRENCH || this.activeTool === SpecialTool.MODELING) {
+      if (this.isEntityRunning(this.hoveredContraption)
+        || this.activeTool === SpecialTool.WRENCH || this.activeTool === SpecialTool.MODELING) {
         this.hoveredContraption.setHighlighted(false);
         this.hoveredContraption.clearFocusHighlight();
       } else if (this.activeTool === SpecialTool.BRUSH) {
@@ -6457,6 +6415,50 @@ export class PlayerController {
     this.updateMicroCarvePreview();
     this.updateInventoryPlacementPreview();
     this.updateSelectionAxisGizmo();
+  }
+
+  /** Resolve a fresh click against visible geometry before any tool edits. */
+  tryClickRunningEntity() {
+    if (!this.camera || !this.contraptions) return false;
+    const hit = this.performAimRaycast('all');
+    let target = hit.kind === 'entity' ? hit.entityHit : null;
+    let distance = hit.kind === 'world' ? hit.worldHit?.distance ?? 16 : target?.distance ?? 16;
+    let decoration: ReturnType<Contraption['raycastDecorations']> = null;
+    const eye = this.cameraSession.getEyePosition();
+    const origin = bendPointForView(eye.x, eye.y, eye.z, new THREE.Vector3());
+    const direction = bendDirection(eye.x, eye.y, eye.z,
+      new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion), new THREE.Vector3());
+    for (const entity of this.contraptions.contraptions || []) {
+      const candidate = entity.raycastDecorations?.(origin, direction, distance, true);
+      if (candidate && candidate.distance <= distance) {
+        decoration = candidate;
+        distance = candidate.distance;
+      }
+    }
+    if (decoration) target = null;
+    const entity = decoration?.contraption || target?.contraption;
+    if (!this.isEntityRunning(entity)) return false;
+    const nodeId = decoration?.componentId || target!.entityId || entity.rootComponentId;
+    const definition = decoration && entity.getRuntimeComponentDecorations(nodeId)
+      .find((item: { id: string }) => item.id === decoration.decorationId);
+    const point: THREE.Vector3 = decoration?.point || target!.point;
+    const position: [number, number, number] = decoration
+      ? [...(definition?.position || [0, 0, 0])] as [number, number, number]
+      : [target!.block.localX, target!.block.localY, target!.block.localZ];
+    const click: ScriptClickedBlock = {
+      eventId: crypto.randomUUID(), entityId: entity.publicId, playerId: 'local', nodeId,
+      kind: decoration ? 'decoration' : target!.kind === 'micro' ? 'micro' : 'standard',
+      position, size: decoration ? null : target!.block.size || 1,
+      decorationId: decoration ? decoration.decorationId : null,
+      point: point.toArray() as [number, number, number],
+      localPoint: entity.worldToEntityLocal(nodeId, point).toArray() as [number, number, number],
+    };
+    if (entity.serverManaged === true) {
+      void this.serverEntityClickHandler?.(entity, click).catch(() => {
+        this.ui?.showToast?.('Could not deliver entity click');
+      });
+    } else entity.enqueueClickedBlock(click);
+    return true;
   }
 
   /** Query along the current crosshair without changing hover presentation. */
@@ -6518,6 +6520,7 @@ export class PlayerController {
       const hit = this.hoveredContraptionHit;
       const contraption = hit.contraption;
       if (contraption) {
+        if (this.isEntityRunning(contraption)) return null;
         const nodeId = hit.entityId ?? (typeof contraptionRootId === 'function' ? contraptionRootId(contraption) : (contraption.rootComponentId || 'root'));
         const targetNodeId = hit.block?.entityId || nodeId;
         const focusNode = contraption.entityNodes?.get?.(targetNodeId)
@@ -6656,6 +6659,7 @@ export class PlayerController {
     if (this.hoveredContraptionHit) {
       const hit = this.hoveredContraptionHit;
       const contraption = hit.contraption;
+      if (this.isEntityRunning(contraption)) return;
       const nodeId = hit.entityId ?? contraptionRootId(contraption);
       const cellOrigin = hit.cell && typeof contraption.entityLocalToWorld === 'function'
         ? contraption.entityLocalToWorld(

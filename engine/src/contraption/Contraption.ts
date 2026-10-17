@@ -1,5 +1,6 @@
 import { normalizeColor } from '../voxel/BlockTypes.ts';
-import type { ScriptInputState, ScriptRuntimeContext, ScriptRuntimeResult, ScriptCommand, ScriptContact, EntityMessage } from '../scripting/ScriptProtocol.ts';
+import type { ScriptInputState, ScriptRuntimeContext, ScriptRuntimeResult, ScriptCommand, ScriptContact, EntityMessage, ScriptClickedBlock } from '../scripting/ScriptProtocol.ts';
+import { normalizeClickedBlock } from '../scripting/ClickedBlock.ts';
 import type { InventoryInput } from '../storage/InventoryTypes.ts';
 import { createComponentScriptApi, type ComponentScriptApi } from './ComponentScriptApi.ts';
 import { asVector3, asQuaternion, isFiniteVector3Array, isMicroOffset, normalizeSeats, readRecord } from './EntityInput.ts';
@@ -567,9 +568,11 @@ export class Contraption {
   pendingScriptContacts: ScriptContact[];
   pendingScriptCommandResults: Record<string, unknown>[];
   pendingEntityMessages: EntityMessage[];
+  pendingClickedBlocks: ScriptClickedBlock[] = [];
+  private pendingClickedBlockBatch: ScriptClickedBlock | null = null;
+  private recentClickedBlockIds = new Set<string>();
   pendingEntityMessageBytes: number;
   pendingEntityMessageBatchSize: number;
-  consumedEntityMessageCount: number;
   scriptRuntimeClient: EntityScriptRuntimeClient;
   behaviorPrompt: string;
   agentInterpretation: string;
@@ -698,7 +701,6 @@ export class Contraption {
     this.pendingEntityMessages = [];
     this.pendingEntityMessageBytes = 0;
     this.pendingEntityMessageBatchSize = 0;
-    this.consumedEntityMessageCount = 0;
     this.scriptRuntimeClient = new EntityScriptRuntimeClient();
     this.scriptRuntimeClient.onCompileResult = result => this.handleWorkerCompileResult(result);
     this.behaviorPrompt = options.behaviorPrompt || '';
@@ -1399,6 +1401,7 @@ export class Contraption {
    * Script content and component switches are preserved.
    */
   resetAllComponentState() {
+    this.recentClickedBlockIds.clear();
     this.clearRuntimeDecorations();
     for (const state of this.componentVariables.values()) {
       for (const key of Object.keys(state)) delete state[key];
@@ -1443,7 +1446,8 @@ export class Contraption {
     this.pendingEntityMessages = [];
     this.pendingEntityMessageBytes = 0;
     this.pendingEntityMessageBatchSize = 0;
-    this.consumedEntityMessageCount = 0;
+    this.pendingClickedBlocks = [];
+    this.pendingClickedBlockBatch = null;
     this.lastExecutionTimeMs = 0;
     this.lastInitializationTimeMs = 0;
     this.lastScriptTickTimeMs = 0;
@@ -4747,6 +4751,8 @@ export class Contraption {
       messageBatchBytes += bytes;
     }
     this.pendingEntityMessageBatchSize = messageBatch.length;
+    const clickedBlock = this.pendingClickedBlocks[0] || null;
+    this.pendingClickedBlockBatch = clickedBlock;
     return cloneScriptData({
       entityId: this.publicId,
       rootComponentId: this.rootComponentId,
@@ -4786,6 +4792,7 @@ export class Contraption {
         return visible;
       }),
       messages: messageBatch,
+      clickedBlock,
       commandResults: this.pendingScriptCommandResults,
       components,
       states: this.getSerializableComponentStates(),
@@ -4923,6 +4930,19 @@ export class Contraption {
     return true;
   }
 
+  /** Native input is kept separate from script-authored messages. */
+  enqueueClickedBlock(input: unknown) {
+    const click = normalizeClickedBlock(input);
+    if (!click || click.entityId !== this.publicId) return false;
+    const key = JSON.stringify([click.playerId, click.eventId]);
+    if (this.recentClickedBlockIds.has(key)) return false;
+    if (this.pendingClickedBlocks.length >= 64) this.pendingClickedBlocks.shift();
+    this.pendingClickedBlocks.push(Object.freeze(click));
+    this.recentClickedBlockIds.add(key);
+    if (this.recentClickedBlockIds.size > 256) this.recentClickedBlockIds.delete(this.recentClickedBlockIds.values().next().value!);
+    return true;
+  }
+
   capturePendingScriptEvents(inputState: ScriptInputState | null) {
     this.pendingScriptInputDown = scriptInputCodes(inputState, 'down');
     for (const code of scriptInputCodes(inputState, 'pressed')) {
@@ -4950,7 +4970,10 @@ export class Contraption {
     }
     this.pendingEntityMessageBytes = Math.max(0, this.pendingEntityMessageBytes);
     this.pendingEntityMessageBatchSize = 0;
-    this.consumedEntityMessageCount += consumed;
+    if (this.pendingClickedBlockBatch && this.pendingClickedBlocks[0] === this.pendingClickedBlockBatch) {
+      this.pendingClickedBlocks.shift();
+    }
+    this.pendingClickedBlockBatch = null;
   }
 
   applyLatchedScriptCommands(runtimeContext: ScriptRuntimeContext | null) {

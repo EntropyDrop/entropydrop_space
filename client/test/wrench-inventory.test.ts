@@ -230,7 +230,7 @@ test('Selector right-click never builds inventory contents', () => {
   assert.equal(built, 0);
 });
 
-test('Wrench right-click starts pointed entity, left-click stops and lifts it', async () => {
+test('Wrench ignores running entities and lifts only after an explicit stop', async () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
@@ -249,16 +249,26 @@ test('Wrench right-click starts pointed entity, left-click stops and lifts it', 
   controller.physics = { getEyePosition: () => new THREE.Vector3() };
   controller.performBasicAction = PlayerController.prototype.performBasicAction.bind(controller);
 
-  // Left click on running entity: stops scripts and lifts it into grab while keeping it physicalized but disabling collision
+  // Body clicks preserve runtime state until the user explicitly stops playback.
   entity.getComponentState('root').preserved = 42;
+  controller.handleLeftClick();
+  assert.equal(entity.isNodeScriptEnabled('root'), true);
+  assert.equal(entity.getComponentState('root').preserved, 42);
+  assert.equal(entity.scriptStatus, 'running');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  assert.equal(entity.isCollisionSimulationEnabled(), true);
+  assert.equal(controller.wrenchGrab == null, true);
+  assert.equal(controller.releaseWrenchGrab(), false);
+
+  assert.equal(controller.stopHoveredEntity(), true);
   controller.handleLeftClick();
   assert.equal(entity.isNodeScriptEnabled('root'), false);
   assert.equal(entity.isNodeScriptEnabled('arm'), false);
-  assert.equal(entity.getComponentState('root').preserved, undefined, 'stop must reset state');
-  assert.equal(entity.scriptStatus, 'stopped', 'left click stops running scripts');
-  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'left click keeps entity physicalized during drag');
-  assert.equal(entity.isCollisionSimulationEnabled(), false, 'left click disables physics collision during drag');
-  assert.ok(controller.wrenchGrab, 'left click initiates point grab');
+  assert.equal(entity.getComponentState('root').preserved, undefined, 'explicit Stop resets runtime state');
+  assert.equal(entity.scriptStatus, 'stopped');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'a stopped entity can use the drag servo');
+  assert.equal(entity.isCollisionSimulationEnabled(), false);
+  assert.ok(controller.wrenchGrab);
 
   // Release grab: stops scripts, disables physics simulation, and restores collision
   assert.equal(controller.releaseWrenchGrab(), true);
@@ -315,6 +325,7 @@ test('Wrench hold grabs the exact dynamic-body point and releases cleanly', asyn
   };
   controller.updateCameraPosition = () => { };
 
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
 
   assert.ok(controller.wrenchGrab, 'wrench left-click must initiate a point grab');
@@ -332,7 +343,7 @@ test('Wrench hold grabs the exact dynamic-body point and releases cleanly', asyn
   assert.equal(controller.wrenchGrab, null);
 });
 
-test('Wrench left-click stops and lifts entity even if previously stopped', async () => {
+test('Wrench left-click lifts a stopped entity', async () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
@@ -361,7 +372,7 @@ test('Wrench left-click stops and lifts entity even if previously stopped', asyn
   assert.equal(entity.scriptStatus, 'stopped');
 });
 
-test('Wrench drag on running entity triggers stop and click sound exactly once', async () => {
+test('Wrench rejects repeated grabs of a running server entity without sending Stop', async () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
@@ -404,43 +415,30 @@ test('Wrench drag on running entity triggers stop and click sound exactly once',
     serverRunStateCalls.push({ id: contraption.id, desiredState });
   });
 
-  // 1. Initial grab on running entity
-  const grabSuccess = controller.startWrenchGrab();
-  assert.equal(grabSuccess, true);
-  assert.equal(controller.wrenchGrab?.contraption, entity);
-  assert.equal(entity.scriptStatus, 'stopped', 'scripts stopped upon grab');
-  assert.equal(entity.isPhysicsSimulationEnabled(), true, 'physics enabled for drag servo');
-  assert.equal(entity.isCollisionSimulationEnabled(), false, 'collision disabled during drag');
-  assert.equal(clickCount, 1, 'click sound played exactly once on grab');
-  assert.equal(stopScriptsCalls, 1, 'stop-scripts invoked once on grab');
-  assert.equal(serverRunStateCalls.length, 1, 'server notified once on grab');
-  assert.equal(serverRunStateCalls[0].desiredState, 'stopped');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    assert.equal(controller.startWrenchGrab(), false);
+    assert.equal(controller.wrenchGrab == null, true);
+    assert.equal(entity.scriptStatus, 'running');
+    assert.equal(entity.isPhysicsSimulationEnabled(), true);
+    assert.equal(entity.isCollisionSimulationEnabled(), true);
+  }
+  assert.equal(controller.releaseWrenchGrab(), false);
+  assert.equal(clickCount, 0);
+  assert.equal(stopScriptsCalls, 0);
+  assert.deepEqual(serverRunStateCalls, []);
+  assert.equal(entity.wrenchManipulationRevision || 0, 0);
 
-  // 2. Repeated startWrenchGrab calls while actively dragging should be idempotent and not re-stop or re-play sound
-  assert.equal(controller.startWrenchGrab(), true);
-  assert.equal(clickCount, 1, 'no extra click sound on redundant grab call');
-  assert.equal(stopScriptsCalls, 1, 'no redundant stop-scripts on redundant grab call');
-  assert.equal(serverRunStateCalls.length, 1, 'no redundant server calls');
-
-  // 3. Release grab
-  assert.equal(controller.releaseWrenchGrab(), true);
-  assert.equal(controller.wrenchGrab, null);
-  assert.equal(entity.scriptStatus, 'stopped');
-  assert.equal(entity.isPhysicsSimulationEnabled(), false, 'physics disabled upon release');
-  assert.equal(entity.isCollisionSimulationEnabled(), true, 'collision restored upon release');
-  assert.equal(clickCount, 1, 'no extra click sound on release');
-  assert.equal(stopScriptsCalls, 1, 'no extra stop-scripts on release since already stopped');
-  assert.ok(serverRunStateCalls.every(c => c.desiredState === 'stopped'), 'all server calls strictly keep stopped state');
 });
 
-test('Wrench left-click grab never starts an entity or triggers scripts under any condition', async () => {
+test('Wrench grabs a stopped server entity without starting its scripts', async () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const entity = await makeContraptionWithChildren();
   entity.serverManaged = true;
   entity.serverCanControl = true;
   entity.serverCanEdit = true;
-  entity.serverDesiredRunState = 'running';
+  entity.serverDesiredRunState = 'stopped';
+  entity.stopAllNodeScripts();
   manager.registerContraption(entity);
 
   const controller = Object.create(PlayerController.prototype) as any;
@@ -735,6 +733,7 @@ function makeWrenchGizmoController(entity: import('@entropydrop/space-engine/con
 
 test('Wrench retains handles while aiming across the gap to an arrow, and clears them outside edit range', async () => {
   const entity = await makeContraptionWithChildren();
+  entity.stopAllNodeScripts();
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
   camera.position.copy(entity.position).add(new THREE.Vector3(0, 0, 4));
   camera.lookAt(entity.position);
@@ -751,6 +750,7 @@ for (const serverManaged of [false, true]) {
   test(`Wrench gizmo poses stay fixed across render phases (${serverManaged ? 'network' : 'local'})`, async () => {
     const manager = new ContraptionManager(new THREE.Scene(), worldStub({}), null, null);
     const entity = await makeContraptionWithChildren();
+    entity.stopAllNodeScripts();
     manager.registerContraption(entity);
     entity.serverManaged = serverManaged;
     entity.serverExecutesLocally = false;
@@ -817,6 +817,7 @@ test('a locally grabbed network replica renders consecutive physics ticks withou
     physics: { update() {}, getEyePosition: () => eye.clone(), position: eye, velocity: new THREE.Vector3() },
     updateCameraPosition() {}
   });
+  entity.stopAllNodeScripts();
   controller.startWrenchGrab();
   eye.x = 4;
   assert.equal(entity.wrenchManipulationRevision, 1, 'starting a drag must fence in-flight remote downloads');
@@ -951,6 +952,7 @@ test('Wrench grab does not push a target that is closer than 1.5 metres', async 
   };
   controller.updateCameraPosition = () => { };
 
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
   assert.ok(Math.abs(controller.wrenchGrab.targetDistance - 0.75) < 1e-9);
 
@@ -1004,6 +1006,7 @@ test('Wrench grab follows the bent aiming ray without an initial sideways push',
   };
   controller.updateCameraPosition = () => { };
 
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
   controller.update(1 / 60);
 
@@ -1054,6 +1057,7 @@ test('Wrench grab holds a stationary target without pushing and follows player m
     velocity: new THREE.Vector3()
   };
   controller.updateCameraPosition = () => { };
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
 
   const originalPosition = entity.position.clone();
@@ -1118,6 +1122,7 @@ test('Wrench grab approaches a moved target without rapid overshoot oscillation'
     },
     updateCameraPosition() { }
   });
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
   eye.x = 4;
 
@@ -1189,6 +1194,7 @@ test('Wrench grab compensates entity gravity without vertical snapping', () => {
     },
     updateCameraPosition() { }
   });
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
   const initialAnchor = entity.entityLocalToWorld('root', controller.wrenchGrab.localPoint.clone());
   let minY = initialAnchor.y;
@@ -1253,6 +1259,7 @@ test('Wrench grab is mass independent for extremely heavy entities', () => {
     velocity: new THREE.Vector3()
   };
   controller.updateCameraPosition = () => { };
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
 
   eye.x = 3;
@@ -1316,6 +1323,7 @@ test('Wrench grab disables collision allowing smooth transport through terrain',
     velocity: new THREE.Vector3()
   };
   controller.updateCameraPosition = () => { };
+  entity.stopAllNodeScripts();
   controller.handleLeftClick();
 
   assert.equal(entity.isCollisionSimulationEnabled(), false, 'collision is disabled during grab');
@@ -1421,6 +1429,7 @@ test('Wrench grab disables collision allowing smooth transport through another e
     velocity: new THREE.Vector3()
   };
   controller.updateCameraPosition = () => { };
+  grabbed.stopAllNodeScripts();
   controller.handleLeftClick();
 
   assert.equal(grabbed.isCollisionSimulationEnabled(), false, 'collision is disabled on grabbed entity');

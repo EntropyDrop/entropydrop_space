@@ -166,7 +166,7 @@ test('entity shovel micro-cell clear reports all removed debris in one sound', (
   assert.deepEqual(controller.__breakSounds, [{ kind: 'standard', count: 2 }]);
 });
 
-test('the first shovel placement or removal attempt stops the entity without editing', () => {
+test('shovel placement and removal attempts leave a running entity unchanged', () => {
   const toasts: string[] = [];
   let rebuilt = 0;
   const block = {
@@ -180,7 +180,7 @@ test('the first shovel placement or removal attempt stops the entity without edi
   const contraption = {
     id: 9,
     scriptStatus: 'running',
-    stopAllNodeScripts() { this.scriptStatus = 'stopped'; },
+    stopAllNodeScripts() { assert.fail('tool clicks must not stop the entity'); },
     blocks: [block],
     rebuildAfterBlockChange() { rebuilt++; }
   };
@@ -205,9 +205,9 @@ test('the first shovel placement or removal attempt stops the entity without edi
     assert.deepEqual(contraption.blocks, [block]);
     assert.equal(rebuilt, 0);
     assert.equal(controller.__breakSounds.length, 0);
-    assert.equal(contraption.scriptStatus, 'stopped', 'the first attempt only stops');
+    assert.equal(contraption.scriptStatus, 'running');
   }
-  assert.deepEqual(toasts, ['Entity #9 stopped', 'Entity #9 stopped']);
+  assert.deepEqual(toasts, []);
 });
 
 test('world placement beside a focused microblock targets the adjacent standard cell', () => {

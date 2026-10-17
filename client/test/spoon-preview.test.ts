@@ -57,7 +57,7 @@ test('spoon preview over an entity microblock follows the entity transform', () 
     ],
     new THREE.Vector3(10, 20, 30),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   ) as any;
   const controller = makeController(SpecialTool.SPOON);
   controller.hoveredContraptionHit = {
@@ -88,7 +88,7 @@ test('spoon over an entity standard block shows the grid without a microcell hig
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 0, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   ) as any;
   const controller = makeController(SpecialTool.SPOON);
   controller.hoveredContraptionHit = {
@@ -110,7 +110,7 @@ test('spoon over a tilted entity inherits the entity quaternion orientation', ()
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(5, 5, 5),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   ) as any;
   const tiltedEuler = new THREE.Euler(0.5, 0.25, -0.75);
   const rootNode = contraption.entityNodes.get('root');
@@ -148,7 +148,7 @@ test('selector hover shows no focus wireframe before entity selection', () => {
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   const controller = makeController(SpecialTool.SELECTOR);
   controller.selectorRange = null; // Nothing selected.
@@ -178,7 +178,7 @@ test('selector hover shows a focus wireframe after selecting that entity', () =>
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   const controller = makeController(SpecialTool.SELECTOR);
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
@@ -196,7 +196,7 @@ test('selector focus preview inherits a tilted entity orientation', () => {
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   contraption.quaternion.setFromEuler(new THREE.Euler(0.35, 0.2, -0.4));
   contraption.rootGroup.updateMatrixWorld(true);
@@ -228,14 +228,14 @@ test('selector hover on entity B shows no guide while entity A is selected', () 
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   const entityB = new Contraption(
     2,
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(10, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   const controller = makeController(SpecialTool.SELECTOR);
   controller.selectorRange = { contraption: entityA, nodeId: 'root', pointA: null, pointB: null };
@@ -251,7 +251,7 @@ test('focus wireframe is inactive before point 1 and active after point 1', () =
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   const controller = makeController(SpecialTool.SELECTOR);
   controller.selectorLevel = { contraption, nodeId: 'root' };
@@ -275,7 +275,7 @@ test('boxSelectionPreview follows the crosshair after point 1 is set', () => {
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   const controller = makeController(SpecialTool.SELECTOR);
   controller.selectorLevel = { contraption, nodeId: 'root' };
@@ -310,7 +310,7 @@ test('no point 1 or no hit produces no box preview', () => {
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(0, 10, 0),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   );
   const controller = makeController(SpecialTool.SELECTOR);
   controller.selectorLevel = { contraption, nodeId: 'root' };
@@ -353,7 +353,7 @@ test('world two-point preview follows an entity hover hit', () => {
     [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(10, 20, 30),
     scene,
-    { rootComponentId: 'root' }
+    { rootComponentId: 'root', physicsSimulationEnabled: false }
   ) as any;
   const controller = makeController(SpecialTool.SELECTOR);
   controller.contraptions.selectionCornerA = { x: 0, y: 0, z: 0 };

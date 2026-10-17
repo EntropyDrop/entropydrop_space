@@ -4,10 +4,62 @@ import * as THREE from 'three';
 import { SpaceEntitySync } from '../src/engine/network/SpaceEntitySync.ts';
 import { SpaceEntityApiError } from '../src/bootstrap/SpaceEntityClient.ts';
 import { hostingList, hostingStatus } from './hosting-fixtures.ts';
+import { encode as encodeMessagePack } from '@msgpack/msgpack';
 
 
 const definition = Uint8Array.from([8, 4, 26, 0]);
 const definitionDigest = '0caed08c0cdfe078464c77fbc4032b985d9757db85e8fac65733d57ee7fb5917';
+
+test('click dispatch captures the observed execution epoch before awaiting transport', async t => {
+  const { sync } = harness('observer');
+  t.after(() => sync.stop());
+  const internal = sync as any;
+  internal.poll = async () => {};
+  let clickHandler: any;
+  internal.controller.setServerEntityClickHandler = (handler: unknown) => { clickHandler = handler; };
+  const sent: any[] = [];
+  internal.client.sendClickedBlock = async (...args: unknown[]) => {
+    await Promise.resolve();
+    sent.push(args);
+  };
+  sync.start();
+  const entity = { publicId: record().id, serverExecutionEpoch: 7 };
+  const click = { eventId: 'click-1' };
+  const pending = clickHandler(entity, click);
+  entity.serverExecutionEpoch = 8;
+  await pending;
+  assert.deepEqual(sent, [[entity.publicId, click, 7]]);
+});
+
+test('native click delivery is epoch fenced and ordinary messages cannot become clicks', () => {
+  const { sync, created } = harness('observer');
+  const internal = sync as any;
+  const clicks: any[] = [], ordinary: any[] = [];
+  const entity = { publicId: record().id, serverExecutionEpoch: 7, scriptStatus: 'running',
+    enqueueClickedBlock: (click: unknown) => clicks.push(click), enqueueEntityMessage: (message: unknown) => ordinary.push(message) };
+  created.push(entity);
+  const entry = { cancelled: false, epoch: 7 };
+  internal.entityMessageConnections.set(entity.publicId, entry);
+  const click = { eventId: 'click-1', entityId: entity.publicId, playerId: 'visitor', nodeId: 'door',
+    kind: 'decoration', size: null, decorationId: 'handle', position: [0, 0, 0], point: [1, 2, 3], localPoint: [0, 0, 0.5] };
+  const frame = { type: 'entity_message', target_id: entity.publicId, target_execution_epoch: 7,
+    message_id: click.eventId, source_id: click.playerId, message_type: 'clicked_block', encoding: 'utf8',
+    payload: new TextEncoder().encode(JSON.stringify(click)), clicked_block: true };
+  const deliver = (fields: Record<string, unknown> = {}) => internal.handleEntityMessageFrame(entity.publicId, entry, {}, encodeMessagePack({ ...frame, ...fields }));
+  deliver();
+  assert.deepEqual(clicks, [click]);
+  assert.equal(ordinary.length, 0);
+  deliver({ target_execution_epoch: 6 });
+  deliver({ source_id: 'imposter' });
+  deliver({ message_type: 'chat' });
+  deliver({ payload: new TextEncoder().encode('bad json') });
+  assert.equal(clicks.length, 1);
+  deliver({ clicked_block: false });
+  assert.equal(ordinary.length, 1);
+  entity.scriptStatus = 'stopped';
+  deliver();
+  assert.equal(clicks.length, 1);
+});
 
 test('429 pauses all autosaves, retains only the latest edits, and resumes at Retry-After', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });

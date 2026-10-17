@@ -73,6 +73,28 @@ function entity(overrides: Record<string, unknown> = {}) {
   };
 }
 
+test('player clicks authenticate without requiring a source entity execution lease', async () => {
+  const click: import('@entropydrop/space-engine/scripting/ScriptProtocol.ts').ScriptClickedBlock = {
+    eventId: 'click-1', entityId: entity().id, playerId: 'local', nodeId: 'door',
+    kind: 'decoration', position: [0, 0, 0], size: null, decorationId: 'handle', point: [1, 2, 3], localPoint: [0, 0, 0.5],
+  };
+  const client = new SpaceEntityClient('https://api.test', 'token', 'world-1', (async (url, options) => {
+    assert.ok(String(url).endsWith(`/${entity().id}/clicked-block`));
+    assert.equal(options?.method, 'POST');
+    const headers = new Headers(options?.headers);
+    assert.equal(headers.get('Authorization'), 'Bearer token');
+    assert.equal(headers.get('Idempotency-Key'), click.eventId);
+    assert.equal(headers.get('Entity-Target-Execution-Epoch'), '7');
+    assert.equal(headers.has('Entity-Execution-Instance'), false);
+    assert.deepEqual(JSON.parse(String(options?.body)), click);
+    return new Response(JSON.stringify({ message_id: click.eventId, status: 'routed' }), { status: 202 });
+  }) as typeof fetch);
+  assert.deepEqual(await client.sendClickedBlock(entity().id, click, 7), { ok: true, messageId: click.eventId, deliveryStatus: 'routed' });
+  for (const epoch of [0, -1, NaN, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    await assert.rejects(client.sendClickedBlock(entity().id, click, epoch), { code: 'ENTITY_CLICK_EXECUTION_EPOCH_INVALID' });
+  }
+});
+
 test('SpaceEntityClient lists, verifies definitions, creates, and changes run state with auth', async () => {
   const calls: Array<{ url: string; options: RequestInit }> = [];
   const fetchImpl = async (url: string | URL | Request, options: RequestInit = {}) => {

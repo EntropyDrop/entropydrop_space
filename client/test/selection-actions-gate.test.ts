@@ -7,6 +7,7 @@ import { ContraptionManager } from '@entropydrop/space-engine/contraption/Contra
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
+import { ModelingTool } from '../src/engine/controls/ModelingTool.ts';
 
 function fixture() {
   const scene = new THREE.Scene();
@@ -99,47 +100,41 @@ test('a rejected Shift micro paint/fill/copy never materializes virtual entity v
   }
 });
 
-test('canonical player geometry attempts immediately stop only; the next attempt edits', () => {
+test('canonical player geometry attempts stay blocked until an explicit stop', () => {
   const { controller, entity, toasts } = fixture();
   entity.enableAllNodeScripts();
   const command = { domain: ActionDomain.ENTITY, action: 'remove-standard', target: { contraption: entity },
     cell: { x: 0, y: 0, z: 0 }, nodeId: 'root' };
-  assert.equal(controller.performBasicAction(command).reason, 'entity_not_stopped');
-  assert.equal(entity.isPhysicsSimulationEnabled(), false);
-  assert.equal(entity.blocks.length, 2);
-  assert.ok(toasts.some(m => m === 'Entity #1 stopped'));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    assert.equal(controller.performBasicAction(command).reason, 'entity_not_stopped');
+    assert.equal(entity.isPhysicsSimulationEnabled(), true);
+    assert.equal(entity.blocks.length, 2);
+  }
+  assert.deepEqual(toasts, []);
+  entity.stopAllNodeScripts();
   assert.equal(controller.performBasicAction(command).ok, true);
   assert.equal(entity.blocks.length, 1);
 });
 
-for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON]) {
+for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH]) {
   for (const method of ['handleLeftClick', 'handleRightClick']) {
     for (const kind of ['standard', 'micro']) {
       for (const shiftKey of [false, true]) {
-        test(`${tool} ${method} ${kind} Shift=${shiftKey} immediately stops without editing`, () => {
+        test(`${tool} ${method} ${kind} Shift=${shiftKey} keeps the entity running without editing`, () => {
           const { controller, entity, toasts } = fixture();
           entity.enableAllNodeScripts();
+          entity.getComponentState('root').preserved = 42;
           controller._activeTool = tool;
           controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', kind,
             block: entity.blocks[0], cell: { x: 0, y: 0, z: 0 },
             point: new THREE.Vector3(0.5, 50.5, 0.5) };
-          const dispatch = controller.performBasicAction.bind(controller);
-          let stopCommands = 0;
-          controller.performBasicAction = (command: { domain: string; action: string }) => {
-            if (command.domain === ActionDomain.SELECTION) {
-              assert.equal(command.action, 'clear', 'only selection cleanup is allowed');
-            } else {
-              assert.equal(command.action, 'stop-scripts', 'the physical click cannot dispatch an edit');
-              stopCommands++;
-            }
-            return dispatch(command);
-          };
-          assert.equal(controller[method]({ shiftKey }), false);
-          assert.equal(stopCommands, 1);
-          assert.equal(entity.isPhysicsSimulationEnabled(), false);
+          controller.performBasicAction = () => assert.fail('clicks on running entities must not dispatch edits or Stop');
+          for (let attempt = 0; attempt < 3; attempt++) assert.equal(controller[method]({ shiftKey }), false);
+          assert.equal(entity.isPhysicsSimulationEnabled(), true);
+          assert.equal(entity.getComponentState('root').preserved, 42);
           assert.equal(entity.blocks.length, 2);
           assert.equal(entity.blocks.every(block => block.color === 0xff0000 && (block.size || 1) === 1), true);
-          assert.deepEqual(toasts, ['Entity #1 stopped']);
+          assert.deepEqual(toasts, []);
         });
       }
     }
@@ -147,98 +142,75 @@ for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON]) {
 }
 
 for (const operation of operations) {
-  test(`${operation} immediately stops a running selection without also performing the action`, () => {
+  test(`${operation} leaves a running selection and its entity unchanged`, () => {
     const { controller, entity, toasts } = fixture();
     entity.enableAllNodeScripts();
-    controller.selectedBlockSelection = { contraption: entity, nodeId: 'root', blocks: [...entity.blocks],
+    const selection = { contraption: entity, nodeId: 'root', blocks: [...entity.blocks],
       confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 2, y: 0, z: 0 } } };
+    controller.selectedBlockSelection = selection;
     controller[operation]('cw', 'y');
-    assert.equal(entity.isPhysicsSimulationEnabled(), false);
+    assert.equal(entity.isPhysicsSimulationEnabled(), true);
     assert.equal(entity.blocks.length, 2);
     assert.equal(entity.blocks.every(block => block.color === 0xff0000), true);
     assert.equal(entity.childDefinitions.size, 0);
     assert.equal(controller.inventorySlots.every((slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) => slot === null), true);
-    assert.equal(controller.selectedBlockSelection, null);
-    assert.deepEqual(toasts, ['Entity #1 stopped']);
+    assert.equal(controller.selectedBlockSelection, selection);
+    assert.deepEqual(toasts, []);
   });
 }
 
-test('Select All immediately stops a running entity and selects only on the next attempt', () => {
+test('Select All requires an explicit stop before selecting a running entity', () => {
   const { controller, entity, toasts } = fixture();
   entity.enableAllNodeScripts();
   controller.hoveredContraptionHit = { contraption: entity, entityId: 'root' };
-  assert.equal(controller.selectAllSelectionBlocks(), false);
-  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  for (let attempt = 0; attempt < 3; attempt++) assert.equal(controller.selectAllSelectionBlocks(), false);
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
   assert.equal(controller.selectedBlockSelection, null);
   assert.equal(controller.canUseSelectionActions(), false);
-  assert.deepEqual(toasts, ['Entity #1 stopped']);
+  assert.deepEqual(toasts, []);
+  entity.stopAllNodeScripts();
   assert.equal(controller.selectAllSelectionBlocks(), true);
   assert.equal(controller.canUseSelectionActions(), true);
 });
 
-test('every target and restart stops on the first attempt, independent of timing', t => {
+test('changing targets and repeating attempts never stops an entity', () => {
   const { controller, entity, manager, toasts } = fixture();
   const other = new Contraption(2, [{ localX: 0, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK }],
     new THREE.Vector3(10, 50, 0), new THREE.Scene());
   manager.registerContraption(other);
-  let now = 100;
-  t.mock.method(performance, 'now', () => now);
   for (const target of [entity, other, entity, other]) {
     target.enableAllNodeScripts();
-    now += 5000;
     assert.equal(controller.handleRunningEntityInteraction(target), true);
-    assert.equal(target.isPhysicsSimulationEnabled(), false);
-    assert.equal(controller.handleRunningEntityInteraction(target), false, 'a stopped entity is not stopped twice');
+    assert.equal(controller.handleRunningEntityInteraction(target), true);
+    assert.equal(target.isPhysicsSimulationEnabled(), true);
   }
-  assert.deepEqual(toasts, ['Entity #1 stopped', 'Entity #2 stopped', 'Entity #1 stopped', 'Entity #2 stopped']);
+  assert.deepEqual(toasts, []);
 });
 
-test('server stop waits for acknowledgement and consumes all attempts while pending', async () => {
-  const { controller, entity } = fixture();
-  entity.enableAllNodeScripts();
-  Object.assign(entity, { serverManaged: true, serverCanControl: true, serverCanEdit: true, serverDesiredRunState: 'running' });
-  let acknowledge!: () => void;
-  let requests = 0;
-  const acknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
-  controller.serverEntityRunStateHandler = async (_: unknown, state: 'running' | 'stopped') => { requests++; assert.equal(state, 'stopped'); await acknowledgement; };
-  controller.handleRunningEntityInteraction(entity);
-  assert.equal(requests, 1, 'the first operation must send Stop immediately');
-  assert.equal(controller.canEditEntityInternals(entity), false);
-  assert.equal(entity.isPhysicsSimulationEnabled(), true);
-  controller.handleRunningEntityInteraction(entity);
-  assert.equal(requests, 1, 'pending retries must not duplicate stop requests');
-  const command = { domain: ActionDomain.ENTITY, action: 'remove-standard', target: { contraption: entity },
-    cell: { x: 0, y: 0, z: 0 }, nodeId: 'root' };
-  assert.equal(controller.performBasicAction(command).ok, false);
-  assert.equal(entity.blocks.length, 2);
-  acknowledge();
-  await acknowledgement;
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(entity.isPhysicsSimulationEnabled(), false);
-  assert.equal(entity.serverDesiredRunState, 'stopped');
-  assert.equal(controller.canUseSelectionActions(), false);
-});
-
-test('server stop cannot bypass owner permissions or a failed acknowledgement', async () => {
+test('player attempts never request server Stop, regardless of ownership or local mirror state', () => {
   for (const owner of [false, true]) {
-    const { controller, entity } = fixture();
-    entity.enableAllNodeScripts();
-    Object.assign(entity, { serverManaged: true, serverCanControl: owner, serverCanEdit: true, serverDesiredRunState: 'running' });
-    let requests = 0;
-    controller.serverEntityRunStateHandler = async () => { requests++; throw new Error('Stop failed'); };
-    controller.handleRunningEntityInteraction(entity);
-    controller.handleRunningEntityInteraction(entity);
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.equal(requests, owner ? 1 : 0);
-    assert.equal(entity.isPhysicsSimulationEnabled(), true);
-    assert.equal(entity.serverDesiredRunState, 'running');
-    assert.equal(controller.canEditEntityInternals(entity), false);
+    for (const locallyRunning of [false, true]) {
+      const { controller, entity, toasts } = fixture();
+      if (locallyRunning) entity.enableAllNodeScripts();
+      Object.assign(entity, { serverManaged: true, serverCanControl: owner, serverCanEdit: true, serverDesiredRunState: 'running' });
+      controller.serverEntityRunStateHandler = async () => assert.fail('an ignored click must not request server Stop');
+      controller.hoveredContraptionHit = { contraption: entity, entityId: 'root' };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        controller.handleLeftClick();
+        const command = { domain: ActionDomain.ENTITY, action: 'remove-standard', target: { contraption: entity },
+          cell: { x: 0, y: 0, z: 0 }, nodeId: 'root' };
+        assert.equal(controller.performBasicAction(command).reason, 'entity_not_stopped');
+      }
+      assert.equal(entity.isPhysicsSimulationEnabled(), locallyRunning);
+      assert.equal(entity.serverDesiredRunState, 'running');
+      assert.equal(entity.blocks.length, 2);
+      assert.equal(controller.canEditEntityInternals(entity), false);
+      assert.deepEqual(toasts, []);
+    }
   }
 });
 
-test('one Spoon click stops without subdivision or carving; the next click carves normally', () => {
+test('Spoon clicks do not carve a running entity; carving resumes after an explicit stop', () => {
   const { controller, entity } = fixture();
   entity.enableAllNodeScripts();
   controller._activeTool = SpecialTool.SPOON;
@@ -248,49 +220,78 @@ test('one Spoon click stops without subdivision or carving; the next click carve
     point: new THREE.Vector3(0, 50, 0) };
   controller.particles = { emitBlockBreak() {} };
   controller.handleLeftClick();
-  assert.equal(entity.isPhysicsSimulationEnabled(), false);
-  assert.equal(entity.blocks.length, 2, 'the Stop click must not carve or subdivide');
   controller.handleLeftClick();
-  assert.ok(entity.blocks.some(block => block.size === 0.125), 'the next click may subdivide and carve');
+  assert.equal(entity.isPhysicsSimulationEnabled(), true);
+  assert.equal(entity.blocks.length, 2);
+  entity.stopAllNodeScripts();
+  controller.handleLeftClick();
+  assert.ok(entity.blocks.some(block => block.size === 0.125), 'a stopped entity may be subdivided and carved');
 });
 
-test('the first click on a newly running entity stops and clears stale internal selection', () => {
+for (const tool of [SpecialTool.SELECTOR, SpecialTool.HAMMER, SpecialTool.WRENCH, SpecialTool.MODELING, SpecialTool.PIPETTE]) {
+  for (const method of ['handleLeftClick', 'handleRightClick']) {
+    for (const serverManaged of [false, true]) {
+      test(`${tool} ${method} leaves a ${serverManaged ? 'server' : 'local'} entity running`, () => {
+        const { controller, entity } = fixture();
+        entity.setComponentDecorations('root', [{ id: 'cube', color: 0xff0000 }]);
+        if (serverManaged) Object.assign(entity, {
+          serverManaged: true, serverCanControl: true, serverCanEdit: true, serverDesiredRunState: 'running'
+        });
+        else entity.enableAllNodeScripts();
+        entity.getComponentState('root').preserved = 42;
+        controller._activeTool = tool;
+        controller.currentRaycast = { hit: false };
+        controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', kind: 'standard',
+          block: entity.blocks[0], cell: { x: 0, y: 0, z: 0 }, point: entity.position.clone() };
+        controller.activeInventoryCategory = 'item';
+        controller.getActiveHammerInventoryItem = () => ({ kind: 'item' });
+        controller.rotateActiveInventoryItem = () => true;
+        controller.performBasicAction = () => assert.fail('running entity clicks must not dispatch edits or Stop');
+        controller.serverEntityRunStateHandler = async () => assert.fail('running entity clicks must not request server Stop');
+        controller.modeling = new ModelingTool(controller);
+        controller.modeling.hovered = { contraption: entity, componentId: 'root', decorationId: 'cube' };
+        controller.modeling.placement = { target: { contraption: entity, componentId: 'root' }, value: { id: 'preview', color: 1 } };
+
+        for (let attempt = 0; attempt < 3; attempt++) controller[method]({ shiftKey: attempt === 1 });
+
+        assert.equal(controller.isEntityRunning(entity), true);
+        assert.equal(entity.isPhysicsSimulationEnabled(), !serverManaged);
+        assert.equal(entity.getComponentState('root').preserved, 42);
+        assert.equal(entity.getDecorationCount(), 1);
+        assert.equal(entity.isWrenchGrabbed, false);
+        assert.equal(controller.wrenchGrab == null, true);
+        assert.equal(controller.modeling.selected, null);
+      });
+    }
+  }
+}
+
+for (const kind of ['move', 'rotate']) {
+  test(`Wrench ${kind} handle clicks do not stop a running entity`, () => {
+    const { controller, entity } = fixture();
+    entity.enableAllNodeScripts();
+    controller._activeTool = SpecialTool.WRENCH;
+    controller.refreshWrenchPivotTargetPose = () => ({ contraption: entity, bodyId: 'root' });
+    controller.hoveredWrenchGizmoHandle = { kind, axis: 'x', handleKey: `${kind}-x`, worldPoint: entity.position.clone() };
+    controller.performBasicAction = () => assert.fail('running handle clicks must not dispatch Stop');
+    controller.handleLeftClick();
+    assert.equal(entity.isPhysicsSimulationEnabled(), true);
+    assert.equal(entity.isWrenchGrabbed, false);
+    assert.equal(controller.activeWrenchGizmoDrag == null, true);
+    assert.equal(entity.wrenchManipulationRevision || 0, 0);
+  });
+}
+
+test('a click ignores stale internal selection on a newly running entity', () => {
   const { controller, entity } = fixture();
-  controller.selectedBlockSelection = { contraption: entity, nodeId: 'root', blocks: [...entity.blocks],
+  const selection = { contraption: entity, nodeId: 'root', blocks: [...entity.blocks],
     confirmedRange: { pointA: { x: 0, y: 0, z: 0 }, pointB: { x: 2, y: 0, z: 0 } } };
+  controller.selectedBlockSelection = selection;
   entity.enableAllNodeScripts();
   controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', point: new THREE.Vector3(0.5, 50.5, 0.5) };
   controller.handleLeftClick();
-  assert.equal(entity.isPhysicsSimulationEnabled(), false);
-  assert.equal(entity.blocks.length, 2, 'stopping does not edit the previous selection');
-  assert.equal(controller.selectedBlockSelection, null);
-  assert.equal(controller.selectorRange, null);
-});
-
-test('delayed server stop acknowledgement cannot overwrite a newer remote Start', async () => {
-  const { controller, entity } = fixture();
-  entity.enableAllNodeScripts();
-  Object.assign(entity, { serverManaged: true, serverCanControl: true, serverCanEdit: true,
-    serverDesiredRunState: 'running', serverRevision: 1 });
-  controller.serverEntityRunStateHandler = async () => {
-    entity.serverRevision = 3;
-    entity.serverDesiredRunState = 'running';
-  };
-  controller.handleRunningEntityInteraction(entity);
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(entity.serverDesiredRunState, 'running');
   assert.equal(entity.isPhysicsSimulationEnabled(), true);
-  assert.equal(controller.canEditEntityInternals(entity), false);
-});
-
-test('a locally frozen mirror with durable running state still requires owner stop', () => {
-  const { controller, entity } = fixture();
-  Object.assign(entity, { serverManaged: true, serverCanControl: false, serverCanEdit: true, serverDesiredRunState: 'running' });
-  assert.equal(entity.isPhysicsSimulationEnabled(), false);
-  assert.equal(controller.canEditEntityInternals(entity), false);
-  assert.equal(controller.handleRunningEntityInteraction(entity), true);
-  assert.equal(controller.handleRunningEntityInteraction(entity), true);
-  assert.equal(entity.serverDesiredRunState, 'running');
-  assert.equal(controller.canEditEntityInternals(entity), false);
+  assert.equal(entity.blocks.length, 2);
+  assert.equal(controller.selectedBlockSelection, selection);
+  assert.equal(controller.selectorRange, null);
 });

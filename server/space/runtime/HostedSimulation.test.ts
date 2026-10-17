@@ -192,6 +192,73 @@ function inputFor(script: string, steps = 1) {
   };
 }
 
+test('hosted runtime delivers native decoration clicks once and acknowledges original inbox indices', async () => {
+  const input: any = inputFor(`
+    const click = ctx.clickedBlock;
+    if (!click.isNull) {
+      self.state.setNumber("clicks", self.state.getNumber("clicks") + 1);
+      self.state.setString("handle", click.getString("decorationId"));
+    }
+    self.state.setNumber("messages", self.state.getNumber("messages") + ctx.messages.received.length);
+  `, 3);
+  const click = { eventId: 'click-1', entityId: SOURCE_ID, playerId: 'visitor', nodeId: 'root',
+    kind: 'decoration', position: [1, 2, 3], size: null, decorationId: 'handle',
+    point: [80, 220, 80], localPoint: [1, 2, 3.5] };
+  input.entities[0].messages = [
+    { clickedBlock: click }, { clickedBlock: { ...click, eventId: 'click-2' } },
+    { messageId: 'ordinary', sourceId: TARGET_ID, targetId: SOURCE_ID, type: 'clicked_block', encoding: 'utf8', payload: '{}' },
+  ];
+  const first: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(first.faults, []);
+  assert.equal(first.entities[0].snapshot.states.root.clicks, 2);
+  assert.equal(first.entities[0].snapshot.states.root.handle, 'handle');
+  assert.equal(first.entities[0].snapshot.states.root.messages, 1);
+  assert.deepEqual(first.entities[0].consumed_message_indices, [0, 1, 2]);
+  input.entities[0].snapshot = first.entities[0].snapshot;
+  input.entities[0].definition_base64 = first.entities[0].definition_base64;
+  input.entities[0].messages = [];
+  const second: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(second.faults, []);
+  assert.equal(second.entities[0].snapshot.states.root.clicks, 2, 'checkpoint restoration never replays a click');
+});
+
+test('hosted acknowledgements handle rejected entries, duplicates and independent frame budgets', async () => {
+  const input: any = inputFor(`
+    if (!ctx.clickedBlock.isNull) self.state.setNumber("clicks", self.state.getNumber("clicks") + 1);
+    self.state.setNumber("messages", self.state.getNumber("messages") + ctx.messages.received.length);
+  `);
+  const click = { eventId: 'same-event-id', entityId: SOURCE_ID, playerId: 'visitor-1', nodeId: 'root',
+    kind: 'standard', position: [0, 0, 0], size: 1, decorationId: null,
+    point: [80, 220, 80], localPoint: [0, 0, 0] };
+  input.entities[0].messages = [
+    { clickedBlock: { ...click, nodeId: String.fromCodePoint(0x1F600).repeat(128) } },
+    { clickedBlock: click },
+    { clickedBlock: click },
+    { clickedBlock: { ...click, playerId: 'visitor-2' } },
+    { messageId: 'ordinary', sourceId: TARGET_ID, targetId: SOURCE_ID, type: 'chat', encoding: 'utf8', payload: 'hello' },
+  ];
+  const simulation = new HostedSimulation(1337);
+  const first: any = await simulation.step(input);
+  assert.deepEqual(first.faults, []);
+  assert.equal(first.entities[0].snapshot.states.root.clicks, 1);
+  assert.equal(first.entities[0].snapshot.states.root.messages, 1, 'messages pass the queued second click');
+  assert.deepEqual(first.entities[0].consumed_message_indices, [0, 1, 2, 4]);
+  // A failed database commit retries the original candidate, including its inbox.
+  const retried: any = await simulation.step(input);
+  assert.deepEqual(retried.entities[0].snapshot.states, first.entities[0].snapshot.states);
+  assert.deepEqual(retried.entities[0].consumed_message_indices, [0, 1, 2, 4]);
+  input.entities[0].messages = input.entities[0].messages.filter((_: unknown, index: number) => (
+    !first.entities[0].consumed_message_indices.includes(index)
+  ));
+  input.entities[0].snapshot = first.entities[0].snapshot;
+  input.entities[0].definition_base64 = first.entities[0].definition_base64;
+  const second: any = await simulation.step(input);
+  assert.deepEqual(second.faults, []);
+  assert.equal(second.entities[0].snapshot.states.root.clicks, 2);
+  assert.equal(second.entities[0].snapshot.states.root.messages, 1);
+  assert.deepEqual(second.entities[0].consumed_message_indices, [0]);
+});
+
 test('hosted message command ids remain unique across transaction batches', async () => {
   const input = inputFor(`
 if (self.state.getString("last").length) self.state.set("receipt", ctx.commands.result(self.state.getString("last")));

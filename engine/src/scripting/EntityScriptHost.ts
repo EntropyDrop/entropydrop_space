@@ -608,6 +608,7 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
     players: frozenClone(frame.players || []),
     driver: frozenClone(frame.driver || null),
     contacts: frozenClone(frame.contacts || []),
+    clickedBlock: frozenClone(frame.clickedBlock || null),
   });
   let sharedContextData: ReturnType<typeof buildSharedContextData> | null = null;
 

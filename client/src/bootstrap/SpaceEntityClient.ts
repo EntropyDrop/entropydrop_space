@@ -1,4 +1,5 @@
 import { SPACE_HOSTING_UI_ENABLED } from './SpaceFeatures.ts';
+import type { ScriptClickedBlock } from '@entropydrop/space-engine/scripting/ScriptProtocol.ts';
 import { INVENTORY_PROTOBUF_SCHEMA_VERSION } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import {
   CheckpointEntityRequest,
@@ -339,6 +340,24 @@ export class SpaceEntityClient {
       throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid entity message ticket response.', body);
     }
     return body as SpaceEntityMessageTicket;
+  }
+
+  async sendClickedBlock(targetId: string, clickedBlock: ScriptClickedBlock, targetExecutionEpoch: number): Promise<SpaceEntityMessageSendResult> {
+    if (!Number.isSafeInteger(targetExecutionEpoch) || targetExecutionEpoch <= 0) {
+      throw new SpaceEntityApiError(0, 'ENTITY_CLICK_EXECUTION_EPOCH_INVALID', 'Invalid entity click execution epoch.', null);
+    }
+    const body = await this.request(`/${encodeURIComponent(targetId)}/clicked-block`, {
+      method: 'POST', headers: {
+        'Idempotency-Key': clickedBlock.eventId,
+        'Entity-Target-Execution-Epoch': String(targetExecutionEpoch),
+      },
+      body: JSON.stringify(clickedBlock),
+    });
+    if (typeof body?.message_id !== 'string' || !['routed', 'dropped'].includes(body?.status)) {
+      throw new SpaceEntityApiError(0, 'ENTITY_API_INVALID_RESPONSE', 'Invalid entity click response.', body);
+    }
+    return { ok: true, messageId: body.message_id, deliveryStatus: body.status,
+      ...(typeof body.reason === 'string' ? { reason: body.reason } : {}) };
   }
 
   async sendMessage(

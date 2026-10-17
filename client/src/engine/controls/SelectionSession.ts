@@ -813,7 +813,7 @@ export class SelectionSession {
         const contraption = this.selectedBlockSelection.contraption;
         const nodeId = this.selectedBlockSelection.nodeId;
         const node = contraption.entityNodes?.get?.(nodeId);
-        if (node && node.group) {
+        if (node && node.group && this.host.canEditEntityInternals(contraption)) {
           if (!this.selectedBlockSelection.bounds) {
             this.selectedBlockSelection.bounds = this.host.getEntitySelectionBounds(this.selectedBlockSelection.blocks, isMicro);
           }

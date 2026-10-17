@@ -585,7 +585,8 @@ test('game mouse events drag without rotating the view, commit on the matching r
   controller._activeTool = activeTool;
   Object.assign(controller, { modeling: f.tool, pointerLockDesired: true, yaw: 0.3, pitch: 0.2,
     mouseSensitivity: 0.002, ignoreNextLockedMouseMove: false, updateCameraRotation() {},
-    updateAimRaycast() {}, refreshAimAfterPointerAction() {}, releaseWrenchGizmoDrag() {}, releaseWrenchGrab() {}, releaseGizmoDrag() {},
+    updateAimRaycast() {}, tryClickRunningEntity() { return false; }, refreshAimAfterPointerAction() {},
+    releaseWrenchGizmoDrag() {}, releaseWrenchGrab() {}, releaseGizmoDrag() {},
     resetEntityInputState() {}, clearWrenchPivotDisplay() {} });
   controller.setupEventListeners();
   f.tool.clearSelection();

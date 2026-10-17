@@ -29,6 +29,7 @@ from space.database import SessionLocal
 from routers import space as terrain
 from routers.space_entities import _decode_entity_definition, _encode_snapshot, EntityPosition, _enforce_entity_storage_quota
 from routers.space_entity_messages import (
+    normalize_clicked_block,
     _message_channel,
     _validate_message_type,
     entity_message_hub,
@@ -41,6 +42,52 @@ log = logging.getLogger(__name__)
 LEASE_SECONDS = 15
 STEP_MS = 1000
 MAX_MESSAGE = 32 * 1024 * 1024
+
+
+class HostedEntityInbox:
+    """Independent bounded input queues; acknowledge only committed original entries."""
+
+    def __init__(self):
+        # Transport validation limits each payload to 4 KiB, so each queue is
+        # also bounded to 256 KiB. Flooding one kind cannot evict the other.
+        self.messages = deque(maxlen=64)
+        self.clicks = deque(maxlen=64)
+        self.recent_click_ids: dict[tuple[str, str], None] = {}
+
+    def clear(self):
+        self.messages.clear()
+        self.clicks.clear()
+        self.recent_click_ids.clear()
+
+    def append(self, message):
+        if 'clickedBlock' in message:
+            click = message['clickedBlock']
+            key = (click['playerId'], click['eventId'])
+            if key in self.recent_click_ids:
+                return
+            self.recent_click_ids[key] = None
+            if len(self.recent_click_ids) > 256:
+                del self.recent_click_ids[next(iter(self.recent_click_ids))]
+            self.clicks.append(message)
+        else:
+            self.messages.append(message)
+
+    def batch(self):
+        return [*self.messages, *self.clicks]
+
+    @staticmethod
+    def validate_acknowledgement(batch, indices):
+        # Validate before committing state. Invalid acknowledgements must never
+        # leave already-committed input in the inbox to execute again.
+        if not isinstance(indices, list) or any(
+            type(index) is not int or not 0 <= index < len(batch) for index in indices
+        ) or len(set(indices)) != len(indices):
+            raise ValueError('invalid consumed message indices')
+        return {id(batch[index]) for index in indices}
+
+    def acknowledge(self, consumed):
+        self.messages = deque((item for item in self.messages if id(item) not in consumed), maxlen=64)
+        self.clicks = deque((item for item in self.clicks if id(item) not in consumed), maxlen=64)
 
 
 def now():
@@ -468,8 +515,7 @@ async def run_world(world_id, cpu_ids=None):
         connection_id = f"{int(epoch)}.{uuid.uuid4().hex}"
         channel = _message_channel(world_id, entity_id, int(epoch))
         pubsub = entity_message_hub.redis.pubsub()
-        inbox = deque()
-        inbox_bytes = 0
+        inbox = HostedEntityInbox()
         message_results = deque()
         presence_active = False
         last_presence_refresh = time.monotonic()
@@ -493,7 +539,6 @@ async def run_world(world_id, cpu_ids=None):
                             await entity_message_hub.deactivate(world_id, entity_id, connection_id)
                             presence_active = False
                         inbox.clear()
-                        inbox_bytes = 0
                         await asyncio.sleep(1)
                         continue
                     if int(payload['execution_epoch']) != int(epoch):
@@ -571,16 +616,19 @@ async def run_world(world_id, cpu_ids=None):
                             'encoding': encoding,
                             'payload': script_payload,
                         }
-                        while len(inbox) >= 64 or inbox_bytes + len(body) > 256 * 1024:
-                            if not inbox:
-                                break
-                            _old_message, old_size = inbox.popleft()
-                            inbox_bytes -= old_size
-                        if len(inbox) < 64 and inbox_bytes + len(body) <= 256 * 1024:
-                            inbox.append((message, len(body)))
-                            inbox_bytes += len(body)
+                        if frame.get('clicked_block') is True:
+                            if message_type != 'clicked_block' or encoding != 'utf8':
+                                continue
+                            try:
+                                click = normalize_clicked_block(json.loads(script_payload), entity_id, source_id)
+                            except (ValueError, RecursionError, HTTPException):
+                                continue
+                            if click['eventId'] != message_id:
+                                continue
+                            message['clickedBlock'] = click
+                        inbox.append(message)
 
-                    message_batch = [message for message, _size in inbox]
+                    message_batch = inbox.batch()
                     receipt_batch = list(message_results)
                     receipt_batch_size = len(receipt_batch)
                     for item in payload['entities']:
@@ -590,21 +638,19 @@ async def run_world(world_id, cpu_ids=None):
                             break
                     runtime = await pool.get(entity_id, epoch, cpu_id)
                     result = await asyncio.wait_for(runtime.step(payload), timeout=10)
+                    committed_entity = next(
+                        (item for item in result.get('entities', []) if item.get('id') == entity_id),
+                        {},
+                    )
+                    consumed = set() if result.get('faults') or result.get('error') else inbox.validate_acknowledgement(
+                        message_batch, committed_entity.get('consumed_message_indices'),
+                    )
                     def commit():
                         with SessionLocal() as db:
                             return commit_result(db, world_id, instance_id, payload, result)
                     committed = await asyncio.to_thread(commit)
                     if committed:
-                        committed_entity = next(
-                            (item for item in result.get('entities', []) if item.get('id') == entity_id),
-                            {},
-                        )
-                        consumed_message_count = committed_entity.get('consumed_message_count', 0)
-                        if not isinstance(consumed_message_count, int) or not 0 <= consumed_message_count <= len(message_batch):
-                            raise ValueError('invalid consumed message count')
-                        for _ in range(consumed_message_count):
-                            _message, delivered_bytes = inbox.popleft()
-                            inbox_bytes -= delivered_bytes
+                        inbox.acknowledge(consumed)
                         for _ in range(receipt_batch_size):
                             message_results.popleft()
                         for receipt in committed_entity.get('message_results', [])[:256]:

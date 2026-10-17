@@ -98,8 +98,8 @@ test('brush right-click on running entity does not start selection', () => {
 
   controller.handleRightClick(null);
   assert.equal(controller.brushSelection, null, 'must not start selection on running entity');
-  assert.equal(runningContraption.scriptStatus, 'stopped');
-  assert.ok(toasts.some(t => t === 'Entity #1 stopped'));
+  assert.equal(runningContraption.scriptStatus, 'running');
+  assert.deepEqual(toasts, []);
 });
 
 test('brush right-click first click on stopped entity picks corner 1 without showing component bounding box', () => {
@@ -246,6 +246,7 @@ test('brush right-click second click on world terrain cancels selection', () => 
 
 test('brush updateMicroCarvePreview sets boxSelectionPreview only for same component', () => {
   const fakeContraption = {
+    scriptStatus: 'stopped',
     entityNodes: new Map([
       ['arm_node', { group: { matrixWorld: new THREE.Matrix4() } }]
     ])

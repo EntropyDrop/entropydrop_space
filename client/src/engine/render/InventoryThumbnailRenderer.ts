@@ -2,7 +2,7 @@ import { SpaceRenderer } from './SpaceRenderer.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
-import { getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
+import { getInventoryRenderPreviewBlocks } from '../inventory/InventoryRenderGeometry.ts';
 
 export class InventoryThumbnailRenderer {
   private static instance: InventoryThumbnailRenderer | null = null;
@@ -99,14 +99,14 @@ export class InventoryThumbnailRenderer {
 
   private computeItemCacheKey(item: any, size: number): string {
     if (item.kind === 'item') {
-      const geometry = getInventoryPreviewBlocks(item, true).map(entry => (
+      const geometry = getInventoryRenderPreviewBlocks(item).map(entry => (
         `${entry.center.toArray()}:${entry.size}:${entry.color}:${normalizeVoxelMaterialId(entry.materialId)}:${entry.scale?.toArray()}:${entry.quaternion?.toArray()}`
       )).join(';');
       return `item:${geometry}:${size}`;
     }
     const kind = item.kind
       || (item.type === 'space-entity' || Array.isArray(item.childEntities) ? 'entity' : 'blockset');
-    const blockCount = item.blockCount || item.blocks?.length || 0;
+    const blockCount = item.blocks?.length ?? item.blockCount ?? 0;
     const name = item.name || '';
     const childCount = item.childEntities?.length || 0;
 
@@ -156,7 +156,7 @@ export class InventoryThumbnailRenderer {
     const createdMeshes: THREE.InstancedMesh[] = [];
     try {
       // 1. Convert inventory item into resting / stopped state voxel instances
-      const previewBlocks = getInventoryPreviewBlocks(item, true);
+      const previewBlocks = getInventoryRenderPreviewBlocks(item);
       if (!previewBlocks || previewBlocks.length === 0) return null;
 
       // 2. Compute bounding box

@@ -5,7 +5,8 @@ import type { Contraption } from '@entropydrop/space-engine/contraption/Contrapt
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
 import type { InventoryInput } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
-import { getInventoryPreviewBlocks, previewVector3 } from '../inventory/InventoryGeometry.ts';
+import { previewVector3 } from '../inventory/InventoryGeometry.ts';
+import { getInventoryRenderPreviewBlocks } from '../inventory/InventoryRenderGeometry.ts';
 export { getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
 import { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
 export { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
@@ -632,7 +633,8 @@ export class SceneRenderer {
     this.inventoryPlacementFill = null;
     this.inventoryPlacementWire = null;
 
-    const entries = getInventoryPreviewBlocks(slot);
+    const previewBlocks = getInventoryRenderPreviewBlocks(slot);
+    const entries = previewBlocks.filter(entry => !entry.decoration);
     if (entries.length === 0) return false;
 
     const meshData = buildUnifiedInventoryPreviewMesh(entries);
@@ -664,7 +666,7 @@ export class SceneRenderer {
     fill.frustumCulled = false;
     wire.frustumCulled = false;
     this.inventoryPlacementGroup.add(fill, wire);
-    for (const entry of getInventoryPreviewBlocks(slot, true).filter(entry => entry.decoration)) {
+    for (const entry of previewBlocks.filter(entry => entry.decoration)) {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),
         new THREE.MeshBasicNodeMaterial({ color: entry.color, transparent: true, opacity: 0.38, depthWrite: false }));
       mesh.name = 'DecorationPreview';

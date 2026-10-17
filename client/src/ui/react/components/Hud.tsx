@@ -727,7 +727,7 @@ function WrenchPanel() {
       </div>
       <div className="selector-toolbox-content" id="wrench-toolbox-content">
         <div className="wrench-action-buttons">
-          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Hold left-click on an entity to stop and lift it (LMB)" onClick={() => controller?.startWrenchGrab?.()}><b>LMB</b> Stop & Lift</button>
+          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Hold left-click on a stopped entity to lift it (LMB)" onClick={() => controller?.startWrenchGrab?.()}><b>LMB</b> Lift</button>
           <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title={`When focused on an entity, use ${scrollShortcut} to move it closer or farther`}><b>{scrollShortcut}</b> Closer / Farther</button>
           <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Open more actions for the focused entity (RMB)" onClick={event => targetEntity && spaceUiStore.showEntityContextMenu(targetEntity, { x: event.clientX, y: event.clientY })}><b>RMB</b> More Actions</button>
           <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Point at an entity and press C to open its code editor" onClick={() => controller?.openCodeEditorForTarget?.()}><b>C</b> Code</button>

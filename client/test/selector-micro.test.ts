@@ -498,6 +498,7 @@ test('entity focus guide hugs 0.125 m blocks in micro mode instead of their 1 m 
     scene,
     { rootComponentId: 'root' }
   );
+  contraption.stopAllNodeScripts();
   const controller = makeMicroController();
   controller.selectorRange = { contraption, nodeId: 'root', pointA: null, pointB: null };
 

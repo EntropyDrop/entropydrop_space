@@ -1,5 +1,6 @@
 import type { EntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import type { ScriptClickedBlock } from '@entropydrop/space-engine/scripting/ScriptProtocol.ts';
 import * as THREE from 'three';
 import { decode as decodeMessagePack, encode as encodeMessagePack } from '@msgpack/msgpack';
 import {
@@ -144,6 +145,9 @@ export class SpaceEntitySync {
       this.setRunState(contraption, desiredState)
     ));
     this.controller?.setServerEntityDeleteHandler?.((contraption: Contraption) => this.queueDelete(String(contraption.publicId), true));
+    this.controller?.setServerEntityClickHandler?.((contraption: Contraption, click: ScriptClickedBlock) => (
+      this.client.sendClickedBlock(contraption.publicId, click, Number(contraption.serverExecutionEpoch))
+    ));
     void this.poll();
     if (this.onHostingUpdate) {
       void this.pollHosting().catch(() => { });
@@ -170,6 +174,7 @@ export class SpaceEntitySync {
     this.enforceExecutionLeases();
     this.controller?.setServerEntityRunStateHandler?.(null);
     this.controller?.setServerEntityDeleteHandler?.(null);
+    this.controller?.setServerEntityClickHandler?.(null);
     this.contraptions?.setRemoteEntityPersistence?.(null);
   }
 
@@ -525,6 +530,15 @@ export class SpaceEntitySync {
     const entity = this.contraptions.findActiveContraptionByPublicId?.(entityId)
       || this.contraptions.contraptions?.find((item: any) => String(item.publicId) === entityId);
     if (!entity || entity.serverExecutionEpoch !== entry.epoch || entity.scriptStatus !== 'running') return;
+    if (frame.clicked_block === true) {
+      if (frame.message_type !== 'clicked_block' || frame.encoding !== 'utf8') return;
+      try {
+        const click = JSON.parse(payload as string);
+        if (click.eventId !== frame.message_id || click.entityId !== entityId || click.playerId !== frame.source_id) return;
+        entity.enqueueClickedBlock?.(click);
+      } catch (_) { /* Ignore malformed native input. */ }
+      return;
+    }
     entity.enqueueEntityMessage?.({
       messageId: frame.message_id,
       sourceId: frame.source_id,

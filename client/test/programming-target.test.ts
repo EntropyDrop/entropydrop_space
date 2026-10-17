@@ -250,6 +250,7 @@ test('wrench keeps entity picking active without showing hover wireframes', () =
     new THREE.Vector3(TORUS_SPAWN_X, 18, TORUS_SPAWN_Z - 5),
     scene
   );
+  contraption.stopAllNodeScripts();
   manager.contraptions.push(contraption);
 
   const eye = new THREE.Vector3(TORUS_SPAWN_X + 0.5, 18.5, TORUS_SPAWN_Z);

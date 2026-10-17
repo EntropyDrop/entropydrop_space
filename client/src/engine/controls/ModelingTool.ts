@@ -271,6 +271,7 @@ export class ModelingTool {
 
   leftDown(event: PointerInput | null = null) {
     if (this.isDragging) return true;
+    if (this.controller.handleRunningEntityInteraction(this.hovered?.contraption || this.placement?.target.contraption)) return false;
     this.renderGizmo();
     this.hoveredHandle = this.gizmo?.pick(this.pointerRay(event)) || null;
     const input = event || { clientX: 0, clientY: 0 };

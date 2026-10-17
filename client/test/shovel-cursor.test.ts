@@ -89,6 +89,7 @@ test('focusing on a block of a large entity displays small wireframe on the poin
   const controller = makeController(SpecialTool.HAMMER);
   const dummyContraption = {
     rootComponentId: 'root',
+    scriptStatus: 'stopped',
     quaternion: new THREE.Quaternion(),
     getBlockWorldCenter(block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) {
       return new THREE.Vector3(block.localX + 0.5, block.localY + 0.5, block.localZ + 0.5);
@@ -113,6 +114,7 @@ test('shovel focus on an entity microblock keeps a 1x1x1 standard cell outline',
   const controller = makeController(SpecialTool.SHOVEL);
   const dummyContraption = {
     rootComponentId: 'root',
+    scriptStatus: 'stopped',
     quaternion: new THREE.Quaternion(),
     entityLocalToWorld(nodeId: string, vec: import('three').Vector3) {
       return vec.clone();
@@ -136,6 +138,7 @@ test('other tools on an entity microblock display 0.125 outline', () => {
   const controller = makeController(SpecialTool.BRUSH);
   const dummyContraption = {
     rootComponentId: 'root',
+    scriptStatus: 'stopped',
     quaternion: new THREE.Quaternion(),
     getBlockWorldCenter(block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) {
       return new THREE.Vector3(block.localX + 0.0625, block.localY + 0.0625, block.localZ + 0.0625);
@@ -158,6 +161,7 @@ test('entity focus wireframe inherits entity rotation quaternion', () => {
   const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4);
   const dummyContraption = {
     rootComponentId: 'root',
+    scriptStatus: 'stopped',
     quaternion: q,
     getBlockWorldCenter(block: unknown) {
       return new THREE.Vector3(5, 5, 5);

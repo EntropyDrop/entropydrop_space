@@ -79,6 +79,20 @@ export type EntityMessage = {
   messageId: string; sourceId: string; targetId: string; type: string;
 } & ({ encoding: 'utf8'; payload: string } | { encoding: 'protobuf'; payload: number[] });
 
+/** One physical left click, shared by every component in its submitted frame. */
+export interface ScriptClickedBlock {
+  eventId: string;
+  entityId: string;
+  playerId: string;
+  nodeId: string;
+  kind: 'standard' | 'micro' | 'decoration';
+  position: [number, number, number];
+  size: number | null;
+  decorationId: string | null;
+  point: [number, number, number];
+  localPoint: [number, number, number];
+}
+
 export interface ScriptComponentSnapshot {
   id: string; parentId?: string | null; children?: string[];
   worldPosition?: number[]; worldRotation?: number[]; pivot?: number[];
@@ -97,6 +111,7 @@ export interface ScriptSnapshot {
   gravity?: number[]; limits?: unknown;
   input?: { down?: string[]; pressed?: string[]; released?: string[] };
   blocks?: { changed?: boolean; event?: { type?: string } | null };
+  clickedBlock?: ScriptClickedBlock | null;
   players?: unknown[]; driver?: unknown; contacts?: ScriptContact[]; messages?: unknown[];
   commandResults?: Array<{ commandId?: string }>;
   world?: { entities?: Record<string, unknown>[]; size?: number[]; info?: unknown };

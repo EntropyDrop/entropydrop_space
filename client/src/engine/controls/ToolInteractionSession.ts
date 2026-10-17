@@ -22,6 +22,7 @@ export interface ToolInteractionSessionPort {
   focusBlockPreview: PlayerController['focusBlockPreview'];
   handleBrushRightClick: PlayerController['handleBrushRightClick'];
   handleRunningEntityInteraction: PlayerController['handleRunningEntityInteraction'];
+  tryClickRunningEntity: PlayerController['tryClickRunningEntity'];
   hoveredContraption: PlayerController['hoveredContraption'];
   hoveredContraptionHit: PlayerController['hoveredContraptionHit'];
   hoveredGizmoHandle: PlayerController['hoveredGizmoHandle'];
@@ -72,7 +73,6 @@ export class ToolInteractionSession {
   brushMicroMode = false;
   brushSelection: BrushSelection | null = null;
   worldPickingSuspended = false;
-  pendingInteractionStops = new WeakSet<object>();
 
   get activeTool(): string {
     return this._activeTool;
@@ -186,6 +186,7 @@ export class ToolInteractionSession {
     if (this.worldPickingSuspended) return false;
     if (this.host.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
     if (this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
+    if (this.host.tryClickRunningEntity()) return false;
     if (this.activeTool === SpecialTool.MODELING) return this.host.modeling.leftDown(e);
     if (this.host.bulkEditJob) {
       this.host.ui?.showToast?.(`Please wait for ${this.host.bulkEditJob.label.toLowerCase()} to finish`);

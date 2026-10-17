@@ -131,6 +131,7 @@ for (let i = 0; i < ctx.messages.received.length; i++) {
 | `ctx.limits` | object | `{maxForce,maxTorque}` for the legacy root-body force surface only. |
 | `ctx.input` | object | Keyboard edge/held-state API described below. |
 | `ctx.blocks` | object | Block-edit snapshot: `pressed(type?)` and `event()`; types are `'place'\|'remove'\|'color'\|'subdivide'`. |
+| `ctx.clickedBlock` | Value | Frozen left-click hit on this running entity, or `null`. Standard voxels, micro voxels, and decorations in any component are supported. All component scripts see the same click in one submitted frame; see the input section for fields and delivery semantics. |
 | `ctx.players` | Value | Frozen player observations. `position` remains the eye-position compatibility alias; records also expose `eyePosition`, nullable `feetPosition`/`velocity`/pose and movement flags, riding IDs, `isLocal`, and fixed 50 kg mass. |
 | `ctx.driver` | Value | Current local driver for this entity as `{playerId,componentId,seatIndex}`, or `null` when it is not mounted. |
 | `ctx.contacts` | Value | Up to 32 frozen contacts observed since the previous submitted script frame. Kinds are `terrain\|entity\|player`; records include component IDs, point, normal, relative velocity, penetration, and impulse when available. Player contacts are one-way observations with zero impulse and never modify entity dynamics. Resting support contacts retained during physics sleep have `sleeping: true` and zero impulse/relative velocity. |
@@ -359,6 +360,7 @@ Extends Value; inherited typed data accessors are available.
 | `get messages(): Messages` | Callable SDK signature. |
 | `get commands(): CommandResults` | Callable SDK signature. |
 | `get blocks(): Blocks` | Callable SDK signature. |
+| `get clickedBlock(): Value` | Callable SDK signature. |
 | `get selection(): Selection` | Callable SDK signature. |
 | `log(message: string): void` | Callable SDK signature. |
 | `get time(): f64` | Callable SDK signature. |
@@ -534,12 +536,17 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 
 > Gate destructive selection commands with `self.state` or an input edge so they run once.
 
-## ctx.input and ctx.blocks
+## ctx.input, ctx.blocks, and ctx.clickedBlock
 
 - `ctx.input.down(code)`, `pressed(code)`, and `released(code)` expose held, leading-edge, and trailing-edge keyboard state.
 - Only the mounted entity receives player input. Generic `Shift`, `Control`, and `Alt` match either side.
 - Reserved keys never reach scripts: Escape, Backspace, Delete, F3, F5, C, E, F, G, R, V, and digits 0–9.
 - `ctx.blocks.pressed(type?)` is a one-tick edit edge for `place|remove|color|subdivide`; `event()` returns type/node, source/player, affected cell(s), voxel metadata, truncation, and final blockCount when available.
+- `ctx.clickedBlock` reports a physical left click at the crosshair on a running entity, with any active tool and without mounting. A fresh raycast chooses the nearest standard voxel, micro voxel, or decoration, respecting terrain and other entities as occluders. Clicking keeps playback running and does not select, edit, or show transform handles.
+- The click record is `{eventId,entityId,playerId,nodeId,kind,position,size,decorationId,point,localPoint}`. `nodeId` identifies the owning component; `kind` is `standard|micro|decoration`. `position` is the voxel minimum corner in authored component coordinates, or the runtime decoration center in that coordinate system. `size` is `1`, `0.125`, or `null` for decorations; `decorationId` is a decoration ID or `null`. `point` is the flat world-space surface hit; `localPoint` is that hit in authored component coordinates, including its pivot offset. Vectors are `[x,y,z]` in metres.
+- The record is immutable and shared by all enabled component scripts for one submitted script frame. Filter `nodeId` against `self.id` when only the owning component should react. Frames without a new click return `null`; check `ctx.clickedBlock.isNull` in AssemblyScript. Multiple clicks are queued FIFO, at most one per submitted frame; a busy runtime retains pending clicks. Clicks have their own 64-entry queue and drop the oldest click on overflow. Ordinary messages have a separate queue and frame budget, so neither input kind blocks or evicts the other. Deduplication uses the pair `(playerId, eventId)`, retaining the latest 256 pairs during this execution. Stop clears pending clicks and deduplication; inputs are ephemeral and are not saved or replayed after a reload.
+- Shared worlds route clicks from authenticated world members to the browser or hosted executor for the execution epoch observed at click time, with idempotency and a 20 clicks/second per-player limit. Delayed clicks are dropped if the target execution epoch has changed, including after Stop/Start. `playerId` is assigned by the server (`local` offline). Inactive or disconnected execution endpoints drop clicks. Hit geometry and target block identity are reported by the clicking client; the server does not verify block existence, reach, or line of sight. Scripts must enforce their own access rules for protected interactions; a click alone does not grant permission.
+- Example, in the door component: `const click = ctx.clickedBlock; if (!click.isNull && click.getString("nodeId") == self.id) { self.state.setBoolean("open", !self.state.getBoolean("open")); }`. Add `click.getString("decorationId") == "handle"` to respond only to a named decoration. Use the existing component/body API to apply the door animation from that state.
 
 ## Legacy root force budget
 

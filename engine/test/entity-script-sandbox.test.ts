@@ -21,6 +21,29 @@ function fixture() {
   return { service, send, set, tick };
 }
 
+test('typed clickedBlock SDK is shared across components and null in subsequent frames', async () => {
+  const f = fixture();
+  const code = `const click = ctx.clickedBlock;
+    if (!click.isNull) {
+      self.state.setNumber("count", self.state.getNumber("count") + 1);
+      self.state.setString("decoration", click.getString("decorationId"));
+      self.state.set("point", click.get("localPoint"));
+    }`;
+  await f.set(code);
+  await f.set(code, 'arm');
+  const first = f.tick({ clickedBlock: { eventId: 'one', entityId: 'entity', playerId: 'local',
+    nodeId: 'arm', kind: 'decoration', decorationId: 'handle', size: null,
+    position: [0, 0, 0], point: [1, 2, 3], localPoint: [4, 5, 6] } });
+  assert.equal(first.ok, true, first.error);
+  for (const node of ['root', 'arm']) {
+    assert.equal(first.states[node].count, 1);
+    assert.equal(first.states[node].decoration, 'handle');
+    assert.deepEqual(first.states[node].point, [4, 5, 6]);
+  }
+  const second = f.tick({ states: first.states });
+  assert.deepEqual(second.states, first.states);
+});
+
 test('a bounded slow WASM preparation defers an untouched frame and then executes it once', async t => {
   const f=fixture();
   await f.set('self.state.setNumber("count", self.state.getNumber("count")+1); self.applyForce([0,10,0]);');

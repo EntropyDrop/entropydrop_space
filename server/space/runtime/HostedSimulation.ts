@@ -193,8 +193,17 @@ export class HostedSimulation {
         if (!c) throw new Error('hosting_invalid_entity');
         if (item.running) await c.scriptRuntimeClient.ready();
         c.publicId = item.id;
+        // Keep each original entry's identity: validation, deduplication and the
+        // independent click/message budgets can consume a non-contiguous subset.
+        const inboxEntries: unknown[] = [];
         if (Array.isArray(item.messages)) {
-          for (const message of item.messages.slice(0, 64)) c.enqueueEntityMessage?.(message);
+          for (const message of item.messages.slice(0, 128)) {
+            if (message && typeof message === 'object' && 'clickedBlock' in message) {
+              inboxEntries.push(c.enqueueClickedBlock(message.clickedBlock) ? c.pendingClickedBlocks.at(-1) : null);
+            } else {
+              inboxEntries.push(c.enqueueEntityMessage(message) ? c.pendingEntityMessages.at(-1) : null);
+            }
+          }
         }
         if (Array.isArray(item.message_results)) {
           c.pendingScriptCommandResults.push(...item.message_results.slice(0, 256));
@@ -216,7 +225,7 @@ export class HostedSimulation {
               .map((result: any) => String(result?.commandId || ''))
               .filter(Boolean),
           );
-          const runtime = { c, item, elapsed: 0, poses: [] as any[], priorMessageResultIds };
+          const runtime = { c, item, elapsed: 0, poses: [] as any[], priorMessageResultIds, inboxEntries };
           hosted.set(item.id, runtime);
           const update = c.update.bind(c);
           c.update = (...args) => {
@@ -250,7 +259,7 @@ export class HostedSimulation {
         }
         if (faults.length) return { faults }; // discard the entire candidate, including world edits
       }
-      const results = [...hosted].map(([id, { c, elapsed, poses, priorMessageResultIds }]) => {
+      const results = [...hosted].map(([id, { c, elapsed, poses, priorMessageResultIds, inboxEntries }]) => {
         const chunk = manager.getContraptionChunk(c);
         if (!chunk) throw new Error('hosting_invalid_entity_position');
         const { slot: capturedDefinition, ...capturedState } = manager.captureContraptionForStreaming(c, chunk);
@@ -270,9 +279,13 @@ export class HostedSimulation {
         const messageResults = c.pendingScriptCommandResults
           .filter((receipt: any) => receipt?.scope === 'messages'
             && !priorMessageResultIds.has(String(receipt.commandId || '')));
+        const pendingInbox = new Set([...c.pendingEntityMessages, ...c.pendingClickedBlocks]);
+        const consumedMessageIndices = (inboxEntries as unknown[]).flatMap((entry, index) => (
+          entry === null || !pendingInbox.has(entry) ? [index] : []
+        ));
         return { id, snapshot, definition_base64: Buffer.from(definition).toString('base64'),
           stopped: !c.isPhysicsSimulationEnabled(), elapsed_ms: elapsed, poses,
-          consumed_message_count: c.consumedEntityMessageCount,
+          consumed_message_indices: consumedMessageIndices,
           message_results: messageResults };
       });
       return { entities: results, mutations: this.mutations, messages: this.outboundMessages, faults: [] };
