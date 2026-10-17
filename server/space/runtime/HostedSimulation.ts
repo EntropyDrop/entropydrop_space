@@ -179,13 +179,19 @@ export class HostedSimulation {
       for (const item of input.entities) {
         const portable = decodeInventoryResource(Buffer.from(item.definition_base64, 'base64'), 'entity').portable;
         const slot = portableEntityToRuntime(portable);
+        // Neighbors are collision replicas. Strip all component scripts from
+        // this transient slot before construction can enqueue compilation.
+        if (!item.running) {
+          slot.scripts = [];
+          slot.enabled = [];
+        }
         slot.blocks = slot.blocks.map(b => ({ ...b,
           localX: b.dx + (b.mx ?? 0) / MICRO_DIVISIONS, localY: b.dy + (b.my ?? 0) / MICRO_DIVISIONS,
           localZ: b.dz + (b.mz ?? 0) / MICRO_DIVISIONS, size: b.mx == null ? 1 : MICRO_SIZE }));
         const origin = new THREE.Vector3().fromArray(item.snapshot?.constructorOrigin || item.position);
         const c = manager.buildFromSlot(slot, origin, item.snapshot ? { ...item.snapshot, serverManaged: false } : null, false);
         if (!c) throw new Error('hosting_invalid_entity');
-        await c.scriptRuntimeClient.ready();
+        if (item.running) await c.scriptRuntimeClient.ready();
         c.publicId = item.id;
         if (Array.isArray(item.messages)) {
           for (const message of item.messages.slice(0, 64)) c.enqueueEntityMessage?.(message);

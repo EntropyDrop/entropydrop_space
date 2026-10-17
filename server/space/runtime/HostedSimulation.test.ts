@@ -6,6 +6,7 @@ import {
   INVENTORY_PROTOBUF_SCHEMA_VERSION,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { HostedSimulation } from './HostedSimulation.ts';
+import { EntityScriptRuntimeClient } from '@entropydrop/space-engine/scripting/EntityScriptRuntime.ts';
 
 const SOURCE_ID = '10000000-0000-4000-8000-000000000001';
 const TARGET_ID = '10000000-0000-4000-8000-000000000002';
@@ -64,6 +65,69 @@ test('hosted AssemblyScript restores typed state across transaction batches', as
   assert.deepEqual(second.faults, []);
   assert.equal(second.entities[0].snapshot.states.root.count, 2);
 });
+
+for (const restoreSnapshot of [false, true]) {
+  test(`inactive neighbors skip compilation and retain colliders (${restoreSnapshot ? 'checkpoint' : 'fresh'})`, async t => {
+    const rootScript = 'self.state.setNumber("neighborTicks", self.state.getNumber("neighborTicks") + 1);';
+    const childScript = 'self.state.setNumber("childTicks", self.state.getNumber("childTicks") + 1);';
+    const neighborInput = inputFor(rootScript);
+    const neighbor = neighborInput.entities[0];
+    neighbor.id = TARGET_ID;
+    neighbor.position = [84, 220, 80];
+    neighbor.anchor = [84, 80];
+    const definition: any = decodeInventoryResource(Buffer.from(neighbor.definition_base64, 'base64'), 'entity').portable;
+    definition.root.children = [{
+      id: 'arm', body: { type: 'kinematic', useGravity: false },
+      blocks: [{ dx: 0, dy: 2, dz: 0, block: 1, color: 456 }],
+      script: childScript, scriptLanguage: 'assemblyscript', children: [], seats: [],
+    }];
+    neighbor.definition_base64 = Buffer.from(encodeInventoryResource('entity', definition)).toString('base64');
+    if (restoreSnapshot) {
+      const checkpoint: any = await new HostedSimulation(1337).step(neighborInput);
+      assert.deepEqual(checkpoint.faults, []);
+      neighbor.snapshot = checkpoint.entities[0].snapshot;
+    }
+    neighbor.running = false;
+    const originalNeighbor = structuredClone(neighbor);
+    const actorScript = `
+      const options = Value.object().setString("include", "entities").setNumber("maxDistance", 8);
+      const rootHit = ctx.world.raycastWithOptions([83, 220.5, 80.5], [1, 0, 0], options);
+      const childHit = ctx.world.raycastWithOptions([83, 222.5, 80.5], [1, 0, 0], options);
+      self.state.setString("rootEntity", rootHit.getString("entityId"));
+      self.state.setString("rootNode", rootHit.getString("nodeId"));
+      self.state.setString("childEntity", childHit.getString("entityId"));
+      self.state.setString("childNode", childHit.getString("nodeId"));
+    `;
+    const input = inputFor(actorScript);
+    input.entities.push(neighbor);
+    const install = t.mock.method(EntityScriptRuntimeClient.prototype, 'setScript');
+    const ready = t.mock.method(EntityScriptRuntimeClient.prototype, 'ready');
+    const simulation = new HostedSimulation(1337);
+    const result: any = await simulation.step(input);
+    assert.deepEqual(install.mock.calls.map(call => call.arguments[1]), [actorScript]);
+    assert.equal(ready.mock.callCount(), 1);
+    assert.deepEqual(result.faults, []);
+    assert.deepEqual(result.entities.map((entity: any) => entity.id), [SOURCE_ID]);
+    assert.deepEqual(result.entities[0].snapshot.states.root, {
+      rootEntity: TARGET_ID, rootNode: 'root', childEntity: TARGET_ID, childNode: 'arm',
+    });
+    assert.deepEqual(neighbor, originalNeighbor, 'loading a replica must preserve its source and checkpoint');
+
+    // The same definition must still compile and execute when this process owns it.
+    input.entities[0].running = false;
+    neighbor.running = true;
+    const resumed: any = await simulation.step(input);
+    assert.deepEqual(install.mock.calls.map(call => call.arguments[1]), [actorScript, rootScript, childScript]);
+    assert.equal(ready.mock.callCount(), 2);
+    assert.deepEqual(resumed.faults, []);
+    assert.deepEqual(resumed.entities.map((entity: any) => entity.id), [TARGET_ID]);
+    assert.equal(resumed.entities[0].snapshot.states.root.neighborTicks, restoreSnapshot ? 2 : 1);
+    assert.equal(resumed.entities[0].snapshot.states.arm.childTicks, restoreSnapshot ? 2 : 1);
+    const saved: any = decodeInventoryResource(Buffer.from(resumed.entities[0].definition_base64, 'base64'), 'entity').portable;
+    assert.equal(saved.root.script, rootScript);
+    assert.equal(saved.root.children[0].script, childScript);
+  });
+}
 
 test('hosted entity code errors automatically stop execution', async () => {
   const input = inputFor('self.state.setBoolean("partial", true); throw new Error("hosted failure");');
