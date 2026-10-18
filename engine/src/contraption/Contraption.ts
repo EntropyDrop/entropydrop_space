@@ -4140,13 +4140,15 @@ export class Contraption {
 
   createHighlightBox() {
     const wasVisible = this.isHighlighted || (this.highlightBox?.material?.opacity > 0);
-    if (this.highlightBox) {
-      this.highlightBox.removeFromParent();
-      if (this.highlightBox.geometry) this.highlightBox.geometry.dispose();
-      if (this.highlightBox.material) this.highlightBox.material.dispose();
-      this.highlightBox = null;
+    if (!this.blocks || this.blocks.length === 0) {
+      if (this.highlightBox) {
+        this.highlightBox.removeFromParent();
+        this.highlightBox.geometry?.dispose();
+        this.highlightBox.material?.dispose();
+        this.highlightBox = null;
+      }
+      return;
     }
-    if (!this.blocks || this.blocks.length === 0) return;
 
     const currentCenter = new THREE.Vector3(
       (this.minLocal.x + this.maxLocal.x) / 2,
@@ -4154,10 +4156,23 @@ export class Contraption {
       (this.minLocal.z + this.maxLocal.z) / 2
     );
     const boxOffset = currentCenter.sub(this.localCenter);
+    const width = Math.max(0.1, this.size.x);
+    const height = Math.max(0.1, this.size.y);
+    const depth = Math.max(0.1, this.size.z);
 
-    const geometry = new SelectionOutlineGeometry(
-      Math.max(0.1, this.size.x), Math.max(0.1, this.size.y), Math.max(0.1, this.size.z)
-    );
+    if (this.highlightBox) {
+      this.highlightBox.position.copy(boxOffset);
+      const params = (this.highlightBox.geometry as any)?.parameters;
+      if (params && params.width === width && params.height === height && params.depth === depth) {
+        return;
+      }
+      this.highlightBox.removeFromParent();
+      this.highlightBox.geometry?.dispose();
+      this.highlightBox.material?.dispose();
+      this.highlightBox = null;
+    }
+
+    const geometry = new SelectionOutlineGeometry(width, height, depth);
     this.highlightBox = new THREE.Mesh(geometry, createSelectionOutlineMaterial(0xf1c40f, wasVisible ? 0.9 : 0));
     this.highlightBox.renderOrder = 30;
     this.highlightBox.position.copy(boxOffset);
