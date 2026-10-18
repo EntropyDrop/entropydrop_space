@@ -179,22 +179,16 @@ test('entity focus wireframe inherits entity rotation quaternion', () => {
 });
 
 test('SceneRenderer setCursor positions and rotates cursorMesh', () => {
-  const cursorMesh = {
-    position: new THREE.Vector3(),
-    scale: new THREE.Vector3(),
-    quaternion: new THREE.Quaternion(),
-    visible: false
-  };
-  const renderer = {
-    cursorMesh,
-    setCursor: SceneRenderer.prototype.setCursor
-  };
+  const renderer = Object.create(SceneRenderer.prototype);
+  renderer.scene = new THREE.Scene();
+  renderer.setupCursorHighlight();
+  const cursorMesh = renderer.cursorMesh;
   const center = new THREE.Vector3(10.5, 5.5, 2.5);
   const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
   renderer.setCursor({ x: 10, y: 5, z: 2 }, 1, q, center);
 
   assert.equal(cursorMesh.visible, true);
   assert.deepEqual(cursorMesh.position, center);
-  assert.deepEqual(cursorMesh.quaternion, q);
+  assert.deepEqual(cursorMesh.quaternion.toArray(), q.toArray());
   assert.equal(cursorMesh.scale.x, 1);
 });

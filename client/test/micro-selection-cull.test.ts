@@ -23,7 +23,7 @@ test('micro selection hologram renders unified outer bounding box like standard 
 
   // Micro selection now uses unified selectionGroup (same as standard selection)
   assert.ok(renderer.selectionGroup.visible);
-  assert.equal(renderer.selectionMicroCellsGroup.visible, false);
+  assert.equal(renderer.selectionGroup.children.length, 1, 'only one open outline is drawn');
 
   // Bounds should span 2 microcells = 0.25m in each dimension
   assert.ok(Math.abs(renderer.selectionGroup.scale.x - 0.25) < 1e-4);
@@ -53,14 +53,17 @@ test('entity block selection highlight renders single outer bounding box wirefra
   contraption.highlightBlocks(blocks);
 
   assert.equal(contraption.subtreeHighlightBoxes.length, 1, 'should combine into 1 highlight box per node');
-  const lineSegments = contraption.subtreeHighlightBoxes[0].group;
-  const linePos = lineSegments.geometry.attributes.position;
-
-  // Single outer bounding box wireframe has exactly 12 edges (24 vertices)
-  assert.equal(linePos.count, 24, 'outer bounding box should have exactly 12 edges (24 vertices)');
+  const outline = contraption.subtreeHighlightBoxes[0].group;
+  assert.equal(outline.isMesh, true, 'thick beams render independently of native line width');
+  assert.deepEqual(outline.geometry.parameters, { width: 0.25, height: 0.125, depth: 0.125, thickness: 0.015625 });
+  outline.updateMatrixWorld(true);
+  const throughFace = new THREE.Raycaster(new THREE.Vector3(0.125, 0.0625, 1), new THREE.Vector3(0, 0, -1));
+  assert.equal(throughFace.intersectObject(outline).length, 0, 'the center has no translucent surface');
+  const throughBeam = new THREE.Raycaster(new THREE.Vector3(0, 0.0625, 1), new THREE.Vector3(0, 0, -1));
+  assert.ok(throughBeam.intersectObject(outline).length > 0, 'the border contains actual geometry');
 });
 
-test('non-box micro shape hologram renders culled micro-voxel mesh in selectionMicroCellsGroup', () => {
+test('non-box micro shape selection uses one open bounding box', () => {
   const renderer = Object.create(SceneRenderer.prototype);
   renderer.scene = new THREE.Scene();
   renderer.setupSelectionHologram();
@@ -76,8 +79,7 @@ test('non-box micro shape hologram renders culled micro-voxel mesh in selectionM
 
   renderer.updateSelectionHologram(null, null, microCells, true);
 
-  // When isMicroShape is true, selectionMicroCellsGroup is used
-  assert.equal(renderer.selectionGroup.visible, false);
-  assert.equal(renderer.selectionMicroCellsGroup.visible, true);
-  assert.equal(renderer.selectionMicroCellsGroup.children.length, 2, 'should have fill mesh and line segments');
+  assert.equal(renderer.selectionGroup.visible, true);
+  assert.deepEqual(renderer.selectionGroup.scale.toArray(), [0.375, 0.125, 0.375]);
+  assert.equal(renderer.selectionGroup.children.length, 1, 'shaped selections have no face fill or internal grid');
 });

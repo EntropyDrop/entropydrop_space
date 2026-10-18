@@ -246,7 +246,10 @@ export class SpaceEntitySync {
       while (this.metadataRetryAt.size > 256) this.metadataRetryAt.delete(this.metadataRetryAt.keys().next().value!);
       void this.client.get(frame.entity_id).then(async record => {
         if (this.stopped || this.isStale(record)) return;
-        this.contraptions.deleteDormantContraption?.(frame.entity_id);
+        const latest = this.poseBuffers.get(frame.entity_id);
+        const player = this.getPlayerPosition();
+        if (!latest || Date.now() - latest.receivedAt > 500
+          || !this.isPositionInAoi(latest.frame.bodies[0].position, player, this.aoiRadiusCm())) return;
         this.lastAoiRecords.set(record.id, record);
         this.previousAoiIds.add(record.id);
         await this.applyRecord(record);
@@ -320,9 +323,8 @@ export class SpaceEntitySync {
     if (this.pollInFlight) return;
     this.pollInFlight = true;
     try {
-      const position = this.getPlayerPosition();
-      const radiusCm = Math.max(3, Math.min(24, Number(this.world?.renderDistance) || 8) + 2)
-        * CHUNK_SIZE_X * 100;
+      const position = { ...this.getPlayerPosition() };
+      const radiusCm = this.aoiRadiusCm();
       const list = await this.client.list(
         wrappedCentimetres(position.x, wrapX, TORUS_SIZE_X),
         wrappedCentimetres(position.z, wrapZ, TORUS_SIZE_Z),
@@ -348,7 +350,7 @@ export class SpaceEntitySync {
         const record = this.lastAoiRecords.get(id);
         if (record) liveRecords.set(id, record);
       }
-      if (!list.truncated) this.removeEntitiesOutsideAoi(currentIds);
+      if (!list.truncated) this.removeEntitiesOutsideAoi(currentIds, position, radiusCm);
       // An incomplete list does not prove that a previously seen entity left
       // the AOI or was deleted. Keep it until a complete poll can reconcile it.
       if (!list.truncated) {
@@ -657,6 +659,10 @@ export class SpaceEntitySync {
     const running = metadata.serverExecutesLocally && entity.desired_run_state === 'running';
     return {
       ...metadata,
+      ...(!entity.snapshot_digest ? {
+        constructorOrigin: [entity.position.x_cm / 100, entity.position.y_cm / 100, entity.position.z_cm / 100],
+        quaternion: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), entity.yaw_quarter_turns * Math.PI / 2).toArray(),
+      } : {}),
       physicsSimulationEnabled: running,
       scriptStatus: running ? 'running' : 'stopped',
     };
@@ -667,6 +673,7 @@ export class SpaceEntitySync {
     const running = entities.filter(entity => (
       !this.isStale(entity) && entity.desired_run_state === 'running'
       && entity.execution_mode !== 'hosted'
+      && (this.contraptions.findActiveContraptionByPublicId?.(entity.id) || this.isEntityInCurrentAoi(entity))
     ));
     const runningIds = new Set(running.map(entity => entity.id));
     for (const entity of entities) {
@@ -734,6 +741,7 @@ export class SpaceEntitySync {
     this.latestRevisions.set(entity.id, entity.revision);
     const active = this.contraptions.findActiveContraptionByPublicId?.(entity.id)
       || this.contraptions.contraptions?.find((item: Contraption) => String(item.publicId) === entity.id);
+    if (!active && !this.isEntityInCurrentAoi(entity)) return;
     const manipulationRevision = active?.wrenchManipulationRevision || 0;
     if (active) {
       const remoteSnapshotChanged = active.serverSnapshotDigest !== entity.snapshot_digest;
@@ -755,7 +763,7 @@ export class SpaceEntitySync {
     }
     if (active && (this.isWrenchManipulating(active)
       || (active.wrenchManipulationRevision || 0) !== manipulationRevision)) return;
-    if (this.contraptions.updateDormantServerEntity?.(entity.id, this.dormantMetadata(entity))) return;
+    if (this.contraptions.updateDormantServerEntity?.(entity.id, this.dormantMetadata(entity), { restore: true })) return;
     if (this.loading.has(entity.id)) return;
 
     this.loading.add(entity.id);
@@ -764,7 +772,7 @@ export class SpaceEntitySync {
         this.client.getDefinition(entity),
         this.client.getSnapshot(entity),
       ]);
-      if (this.stopped || this.isStale(entity)) return;
+      if (this.stopped || this.isStale(entity) || !this.isEntityInCurrentAoi(entity)) return;
       if (active && (this.isWrenchManipulating(active)
         || (active.wrenchManipulationRevision || 0) !== manipulationRevision)) return;
       const parsed = this.controller.parseInventoryImport?.(definition, 'entity');
@@ -801,6 +809,7 @@ export class SpaceEntitySync {
       created.updateTransform();
       this.applyPlayback(created, entity);
       created.serverPlaybackRevision = entity.revision;
+      this.contraptions.deleteDormantContraption?.(entity.id);
     } catch (error) {
       console.warn(`Space entity ${entity.id} could not be loaded.`, error);
     } finally {
@@ -824,7 +833,7 @@ export class SpaceEntitySync {
     const manipulationRevision = active.wrenchManipulationRevision || 0;
     try {
       const snapshot = await this.client.getSnapshot(entity);
-      if (this.stopped || this.isStale(entity)) return true;
+      if (this.stopped || this.isStale(entity) || !this.contraptions.contraptions?.includes(active)) return true;
       if (this.isWrenchManipulating(active)
         || (active.wrenchManipulationRevision || 0) !== manipulationRevision) {
         this.applyRecordMetadata(active, entity, { preserveStoppedIntent: true });
@@ -1093,6 +1102,12 @@ export class SpaceEntitySync {
       record.publicId = entity.id;
       Object.assign(record, this.dormantMetadata(entity));
       records.set(entity.id, record);
+      const proxies = this.contraptions.dormantRenderProxies;
+      const proxy = proxies?.get(localPublicId);
+      if (proxy) {
+        proxies.delete(localPublicId);
+        proxies.set(entity.id, proxy);
+      }
       return;
     }
   }
@@ -1135,6 +1150,8 @@ export class SpaceEntitySync {
         this.previousAoiIds.delete(serverId);
         this.lastAoiRecords.delete(serverId);
         this.lastSnapshotJson.delete(serverId);
+        this.contraptions.deleteDormantContraption?.(serverId);
+        this.poseBuffers.delete(serverId);
         const localId = this.localIdByServerId.get(serverId) || id;
         this.localIdByServerId.delete(serverId);
         this.entityAliases.delete(localId);
@@ -1151,18 +1168,49 @@ export class SpaceEntitySync {
     return next;
   }
 
-  private removeEntitiesOutsideAoi(currentIds: Set<string>) {
+  private aoiRadiusCm() {
+    return Math.max(3, Math.min(24, Number(this.world?.renderDistance) || 8) + 2) * CHUNK_SIZE_X * 100;
+  }
+
+  private isPositionInAoi(position: readonly number[], center: { x: number; z: number }, radiusCm: number) {
+    return Math.hypot(
+      unwrapPeriodicNear(position[0], center.x, TORUS_SIZE_X) - center.x,
+      unwrapPeriodicNear(position[2], center.z, TORUS_SIZE_Z) - center.z,
+    ) <= radiusCm / 100;
+  }
+
+  private isEntityInCurrentAoi(entity: SpaceWorldEntityRecord) {
+    const stream = this.poseBuffers.get(entity.id);
+    const position = (stream && Date.now() - stream.receivedAt <= 500 ? stream.frame.bodies[0]?.position : null)
+      || [entity.position.x_cm / 100, entity.position.y_cm / 100, entity.position.z_cm / 100];
+    // The REST/realtime AOI includes padding beyond the loaded terrain. A
+    // checkpoint in that ring must not rebuild a frozen visual only for the
+    // next simulation tick to unload it again. Recheck after downloads too.
+    return this.isPositionInAoi(position, this.getPlayerPosition(), this.aoiRadiusCm())
+      && this.contraptions.isEntityPositionLoaded?.(position[0], position[2]) !== false;
+  }
+
+  private removeEntitiesOutsideAoi(currentIds: Set<string>, position: { x: number; z: number }, radiusCm: number) {
     for (const entityId of this.previousAoiIds) {
       if (currentIds.has(entityId)) continue;
       const active = this.contraptions.findActiveContraptionByPublicId?.(entityId);
       this.leasedUntil.delete(entityId);
+      this.executionEpochs.delete(entityId);
+      this.poseBuffers.delete(entityId);
+      this.closeEntityMessageConnection(entityId);
       if (active?.serverManaged === true) {
-        this.contraptions.removeContraption?.(active, {
-          skipSave: true,
-          skipRemoteDelete: true,
-        });
-      } else {
-        this.contraptions.deleteDormantContraption?.(entityId);
+        this.contraptions.unloadContraption?.(active, { skipSave: true });
+      }
+    }
+    // Absence is authoritative only inside the queried area. Keep distant
+    // cached structures until the player revisits their last known location.
+    for (const records of this.contraptions.dormantContraptions?.values?.() || []) {
+      for (const [id, cached] of records) {
+        if (cached.serverManaged && !currentIds.has(id) && cached.position
+          && this.contraptions.isEntityPositionLoaded?.(cached.position[0], cached.position[2]) !== false
+          && this.isPositionInAoi(cached.position, position, radiusCm)) {
+          this.contraptions.deleteDormantContraption?.(id);
+        }
       }
     }
   }

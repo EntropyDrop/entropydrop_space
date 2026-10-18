@@ -129,6 +129,8 @@ test('deleting during a save cooldown removes the pending retry without delaying
 function aoiUnloadHarness() {
   const entity = { ...record(), desired_run_state: 'stopped' };
   const dormant = new Set([entity.id]);
+  const cached = { publicId: entity.id, serverManaged: true, position: [1, 32, 2] };
+  const dormantContraptions = new Map([['0,0', new Map([[entity.id, cached]])]]);
   const removed: string[] = [];
   const radii: number[] = [];
   const state = { player: { x: 1, z: 2 }, visible: true, truncated: false };
@@ -137,9 +139,12 @@ function aoiUnloadHarness() {
     world: { renderDistance: 8 }, controller: {},
     contraptions: {
       contraptions: [],
+      dormantContraptions,
       findActiveContraptionByPublicId: () => null,
       updateDormantServerEntity: (id: string) => dormant.has(id),
-      deleteDormantContraption(id: string) { dormant.delete(id); removed.push(id); },
+      deleteDormantContraption(id: string) {
+        dormant.delete(id); dormantContraptions.get('0,0')?.delete(id); removed.push(id);
+      },
     },
     getPlayerPosition: () => state.player,
     fetchImpl: (async (url, options) => {
@@ -149,19 +154,23 @@ function aoiUnloadHarness() {
       return new Response(JSON.stringify({ items: state.visible ? [entity] : [], truncated: state.truncated, limit: 256 }));
     }) as typeof fetch,
   });
-  return { sync, state, dormant, removed, radii, id: entity.id };
+  return { sync, state, dormant, removed, radii, cached, id: entity.id };
 }
 
-test('AOI exit unloads the full entity without retaining a render proxy', async () => {
+test('AOI exit keeps a local cache until a complete revisit confirms the entity is absent', async () => {
   const { sync, state, dormant, removed, radii, id } = aoiUnloadHarness();
   await sync.poll();
   state.visible = false;
   state.player.x = 401;
   await sync.poll();
   await sync.poll();
+  assert.equal(dormant.has(id), true);
+  assert.deepEqual(removed, []);
+  assert.ok(radii.every(radius => radius === 16000), 'entity loading stays bounded to the detailed AOI');
+  state.player.x = 1;
+  await sync.poll();
   assert.equal(dormant.has(id), false);
   assert.deepEqual(removed, [id]);
-  assert.ok(radii.every(radius => radius === 16000), 'entity loading stays bounded to the detailed AOI');
 });
 
 test('a truncated AOI response does not unload an entity until a complete response confirms absence', async () => {
@@ -173,9 +182,31 @@ test('a truncated AOI response does not unload an entity until a complete respon
   await sync.poll();
   assert.equal(dormant.has(id), true);
   assert.deepEqual(removed, []);
+  state.player.x = 1;
+  await sync.poll();
+  assert.equal(dormant.has(id), true, 'a truncated revisit cannot invalidate a cached entity');
   state.truncated = false;
   await sync.poll();
   assert.equal(dormant.has(id), false);
+  assert.deepEqual(removed, [id]);
+});
+
+test('AOI cache validation wraps the torus and preserves caches during network failures', async () => {
+  const { sync, state, dormant, removed, cached, id } = aoiUnloadHarness();
+  const { TORUS_SIZE_X } = await import('@entropydrop/space-engine/torus/TorusWorld.ts');
+  await sync.poll();
+  state.visible = false;
+  state.player.x = 401;
+  await sync.poll();
+  cached.position[0] = TORUS_SIZE_X - 2;
+  state.player.x = 1;
+  const internal = sync as any;
+  const list = internal.client.list.bind(internal.client);
+  internal.client.list = async () => { throw new Error('offline'); };
+  await sync.poll();
+  assert.equal(dormant.has(id), true);
+  internal.client.list = list;
+  await sync.poll();
   assert.deepEqual(removed, [id]);
 });
 
@@ -644,7 +675,9 @@ test('a remote checkpoint updates decorations while its live rigid-body timeline
   entity.restoreRuntimeDecorations = (value: unknown) => values.push(value);
   entity.position.set(9, 40, 10);
   const internal = sync as any;
-  internal.poseBuffers.set(entity.publicId, { frame: { execution_epoch: 1 }, receivedAt: Date.now() });
+  internal.poseBuffers.set(entity.publicId, {
+    frame: { execution_epoch: 1, bodies: [{ position: entity.position.toArray() }] }, receivedAt: Date.now(),
+  });
   const decorations = [{ id: 'root', decorations: [{ id: 'panel', color: 123 }] }];
   internal.client.getSnapshot = async () => ({ position: [1, 32, 2], runtimeDecorations: decorations });
   overrides.snapshot_digest = 'b'.repeat(64);

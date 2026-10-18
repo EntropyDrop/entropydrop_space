@@ -19,6 +19,7 @@ type RuntimeContextProvider = () => ScriptRuntimeContext;
 
 import { createWorldScriptCapabilities } from './WorldScriptApi.ts';
 import { captureEntityStreamState, restoreEntityStreamState, type EntityStreamState } from './EntityStreaming.ts';
+import { detachEntityRenderProxy, disposeEntityRenderProxy } from './EntityRenderProxy.ts';
 import { readRecord } from './EntityInput.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three';
@@ -61,6 +62,8 @@ export class ContraptionManager {
   declare contraptions: Contraption[];
   /** Serialized, non-running entities grouped by their wrapped chunk id. */
   declare dormantContraptions: Map<string, Map<string, EntityStreamState>>;
+  /** Static visuals only; absent from simulation, collision and selection. */
+  readonly dormantRenderProxies = new Map<string, THREE.Group>();
   declare lastEntityChunkWindow: Set<string> | null;
   declare nextId: number;
   declare selectionCornerA: SelectionPoint | null;
@@ -179,6 +182,10 @@ export class ContraptionManager {
     return !!normalized && !!this.world?.activeChunkKeys.has(normalized.id);
   }
 
+  isEntityPositionLoaded(x: number, z: number) {
+    return this.isEntityChunkLoaded([Math.floor(x / CHUNK_SIZE_X), Math.floor(z / CHUNK_SIZE_Z)]);
+  }
+
   getDormantContraptionCount() {
     let count = 0;
     for (const records of this.dormantContraptions.values()) count += records.size;
@@ -197,22 +204,38 @@ export class ContraptionManager {
     return this.contraptions.find(contraption => String(contraption.publicId) === id) || null;
   }
 
-  updateDormantServerEntity(publicId: unknown, metadata: EntityStreamState) {
+  updateDormantServerEntity(publicId: unknown, metadata: EntityStreamState, options: { restore?: boolean } = {}) {
     const id = String(publicId || '');
     for (const [chunkId, records] of this.dormantContraptions) {
       const record = records.get(id);
       if (!record) continue;
       const contentChanged = record.serverDefinitionDigest !== metadata.serverDefinitionDigest
         || record.serverSnapshotDigest !== metadata.serverSnapshotDigest;
-      if (contentChanged) {
-        records.delete(id);
-        if (records.size === 0) this.dormantContraptions.delete(chunkId);
-        return false;
+      // Keep the old visual until a fresh replacement has actually loaded.
+      if (contentChanged) return false;
+      if (metadata.constructorOrigin && record.constructorOrigin) {
+        const [x, y, z] = metadata.constructorOrigin;
+        const [cachedX, cachedY, cachedZ] = record.constructorOrigin;
+        if (Math.hypot(unwrapPeriodicNear(x, cachedX, TORUS_SIZE_X) - cachedX, y - cachedY,
+          unwrapPeriodicNear(z, cachedZ, TORUS_SIZE_Z) - cachedZ) > 0.011) return false;
+        if (metadata.quaternion && record.quaternion && Math.abs(new THREE.Quaternion().fromArray(metadata.quaternion)
+          .dot(new THREE.Quaternion().fromArray(record.quaternion))) < 1 - 1e-8) return false;
       }
+      // Checkpoint acknowledgements can arrive after unloading. They are not
+      // a fresh AOI observation and must never reactivate a cached entity.
+      if (!options.restore || !this.isEntityChunkLoaded(chunkId)) return true;
       const playbackChanged = Number(record.serverRevision) !== Number(metadata.serverRevision)
         || record.serverExecutesLocally !== metadata.serverExecutesLocally;
-      Object.assign(record, metadata);
-      if (playbackChanged) record.serverPlaybackRevision = 0;
+      const restoredRecord = { ...record, ...metadata };
+      if (playbackChanged) restoredRecord.serverPlaybackRevision = 0;
+      records.delete(id);
+      if (records.size === 0) this.dormantContraptions.delete(chunkId);
+      try {
+        if (!this.restoreDormantContraption(restoredRecord)) this.storeDormantContraption(record);
+      } catch (error) {
+        this.storeDormantContraption(record);
+        throw error;
+      }
       return true;
     }
     return false;
@@ -234,21 +257,39 @@ export class ContraptionManager {
 
   deleteDormantContraption(publicId: unknown) {
     const id = String(publicId || '');
+    const proxy = this.dormantRenderProxies.get(id);
+    if (proxy) {
+      disposeEntityRenderProxy(proxy);
+      this.dormantRenderProxies.delete(id);
+    }
     for (const [chunkId, records] of this.dormantContraptions) {
       if (!records.delete(id)) continue;
       if (records.size === 0) this.dormantContraptions.delete(chunkId);
       return true;
     }
-    return false;
+    return !!proxy;
   }
 
-  unloadContraption(contraption: Contraption) {
+  unloadContraption(contraption: Contraption, options: { skipSave?: boolean } = {}) {
     const chunk = this.getContraptionChunk(contraption);
     if (!chunk) return false;
     const record = this.captureContraptionForStreaming(contraption, chunk);
     if (!record) return false;
+    if (record.serverManaged) {
+      if (!options.skipSave && this.entityPersistenceMode === 'remote' && record.serverCanEdit) {
+        this.remoteEntityPersistence?.save?.({ ...record }, { definitionChanged: true });
+      }
+      record.serverCanEdit = record.serverCanControl = record.serverExecutesLocally = false;
+      record.scriptStatus = 'stopped';
+      record.physicsSimulationEnabled = false;
+      contraption.serverCanEdit = contraption.serverCanControl = contraption.serverExecutesLocally = false;
+    }
+    this.deleteDormantContraption(contraption.publicId);
+    const proxy = detachEntityRenderProxy(contraption);
+    this.scene.add(proxy);
+    this.dormantRenderProxies.set(String(contraption.publicId), proxy);
     this.storeDormantContraption(record);
-    this.removeContraption(contraption, { preserveDormant: true });
+    this.removeContraption(contraption, { preserveDormant: true, skipSave: options.skipSave });
     return true;
   }
 
@@ -258,7 +299,14 @@ export class ContraptionManager {
 
   restoreDormantContraption(record: EntityStreamState) {
     const origin = new THREE.Vector3().fromArray(record.constructorOrigin || [0, 0, 0]);
-    return this.buildFromSlot(record.slot, origin, record);
+    const restored = this.buildFromSlot(record.slot, origin, record, false);
+    if (restored) {
+      if (record.serverManaged && record.serverDesiredRunState === 'running') {
+        restored.restoreRuntimeDecorations(record.runtimeDecorations ?? []);
+      }
+      this.deleteDormantContraption(record.publicId);
+    }
+    return restored;
   }
 
   syncContraptionsToLoadedChunks() {
@@ -276,6 +324,12 @@ export class ContraptionManager {
         if (!records) continue;
         this.dormantContraptions.delete(chunkId);
         for (const record of records.values()) {
+          // A loaded terrain chunk is not proof that a cached server entity
+          // still exists here. Only fresh AOI metadata may restore it.
+          if (record.serverManaged) {
+            this.storeDormantContraption(record);
+            continue;
+          }
           try {
             const restored = this.restoreDormantContraption(record);
             if (!restored) this.storeDormantContraption(record);
@@ -476,7 +530,9 @@ export class ContraptionManager {
         queue(this.captureContraptionForStreaming(contraption, chunk));
       }
       for (const records of this.dormantContraptions.values()) {
-        for (const record of records.values()) queue(record);
+        for (const record of records.values()) {
+          if (!record.serverManaged) queue(record);
+        }
       }
       return true;
     }
@@ -539,6 +595,7 @@ export class ContraptionManager {
         this.removeContraption(this.contraptions[0], { preserveDormant: true, skipSave: true });
       }
       this.dormantContraptions.clear();
+      for (const id of this.dormantRenderProxies.keys()) this.deleteDormantContraption(id);
 
       let loadedCount = 0;
       for (const record of data.entities) {

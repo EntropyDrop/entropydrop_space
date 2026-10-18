@@ -40,7 +40,7 @@ import {
   type LightingQuality,
 } from './LightingQuality.ts';
 
-import { MAX_SELECTION_BEND_SEGMENTS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { SelectionOutlineGeometry, createSelectionOutlineMaterial, updateSelectionOutlineGeometry } from '@entropydrop/space-engine/render/SelectionOutline.ts';
 
 export const ENTITY_PREVIEW_LAYER = 1;
 export const ENTITY_PREVIEW_MAX_FPS = 30;
@@ -134,29 +134,6 @@ interface PlayerAppearance {
 }
 
 /**
- * The torus shader bends vertices, not the straight line between two vertices.
- * A default BoxGeometry therefore turns a large selection edge into a chord
- * through the curved terrain. Subdivide at roughly one segment per selected
- * cell (with a safety cap) so fills and outlines follow the rendered surface.
- */
-function updateTorusSelectionBoxGeometry(fill: THREE.Mesh | null, edges: THREE.LineSegments | null, sizeX: number, sizeY: number, sizeZ: number) {
-  if (!fill || !edges) return;
-  const segments = [sizeX, sizeY, sizeZ].map(size => (
-    Math.max(1, Math.min(MAX_SELECTION_BEND_SEGMENTS, Math.max(1, Math.round(Math.abs(Number(size)) * 5))))
-  ));
-  const signature = segments.join(',');
-  if (fill.userData.torusSelectionSegments === signature) return;
-
-  const box = new THREE.BoxGeometry(1, 1, 1, segments[0], segments[1], segments[2]);
-  const outline = new THREE.EdgesGeometry(box);
-  fill.geometry?.dispose?.();
-  edges.geometry?.dispose?.();
-  fill.geometry = box;
-  edges.geometry = outline;
-  fill.userData.torusSelectionSegments = signature;
-}
-
-/**
  * Builds a single unified boundary mesh and wireframe for voxel placement preview,
  * culling all internal adjoining faces between voxels so the ghost renders as a clean solid
  * without multi-box transparent overdraw or internal line clutter.
@@ -231,11 +208,10 @@ export class SceneRenderer {
   declare fillLight: THREE.DirectionalLight;
   declare cursorMesh: THREE.LineSegments;
   declare microCarveGroup: THREE.Group;
-  declare microCarveFocusCell: THREE.LineSegments;
-  declare focusBlockGuide: THREE.LineSegments;
+  declare microCarveFocusCell: THREE.Mesh;
+  declare focusBlockGuide: THREE.Mesh;
   declare boxSelectionGroup: THREE.Group;
-  declare boxSelectionFill: THREE.Mesh;
-  declare boxSelectionEdges: THREE.LineSegments;
+  declare boxSelectionEdges: THREE.Mesh;
   declare wrenchTetherLine: THREE.Line;
   declare wrenchPivotGizmo: THREE.Group;
   declare modelingGizmo: THREE.Group | undefined;
@@ -260,20 +236,7 @@ export class SceneRenderer {
   declare inventoryPlacementWire: THREE.LineSegments | null;
   declare inventoryPlacementSlot: InventoryInput | null;
   declare selectionGroup: THREE.Group;
-  declare selectionWireframe: any;
-  declare selectionFill: any;
-  declare selectionCellsGroup: THREE.Group;
-  declare selectionCellBoxGeometry: THREE.BoxGeometry;
-  declare selectionCellEdgeGeometry: THREE.EdgesGeometry;
-  declare selectionCellLineMaterial: THREE.LineBasicNodeMaterial;
-  declare selectionCellFillMaterial: THREE.MeshBasicNodeMaterial;
-  declare selectionCellsSignature: string;
-  declare selectionMicroCellsGroup: THREE.Group;
-  declare selectionMicroCellBoxGeometry: THREE.BoxGeometry;
-  declare selectionMicroCellEdgeGeometry: THREE.EdgesGeometry;
-  declare selectionMicroCellLineMaterial: THREE.LineBasicNodeMaterial;
-  declare selectionMicroCellFillMaterial: THREE.MeshBasicNodeMaterial;
-  declare selectionMicroCellsSignature: string;
+  declare selectionWireframe: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicNodeMaterial>;
   declare timeOfDay: number;
   declare world: World | null;
   declare flatCameraPosition: THREE.Vector3;
@@ -486,18 +449,20 @@ export class SceneRenderer {
   }
 
   setupCursorHighlight() {
-    const geo = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
-    const edges = new THREE.EdgesGeometry(geo);
-    const mat = new THREE.LineBasicNodeMaterial({
+    const box = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
+    const edges = new THREE.EdgesGeometry(box);
+    box.dispose();
+    // Native lines keep a one-pixel width regardless of distance or cell size.
+    this.cursorMesh = new THREE.LineSegments(edges, new THREE.LineBasicNodeMaterial({
       color: 0x222222,
-      linewidth: 2,
+      linewidth: 1,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.95,
       depthTest: false,
-      depthWrite: false
-    });
-
-    this.cursorMesh = new THREE.LineSegments(edges, mat);
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+    }));
     this.cursorMesh.name = 'CursorHighlight';
     this.cursorMesh.renderOrder = 40;
     this.cursorMesh.visible = false;
@@ -546,17 +511,10 @@ export class SceneRenderer {
     this.microCarveGroup.add(gridLines);
     this.microCarveGroup.renderOrder = 41;
 
-    // Highlight box for the focused micro cell (0.125³) with segments for curvature bending
-    const cellGeo = new THREE.BoxGeometry(MICRO_SIZE, MICRO_SIZE, MICRO_SIZE, 2, 2, 2);
-    const cellEdges = new THREE.EdgesGeometry(cellGeo);
-    const cellMat = new THREE.LineBasicNodeMaterial({
-      color: 0xff9f43,
-      transparent: true,
-      opacity: 0.95,
-      depthTest: false,
-      depthWrite: false
-    });
-    this.microCarveFocusCell = new THREE.LineSegments(cellEdges, cellMat);
+    this.microCarveFocusCell = new THREE.Mesh(
+      new SelectionOutlineGeometry(MICRO_SIZE, MICRO_SIZE, MICRO_SIZE),
+      createSelectionOutlineMaterial(0xff9f43)
+    );
     this.microCarveFocusCell.renderOrder = 42;
     this.microCarveFocusCell.visible = false;
     this.scene.add(this.microCarveFocusCell);
@@ -706,89 +664,15 @@ export class SceneRenderer {
   }
 
   setupSelectionHologram() {
-    // 3D holographic box for confirmed Selector regions.
     this.selectionGroup = new THREE.Group();
-    this.selectionGroup.name = 'SelectionHologram';
-
-    // Outer Wireframe
-    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-    const lineMat = new THREE.LineBasicNodeMaterial({
-      color: 0x00d2d3,
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.85,
-      depthTest: false,
-      depthWrite: false
-    });
-    this.selectionWireframe = new THREE.LineSegments(edgesGeo, lineMat);
+    this.selectionGroup.name = 'SelectionOutline';
+    this.selectionWireframe = new THREE.Mesh(
+      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(0x00d2d3)
+    );
     this.selectionWireframe.renderOrder = 42;
     this.selectionGroup.add(this.selectionWireframe);
-
-    // Inner Translucent Shimmer Plane Box
-    const fillMat = new THREE.MeshBasicNodeMaterial({
-      color: 0x48dbfb,
-      transparent: true,
-      opacity: 0.15,
-      depthTest: false,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    });
-    this.selectionFill = new THREE.Mesh(boxGeo, fillMat);
-    this.selectionFill.renderOrder = 41;
-    this.selectionGroup.add(this.selectionFill);
-
     this.selectionGroup.visible = false;
     this.scene.add(this.selectionGroup);
-
-    // Exact-cell mode uses independent breathing cells rather than a single
-    // bounding box, so sparse Shift selections remain visually unambiguous.
-    this.selectionCellsGroup = new THREE.Group();
-    this.selectionCellsGroup.name = 'SingleCellSelectionHologram';
-    this.selectionCellBoxGeometry = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
-    this.selectionCellEdgeGeometry = new THREE.EdgesGeometry(this.selectionCellBoxGeometry);
-    this.selectionCellLineMaterial = new THREE.LineBasicNodeMaterial({
-      color: 0xff9f43,
-      transparent: true,
-      opacity: 0.9,
-      depthTest: false,
-      depthWrite: false
-    });
-    this.selectionCellFillMaterial = new THREE.MeshBasicNodeMaterial({
-      color: 0xff9f43,
-      transparent: true,
-      opacity: 0.14,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    });
-    this.selectionCellsSignature = '';
-    this.selectionCellsGroup.visible = false;
-    this.scene.add(this.selectionCellsGroup);
-
-    // Micro-mode sparse selection: each selected 0.125 m cell gets its own
-    // breathing hologram so Tab-toggled micro picks read distinctly from the
-    // standard orange single-cell mode.
-    this.selectionMicroCellsGroup = new THREE.Group();
-    this.selectionMicroCellsGroup.name = 'MicroCellSelectionHologram';
-    this.selectionMicroCellBoxGeometry = new THREE.BoxGeometry(MICRO_SIZE, MICRO_SIZE, MICRO_SIZE, 2, 2, 2);
-    this.selectionMicroCellEdgeGeometry = new THREE.EdgesGeometry(this.selectionMicroCellBoxGeometry);
-    this.selectionMicroCellLineMaterial = new THREE.LineBasicNodeMaterial({
-      color: 0x48dbfb,
-      transparent: true,
-      opacity: 0.9,
-      depthTest: false,
-      depthWrite: false
-    });
-    this.selectionMicroCellFillMaterial = new THREE.MeshBasicNodeMaterial({
-      color: 0x48dbfb,
-      transparent: true,
-      opacity: 0.14,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    });
-    this.selectionMicroCellsSignature = '';
-    this.selectionMicroCellsGroup.visible = false;
-    this.scene.add(this.selectionMicroCellsGroup);
   }
 
   setCursor(hitPos: Point3 | null, size = 1, quaternion: THREE.Quaternion | null = null, center: Point3 | null = null) {
@@ -1175,17 +1059,9 @@ export class SceneRenderer {
    * Selector focus guide: a simple 1x1x1 wireframe for the block under the crosshair.
    */
   setupFocusBlockGuide() {
-    const box = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
-    const edges = new THREE.EdgesGeometry(box);
-    const mat = new THREE.LineBasicNodeMaterial({
-      color: 0x48dbfb,
-      transparent: true,
-      opacity: 0.85,
-      // The wireframe is inside the block, so disable depth testing for an X-ray view.
-      depthTest: false,
-      depthWrite: false
-    });
-    this.focusBlockGuide = new THREE.LineSegments(edges, mat);
+    this.focusBlockGuide = new THREE.Mesh(
+      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(0x48dbfb)
+    );
     this.focusBlockGuide.name = 'FocusBlockGuide';
     this.focusBlockGuide.renderOrder = 40;
     this.focusBlockGuide.visible = false;
@@ -1202,11 +1078,10 @@ export class SceneRenderer {
     this.focusBlockGuide.quaternion.copy(
       quaternion?.isQuaternion ? quaternion : new THREE.Quaternion()
     );
-    // The geometry is 1.04 m across, so scaling by the target cell size makes
-    // the guide hug a 1 m standard cell or a 0.125 m micro block.
+    updateSelectionOutlineGeometry(this.focusBlockGuide, cellSize, cellSize, cellSize);
     this.focusBlockGuide.scale.setScalar(cellSize);
     // Orange while point 1 is set; cyan while waiting for point 1.
-    (this.focusBlockGuide.material as THREE.LineBasicNodeMaterial).color
+    (this.focusBlockGuide.material as THREE.MeshBasicNodeMaterial).color
       .setHex(active ? 0xff9f43 : 0x48dbfb);
     this.focusBlockGuide.visible = true;
   }
@@ -1622,35 +1497,16 @@ export class SceneRenderer {
 
 
   /**
-   * Live selector-box preview in a desktop drag-selection style.
-   * After point 1 is set, show a translucent AABB from the start to the crosshair;
-   * the second click confirms it.
+   * Outline-only selector preview from the first point to the crosshair.
+   * The second click confirms the same bounding box.
    */
   setupBoxSelectionPreview() {
     this.boxSelectionGroup = new THREE.Group();
     this.boxSelectionGroup.name = 'BoxSelectionPreview';
 
-    const unit = new THREE.BoxGeometry(1, 1, 1);
-    const fillMat = new THREE.MeshBasicNodeMaterial({
-      color: 0x48dbfb,
-      transparent: true,
-      opacity: 0.16,
-      side: THREE.DoubleSide,
-      depthTest: false,
-      depthWrite: false
-    });
-    this.boxSelectionFill = new THREE.Mesh(unit, fillMat);
-    this.boxSelectionFill.renderOrder = 41;
-    this.boxSelectionGroup.add(this.boxSelectionFill);
-
-    const edgeMat = new THREE.LineBasicNodeMaterial({
-      color: 0x48dbfb,
-      transparent: true,
-      opacity: 0.9,
-      depthTest: false,
-      depthWrite: false
-    });
-    this.boxSelectionEdges = new THREE.LineSegments(new THREE.EdgesGeometry(unit), edgeMat);
+    this.boxSelectionEdges = new THREE.Mesh(
+      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(0x48dbfb)
+    );
     this.boxSelectionEdges.renderOrder = 42;
     this.boxSelectionGroup.add(this.boxSelectionEdges);
 
@@ -1732,13 +1588,12 @@ export class SceneRenderer {
         this.boxSelectionGroup.visible = false;
         return;
       }
-      updateTorusSelectionBoxGeometry(this.boxSelectionFill, this.boxSelectionEdges, sx, sy, sz);
+      updateSelectionOutlineGeometry(this.boxSelectionEdges, sx, sy, sz);
       applyFrame(new THREE.Vector3(
         minMx * MICRO_SIZE + sx / 2,
         minMy * MICRO_SIZE + sy / 2,
         minMz * MICRO_SIZE + sz / 2
       ));
-      this.boxSelectionFill.scale.set(sx, sy, sz);
       this.boxSelectionEdges.scale.set(sx, sy, sz);
       this.boxSelectionGroup.visible = true;
       return;
@@ -1771,94 +1626,14 @@ export class SceneRenderer {
       this.boxSelectionGroup.visible = false;
       return;
     }
-    updateTorusSelectionBoxGeometry(this.boxSelectionFill, this.boxSelectionEdges, sx, sy, sz);
+    updateSelectionOutlineGeometry(this.boxSelectionEdges, sx, sy, sz);
     applyFrame(new THREE.Vector3(
       (minX + maxX + 1) / 2,
       (minY + maxY + 1) / 2,
       (minZ + maxZ + 1) / 2
     ));
-    this.boxSelectionFill.scale.set(sx, sy, sz);
     this.boxSelectionEdges.scale.set(sx, sy, sz);
     this.boxSelectionGroup.visible = true;
-  }
-
-  private buildCulledVoxelHologram(
-    cells: Array<{ x: number; y: number; z: number }>,
-    cellSize: number
-  ): { fillGeo: THREE.BufferGeometry; edgeGeo: THREE.BufferGeometry } | null {
-    if (!cells || cells.length === 0) return null;
-
-    const cellSet = new Set<string>();
-    for (const c of cells) {
-      cellSet.add(`${c.x},${c.y},${c.z}`);
-    }
-
-    const faces = [
-      // Top (+Y)
-      { dir: [0, 1, 0], norm: [0, 1, 0], quad: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]] },
-      // Bottom (-Y)
-      { dir: [0, -1, 0], norm: [0, -1, 0], quad: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]] },
-      // North (-Z)
-      { dir: [0, 0, -1], norm: [0, 0, -1], quad: [[1, 1, 0], [1, 0, 0], [0, 0, 0], [0, 1, 0]] },
-      // South (+Z)
-      { dir: [0, 0, 1], norm: [0, 0, 1], quad: [[0, 1, 1], [0, 0, 1], [1, 0, 1], [1, 1, 1]] },
-      // West (-X)
-      { dir: [-1, 0, 0], norm: [-1, 0, 0], quad: [[0, 1, 0], [0, 0, 0], [0, 0, 1], [0, 1, 1]] },
-      // East (+X)
-      { dir: [1, 0, 0], norm: [1, 0, 0], quad: [[1, 1, 1], [1, 0, 1], [1, 0, 0], [1, 1, 0]] }
-    ];
-
-    const fillPositions: number[] = [];
-    const fillNormals: number[] = [];
-    const edgePositions: number[] = [];
-    const edgeSet = new Set<string>();
-
-    for (const c of cells) {
-      for (const f of faces) {
-        const nx = c.x + f.dir[0];
-        const ny = c.y + f.dir[1];
-        const nz = c.z + f.dir[2];
-        if (cellSet.has(`${nx},${ny},${nz}`)) continue; // Internal overlapping face culled!
-
-        const q = f.quad;
-        const v0 = [(c.x + q[0][0]) * cellSize, (c.y + q[0][1]) * cellSize, (c.z + q[0][2]) * cellSize];
-        const v1 = [(c.x + q[1][0]) * cellSize, (c.y + q[1][1]) * cellSize, (c.z + q[1][2]) * cellSize];
-        const v2 = [(c.x + q[2][0]) * cellSize, (c.y + q[2][1]) * cellSize, (c.z + q[2][2]) * cellSize];
-        const v3 = [(c.x + q[3][0]) * cellSize, (c.y + q[3][1]) * cellSize, (c.z + q[3][2]) * cellSize];
-
-        fillPositions.push(...v0, ...v1, ...v2);
-        fillPositions.push(...v0, ...v2, ...v3);
-        fillNormals.push(...f.norm, ...f.norm, ...f.norm);
-        fillNormals.push(...f.norm, ...f.norm, ...f.norm);
-
-        const quadEdges = [
-          [v0, v1],
-          [v1, v2],
-          [v2, v3],
-          [v3, v0]
-        ];
-        for (const [p1, p2] of quadEdges) {
-          const k1 = `${Math.round(p1[0] * 1000)},${Math.round(p1[1] * 1000)},${Math.round(p1[2] * 1000)}`;
-          const k2 = `${Math.round(p2[0] * 1000)},${Math.round(p2[1] * 1000)},${Math.round(p2[2] * 1000)}`;
-          const edgeKey = k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
-          if (!edgeSet.has(edgeKey)) {
-            edgeSet.add(edgeKey);
-            edgePositions.push(...p1, ...p2);
-          }
-        }
-      }
-    }
-
-    if (fillPositions.length === 0) return null;
-
-    const fillGeo = new THREE.BufferGeometry();
-    fillGeo.setAttribute('position', new THREE.Float32BufferAttribute(fillPositions, 3));
-    fillGeo.setAttribute('normal', new THREE.Float32BufferAttribute(fillNormals, 3));
-
-    const edgeGeo = new THREE.BufferGeometry();
-    edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
-
-    return { fillGeo, edgeGeo };
   }
 
   clearBoxSelectionPreview() {
@@ -1866,207 +1641,43 @@ export class SceneRenderer {
   }
 
   updateSelectionHologram(bounds: CollisionBounds | null, connectedBlocks: Point3[] | null = null, microBlocks: Point3[] | null = null, isMicroShape = false, frame: SelectionFrame | null = null) {
-    const applyFrameToGroup = (grp: THREE.Group, offset: THREE.Vector3 = new THREE.Vector3(0, 0, 0)) => {
-      if (frame?.object?.localToWorld) {
-        frame.object.updateWorldMatrix?.(true, false);
-        const pivot = frame.pivot ? new THREE.Vector3(frame.pivot.x, frame.pivot.y, frame.pivot.z) : new THREE.Vector3();
-        grp.position.copy(frame.object.localToWorld(offset.clone().sub(pivot)));
-        frame.object.getWorldQuaternion(grp.quaternion);
-      } else {
-        grp.position.copy(offset);
-        grp.quaternion.identity();
-      }
-    };
-
-    if (isMicroShape && Array.isArray(microBlocks)) {
-      this.selectionGroup.visible = false;
-      this.selectionCellsGroup.visible = false;
-
-      if (microBlocks.length === 0 && !bounds) {
-        this.selectionMicroCellsGroup.visible = false;
-        return;
-      }
-
-      if (microBlocks.length <= 8192) {
-        const signature = microBlocks.length <= 1024
-          ? microBlocks.map(b => `${b.x},${b.y},${b.z}`).sort().join('|')
-          : `micro-${microBlocks.length}-${microBlocks[0].x},${microBlocks[0].y},${microBlocks[0].z}-${microBlocks[microBlocks.length - 1].x},${microBlocks[microBlocks.length - 1].y},${microBlocks[microBlocks.length - 1].z}`;
-
-        if (signature !== this.selectionMicroCellsSignature) {
-          for (const child of this.selectionMicroCellsGroup.children as any[]) {
-            child.geometry?.dispose();
-          }
-          this.selectionMicroCellsGroup.clear();
-          const geos = this.buildCulledVoxelHologram(microBlocks, MICRO_SIZE);
-          if (geos) {
-            const fill = new THREE.Mesh(geos.fillGeo, this.selectionMicroCellFillMaterial);
-            const lines = new THREE.LineSegments(geos.edgeGeo, this.selectionMicroCellLineMaterial);
-            fill.renderOrder = 20;
-            lines.renderOrder = 21;
-            this.selectionMicroCellsGroup.add(fill, lines);
-          }
-          this.selectionMicroCellsSignature = signature;
-        }
-
-        applyFrameToGroup(this.selectionMicroCellsGroup);
-
-        const t = performance.now() * 0.004;
-        const pulse = (Math.sin(t) + 1) * 0.5;
-        this.selectionMicroCellLineMaterial.opacity = 0.5 + pulse * 0.46;
-        this.selectionMicroCellFillMaterial.opacity = 0.08 + pulse * 0.2;
-        this.selectionMicroCellsGroup.visible = microBlocks.length > 0;
-
-        // Keep the outer bounding box wireframe visible as a guide
-        if (bounds) {
-          const sx = Math.max(0.001, (bounds.maxX - bounds.minX + 1) * MICRO_SIZE);
-          const sy = Math.max(0.001, (bounds.maxY - bounds.minY + 1) * MICRO_SIZE);
-          const sz = Math.max(0.001, (bounds.maxZ - bounds.minZ + 1) * MICRO_SIZE);
-          const cx = (bounds.minX + bounds.maxX + 1) * MICRO_SIZE * 0.5;
-          const cy = (bounds.minY + bounds.maxY + 1) * MICRO_SIZE * 0.5;
-          const cz = (bounds.minZ + bounds.maxZ + 1) * MICRO_SIZE * 0.5;
-          updateTorusSelectionBoxGeometry(this.selectionFill, this.selectionWireframe, sx, sy, sz);
-          this.selectionGroup.scale.set(sx, sy, sz);
-          applyFrameToGroup(this.selectionGroup, new THREE.Vector3(cx, cy, cz));
-          this.selectionWireframe.material.opacity = 0.35;
-          this.selectionFill.material.opacity = 0.03;
-          this.selectionGroup.visible = true;
-        } else {
-          this.selectionGroup.visible = false;
-        }
-        return;
-      }
-    }
-
-    if (Array.isArray(microBlocks)) {
-      this.selectionCellsGroup.visible = false;
-      this.selectionMicroCellsGroup.visible = false;
-
-      if (microBlocks.length === 0 && !bounds) {
-        this.selectionGroup.visible = false;
-        return;
-      }
-
-      // The cyan region remains the confirmed box even when orange occupied
-      // cells cover only part of it, or the region contains only entities.
-      let minX = bounds?.minX ?? Infinity, minY = bounds?.minY ?? Infinity, minZ = bounds?.minZ ?? Infinity;
-      let maxX = bounds?.maxX ?? -Infinity, maxY = bounds?.maxY ?? -Infinity, maxZ = bounds?.maxZ ?? -Infinity;
-      if (!bounds) {
-        for (const b of microBlocks) {
-          if (b.x < minX) minX = b.x;
-          if (b.y < minY) minY = b.y;
-          if (b.z < minZ) minZ = b.z;
-          if (b.x > maxX) maxX = b.x;
-          if (b.y > maxY) maxY = b.y;
-          if (b.z > maxZ) maxZ = b.z;
-        }
-      }
-
-      const sx = Math.max(0.001, (maxX - minX + 1) * MICRO_SIZE);
-      const sy = Math.max(0.001, (maxY - minY + 1) * MICRO_SIZE);
-      const sz = Math.max(0.001, (maxZ - minZ + 1) * MICRO_SIZE);
-
-      const cx = (minX + maxX + 1) * MICRO_SIZE * 0.5;
-      const cy = (minY + maxY + 1) * MICRO_SIZE * 0.5;
-      const cz = (minZ + maxZ + 1) * MICRO_SIZE * 0.5;
-
-      updateTorusSelectionBoxGeometry(this.selectionFill, this.selectionWireframe, sx, sy, sz);
-      this.selectionGroup.scale.set(sx, sy, sz);
-      applyFrameToGroup(this.selectionGroup, new THREE.Vector3(cx, cy, cz));
-      this.selectionGroup.visible = true;
-
-      // Pulse opacity subtly matching standard mode
-      const t = performance.now() * 0.003;
-      const pulse = 0.75 + Math.sin(t) * 0.2;
-      this.selectionWireframe.material.opacity = pulse;
-      this.selectionFill.material.opacity = 0.12 + Math.sin(t) * 0.06;
-      return;
-    }
-
-    if (connectedBlocks !== null) {
-      this.selectionMicroCellsGroup.visible = false;
-      const signature = connectedBlocks
-        .map(block => `${block.x},${block.y},${block.z}`)
-        .sort()
-        .join('|');
-      if (signature !== this.selectionCellsSignature) {
-        for (const child of this.selectionCellsGroup.children as any[]) {
-          child.geometry?.dispose();
-        }
-        this.selectionCellsGroup.clear();
-        const geos = this.buildCulledVoxelHologram(connectedBlocks, 1.0);
-        if (geos) {
-          const fill = new THREE.Mesh(geos.fillGeo, this.selectionCellFillMaterial);
-          const lines = new THREE.LineSegments(geos.edgeGeo, this.selectionCellLineMaterial);
-          fill.renderOrder = 20;
-          lines.renderOrder = 21;
-          this.selectionCellsGroup.add(fill, lines);
-        }
-        this.selectionCellsSignature = signature;
-      }
-
-      applyFrameToGroup(this.selectionCellsGroup);
-
-      const t = performance.now() * 0.004;
-      const pulse = (Math.sin(t) + 1) * 0.5;
-      this.selectionCellLineMaterial.opacity = 0.5 + pulse * 0.46;
-      this.selectionCellFillMaterial.opacity = 0.08 + pulse * 0.2;
-      this.selectionCellsGroup.visible = connectedBlocks.length > 0;
-
-      // Keep the outer bounding box wireframe visible as a guide
-      if (bounds) {
-        const sx = bounds.maxX - bounds.minX + 1;
-        const sy = bounds.maxY - bounds.minY + 1;
-        const sz = bounds.maxZ - bounds.minZ + 1;
-        const cx = (bounds.minX + bounds.maxX + 1) / 2;
-        const cy = (bounds.minY + bounds.maxY + 1) / 2;
-        const cz = (bounds.minZ + bounds.maxZ + 1) / 2;
-        updateTorusSelectionBoxGeometry(this.selectionFill, this.selectionWireframe, sx, sy, sz);
-        this.selectionGroup.scale.set(sx, sy, sz);
-        applyFrameToGroup(this.selectionGroup, new THREE.Vector3(cx, cy, cz));
-        this.selectionWireframe.material.opacity = 0.35;
-        this.selectionFill.material.opacity = 0.03;
-        this.selectionGroup.visible = true;
-      } else {
-        this.selectionGroup.visible = false;
-      }
-      return;
-    }
-
-    this.selectionCellsGroup.visible = false;
-    this.selectionMicroCellsGroup.visible = false;
-    this.selectionCellsGroup.position.set(0, 0, 0);
-    this.selectionCellsGroup.quaternion.identity();
-    this.selectionMicroCellsGroup.position.set(0, 0, 0);
-    this.selectionMicroCellsGroup.quaternion.identity();
-
-    if (!bounds) {
+    const cells = microBlocks ?? connectedBlocks;
+    if (!bounds && !cells?.length) {
       this.selectionGroup.visible = false;
       return;
     }
 
-    const isMicro = isMicroShape;
-    const scale = isMicro ? MICRO_SIZE : 1;
-    const sx = Math.max(0.001, (bounds.maxX - bounds.minX + 1) * scale);
-    const sy = Math.max(0.001, (bounds.maxY - bounds.minY + 1) * scale);
-    const sz = Math.max(0.001, (bounds.maxZ - bounds.minZ + 1) * scale);
-
-    const cx = (bounds.minX + bounds.maxX + 1) * scale * 0.5;
-    const cy = (bounds.minY + bounds.maxY + 1) * scale * 0.5;
-    const cz = (bounds.minZ + bounds.maxZ + 1) * scale * 0.5;
-
-    updateTorusSelectionBoxGeometry(this.selectionFill, this.selectionWireframe, sx, sy, sz);
+    // Keep the confirmed region, including its empty cells. Sparse and shaped
+    // selections use the same open bounding box without a second surface layer.
+    let minX = bounds?.minX ?? Infinity, minY = bounds?.minY ?? Infinity, minZ = bounds?.minZ ?? Infinity;
+    let maxX = bounds?.maxX ?? -Infinity, maxY = bounds?.maxY ?? -Infinity, maxZ = bounds?.maxZ ?? -Infinity;
+    if (!bounds && cells) {
+      for (const cell of cells) {
+        minX = Math.min(minX, cell.x); minY = Math.min(minY, cell.y); minZ = Math.min(minZ, cell.z);
+        maxX = Math.max(maxX, cell.x); maxY = Math.max(maxY, cell.y); maxZ = Math.max(maxZ, cell.z);
+      }
+    }
+    const scale = microBlocks !== null || isMicroShape ? MICRO_SIZE : 1;
+    const sx = Math.max(0.001, (maxX - minX + 1) * scale);
+    const sy = Math.max(0.001, (maxY - minY + 1) * scale);
+    const sz = Math.max(0.001, (maxZ - minZ + 1) * scale);
+    const center = new THREE.Vector3(
+      (minX + maxX + 1) * scale * 0.5,
+      (minY + maxY + 1) * scale * 0.5,
+      (minZ + maxZ + 1) * scale * 0.5
+    );
+    updateSelectionOutlineGeometry(this.selectionWireframe, sx, sy, sz);
     this.selectionGroup.scale.set(sx, sy, sz);
-    applyFrameToGroup(this.selectionGroup, new THREE.Vector3(cx, cy, cz));
+    if (frame?.object?.localToWorld) {
+      frame.object.updateWorldMatrix?.(true, false);
+      this.selectionGroup.position.copy(frame.object.localToWorld(center.sub(previewVector3(frame.pivot))));
+      frame.object.getWorldQuaternion(this.selectionGroup.quaternion);
+    } else {
+      this.selectionGroup.position.copy(center);
+      this.selectionGroup.quaternion.identity();
+    }
     this.selectionGroup.visible = true;
-
-    // Pulse opacity subtly
-    const t = performance.now() * 0.003;
-    const pulse = 0.75 + Math.sin(t) * 0.2;
-    this.selectionWireframe.material.opacity = pulse;
-    this.selectionFill.material.opacity = 0.12 + Math.sin(t) * 0.06;
   }
-
-
 
   onWindowResize() {
     const width = window.innerWidth;
@@ -2665,8 +2276,6 @@ export class SceneRenderer {
       this.selectionAxisGizmo,
       this.inventoryPlacementGroup,
       this.selectionGroup,
-      this.selectionCellsGroup,
-      this.selectionMicroCellsGroup,
       this.previewForceArrow,
     ];
     for (const record of this.remotePlayers?.values() ?? []) overlays.push(record.nameTag);

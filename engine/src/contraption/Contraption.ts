@@ -11,6 +11,7 @@ import { isValidComponentId, isValidConstraintId } from './PortableIds.ts';
 export { isValidPortableId, isValidComponentId, isValidConstraintId } from './PortableIds.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
+import { SelectionOutlineGeometry, createSelectionOutlineMaterial } from '../render/SelectionOutline.ts';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { normalizeDecorations, offsetDecorations, patchDecoration, freezeDecorationSnapshot, type DecorationDefinition } from './Decorations.ts';
 import { createDecorationGroup, raycastDecorationGroup, editDecorationGroup,
@@ -386,20 +387,18 @@ export class Contraption {
   nextChildId: number;
   glueSelectionGroup: THREE.Group | null;
   glueHighlightEntries: Array<{ container: THREE.Group; role: string; cell: { x: number; y: number; z: number }; entityId: string }>;
-  glueHighlightMaterials: { selectedLine: THREE.LineBasicNodeMaterial; selectedFill: THREE.MeshBasicNodeMaterial } | null;
-  glueHighlightGeometries: { boxGeometry: THREE.BoxGeometry; edgeGeometry: THREE.EdgesGeometry } | null;
+  glueHighlightMaterials: { selectedLine: THREE.MeshBasicNodeMaterial } | null;
+  glueHighlightGeometries: { boxGeometry: SelectionOutlineGeometry } | null;
   focusHighlightEntries: Array<{ container: THREE.Group; ownerNode: EntityNode; isChild: boolean }> = [];
   focusHighlightGeometries: THREE.BufferGeometry[] = [];
   focusHighlightMaterials: {
-    focusedLine: THREE.LineBasicNodeMaterial;
-    focusedFill: THREE.MeshBasicNodeMaterial;
-    childLine: THREE.LineBasicNodeMaterial;
-    childFill: THREE.MeshBasicNodeMaterial;
+    focusedLine: THREE.MeshBasicNodeMaterial;
+    childLine: THREE.MeshBasicNodeMaterial;
   } | null = null;
   focusedHighlightNodeId: string | null = null;
   nodeHighlightBox: THREE.Group | null;
-  nodeHighlightGeometries: { box: THREE.BoxGeometry; edges: THREE.EdgesGeometry } | null;
-  nodeHighlightMaterials: { lineMat: THREE.LineBasicNodeMaterial; fillMat: THREE.MeshBasicNodeMaterial; pivotMat?: any } | null;
+  nodeHighlightGeometries: { box: SelectionOutlineGeometry } | null;
+  nodeHighlightMaterials: { lineMat: THREE.MeshBasicNodeMaterial; pivotMat?: any } | null;
   subtreeHighlightBoxes: any[];
   selectedNodeId: string | null;
   highlightBox: any;
@@ -4000,24 +3999,8 @@ export class Contraption {
     this.focusedHighlightNodeId = nodeId;
 
     const materials = {
-      // Outlines stay depth-independent so the selected component is visible
-      // through the parent model.
-      focusedLine: new THREE.LineBasicNodeMaterial({ color: 0x00d2d3, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }),
-      // Fills are depth-TESTED so the model occludes them instead of the fill
-      // blending through it (which read as the highlight "clipping into" the
-      // component). The box matches the block AABB exactly (no inflation), so a
-      // polygon offset keeps the coincident faces from z-fighting the voxels.
-      focusedFill: new THREE.MeshBasicNodeMaterial({
-        color: 0x00d2d3, transparent: true, opacity: 0.08,
-        depthTest: true, depthWrite: false, side: THREE.DoubleSide,
-        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
-      }),
-      childLine: new THREE.LineBasicNodeMaterial({ color: 0x2ed573, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }),
-      childFill: new THREE.MeshBasicNodeMaterial({
-        color: 0x2ed573, transparent: true, opacity: 0.12,
-        depthTest: true, depthWrite: false, side: THREE.DoubleSide,
-        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
-      })
+      focusedLine: createSelectionOutlineMaterial(0x00d2d3),
+      childLine: createSelectionOutlineMaterial(0x2ed573),
     };
     this.focusHighlightMaterials = materials;
     this.focusHighlightGeometries = [];
@@ -4038,22 +4021,15 @@ export class Contraption {
       const cy = (minY + maxY) / 2 - ownerNode.pivotLocal.y;
       const cz = (minZ + maxZ) / 2 - ownerNode.pivotLocal.z;
 
-      const segX = Math.max(1, Math.min(64, Math.round(sx)));
-      const segY = Math.max(1, Math.min(64, Math.round(sy)));
-      const segZ = Math.max(1, Math.min(64, Math.round(sz)));
-      const boxGeo = new THREE.BoxGeometry(sx, sy, sz, segX, segY, segZ);
-      const edgeGeo = new THREE.EdgesGeometry(boxGeo);
-      this.focusHighlightGeometries.push(boxGeo, edgeGeo);
+      const outlineGeometry = new SelectionOutlineGeometry(sx, sy, sz);
+      this.focusHighlightGeometries.push(outlineGeometry);
 
       const container = new THREE.Group();
       container.name = isChild ? 'ChildBreathingHighlight' : 'FocusedNodeHighlight';
       container.position.set(cx, cy, cz);
-
-      const fill = new THREE.Mesh(boxGeo, isChild ? materials.childFill : materials.focusedFill);
-      const lines = new THREE.LineSegments(edgeGeo, isChild ? materials.childLine : materials.focusedLine);
-      fill.renderOrder = 22;
-      lines.renderOrder = 23;
-      container.add(fill, lines);
+      const outline = new THREE.Mesh(outlineGeometry, isChild ? materials.childLine : materials.focusedLine);
+      outline.renderOrder = 23;
+      container.add(outline);
       ownerNode.group.add(container);
       this.focusHighlightEntries.push({ container, ownerNode, isChild });
     };
@@ -4099,20 +4075,10 @@ export class Contraption {
     // Show focused node + direct child green breathing boxes
     this.setFocusHighlight(nodeId);
 
-    const boxGeometry = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
-    const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
-    const materials = {
-      selectedLine: new THREE.LineBasicNodeMaterial({ color: 0xff9f43, transparent: true, opacity: 0.95 }),
-      selectedFill: new THREE.MeshBasicNodeMaterial({
-        color: 0xff9f43,
-        transparent: true,
-        opacity: 0.22,
-        depthWrite: false,
-        side: THREE.DoubleSide
-      })
-    };
+    const boxGeometry = new SelectionOutlineGeometry();
+    const materials = { selectedLine: createSelectionOutlineMaterial(0xff9f43) };
     this.glueHighlightMaterials = materials;
-    this.glueHighlightGeometries = { boxGeometry, edgeGeometry };
+    this.glueHighlightGeometries = { boxGeometry };
 
     for (const key of cellKeys) {
       const [x, y, z] = key.split(',').map(Number);
@@ -4123,11 +4089,9 @@ export class Contraption {
         y + 0.5 - node.pivotLocal.y,
         z + 0.5 - node.pivotLocal.z
       );
-      const fill = new THREE.Mesh(boxGeometry, materials.selectedFill);
-      const lines = new THREE.LineSegments(edgeGeometry, materials.selectedLine);
-      fill.renderOrder = 24;
-      lines.renderOrder = 25;
-      container.add(fill, lines);
+      const outline = new THREE.Mesh(boxGeometry, materials.selectedLine);
+      outline.renderOrder = 25;
+      container.add(outline);
       node.group.add(container);
       this.glueHighlightEntries.push({ container, role: 'selected', cell: { x, y, z }, entityId: node.id });
     }
@@ -4139,7 +4103,6 @@ export class Contraption {
     for (const entry of this.glueHighlightEntries) entry.container.removeFromParent();
     this.glueHighlightEntries = [];
     this.glueHighlightGeometries?.boxGeometry?.dispose();
-    this.glueHighlightGeometries?.edgeGeometry?.dispose();
     if (this.glueHighlightMaterials) {
       for (const material of Object.values(this.glueHighlightMaterials)) material.dispose();
     }
@@ -4154,15 +4117,12 @@ export class Contraption {
     const counterWave = (Math.sin(this.totalRuntime * 4.4 + Math.PI * 0.55) + 1) * 0.5;
     if (this.glueHighlightMaterials) {
       this.glueHighlightMaterials.selectedLine.opacity = 0.52 + counterWave * 0.46;
-      this.glueHighlightMaterials.selectedFill.opacity = 0.07 + counterWave * 0.17;
     }
     if (this.focusHighlightMaterials) {
       // Green breathing light on direct children bounding boxes
       this.focusHighlightMaterials.childLine.opacity = 0.35 + wave * 0.60;
-      this.focusHighlightMaterials.childFill.opacity = 0.04 + wave * 0.16;
       // Focused node bounding box steady or subtle pulse
       this.focusHighlightMaterials.focusedLine.opacity = 0.7 + counterWave * 0.25;
-      this.focusHighlightMaterials.focusedFill.opacity = 0.04 + counterWave * 0.06;
     }
   }
 
@@ -4195,22 +4155,10 @@ export class Contraption {
     );
     const boxOffset = currentCenter.sub(this.localCenter);
 
-    const geo = new THREE.BoxGeometry(
-      Math.max(0.1, this.size.x),
-      Math.max(0.1, this.size.y),
-      Math.max(0.1, this.size.z)
+    const geometry = new SelectionOutlineGeometry(
+      Math.max(0.1, this.size.x), Math.max(0.1, this.size.y), Math.max(0.1, this.size.z)
     );
-    const edges = new THREE.EdgesGeometry(geo);
-    const mat = new THREE.LineBasicNodeMaterial({
-      color: 0xf1c40f,
-      linewidth: 2,
-      transparent: true,
-      opacity: wasVisible ? 0.9 : 0.0,
-      depthTest: false,
-      depthWrite: false
-    });
-
-    this.highlightBox = new THREE.LineSegments(edges, mat);
+    this.highlightBox = new THREE.Mesh(geometry, createSelectionOutlineMaterial(0xf1c40f, wasVisible ? 0.9 : 0));
     this.highlightBox.renderOrder = 30;
     this.highlightBox.position.copy(boxOffset);
     this.rootGroup.add(this.highlightBox);
@@ -4346,20 +4294,13 @@ export class Contraption {
       const cy = (minY + maxY) / 2 - pivot.y;
       const cz = (minZ + maxZ) / 2 - pivot.z;
 
-      const boxGeo = new THREE.BoxGeometry(sx, sy, sz);
-      const edgeGeo = new THREE.EdgesGeometry(boxGeo);
-      const lineMat = new THREE.LineBasicNodeMaterial({
-        color: 0xff9f43,
-        transparent: true,
-        opacity: 0.95,
-        depthTest: false,
-        depthWrite: false
-      });
-      const lines = new THREE.LineSegments(edgeGeo, lineMat);
+      const boxGeo = new SelectionOutlineGeometry(sx, sy, sz);
+      const lineMat = createSelectionOutlineMaterial(0xff9f43);
+      const lines = new THREE.Mesh(boxGeo, lineMat);
       lines.position.set(cx, cy, cz);
       lines.renderOrder = 33;
       node.group.add(lines);
-      this.subtreeHighlightBoxes.push({ group: lines, geometries: { edges: edgeGeo, box: boxGeo }, materials: { lineMat } });
+      this.subtreeHighlightBoxes.push({ group: lines, geometries: { box: boxGeo }, materials: { lineMat } });
     }
   }
 
@@ -4417,47 +4358,14 @@ export class Contraption {
       const cy = (minY + maxY) / 2 - node.pivotLocal.y;
       const cz = (minZ + maxZ) / 2 - node.pivotLocal.z;
 
-      const segX = Math.max(1, Math.min(64, Math.round(sx)));
-      const segY = Math.max(1, Math.min(64, Math.round(sy)));
-      const segZ = Math.max(1, Math.min(64, Math.round(sz)));
-      const box = new THREE.BoxGeometry(sx, sy, sz, segX, segY, segZ);
-      const edges = new THREE.EdgesGeometry(box);
-      // The box faces sit exactly on the outermost voxel planes, so depth testing
-      // z-fights with the entity surface (visible as the highlight "clipping
-      // through" the model, especially on a running entity whose render pose is
-      // interpolated). Match the other selector highlights and draw it as a
-      // depth-independent X-ray overlay.
-      const lineMat = new THREE.LineBasicNodeMaterial({
-        color: 0x00d2d3,
-        linewidth: 2,
-        transparent: true,
-        opacity: 0.95,
-        depthTest: false,
-        depthWrite: false
-      });
-      const fillMat = new THREE.MeshBasicNodeMaterial({
-        color: 0x48dbfb,
-        transparent: true,
-        opacity: 0.16,
-        side: THREE.DoubleSide,
-        depthTest: false,
-        depthWrite: false
-      });
-
-      const lines = new THREE.LineSegments(edges, lineMat);
-      const fill = new THREE.Mesh(box, fillMat);
-      lines.renderOrder = 32;
-      fill.renderOrder = 31;
-
-      lines.position.set(cx, cy, cz);
-      fill.position.set(cx, cy, cz);
-
-      group.add(fill, lines);
-
+      const box = new SelectionOutlineGeometry(sx, sy, sz);
+      const lineMat = createSelectionOutlineMaterial(0x00d2d3);
+      const outline = new THREE.Mesh(box, lineMat);
+      outline.renderOrder = 32;
+      outline.position.set(cx, cy, cz);
+      group.add(outline);
       geometries.box = box;
-      geometries.edges = edges;
       materials.lineMat = lineMat;
-      materials.fillMat = fillMat;
     }
 
     node.group.add(group);
@@ -4487,9 +4395,6 @@ export class Contraption {
       const pulse = (Math.sin(this.totalRuntime * 5.0) + 1) * 0.5;
       if (this.nodeHighlightMaterials.lineMat) {
         this.nodeHighlightMaterials.lineMat.opacity = 0.6 + pulse * 0.38;
-      }
-      if (this.nodeHighlightMaterials.fillMat) {
-        this.nodeHighlightMaterials.fillMat.opacity = 0.08 + pulse * 0.14;
       }
       if (this.nodeHighlightMaterials.pivotMat) {
         this.nodeHighlightMaterials.pivotMat.opacity = 0.85 + pulse * 0.15;

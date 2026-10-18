@@ -148,11 +148,8 @@ test('copied terrain and entity world anchors follow the same rotated placement 
 
 test('cyan micro box remains visible across empty and sparsely occupied regions', () => {
   const renderer: any = Object.create(SceneRenderer.prototype);
-  renderer.selectionGroup = new THREE.Group();
-  renderer.selectionCellsGroup = new THREE.Group();
-  renderer.selectionMicroCellsGroup = new THREE.Group();
-  renderer.selectionFill = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
-  renderer.selectionWireframe = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry()), new THREE.LineBasicMaterial());
+  renderer.scene = new THREE.Scene();
+  renderer.setupSelectionHologram();
   const bounds = { minX: 80, minY: 160, minZ: 240, maxX: 87, maxY: 167, maxZ: 247 };
   for (const orange of [[], [{ x: 80, y: 160, z: 240 }]]) {
     renderer.updateSelectionHologram(bounds, null, orange);
@@ -162,9 +159,7 @@ test('cyan micro box remains visible across empty and sparsely occupied regions'
   }
   renderer.updateSelectionHologram(null, null, []);
   assert.equal(renderer.selectionGroup.visible, false);
-  renderer.selectionFill.geometry.dispose();
   renderer.selectionWireframe.geometry.dispose();
-  renderer.selectionFill.material.dispose();
   renderer.selectionWireframe.material.dispose();
 });
 

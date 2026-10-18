@@ -470,16 +470,16 @@ test('box selection preview quantizes micro coordinates to 0.125 m cells, not me
   // The span is 2×5×4 micro cells = 0.25×1.0×0.5 m, anchored at the corner origin.
   renderer.setBoxSelectionPreview({ x: 2.375, y: 5.0, z: 2.125 }, { x: 2.5, y: 5.875, z: 2.5 }, true);
   assert.ok(renderer.boxSelectionGroup.visible);
-  assert.ok(Math.abs(renderer.boxSelectionFill.scale.x - 0.25) < 1e-9, 'x span = 2 micro cells');
-  assert.ok(Math.abs(renderer.boxSelectionFill.scale.y - 1.0) < 1e-9, 'y span = 5 micro cells');
-  assert.ok(Math.abs(renderer.boxSelectionFill.scale.z - 0.5) < 1e-9, 'z span = 4 micro cells');
+  assert.ok(Math.abs(renderer.boxSelectionEdges.scale.x - 0.25) < 1e-9, 'x span = 2 micro cells');
+  assert.ok(Math.abs(renderer.boxSelectionEdges.scale.y - 1.0) < 1e-9, 'y span = 5 micro cells');
+  assert.ok(Math.abs(renderer.boxSelectionEdges.scale.z - 0.5) < 1e-9, 'z span = 4 micro cells');
   assert.ok(Math.abs(renderer.boxSelectionGroup.position.x - 2.5) < 1e-9, 'center x = min + half span');
   assert.ok(Math.abs(renderer.boxSelectionGroup.position.y - 5.5) < 1e-9, 'center y');
   assert.ok(Math.abs(renderer.boxSelectionGroup.position.z - 2.375) < 1e-9, 'center z');
 
   // The same meter values in standard mode still floor to whole meter cells.
   renderer.setBoxSelectionPreview({ x: 2.375, y: 5.0, z: 2.125 }, { x: 2.5, y: 5.875, z: 2.5 });
-  assert.deepEqual(renderer.boxSelectionFill.scale.toArray(), [1, 1, 1], 'standard preview spans whole meter cells');
+  assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [1, 1, 1], 'standard preview spans whole meter cells');
   assert.deepEqual(renderer.boxSelectionGroup.position.toArray(), [2.5, 5.5, 2.5], 'standard preview centers on meter cells');
 
   renderer.setBoxSelectionPreview(null, null);

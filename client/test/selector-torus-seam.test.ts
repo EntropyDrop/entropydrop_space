@@ -117,7 +117,7 @@ test('selection preview renders seam-crossing standard and micro boxes at compac
     { x: TORUS_SIZE_X - 1, y: 3, z: TORUS_SIZE_Z - 1 },
     { x: 1, y: 3, z: 1 }
   );
-  assert.deepEqual(renderer.boxSelectionFill.scale.toArray(), [3, 1, 3]);
+  assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [3, 1, 3]);
   assert.deepEqual(renderer.boxSelectionGroup.position.toArray(), [
     TORUS_SIZE_X + 0.5,
     3.5,
@@ -129,8 +129,8 @@ test('selection preview renders seam-crossing standard and micro boxes at compac
     { x: 0.125, y: 5, z: 0.125 },
     true
   );
-  assert.ok(Math.abs(renderer.boxSelectionFill.scale.x - 0.375) < 1e-9);
-  assert.ok(Math.abs(renderer.boxSelectionFill.scale.z - 0.375) < 1e-9);
+  assert.ok(Math.abs(renderer.boxSelectionEdges.scale.x - 0.375) < 1e-9);
+  assert.ok(Math.abs(renderer.boxSelectionEdges.scale.z - 0.375) < 1e-9);
   assert.ok(Math.abs(renderer.boxSelectionGroup.position.x - (TORUS_SIZE_X + 0.0625)) < 1e-9);
   assert.ok(Math.abs(renderer.boxSelectionGroup.position.z - (TORUS_SIZE_Z + 0.0625)) < 1e-9);
 });

@@ -108,7 +108,7 @@ test('focusBlockGuide applies and clears entity orientation', () => {
   assert.deepEqual(renderer.focusBlockGuide.quaternion.toArray(), [0, 0, 0, 1], 'world guides reset stale entity tilt');
 });
 
-test('setBoxSelectionPreview creates a live block-aligned translucent box', () => {
+test('setBoxSelectionPreview creates a live block-aligned outline with open faces', () => {
   const renderer = makeRendererWithPreview();
   renderer.setupBoxSelectionPreview();
   renderer.setBoxSelectionPreview(
@@ -117,11 +117,11 @@ test('setBoxSelectionPreview creates a live block-aligned translucent box', () =
   );
   assert.ok(renderer.boxSelectionGroup.visible);
   assert.deepEqual(renderer.boxSelectionGroup.position.toArray(), [3.5, 4.5, 5.5], 'center should use cell centers and span+1');
-  assert.deepEqual(renderer.boxSelectionFill.scale.toArray(), [5, 5, 5], 'box size should be span plus one cell');
-  assert.equal((renderer.boxSelectionFill.material as any).depthTest, false, 'translucent fill should remain visible through geometry');
+  assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [5, 5, 5], 'box size should be span plus one cell');
+  assert.equal((renderer.boxSelectionEdges.material as any).depthTest, false, 'outline should remain visible through geometry');
   assert.ok(
-    renderer.boxSelectionFill.geometry.attributes.position.count > 24,
-    'large selection faces need intermediate vertices for the torus shader to curve'
+    renderer.boxSelectionEdges.geometry.attributes.position.count > 24,
+    'large selection beams need intermediate vertices for the torus shader to curve'
   );
   assert.ok(
     renderer.boxSelectionEdges.geometry.attributes.position.count / 2 > 12,
@@ -140,7 +140,7 @@ test('setBoxSelectionPreview rounds fractional corners to confirmed-box geometry
     { x: 2.4, y: 12.6, z: 31.7 }
   );
   assert.deepEqual(renderer.boxSelectionGroup.position.toArray(), [1.5, 11.5, 31], 'center should include both endpoint cells');
-  assert.deepEqual(renderer.boxSelectionFill.scale.toArray(), [3, 3, 2], 'size should equal span plus one');
+  assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [3, 3, 2], 'size should equal span plus one');
 });
 
 test('entity box selection preview follows a tilted node frame', () => {
@@ -161,7 +161,7 @@ test('entity box selection preview follows a tilted node frame', () => {
 
   assert.ok(Math.abs(renderer.boxSelectionGroup.quaternion.dot(frame.quaternion)) > 1 - 1e-12);
   assert.ok(renderer.boxSelectionGroup.position.distanceTo(frame.position) < 1e-12);
-  assert.deepEqual(renderer.boxSelectionFill.scale.toArray(), [1, 1, 1]);
+  assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [1, 1, 1]);
 
   renderer.setBoxSelectionPreview({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
   assert.deepEqual(renderer.boxSelectionGroup.quaternion.toArray(), [0, 0, 0, 1], 'world previews reset stale entity tilt');
@@ -190,7 +190,7 @@ test('entity box selection preview is clamped to real component bounds', () => {
     entityFrame
   );
 
-  assert.deepEqual(renderer.boxSelectionFill.scale.toArray(), [2, 1, 1], 'cyan range stops at the component bounds');
+  assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [2, 1, 1], 'cyan range stops at the component bounds');
   assert.ok(renderer.boxSelectionGroup.position.distanceTo(frame.position) < 1e-12);
 
   renderer.setBoxSelectionPreview(
@@ -199,7 +199,7 @@ test('entity box selection preview is clamped to real component bounds', () => {
     true,
     entityFrame
   );
-  assert.deepEqual(renderer.boxSelectionFill.scale.toArray(), [2, 1, 1], 'micro preview is clamped to the same physical bounds');
+  assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [2, 1, 1], 'micro preview is clamped to the same physical bounds');
 });
 
 test('confirmed selection hologram is torus-segmented and remains visible over terrain', () => {
@@ -208,9 +208,8 @@ test('confirmed selection hologram is torus-segmented and remains visible over t
   renderer.updateSelectionHologram({ minX: 10, maxX: 17, minY: 4, maxY: 7, minZ: 20, maxZ: 25 });
 
   assert.ok(renderer.selectionGroup.visible);
-  assert.ok(renderer.selectionFill.geometry.attributes.position.count > 24);
+  assert.equal(renderer.selectionGroup.children.length, 1, 'no selection face fill is attached');
   assert.ok(renderer.selectionWireframe.geometry.attributes.position.count / 2 > 12);
-  assert.equal(renderer.selectionFill.material.depthTest, false);
   assert.equal(renderer.selectionWireframe.material.depthTest, false);
 });
 
@@ -218,9 +217,9 @@ test('selection tessellation is capped and reused while its span stays unchanged
   const renderer = makeRendererWithPreview();
   renderer.setupBoxSelectionPreview();
   renderer.setBoxSelectionPreview({ x: 0, y: 0, z: 0 }, { x: 1000, y: 1000, z: 1000 });
-  const geometry = renderer.boxSelectionFill.geometry;
+  const geometry = renderer.boxSelectionEdges.geometry;
   assert.ok(geometry.attributes.position.count < 30000, 'extreme boxes should respect the tessellation safety cap');
 
   renderer.setBoxSelectionPreview({ x: 1, y: 2, z: 3 }, { x: 1001, y: 1002, z: 1003 });
-  assert.equal(renderer.boxSelectionFill.geometry, geometry, 'moving an equal-sized preview should reuse geometry');
+  assert.equal(renderer.boxSelectionEdges.geometry, geometry, 'moving an equal-sized preview should reuse geometry');
 });
