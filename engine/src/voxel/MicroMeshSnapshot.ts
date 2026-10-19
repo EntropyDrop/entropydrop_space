@@ -14,7 +14,7 @@ export type MicroMeshData = {
   normals: Int8Array;
   colors: Uint8Array;
   indices: Uint16Array | Uint32Array;
-  materialIndexCounts: [number, number];
+  materialIndexCounts: [number, number, number];
 };
 
 export type MicroMeshResult = {

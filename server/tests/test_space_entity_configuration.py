@@ -107,7 +107,8 @@ def test_legacy_keys_can_edit_code_defaults_and_control_execution(client, db, co
     assert client.get(url+'/configuration', headers=keys['full']).json()['definition']['root']['script'] == ''
 
 
-def test_configuration_applies_script_diff_and_voxel_operations_atomically(client, db, configured):
+@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 100, 101])
+def test_configuration_applies_script_diff_and_voxel_operations_atomically(client, db, configured, material_id):
     url, keys, _ = configured
     original_script = 'self.setLocalSpin([0,1,0], 2);'
     script_patch = (
@@ -130,7 +131,7 @@ def test_configuration_applies_script_diff_and_voxel_operations_atomically(clien
             'voxel_ops': [
                 {
                     'op': 'upsert', 'dx': 0, 'dy': 0, 'dz': 0,
-                    'is_micro': False, 'color_rgb': 0x112233, 'material_id': 1,
+                    'is_micro': False, 'color_rgb': 0x112233, 'material_id': material_id,
                 },
                 {
                     'op': 'upsert', 'dx': 1, 'dy': 0, 'dz': 0,
@@ -149,7 +150,7 @@ def test_configuration_applies_script_diff_and_voxel_operations_atomically(clien
     definition = client.get(url+'/configuration', headers=keys['full']).json()['definition']
     assert definition['root']['script'] == 'self.setLocalSpin([0,1,0], 3);'
     assert definition['root']['blocks'] == [
-        {'dx': 0, 'dy': 0, 'dz': 0, 'block': 1, 'color': 0x112233, 'material_id': 1},
+        {'dx': 0, 'dy': 0, 'dz': 0, 'block': 1, 'color': 0x112233, 'material_id': material_id},
         {'dx': 1, 'dy': 0, 'dz': 0, 'block': 1, 'color': 0x445566, 'mx': 2, 'my': 3, 'mz': 4},
     ]
 
@@ -175,7 +176,7 @@ def test_configuration_applies_script_diff_and_voxel_operations_atomically(clien
     blocks = client.get(url+'/configuration', headers=keys['full']).json()['definition']['root']['blocks']
     assert blocks == [{
         'dx': 0, 'dy': 0, 'dz': 0, 'block': 1,
-        'color': 0xAABBCC, 'material_id': 1,
+        'color': 0xAABBCC, 'material_id': material_id,
     }]
 
 

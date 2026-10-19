@@ -683,14 +683,15 @@ def test_market_canonicalizes_the_only_block_id_and_rejects_standard_micro_overl
     assert _publish(client, "blockset", overlap).status_code == 422
 
 
-def test_market_accepts_only_default_and_emissive_voxel_materials():
+@pytest.mark.parametrize("material_id", [0, 1, 2, 51, 61, 100, 101])
+def test_market_accepts_known_voxel_materials(material_id):
     emissive = _blockset("Emissive")
-    emissive["blocks"][0]["material_id"] = 1
+    emissive["blocks"][0]["material_id"] = material_id
     canonical = space_market.validate_inventory_resource_payload("blockset", emissive)
-    assert [block for block in canonical["blocks"] if block.get("material_id") == 1]
+    assert [block for block in canonical["blocks"] if block.get("material_id", 0) == material_id]
 
-    emissive["blocks"][0]["material_id"] = 2
-    with pytest.raises(ValueError, match="less than or equal to 1"):
+    emissive["blocks"][0]["material_id"] = 102
+    with pytest.raises(ValueError, match="less than or equal to 101"):
         space_market.validate_inventory_resource_payload("blockset", emissive)
 
 

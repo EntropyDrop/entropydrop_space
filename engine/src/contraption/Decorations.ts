@@ -21,7 +21,7 @@ export function normalizeDecoration(value: any): DecorationDefinition {
     throw new Error('Decoration color must be 0xRRGGBB.');
   }
   const materialId = value.materialId ?? 0;
-  if (materialId !== 0 && materialId !== 1) throw new Error('Decoration material must be 0 or 1.');
+  if (!Number.isInteger(materialId) || materialId < 0 || materialId > 101) throw new Error('Decoration material must be 0, 1, or 2–101.');
   if (materialId) result.materialId = materialId;
   for (const field of ['position', 'scale'] as const) {
     const vector = value[field];

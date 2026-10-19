@@ -1,8 +1,10 @@
+import { hookSceneMaterials } from '../torus/TorusWorld.ts';
+import { createVoxelTranslucentMaterial } from '../render/VoxelTranslucency.ts';
 import * as THREE from 'three/webgpu';
 import type { RuntimeVoxel } from './EntityTypes.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import { DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
+import { normalizeVoxelMaterialId, VoxelMaterialIds, isTranslucentVoxelMaterial, voxelMaterialRenderBucket, voxelMaterialOpacityByte } from '../voxel/VoxelMaterials.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 
 export type VoxelMeshIndex = Map<string, RuntimeVoxel | number>;
@@ -38,16 +40,21 @@ function indexVoxelMeshBlock(index: VoxelMeshIndex, block: RuntimeVoxel, add: bo
   }
 }
 
+function occludesVoxelFace(neighbor: RuntimeVoxel | number | undefined, materialId: number | undefined) {
+  return !!neighbor && (typeof neighbor === 'number' || !isTranslucentVoxelMaterial(neighbor.materialId)
+    || isTranslucentVoxelMaterial(materialId));
+}
+
 /** Shared face tessellation for rendering and picking on the curved world. */
 export function* visibleVoxelFaceQuads(block: RuntimeVoxel, normal: number[], quad: number[][], index?: VoxelMeshIndex) {
   const size = block.size || 1;
   const nx = block.localX + normal[0] * size;
   const ny = block.localY + normal[1] * size;
   const nz = block.localZ + normal[2] * size;
-  if (index?.has(voxelMeshKey(nx, ny, nz, size))) return;
-  if (size < 1 && index?.has(voxelMeshKey(
+  if (occludesVoxelFace(index?.get(voxelMeshKey(nx, ny, nz, size)), block.materialId)) return;
+  if (size < 1 && occludesVoxelFace(index?.get(voxelMeshKey(
     Math.floor(nx + 1e-6), Math.floor(ny + 1e-6), Math.floor(nz + 1e-6), 1
-  ))) return;
+  )), block.materialId)) return;
 
   // Standard-only faces remain compact. At mixed-grid boundaries, emit only
   // the micro patches exposed by the cut, with no coplanar internal faces.
@@ -66,7 +73,7 @@ export function* visibleVoxelFaceQuads(block: RuntimeVoxel, normal: number[], qu
       const mx = Math.floor((block.localX + center[0] + normal[0] * MICRO_SIZE / 2) * MICRO_DIVISIONS + 1e-6) * MICRO_SIZE;
       const my = Math.floor((block.localY + center[1] + normal[1] * MICRO_SIZE / 2) * MICRO_DIVISIONS + 1e-6) * MICRO_SIZE;
       const mz = Math.floor((block.localZ + center[2] + normal[2] * MICRO_SIZE / 2) * MICRO_DIVISIONS + 1e-6) * MICRO_SIZE;
-      if (index.has(voxelMeshKey(mx, my, mz, MICRO_SIZE))) continue;
+      if (occludesVoxelFace(index.get(voxelMeshKey(mx, my, mz, MICRO_SIZE)), block.materialId)) continue;
       exposed.push([at(u, v), at(u + 1, v), at(u + 1, v + 1), at(u, v + 1)]);
     }
   }
@@ -78,7 +85,10 @@ export function* visibleVoxelFaceQuads(block: RuntimeVoxel, normal: number[], qu
 
 export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigin: THREE.Vector3Like, parentGroup: THREE.Group, externalMeshCellMap: VoxelMeshIndex | null = null, existingMesh: THREE.Mesh | null = null) {
   if (blocks.length === 0) return null;
+  // Keep existing opaque entity chunks at RGB32F; only glass needs alpha.
+  const colorSize = blocks.some(block => isTranslucentVoxelMaterial(block.materialId)) ? 4 : 3;
   const buckets = [
+    { positions: [] as number[], normals: [] as number[], colors: [] as number[] },
     { positions: [] as number[], normals: [] as number[], colors: [] as number[] },
     { positions: [] as number[], normals: [] as number[], colors: [] as number[] }
   ];
@@ -102,7 +112,8 @@ export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigi
   for (const b of blocks) {
     const blockSize = b.size || 1;
     const materialId = normalizeVoxelMaterialId(b.materialId);
-    const bucket = buckets[materialId];
+    const bucket = buckets[voxelMaterialRenderBucket(materialId)];
+    const alpha = voxelMaterialOpacityByte(materialId) / 255;
 
     const ox = b.localX - coordinateOrigin.x;
     const oy = b.localY - coordinateOrigin.y;
@@ -129,7 +140,11 @@ export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigi
 
         bucket.positions.push(...v0, ...v1, ...v2, ...v0, ...v2, ...v3);
         bucket.normals.push(...f.norm, ...f.norm, ...f.norm, ...f.norm, ...f.norm, ...f.norm);
-        bucket.colors.push(r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol);
+        if (colorSize === 4) {
+          bucket.colors.push(r, g, bCol, alpha, r, g, bCol, alpha, r, g, bCol, alpha, r, g, bCol, alpha, r, g, bCol, alpha, r, g, bCol, alpha);
+        } else {
+          bucket.colors.push(r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol, r, g, bCol);
+        }
       }
     }
   }
@@ -141,7 +156,7 @@ export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigi
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, colorSize));
     let groupStart = 0;
     buckets.forEach((bucket, materialIndex) => {
       if (bucket.positions.length === 0) return;
@@ -153,6 +168,11 @@ export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigi
     if (existingMesh) {
       existingMesh.geometry.dispose();
       existingMesh.geometry = geo;
+      const materials = existingMesh.material as THREE.Material[];
+      if (buckets[2].positions.length && materials.length === 2) {
+        materials.push(createVoxelTranslucentMaterial());
+        hookSceneMaterials(existingMesh);
+      }
       return existingMesh;
     }
     const mat = [
@@ -165,10 +185,12 @@ export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigi
       createVoxelEmissiveMaterial()
     ];
 
+    if (buckets[2].positions.length) mat.push(createVoxelTranslucentMaterial());
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     parentGroup.add(mesh);
+    if (buckets[2].positions.length) hookSceneMaterials(mesh);
     return mesh;
   }
   return null;

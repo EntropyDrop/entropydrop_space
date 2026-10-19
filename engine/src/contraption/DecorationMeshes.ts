@@ -1,3 +1,5 @@
+import { isTranslucentVoxelMaterial, voxelMaterialRenderBucket, voxelMaterialOpacity } from '../voxel/VoxelMaterials.ts';
+import { createVoxelTranslucentMaterial } from '../render/VoxelTranslucency.ts';
 import * as THREE from 'three/webgpu';
 import { attribute, mat3, mat4, vec3, vec4, dot } from 'three/tsl';
 import { bendPointForView, hookSceneMaterials } from '../torus/TorusWorld.ts';
@@ -5,7 +7,7 @@ import { createVoxelEmissiveMaterial, voxelEmissionColor } from '../render/Voxel
 import type { DecorationDefinition } from './Decorations.ts';
 
 // Keep individual transform handles for picking, editor gizmos and camera bounds.
-// Large components render those handles through at most two material batches.
+// Large components render those handles through at most three material batches.
 const BATCH_THRESHOLD = 8;
 /** Explicit instance attributes keep transforms ahead of the torus deformation.
  * The r183 automatic InstancedMesh transform can be emitted after positionNode. */
@@ -21,7 +23,7 @@ export class DecorationBatchMesh extends THREE.Mesh<THREE.InstancedBufferGeometr
     super(geometry, material);
     this.instanceMatrix = new THREE.InstancedInterleavedBuffer(new Float32Array(capacity * 16), 16)
       .setUsage(THREE.DynamicDrawUsage);
-    this.tintAttribute = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3)
+    this.tintAttribute = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
       .setUsage(THREE.DynamicDrawUsage);
     for (let column = 0; column < 4; column++) {
       geometry.setAttribute(`decorationMatrix${column}`, new THREE.InterleavedBufferAttribute(this.instanceMatrix, 4, column * 4));
@@ -74,16 +76,17 @@ function syncInstanceColor(handle: THREE.Mesh) {
   const { batch, index } = instances.get(handle)!;
   const color = handle.userData.decorationColor;
   if (handle.userData.decorationMaterialId === 1) {
-    batch.colors.setXYZ(index, ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255);
+    batch.colors.setXYZW(index, ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
   } else {
     tint.setHex(color);
-    batch.colors.setXYZ(index, tint.r, tint.g, tint.b);
+    batch.colors.setXYZW(index, tint.r, tint.g, tint.b, voxelMaterialOpacity(handle.userData.decorationMaterialId));
   }
-  dirtyRange(batch.colors, index * 3, 3);
+  dirtyRange(batch.colors, index * 4, 4);
 }
 
 function createBatch(materialId: number, capacity: number): Batch {
   const material = materialId === 1 ? createVoxelEmissiveMaterial()
+    : materialId === 2 ? createVoxelTranslucentMaterial(false)
     : new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
   const columns = [0, 1, 2, 3].map(column => attribute<'vec4'>(`decorationMatrix${column}`, 'vec4'));
   const matrix = mat4(columns[0], columns[1], columns[2], columns[3]);
@@ -92,9 +95,11 @@ function createBatch(materialId: number, capacity: number): Batch {
   const normalMatrix = mat3(columns[0].xyz, columns[1].xyz, columns[2].xyz);
   const scaleSq = vec3(dot(columns[0].xyz, columns[0].xyz), dot(columns[1].xyz, columns[1].xyz), dot(columns[2].xyz, columns[2].xyz));
   material.userData.flatNormalNode = normalMatrix.mul(attribute<'vec3'>('normal', 'vec3').div(scaleSq));
-  const color = attribute<'vec3'>('decorationTint', 'vec3');
+  const tint = attribute<'vec4'>('decorationTint', 'vec4');
+  const color = tint.xyz;
   // Emission takes raw sRGB tint and retains the HDR mask; ordinary tint is linear.
   material.colorNode = materialId === 1 ? voxelEmissionColor(color) : color;
+  if (materialId === 2) material.opacityNode = tint.w;
   const mesh = new DecorationBatchMesh(material, capacity);
   const colors = mesh.tintAttribute;
   mesh.name = `DecorationBatch:${materialId}`;
@@ -118,7 +123,7 @@ function appendInstance(batch: Batch, handle: THREE.Mesh) {
 }
 
 function addInstance(group: THREE.Group, state: GroupState, handle: THREE.Mesh) {
-  const materialId = handle.userData.decorationMaterialId;
+  const materialId = voxelMaterialRenderBucket(handle.userData.decorationMaterialId);
   let batch = state.batches.get(materialId);
   if (!batch || batch.handles.length === batch.mesh.instanceMatrix.count) {
     const capacity = batch ? batch.mesh.instanceMatrix.count * 2 : 8;
@@ -147,7 +152,7 @@ function removeInstance(group: THREE.Group, state: GroupState, handle: THREE.Mes
     syncInstanceColor(last);
   }
   if (batch.mesh.instanceCount === 0) {
-    state.batches.delete(handle.userData.decorationMaterialId);
+    state.batches.delete(voxelMaterialRenderBucket(handle.userData.decorationMaterialId));
     group.remove(batch.mesh);
     disposeMesh(batch.mesh);
   }
@@ -238,6 +243,7 @@ function createDecorationMesh(value: DecorationDefinition, pivot: THREE.Vector3,
     geometry = new THREE.BoxGeometry(1, 1, 1);
     material = value.materialId === 1
       ? createVoxelEmissiveMaterial()
+      : isTranslucentVoxelMaterial(value.materialId) ? createVoxelTranslucentMaterial(false, voxelMaterialOpacity(value.materialId!))
       : new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
     if (value.materialId === 1) {
       // Emission reads an sRGB vertex tint, matching the voxel shader contract.
@@ -263,6 +269,15 @@ function createDecorationMesh(value: DecorationDefinition, pivot: THREE.Vector3,
 export function editDecorationGroup(group: THREE.Group, id: string, value: DecorationDefinition | undefined, pivot: THREE.Vector3) {
   const state = groups.get(group)!;
   let mesh = state.handles.get(id);
+  if (mesh && value && mesh.userData.decorationMaterialId !== (value.materialId || 0)
+    && voxelMaterialRenderBucket(mesh.userData.decorationMaterialId) === voxelMaterialRenderBucket(value.materialId || 0)) {
+    // Opacity-only edits never move instances or recreate a material/pipeline.
+    mesh.userData.decorationMaterialId = value.materialId || 0;
+    if (instances.has(mesh)) syncInstanceColor(mesh);
+    else (mesh.material as THREE.Material).opacity = voxelMaterialOpacity(value.materialId || 0);
+    updateDecorationMesh(mesh, value, pivot);
+    return;
+  }
   if (mesh && (!value || mesh.userData.decorationMaterialId !== (value.materialId || 0))) {
     if (instances.has(mesh)) {
       removeInstance(group, state, mesh);
@@ -296,8 +311,8 @@ export function createDecorationGroup(values: DecorationDefinition[], pivot: THR
   groups.set(group, state);
   if (values.length >= BATCH_THRESHOLD) {
     enableBatching(group, state);
-    for (const materialId of [0, 1]) {
-      const count = values.filter(value => (value.materialId || 0) === materialId).length;
+    for (const materialId of [0, 1, 2]) {
+      const count = values.filter(value => voxelMaterialRenderBucket(value.materialId || 0) === materialId).length;
       if (count) state.batches.set(materialId, createBatch(materialId, 2 ** Math.ceil(Math.log2(Math.max(8, count)))));
     }
   }

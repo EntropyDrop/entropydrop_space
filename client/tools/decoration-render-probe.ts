@@ -1,3 +1,4 @@
+import { makeVoxelMaterialOpaque } from '../../engine/src/render/VoxelTranslucency.ts';
 import * as THREE from 'three/webgpu';
 import { createDecorationGroup, editDecorationGroup, captureDecorationTransforms,
   interpolateDecorationTransforms } from '../../engine/src/contraption/DecorationMeshes.ts';
@@ -36,7 +37,7 @@ export async function run(game: any, compare?: Comparison) {
   const values: DecorationDefinition[] = Array.from({ length: 16 }, (_, i) => ({
     id: `d${i}`, color: i % 2 ? 0xff5533 : 0x33dd88,
     position: [(i % 8 - 3.5) * 2, (Math.floor(i / 8) - .5) * 3, 0],
-    scale: [1, 1, 1], ...(i % 3 ? {} : { materialId: 1 }),
+    scale: [1, 1, 1], materialId: i % 3 === 2 ? 11 + Math.floor(i / 3) * 20 : i % 3,
   }));
   const batched = createDecorationGroup(values, new THREE.Vector3());
   batched.position.copy(anchor); scene.add(batched);
@@ -66,7 +67,7 @@ export async function run(game: any, compare?: Comparison) {
     return renderer.readRenderTargetPixelsAsync(target, 0, 0, 512, 256);
   };
   try {
-    for (const phase of ['initial', 'animated']) {
+    for (const phase of ['initial', 'animated', 'outside-aoi']) {
       if (phase === 'animated') {
         // Directional light checks rotated/scaled normals with clearly visible faces.
         scene.add(light);
@@ -86,6 +87,12 @@ export async function run(game: any, compare?: Comparison) {
           rotation: handle.quaternion.toArray(), scale: handle.scale.toArray() }], new THREE.Vector3()));
       }
       scene.add(reference);
+      if (phase === 'outside-aoi') {
+        for (const root of [batched, reference]) root.traverse(object => {
+          const material = (object as THREE.Mesh).material;
+          if (material) for (const m of Array.isArray(material) ? material : [material]) makeVoxelMaterialOpaque(m);
+        });
+      }
       batched.visible = reference.visible = true;
       await renderer.compileAsync(scene, camera);
       batched.visible = false;

@@ -13,8 +13,8 @@ def normalize_decoration(value):
     material = value.get("materialId", 0)
     if type(color) is not int or not 0 <= color <= 0xFFFFFF:
         raise ValueError("decoration color must be 0xRRGGBB")
-    if type(material) is not int or material not in (0, 1):
-        raise ValueError("decoration material must be 0 or 1")
+    if type(material) is not int or material not in range(102):
+        raise ValueError("decoration material must be 0, 1, or 2-101")
     result = {"id": identifier, "color": color}
     if material:
         result["materialId"] = material

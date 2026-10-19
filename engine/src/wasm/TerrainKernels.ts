@@ -138,16 +138,16 @@ export class TerrainKernels {
     const capacity = 6 * 16 * 16 * height;
     const mask = this.alloc(16 * 16 * 4), quads = this.alloc(capacity * 32);
     const positions = this.alloc(capacity * 24), normals = this.alloc(capacity * 12);
-    const colors = this.alloc(capacity * 12), indices = this.alloc(capacity * 24), counts = this.alloc(8);
+    const colors = this.alloc(capacity * 16), indices = this.alloc(capacity * 24), counts = this.alloc(12);
     const count = this.exports.microMesh(input, height, minY, mask, quads, positions, normals, colors, indices, lookup, counts);
     const buffer = this.exports.memory.buffer;
     return {
       positions: new Uint16Array(buffer, positions, count * 12).slice(),
       normals: new Int8Array(buffer, normals, count * 12).slice(),
-      colors: new Uint8Array(buffer, colors, count * 12).slice(),
+      colors: new Uint8Array(buffer, colors, count * 16).slice(),
       indices: count * 4 <= 65535 ? new Uint16Array(buffer, indices, count * 6).slice()
         : new Uint32Array(buffer, indices, count * 6).slice(),
-      materialIndexCounts: Array.from(new Uint32Array(buffer, counts, 2)) as [number, number],
+      materialIndexCounts: Array.from(new Uint32Array(buffer, counts, 3)) as [number, number, number],
     };
   }
 
@@ -155,18 +155,18 @@ export class TerrainKernels {
     this.cursor = 65536;
     const blocks = this.copy(chunk.blocks), colors = this.copy(chunk.colors), materials = this.copy(chunk.materials);
     const halo = this.copy(neighbors), lookup = this.copy(linear);
-    const faces = this.alloc(6 * 256 * (maxY - minY + 1) * 32), table = this.alloc(32768 * 16), counts = this.alloc(8);
+    const faces = this.alloc(6 * 256 * (maxY - minY + 1) * 32), table = this.alloc(32768 * 16), counts = this.alloc(12);
     const faceCount = this.exports.standardFaces(blocks, colors, materials, halo, minY, maxY, faces, table, counts);
-    const materialIndexCounts = Array.from(new Uint32Array(this.exports.memory.buffer, counts, 2)) as [number, number];
-    const count = (materialIndexCounts[0] + materialIndexCounts[1]) / 6;
+    const materialIndexCounts = Array.from(new Uint32Array(this.exports.memory.buffer, counts, 3)) as [number, number, number];
+    const count = (materialIndexCounts[0] + materialIndexCounts[1] + materialIndexCounts[2]) / 6;
     const bounds = { occupiedMinY: minY, occupiedMaxY: maxY + 1, materialIndexCounts };
     if (!count) return { ...bounds, positions: null, normals: null, colors: null, indices: null };
-    const positions = this.alloc(count * 24), normals = this.alloc(count * 12), outputColors = this.alloc(count * 12);
+    const positions = this.alloc(count * 24), normals = this.alloc(count * 12), outputColors = this.alloc(count * 16);
     const indices = this.alloc(count * 6 * (count * 4 <= 65535 ? 2 : 4));
     this.exports.standardMesh(faces, faceCount, count * 4, positions, normals, outputColors, indices, lookup);
     const buffer = this.exports.memory.buffer;
     return { ...bounds, positions: new Uint16Array(buffer, positions, count * 12).slice(),
-      normals: new Int8Array(buffer, normals, count * 12).slice(), colors: new Uint8Array(buffer, outputColors, count * 12).slice(),
+      normals: new Int8Array(buffer, normals, count * 12).slice(), colors: new Uint8Array(buffer, outputColors, count * 16).slice(),
       indices: count * 4 <= 65535 ? new Uint16Array(buffer, indices, count * 6).slice() : new Uint32Array(buffer, indices, count * 6).slice() };
   }
 

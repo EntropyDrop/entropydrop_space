@@ -1,3 +1,4 @@
+import { createVoxelTranslucentMaterial } from '../render/VoxelTranslucency.ts';
 import { alignedVertexAttribute } from '../render/NodeMaterials.ts';
 import { CollisionBoxIndex, mergeCollisionCells, type CollisionBounds } from '../physics/CollisionGeometry.ts';
 import * as THREE from 'three/webgpu';
@@ -5,7 +6,7 @@ import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
 import { MicroRenderBatches } from '../render/MicroRenderBatches.ts';
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
-import { VoxelMaterialIds, normalizeVoxelMaterialId } from './VoxelMaterials.ts';
+import { VoxelMaterialIds, normalizeVoxelMaterialId, voxelMaterialRenderBucket, voxelMaterialOpacityByte } from './VoxelMaterials.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import type { MicroMeshResult, MicroMeshSnapshot } from './MicroMeshSnapshot.ts';
 import {
@@ -65,7 +66,7 @@ type MicroMeshBuildJob = {
   colors: Uint8Array | null;
   indices: Uint16Array | Uint32Array | null;
   writeQuadIndex: number;
-  materialIndexCounts: [number, number];
+  materialIndexCounts: [number, number, number];
   halo: Int32Array | null;
   haloIndex: number;
   interactive: boolean;
@@ -154,7 +155,7 @@ export class MicroVoxelLayer {
   private standardChunkPartitions = new Map<string, Set<string>>();
   private chunkRevisions = new Map<string, number>();
   private horizontalColumnPartitions = new Map<string, Set<string>>();
-  renderMaterials: [THREE.MeshStandardNodeMaterial, THREE.MeshBasicNodeMaterial];
+  renderMaterials: [THREE.MeshStandardNodeMaterial, THREE.MeshBasicNodeMaterial, THREE.MeshStandardNodeMaterial];
   private renderBatches: MicroRenderBatches;
   private meshWorker: Worker | null = null;
   private meshWorkerAttempted = false;
@@ -201,6 +202,7 @@ export class MicroVoxelLayer {
         metalness: 0.15
       }),
       createVoxelEmissiveMaterial(),
+      createVoxelTranslucentMaterial(),
     ];
     this.renderBatches = new MicroRenderBatches(this.group, this.renderMaterials);
   }
@@ -1139,7 +1141,7 @@ export class MicroVoxelLayer {
       colors: null,
       indices: null,
       writeQuadIndex: 0,
-      materialIndexCounts: [0, 0],
+      materialIndexCounts: [0, 0, 0],
       halo: null,
       haloIndex: 0,
       interactive: this.interactiveMeshChunks.delete(chunkKey),
@@ -1281,9 +1283,9 @@ export class MicroVoxelLayer {
             lz + (job.axis === 2 ? 1 : 0));
           const aInside = job.slice >= 0;
           const bInside = job.slice + 1 < dimensions[job.axis];
-          mask[index] = a !== undefined && b === undefined && aInside
+          mask[index] = a !== undefined && (b === undefined || ((b >>> 24) >= VoxelMaterialIds.TRANSLUCENT_MIN && (a >>> 24) < VoxelMaterialIds.TRANSLUCENT_MIN)) && aInside
             ? a + 1
-            : a === undefined && b !== undefined && bInside
+            : b !== undefined && (a === undefined || ((a >>> 24) >= VoxelMaterialIds.TRANSLUCENT_MIN && (b >>> 24) < VoxelMaterialIds.TRANSLUCENT_MIN)) && bInside
               ? -(b + 1)
               : 0;
           processed++;
@@ -1400,16 +1402,16 @@ export class MicroVoxelLayer {
 
   private prepareMeshOutput(job: MicroMeshBuildJob) {
     const grouped: number[] = [];
-    const counts: [number, number] = [0, 0];
-    for (const materialId of [VoxelMaterialIds.DEFAULT, VoxelMaterialIds.EMISSIVE]) {
+    const counts: [number, number, number] = [0, 0, 0];
+    for (const materialId of [0, 1, 2]) {
       for (let offset = 0; offset < job.quads.length; offset += 12) {
-        if ((job.quads[offset + 11] >>> 24) !== materialId) continue;
+        if (voxelMaterialRenderBucket(job.quads[offset + 11] >>> 24) !== materialId) continue;
         grouped.push(...job.quads.slice(offset, offset + 12));
         counts[materialId]++;
       }
     }
     job.quads = grouped;
-    job.materialIndexCounts = [counts[0] * 6, counts[1] * 6];
+    job.materialIndexCounts = [counts[0] * 6, counts[1] * 6, counts[2] * 6];
     const faceCount = job.quads.length / 12;
     if (faceCount === 0) {
       this.replaceMeshChunk(job, null);
@@ -1420,7 +1422,7 @@ export class MicroVoxelLayer {
     const vertexCount = faceCount * 4;
     job.positions = new Uint16Array(vertexCount * 3);
     job.normals = new Int8Array(vertexCount * 3);
-    job.colors = new Uint8Array(vertexCount * 3);
+    job.colors = new Uint8Array(vertexCount * 4);
     job.indices = vertexCount <= 0xffff
       ? new Uint16Array(faceCount * 6)
       : new Uint32Array(faceCount * 6);
@@ -1458,18 +1460,23 @@ export class MicroVoxelLayer {
     const normals = job.normals!;
     const colors = job.colors!;
     let attributeOffset = quadIndex * 12;
+    let colorOffset = quadIndex * 16;
     const vertexOffset = quadIndex * 4;
     for (let vertexIndex = 0; vertexIndex < 4; vertexIndex++) {
       const [alongU, alongV] = quad[vertexIndex];
       positions[attributeOffset] = baseX + duX * alongU + dvX * alongV;
       normals[attributeOffset] = (axis === 0 ? (positive ? 1 : -1) : 0) * 127;
-      colors[attributeOffset++] = r;
+      attributeOffset++;
+      colors[colorOffset++] = r;
       positions[attributeOffset] = job.minMicroY + baseY + duY * alongU + dvY * alongV;
       normals[attributeOffset] = (axis === 1 ? (positive ? 1 : -1) : 0) * 127;
-      colors[attributeOffset++] = g;
+      attributeOffset++;
+      colors[colorOffset++] = g;
       positions[attributeOffset] = baseZ + duZ * alongU + dvZ * alongV;
       normals[attributeOffset] = (axis === 2 ? (positive ? 1 : -1) : 0) * 127;
-      colors[attributeOffset++] = b;
+      attributeOffset++;
+      colors[colorOffset++] = b;
+      colors[colorOffset++] = voxelMaterialOpacityByte(materialId);
     }
     const indices = job.indices!;
     const indexOffset = quadIndex * 6;
@@ -1489,11 +1496,12 @@ export class MicroVoxelLayer {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', alignedVertexAttribute(job.positions, 3));
     geometry.setAttribute('normal', alignedVertexAttribute(job.normals, 3, true));
-    geometry.setAttribute('color', alignedVertexAttribute(job.colors, 3, true));
+    geometry.setAttribute('color', alignedVertexAttribute(job.colors, 4, true));
     geometry.setIndex(new THREE.BufferAttribute(job.indices, 1));
-    const [defaultCount, emissiveCount] = job.materialIndexCounts;
+    const [defaultCount, emissiveCount, translucentCount] = job.materialIndexCounts;
     if (defaultCount > 0) geometry.addGroup(0, defaultCount, 0);
     if (emissiveCount > 0) geometry.addGroup(defaultCount, emissiveCount, 1);
+    if (translucentCount > 0) geometry.addGroup(defaultCount + emissiveCount, translucentCount, 2);
     const mesh = new THREE.Mesh(geometry, this.renderMaterials);
     mesh.name = `MicroVoxelChunk:${job.chunkKey}`;
     mesh.userData.microChunkKey = job.chunkKey;

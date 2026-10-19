@@ -95,8 +95,8 @@ def _micro_offset(value: Any, axis: str) -> int:
 
 def _material_id(value: Any) -> int:
     material_id = int(value)
-    if material_id not in (0, 1):
-        raise InventoryCodecError("voxel material_id must be 0 (default) or 1 (emissive)")
+    if material_id not in range(102):
+        raise InventoryCodecError("voxel material_id must be 0 (default), 1 (emissive), or 2-101 (1-100% transparency)")
     return material_id
 
 

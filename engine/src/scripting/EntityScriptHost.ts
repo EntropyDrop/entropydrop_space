@@ -1,3 +1,4 @@
+import { normalizeVoxelMaterialId } from '../voxel/VoxelMaterials.ts';
 import type { ScriptCommand, ScriptSnapshot, ScriptComponentSnapshot } from './ScriptProtocol.ts';
 import type { DecorationDefinition } from '../contraption/Decorations.ts';
 import { readRecord } from '../contraption/EntityInput.ts';
@@ -342,7 +343,7 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
         if (accepted) worldVoxelOverlays.set(positionKey(position), {
           block: 1,
           color: finite(readRecord(options).color),
-          materialId: finite(readRecord(options).materialId) === 1 ? 1 : 0,
+          materialId: normalizeVoxelMaterialId(readRecord(options).materialId),
         });
         return queuedEdit('placed', accepted);
       },
@@ -360,7 +361,7 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
             color: finite(readRecord(options).color),
             materialId: readRecord(options).materialId === undefined
               ? finite(current.materialId)
-              : (finite(readRecord(options).materialId) === 1 ? 1 : 0),
+              : normalizeVoxelMaterialId(readRecord(options).materialId),
           });
         }
         return queuedEdit('painted', accepted);
@@ -386,7 +387,7 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
         const accepted = emit('world', null, 'microVoxels.set', [cell, offset, options]);
         if (accepted) worldMicroVoxelOverlays.set(
           microPositionKey(cell, offset),
-          { block: 1, color: finite(readRecord(options).color), materialId: finite(readRecord(options).materialId) === 1 ? 1 : 0 }
+          { block: 1, color: finite(readRecord(options).color), materialId: normalizeVoxelMaterialId(readRecord(options).materialId) }
         );
         return queuedEdit('placed', accepted);
       },
@@ -409,7 +410,7 @@ export function createEntityScriptHost(hostWorldReadCall: (kind: string, positio
               color: finite(readRecord(options).color),
               materialId: readRecord(options).materialId === undefined
                 ? finite(current.materialId)
-                : (finite(readRecord(options).materialId) === 1 ? 1 : 0),
+                : normalizeVoxelMaterialId(readRecord(options).materialId),
             }
           );
         }

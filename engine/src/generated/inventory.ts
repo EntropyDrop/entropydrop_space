@@ -119,7 +119,9 @@ export interface Voxel {
     | undefined;
   /**
    * Visual material preset. 0 is the existing lit/default surface; 1 is an
-   * unlit emissive surface tinted by color_rgb. Other values are rejected.
+   * unlit emissive surface; IDs 2..101 encode 1..100% transparency
+   * inside the AOI (transparency = material_id - 1), opaque outside.
+   * All surfaces use color_rgb as their tint. Other values are rejected.
    */
   materialId?: number | undefined;
 }
@@ -154,7 +156,7 @@ export interface PaletteEntry {
   stops?:
     | GradientStop[]
     | undefined;
-  /** Uses the same Voxel material preset ids (0 default, 1 emissive). */
+  /** Uses the same Voxel material preset ids (0 default, 1 emissive, 2..101 AOI transparency 1..100%). */
   materialId?: number | undefined;
 }
 
@@ -226,7 +228,7 @@ export interface Decoration {
   colorRgb?:
     | number
     | undefined;
-  /** 0 = default lit material, 1 = unlit emissive, matching Voxel.material_id. */
+  /** 0 = default lit material, 1 = unlit emissive, 2..101 = AOI transparency 1..100%; see Voxel.material_id. */
   materialId?: number | undefined;
 }
 

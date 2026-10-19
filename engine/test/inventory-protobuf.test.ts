@@ -126,7 +126,7 @@ test('voxel materials round trip and reject unknown presets', () => {
     blocks: [{ ...portable.blocks[0], block: 1 }],
   });
 
-  portable.blocks[0].materialId = 2;
+  portable.blocks[0].materialId = 102;
   assert.throws(() => encodeInventoryResource('blockset', portable), /materialId/);
 
   const invalidWire = InventoryResource.encode({
@@ -138,7 +138,7 @@ test('voxel materials round trip and reject unknown presets', () => {
         blocks: [{
           dx: 0, dy: 0, dz: 0, isMicro: false,
           microX: 0, microY: 0, microZ: 0,
-          colorRgb: 1, materialId: 2,
+          colorRgb: 1, materialId: 102,
         }],
       },
     },

@@ -29,7 +29,7 @@ import {
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { triggerProtobufDownload, triggerFileDownload } from '../browser/downloadProtobuf.ts';
 import { colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import { normalizeVoxelMaterialId, isTranslucentVoxelMaterial, voxelMaterialTransparency } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import {
   MAX_GRADIENT_STOPS,
   normalizeGradientStops,
@@ -1249,7 +1249,9 @@ export class SpaceUiStore {
       }
     }
     if (notify && this.snapshot.hasStarted) {
-      this.showToast(`${entry.stops.length > 1 ? 'Gradient' : 'Color'}: ${entry.hex.toUpperCase()} · ${selectedMaterialId === 1 ? 'Emissive' : 'Default'}`);
+      const materialLabel = selectedMaterialId === 1 ? 'Emissive'
+        : isTranslucentVoxelMaterial(selectedMaterialId) ? `${voxelMaterialTransparency(selectedMaterialId)}% transparent` : 'Default';
+      this.showToast(`${entry.stops.length > 1 ? 'Gradient' : 'Color'}: ${entry.hex.toUpperCase()} · ${materialLabel}`);
     }
   }
 

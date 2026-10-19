@@ -29,7 +29,7 @@ Schema:
 Rules:
 - Coordinates are local offsets from the placement anchor; Y is up. Standard voxels use integer coordinates and size 1. Micro voxels use 0.125-grid coordinates and size 0.125.
 - Prefer compact box/line primitives over enumerating many blocks. Use hollow boxes for shells and several boxes when doors/windows need openings.
-- Colors are #RRGGBB. materialId 0 is the default lit surface; materialId 1 is emissive. Omit materialId unless emissive is requested or visually useful.
+- Colors are #RRGGBB. materialId 0 is the default lit surface; materialId 1 is emissive; materialId 2–101 selects 1%–100% transparency in the AOI (transparency = materialId - 1); these render opaque at a distance. Omit materialId for ordinary surfaces.
 - Keep each axis within 64 metres and the expanded result within 65,536 voxels.
 - A structure becomes terrain. An entity becomes an independent physics object.
 - Entity component ids are unique identifiers with no reserved values. Exactly one component has parentId null; that structural root may use any id. Every other component names an existing parentId.

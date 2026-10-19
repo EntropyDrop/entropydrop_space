@@ -32,7 +32,7 @@ test('decoration defaults, quaternion signs and sorting have one canonical wire 
 
 test('decorations reject malformed transforms and duplicate component-local identities', () => {
   for (const patch of [{ scale: [0, 1, 1] }, { scale: [-1, 1, 1] }, { position: [Infinity, 0, 0] },
-    { rotation: [0, 0, 0, 0] }, { materialId: 2 }, { color: 0x1000000 }, { id: '' }]) {
+    { rotation: [0, 0, 0, 0] }, { materialId: 102 }, { color: 0x1000000 }, { id: '' }]) {
     assert.throws(() => normalizeDecorations([{ ...decoration, ...patch }]));
   }
   assert.throws(() => normalizeDecorations([decoration, decoration]), /unique/);
