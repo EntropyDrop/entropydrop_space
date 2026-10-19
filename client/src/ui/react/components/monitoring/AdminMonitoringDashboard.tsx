@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Icon } from '@iconify/react';
 import { MetricChart } from './MonitoringCharts.tsx';
 import { ensureSpaceAccessToken } from '../../../../bootstrap/SpaceAuthSession.ts';
-import { spaceLoginUrl } from '../../../../bootstrap/SpaceSiteLinks.ts';
+import { mainSiteUrl, spaceLoginUrl } from '../../../../bootstrap/SpaceSiteLinks.ts';
 import './monitoring.css';
 
 interface RealtimeStats {
@@ -324,7 +324,7 @@ export function AdminMonitoringDashboard({
                     Back
                   </button>
                 ) : (
-                  <a href="/" className="space-btn-text">
+                  <a href={mainSiteUrl('/space/intro')} className="space-btn-text">
                     Home
                   </a>
                 )}
@@ -356,7 +356,7 @@ export function AdminMonitoringDashboard({
                     Back to Game
                   </button>
                 ) : (
-                  <a href="/" className="space-btn-text">
+                  <a href={mainSiteUrl('/space/intro')} className="space-btn-text">
                     Home
                   </a>
                 )}

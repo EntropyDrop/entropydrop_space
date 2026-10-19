@@ -51,7 +51,7 @@ import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTra
 import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
 import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
 
-export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | null;
+export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | 'help' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
 
 const RESOLUTION_SCALE_PRESETS = [1, 0.8, 0.67, 0.5] as const;
@@ -795,7 +795,7 @@ export class SpaceUiStore {
   }
 
   startGame(): void {
-    this.patch({ hasStarted: true });
+    this.patch({ hasStarted: true, activeModal: null });
     void this.snapshot.controller?.requestLock?.();
   }
 
@@ -922,6 +922,10 @@ export class SpaceUiStore {
   toggleGlobalSettingsModal(forceState: boolean | null = null): void {
     this.syncSettingsUI();
     this.toggleModal('settings', forceState);
+  }
+
+  toggleHelpModal(forceState: boolean | null = null): void {
+    this.toggleModal('help', forceState);
   }
 
   toggleCodeEditorModal(forceState: boolean | null = null): void {

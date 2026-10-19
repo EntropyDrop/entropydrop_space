@@ -583,11 +583,35 @@ export function GlobalSettingsModal() {
 
 export function PauseScreen() {
   const hasStarted = useSpaceUi(state => state.hasStarted);
+  const activeModal = useSpaceUi(state => state.activeModal);
   const isAdmin = useSpaceUi(state => state.isAdmin);
   const altLabel = getAltKeyLabel();
+  const visible = !hasStarted || activeModal === 'help';
+
   return (
-    <div id="pause-screen" className={hasStarted ? 'hidden' : ''}>
-      <div className="hero-box">
+    <div
+      id="pause-screen"
+      className={visible ? '' : 'hidden'}
+      onMouseDown={event => {
+        if (event.target === event.currentTarget && hasStarted) {
+          spaceUiStore.toggleHelpModal(false);
+        }
+      }}
+    >
+      <div className="hero-box" style={{ position: 'relative' }}>
+        {hasStarted ? (
+          <button
+            id="close-help-btn"
+            type="button"
+            tabIndex={-1}
+            className="icon-btn"
+            style={{ position: 'absolute', top: 16, right: 16, width: 28, height: 28, fontSize: 13 }}
+            title="Close (ESC)"
+            onClick={() => spaceUiStore.toggleHelpModal(false)}
+          >
+            ✕
+          </button>
+        ) : null}
         <div className="hero-block-icon">■</div>
         <h1 className="game-logo">EntropyDrop · Space <span className="game-logo-beta">BETA</span></h1>
         <div className="controls-guide">
@@ -612,7 +636,20 @@ export function PauseScreen() {
           <span><kbd className="key-badge">ESC</kbd> Settings / release cursor</span>
         </div>
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button id="start-btn" tabIndex={-1} className="start-btn" onClick={() => spaceUiStore.startGame()}>Play</button>
+          <button
+            id="start-btn"
+            tabIndex={-1}
+            className="start-btn"
+            onClick={() => {
+              if (!hasStarted) {
+                spaceUiStore.startGame();
+              } else {
+                spaceUiStore.toggleHelpModal(false);
+              }
+            }}
+          >
+            {hasStarted ? 'Resume' : 'Play'}
+          </button>
           {isAdmin ? (
             <button
               type="button"
@@ -624,7 +661,10 @@ export function PauseScreen() {
                 borderColor: '#000',
                 boxShadow: '4px 4px 0px #000',
               }}
-              onClick={() => spaceUiStore.toggleAdminMonitoring(true)}
+              onClick={() => {
+                if (hasStarted) spaceUiStore.toggleHelpModal(false);
+                spaceUiStore.toggleAdminMonitoring(true);
+              }}
             >
               ⚡ System Monitor
             </button>

@@ -18,7 +18,7 @@ const componentSource = COMPONENT_FILES
 
 const REQUIRED_UI_IDS = [
   'canvas-container', 'crosshair', 'hud-overlay', 'fps-val', 'ping-val', 'pos-val',
-  'hud-entities-list', 'home-btn', 'discord-btn', 'global-settings-btn', 'color-palette-bar', 'inventory-bar',
+  'hud-entities-list', 'home-btn', 'help-btn', 'discord-btn', 'global-settings-btn', 'color-palette-bar', 'inventory-bar',
   'selector-panel-wrapper', 'hotbar', 'toast', 'code-editor-modal',
   'global-playback-group', 'component-tree-list', 'component-inspector-panel',
   'inspector-tab-defaults', 'inspector-tab-runtime',
@@ -110,6 +110,28 @@ test('global settings remains English-only', () => {
   assert.ok(settingsSource.includes("mainSiteUrl('/skin/generate')"));
   assert.doesNotMatch(settingsSource, /Entity Gravity|setting-gravity-group|setGravity/);
   assert.doesNotMatch(settingsSource, /[\u3400-\u9fff]/);
+});
+
+test('home button in HUD links to frontend space intro', () => {
+  const hudSource = readFileSync(
+    new URL('../src/ui/react/components/Hud.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(hudSource, /id="home-btn"[\s\S]{0,200}mainSiteUrl\('\/space\/intro'\)/);
+});
+
+test('help button in HUD toggles controls help popup', () => {
+  const hudSource = readFileSync(
+    new URL('../src/ui/react/components/Hud.tsx', import.meta.url),
+    'utf8',
+  );
+  const pauseSource = readFileSync(
+    new URL('../src/ui/react/components/SimpleModals.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(hudSource, /id="help-btn"[\s\S]{0,200}toggleHelpModal\(true\)/);
+  assert.match(pauseSource, /activeModal === 'help'/);
+  assert.match(pauseSource, /id="close-help-btn"/);
 });
 
 test('React mounts synchronously before Game construction', () => {
