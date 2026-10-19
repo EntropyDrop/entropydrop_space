@@ -2,13 +2,17 @@ import * as THREE from 'three/webgpu';
 import { reference, modelWorldMatrix, floor, vec4, int } from 'three/tsl';
 import { asNodeMaterial, terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
 import { hookSceneMaterials } from '../torus/TorusWorld.ts';
+import { cloneVoxelMaterial, makeVoxelMaterialOpaque } from './VoxelTranslucency.ts';
 
-type NearMaterial = { opaque: THREE.NodeMaterial; masked: THREE.NodeMaterial };
+type NearMaterial = { opaque: THREE.NodeMaterial; masked: THREE.NodeMaterial;
+  farOpaque: THREE.NodeMaterial; farMasked: THREE.NodeMaterial };
 type NearDraw = {
   mesh: THREE.Mesh;
   index: number;
   opaque: THREE.Material | THREE.Material[];
   masked: THREE.Material | THREE.Material[];
+  farOpaque: THREE.Material | THREE.Material[];
+  farMasked: THREE.Material | THREE.Material[];
 };
 
 export const TERRAIN_FADE_MS = 400;
@@ -22,6 +26,7 @@ export class TerrainHandoff {
   private readonly roots = new WeakMap<THREE.Object3D, NearDraw[]>();
   private readonly materials = new WeakMap<THREE.Material, NearMaterial>();
   private opaqueFastPath = true;
+  private readonly ready = new Set<number>();
 
   constructor() {
     this.texture.userData.voxelVisibilityVersion = 0;
@@ -54,6 +59,8 @@ export class TerrainHandoff {
 
   setReady(cx: number, cz: number, ready: boolean, animate: boolean, now = performance.now()) {
     const index = this.index(cx, cz), to = ready ? 255 : 0;
+    if (ready) this.ready.add(index);
+    else this.ready.delete(index);
     this.advanceOne(index, now);
     if (this.changes.get(index)?.to === to && animate) return;
     this.changes.delete(index);
@@ -98,7 +105,9 @@ export class TerrainHandoff {
         mesh.getWorldPosition(origin);
         draws!.push({ mesh, index: this.index(Math.floor((origin.x + .01) / 16), Math.floor((origin.z + .01) / 16)),
           opaque: Array.isArray(material) ? pairs.map(pair => pair.opaque) : pairs[0].opaque,
-          masked: Array.isArray(material) ? pairs.map(pair => pair.masked) : pairs[0].masked });
+          masked: Array.isArray(material) ? pairs.map(pair => pair.masked) : pairs[0].masked,
+          farOpaque: Array.isArray(material) ? pairs.map(pair => pair.farOpaque) : pairs[0].farOpaque,
+          farMasked: Array.isArray(material) ? pairs.map(pair => pair.farMasked) : pairs[0].farMasked });
       });
       this.roots.set(root, draws);
     }
@@ -106,30 +115,34 @@ export class TerrainHandoff {
     // shader before the next draw. Do not allocate materials/arrays per frame.
     for (const draw of draws) {
       const opaque = this.opaqueFastPath && (!this.enabled.value || this.data[draw.index] === 255);
-      draw.mesh.material = opaque ? draw.opaque : draw.masked;
+      const near = !this.enabled.value || this.ready.has(draw.index);
+      draw.mesh.material = near ? (opaque ? draw.opaque : draw.masked)
+        : (opaque ? draw.farOpaque : draw.farMasked);
     }
   }
 
   private materialPair(source: THREE.Material): NearMaterial {
     const mat = asNodeMaterial(source), existing = this.materials.get(mat);
     if (existing) return existing;
-    const masked = mat.clone();
-    // r183 NodeMaterial.copy omits classic subclass fields such as flatShading,
-    // roughness and metalness, and callbacks. Share all shading state while
-    // retaining the variant's identity, version and disposal listeners.
-    for (const key of Object.keys(mat)) {
-      if (['id', 'uuid', 'type', 'version', '_listeners'].includes(key)) continue;
-      (masked as any)[key] = (mat as any)[key];
-    }
+    const masked = cloneVoxelMaterial(mat);
     const flat = vec4(modelWorldMatrix.element(int(3))).xz.add(.01);
     const coverage = terrainCoverage(this.texture, flat).r;
     discardWhen(masked, reference('value', 'bool', this.enabled).and(terrainDither().greaterThanEqual(coverage)));
-    const pair = { opaque: mat, masked };
+    const farOpaque = mat.userData.voxelTranslucent ? cloneVoxelMaterial(mat) : mat;
+    const farMasked = mat.userData.voxelTranslucent ? cloneVoxelMaterial(masked) : masked;
+    if (mat.userData.voxelTranslucent) {
+      makeVoxelMaterialOpaque(farOpaque);
+      makeVoxelMaterialOpaque(farMasked);
+    }
+    const pair = { opaque: mat, masked, farOpaque, farMasked };
     this.materials.set(mat, pair); this.materials.set(masked, pair);
+    this.materials.set(farOpaque, pair); this.materials.set(farMasked, pair);
     const dispose = () => {
       mat.removeEventListener('dispose', dispose);
       this.texture.removeEventListener('dispose', dispose);
       masked.dispose();
+      if (farOpaque !== mat) farOpaque.dispose();
+      if (farMasked !== masked) farMasked.dispose();
     };
     mat.addEventListener('dispose', dispose);
     this.texture.addEventListener('dispose', dispose);

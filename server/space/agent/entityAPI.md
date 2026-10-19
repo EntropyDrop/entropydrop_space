@@ -407,12 +407,12 @@ Every root and child receives the same top-level API. Namespaces target the curr
 | `self.getBounds()` | Return entity-local block bounds `{min,max,size,center}`, or `null` when empty. |
 | `self.setSeats(seats)` | Replace this component's pivot-relative driver seats. Each entry is `[x,y,z]` or `{position,rotation?,fixedOrientation?}`. `position` is the character/physics anchor, not the cushion top: on an upright seat, the standard 1.8 m sitting pose contacts the cushion 0.567 m above it, placing the head 1.233 m and the camera eye 1.053 m above the cushion, and needs about 0.33 m behind plus 0.59 m forward clearance. `rotation` is a `[x,y,z,w]` rider orientation in the pivot frame (default identity, facing the component's -Z forward); `fixedOrientation:true` makes the mounted rider's body and sitting clearances follow the seat's solved world orientation. The first-person camera inherits body tilt and eye offset while retaining unrestricted horizontal mouse look and free pitch; third-person views remain upright. Changes take effect while mounted without resetting mouse-look angles. Invalid positions or degenerate quaternions drop that seat. An entity is mountable when any component has a seat. |
 | `self.getSeats()` | Return this component's pivot-relative driver seats as `{position,rotation,fixedOrientation}` records. |
-| `self.voxels.set(position, options?)` | Queue one pivot-relative standard voxel placement. `options.materialId` is `0` (default) or `1` (emissive); returns `{ok,placed,reason}`. |
+| `self.voxels.set(position, options?)` | Queue one pivot-relative standard voxel placement. `options.materialId` is `0` (default), `1` (emissive), or `2`–`101` (1%–100% transparency in the AOI, opaque outside); returns `{ok,placed,reason}`. |
 | `self.voxels.clear(position)` | Queue removal of one standard voxel; returns `{ok,removed,reason}`. |
 | `self.voxels.paint(position, options?)` | Queue color and optional `materialId` changes on one standard voxel; returns `{ok,painted,reason}`. |
 | `self.voxels.clearCell(position)` | Queue removal of all standard and micro voxels in one 1 m component cell. |
 | `self.voxels.subdivide(position, clearOffset?)` | Queue conversion to 512 micro voxels, optionally removing one offset atomically. |
-| `self.microVoxels.set(cell, offset, options?)` | Queue a 0.125 m voxel with optional `materialId` `0` or `1`; each offset coordinate is an integer from 0 through 7. |
+| `self.microVoxels.set(cell, offset, options?)` | Queue a 0.125 m voxel with optional `materialId` `0`, `1`, or `2`–`101` (1%–100% AOI transparency); each offset coordinate is an integer from 0 through 7. |
 | `self.microVoxels.clear(cell, offset)` | Queue removal of one exact 0.125 m component voxel. |
 | `self.microVoxels.paint(cell, offset, options?)` | Queue color and optional `materialId` changes on one exact 0.125 m component voxel. |
 
@@ -425,7 +425,7 @@ Every root and child receives the same top-level API. Namespaces target the curr
 
 - Decorations are visual-only cubes. They never change collisions, mass, inertia, seats or constraints, and accept runtime edits on both dynamic and kinematic components.
 - IDs are component-local, case-sensitive, 1-64 ASCII letters, digits, underscores or hyphens. Use self.child(id) or ctx.root to address another component. An entity may display at most 1024 decorations in total.
-- position is [x,y,z] in component construction coordinates, independent of the pivot, each within ±512. rotation is a unit [x,y,z,w] quaternion. scale contains positive dimensions, each at most 256. color is an integer 0xRRGGBB; materialId is 0 (lit) or 1 (emissive). Unknown/null fields and malformed transforms return invalid_decoration.
+- position is [x,y,z] in component construction coordinates, independent of the pivot, each within ±512. rotation is a unit [x,y,z,w] quaternion. scale contains positive dimensions, each at most 256. color is an integer 0xRRGGBB; materialId is 0 (lit), 1 (emissive), or 2–101 (transparency = materialId - 1 percent in the AOI, opaque outside). Unknown/null fields and malformed transforms return invalid_decoration.
 - New decorations default to position [0,0,0], rotation [0,0,0,1], scale [1,1,1], color 0 and materialId 0. Reads may omit default transform/material fields. Supply explicit identity values to reset a field.
 - Admitted commands update the shared optimistic in-tick view and consume the usual 256-command budget. Check ok/reason/commandId and later ctx.commands.result(commandId) for final commit; command_limit and too_many_decorations leave the view unchanged.
 - Script edits affect runtime values only. They survive ticks, disabling code and streaming/checkpoints; global Stop or reset restores authored decorations and removes runtime-created ones. Inventory export and configuration reads retain the authored definition. Use spaceAPI configuration decoration_ops for persistent edits.
@@ -492,13 +492,13 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 | `ctx.world.apiVersion` | Current world API version: `3`. |
 | `ctx.world.getInfo(): Value` | Read the current runtime world: `id`, `slug`, `name`, `seed`, `terrainGeneratorVersion`, and `width`, `height`, `length` in metres. Use typed Value getters. Identity strings can be empty in engine-only fixtures without server metadata. |
 | `ctx.world.voxels.get(position)` | Read a real standard world voxel as `{block,color,materialId}` plus the current tick's admitted-write overlay; maximum 256 combined standard/micro host reads per entity tick. |
-| `ctx.world.voxels.set(position, options?)` | Queue a standard placement; `options.materialId` is `0` (default) or `1` (emissive), and the admitted result is provisional `{ok:true,placed:1,reason:'queued'}`. |
+| `ctx.world.voxels.set(position, options?)` | Queue a standard placement; `options.materialId` is `0` (default), `1` (emissive), or `2`–`101` (1%–100% transparency in the AOI, opaque outside), and the admitted result is provisional `{ok:true,placed:1,reason:'queued'}`. |
 | `ctx.world.voxels.clear(position)` | Queue removal of one standard voxel without deleting micro voxels in its cell. |
 | `ctx.world.voxels.paint(position, options?)` | Queue color and optional `materialId` changes on one existing standard voxel. |
 | `ctx.world.voxels.clearCell(position)` | Queue removal of all standard and micro voxels in one world cell. |
 | `ctx.world.voxels.subdivide(position, clearOffset?)` | Queue conversion of one standard voxel to 512 micro voxels. |
 | `ctx.world.microVoxels.get(cell, offset)` | Read one real 0.125 m world voxel as `{block,color,materialId}` plus the current tick overlay; offset coordinates are integers from 0 through 7. |
-| `ctx.world.microVoxels.set(cell, offset, options?)` | Queue one 0.125 m world voxel placement with optional `materialId` `0` or `1`. |
+| `ctx.world.microVoxels.set(cell, offset, options?)` | Queue one 0.125 m world voxel placement with optional `materialId` `0`, `1`, or `2`–`101` (1%–100% AOI transparency). |
 | `ctx.world.microVoxels.clear(cell, offset)` | Queue removal of one exact 0.125 m world voxel. |
 | `ctx.world.microVoxels.paint(cell, offset, options?)` | Queue color and optional `materialId` changes on one existing micro world voxel. |
 | `ctx.world.entities(origin, radius=16)` | Filter the prefetched 64 m nearby-entity snapshot using shortest wrapped X/Z distance. Descriptors include pose, velocities, mass, bounds, collision/ground state, physics enabled state, script status, and component count. |

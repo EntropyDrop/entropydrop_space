@@ -121,7 +121,7 @@ test('BuildPlan validation expands bounded primitives and rejects overlap', () =
   }).ok, false);
   assert.equal(validateSpaceBuildPlan({
     kind: 'structure',
-    blocks: [{ x: 0, y: 0, z: 0, materialId: 2 }]
+    blocks: [{ x: 0, y: 0, z: 0, materialId: 102 }]
   }).ok, false);
 });
 

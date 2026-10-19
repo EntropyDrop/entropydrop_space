@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Contraption } from './Contraption.ts';
+import { makeVoxelMaterialOpaque } from '../render/VoxelTranslucency.ts';
 
 /** Transfer render resources out of a runtime that is about to be disposed. */
 export function detachEntityRenderProxy(entity: Contraption) {
@@ -18,7 +19,13 @@ export function detachEntityRenderProxy(entity: Contraption) {
   proxy.add(entity.meshGroup);
   // Picking must never treat a cached visual as a live entity, even when a
   // caller raycasts the scene rather than the manager's active collection.
-  proxy.traverse(object => { object.raycast = () => {}; });
+  const materials = new Set<THREE.Material>();
+  proxy.traverse(object => {
+    object.raycast = () => {};
+    const material = (object as THREE.Mesh).material;
+    if (material) for (const m of Array.isArray(material) ? material : [material]) materials.add(m);
+  });
+  for (const material of materials) makeVoxelMaterialOpaque(material);
   return proxy;
 }
 

@@ -62,7 +62,9 @@ message Voxel {
   // schema; the old `fixed32 color` wire type is no longer accepted.
   uint32 color_rgb = 8;
   // Visual material preset. 0 is the existing lit/default surface; 1 is an
-  // unlit emissive surface tinted by color_rgb. Other values are rejected.
+  // unlit emissive surface; IDs 2..101 encode 1..100% transparency
+  // inside the AOI (transparency = material_id - 1), opaque outside.
+  // All surfaces use color_rgb as their tint. Other values are rejected.
   uint32 material_id = 9;
 }
 
@@ -88,7 +90,7 @@ message GradientStop {
 message PaletteEntry {
   // One solid stop or up to five gradient stops, sorted by offset_millis.
   repeated GradientStop stops = 1;
-  // Uses the same Voxel material preset ids (0 default, 1 emissive).
+  // Uses the same Voxel material preset ids (0 default, 1 emissive, 2..101 AOI transparency 1..100%).
   uint32 material_id = 2;
 }
 
@@ -145,7 +147,7 @@ message Decoration {
   // Positive dimensions along the cube's own XYZ axes; absent means (1,1,1).
   optional Vector3 scale = 4;
   uint32 color_rgb = 5;
-  // 0 = default lit material, 1 = unlit emissive, matching Voxel.material_id.
+  // 0 = default lit material, 1 = unlit emissive, 2..101 = AOI transparency 1..100%; see Voxel.material_id.
   uint32 material_id = 6;
 }
 

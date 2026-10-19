@@ -22,10 +22,13 @@ export function standardFaces(blocks: usize, colors: usize, materials: usize, ne
       const nz = z + (face == 2 ? -1 : face == 3 ? 1 : 0);
       let neighbor = 0;
       if (ny >= 0 && ny < 256) {
-        if (nx >= 0 && nx < 16 && nz >= 0 && nz < 16) neighbor = load<u8>(blocks + (ny * 16 + nz) * 16 + nx);
+        if (nx >= 0 && nx < 16 && nz >= 0 && nz < 16) {
+          const ni = (ny * 16 + nz) * 16 + nx;
+          neighbor = load<u8>(blocks + ni) | (load<u8>(materials + ni) >= 2 ? 512 : 0);
+        }
         else neighbor = load<u16>(neighbors + ((face - 2) * height * 16 + (y - minY) * 16 + (face < 4 ? x : z)) * 2);
       }
-      if ((neighbor & 255) != 0) continue;
+      if ((neighbor & 255) != 0 && ((neighbor & 512) == 0 || material >= 2)) continue;
       const cut = (neighbor & 256) != 0;
       if (cut && face >= 2) {
         // Match the reference's numeric run key and first-face output order.
@@ -48,10 +51,10 @@ export function standardFaces(blocks: usize, colors: usize, materials: usize, ne
       store<i32>(p + 16, cut ? 1 : 0); store<u32>(p + 20, color); store<i32>(p + 24, material); store<i32>(p + 28, 1);
     }
   }
-  memory.fill(counts, 0, 8);
+  memory.fill(counts, 0, 12);
   for (let i = 0; i < count; i++) {
-    const material = load<i32>(faces + i * 32 + 24);
-    if (material < 2) store<i32>(counts + material * 4, load<i32>(counts + material * 4) + 6);
+    const material = min(2, load<i32>(faces + i * 32 + 24));
+    if (material < 3) store<i32>(counts + material * 4, load<i32>(counts + material * 4) + 6);
   }
   return count;
 }
@@ -59,9 +62,10 @@ export function standardFaces(blocks: usize, colors: usize, materials: usize, ne
 export function standardMesh(faces: usize, faceCount: i32, vertexCount: i32,
   positions: usize, normals: usize, colors: usize, indices: usize, linear: usize): void {
   let written = 0;
-  for (let material = 0; material < 2; material++) for (let i = 0; i < faceCount; i++) {
+  for (let material = 0; material < 3; material++) for (let i = 0; i < faceCount; i++) {
     const p = faces + i * 32;
-    if (load<i32>(p + 24) != material) continue;
+    const id = load<i32>(p + 24);
+    if (min(2, id) != material) continue;
     const face = load<i32>(p + 12), color = load<u32>(p + 20);
     const shade: f64 = material == 1 || face == 0 || load<i32>(p + 16) != 0 ? 1 : face == 1 ? 0.6 : 0.85;
     for (let v = 0; v < 4; v++) for (let c = 0; c < 3; c++) {
@@ -72,9 +76,10 @@ export function standardMesh(faces: usize, faceCount: i32, vertexCount: i32,
         : c == 1 ? (face == 1 ? -127 : face == 0 ? 127 : 0) : (face == 2 ? -127 : face == 3 ? 127 : 0);
       store<i8>(normals + offset, normal);
       const channel = (color >> ((2 - c) * 8)) & 255;
-      store<u8>(colors + offset, material == 1 ? channel
+      store<u8>(colors + (written * 4 + v) * 4 + c, material == 1 ? channel
         : i32(Math.floor(load<f64>(linear + channel * 8) * shade * 255 + 0.5)));
     }
+    for (let v = 0; v < 4; v++) store<u8>(colors + (written * 4 + v) * 4 + 3, material == 2 ? 101 - id : 255);
     for (let k = 0; k < 6; k++) {
       const value = written * 4 + (k == 0 || k == 3 ? 0 : k == 1 ? 1 : k == 5 ? 3 : 2);
       if (vertexCount <= 65535) store<u16>(indices + (written * 6 + k) * 2, value);

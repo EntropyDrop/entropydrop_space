@@ -14,12 +14,13 @@ def request(ops, revision=1, component='root'):
     return edit(revision, [{'id': component, 'decoration_ops': ops}])
 
 
-def test_decoration_crud_preserves_physics_and_merges_partial_updates(client, db, configured):
+@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 100, 101])
+def test_decoration_crud_preserves_physics_and_merges_partial_updates(client, db, configured, material_id):
     url, keys, _ = configured
     headers = keys['basic']
     before = client.get(url+'/configuration', headers=headers).json()['definition']
     payload = request([{'op': 'upsert', 'id': 'trim', 'position': [2, 1, 0],
-                        'scale': [2, 0.1, 1], 'color': 0xFF0000, 'materialId': 1}])
+                        'scale': [2, 0.1, 1], 'color': 0xFF0000, 'materialId': material_id}])
     first = client.patch(url+'/configuration', headers=headers, json=payload)
     assert first.status_code == 200, first.text
     assert first.json()['revision'] == 2
@@ -29,7 +30,7 @@ def test_decoration_crud_preserves_physics_and_merges_partial_updates(client, db
     ], 2)).status_code == 200
     after = client.get(url+'/configuration', headers=headers).json()['definition']
     assert after['root'].pop('decorations') == [
-        {'id': 'trim', 'scale': [2, 0.1, 1], 'color': 0xFF0000, 'materialId': 1}]
+        {'id': 'trim', 'scale': [2, 0.1, 1], 'color': 0xFF0000, 'materialId': material_id}]
     assert after == before
     entity = db.query(models.SpaceWorldEntity).one()
     assert bytes(entity.content_digest) == hashlib.sha256(bytes(entity.definition)).digest()
@@ -49,7 +50,7 @@ def test_decoration_crud_preserves_physics_and_merges_partial_updates(client, db
     [{'op': 'upsert', 'id': 'trim', 'rotation': [0, 0, 0, 0]}],
     [{'op': 'upsert', 'id': 'trim', 'color': True}],
     [{'op': 'upsert', 'id': 'trim', 'color': 0x1000000}],
-    [{'op': 'upsert', 'id': 'trim', 'materialId': 2}],
+    [{'op': 'upsert', 'id': 'trim', 'materialId': 102}],
     [{'op': 'upsert', 'id': 'trim', 'scale': None}],
     [{'op': 'upsert', 'id': 'trim', 'unknown': 1}],
     [{'op': 'remove', 'id': 'trim', 'position': [0, 0, 0]}],

@@ -36,7 +36,7 @@ def test_decoration_codec_cross_language_and_canonical_defaults():
 
 @pytest.mark.parametrize("patch", [{"id": ""}, {"scale": [0, 1, 1]}, {"scale": [-1, 1, 1]},
     {"rotation": [0, 0, 0, 0]}, {"rotation": [0, 2, 0, 1]}, {"position": [float("inf"), 0, 0]},
-    {"materialId": 2}, {"color": 0x1000000}])
+    {"materialId": 102}, {"color": 0x1000000}])
 def test_decoration_validation_rejects_malformed_data(patch):
     source = entity()
     source["root"]["decorations"][0].update(patch)

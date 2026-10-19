@@ -1,8 +1,9 @@
+import { createVoxelTranslucentMaterial } from '../render/VoxelTranslucency.ts';
 import { alignedVertexAttribute } from '../render/NodeMaterials.ts';
 import * as THREE from 'three/webgpu';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
-import { VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
+import { VoxelMaterialIds, voxelMaterialRenderBucket, voxelMaterialOpacityByte } from '../voxel/VoxelMaterials.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
@@ -25,7 +26,9 @@ const FACES: readonly FaceDefinition[] = [
   { dir: [1, 0, 0], face: 'side', norm: [1, 0, 0], quad: [[1, 1, 1], [1, 0, 1], [1, 0, 0], [1, 1, 0]] }
 ] as const;
 
+// Packed neighbor occupancy flags shared with wasm/standard-mesh.ts.
 const CUT_EDGE_FLAG = 0x100;
+const TRANSLUCENT_FLAG = 0x200;
 const VISIBLE_FACE_STRIDE = 8;
 
 export type ChunkMeshData = {
@@ -35,7 +38,7 @@ export type ChunkMeshData = {
   normals: Int8Array | null;
   colors: Uint8Array | null;
   indices: Uint16Array | Uint32Array | null;
-  materialIndexCounts: [number, number];
+  materialIndexCounts: [number, number, number];
 };
 
 export class LowPolyMesher {
@@ -43,6 +46,7 @@ export class LowPolyMesher {
   private solidMaterial: THREE.MeshStandardNodeMaterial;
   private emissiveMaterial: THREE.MeshBasicNodeMaterial;
   private waterMaterial: THREE.MeshStandardNodeMaterial;
+  private translucentMaterial: THREE.MeshStandardNodeMaterial;
   private glassMaterial: THREE.MeshStandardNodeMaterial;
   private _tempColor: THREE.Color;
 
@@ -57,6 +61,7 @@ export class LowPolyMesher {
       shadowSide: THREE.DoubleSide
     });
     this.emissiveMaterial = createVoxelEmissiveMaterial();
+    this.translucentMaterial = createVoxelTranslucentMaterial();
 
     this.waterMaterial = new THREE.MeshStandardNodeMaterial({
       color: 0x2980b9,
@@ -99,7 +104,7 @@ export class LowPolyMesher {
         normals: null,
         colors: null,
         indices: null,
-        materialIndexCounts: [0, 0],
+        materialIndexCounts: [0, 0, 0],
       };
     }
 
@@ -128,8 +133,8 @@ export class LowPolyMesher {
         if (!neighbor?.hasGenerated) { halo.fill(CUT_EDGE_FLAG, base, base + height * 16); continue; }
         for (let y = minOccupiedY; y <= maxOccupiedY; y++) for (let along = 0; along < 16; along++) {
           halo[base + (y - minOccupiedY) * 16 + along] = face < 4
-            ? neighbor.getLocalBlock(along, y, face === 2 ? 15 : 0)
-            : neighbor.getLocalBlock(face === 4 ? 15 : 0, y, along);
+            ? neighbor.getLocalBlock(along, y, face === 2 ? 15 : 0) | (neighbor.getLocalMaterial(along, y, face === 2 ? 15 : 0) >= VoxelMaterialIds.TRANSLUCENT_MIN ? TRANSLUCENT_FLAG : 0)
+            : neighbor.getLocalBlock(face === 4 ? 15 : 0, y, along) | (neighbor.getLocalMaterial(face === 4 ? 15 : 0, y, along) >= VoxelMaterialIds.TRANSLUCENT_MIN ? TRANSLUCENT_FLAG : 0);
         }
       }
       return kernels.meshStandardChunk(chunk, halo, minOccupiedY, maxOccupiedY, linear);
@@ -150,7 +155,8 @@ export class LowPolyMesher {
         && ny >= 0 && ny < CHUNK_SIZE_Y
         && nz >= 0 && nz < CHUNK_SIZE_Z
       ) {
-        return chunk.blocks[(ny * CHUNK_SIZE_Z + nz) * CHUNK_SIZE_X + nx];
+        const index = (ny * CHUNK_SIZE_Z + nz) * CHUNK_SIZE_X + nx;
+        return chunk.blocks[index] | (chunk.materials[index] >= VoxelMaterialIds.TRANSLUCENT_MIN ? TRANSLUCENT_FLAG : 0);
       }
       if (!world || ny < 0 || ny >= CHUNK_SIZE_Y) return BlockTypes.AIR;
 
@@ -161,10 +167,10 @@ export class LowPolyMesher {
       // face. Meshes that can see a real neighbour still cull shared faces;
       // isolated worker meshes retain a harmless sealed internal boundary.
       if (!neighborChunk?.hasGenerated) return CUT_EDGE_FLAG;
-      if (faceIndex === 2) return neighborChunk.getLocalBlock(lx, ny, CHUNK_SIZE_Z - 1);
-      if (faceIndex === 3) return neighborChunk.getLocalBlock(lx, ny, 0);
-      if (faceIndex === 4) return neighborChunk.getLocalBlock(CHUNK_SIZE_X - 1, ny, lz);
-      if (faceIndex === 5) return neighborChunk.getLocalBlock(0, ny, lz);
+      if (faceIndex === 2) return neighborChunk.getLocalBlock(lx, ny, CHUNK_SIZE_Z - 1) | (neighborChunk.getLocalMaterial(lx, ny, CHUNK_SIZE_Z - 1) >= VoxelMaterialIds.TRANSLUCENT_MIN ? TRANSLUCENT_FLAG : 0);
+      if (faceIndex === 3) return neighborChunk.getLocalBlock(lx, ny, 0) | (neighborChunk.getLocalMaterial(lx, ny, 0) >= VoxelMaterialIds.TRANSLUCENT_MIN ? TRANSLUCENT_FLAG : 0);
+      if (faceIndex === 4) return neighborChunk.getLocalBlock(CHUNK_SIZE_X - 1, ny, lz) | (neighborChunk.getLocalMaterial(CHUNK_SIZE_X - 1, ny, lz) >= VoxelMaterialIds.TRANSLUCENT_MIN ? TRANSLUCENT_FLAG : 0);
+      if (faceIndex === 5) return neighborChunk.getLocalBlock(0, ny, lz) | (neighborChunk.getLocalMaterial(0, ny, lz) >= VoxelMaterialIds.TRANSLUCENT_MIN ? TRANSLUCENT_FLAG : 0);
       return BlockTypes.AIR;
     };
 
@@ -189,7 +195,8 @@ export class LowPolyMesher {
             if (blocks[index] === BlockTypes.AIR) continue;
             for (let faceIndex = 0; faceIndex < FACES.length; faceIndex++) {
               const neighbor = sampleNeighbor(lx, ly, lz, faceIndex);
-              if ((neighbor & 0xff) !== BlockTypes.AIR) continue;
+              if ((neighbor & 0xff) !== BlockTypes.AIR
+                && (!(neighbor & TRANSLUCENT_FLAG) || materials[index] >= VoxelMaterialIds.TRANSLUCENT_MIN)) continue;
               visitor(
                 lx,
                 ly,
@@ -235,10 +242,10 @@ export class LowPolyMesher {
     // contiguous index range. Keep default first so old single-material data
     // and distant LOD retain their original fast path.
     const groupedFaces: number[] = [];
-    const materialFaceCounts: [number, number] = [0, 0];
-    for (const materialId of [VoxelMaterialIds.DEFAULT, VoxelMaterialIds.EMISSIVE]) {
+    const materialFaceCounts: [number, number, number] = [0, 0, 0];
+    for (const materialId of [0, 1, 2]) {
       for (let offset = 0; offset < visibleFaces.length; offset += VISIBLE_FACE_STRIDE) {
-        if (visibleFaces[offset + 6] !== materialId) continue;
+        if (voxelMaterialRenderBucket(visibleFaces[offset + 6]) !== materialId) continue;
         groupedFaces.push(...visibleFaces.slice(offset, offset + VISIBLE_FACE_STRIDE));
         materialFaceCounts[materialId]++;
       }
@@ -256,7 +263,7 @@ export class LowPolyMesher {
         normals: null,
         colors: null,
         indices: null,
-        materialIndexCounts: [0, 0],
+        materialIndexCounts: [0, 0, 0],
       };
     }
 
@@ -273,13 +280,14 @@ export class LowPolyMesher {
       : Uint16Array;
     const positions = new PositionArray(vertexCount * 3);
     const normals = new Int8Array(vertexCount * 3);
-    const colors = new Uint8Array(vertexCount * 3);
+    const colors = new Uint8Array(vertexCount * 4);
     const indices = vertexCount <= 0xffff
       ? new Uint16Array(faceCount * 6)
       : new Uint32Array(faceCount * 6);
 
     let vertexOffset = 0;
     let attributeOffset = 0;
+    let colorOffset = 0;
     let indexOffset = 0;
     for (
       let faceOffset = 0;
@@ -309,13 +317,17 @@ export class LowPolyMesher {
         const vertex = face.quad[vertexIndex];
         positions[attributeOffset] = lx + vertex[0];
         normals[attributeOffset] = face.norm[0] * 127;
-        colors[attributeOffset++] = Math.round(r * 255);
+        attributeOffset++;
+        colors[colorOffset++] = Math.round(r * 255);
         positions[attributeOffset] = ly + vertex[1] * verticalSpan;
         normals[attributeOffset] = face.norm[1] * 127;
-        colors[attributeOffset++] = Math.round(g * 255);
+        attributeOffset++;
+        colors[colorOffset++] = Math.round(g * 255);
         positions[attributeOffset] = lz + vertex[2];
         normals[attributeOffset] = face.norm[2] * 127;
-        colors[attributeOffset++] = Math.round(b * 255);
+        attributeOffset++;
+        colors[colorOffset++] = Math.round(b * 255);
+        colors[colorOffset++] = voxelMaterialOpacityByte(materialId);
       }
 
       indices[indexOffset++] = vertexOffset;
@@ -334,7 +346,7 @@ export class LowPolyMesher {
       normals,
       colors,
       indices,
-      materialIndexCounts: [materialFaceCounts[0] * 6, materialFaceCounts[1] * 6],
+      materialIndexCounts: [materialFaceCounts[0] * 6, materialFaceCounts[1] * 6, materialFaceCounts[2] * 6],
     };
   }
 
@@ -355,13 +367,14 @@ export class LowPolyMesher {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', alignedVertexAttribute(meshData.positions, 3));
       geometry.setAttribute('normal', alignedVertexAttribute(meshData.normals, 3, true));
-      geometry.setAttribute('color', alignedVertexAttribute(meshData.colors, 3, true));
+      geometry.setAttribute('color', alignedVertexAttribute(meshData.colors, 4, true));
       geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
-      const [defaultCount, emissiveCount] = meshData.materialIndexCounts
-        ?? [meshData.indices.length, 0];
+      const [defaultCount, emissiveCount, translucentCount] = meshData.materialIndexCounts
+        ?? [meshData.indices.length, 0, 0];
       if (defaultCount > 0) geometry.addGroup(0, defaultCount, 0);
       if (emissiveCount > 0) geometry.addGroup(defaultCount, emissiveCount, 1);
-      const mesh = new THREE.Mesh(geometry, [this.solidMaterial, this.emissiveMaterial]);
+      if (translucentCount > 0) geometry.addGroup(defaultCount + emissiveCount, translucentCount, 2);
+      const mesh = new THREE.Mesh(geometry, [this.solidMaterial, this.emissiveMaterial, this.translucentMaterial]);
       mesh.name = name;
       mesh.castShadow = true;
       mesh.receiveShadow = true;

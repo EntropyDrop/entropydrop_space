@@ -127,7 +127,7 @@ class TerrainMutation(BaseModel):
     mz: int | None = None
     block: int | None = None
     color: int | None = None
-    material: int | None = Field(default=0, ge=0, le=1)
+    material: int | None = Field(default=0, ge=0, le=101)
     part: str | None = Field(default=None, max_length=64)
 
 

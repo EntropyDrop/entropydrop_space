@@ -1,3 +1,4 @@
+import { isTranslucentVoxelMaterial, voxelMaterialTransparency } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EntityContextMenu, EntityNameplates } from './EntityMenus.tsx';
 import { HostedEntities } from './HostedEntities.tsx';
@@ -37,6 +38,7 @@ import { mainSiteUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
 
 import { LuShovel } from "react-icons/lu";
 import { ModelingPanel, ModelingToolbar } from './ModelingPanel.tsx';
+import { MaterialSelector } from './MaterialSelector.tsx';
 import modelingToolSvg from '../../../assets/icons/modeling-tool.svg?raw';
 
 function getHotbarToolIcon(toolValue: string): React.ReactNode {
@@ -368,11 +370,8 @@ function PaletteEditor() {
           onChange={event => spaceUiStore.setPaletteStop(selectedColorIndex, stopIndex, { color: event.target.value })}
         />
       </div>
-      <div className="palette-material-options" role="group" aria-label="Material">
-        <span>Material</span>
-        <button type="button" className={entry.materialId === 0 ? 'active' : ''} onClick={() => spaceUiStore.setPaletteMaterial(selectedColorIndex, 0)}>Default</button>
-        <button type="button" className={entry.materialId === 1 ? 'active' : ''} onClick={() => spaceUiStore.setPaletteMaterial(selectedColorIndex, 1)}>Emissive</button>
-      </div>
+      <MaterialSelector key={selectedColorIndex} materialId={entry.materialId}
+        onChange={materialId => spaceUiStore.setPaletteMaterial(selectedColorIndex, materialId)} />
       <p className="palette-editor-note">Selector gradients run from point A to B. Brush, shovel, spoon, and non-box selections use the first stop.</p>
     </div>
   );
@@ -429,7 +428,7 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
               id={isActive ? 'active-palette-color-chip' : undefined}
               className={`color-chip ${isActive ? 'active' : ''}`}
               style={{ background: gradientCss(item.stops) }}
-              title={`${item.name || 'Custom'} (${item.stops.length > 1 ? `${item.stops.length}-stop gradient` : item.hex.toUpperCase()}) · ${item.materialId === 1 ? 'Emissive' : 'Default'} · ${altLabel}+${index + 1}${isActive ? ' · I to edit' : ''}`}
+              title={`${item.name || 'Custom'} (${item.stops.length > 1 ? `${item.stops.length}-stop gradient` : item.hex.toUpperCase()}) · ${item.materialId === 1 ? 'Emissive' : isTranslucentVoxelMaterial(item.materialId) ? `${voxelMaterialTransparency(item.materialId)}% transparent` : 'Default'} · ${altLabel}+${index + 1}${isActive ? ' · I to edit' : ''}`}
               onClick={() => {
                 if (isActive) {
                   spaceUiStore.openColorPicker();
@@ -439,7 +438,7 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
               }}
             >
               <span className="chip-num">{index + 1}</span>
-              {item.materialId === 1 && <span className="chip-material">E</span>}
+              {item.materialId !== 0 && <span className="chip-material">{item.materialId === 1 ? 'E' : `${voxelMaterialTransparency(item.materialId)}%`}</span>}
             </button>
           );
         })}

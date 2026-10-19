@@ -178,7 +178,7 @@ class MarketVoxel(StrictResourceModel):
     mz: StrictInt | None = None
     block: StrictInt = Field(default=1, ge=1, le=1)
     color: StrictInt = Field(ge=0, le=0xFFFFFF)
-    material_id: StrictInt | None = Field(default=None, ge=0, le=1)
+    material_id: StrictInt | None = Field(default=None, ge=0, le=101)
 
     @model_validator(mode="after")
     def validate_grid(self):
@@ -249,7 +249,7 @@ class ComponentDecoration(StrictResourceModel):
     rotation: Quaternion | None = None
     scale: Vector3 | None = None
     color: StrictInt = Field(default=0, ge=0, le=0xFFFFFF)
-    materialId: StrictInt = Field(default=0, ge=0, le=1)
+    materialId: StrictInt = Field(default=0, ge=0, le=101)
 
     @model_validator(mode="after")
     def validate_decoration(self):
@@ -494,7 +494,7 @@ class GradientStopPayload(StrictResourceModel):
 
 class PaletteEntryPayload(StrictResourceModel):
     stops: list[GradientStopPayload] = Field(min_length=1, max_length=5)
-    material_id: StrictInt = Field(default=0, ge=0, le=1)
+    material_id: StrictInt = Field(default=0, ge=0, le=101)
 
     @model_validator(mode="after")
     def validate_stops(self):

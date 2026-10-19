@@ -332,7 +332,7 @@ class EntityVoxelAddress(StrictEntityModel):
 class EntityVoxelUpsert(EntityVoxelAddress):
     op: Literal["upsert"]
     color_rgb: StrictInt = Field(ge=0, le=0xFFFFFF)
-    material_id: StrictInt | None = Field(default=None, ge=0, le=1)
+    material_id: StrictInt | None = Field(default=None, ge=0, le=101)
 
 
 class EntityVoxelRemove(EntityVoxelAddress):

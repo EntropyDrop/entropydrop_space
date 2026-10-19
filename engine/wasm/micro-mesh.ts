@@ -18,8 +18,8 @@ export function microMesh(halo: usize, height: i32, minY: i32, mask: usize, quad
         const z = axis == 2 ? slice : u == 2 ? i : j;
         const a = sample(halo, x, y, z);
         const b = sample(halo, x + (axis == 0 ? 1 : 0), y + (axis == 1 ? 1 : 0), z + (axis == 2 ? 1 : 0));
-        store<i32>(mask + (j * width + i) * 4, a != 0 && b == 0 && slice >= 0 ? a
-          : a == 0 && b != 0 && slice + 1 < depth ? -b : 0);
+        store<i32>(mask + (j * width + i) * 4, a != 0 && (b == 0 || ((b - 1) >> 24 >= 2 && (a - 1) >> 24 < 2)) && slice >= 0 ? a
+          : b != 0 && (a == 0 || ((a - 1) >> 24 >= 2 && (b - 1) >> 24 < 2)) && slice + 1 < depth ? -b : 0);
       }
       for (let index = 0; index < width * rows;) {
         const value = load<i32>(mask + index * 4);
@@ -45,11 +45,12 @@ export function microMesh(halo: usize, height: i32, minY: i32, mask: usize, quad
     }
   }
   let written = 0;
-  for (let material = 0; material < 2; material++) {
+  for (let material = 0; material < 3; material++) {
     const start = written;
     for (let i = 0; i < count; i++) {
       const q = quads + i * 32, token = load<u32>(q + 28);
-      if (i32(token >> 24) != material) continue;
+      const id = i32(token >> 24);
+      if (min(2, id) != material) continue;
       const axis = load<i32>(q + 12), u = (axis + 1) % 3, v = (axis + 2) % 3;
       const positive = load<i32>(q + 24) != 0;
       const shade: f64 = material == 1 ? 1 : axis == 1 ? (positive ? 1 : 0.6) : 0.85;
@@ -68,9 +69,10 @@ export function microMesh(halo: usize, height: i32, minY: i32, mask: usize, quad
             + (channel == u ? load<i32>(q + 16) * alongU : 0) + (channel == v ? load<i32>(q + 20) * alongV : 0);
           store<u16>(positions + (offset + channel) * 2, position);
           store<i8>(normals + offset + channel, channel == axis ? (positive ? 127 : -127) : 0);
-          store<u8>(colors + offset + channel, channel == 0 ? r : channel == 1 ? g : b);
+          store<u8>(colors + (written * 4 + vertex) * 4 + channel, channel == 0 ? r : channel == 1 ? g : b);
         }
       }
+      for (let vertex = 0; vertex < 4; vertex++) store<u8>(colors + (written * 4 + vertex) * 4 + 3, material == 2 ? 101 - id : 255);
       for (let k = 0; k < 6; k++) {
         const value = written * 4 + (k == 0 || k == 3 ? 0 : k == 1 ? 1 : k == 5 ? 3 : 2);
         if (count * 4 <= 65535) store<u16>(indices + (written * 6 + k) * 2, value);

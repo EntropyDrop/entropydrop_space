@@ -574,7 +574,8 @@ def test_space_heartbeat_filters_incremental_chunks_to_player_aoi(client, db):
     assert poll.json()["max_terrain_revision"] == near_apply.json()["terrain_revision"]
 
 
-def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(client, db):
+@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 101])
+def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(client, db, material_id):
     first_user = _user(db, "space-editor-001", "https://cdn.entropydrop.com/skins/editor.png")
     app.dependency_overrides[get_current_user] = lambda: first_user
     world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
@@ -582,9 +583,9 @@ def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(cli
     payload = {
         "batch_id": batch_id,
         "mutations": [
-            {"kind": "set_standard", "x": 100, "y": 50, "z": 100, "block": 1, "color": 0x123456, "material": 1},
+            {"kind": "set_standard", "x": 100, "y": 50, "z": 100, "block": 1, "color": 0x123456, "material": material_id},
             {"kind": "set_standard", "x": 101, "y": 50, "z": 100, "block": 0, "color": 0xF2A93B},
-            {"kind": "set_micro", "mx": 809, "my": 401, "mz": 803, "color": 0xABCDEF, "part": "tip", "material": 1},
+            {"kind": "set_micro", "mx": 809, "my": 401, "mz": 803, "color": 0xABCDEF, "part": "tip", "material": material_id},
         ],
     }
 
@@ -607,10 +608,49 @@ def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(cli
     chunks = loaded.json()["chunks"]
     assert len(chunks) == 1
     assert chunks[0]["standard"] == [
-        [100, 50, 100, 1, 0x123456, 1],
+        [100, 50, 100, 1, 0x123456, material_id],
         [101, 50, 100, 0, 0xF2A93B],
     ]
-    assert chunks[0]["micro"] == [[809, 401, 803, 0xABCDEF, "tip", 1]]
+    assert chunks[0]["micro"] == [[809, 401, 803, 0xABCDEF, "tip", material_id]]
+
+
+def test_terrain_batch_round_trips_all_transparency_levels(client, db):
+    user = _user(db, "space-transparency", None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    path = f"/space/api/v2/worlds/{world_id}/terrain-edits"
+    mutations = []
+    for index, material_id in enumerate(range(2, 102)):
+        x, z = 100 + index % 10, 100 + index // 10
+        mutations.extend([
+            {"kind": "set_standard", "x": x, "y": 50, "z": z,
+             "block": 1, "color": 0x123456, "material": material_id},
+            {"kind": "set_micro", "mx": x * 8 + 1, "my": 409, "mz": z * 8 + 3,
+             "color": 0xABCDEF, "material": material_id},
+        ])
+    result = client.post(path + "/batches", json={"batch_id": str(uuid.uuid4()), "mutations": mutations})
+    assert result.status_code == 200, result.text
+    assert result.json()["applied"] == 200
+    loaded = client.get(path)
+    assert loaded.status_code == 200, loaded.text
+    chunks = loaded.json()["chunks"]
+    assert sorted(block[5] for chunk in chunks for block in chunk["standard"]) == list(range(2, 102))
+    assert sorted(block[5] for chunk in chunks for block in chunk["micro"]) == list(range(2, 102))
+
+
+@pytest.mark.parametrize("material_id", [-1, 102])
+def test_terrain_batch_rejects_materials_outside_the_supported_range(client, db, material_id):
+    user = _user(db, "space-invalid-material", None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    world_id = client.post("/space/api/v2/bootstrap").json()["world"]["id"]
+    result = client.post(f"/space/api/v2/worlds/{world_id}/terrain-edits/batches", json={
+        "batch_id": str(uuid.uuid4()), "mutations": [
+            {"kind": "set_standard", "x": 100, "y": 50, "z": 100,
+             "block": 1, "color": 0x123456, "material": material_id},
+        ],
+    })
+    assert result.status_code == 422
+    assert db.query(SpaceTerrainMutationBatch).count() == 0
 
 
 def test_later_terrain_batches_preserve_existing_standard_and_micro_materials(client, db):

@@ -72,7 +72,7 @@ export class MicroRenderBatches {
     const [cx, cz] = chunk.split(',').map(Number);
     const positions = new Uint16Array(vertexCount * 3);
     const normals = new Int8Array(vertexCount * 3);
-    const colors = new Uint8Array(vertexCount * 3);
+    const colors = new Uint8Array(vertexCount * 4);
     let indexCount = 0, minY = Infinity, maxY = -Infinity;
     for (const mesh of members) {
       indexCount += mesh.geometry.index!.count;
@@ -92,15 +92,17 @@ export class MicroRenderBatches {
         positions[vertexOffset * 3 + i + 2] = source[i + 2] + dz;
       }
       const normal = geometry.getAttribute('normal'), color = geometry.getAttribute('color');
-      for (let i=0;i<normal.count;i++) for(let c=0;c<3;c++) {
-        normals[(vertexOffset+i)*3+c]=normal.array[i*normal.itemSize+c];
-        colors[(vertexOffset+i)*3+c]=color.array[i*color.itemSize+c];
+      for (let i = 0; i < normal.count; i++) for (let c = 0; c < 3; c++) {
+        normals[(vertexOffset + i) * 3 + c] = normal.array[i * normal.itemSize + c];
+      }
+      for (let i = 0; i < color.count; i++) for (let c = 0; c < 4; c++) {
+        colors[(vertexOffset + i) * 4 + c] = c === 3 && color.itemSize === 3 ? 255 : color.array[i * color.itemSize + c];
       }
       vertexOffset += source.length / 3;
     }
     const geometry = new THREE.BufferGeometry();
     let written = 0;
-    // Material-contiguous indices keep each batch at at most two draw calls.
+    // Material-contiguous indices keep each batch at at most three draw calls.
     for (let material = 0; material < this.materials.length; material++) {
       const start = written;
       vertexOffset = 0;
@@ -118,7 +120,7 @@ export class MicroRenderBatches {
     }
     geometry.setAttribute('position', alignedVertexAttribute(positions, 3));
     geometry.setAttribute('normal', alignedVertexAttribute(normals, 3, true));
-    geometry.setAttribute('color', alignedVertexAttribute(colors, 3, true));
+    geometry.setAttribute('color', alignedVertexAttribute(colors, 4, true));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     const mesh = new THREE.Mesh(geometry, this.materials);
     mesh.name = `MicroVoxelBatch:${chunk}`;

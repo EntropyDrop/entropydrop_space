@@ -641,7 +641,7 @@ export function validateSpaceBuildPlan(input: any): SpaceBuildValidation {
     try {
       materialId = parseVoxelMaterialId(raw?.materialId);
     } catch {
-      errors.push('Voxel materialId must be 0 (default) or 1 (emissive).');
+      errors.push('Voxel materialId must be 0 (default), 1 (emissive), or 2–101 (1–100% transparency).');
       continue;
     }
     const voxel: NormalizedBuildVoxel = {

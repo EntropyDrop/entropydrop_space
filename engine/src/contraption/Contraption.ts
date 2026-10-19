@@ -3649,7 +3649,10 @@ export class Contraption {
         const dirtyChunks = new Set<string>();
         if (event?.cell) {
           const [cx, cy, cz] = event.cell;
-          dirtyChunks.add(`${Math.floor(cx / 8)},${Math.floor(cy / 8)},${Math.floor(cz / 8)}`);
+          // Painting can change opacity, exposing a face in an adjacent mesh.
+          for (const [dx, dy, dz] of [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+            dirtyChunks.add(`${Math.floor((cx + dx) / 8)},${Math.floor((cy + dy) / 8)},${Math.floor((cz + dz) / 8)}`);
+          }
         } else {
           for (const key of targetNode.voxelChunks?.keys() || []) dirtyChunks.add(key);
         }
