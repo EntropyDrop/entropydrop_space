@@ -6207,6 +6207,35 @@ button.palette-title:hover {
    HUD AGENT BUILD & SHARED ASSISTANT STYLES
    ========================================================================= */
 
+.offline-online-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px;
+  line-height: 1.6;
+}
+
+.offline-online-notice h3,
+.offline-online-notice p {
+  margin: 0;
+}
+
+.offline-online-notice a {
+  text-decoration: none;
+  white-space: normal;
+}
+
+.offline-online-notice.compact {
+  padding: 12px;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.entity-context-actions > .offline-online-notice {
+  grid-column: 1 / -1;
+}
+
 .agent-build-modal-content {
   width: 720px;
   max-width: 95vw;

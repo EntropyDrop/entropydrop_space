@@ -6,7 +6,8 @@ import {
   LiaHourglassHalfSolid, LiaIdCardSolid, LiaObjectUngroupSolid, LiaPauseSolid,
   LiaServerSolid, LiaTimesSolid, LiaTrashAltSolid, LiaVectorSquareSolid
 } from 'react-icons/lia';
-import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_HOSTING_UI_ENABLED, SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import { spaceUiStore, hostingAvailabilityMessage } from '../store/SpaceUiStore.ts';
 import { useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { entityDisplayName, entityRunStatus, EntityNameplateProjector, EntityNameplateAimHighlighter } from '../utils/entityNameplate.ts';
@@ -208,12 +209,12 @@ export function EntityContextMenu() {
         <EntityActionButton label="Disassemble entity" caption="Disassemble" icon={LiaObjectUngroupSolid} disabled={busy || !canDisassemble}
           title={isHosted ? 'Hosted entities cannot be disassembled from this client' : 'Align to the nearest grid orientation, then convert the entity to terrain voxels'}
           onClick={() => void run('disassemble')} />
-        {isHosted && entity.serverHostingEnabled ?
+        {SPACE_OFFLINE_BUILD ? <OnlineSpaceNotice feature="hosting" compact /> : isHosted && entity.serverHostingEnabled ?
           <EntityActionButton label="Stop hosting" icon={FaStop} className="entity-action-stop" disabled={hostingBusy || entity.serverCanManageHosting !== true}
             title="Stop server execution early · preserve unused prepaid time" onClick={() => void hostingAction(false)} />
           : <EntityActionButton label="Host on server" caption="Host…" icon={LiaServerSolid} disabled={hostingBusy}
             title="One dedicated core · 1 credit/hour" onClick={() => { setConfirmHosting(value => !value); void spaceUiStore.refreshHosting(); }} />}
-        {confirmHosting && <div className="entity-hosting-confirm">
+        {!SPACE_OFFLINE_BUILD && confirmHosting && <div className="entity-hosting-confirm">
           <div>Server hosting · 1 dedicated core · 1 credit/hour</div>
           <div className="selector-context-details">{hostingAvailabilityMessage(hosting)}. Unused prepaid time is preserved.</div>
           {status.running && !isHosted && <div className="selector-context-details">Execution in this browser will stop before hosting starts.</div>}

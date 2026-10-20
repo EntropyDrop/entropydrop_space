@@ -5,10 +5,22 @@ import { compilerWorkerBoundary } from './tools/compiler-worker-boundary.mjs';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, fileURLToPath(new URL('../', import.meta.url)), 'VITE_');
+  const offline = mode === 'offline';
   return {
-  plugins: [devTrafficFixture(), compilerWorkerBoundary()],
-  base: process.env.VITE_SPACE_BASE_PATH || env.VITE_SPACE_BASE_PATH || '/space/app/',
+  plugins: [devTrafficFixture(), compilerWorkerBoundary(), ...(offline ? [{
+    name: 'offline-distribution',
+    transformIndexHtml(html) {
+      return html.replace(/(<meta http-equiv="Content-Security-Policy" content=")[^"]+/, `$1${[
+        "default-src 'self'", "script-src 'self' 'wasm-unsafe-eval'", "frame-src 'none'",
+        "worker-src 'self' blob:", "style-src 'self' 'unsafe-inline'", "font-src 'self'",
+        "img-src 'self' data: blob:", "connect-src 'self' blob:", "object-src 'none'", "base-uri 'none'",
+      ].join('; ')}`).replace('Verifying EntropyDrop account and downloading character skin…', 'Preparing your offline world…');
+    },
+  }] : [])],
+  base: offline ? './' : process.env.VITE_SPACE_BASE_PATH || env.VITE_SPACE_BASE_PATH || '/space/app/',
   envDir: '..',
+  // Only the dedicated build mode can enable the distributable offline entry.
+  define: { 'import.meta.env.VITE_SPACE_OFFLINE': JSON.stringify(offline ? '1' : '0') },
   resolve: {
     // The linked engine has its own test dependencies; the browser uses one Three instance.
     dedupe: ['three'],
@@ -22,6 +34,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   build: {
+    ...(offline ? { outDir: '../dist/itchio', emptyOutDir: true } : {}),
     // Three's minified ESM core is about 600 kB by itself. Application chunks
     // remain below this vendor-aware ceiling and are split by change cadence.
     chunkSizeWarningLimit: 650,

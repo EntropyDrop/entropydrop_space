@@ -41,6 +41,15 @@ test('Agent Build unlocks controls on open and resumes them on explicit close', 
   assert.deepEqual(calls, ['unlock', 'lock']);
 });
 
+test('an online panel deep link dismisses the welcome screen without requesting pointer capture', () => {
+  const { store, calls } = fixture();
+  store.startGame(false);
+  store.toggleAgentBuild(true);
+  assert.equal(store.getSnapshot().hasStarted, true);
+  assert.equal(store.getSnapshot().activeModal, 'agent-build');
+  assert.deepEqual(calls, ['unlock']);
+});
+
 test('Escape closes Agent Build without capturing controls until the world is clicked', () => {
   const { store, calls } = fixture();
   store.startGame();
@@ -73,7 +82,7 @@ test('Agent Build reuses external-agent instructions and existing key management
   const modal = source('ui/react/components/AgentBuildModal.tsx');
   const settings = source('ui/react/components/SimpleModals.tsx');
   const guide = source('ui/react/components/SpaceAgentInstructions.tsx');
-  assert.match(modal, /<SpaceApiKeysSettings\s*\/>/);
+  assert.match(modal, /<SpaceApiKeysSettings offlineFeature="agent-build"\s*\/>/);
   assert.match(modal, /role="dialog" aria-modal="true" aria-labelledby="agent-build-title"/);
   assert.match(modal, /event\.target === event\.currentTarget/);
   assert.match(settings, /export function SpaceApiKeysSettings/);

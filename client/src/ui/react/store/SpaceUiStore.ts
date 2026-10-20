@@ -50,6 +50,7 @@ import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootst
 import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
 import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
 import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
+import { SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | 'help' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
@@ -425,7 +426,7 @@ export class SpaceUiStore {
     globalPlaybackState: 'play',
     agentMessages: [],
     agentBusy: false,
-    agentConfig: loadAgentConfig(),
+    agentConfig: SPACE_OFFLINE_BUILD ? normalizeAgentConfig() : loadAgentConfig(),
     fpsText: '60 FPS',
     terrainLoadProgress: { readyChunks: 0, totalChunks: 0, ready: false },
     networkRates: { downloadBytesPerSecond: 0, uploadBytesPerSecond: 0 },
@@ -516,7 +517,7 @@ export class SpaceUiStore {
   }
 
   setEntityHostingHandlers(handlers: EntityHostingHandlers | null): void {
-    this.entityHostingHandlers = handlers;
+    this.entityHostingHandlers = SPACE_OFFLINE_BUILD ? null : handlers;
     this.patch({ hosting: EMPTY_HOSTING, hostingBusyIds: [], hostingError: null });
   }
 
@@ -665,7 +666,7 @@ export class SpaceUiStore {
   }
 
   setAuthenticatedSession(apiOrigin: string, token: string, isAdmin = false, worldId: string | null = null, accountOrigin: string = apiOrigin, currentUserName: string | null = null): void {
-    if (!token) {
+    if (SPACE_OFFLINE_BUILD || !token) {
       this.marketClient = null;
       this.apiKeyClient = null;
       this.patch({ isAdmin: false, apiWorldId: null, currentUserName: null });
@@ -794,9 +795,9 @@ export class SpaceUiStore {
     this.refresh();
   }
 
-  startGame(): void {
+  startGame(capturePointer = true): void {
     this.patch({ hasStarted: true, activeModal: null });
-    void this.snapshot.controller?.requestLock?.();
+    if (capturePointer) void this.snapshot.controller?.requestLock?.();
   }
 
   resumeFromCanvas(): void {
@@ -937,6 +938,7 @@ export class SpaceUiStore {
   }
 
   toggleAdminMonitoring(forceState: boolean | null = null): void {
+    if (SPACE_OFFLINE_BUILD) return;
     this.toggleModal('monitoring', forceState);
   }
 
@@ -1871,11 +1873,13 @@ export class SpaceUiStore {
   }
 
   toggleAgentSetup(forceState: boolean | null = null): void {
+    if (SPACE_OFFLINE_BUILD) return;
     const agentSetupOpen = forceState === null ? !this.snapshot.agentSetupOpen : forceState;
     this.patch({ agentSetupOpen });
   }
 
   saveAgentSettings(config: any): void {
+    if (SPACE_OFFLINE_BUILD) return;
     const normalized = normalizeAgentConfig(config);
     saveAgentConfig(normalized);
     this.patch({ agentConfig: normalized, agentSetupOpen: false });
@@ -1885,6 +1889,7 @@ export class SpaceUiStore {
   }
 
   async sendAgentMessage(promptValue: string): Promise<void> {
+    if (SPACE_OFFLINE_BUILD) return;
     const prompt = promptValue.trim();
     const state = this.snapshot;
     if (!prompt || state.agentBusy || !state.editingContraption) return;
@@ -2071,6 +2076,10 @@ export class SpaceUiStore {
   }
 
   connectLinkedWorlds(handler: (enabled: boolean) => void): void {
+    if (SPACE_OFFLINE_BUILD) {
+      this.patch({ linkedWorlds: { ...LINKED_WORLDS_OFF } });
+      return;
+    }
     this.linkedWorldsHandler = handler;
     let enabled = false;
     try { enabled = localStorage.getItem(LINKED_WORLDS_SETTING_KEY) === 'true'; } catch { }
@@ -2082,6 +2091,7 @@ export class SpaceUiStore {
   }
 
   setLinkedWorldsEnabled(enabled: boolean, persist = true): void {
+    if (SPACE_OFFLINE_BUILD) return;
     this.linkedWorldsHandler?.(enabled);
     if (persist) try { localStorage.setItem(LINKED_WORLDS_SETTING_KEY, String(enabled)); } catch { }
   }

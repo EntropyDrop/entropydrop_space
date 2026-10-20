@@ -1,4 +1,6 @@
 import { MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+import { SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LiaDownloadSolid,
@@ -560,8 +562,8 @@ function InventoryItemCard({
             <button
               type="button"
               className="backpack-pixel-btn publish"
-              title="Publish to market (AGPL-3.0)"
-              aria-label="Publish item to market"
+              title={SPACE_OFFLINE_BUILD ? 'Publish in Space Online' : 'Publish to market (AGPL-3.0)'}
+              aria-label={SPACE_OFFLINE_BUILD ? 'Publish item online' : 'Publish item to market'}
               onClick={() => onPublish(category, item)}
             >
               <PixelPublishIcon />
@@ -796,8 +798,8 @@ function ColorSetCard({
             type="button"
             tabIndex={-1}
             className="backpack-pixel-btn publish"
-            title="Publish to market (AGPL-3.0)"
-            aria-label="Publish color set to market"
+            title={SPACE_OFFLINE_BUILD ? 'Publish in Space Online' : 'Publish to market (AGPL-3.0)'}
+            aria-label={SPACE_OFFLINE_BUILD ? 'Publish color set online' : 'Publish color set to market'}
             onClick={event => {
               event.stopPropagation();
               onPublish('colorset', item);
@@ -1017,7 +1019,21 @@ function MarketResourceCard({
   );
 }
 
-function MarketSection({
+function MarketSection(props: Parameters<typeof OnlineMarketSection>[0]) {
+  if (SPACE_OFFLINE_BUILD) return (
+    <div className="market-section-container">
+      <div className="market-toolbar-top">
+        <h3>Market</h3>
+        <button type="button" className="market-close-btn" aria-label="Collapse market sidebar"
+          onClick={props.onClose}>✕</button>
+      </div>
+      <OnlineSpaceNotice feature="market" />
+    </div>
+  );
+  return <OnlineMarketSection {...props} />;
+}
+
+function OnlineMarketSection({
   category,
   onDownload,
   refreshKey,
@@ -1306,6 +1322,10 @@ export function InventoryModal() {
   const colorsets = inventories?.colorset?.items || [];
 
   const handlePublishRequest = (category: InventoryCategory, item: any) => {
+    if (SPACE_OFFLINE_BUILD) {
+      setPendingPublish({ category, item });
+      return;
+    }
     if (marketQuota && marketQuota.remaining_today <= 0) {
       setQuotaExceededModalOpen(true);
       return;
@@ -1333,7 +1353,7 @@ export function InventoryModal() {
   };
 
   const doPublish = async (category: InventoryCategory, item: any) => {
-    if (!marketClient || !state.controller) return;
+    if (SPACE_OFFLINE_BUILD || !marketClient || !state.controller) return;
     const encoded = state.controller.encodeInventoryItem?.(category, item);
     if (!encoded) {
       spaceUiStore.showToast('Could not serialize this backpack item.');
@@ -1527,7 +1547,24 @@ export function InventoryModal() {
         )}
       </div>
 
-      {pendingPublish && (
+      {pendingPublish && SPACE_OFFLINE_BUILD && (
+        <div className="market-prompt-modal-backdrop" onClick={event => {
+          if (event.target === event.currentTarget) setPendingPublish(null);
+        }}>
+          <div className="market-prompt-dialog" role="dialog" aria-modal="true" aria-label="Publish to Market Online">
+            <OnlineSpaceNotice feature="publish" />
+            <div className="market-prompt-actions">
+              <button type="button" className="backpack-section-btn" onClick={() => spaceUiStore.downloadProtobuf(
+                spaceUiStore.inventoryProtobufFilename(pendingPublish.item?.name, 'Offline item'),
+                state.controller?.encodeInventoryItem?.(pendingPublish.category, pendingPublish.item),
+              )}>Export Protobuf</button>
+              <button type="button" className="backpack-section-btn primary" onClick={() => setPendingPublish(null)}>Back to Backpack</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingPublish && !SPACE_OFFLINE_BUILD && (
         <div
           className="market-prompt-modal-backdrop"
           id="market-agpl-confirm-modal"

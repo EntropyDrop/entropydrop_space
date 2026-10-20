@@ -15,7 +15,7 @@ export function AgentBuildModal() {
           <h2 id="agent-build-title">AGENT BUILD</h2>
           <button type="button" tabIndex={-1} className="icon-btn" aria-label="Close Agent Build" title="Close Agent Build (ESC)" onClick={() => spaceUiStore.toggleAgentBuild(false)}>✕</button>
         </div>
-        <SpaceApiKeysSettings />
+        <SpaceApiKeysSettings offlineFeature="agent-build" />
       </div>
     </div>
   );

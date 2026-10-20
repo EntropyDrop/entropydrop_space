@@ -23,7 +23,7 @@ test('offline development fixtures contain no credentials or remote services', a
 test('offline entry is dynamically imported behind a build-time development guard', () => {
   const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
   assert.match(source, /if \(import\.meta\.env\.DEV &&[^\n]+dev_offline[^\n]+\) \{\s+void import\('\.\/dev\/OfflineEntry\.ts'\)/);
-  assert.match(source, /const offline = import\.meta\.env\.DEV && developmentOffline/);
+  assert.match(source, /const offline = SPACE_OFFLINE_BUILD \|\| \(import\.meta\.env\.DEV && developmentOffline\)/);
   assert.match(source, /if \(!offline\) \{\s+this\.multiplayerSync = new MultiplayerSync/);
   const entry = readFileSync(new URL('../src/dev/OfflineEntry.ts', import.meta.url), 'utf8');
   assert.match(entry, /!import\.meta\.env\.DEV \|\|.*location\.hostname/);

@@ -37,11 +37,13 @@ import { isMonitoringRoute } from './bootstrap/MonitoringRoute.ts';
 import { installNetworkTrafficMonitor } from './bootstrap/NetworkTraffic.ts';
 import { preloadInitialDistantTerrain } from './bootstrap/InitialDistantTerrain.ts';
 import { LinkedWorldSnapshots } from './bootstrap/LinkedWorldSnapshots.ts';
+import { SPACE_OFFLINE_BUILD } from './bootstrap/SpaceFeatures.ts';
+import { onlinePanelSettingsTab } from './bootstrap/SpaceSiteLinks.ts';
 
 installNetworkTrafficMonitor();
 logConsoleSecurityWarning();
 
-if (isMonitoringRoute()) {
+if (!SPACE_OFFLINE_BUILD && isMonitoringRoute()) {
   const gate = typeof document !== 'undefined' ? document.getElementById('space-entry-gate') : null;
   if (gate) {
     gate.hidden = true;
@@ -97,7 +99,7 @@ class Game {
     persistentStorage: SpaceStorage | null,
     developmentOffline = false,
   ) {
-    const offline = import.meta.env.DEV && developmentOffline;
+    const offline = SPACE_OFFLINE_BUILD || (import.meta.env.DEV && developmentOffline);
     this.canvasContainer = document.getElementById('canvas-container');
     if (!this.canvasContainer) throw new Error('Missing canvas container');
 
@@ -139,7 +141,7 @@ class Game {
     );
     this.contraptionManager.setPhysics(this.contraptionPhysics);
     this.contraptionManager.setWorldIdentity(session.world);
-    this.contraptionManager.setEntityPersistenceMode(offline ? 'none' : 'remote');
+    this.contraptionManager.setEntityPersistenceMode(SPACE_OFFLINE_BUILD ? 'browser' : offline ? 'none' : 'remote');
 
     this.playerPhysics = new PlayerPhysics(this.world, this.contraptionManager);
     this.uiStore = spaceUiStore;
@@ -276,6 +278,7 @@ class Game {
 
     // 5. Initial Spawn & Worldgen
     const spawnAdjusted = this.initializeSpawn(session);
+    if (SPACE_OFFLINE_BUILD) this.contraptionManager.loadEntitiesFromStorage();
     // bootstrapSpace already loaded this window. If a first-entry random spawn
     // crosses into an adjacent tile, the first frame will fetch that tile too.
     this.lastSavedPlayerPosition = session.player.resumed && !spawnAdjusted
@@ -420,10 +423,10 @@ class Game {
     this.frameCount = 0;
     this.lastFpsTime = performance.now();
     requestAnimationFrame(this.animate);
-    this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
+    if (!SPACE_OFFLINE_BUILD) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
     window.addEventListener('pagehide', () => this.linkedWorldSnapshots.dispose());
     window.addEventListener('pageshow', event => {
-      if (event.persisted) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
+      if (!SPACE_OFFLINE_BUILD && event.persisted) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
     });
     // Initial preparation owns the first downloads. Only then begin refreshes.
     window.setTimeout(() => { void this.syncSurfaceSnapshots(); }, 1000);
@@ -682,6 +685,18 @@ class Game {
 
 // Start Game on page load
 window.addEventListener('DOMContentLoaded', () => {
+  if (SPACE_OFFLINE_BUILD) {
+    void import('./bootstrap/OfflineSpace.ts').then(({ enterOfflineSpace }) =>
+      enterOfflineSpace(async (session, storage, reportProgress) => {
+        const game = new Game(session, storage);
+        await game.sceneRenderer.ready;
+        await game.preloadInitialTerrain(reportProgress);
+        reportProgress(98, 'Preparing character animations…');
+        await game.sceneRenderer.preparePlayerPipelines();
+        game.start();
+      }));
+    return;
+  }
   if (isMonitoringRoute()) return;
   // This import and its entire dev-only module disappear from production builds.
   if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('dev_offline') === '1') {
@@ -699,6 +714,14 @@ window.addEventListener('DOMContentLoaded', () => {
       reportProgress(99, 'Preparing character animations…');
       await game.sceneRenderer.preparePlayerPipelines();
       game.start();
+      const panel = new URLSearchParams(window.location.search).get('panel');
+      const settingsTab = onlinePanelSettingsTab(panel);
+      // Deep links show their panel above the welcome screen without attempting
+      // pointer capture before a user gesture.
+      if (panel === 'market' || panel === 'agent-build' || settingsTab) spaceUiStore.startGame(false);
+      if (panel === 'market') spaceUiStore.toggleInventoryModal(true);
+      if (panel === 'agent-build') spaceUiStore.toggleAgentBuild(true);
+      if (settingsTab) spaceUiStore.toggleGlobalSettingsModal(true);
       if (session.entry_warning) {
         requestAnimationFrame(() => {
           spaceUiStore.showToast(session.entry_warning, {

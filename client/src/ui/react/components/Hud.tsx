@@ -34,7 +34,8 @@ import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 import { SiDiscord } from 'react-icons/si';
 import { formatByteRate } from '../../../bootstrap/NetworkTraffic.ts';
-import { mainSiteUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
+import { mainSiteUrl, onlineSpaceUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
+import { SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
 
 import { LuShovel } from "react-icons/lu";
 import { ModelingPanel, ModelingToolbar } from './ModelingPanel.tsx';
@@ -853,10 +854,10 @@ export function Hud() {
       <div id="hud-overlay">
         <div className="hud-top">
           <div className="hud-card">
-            <div className="hud-badge"><span className="hud-badge-dot" />EntropyDrop · Space <span className="hud-beta-badge">BETA</span></div>
+            <div className="hud-badge"><span className="hud-badge-dot" />EntropyDrop · Space <span className="hud-beta-badge">{SPACE_OFFLINE_BUILD ? 'OFFLINE' : 'BETA'}</span></div>
             <HudMetrics />
             <NearbyEntities />
-            <HostedEntities />
+            {!SPACE_OFFLINE_BUILD && <HostedEntities />}
           </div>
           <div className="hud-actions">
             <button
@@ -876,8 +877,11 @@ export function Hud() {
               type="button"
               tabIndex={-1}
               className="icon-btn"
-              title="Home"
-              onClick={() => { window.location.href = mainSiteUrl('/space/intro'); }}
+              title={SPACE_OFFLINE_BUILD ? 'Open Space Online' : 'Home'}
+              onClick={() => {
+                if (SPACE_OFFLINE_BUILD) window.open(onlineSpaceUrl(), '_blank', 'noopener,noreferrer');
+                else window.location.href = mainSiteUrl('/space/intro');
+              }}
             >
               <LiaHomeSolid size={18} />
             </button>

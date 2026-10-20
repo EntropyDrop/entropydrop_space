@@ -63,6 +63,61 @@ private development domain. Production is available at
 `https://space.entropydrop.com/?world=aether-archipelago`; `default` and an omitted
 selector enter Aether. Nature and Copper retain their existing identities and data.
 
+## Offline distribution for itch.io
+
+```sh
+npm ci
+npm run build:offline
+# Alias: npm run build:itchio
+npm run preview:offline
+```
+
+The script builds a standalone production client in `dist/itchio/`, runs the
+production bundle and compiler-worker checks, then creates
+`dist/entropydrop-space-itchio.zip`. The ZIP has `index.html` at its root, uses
+relative asset paths, and is verified against the
+[itch.io HTML5 upload limits](https://itch.io/docs/creators/html5).
+It does not overwrite the online production output in `client/dist/`.
+
+On itch.io, select **HTML Game**, upload the ZIP, and enable **This file will be
+played in the browser**. Use a desktop keyboard/mouse layout and click-to-launch
+fullscreen. The game still requires a browser with WebGPU and GPU acceleration.
+Test the uploaded draft on the target browsers before publishing.
+
+The offline build bypasses login, queues, APIs and multiplayer. All required
+assets are included; a restrictive offline CSP prevents external resource requests.
+The default world is Aether Archipelago; `?world=nature` and
+`?world=copper-metropolis` select the other included procedural worlds.
+Terrain edits, entities, backpack contents and player position persist in browser
+storage when available. Clearing browser data removes local saves; export important
+backpack items as Protobuf for backup or transfer. Far-terrain server snapshots and
+chain-linked worlds are unavailable. Market, publishing, custom skins and Agent
+Build link to `https://space.entropydrop.com/` in a new tab; online saves are separate.
+Feature links open their corresponding panel or settings tab after online login
+once the updated online client is deployed.
+
+| Online feature | Offline behavior | Online destination |
+| --- | --- | --- |
+| Market browsing, downloads and likes | Replaced with an online invitation; no Market client | `?panel=market` |
+| Publish items or color sets | Shows export-and-transfer guidance with an Export Protobuf button; never uploads | `?panel=market` |
+| Space API keys, credits and API allowances | Replaced with account guidance; no key or usage requests | `?panel=api-keys` |
+| External Agent Build | Replaced with an online invitation | `?panel=agent-build` |
+| Entity AI assistant and model API settings | Replaced with guidance; stored model keys are neither loaded nor saved | `?panel=agent-build` |
+| Paid entity hosting | Replaced with transfer guidance; hosting handlers cannot be installed | `?panel=hosting` |
+| Account character skins | Replaced with online customization guidance | `?panel=character` |
+| Multiplayer, shared saves, server snapshots and linked worlds | Network adapters disabled; graphics settings explain online world features | `?panel=worlds` |
+
+All destinations use `https://space.entropydrop.com/` and open a new tab.
+Local editing, script compilation/execution, physics, backpack import/export and
+model import remain available. The bundled entityAPI documentation stays readable,
+and its online spaceAPI links use the production Space origin. Login, admission,
+world API/WebSocket synchronization and administrator monitoring are disabled.
+
+For local testing, use the preview command (or serve `dist/itchio/` over localhost).
+Opening `index.html` directly through `file://` is unsupported because the client
+uses ES modules and workers. The ZIP is a static HTML5 distribution, not a native
+desktop executable or a service-worker cache for revisiting itch.io without a network.
+
 ## Contracts
 
 The backpack and Market use one Item concept for static blocks, entities, or both.

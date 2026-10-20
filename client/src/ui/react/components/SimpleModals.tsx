@@ -1,7 +1,8 @@
-import { mainSiteUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
+import { mainSiteUrl, onlinePanelSettingsTab } from '../../../bootstrap/SpaceSiteLinks.ts';
 import React from 'react';
 import { SpaceAgentInstructions } from './SpaceAgentInstructions.tsx';
-import { SPACE_HOSTING_UI_ENABLED } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_HOSTING_UI_ENABLED, SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import { CharacterSkinPreview } from './CharacterSkinPreview.tsx';
 import { LIGHTING_PRESETS, LIGHTING_QUALITY_LEVELS } from '../../../engine/render/LightingQuality.ts';
 import { LINKED_WORLD_CLEARANCE, LINKED_WORLD_ROTATION_PERIOD_SECONDS } from '../../../engine/render/LinkedWorldGeometry.ts';
@@ -58,7 +59,11 @@ function ModalBackdrop({ id, className = '', children, onClose }: { id: string; 
   );
 }
 
-export function SpaceApiKeysSettings() {
+export function SpaceApiKeysSettings({ offlineFeature = 'api-keys' }: { offlineFeature?: 'api-keys' | 'agent-build' } = {}) {
+  return SPACE_OFFLINE_BUILD ? <OnlineSpaceNotice feature={offlineFeature} /> : <OnlineSpaceApiKeysSettings />;
+}
+
+function OnlineSpaceApiKeysSettings() {
   const client = spaceUiStore.getApiKeyClient();
   const [keys, setKeys] = React.useState<SpaceApiKeyRecord[]>([]);
   const [name, setName] = React.useState('My external agent');
@@ -253,7 +258,8 @@ export function GlobalSettingsModal() {
   const state = useSpaceUiFields(
     'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceSettings', 'world', 'musicEnabled', 'effectsEnabled'
   );
-  const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>('character');
+  const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>(() =>
+    onlinePanelSettingsTab(typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('panel')) || 'character');
   if (state.activeModal !== 'settings') return null;
   return (
     <ModalBackdrop id="global-settings-modal" onClose={() => spaceUiStore.toggleGlobalSettingsModal(false)}>
@@ -288,7 +294,8 @@ export function GlobalSettingsModal() {
           ) : null}
         </div>
         <div className="settings-tab-panel" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`} tabIndex={0}>
-          {tab === 'character' ? <>
+          {tab === 'character' && SPACE_OFFLINE_BUILD ? <OnlineSpaceNotice feature="character" /> : null}
+          {tab === 'character' && !SPACE_OFFLINE_BUILD ? <>
             {state.currentSkin ? <section className="settings-section settings-character-card">
               <div className="settings-section-title">CURRENT SKIN</div>
               <CharacterSkinPreview url={state.currentSkin.url} model={state.currentSkin.model} />
@@ -323,9 +330,10 @@ export function GlobalSettingsModal() {
             ) : null}
           </> : null}
           {tab === 'graphics' ? <>
+            {SPACE_OFFLINE_BUILD && <OnlineSpaceNotice feature="worlds" compact />}
             <div className="settings-section">
               <div className="settings-section-title">CAMERA &amp; VIEW</div>
-              <div className="settings-row">
+              {!SPACE_OFFLINE_BUILD && <div className="settings-row">
                 <div className="settings-label-group">
                   <label className="settings-label" htmlFor="setting-linked-worlds">Chain-Linked Worlds (Experimental)</label>
                   <span className="settings-desc" id="setting-linked-worlds-description">Keep this world as the fixed middle link of a three-ring chain. Two equal-size, read-only snapshot worlds loop through opposite sides of it. The left and right rings spin around their own axes in opposite directions, once every {LINKED_WORLD_ROTATION_PERIOD_SECONDS[0] / 60} and {LINKED_WORLD_ROTATION_PERIOD_SECONDS[1] / 60} minutes. Uses extra memory; snapshot data does not update.</span>
@@ -341,7 +349,7 @@ export function GlobalSettingsModal() {
                     aria-describedby="setting-linked-worlds-description setting-linked-worlds-clearance"
                     onChange={event => spaceUiStore.setLinkedWorldsEnabled(event.target.checked)} />
                 </div>
-              </div>
+              </div>}
               <div className="settings-row">
                 <div className="settings-label-group"><span className="settings-label">Field of View (FOV)</span><span className="settings-desc">Camera lens angle (50° ~ 110°)</span></div>
                 <div className="settings-control-group"><input id="setting-fov-slider" className="settings-slider" type="range" min="50" max="110" step="1" value={state.fov} onChange={event => spaceUiStore.setFov(Number(event.target.value))} /><span id="setting-fov-val" className="settings-value-badge">{state.fov}°</span></div>
@@ -572,7 +580,7 @@ export function GlobalSettingsModal() {
             : null}
           {tab === 'api' ? <div className="settings-section">
             <div className="settings-section-title">spaceAPI · AGENT ACCESS</div>
-            <div className="settings-desc">All API keys include full Space permissions: read your position, create and edit your entities, start/stop them, and build blocksets in worlds you can access.{SPACE_HOSTING_UI_ENABLED ? ' Hosted entity execution is also available.' : ''} Existing keys have the same full access. Keep them secret and revoke unused keys.</div>
+            {!SPACE_OFFLINE_BUILD && <div className="settings-desc">All API keys include full Space permissions: read your position, create and edit your entities, start/stop them, and build blocksets in worlds you can access.{SPACE_HOSTING_UI_ENABLED ? ' Hosted entity execution is also available.' : ''} Existing keys have the same full access. Keep them secret and revoke unused keys.</div>}
             <SpaceApiKeysSettings />
           </div> : null}
         </div>
@@ -613,7 +621,7 @@ export function PauseScreen() {
           </button>
         ) : null}
         <div className="hero-block-icon">■</div>
-        <h1 className="game-logo">EntropyDrop · Space <span className="game-logo-beta">BETA</span></h1>
+        <h1 className="game-logo">EntropyDrop · Space <span className="game-logo-beta">{SPACE_OFFLINE_BUILD ? 'OFFLINE' : 'BETA'}</span></h1>
         <div className="controls-guide">
           <span><kbd className="key-badge">W</kbd><kbd className="key-badge">A</kbd><kbd className="key-badge">S</kbd><kbd className="key-badge">D</kbd> Move / Drive</span>
           <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
