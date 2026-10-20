@@ -177,10 +177,21 @@ export class SpaceMarketClient {
   ): Promise<Uint8Array> {
     let safeUrl: URL;
     try {
+      const apiUrl = resolveSafeHttpUrl(
+        this.baseUrl,
+        typeof window === 'undefined' ? undefined : window.location.href
+      );
       safeUrl = resolveSafeHttpUrl(
         contentUrl,
-        typeof window === 'undefined' ? this.baseUrl : window.location.href
+        apiUrl.href
       );
+      // Standalone Market objects are served by the Space API itself. Use the
+      // configured API origin so local port forwarding and reverse proxies do
+      // not send previews/downloads through an unreachable public hostname.
+      // External CDN paths keep their original origin.
+      if (safeUrl.pathname.startsWith('/space/objects/space-market/resources/')) {
+        safeUrl = resolveSafeHttpUrl(`${safeUrl.pathname}${safeUrl.search}`, apiUrl.href);
+      }
     } catch (error) {
       throw new SpaceMarketError(
         0,

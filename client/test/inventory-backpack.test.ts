@@ -1291,3 +1291,83 @@ test('InventoryModal has market toggle button and supports collapsing sidebar on
   assert.match(styleSource, /\.backpack-split-layout\.market-collapsed/);
   assert.match(styleSource, /\.market-close-btn/);
 });
+
+test('Market redesign streamlines cards, eliminates redundant license badges, hashes, category tags, and summary noise', () => {
+  const inventorySource = readFileSync(new URL('../src/ui/react/components/InventoryModal.tsx', import.meta.url), 'utf8');
+  const styleSource = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+
+  // Verify MarketResourceCard omits redundant clutter
+  const cardStart = inventorySource.indexOf('function MarketResourceCard(');
+  const cardEnd = inventorySource.indexOf('function MarketSection(');
+  const cardBody = inventorySource.slice(cardStart, cardEnd);
+
+  assert.doesNotMatch(cardBody, /market-license-badge/);
+  assert.doesNotMatch(cardBody, /market-resource-kind/);
+  assert.doesNotMatch(cardBody, /resource\.digest\.slice/);
+  assert.match(cardBody, /market-card-like-btn/);
+  assert.match(cardBody, /market-card-download-btn/);
+
+  // Verify MarketSection omits result summary row and redundant license tag
+  const sectionBody = inventorySource.slice(cardEnd);
+  assert.doesNotMatch(sectionBody, /market-result-summary/);
+  assert.doesNotMatch(sectionBody, /market-license-tag/);
+  assert.match(sectionBody, /market-filter-bar/);
+  assert.match(sectionBody, /market-count-badge/);
+
+  // Verify styles exist
+  assert.match(styleSource, /\.market-count-badge/);
+  assert.match(styleSource, /\.market-filter-bar/);
+  assert.match(styleSource, /\.market-card-btn/);
+  assert.match(styleSource, /\.market-card-like-btn/);
+});
+
+test('Market cards display download count in metadata and keep clean download action button', () => {
+  const inventorySource = readFileSync(new URL('../src/ui/react/components/InventoryModal.tsx', import.meta.url), 'utf8');
+  const styleSource = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+
+  const cardStart = inventorySource.indexOf('function MarketResourceCard(');
+  const cardEnd = inventorySource.indexOf('function MarketSection(');
+  const cardBody = inventorySource.slice(cardStart, cardEnd);
+
+  // Metadata row contains download icon and count, and omits upload date
+  assert.match(cardBody, /market-meta-downloads/);
+  assert.match(cardBody, /resource\.downloads_count/);
+  assert.doesNotMatch(cardBody, /market-meta-date/);
+
+  // Action button contains download icon, but omits inline count
+  assert.match(cardBody, /market-card-download-btn/);
+  assert.doesNotMatch(cardBody, /market-btn-count/);
+
+  // CSS rules for download count in metadata
+  assert.match(styleSource, /\.market-meta-downloads/);
+});
+
+test('Publishing to community market checks quota, displays AGPL confirmation with do-not-remind checkbox, and alerts on quota limit', () => {
+  const inventorySource = readFileSync(new URL('../src/ui/react/components/InventoryModal.tsx', import.meta.url), 'utf8');
+  const styleSource = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+
+  // Verify AGPL storage key
+  assert.match(inventorySource, /const AGPL_STORAGE_KEY = 'space_market_agpl_acknowledged'/);
+
+  // Verify AGPL dialog markup and checkbox
+  assert.match(inventorySource, /id="market-agpl-confirm-modal"/);
+  assert.match(inventorySource, /id="market-agpl-dont-remind-checkbox"/);
+  assert.match(inventorySource, /Do not remind me again/);
+  assert.match(inventorySource, /Publish under AGPL-3\.0/);
+
+  // Verify Quota exceeded dialog markup
+  assert.match(inventorySource, /id="market-quota-exceeded-modal"/);
+  assert.match(inventorySource, /Daily Publish Limit Reached/);
+  assert.match(inventorySource, /marketQuota\.remaining_today <= 0/);
+  assert.match(inventorySource, /error\.code === 'DAILY_PUBLISH_LIMIT_REACHED'/);
+
+  // Verify ESC key handler to close popups without closing inventory
+  assert.match(inventorySource, /pendingPublish && !quotaExceededModalOpen/);
+  assert.match(inventorySource, /e\.key === 'Escape'/);
+
+  // Verify CSS styles for modal prompt
+  assert.match(styleSource, /\.market-prompt-modal-backdrop/);
+  assert.match(styleSource, /\.market-prompt-dialog/);
+  assert.match(styleSource, /\.market-agpl-checkbox-row/);
+});
+

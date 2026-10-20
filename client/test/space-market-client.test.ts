@@ -169,6 +169,60 @@ test('SpaceMarketClient loads previews directly from the CDN without calling the
   );
 });
 
+test('standalone Market previews use the configured API origin for public and relative object URLs', async () => {
+  const objectPath = '/space/objects/space-market/resources/r1/content.pb';
+  for (const apiOrigin of ['http://localhost:8000', 'https://api.example.test']) {
+    const calls: Array<{ url: string; options: RequestInit }> = [];
+    const client = new SpaceMarketClient(apiOrigin, 'token', async (url, options = {}) => {
+      calls.push({ url: String(url), options });
+      return new Response(responseBody(BLOCKSET_PROTOBUF));
+    });
+    for (const contentUrl of [objectPath, `https://public.example.test${objectPath}?revision=8`]) {
+      const payload = await client.loadResourceContent(contentUrl, undefined, {
+        kind: 'blockset', name: BLOCKSET.name, digest: BLOCKSET_DIGEST,
+      });
+      assert.deepEqual(payload, BLOCKSET_PROTOBUF);
+    }
+    assert.deepEqual(calls.map(call => call.url), [
+      `${apiOrigin}${objectPath}`, `${apiOrigin}${objectPath}?revision=8`,
+    ]);
+    for (const { options } of calls) {
+      assert.equal((options.headers as any).Authorization, undefined);
+      assert.equal(options.credentials, 'omit');
+      assert.equal(options.referrerPolicy, 'no-referrer');
+    }
+    await assert.rejects(
+      client.loadResourceContent(`http://public.example.test${objectPath}`),
+      (error: any) => error instanceof SpaceMarketError && error.code === 'MARKET_CDN_URL_REJECTED'
+    );
+    assert.equal(calls.length, 2, 'unsafe URLs must be rejected before rerouting');
+  }
+});
+
+test('standalone Market downloads use the same reachable object origin and retain integrity checks', async () => {
+  const objectPath = '/space/objects/space-market/resources/r1/content.pb';
+  const calls: string[] = [];
+  let digest = BLOCKSET_DIGEST;
+  const client = new SpaceMarketClient('http://localhost:8000', 'token', async url => {
+    calls.push(String(url));
+    if (String(url).endsWith('/download')) {
+      return new Response(JSON.stringify({
+        id: 'r1', kind: 'blockset', name: BLOCKSET.name, digest,
+        download_url: `https://public.example.test${objectPath}`,
+      }));
+    }
+    return new Response(responseBody(BLOCKSET_PROTOBUF));
+  });
+  assert.deepEqual((await client.downloadResource('r1')).payload, BLOCKSET_PROTOBUF);
+  assert.deepEqual(calls, [
+    'http://localhost:8000/space/api/v2/market/resources/r1/download',
+    `http://localhost:8000${objectPath}`,
+  ]);
+  digest = '0'.repeat(64);
+  await assert.rejects(client.downloadResource('r1'),
+    (error: any) => error instanceof SpaceMarketError && error.code === 'MARKET_DIGEST_MISMATCH');
+});
+
 test('SpaceMarketClient rejects unsafe, oversized, and digest-mismatched CDN content', async () => {
   const fetchImpl = async () => new Response(Uint8Array.from([8, 4, 26, 0]), {
     status: 200,

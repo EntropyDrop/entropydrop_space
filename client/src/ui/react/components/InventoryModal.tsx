@@ -645,30 +645,75 @@ function InventorySlotsRow({ items, onPublish }: {
 }) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const storageGridRef = useRef<HTMLDivElement>(null);
+
+  const renderSlot = (index: number, isHotbar: boolean) => (
+    <InventoryItemCard
+      key={index}
+      category="item"
+      index={index}
+      item={items[index]}
+      isHotbar={isHotbar}
+      onPublish={onPublish}
+      draggedIndex={draggedIndex}
+      dragOverIndex={dragOverIndex}
+      onDragStart={event => {
+        event.dataTransfer.setData('application/x-space-inventory-slot', String(index));
+        event.dataTransfer.effectAllowed = 'move';
+        setDraggedIndex(index);
+      }}
+      onDragOver={event => {
+        if (draggedIndex !== null) {
+          event.preventDefault();
+          setDragOverIndex(index);
+        }
+      }}
+      onDragLeave={() => setDragOverIndex(null)}
+      onDrop={event => {
+        event.preventDefault();
+        if (draggedIndex !== null) spaceUiStore.swapInventorySlots('item', draggedIndex, index);
+        setDraggedIndex(null);
+        setDragOverIndex(null);
+      }}
+      onDragEnd={() => {
+        setDraggedIndex(null);
+        setDragOverIndex(null);
+      }}
+    />
+  );
+
   return (
     <div className="backpack-slots-container">
-      <div className="backpack-subgroup-hint">Drag between any item slots. Slots #1-9 appear in the hotbar.</div>
-      <div className="backpack-items-grid" id="inventory-grid">
-        {Array.from({ length: MAX_BACKPACK_ITEM_SLOTS }, (_, index) => (
-          <InventoryItemCard
-            key={index} category="item" index={index} item={items[index]}
-            isHotbar={index < 9} onPublish={onPublish}
-            draggedIndex={draggedIndex} dragOverIndex={dragOverIndex}
-            onDragStart={event => {
-              event.dataTransfer.setData('application/x-space-inventory-slot', String(index));
-              event.dataTransfer.effectAllowed = 'move';
-              setDraggedIndex(index);
-            }}
-            onDragOver={event => { if (draggedIndex !== null) { event.preventDefault(); setDragOverIndex(index); } }}
-            onDragLeave={() => setDragOverIndex(null)}
-            onDrop={event => {
-              event.preventDefault();
-              if (draggedIndex !== null) spaceUiStore.swapInventorySlots('item', draggedIndex, index);
-              setDraggedIndex(null); setDragOverIndex(null);
-            }}
-            onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}
-          />
-        ))}
+      <div
+        className="backpack-section-subgroup hotbar-group"
+        onWheel={event => {
+          if (storageGridRef.current) {
+            storageGridRef.current.scrollTop += event.deltaY;
+          }
+        }}
+      >
+        <div className="backpack-subgroup-header">
+          <div className="backpack-hotbar-label-group">
+            <span className="backpack-hotbar-badge">HOTBAR</span>
+            <span className="backpack-hotbar-label">Equipped Hotbar · Slots 1–9</span>
+          </div>
+          <span className="backpack-subgroup-hint">Active on number keys 1–9 · Always pinned</span>
+        </div>
+        <div className="backpack-slots-row hotbar-grid">
+          {Array.from({ length: 9 }, (_, index) => renderSlot(index, true))}
+        </div>
+      </div>
+
+      <div className="backpack-section-subgroup storage-group">
+        <div className="backpack-subgroup-header">
+          <div className="backpack-storage-label-group">
+            <span className="backpack-storage-label">Backpack Storage · Slots 10–198</span>
+          </div>
+          <span className="backpack-subgroup-hint">Scroll down for storage · Drag items to swap with hotbar</span>
+        </div>
+        <div className="backpack-items-grid backpack-storage-grid" id="inventory-grid" ref={storageGridRef}>
+          {Array.from({ length: MAX_BACKPACK_ITEM_SLOTS - 9 }, (_, offset) => renderSlot(offset + 9, false))}
+        </div>
       </div>
     </div>
   );
@@ -853,14 +898,14 @@ function MarketResourceCard({
 }) {
   const marketClient = spaceUiStore.getMarketClient();
   const [previewItem, setPreviewItem] = useState<any | null>(null);
-  const [previewFailed, setPreviewFailed] = useState(false);
+  const [previewError, setPreviewError] = useState('');
 
   useEffect(() => {
     const abortController = new AbortController();
     setPreviewItem(null);
-    setPreviewFailed(false);
+    setPreviewError('');
     if (!marketClient) {
-      setPreviewFailed(true);
+      setPreviewError('Market client unavailable');
       return () => abortController.abort();
     }
     void marketClient.loadResourceContent(
@@ -878,8 +923,10 @@ function MarketResourceCard({
           setPreviewItem(inventoryResourcePreviewItem(resource.kind, portable));
         }
       })
-      .catch(() => {
-        if (!abortController.signal.aborted) setPreviewFailed(true);
+      .catch(error => {
+        if (!abortController.signal.aborted) {
+          setPreviewError(error instanceof Error ? error.message : 'Could not load resource');
+        }
       });
     return () => abortController.abort();
   }, [marketClient, resource.content_url, resource.digest, resource.kind, resource.name]);
@@ -889,7 +936,6 @@ function MarketResourceCard({
   const thumbnail = resource.kind === 'colorset'
     ? null
     : InventoryThumbnailRenderer.getInstance().getThumbnail(previewItem, 96);
-  const publishedAt = new Date(resource.created_at);
   const publisher = resource.publisher.username || resource.publisher.id || 'Former player';
 
   return (
@@ -906,49 +952,58 @@ function MarketResourceCard({
         ) : (
           <span
             className="market-resource-glyph"
-            title={previewFailed ? 'Preview unavailable' : 'Loading preview'}
+            title={previewError ? `Preview unavailable: ${previewError}` : 'Loading preview'}
           >
             {resource.kind === 'entity' ? 'E' : resource.kind === 'colorset' ? 'C' : 'B'}
           </span>
         )}
-        <span className="market-license-badge">AGPL-3.0</span>
       </div>
       <div className="market-resource-body">
-        <div className="market-resource-kind">{resource.kind === 'blockset' ? 'BLOCK SET' : resource.kind.toUpperCase()}</div>
-        <h3 title={resource.name}>{resource.name}</h3>
-        <div className="market-resource-author">by {publisher}</div>
-        <div className="market-resource-meta">
-          {resource.kind === 'colorset'
-            ? '9 palette entries · gradients & materials'
-            : `${resource.block_count} voxels${resource.kind === 'entity' ? ` · ${resource.node_count} nodes · ${resource.script_count} scripts` : ''}`}
+        <div className="market-resource-title-row">
+          <h3 title={resource.name}>{resource.name}</h3>
         </div>
-        <div className="market-resource-meta">{Number.isNaN(publishedAt.getTime()) ? resource.created_at : publishedAt.toLocaleDateString()}</div>
-        <div className="market-resource-stats">
-          <span>↓ {resource.downloads_count}</span>
-          <span>♥ {resource.likes_count}</span>
-          <span title={resource.digest}>#{resource.digest.slice(0, 8)}</span>
+        <div className="market-resource-meta-row">
+          <span className="market-meta-author" title={`Published by ${publisher}`}>
+            by {publisher}
+          </span>
+          <span className="market-meta-dot">·</span>
+          <span className="market-meta-spec">
+            {resource.kind === 'colorset' ? '9 colors' : `${resource.block_count} voxels`}
+          </span>
+          <span className="market-meta-dot">·</span>
+          <span className="market-meta-downloads" title={`${resource.downloads_count} downloads`}>
+            <LiaDownloadSolid size={11} style={{ verticalAlign: -1, marginRight: 2 }} />
+            {resource.downloads_count}
+          </span>
         </div>
         <div className="market-resource-actions">
-          <button type="button" className="backpack-section-btn primary" onClick={() => onDownload(resource)}>
-            <LiaDownloadSolid size={13} style={{ marginRight: 3, display: 'inline', verticalAlign: 'text-bottom' }} /> Download
+          <button
+            type="button"
+            className="market-card-btn market-card-download-btn primary"
+            title={`Download to backpack (${resource.downloads_count} downloads)`}
+            onClick={() => onDownload(resource)}
+          >
+            <LiaDownloadSolid size={13} />
+            <span>Download</span>
           </button>
           <button
             type="button"
-            className={`backpack-section-btn market-like-btn ${resource.is_liked ? 'active' : ''}`}
+            className={`market-card-btn market-card-like-btn market-like-btn ${resource.is_liked ? 'active' : ''}`}
             aria-pressed={resource.is_liked}
+            title={resource.is_liked ? 'Liked' : 'Like'}
             onClick={() => onLike(resource)}
           >
             {resource.is_liked ? (
-              <LiaHeartSolid size={13} style={{ marginRight: 3, display: 'inline', verticalAlign: 'text-bottom', color: '#ff6b81' }} />
+              <LiaHeartSolid size={13} style={{ color: '#ff6b81' }} />
             ) : (
-              <LiaHeart size={13} style={{ marginRight: 3, display: 'inline', verticalAlign: 'text-bottom' }} />
+              <LiaHeart size={13} />
             )}
-            {resource.is_liked ? 'Liked' : 'Like'}
+            <span>{resource.likes_count}</span>
           </button>
           {resource.can_delete && (
             <button
               type="button"
-              className="backpack-pixel-btn danger"
+              className="market-card-btn market-card-delete-btn danger"
               title="Delete market resource"
               aria-label="Delete market resource"
               onClick={() => onDelete(resource)}
@@ -967,11 +1022,13 @@ function MarketSection({
   onDownload,
   refreshKey,
   onClose,
+  onQuotaChange,
 }: {
   category: InventoryCategory;
   onDownload: (resource: SpaceMarketResource) => void;
   refreshKey?: number;
   onClose?: () => void;
+  onQuotaChange?: (quota: SpaceMarketQuota) => void;
 }) {
   const [marketSort, setMarketSort] = useState<SpaceMarketSort>('latest');
   const [marketMineOnly, setMarketMineOnly] = useState(false);
@@ -1002,13 +1059,14 @@ function MarketSection({
       setMarketItems(response.items);
       setMarketTotal(response.total);
       setMarketQuota(response.quota);
+      onQuotaChange?.(response.quota);
     } catch (error) {
       if (requestId !== marketRequestIdRef.current) return;
       setMarketError(error instanceof Error ? error.message : String(error));
     } finally {
       if (requestId === marketRequestIdRef.current) setMarketLoading(false);
     }
-  }, [marketClient]);
+  }, [marketClient, onQuotaChange]);
 
   // When category, scope, sort, or refreshKey changes, reload market.
   useEffect(() => {
@@ -1054,12 +1112,18 @@ function MarketSection({
   return (
     <div className="market-section-container" id={`market-section-${category}`}>
       <div className="market-toolbar">
-        <div className="market-section-title-group">
-          <div className="market-title-header-row">
-            <div className="backpack-section-title">
-              <LiaStoreAltSolid size={18} style={{ color: 'var(--accent-light)' }} />
-              <span>Community Market ({category === 'item' ? 'Items' : category === 'blockset' ? 'Block Sets' : category === 'entity' ? 'Entities' : 'Color Sets'})</span>
-            </div>
+        <div className="market-toolbar-top">
+          <div className="backpack-section-title">
+            <LiaStoreAltSolid size={17} style={{ color: 'var(--accent-light)' }} />
+            <span>Market</span>
+            {marketTotal > 0 && <span className="market-count-badge">{marketTotal}</span>}
+          </div>
+          <div className="market-header-actions">
+            {marketMineOnly && marketQuota && (
+              <span className="market-quota-tag" title="Daily publish quota">
+                {marketQuota.published_today}/{marketQuota.daily_limit} today
+              </span>
+            )}
             {onClose && (
               <button
                 type="button"
@@ -1072,43 +1136,35 @@ function MarketSection({
               </button>
             )}
           </div>
-          <div className="market-license-note">
-            Published under <strong>AGPL-3.0-only</strong>
-            {marketQuota && (
-              <span className="market-quota">
-                Today: {marketQuota.published_today}/{marketQuota.daily_limit} · {marketQuota.remaining_today} remaining
-              </span>
-            )}
-          </div>
         </div>
 
-        <div className="market-filter-controls">
-          <div className="market-scope-buttons" role="group" aria-label="Market collection">
+        <div className="market-filter-bar">
+          <div className="market-pill-group market-scope-buttons" role="group" aria-label="Market collection">
             <button
               type="button"
-              className={`backpack-section-btn ${!marketMineOnly ? 'active' : ''}`}
+              className={`market-pill-btn ${!marketMineOnly ? 'active' : ''}`}
               onClick={() => setMarketMineOnly(false)}
             >
-              All resources
+              All
             </button>
             <button
               type="button"
-              className={`backpack-section-btn ${marketMineOnly ? 'active' : ''}`}
+              className={`market-pill-btn ${marketMineOnly ? 'active' : ''}`}
               onClick={() => setMarketMineOnly(true)}
             >
               My published
             </button>
           </div>
-          <div className="market-sort-buttons" role="group" aria-label="Market ranking">
+          <div className="market-pill-group market-sort-buttons" role="group" aria-label="Market ranking">
             {([
-              ['downloads', 'Most downloaded'],
-              ['likes', 'Most liked'],
               ['latest', 'Newest'],
+              ['downloads', 'Popular'],
+              ['likes', 'Liked'],
             ] as Array<[SpaceMarketSort, string]>).map(([sort, label]) => (
               <button
                 key={sort}
                 type="button"
-                className={`backpack-section-btn ${marketSort === sort ? 'active' : ''}`}
+                className={`market-pill-btn ${marketSort === sort ? 'active' : ''}`}
                 onClick={() => setMarketSort(sort)}
               >
                 {label}
@@ -1123,16 +1179,16 @@ function MarketSection({
       {marketLoading && marketItems.length === 0 ? (
         <div className="market-state">Loading market resources…</div>
       ) : marketItems.length === 0 ? (
-        <div className="market-state">
-          {marketMineOnly
-            ? `You have not published any ${category} resources yet.`
-            : `No ${category} resources have been published yet. Be the first to publish one!`}
+        <div className="market-state empty">
+          <LiaStoreAltSolid size={26} />
+          <span>
+            {marketMineOnly
+              ? `You have not published any ${category} resources yet.`
+              : `No ${category} resources found. Be the first to publish one!`}
+          </span>
         </div>
       ) : (
         <>
-          <div className="market-result-summary">
-            {marketTotal} {marketMineOnly ? 'of your resources' : 'resources available'} · Page {marketPage} of {totalPages}
-          </div>
           <div className="market-grid">
             {marketItems.map(resource => (
               <MarketResourceCard
@@ -1202,7 +1258,13 @@ export function InventoryModal() {
   const activeCategory: 'item' | 'colorset' = state.activeInventoryCategory === 'colorset' ? 'colorset' : 'item';
 
   const [marketRefreshKey, setMarketRefreshKey] = useState(0);
+  const [marketQuota, setMarketQuota] = useState<SpaceMarketQuota | null>(null);
+  const [pendingPublish, setPendingPublish] = useState<{ category: InventoryCategory; item: any } | null>(null);
+  const [quotaExceededModalOpen, setQuotaExceededModalOpen] = useState(false);
+  const [agplDontRemind, setAgplDontRemind] = useState(false);
   const marketClient = spaceUiStore.getMarketClient();
+
+  const AGPL_STORAGE_KEY = 'space_market_agpl_acknowledged';
 
   // Small screen auto-collapse detection
   const isSmallScreen = useCallback(() => {
@@ -1223,13 +1285,54 @@ export function InventoryModal() {
     }
   }, [state.activeModal, isSmallScreen]);
 
+  // Handle ESC key to dismiss prompt dialogs without closing backpack
+  useEffect(() => {
+    if (!pendingPublish && !quotaExceededModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setPendingPublish(null);
+        setQuotaExceededModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [pendingPublish, quotaExceededModalOpen]);
+
   if (state.activeModal !== 'inventory') return null;
 
   const inventories = state.controller?.inventories;
   const items = inventories?.item?.items || [];
   const colorsets = inventories?.colorset?.items || [];
 
-  const publishItem = async (category: InventoryCategory, item: any) => {
+  const handlePublishRequest = (category: InventoryCategory, item: any) => {
+    if (marketQuota && marketQuota.remaining_today <= 0) {
+      setQuotaExceededModalOpen(true);
+      return;
+    }
+
+    const isAgplAcknowledged = typeof localStorage !== 'undefined' && localStorage.getItem(AGPL_STORAGE_KEY) === 'true';
+    if (!isAgplAcknowledged) {
+      setPendingPublish({ category, item });
+      setAgplDontRemind(false);
+      return;
+    }
+
+    void doPublish(category, item);
+  };
+
+  const confirmAgplPublish = () => {
+    const target = pendingPublish;
+    if (agplDontRemind && typeof localStorage !== 'undefined') {
+      localStorage.setItem(AGPL_STORAGE_KEY, 'true');
+    }
+    setPendingPublish(null);
+    if (target) {
+      void doPublish(target.category, target.item);
+    }
+  };
+
+  const doPublish = async (category: InventoryCategory, item: any) => {
     if (!marketClient || !state.controller) return;
     const encoded = state.controller.encodeInventoryItem?.(category, item);
     if (!encoded) {
@@ -1257,7 +1360,7 @@ export function InventoryModal() {
           return;
         }
         if (error.code === 'DAILY_PUBLISH_LIMIT_REACHED') {
-          spaceUiStore.showToast('Daily publication limit reached (10/10).');
+          setQuotaExceededModalOpen(true);
           return;
         }
       }
@@ -1372,7 +1475,7 @@ export function InventoryModal() {
 
               <InventorySlotsRow
                 items={items}
-                onPublish={publishItem}
+                onPublish={handlePublishRequest}
               />
             </div>
 
@@ -1384,6 +1487,7 @@ export function InventoryModal() {
                   onDownload={downloadResource}
                   refreshKey={marketRefreshKey}
                   onClose={() => setMarketOpen(false)}
+                  onQuotaChange={setMarketQuota}
                 />
               </aside>
             )}
@@ -1405,7 +1509,7 @@ export function InventoryModal() {
                 </div>
               </div>
 
-              <ColorSetSlots items={colorsets} onPublish={publishItem} />
+              <ColorSetSlots items={colorsets} onPublish={handlePublishRequest} />
             </div>
 
             {marketOpen && (
@@ -1415,12 +1519,97 @@ export function InventoryModal() {
                   onDownload={downloadResource}
                   refreshKey={marketRefreshKey}
                   onClose={() => setMarketOpen(false)}
+                  onQuotaChange={setMarketQuota}
                 />
               </aside>
             )}
           </div>
         )}
       </div>
+
+      {pendingPublish && (
+        <div
+          className="market-prompt-modal-backdrop"
+          id="market-agpl-confirm-modal"
+          onClick={e => {
+            if (e.target === e.currentTarget) setPendingPublish(null);
+          }}
+        >
+          <div className="market-prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="market-agpl-title">
+            <div className="market-prompt-header">
+              <LiaStoreAltSolid size={20} style={{ color: 'var(--accent-light)' }} />
+              <h3 id="market-agpl-title">Publish to Community Market</h3>
+            </div>
+            <div className="market-prompt-body">
+              <p>
+                Publishing <strong>"{pendingPublish.item?.name || 'Untitled'}"</strong> will make it publicly accessible to all players under the <strong>AGPL-3.0-only</strong> license.
+              </p>
+              <p className="market-prompt-subtext">
+                Anyone will be free to download, inspect, use, and build with your creation.
+              </p>
+              <label className="market-agpl-checkbox-row">
+                <input
+                  type="checkbox"
+                  id="market-agpl-dont-remind-checkbox"
+                  checked={agplDontRemind}
+                  onChange={e => setAgplDontRemind(e.target.checked)}
+                />
+                <span>Do not remind me again</span>
+              </label>
+            </div>
+            <div className="market-prompt-actions">
+              <button
+                type="button"
+                className="backpack-section-btn"
+                onClick={() => setPendingPublish(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="backpack-section-btn primary"
+                onClick={confirmAgplPublish}
+              >
+                Publish under AGPL-3.0
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quotaExceededModalOpen && (
+        <div
+          className="market-prompt-modal-backdrop"
+          id="market-quota-exceeded-modal"
+          onClick={e => {
+            if (e.target === e.currentTarget) setQuotaExceededModalOpen(false);
+          }}
+        >
+          <div className="market-prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="market-quota-title">
+            <div className="market-prompt-header">
+              <LiaStoreAltSolid size={20} style={{ color: '#ffb300' }} />
+              <h3 id="market-quota-title">Daily Publish Limit Reached</h3>
+            </div>
+            <div className="market-prompt-body">
+              <p>
+                You have reached your daily community market publication limit ({marketQuota ? `${marketQuota.published_today}/${marketQuota.daily_limit}` : '10/10'}).
+              </p>
+              <p className="market-prompt-subtext">
+                Publish quota resets every day at midnight (UTC). You can still browse, download, and use all community resources.
+              </p>
+            </div>
+            <div className="market-prompt-actions">
+              <button
+                type="button"
+                className="backpack-section-btn primary"
+                onClick={() => setQuotaExceededModalOpen(false)}
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

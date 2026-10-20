@@ -309,6 +309,10 @@ an optional BlockSet and zero or more complete Entity trees; the content must
 include at least one voxel. Color Sets remain a separate collection of 99 slots.
 The Market's Items listing also includes existing BlockSet and Entity resources.
 Users select and build an Item without choosing its internal resource kind.
+Market previews and downloads resolve standalone `/space/objects/space-market/resources/`
+files against the configured Space API origin, including local port forwards.
+External CDN URLs retain their origin; all resources still pass canonical encoding,
+display-name, and semantic SHA-256 checks before use.
 
 1. Choose any color, then use the shovel for standard construction or the spoon
    for micro-voxel sculpting.

@@ -2500,7 +2500,7 @@ button.palette-title:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: 32px;
   padding: 0 10px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -2694,6 +2694,11 @@ button.palette-title:hover {
   padding-right: 8px;
 }
 
+#backpack-panel-items .backpack-main-col {
+  overflow: hidden;
+  padding-right: 2px;
+}
+
 .backpack-market-sidebar {
   display: flex;
   flex-direction: column;
@@ -2719,22 +2724,70 @@ button.palette-title:hover {
 }
 
 .backpack-market-sidebar .market-toolbar {
+  display: flex;
   flex-direction: column;
-  align-items: stretch;
   gap: 8px;
   padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
 }
 
-.backpack-market-sidebar .market-section-title-group {
-  gap: 2px;
-}
-
-.market-title-header-row {
+.market-toolbar-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
+}
+
+.market-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(95, 198, 61, 0.15);
+  border: 1px solid rgba(95, 198, 61, 0.3);
+  color: #7ceb5a;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 6px;
+}
+
+.market-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.market-license-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
+  cursor: help;
+}
+
+.market-quota-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(95, 198, 61, 0.1);
+  border: 1px solid rgba(95, 198, 61, 0.25);
+  color: #a3f78b;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .market-close-btn {
@@ -2758,11 +2811,51 @@ button.palette-title:hover {
   color: #fff;
 }
 
-.backpack-market-sidebar .market-filter-controls,
-.backpack-market-sidebar .market-sort-buttons,
-.backpack-market-sidebar .market-scope-buttons {
-  justify-content: flex-start;
+.market-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   width: 100%;
+}
+
+.market-pill-group {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.market-pill-btn {
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: 'FusionPixel', monospace;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.market-pill-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.market-pill-btn.active {
+  color: #fff;
+  background: rgba(78, 166, 50, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .backpack-market-sidebar .market-grid {
@@ -2777,35 +2870,70 @@ button.palette-title:hover {
 
 .backpack-market-sidebar .inventory-card.market-resource-card {
   min-height: auto;
-  padding: 8px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 10px;
-  background: rgba(20, 20, 26, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 4px;
+  background: rgba(18, 18, 24, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+  transition: all 0.15s ease;
 }
 
 .backpack-market-sidebar .inventory-card.market-resource-card:hover {
-  background: rgba(28, 28, 36, 0.95);
-  border-color: rgba(78, 166, 50, 0.5);
+  background: rgba(25, 25, 34, 0.95);
+  border-color: rgba(95, 198, 61, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
 }
 
 .backpack-market-sidebar .market-resource-preview {
-  width: 68px;
-  min-width: 68px;
-  height: 68px;
-  min-height: 68px;
+  width: 64px;
+  min-width: 64px;
+  height: 64px;
+  min-height: 64px;
   flex-shrink: 0;
-  border-radius: 3px;
-  background: radial-gradient(circle at 45% 35%, #25252e, #0e0e12 72%);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: radial-gradient(circle at 45% 35%, #24242e, #0c0c10 75%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
 }
 
 .backpack-market-sidebar .market-resource-preview .inv-slot-thumb {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   object-fit: contain;
+  transition: transform 0.15s ease;
+}
+
+.backpack-market-sidebar .inventory-card.market-resource-card:hover .inv-slot-thumb {
+  transform: scale(1.08);
+}
+
+.backpack-market-sidebar .market-colorset-preview {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 48px;
+  height: 48px;
+  gap: 2px;
+}
+
+.backpack-market-sidebar .market-colorset-preview span {
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  border-radius: 2px;
+}
+
+.backpack-market-sidebar .market-resource-glyph {
+  color: #5fc63d;
+  font-size: 24px;
+  font-weight: 900;
+  text-shadow: 2px 2px #000;
+  font-family: 'FusionPixel', monospace;
 }
 
 .backpack-market-sidebar .market-resource-body {
@@ -2813,10 +2941,17 @@ button.palette-title:hover {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
-.backpack-market-sidebar .market-resource-body h3 {
+.backpack-market-sidebar .market-resource-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.backpack-market-sidebar .market-resource-title-row h3 {
   font-size: 12.5px;
   font-weight: 700;
   color: #ffffff;
@@ -2824,48 +2959,264 @@ button.palette-title:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   margin: 0;
+  line-height: 1.3;
 }
 
-.backpack-market-sidebar .market-resource-author {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.backpack-market-sidebar .market-resource-meta {
+.backpack-market-sidebar .market-resource-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10.5px;
   color: rgba(255, 255, 255, 0.45);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
 }
 
-.backpack-market-sidebar .market-resource-stats {
-  font-size: 10.5px;
-  display: flex;
-  gap: 8px;
-  color: rgba(255, 255, 255, 0.6);
-  margin: 2px 0;
-  font-family: 'JetBrains Mono', monospace;
+.backpack-market-sidebar .market-meta-author {
+  color: rgba(255, 255, 255, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.backpack-market-sidebar .market-meta-dot {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.backpack-market-sidebar .market-meta-spec {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.backpack-market-sidebar .market-meta-downloads {
+  color: rgba(255, 255, 255, 0.65);
+  display: inline-flex;
+  align-items: center;
+}
+
+.backpack-market-sidebar .market-meta-date {
+  color: rgba(255, 255, 255, 0.35);
 }
 
 .backpack-market-sidebar .market-resource-actions {
   display: flex;
-  gap: 4px;
-  margin-top: 4px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  width: 100%;
 }
 
-.backpack-market-sidebar .market-resource-actions .backpack-section-btn {
-  height: 24px;
+.market-card-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  box-sizing: border-box;
   font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: 'FusionPixel', monospace;
+  white-space: nowrap;
+  user-select: none;
+  line-height: 1;
+}
+
+.market-card-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.market-card-btn:active {
+  transform: translateY(1px);
+}
+
+/* Download button: primary action, expands to fill available width symmetrically */
+.market-card-download-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 10px;
+  background: #4ea632;
+  border-color: #3c8527;
+  color: #ffffff;
+}
+
+.market-card-download-btn:hover {
+  background: #5bc43a;
+  border-color: #4ea632;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(78, 166, 50, 0.35);
+}
+
+.market-card-btn .market-btn-count {
+  font-size: 10px;
+  opacity: 0.9;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Like button: compact, stable pill */
+.market-card-like-btn {
+  flex: 0 0 auto;
+  min-width: 48px;
   padding: 0 8px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.market-card-like-btn:hover {
+  color: #ff859b;
+  border-color: rgba(255, 107, 129, 0.4);
+  background: rgba(255, 107, 129, 0.08);
+}
+
+.market-card-like-btn.active {
+  color: #ff6b81;
+  background: rgba(255, 107, 129, 0.16);
+  border-color: rgba(255, 107, 129, 0.45);
+}
+
+.market-card-like-btn span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+}
+
+/* Delete button: perfect 26x26 square */
+.market-card-delete-btn {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.market-card-delete-btn:hover {
+  color: #ff5252;
+  background: rgba(255, 82, 82, 0.15);
+  border-color: rgba(255, 82, 82, 0.4);
 }
 
 .backpack-market-sidebar .market-pagination {
-  padding-top: 6px;
+  padding-top: 8px;
   flex-shrink: 0;
+}
+
+/* Market Dialog Overlays (AGPL confirmation & Quota limit) */
+.market-prompt-modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.market-prompt-dialog {
+  width: 440px;
+  max-width: 90vw;
+  background: #14141a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-family: 'FusionPixel', monospace;
+  animation: marketPromptFadeIn 0.15s ease-out;
+}
+
+@keyframes marketPromptFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.market-prompt-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.market-prompt-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.market-prompt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.market-prompt-body p {
+  margin: 0;
+}
+
+.market-prompt-body strong {
+  color: #5fc63d;
+}
+
+.market-prompt-subtext {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.market-agpl-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.market-agpl-checkbox-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.market-agpl-checkbox-row input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #4ea632;
+}
+
+.market-prompt-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .backpack-section-header {
@@ -3238,12 +3589,14 @@ button.palette-title:hover {
 .backpack-slots-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
-.backpack-items-grid {
+.backpack-items-grid,
+.backpack-slots-grid.backpack-storage-grid {
   display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
   grid-auto-rows: max-content;
@@ -3251,6 +3604,7 @@ button.palette-title:hover {
   overflow-y: auto;
   padding: 4px 4px 8px 2px;
   min-height: 0;
+  flex: 1;
   align-content: start;
 }
 
@@ -3263,14 +3617,6 @@ button.palette-title:hover {
   font-size: 10px;
   line-height: 1.2;
   white-space: nowrap;
-}
-
-.backpack-items-grid .backpack-slot-card.hotbar-slot {
-  min-height: 176px;
-}
-
-.backpack-items-grid .backpack-slot-card.storage-slot {
-  min-height: 136px;
 }
 
 .backpack-item-kind.blockset {
@@ -3290,7 +3636,8 @@ button.palette-title:hover {
 }
 
 @media (max-width: 760px) {
-  .backpack-items-grid {
+  .backpack-items-grid,
+  .backpack-slots-row {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
@@ -3302,23 +3649,27 @@ button.palette-title:hover {
 }
 
 .backpack-section-subgroup.hotbar-group {
-  background: rgba(78, 166, 50, 0.08);
-  border: 1px solid rgba(78, 166, 50, 0.35);
+  background: linear-gradient(180deg, rgba(28, 44, 24, 0.9) 0%, rgba(16, 26, 16, 0.95) 100%);
+  border: 1.5px solid rgba(95, 198, 61, 0.45);
   border-radius: 6px;
-  padding: 12px 14px 14px;
-  box-shadow: inset 0 0 16px rgba(78, 166, 50, 0.06);
+  padding: 10px 12px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), inset 0 0 16px rgba(78, 166, 50, 0.08);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .backpack-section-subgroup.storage-group {
-  background: rgba(14, 14, 18, 0.45);
+  background: rgba(14, 14, 18, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
-  padding: 10px 12px;
+  padding: 10px 12px 6px;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .backpack-subgroup-header {
@@ -3329,19 +3680,43 @@ button.palette-title:hover {
   flex-shrink: 0;
 }
 
+.backpack-hotbar-label-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backpack-hotbar-badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: #0f1f0a;
+  background: #5fc63d;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 8px rgba(95, 198, 61, 0.4);
+  font-family: 'FusionPixel', monospace;
+}
+
 .backpack-hotbar-label {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 700;
-  color: #5fc63d;
+  color: #6fe04a;
   letter-spacing: 0.3px;
   font-family: 'FusionPixel', monospace;
   text-shadow: 0 1px 2px #000;
 }
 
+.backpack-storage-label-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .backpack-storage-label {
   font-size: 12.5px;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.75);
   letter-spacing: 0.3px;
   font-family: 'FusionPixel', monospace;
 }
@@ -3354,19 +3729,10 @@ button.palette-title:hover {
 
 .backpack-slots-row {
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
-  gap: 10px;
-  padding: 4px 0 2px;
-  box-sizing: border-box;
-}
-
-.backpack-slots-grid.backpack-storage-grid {
-  display: grid;
-  grid-template-columns: repeat(9, 1fr);
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 8px;
-  overflow-y: auto;
-  padding: 4px 4px 8px 2px;
-  flex: 1;
+  padding: 2px 0 0;
+  box-sizing: border-box;
 }
 
 .backpack-slot-card {
@@ -3393,42 +3759,61 @@ button.palette-title:hover {
 }
 
 .backpack-slot-card.hotbar-slot {
-  background: rgba(24, 30, 22, 0.95);
-  border: 1.5px solid rgba(78, 166, 50, 0.45);
-  padding: 7px 7px 6px;
-  min-height: 155px;
+  background: linear-gradient(180deg, rgba(28, 40, 24, 0.95) 0%, rgba(18, 26, 18, 0.95) 100%);
+  border: 1.5px solid rgba(95, 198, 61, 0.45);
+  padding: 6px;
+  min-height: 152px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), inset 0 0 10px rgba(78, 166, 50, 0.08);
 }
 
 .backpack-slot-card.hotbar-slot:hover {
   border-color: #5fc63d;
-  background: rgba(30, 42, 26, 0.98);
-  box-shadow: 0 6px 18px rgba(78, 166, 50, 0.4);
+  background: linear-gradient(180deg, rgba(34, 52, 28, 0.98) 0%, rgba(22, 34, 20, 0.98) 100%);
+  box-shadow: 0 4px 16px rgba(78, 166, 50, 0.4);
   transform: translateY(-2px);
+}
+
+.backpack-slot-card.hotbar-slot.empty {
+  border: 1.5px dashed rgba(95, 198, 61, 0.35);
+  background: rgba(20, 30, 18, 0.55);
+  opacity: 0.85;
+}
+
+.backpack-slot-card.hotbar-slot.empty:hover {
+  border-color: #5fc63d;
+  background: rgba(26, 40, 22, 0.8);
+  opacity: 1;
 }
 
 .backpack-slot-card.hotbar-slot .backpack-slot-thumb-container {
   width: 100%;
-  height: 104px;
-  min-height: 104px;
+  height: 94px;
+  min-height: 94px;
   aspect-ratio: auto;
-  background: #07070a;
-  border-color: rgba(78, 166, 50, 0.2);
+  background: #080d08;
+  border: 1px solid rgba(78, 166, 50, 0.25);
+  border-radius: 4px;
 }
 
 .backpack-slot-card.hotbar-slot .inv-slot-thumb {
   width: 92%;
   height: 92%;
-  max-height: 96px;
+  max-height: 88px;
   object-fit: contain;
 }
 
 .backpack-slot-card.hotbar-slot .backpack-slot-index.hotbar-badge {
-  top: 4px;
-  left: 5px;
-  font-size: 12px;
-  font-weight: 700;
+  top: 3px;
+  left: 4px;
+  font-size: 11.5px;
+  font-weight: 800;
   color: #ffde59;
-  text-shadow: 0 1px 2px #000, 0 0 5px rgba(255, 222, 89, 0.6);
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 222, 89, 0.35);
+  border-radius: 3px;
+  padding: 1px 4px;
+  line-height: 1;
+  text-shadow: 0 0 6px rgba(255, 222, 89, 0.6);
 }
 
 .backpack-slot-card.hotbar-slot .backpack-slot-count {
@@ -3442,40 +3827,73 @@ button.palette-title:hover {
 }
 
 .backpack-slot-card.hotbar-slot .backpack-item-name-input {
-  height: 24px;
-  font-size: 11.5px;
+  height: 22px;
+  font-size: 11px;
+  font-weight: 600;
   padding: 2px 4px;
   text-align: center;
+  color: #dff5d8;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(95, 198, 61, 0.2);
 }
 
 .backpack-slot-card.storage-slot {
+  background: rgba(20, 20, 25, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   opacity: 0.92;
   padding: 5px;
-  min-height: 115px;
+  min-height: 116px;
 }
 
 .backpack-slot-card.storage-slot:hover {
   opacity: 1;
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(28, 28, 34, 0.95);
+  transform: translateY(-1px);
+}
+
+.backpack-slot-card.storage-slot.empty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+  opacity: 0.6;
+}
+
+.backpack-slot-card.storage-slot.empty:hover {
+  opacity: 0.85;
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .backpack-slot-card.storage-slot .backpack-slot-thumb-container {
   width: 100%;
-  height: 72px;
-  min-height: 72px;
+  height: 68px;
+  min-height: 68px;
   aspect-ratio: auto;
+  background: #09090c;
+  border-radius: 3px;
 }
 
 .backpack-slot-card.storage-slot .inv-slot-thumb {
   width: 88%;
   height: 88%;
-  max-height: 66px;
+  max-height: 62px;
+}
+
+.backpack-slot-card.storage-slot .backpack-slot-index {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+  font-weight: 500;
+  text-shadow: none;
 }
 
 .backpack-slot-card.storage-slot .backpack-item-name-input {
-  height: 22px;
-  font-size: 10.5px;
+  height: 20px;
+  font-size: 10px;
   padding: 1px 3px;
   text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .backpack-slot-card.empty {
@@ -3909,83 +4327,46 @@ button.palette-title:hover {
 
 .market-toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 2px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.market-section-title-group {
-  display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.market-license-note {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
   gap: 8px;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 11.5px;
-  font-family: 'FusionPixel', monospace;
-}
-
-.market-license-note strong {
-  color: #5fc63d;
-}
-
-.market-quota {
-  padding-left: 8px;
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.85);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-}
-
-.market-filter-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.market-sort-buttons,
-.market-scope-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  flex-shrink: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .market-state {
   margin: 12px 2px;
-  padding: 20px;
-  color: rgba(255, 255, 255, 0.5);
+  padding: 24px 16px;
+  color: rgba(255, 255, 255, 0.45);
   text-align: center;
-  border: 1px dashed rgba(255, 255, 255, 0.1);
-  font-size: 12px;
+  font-size: 11.5px;
   font-family: 'FusionPixel', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-state.empty {
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+.market-state.empty svg {
+  color: rgba(255, 255, 255, 0.25);
+  margin-bottom: 2px;
 }
 
 .market-state.error {
   color: #ff9b9b;
-  border-color: rgba(235, 87, 87, 0.5);
-}
-
-.market-result-summary {
-  padding: 4px 4px 0;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 11px;
-  font-family: 'FusionPixel', monospace;
+  border: 1px solid rgba(235, 87, 87, 0.4);
+  background: rgba(235, 87, 87, 0.05);
+  border-radius: 4px;
 }
 
 .market-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
   padding: 4px 2px;
 }
 
@@ -4047,37 +4428,41 @@ button.palette-title:hover {
 }
 
 .inventory-card.market-resource-card {
-  min-height: 176px;
-  padding: 9px;
-  align-items: stretch;
+  padding: 10px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
   cursor: default;
   background: rgba(18, 18, 22, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
 }
 
 .market-resource-preview {
   position: relative;
-  width: 92px;
-  min-width: 92px;
-  min-height: 130px;
+  width: 68px;
+  min-width: 68px;
+  height: 68px;
+  min-height: 68px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: radial-gradient(circle at 45% 35%, #25252e, #0e0e12 72%);
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
 .market-resource-preview .inv-slot-thumb {
-  width: 88px;
-  height: 88px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
 }
 
 .market-resource-glyph {
   color: #5fc63d;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 900;
   text-shadow: 2px 2px #000;
   font-family: 'FusionPixel', monospace;
@@ -4086,8 +4471,8 @@ button.palette-title:hover {
 .market-colorset-preview {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  width: 72px;
-  height: 72px;
+  width: 48px;
+  height: 48px;
   gap: 2px;
 }
 
@@ -4096,40 +4481,26 @@ button.palette-title:hover {
   border-radius: 1px;
 }
 
-.market-license-badge {
-  position: absolute;
-  left: 4px;
-  bottom: 4px;
-  padding: 2px 5px;
-  color: #ffffff;
-  background: #4ea632;
-  font-size: 9px;
-  font-weight: 800;
-  font-family: 'FusionPixel', monospace;
-  border-radius: 2px;
-}
-
 .market-resource-body {
   min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
-.market-resource-kind {
-  color: #5fc63d;
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.6px;
-  font-family: 'FusionPixel', monospace;
+.market-resource-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 
-.market-resource-body h3 {
+.market-resource-title-row h3 {
   margin: 0;
   overflow: hidden;
   color: #ffffff;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -4137,46 +4508,34 @@ button.palette-title:hover {
   font-family: 'FusionPixel', monospace;
 }
 
-.market-resource-author,
-.market-resource-meta {
-  overflow: hidden;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: 'FusionPixel', monospace;
-}
-
-.market-resource-stats {
+.market-resource-meta-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: auto;
-  color: rgba(255, 255, 255, 0.75);
+  align-items: center;
+  gap: 5px;
   font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: 'JetBrains Mono', monospace;
 }
 
-.market-resource-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 3px;
+.market-meta-author {
+  color: rgba(255, 255, 255, 0.65);
 }
 
-.market-resource-actions .backpack-section-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11.5px;
-  height: 26px;
+.market-meta-dot {
+  color: rgba(255, 255, 255, 0.25);
 }
 
-.market-like-btn.active {
-  color: #ff859b;
-  border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.18);
+.market-meta-spec {
+  color: rgba(255, 255, 255, 0.5);
 }
+
+.market-meta-date {
+  color: rgba(255, 255, 255, 0.35);
+}
+
 
 @media (max-width: 820px) {
   .market-toolbar {
