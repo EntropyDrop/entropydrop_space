@@ -1001,12 +1001,6 @@ export class PlayerController {
         }
         break;
 
-      case 'KeyB': // B key: fill selection with active color
-        if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
-          this.fillSelectionBlocks();
-        }
-        break;
-
       case 'KeyP': // P key: paint/recolor selection with active color
         if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
           this.paintSelectionBlocks();
@@ -1044,8 +1038,9 @@ export class PlayerController {
         }
         break;
 
-      case 'KeyE': // E key: Inventory Palette
-        if (this.ui) this.ui.toggleInventoryModal();
+      case 'KeyB': // B key: Backpack
+        e.preventDefault();
+        if (!e.repeat && this.ui) this.ui.toggleInventoryModal();
         break;
 
       case 'KeyI': // I key: open browser color picker near active color in toolbar

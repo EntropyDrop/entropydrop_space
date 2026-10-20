@@ -619,7 +619,7 @@ export function PauseScreen() {
           <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
           <span><kbd className="key-badge">Space</kbd> again in midair: Tap to dash 5 m · Hold to keep dashing toward the crosshair</span>
           <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
-          <span><kbd className="key-badge">E</kbd> Backpack / Color sets</span>
+          <span><kbd className="key-badge">B</kbd> Backpack / Color sets</span>
           <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy</span>
           <span><kbd className="key-badge">2</kbd> Hammer: LMB build / attach to entity · RMB / Arrows rotate</span>
           <span><kbd className="key-badge">3</kbd> Wrench: drag COM axes to move · drag arrows to rotate · hold entity to lift · RMB to start</span>

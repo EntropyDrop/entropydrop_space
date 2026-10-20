@@ -90,3 +90,84 @@ test('thumbnail keys reuse item geometry until its resource version changes', ()
   assert.equal(renderer.getItemCacheKey(item, 96, 2), changed);
   assert.equal(computations, 3);
 });
+
+test('local item thumbnails encode WebGPU readback rows at hotbar and backpack sizes', async t => {
+  const thumbnails = new InventoryThumbnailRenderer() as any;
+  await thumbnails.ready;
+  const previousDocument = globalThis.document;
+  const previousImageData = globalThis.ImageData;
+  t.after(() => { globalThis.document = previousDocument; globalThis.ImageData = previousImageData; });
+
+  const encoded = `data:image/png;base64,${'A'.repeat(64)}`;
+  let expectedPixels: Uint8ClampedArray;
+  let images = 0, renderedBlocks = 0;
+  let packedReadback = false;
+  globalThis.ImageData = class {
+    constructor(data: Uint8ClampedArray, width: number, height: number) {
+      assert.equal(data.length, width * height * 4, 'ImageData requires tightly packed RGBA');
+      assert.deepEqual(data, expectedPixels, 'row order and pixel channels must survive removal of padding');
+      images++;
+    }
+  } as any;
+  globalThis.document = { createElement: () => ({
+    getContext: () => ({ putImageData() {} }), toDataURL: () => encoded
+  }) } as any;
+  Object.assign(thumbnails, {
+    webgpuAvailable: true,
+    canvas: { width: 128, height: 128 },
+    scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(38, 1, 0.1, 500),
+    renderer: {
+      setSize() {}, setRenderTarget() {},
+      render(scene: THREE.Scene) {
+        renderedBlocks = 0;
+        scene.traverse((object: any) => { if (object.isInstancedMesh) renderedBlocks += object.count; });
+      },
+      async readRenderTargetPixelsAsync(target: THREE.RenderTarget, _x: number, _y: number, width: number, height: number) {
+        assert.equal(target.texture.format, THREE.RGBAFormat);
+        assert.equal(target.texture.type, THREE.UnsignedByteType);
+        const rowBytes = width * 4;
+        const rowStride = packedReadback ? rowBytes : Math.ceil(rowBytes / 256) * 256;
+        // Three r183 omits padding after the last row and may return a view.
+        const length = (height - 1) * rowStride + rowBytes;
+        const pixels = new Uint8Array(new ArrayBuffer(length + 8), 8, length).fill(0xee);
+        expectedPixels = new Uint8ClampedArray(width * height * 4);
+        for (let row = 0; row < height; row++) {
+          for (let byte = 0; byte < rowBytes; byte++) {
+            const value = (row * 7 + byte) % 256;
+            pixels[row * rowStride + byte] = value;
+            expectedPixels[row * rowBytes + byte] = value;
+          }
+        }
+        return pixels;
+      }
+    }
+  });
+
+  const blockSet = { kind: 'blockset', blocks: [{ dx: 0, dy: 0, dz: 0, color: 0xff0000 }] };
+  const entity = { kind: 'entity', rootComponentId: 'root', itemPosition: [2, 0, 0],
+    blocks: [{ entityId: 'root', localX: 0, localY: 0, localZ: 0, color: 0x00ff00 }] };
+  const items = [
+    { item: blockSet, count: 1 },
+    { item: { kind: 'item', blocks: [], blockSet, entityList: [] }, count: 1 },
+    { item: { kind: 'item', blocks: [], entityList: [entity] }, count: 1 },
+    { item: { kind: 'item', blocks: [], blockSet, entityList: [entity] }, count: 2 }
+  ];
+  let notifications = 0;
+  const unsubscribe = thumbnails.subscribe(() => { notifications++; });
+  t.after(unsubscribe);
+  for (const packed of [false, true]) {
+    packedReadback = packed;
+    thumbnails.clearCache();
+    for (const { item, count } of items) {
+      for (const size of [64, 96, 128, 144]) {
+        const before = images, beforeNotifications = notifications;
+        assert.equal(thumbnails.getThumbnail(item, size), null, 'first request queues a thumbnail');
+        await thumbnails.queue;
+        assert.equal(thumbnails.getThumbnail(item, size), encoded, 'completed thumbnail is cached for the UI');
+        assert.equal(images, before + 1);
+        assert.equal(notifications, beforeNotifications + 1, 'completion refreshes subscribed backpack and hotbar components');
+        assert.equal(renderedBlocks, count);
+      }
+    }
+  }
+});

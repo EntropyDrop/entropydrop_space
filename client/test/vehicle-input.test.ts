@@ -9,6 +9,7 @@ import { ContraptionManager } from '@entropydrop/space-engine/contraption/Contra
 import {
   PlayerController,
   RESERVED_ENTITY_INPUT_CODES,
+  SpecialTool,
   isPerspectiveToggleCode
 } from '../src/engine/controls/PlayerController.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
@@ -76,7 +77,47 @@ test('F3 toggles perspective and perspective shortcuts stay engine-owned', () =>
   assert.equal(isPerspectiveToggleCode('KeyF'), false);
   assert.equal(RESERVED_ENTITY_INPUT_CODES.has('F3'), true);
   assert.equal(RESERVED_ENTITY_INPUT_CODES.has('F5'), true);
-  assert.equal(RESERVED_ENTITY_INPUT_CODES.has('KeyB'), false, 'the removed blueprint shortcut is available to entity scripts');
+  assert.equal(RESERVED_ENTITY_INPUT_CODES.has('KeyB'), true, 'the backpack shortcut stays engine-owned');
+  assert.equal(RESERVED_ENTITY_INPUT_CODES.has('KeyE'), false, 'the old backpack shortcut is available to entity scripts');
+});
+
+test('B toggles the backpack once per press across tools without filling selections or reaching entity scripts', () => {
+  const controller = Object.create(PlayerController.prototype) as any;
+  controller.entityInputDown = new Set();
+  controller.entityInputPressed = new Set();
+  controller.entityInputReleased = new Set();
+  let toggles = 0, fills = 0;
+  controller.ui = { toggleInventoryModal() { toggles++; } };
+  controller.modeling = { deactivate() {} };
+  controller.fillSelectionBlocks = () => { fills++; };
+  controller.hasActiveSelection = () => true;
+  const press = (code: string, repeat = false, target: unknown = null) => {
+    let prevented = false;
+    controller.handleKeyDown({ code, repeat, target, preventDefault() { prevented = true; } });
+    return prevented;
+  };
+
+  for (const tool of new Set(Object.values(SpecialTool))) {
+    controller.activeTool = tool;
+    const before = toggles;
+    assert.equal(press('KeyB'), true);
+    assert.equal(press('KeyB', true), true);
+    assert.equal(toggles, before + 1);
+    assert.deepEqual(controller.consumeEntityInputFrame(), { down: [], pressed: [], released: [] });
+  }
+  assert.equal(fills, 0);
+  controller.activeTool = SpecialTool.SELECTOR;
+  press('KeyF');
+  assert.equal(fills, 1, 'F still fills the active selection');
+
+  const before = toggles;
+  press('KeyE');
+  assert.equal(toggles, before, 'E no longer opens the backpack');
+  assert.deepEqual(controller.consumeEntityInputFrame(), { down: ['KeyE'], pressed: ['KeyE'], released: [] });
+  for (const target of [{ tagName: 'INPUT' }, { tagName: 'TEXTAREA' }, { tagName: 'SELECT' }, { isContentEditable: true }]) {
+    assert.equal(press('KeyB', false, target), false);
+  }
+  assert.equal(toggles, before, 'typing in an editor must not toggle the backpack');
 });
 
 test('perspective cycles first, third-person back, then third-person front', () => {

@@ -460,14 +460,14 @@ function InventoryBar() {
     <div className="inventory-bar-wrapper" id="inventory-bar-wrapper">
       <div className="palette-info-row">
         <div className="palette-title-group">
-          <button type="button" tabIndex={-1} className="palette-title" id="backpack-bar-title" title="Click or press E to open full backpack" onClick={() => spaceUiStore.toggleInventoryModal(true)}>
+          <button type="button" tabIndex={-1} className="palette-title" id="backpack-bar-title" title="Click or press B to open full backpack" onClick={() => spaceUiStore.toggleInventoryModal(true)}>
             <LiaBoxesSolid size={14} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />Backpack
           </button>
           <div id="inv-cat-tabs" className="inv-cat-tabs">
             <span className="inv-cat-tab active">Items</span>
           </div>
         </div>
-        <span className="palette-hotkey-hint"><b>E</b> Full Backpack · <b>Arrows/RMB</b> Rotate · <b>LMB</b> Build</span>
+        <span className="palette-hotkey-hint"><b>B</b> Full Backpack · <b>Arrows/RMB</b> Rotate · <b>LMB</b> Build</span>
       </div>
       <div id="inventory-bar" className="inventory-bar">
         {Array.from({ length: 9 }, (_, index) => {

@@ -123,7 +123,7 @@ export class InventoryThumbnailRenderer {
    * Generate or retrieve a cached thumbnail Data URL for an inventory item (blockset or resting entity).
    */
   getThumbnail(item: any, size = 128, resourceRevision = 0): string | null {
-    if (!item?.blocks?.length) return null;
+    if (!item) return null;
     const key = this.getItemCacheKey(item, size, resourceRevision);
     if (this.thumbnailCache.has(key)) return this.thumbnailCache.get(key)!;
     if (!this.pending.has(key) && !this.failed.has(key)) {
@@ -142,7 +142,7 @@ export class InventoryThumbnailRenderer {
   }
 
   private async generateThumbnail(item: any, size: number, cacheKey: string): Promise<string | null> {
-    if (!item || !item.blocks || item.blocks.length === 0) return null;
+    if (!item) return null;
 
     if (this.thumbnailCache.has(cacheKey)) {
       return this.thumbnailCache.get(cacheKey)!;
@@ -267,10 +267,18 @@ export class InventoryThumbnailRenderer {
       try {
         this.renderer.setRenderTarget(target);
         this.renderer.render(this.scene,this.camera);
-        const pixels = await this.renderer.readRenderTargetPixelsAsync(target,0,0,size,size);
+        const pixels = await this.renderer.readRenderTargetPixelsAsync(target, 0, 0, size, size) as Uint8Array;
+        const rgba = new Uint8ClampedArray(size * size * 4);
+        const rowBytes = size * 4;
+        // WebGPU readback rows are aligned to 256 bytes; ImageData needs tightly
+        // packed RGBA rows (notably for the backpack's 96px and 144px previews).
+        const rowStride = pixels.byteLength === rgba.byteLength ? rowBytes : Math.ceil(rowBytes / 256) * 256;
+        for (let row = 0; row < size; row++) {
+          rgba.set(pixels.subarray(row * rowStride, row * rowStride + rowBytes), row * rowBytes);
+        }
         // Canvas2D only encodes already-rendered GPU pixels as a PNG.
         const encoder = document.createElement('canvas'); encoder.width=size; encoder.height=size;
-        encoder.getContext('2d')!.putImageData(new ImageData(Uint8ClampedArray.from(pixels as Uint8Array),size,size),0,0);
+        encoder.getContext('2d')!.putImageData(new ImageData(rgba, size, size),0,0);
         dataUrl = encoder.toDataURL('image/png');
       } finally { this.renderer.setRenderTarget(null); target.dispose(); }
 
