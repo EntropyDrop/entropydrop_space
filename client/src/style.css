@@ -7453,3 +7453,48 @@ button.palette-title:hover {
 .modeling-panel .axis-y { color: #80d994; }
 .modeling-panel .axis-z { color: #80baff; }
 .modeling-hint { margin: 10px 0; color: #aeb9c9; font-size: 12px; }
+.text-creation-panel {
+  position: fixed; top: 76px; right: 20px; z-index: 460;
+  width: min(334px, calc(100vw - 32px)); max-height: calc(100dvh - 100px); overflow-y: auto;
+  box-sizing: border-box; padding: 20px; color: #eaf1ef;
+  background: rgba(17, 25, 26, .97); border: 1px solid #425450;
+  border-radius: 12px; box-shadow: 0 16px 48px #0007; pointer-events: auto;
+}
+.text-creation-panel header { display: flex; justify-content: space-between; align-items: flex-start; }
+.text-creation-eyebrow { color: #91c9af; font-size: 11px; letter-spacing: 1.6px; }
+.text-creation-panel h2 { margin: 7px 0 0; font-size: 22px; font-weight: 400; }
+.text-creation-panel button { cursor: pointer; border: 1px solid #425450; border-radius: 6px; background: #243230; color: #eaf1ef; padding: 9px 12px; }
+.text-creation-panel header button { font-size: 22px; line-height: 20px; padding: 3px 8px; background: transparent; border: 0; }
+.text-creation-description { color: #a4b5af; font-size: 12px; line-height: 1.6; margin: 18px 0; }
+.text-creation-panel label { display: block; color: #bfd0c9; font-size: 13px; }
+.text-creation-panel textarea, .text-creation-panel input, .text-creation-panel select {
+  box-sizing: border-box; user-select: text; -webkit-user-select: text;
+  color: #f2f6f4; background: #0c1415; border: 1px solid #425450; border-radius: 6px;
+  padding: 9px; outline: none;
+}
+.text-creation-panel textarea:focus, .text-creation-panel input:focus, .text-creation-panel select:focus { border-color: #91c9af; }
+.text-creation-panel textarea { width: 100%; margin-top: 8px; resize: vertical; min-height: 84px; max-height: 200px; font-size: 18px; line-height: 1.5; }
+.text-creation-fields { display: grid; grid-template-columns: 1fr 1.6fr; gap: 12px; margin: 18px 0; }
+.text-creation-fields input, .text-creation-fields select { display: block; width: 100%; margin: 8px 0 6px; font-size: 13px; }
+.text-creation-panel small { color: #83978f; font-size: 11px; }
+.text-creation-orientation { margin: 0 0 18px; font-size: 13px; color: #bfd0c9; }
+.text-creation-orientation > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 6px; }
+.text-creation-orientation button[aria-pressed="true"] { color: #12251d; background: #a6d9b8; border-color: #a6d9b8; }
+.text-creation-panel .text-creation-color { display: flex; align-items: center; gap: 12px; }
+.text-creation-color input { width: 44px; height: 32px; padding: 3px; margin-left: auto; cursor: pointer; }
+.text-creation-color span { width: 76px; color: #eaf1ef; font-size: 13px; }
+.text-creation-panel .material-selector { margin-top: 18px; font-size: 12px; }
+.text-creation-panel .material-selector-label { color: #bfd0c9; margin-bottom: 8px; font-size: 13px; }
+.text-creation-panel .material-selector-types button { padding: 7px 4px; }
+.text-creation-panel .material-selector-types button[aria-pressed="true"] { color: #12251d; background: #a6d9b8; border-color: #a6d9b8; }
+.text-creation-panel .material-transparency { background: #0c1415; border-color: #34443f; border-radius: 6px; }
+.text-creation-panel .material-transparency-value { display: flex; }
+.text-creation-panel .material-transparency-number input { padding: 3px; font-size: 12px; }
+.text-creation-metrics { min-height: 42px; margin: 18px 0; padding: 12px 0 0; border-top: 1px solid #34443f; display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #a4b5af; }
+.text-creation-metrics strong { color: #dcebe4; font-weight: 400; }
+.text-creation-metrics [role="alert"] { color: #f3b5a0; line-height: 1.5; }
+.text-creation-panel footer { display: flex; justify-content: space-between; gap: 12px; }
+.text-creation-panel kbd { margin-left: 4px; color: #90a59b; font-size: 10px; }
+.text-creation-panel .text-creation-submit { background: #a6d9b8; border-color: #a6d9b8; color: #12251d; }
+.text-creation-submit:disabled { opacity: .4; cursor: default; }
+@media (max-height: 600px) { .text-creation-panel { top: 16px; max-height: calc(100dvh - 32px); } }

@@ -653,7 +653,7 @@ class Game {
 
     // 6e. Hammer inventory hover ghost (entity slots and plain block sets).
     this.sceneRenderer.setInventoryPlacementPreview(
-      this.controller.inventoryPlacementPreview
+      this.controller.textCreationPreview || this.controller.inventoryPlacementPreview
     );
 
     // 7. Update UI HUD

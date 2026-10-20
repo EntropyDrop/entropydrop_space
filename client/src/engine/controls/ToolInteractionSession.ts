@@ -15,6 +15,8 @@ export interface ToolInteractionSessionPort {
   canEditEntityInternals: PlayerController['canEditEntityInternals'];
   canPlaceStandardAt: PlayerController['canPlaceStandardAt'];
   clearHammerRotation: PlayerController['clearHammerRotation'];
+  closeTextCreation: PlayerController['closeTextCreation'];
+  openTextCreation: PlayerController['openTextCreation'];
   clearSelection: PlayerController['clearSelection'];
   clearWrenchPivotDisplay: PlayerController['clearWrenchPivotDisplay'];
   enableSelectorMicroMode: PlayerController['enableSelectorMicroMode'];
@@ -82,6 +84,7 @@ export class ToolInteractionSession {
   set activeTool(tool: string) {
     const prev = this._activeTool;
     if (prev === tool) return;
+    if (prev === SpecialTool.HAMMER) this.host.closeTextCreation(false);
     // Hammer rotation is a placement-only pose. Leaving (or entering) a tool
     // must never carry that pose into a later Hammer session.
     this.host.clearHammerRotation();
@@ -824,10 +827,8 @@ export class ToolInteractionSession {
       return;
     }
 
-    // Hammer RMB rotates the active inventory item 90 degrees around Y axis,
-    // centered at the integer/grid-aligned center of the object.
     if (this.activeTool === SpecialTool.HAMMER) {
-      return this.host.rotateActiveInventoryItem();
+      return this.host.openTextCreation();
     }
 
     return;

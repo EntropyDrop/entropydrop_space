@@ -82,15 +82,15 @@ test('rotateBlocksY90 rotates micro blocks and keeps exact 0.125 scale alignment
   });
 });
 
-test('Hammer right-click rotates a temporary placement view without mutating the inventory item', () => {
+test('Hammer arrow rotation rotates a temporary placement view without mutating the inventory item', () => {
   const controller = makeTestController();
   const slot = controller.inventories.blockset.items[0];
   const originalBlocks = slot.blocks.map((block: any) => ({ ...block }));
   assert.equal(slot.blocks[0].dx, 0);
   assert.equal(slot.blocks[2].dx, 2);
 
-  // Right click with Hammer
-  controller.handleRightClick(null);
+  // Rotate with Hammer
+  controller.rotateActiveInventoryItem();
 
   // The canonical backpack item stays untouched; only the placement view rotates.
   assert.deepEqual(slot.blocks, originalBlocks);
@@ -99,7 +99,7 @@ test('Hammer right-click rotates a temporary placement view without mutating the
   assert.deepEqual(zVals, [-1, 0, 1]);
 });
 
-test('Hammer right-click rotates entity placement with a temporary quaternion, not voxel rewrites', () => {
+test('Hammer arrow rotation rotates entity placement with a temporary quaternion, not voxel rewrites', () => {
   const controller = makeTestController();
   const slot = {
     name: 'Rotor',
@@ -115,7 +115,7 @@ test('Hammer right-click rotates entity placement with a temporary quaternion, n
   controller.activeInventoryCategory = 'entity';
   const originalBlocks = slot.blocks.map(block => ({ ...block }));
 
-  controller.handleRightClick(null);
+  controller.rotateActiveInventoryItem();
   const rotated = controller.getActiveHammerInventoryItem();
 
   assert.deepEqual(slot.blocks, originalBlocks);
@@ -135,7 +135,7 @@ test('consecutive Hammer rotations are always derived from the original item and
   const originalBlocks = slot.blocks.map((block: any) => ({ ...block }));
 
   for (let turns = 1; turns <= 4; turns++) {
-    controller.handleRightClick(null);
+    controller.rotateActiveInventoryItem();
     const expected = controller.rotateBlocksY90(originalBlocks, turns);
     assert.deepEqual(controller.getActiveHammerInventoryItem().blocks, expected);
     assert.deepEqual(slot.blocks, originalBlocks, `click ${turns} must not change the source item`);
@@ -156,14 +156,14 @@ test('switching Hammer item or tool clears the temporary rotation', () => {
     blockCount: 1
   });
 
-  controller.handleRightClick(null);
+  controller.rotateActiveInventoryItem();
   assert.equal(controller.hammerRotationTurns, 1);
   controller.selectedInventoryIndex = 1;
   assert.equal(controller.hammerRotationTurns, 0, 'selecting another item clears rotation');
   controller.selectedInventoryIndex = 0;
   assert.equal(controller.getActiveHammerInventoryItem(), firstSlot, 'reselecting uses the original pose');
 
-  controller.handleRightClick(null);
+  controller.rotateActiveInventoryItem();
   assert.equal(controller.hammerRotationTurns, 1);
   controller.activeTool = SpecialTool.SHOVEL;
   assert.equal(controller.hammerRotationTurns, 0, 'switching tools clears rotation');

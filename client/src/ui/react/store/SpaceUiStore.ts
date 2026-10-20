@@ -1,4 +1,5 @@
 import type { UiPlayerController, UiWorld, UiContraptionManager, UiSceneRenderer, UiNavigationSystem, UiMinimap } from './UiPorts.ts';
+import { EMPTY_TEXT_CREATION, type TextCreationView } from '../../../engine/controls/TextCreationSession.ts';
 import * as THREE from 'three';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { componentOutlineColor } from '@entropydrop/space-engine/render/ComponentOutlineColors.ts';
@@ -212,6 +213,7 @@ export interface SpaceUiSnapshot {
   entityLabels: EntityLabelView[];
   wrenchTarget: Contraption | null;
   modelingView: ModelingView;
+  textCreation: TextCreationView;
   editorDefinitionVersion: number;
   componentProperties: ReturnType<Contraption['getNodeProperties']>;
   controller: UiPlayerController | null;
@@ -291,7 +293,7 @@ type Listener = () => void;
 
 const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: `Select and copy world/entity regions (max ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}); no build action` },
-  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · RMB / Arrows rotate · Tab micro/std' },
+  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · Arrows rotate · RMB text · Tab micro/std' },
   { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag COM XYZ axes to move · drag arrows to rotate · hold entity to lift · right-click to start' },
   { type: 'tool', value: SpecialTool.SHOVEL, name: 'Shovel', icon: '', desc: 'Remove / place 1x1x1 standard blocks' },
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
@@ -395,6 +397,7 @@ export class SpaceUiStore {
     entityLabels: [],
     wrenchTarget: null,
     modelingView: EMPTY_MODELING_VIEW,
+    textCreation: EMPTY_TEXT_CREATION,
     componentProperties: null,
     editorDefinitionVersion: 0,
     controller: null,
@@ -506,10 +509,11 @@ export class SpaceUiStore {
       creationDimensions: tool.creationDimensions ? [...tool.creationDimensions] : null,
     } : EMPTY_MODELING_VIEW);
     next.editorDefinitionVersion = next.editingContraption?.definitionVersion ?? 0;
+    next.textCreation = retainView(previous.textCreation, next.controller?.textCreationView ?? EMPTY_TEXT_CREATION);
     next.componentProperties = retainView(previous.componentProperties, next.activeModal === 'code'
       ? next.editingContraption?.getNodeProperties?.(next.selectedComponentNodeId) ?? null : null);
     this.snapshot = next;
-    this.snapshot.controller?.setWorldPickingSuspended?.(this.snapshot.activeModal === 'code');
+    this.snapshot.controller?.setWorldPickingSuspended?.(this.snapshot.activeModal === 'code' || this.snapshot.textCreation.open);
     for (const listener of this.listeners) listener();
   }
 
@@ -806,6 +810,7 @@ export class SpaceUiStore {
 
   resumeFromCanvas(): void {
     const state = this.snapshot;
+    if (state.textCreation.open) { state.controller?.closeTextCreation(); return; }
     if (state.controller?.modeling?.capturesPointer()) return;
     if (state.hasStarted && !state.activeModal && !state.apiDocsOpen
       && !state.selectorContextMenu && !state.entityContextMenu && !state.controller?.isLocked) {
@@ -818,7 +823,7 @@ export class SpaceUiStore {
   }
 
   hasAnyModalOpen(): boolean {
-    return this.snapshot.activeModal !== null || this.snapshot.apiDocsOpen;
+    return this.snapshot.activeModal !== null || this.snapshot.apiDocsOpen || this.snapshot.textCreation.open;
   }
 
   private saveCurrentDraft(): void {
@@ -867,6 +872,7 @@ export class SpaceUiStore {
     this.saveCurrentDraft();
     if (this.snapshot.activeModal === 'code') this.cancelPendingScriptCompile();
     const { editingContraption, sceneRenderer, controller } = this.snapshot;
+    controller?.closeTextCreation?.(false);
     sceneRenderer?.setEntityPreviewTarget?.(null);
     editingContraption?.setHighlightedNode?.(null);
     this.patch({
@@ -893,6 +899,7 @@ export class SpaceUiStore {
   private toggleModal(modal: Exclude<SpaceModal, null>, forceState: boolean | null = null): void {
     const open = forceState === null ? this.snapshot.activeModal !== modal : forceState;
     if (open) {
+      this.snapshot.controller?.closeTextCreation?.(false);
       if (modal === 'inventory') {
         const targetCategory = this.resolveDefaultInventoryCategory();
         this.snapshot.controller?.setActiveInventoryCategory?.(targetCategory);
@@ -964,6 +971,10 @@ export class SpaceUiStore {
   }
 
   handleEscape(): boolean {
+    if (this.snapshot.textCreation.open) {
+      this.snapshot.controller?.closeTextCreation();
+      return true;
+    }
     if (this.snapshot.entityContextMenu) {
       this.closeEntityContextMenu(true);
       return true;

@@ -19,6 +19,7 @@ import { contraptionBlockOwnerId, contraptionRootId } from './SelectionGeometry.
 import { SelectionSession } from './SelectionSession.ts';
 import type { ComponentRange, ComponentSelection, SelectedVoxel } from './SelectionTypes.ts';
 import { ToolInteractionSession } from './ToolInteractionSession.ts';
+import { EMPTY_TEXT_CREATION, TextCreationSession, type TextCreationAnchor, type TextPlacement } from './TextCreationSession.ts';
 
 type PlacementSlot = InventoryInput & { placementRotation?: number[]; itemName?: string };
 type SelectionGradient = { stops: GradientStop[]; start: Point3; end: Point3 };
@@ -33,7 +34,7 @@ type WorldSelectionCapture = NonNullable<ReturnType<PlayerController['captureWor
 type EntityHit = NonNullable<ReturnType<ContraptionManager['raycastContraptionHit']>>;
 
 import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
-import { BULK_EDIT_MAX_OPERATIONS_PER_FRAME, BULK_EDIT_THRESHOLD, MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_INVENTORY_BLOCKS, MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES, MAX_MICRO_MATERIALIZE_BLOCKS, MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { BULK_EDIT_MAX_OPERATIONS_PER_FRAME, BULK_EDIT_THRESHOLD, MAX_ENTITY_BLOCKS, MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_INVENTORY_BLOCKS, MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES, MAX_MICRO_MATERIALIZE_BLOCKS, MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import { BodyType, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { offsetDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { PLAYER_GRAVITY_MPS2, PLAYER_MASS_KG } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
@@ -172,6 +173,8 @@ export class PlayerController {
       get canEditEntityInternals() { return host.canEditEntityInternals.bind(host); },
       get canPlaceStandardAt() { return host.canPlaceStandardAt.bind(host); },
       get clearHammerRotation() { return host.clearHammerRotation.bind(host); },
+      get closeTextCreation() { return host.closeTextCreation.bind(host); },
+      get openTextCreation() { return host.openTextCreation.bind(host); },
       get clearSelection() { return host.clearSelection.bind(host); },
       get clearWrenchPivotDisplay() { return host.clearWrenchPivotDisplay.bind(host); },
       get enableSelectorMicroMode() { return host.enableSelectorMicroMode.bind(host); },
@@ -268,6 +271,111 @@ export class PlayerController {
 
   get _activeTool(): ToolInteractionSession['_activeTool'] { return this.toolSession._activeTool; }
   set _activeTool(value: ToolInteractionSession['_activeTool']) { this.toolSession._activeTool = value; }
+
+  private _textCreationSession?: TextCreationSession;
+  get textCreation(): TextCreationSession {
+    return this._textCreationSession ??= new TextCreationSession({
+      refresh: () => this.ui?.refresh?.(),
+      unlock: () => {
+        if (this.keys) for (const key of Object.keys(this.keys)) this.keys[key as keyof typeof this.keys] = false;
+        this.unlock();
+      },
+      requestLock: () => this.requestLock(),
+      canEdit: anchor => !anchor.target || (this.canEditEntityInternals(anchor.target)
+        && this.contraptions.contraptions.includes(anchor.target)
+        && !!anchor.target.getEntityNode(anchor.nodeId)),
+      preview: (anchor, placement) => ({
+        slot: placement.slot,
+        exactVoxels: true,
+        materialId: placement.slot.blocks[0]?.materialId,
+        position: this.placementSession.targetEntityLocalToWorld(anchor.target, anchor.nodeId, placement.position),
+        quaternion: this.placementSession.getTargetEntityWorldQuaternion(anchor.target, anchor.nodeId),
+      }),
+      build: (anchor, placement) => this.buildTextVoxels(anchor, placement),
+    });
+  }
+  get textCreationView() { return this._textCreationSession?.view ?? EMPTY_TEXT_CREATION; }
+  get textCreationPreview() { return this._textCreationSession?.getPreview() ?? null; }
+  closeTextCreation(resume = true) {
+    if (this._textCreationSession?.isOpen) this._textCreationSession.close(resume);
+  }
+  openTextCreation(): boolean {
+    if (this.activeTool !== SpecialTool.HAMMER || this.bulkEditJob) return false;
+    const hit = this.placementSession.getInventoryPlacementHit();
+    const surface = hit && this.placementSession.getEntityPlacementSurfacePoint(hit);
+    if (!hit || !surface) {
+      this.ui?.showToast?.('Point at a surface to create text');
+      return false;
+    }
+    const target = hit.targetContraption ?? null;
+    const nodeId = hit.targetNodeId ?? '';
+    const forward = this.camera.getWorldDirection(new THREE.Vector3());
+    if (target) forward.applyQuaternion(this.placementSession.getTargetEntityWorldQuaternion(target, nodeId).invert());
+    const normal = (target ? hit.targetLocalNormal : hit.normal) ?? { x: 0, y: 1, z: 0 };
+    return this.textCreation.open({
+      point: this.placementSession.targetEntityWorldToLocal(target, nodeId, surface),
+      normal: new THREE.Vector3(normal.x, normal.y, normal.z), forward, target, nodeId,
+    }, this.selectedColor);
+  }
+
+  private buildTextVoxels(anchor: TextCreationAnchor, placement: TextPlacement): boolean {
+    if (this.bulkEditJob) return false;
+    const { target, nodeId } = anchor;
+    const { slot, position } = placement;
+    if (target) {
+      if (!this.canEditEntityInternals(target) || !this.contraptions.contraptions.includes(target)
+        || !target.getEntityNode(nodeId)) return false;
+      const existing = target.blocks.filter(block => contraptionBlockOwnerId(target, block) === nodeId);
+      // Bucket by standard cell to check mixed standard/micro occupancy without
+      // comparing every text pixel against every voxel in the component.
+      const occupied = new Map<string, RuntimeVoxel[]>();
+      for (const block of existing) {
+        const key = `${Math.floor(block.localX)},${Math.floor(block.localY)},${Math.floor(block.localZ)}`;
+        const bucket = occupied.get(key) ?? [];
+        bucket.push(block); occupied.set(key, bucket);
+      }
+      const micro = slot.blocks[0].size! < 1;
+      const size = micro ? MICRO_SIZE : 1;
+      const points = slot.blocks.map(block => ({ x: position.x + block.dx, y: position.y + block.dy, z: position.z + block.dz }));
+      const free = points.filter(point => !(occupied.get(`${Math.floor(point.x)},${Math.floor(point.y)},${Math.floor(point.z)}`) ?? [])
+        .some(block => point.x < block.localX + (block.size || 1) - 1e-6 && point.x + size > block.localX + 1e-6
+          && point.y < block.localY + (block.size || 1) - 1e-6 && point.y + size > block.localY + 1e-6
+          && point.z < block.localZ + (block.size || 1) - 1e-6 && point.z + size > block.localZ + 1e-6));
+      const min = new THREE.Vector3(Infinity, Infinity, Infinity), max = min.clone().negate();
+      for (const block of existing) {
+        const point = new THREE.Vector3(block.localX, block.localY, block.localZ);
+        min.min(point); max.max(point.addScalar(block.size || 1));
+      }
+      for (const point of free) { const vector = new THREE.Vector3(point.x, point.y, point.z); min.min(vector); max.max(vector.addScalar(size)); }
+      if (target.blocks.length + free.length > MAX_ENTITY_BLOCKS || max.clone().sub(min).toArray().some(value => value > MAX_ENTITY_BOUNDS)) {
+        this.ui?.showToast?.('Text would exceed the entity voxel or size limit');
+        return false;
+      }
+      const result = free.length ? this.performBasicAction({
+        domain: ActionDomain.ENTITY, action: 'fill-blocks', target: { contraption: target }, nodeId,
+        coords: free.map(point => ({ x: Math.round(point.x / size), y: Math.round(point.y / size), z: Math.round(point.z / size) })),
+        color: slot.blocks[0].color, micro,
+        options: { color: slot.blocks[0].color, materialId: normalizeVoxelMaterialId(slot.blocks[0].materialId) },
+      }) : null;
+      const placed = result?.added || 0;
+      this.finishTextBuild(slot.blockCount, placed);
+      return placed > 0;
+    }
+    let placed = 0;
+    const finish = () => this.finishTextBuild(slot.blockCount, placed);
+    if (slot.blocks.length > BULK_EDIT_THRESHOLD) return this.startBulkEditJob({
+      label: 'Creating text', total: slot.blocks.length,
+      step: index => { const changed = this.applyBlockSetVoxel(position, slot.blocks[index]); placed += changed; return changed; },
+      finish,
+    });
+    for (const block of slot.blocks) placed += this.applyBlockSetVoxel(position, block);
+    finish();
+    return placed > 0;
+  }
+  private finishTextBuild(total: number, placed: number) {
+    if (placed) { this.sound?.playBlockPlace?.(); this.completeHammerPlacement(); }
+    this.ui?.showToast?.(`Created text: ${placed}/${total} voxels${placed < total ? ' · occupied cells skipped' : ''}`);
+  }
 
   private _placementSession?: PlacementSession;
   private get placementSession(): PlacementSession {
@@ -891,6 +999,7 @@ export class PlayerController {
   }
 
   handleKeyDown(e: KeyboardEvent) {
+    if (this._textCreationSession?.isOpen) return;
     if (this.ui?.isEntityContextMenuOpen?.()) return;
     const eventTarget = e.target as HTMLElement;
     if (eventTarget && (eventTarget.tagName === 'INPUT' || eventTarget.tagName === 'SELECT' || eventTarget.tagName === 'TEXTAREA' || eventTarget.isContentEditable)) return;
@@ -3102,7 +3211,7 @@ export class PlayerController {
     this.setActiveInventoryCategory('blockset');
     this.ui?.renderInventoryBar?.();
     if (this.ui) {
-      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into item slot ${index + 1} · Hammer LMB builds · RMB rotates 90°`);
+      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into item slot ${index + 1} · Hammer LMB builds · Arrows rotate · RMB text`);
     }
     return this.inventories.item.items[index];
   }

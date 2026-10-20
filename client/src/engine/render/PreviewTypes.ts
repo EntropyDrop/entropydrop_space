@@ -16,6 +16,10 @@ export interface MicroCarvePreview {
 }
 export interface InventoryPlacementPreview {
   slot: InventoryInput; position: Point3; quaternion?: THREE.Quaternion | null;
+  /** Preserve fine strokes for generated voxel text instead of the Item ghost LOD. */
+  exactVoxels?: boolean;
+  /** Uniform material preview for generated text; ordinary Item ghosts omit this. */
+  materialId?: number;
 }
 interface PreviewPointer { pointerId: number; active: boolean }
 export interface PreviewForceInteraction extends PreviewPointer {

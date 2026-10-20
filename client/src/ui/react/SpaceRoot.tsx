@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { Hud } from './components/Hud.tsx';
+import { TextCreationPanel } from './components/TextCreationPanel.tsx';
 import { GlobalSettingsModal, PauseScreen } from './components/SimpleModals.tsx';
 import { MinimapCanvas, NavigationPanel } from './components/WorldWidgets.tsx';
 import { spaceUiStore } from './store/SpaceUiStore.ts';
@@ -31,6 +32,7 @@ export function SpaceRoot() {
 
   useEffect(() => {
     const handleGlobalKey = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === 'Escape' && spaceUiStore.handleEscape()) {
         event.preventDefault();
         event.stopPropagation();
@@ -81,6 +83,7 @@ export function SpaceRoot() {
     <>
       <div id="canvas-container" onClick={() => spaceUiStore.resumeFromCanvas()} />
       <Hud />
+      <TextCreationPanel />
       <NavigationPanel />
       <MinimapCanvas />
       <GlobalSettingsModal />

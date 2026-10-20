@@ -1,11 +1,13 @@
 import { buildUnifiedInventoryPreviewMesh } from './InventoryPreviewMesh.ts';
+import { createVoxelTextPreviewMaterial } from './VoxelTextPreviewMaterial.ts';
+import { normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 export { buildUnifiedInventoryPreviewMesh } from './InventoryPreviewMesh.ts';
 import type { Point3, SelectionFrame, MicroCarvePreview, InventoryPlacementPreview, PreviewInteraction, PreviewForceInteraction, RemotePlayerRecord, SelectionGizmoHit } from './PreviewTypes.ts';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
 import type { InventoryInput } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
-import { previewVector3 } from '../inventory/InventoryGeometry.ts';
+import { previewVector3, getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
 import { getInventoryRenderPreviewBlocks } from '../inventory/InventoryRenderGeometry.ts';
 export { getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
 import { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
@@ -236,6 +238,8 @@ export class SceneRenderer {
   declare inventoryPlacementFill: THREE.Mesh | null;
   declare inventoryPlacementWire: THREE.LineSegments | null;
   declare inventoryPlacementSlot: InventoryInput | null;
+  declare inventoryPlacementExact: boolean;
+  declare inventoryPlacementMaterialId: number | undefined;
   declare selectionGroup: THREE.Group;
   declare selectionWireframe: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
   declare timeOfDay: number;
@@ -568,10 +572,12 @@ export class SceneRenderer {
     this.inventoryPlacementFill = null;
     this.inventoryPlacementWire = null;
     this.inventoryPlacementSlot = null;
+    this.inventoryPlacementExact = false;
+    this.inventoryPlacementMaterialId = undefined;
     this.scene.add(this.inventoryPlacementGroup);
   }
 
-  rebuildInventoryPlacementPreview(slot: InventoryInput) {
+  rebuildInventoryPlacementPreview(slot: InventoryInput, exactVoxels = false, materialId?: number) {
     for (const object of this.inventoryPlacementGroup.children.filter(object => object.name === 'DecorationPreview')) {
       (object as THREE.Mesh).geometry.dispose();
       ((object as THREE.Mesh).material as THREE.Material).dispose();
@@ -594,7 +600,7 @@ export class SceneRenderer {
     this.inventoryPlacementFill = null;
     this.inventoryPlacementWire = null;
 
-    const previewBlocks = getInventoryRenderPreviewBlocks(slot);
+    const previewBlocks = exactVoxels ? getInventoryPreviewBlocks(slot, true) : getInventoryRenderPreviewBlocks(slot);
     const entries = previewBlocks.filter(entry => !entry.decoration);
     if (entries.length === 0) return false;
 
@@ -603,14 +609,14 @@ export class SceneRenderer {
 
     // The unified ghost mesh renders only external visible faces and boundary edges,
     // avoiding internal multi-box overlapping transparency artifacts and improving performance.
-    const fillMaterial = new THREE.MeshBasicNodeMaterial({
+    const fillMaterial = materialId === undefined ? new THREE.MeshBasicNodeMaterial({
       vertexColors: true,
       transparent: true,
       opacity: 0.38,
       depthTest: true,
       depthWrite: true,
       side: THREE.FrontSide
-    });
+    }) : createVoxelTextPreviewMaterial(materialId, normalizeColor(entries[0].color));
     const fill = new THREE.Mesh(meshData.fillGeometry, fillMaterial);
 
     const wireMaterial = new THREE.LineBasicNodeMaterial({
@@ -650,9 +656,12 @@ export class SceneRenderer {
       this.inventoryPlacementGroup.visible = false;
       return;
     }
-    if (preview.slot !== this.inventoryPlacementSlot) {
+    if (preview.slot !== this.inventoryPlacementSlot || !!preview.exactVoxels !== this.inventoryPlacementExact
+      || preview.materialId !== this.inventoryPlacementMaterialId) {
       this.inventoryPlacementSlot = preview.slot;
-      if (!this.rebuildInventoryPlacementPreview(preview.slot)) {
+      this.inventoryPlacementExact = !!preview.exactVoxels;
+      this.inventoryPlacementMaterialId = preview.materialId;
+      if (!this.rebuildInventoryPlacementPreview(preview.slot, preview.exactVoxels, preview.materialId)) {
         this.inventoryPlacementGroup.visible = false;
         return;
       }

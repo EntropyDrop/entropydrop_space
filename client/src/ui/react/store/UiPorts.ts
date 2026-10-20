@@ -9,6 +9,9 @@ import type { Minimap } from '../../Minimap.ts';
 export type UiPlayerController = Pick<PlayerController,
   'activeInventoryCategory'
   | 'activeTool'
+  | 'textCreation'
+  | 'textCreationView'
+  | 'closeTextCreation'
   | 'addInventoryItem'
   | 'brushMicroMode'
   | 'canEditEntityInternals'

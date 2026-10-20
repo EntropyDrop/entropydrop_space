@@ -469,7 +469,7 @@ function InventoryBar() {
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
           </button>
         </div>
-        <span className="palette-hotkey-hint"><b>B</b> Full Backpack · <b>Arrows/RMB</b> Rotate · <b>LMB</b> Build</span>
+        <span className="palette-hotkey-hint"><b>B</b> Full Backpack · <b>Arrows</b> Rotate · <b>RMB</b> Text · <b>LMB</b> Build</span>
       </div>
       <div id="inventory-bar" className="inventory-bar">
         {Array.from({ length: 9 }, (_, index) => {

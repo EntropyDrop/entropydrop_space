@@ -345,6 +345,18 @@ Hammer hides the black target-cell wireframe and keeps its placement ghost.
 Hammer construction, rotation and slot cycling always use the Item hotbar.
 Browsing Color Sets does not change what Hammer builds; apply a palette by
 clicking its Color Set card in the backpack.
+Hammer right-click opens the text creation side panel at the focused surface.
+Edit multiline text (including Chinese), font size (8–128 cells), color, material and
+voxel size (micro or standard) while the pinned voxel preview updates. Choose
+Vertical to stand the text upright or Horizontal to lay it flat, keeping it
+outside the focused surface in both cases. Text defaults to Vertical, size 12,
+and Micro. Create
+builds those exact voxels into terrain or the focused stopped component;
+occupied cells are skipped. Cancel or `Esc` discards the preview. Text is one
+cell thick and shares the 65,536-voxel and 256 m size limits. Default, Emissive
+and Transparent (0–100% transparency) materials apply to both the preview and
+created terrain/component voxels. Arrow keys still
+rotate inventory items. Running entities keep their right-click action menu.
 Press `Tab` (or click the mode badge) to switch positioning between **STANDARD**
 (1 m, the default) and **MICRO** (0.125 m). The ghost and construction share the
 same snapped origin; installation uses the target component's local grid.
