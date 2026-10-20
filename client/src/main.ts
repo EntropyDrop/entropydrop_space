@@ -630,11 +630,11 @@ class Game {
     // 6b. Spoon micro-carve 8x8x8 grid preview
     this.sceneRenderer.setMicroCarvePreview(this.controller.microCarvePreview);
 
-    // 6c. Selector focus-block guide (orange after point 1 is set; micro-sized
+    // 6c. Selector focus-block guide (brighter after point 1 is set; micro-sized
     // when aiming at a 0.125 m block in the selector's Tab micro mode).
     if (this.controller.focusBlockPreview) {
       const p = this.controller.focusBlockPreview;
-      this.sceneRenderer.setFocusBlockGuide(p.center, !!p.active, p.cellSize ?? 1, p.quaternion);
+      this.sceneRenderer.setFocusBlockGuide(p.center, !!p.active, p.cellSize ?? 1, p.quaternion, p.color);
     } else {
       this.sceneRenderer.clearFocusBlockGuide();
     }

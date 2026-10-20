@@ -372,7 +372,7 @@ test('brush aiming at stopped entity in micro mode shows 0.125m crosshair guide'
   );
 });
 
-test('brush crosshair guide turns active (orange) when 2-point box is in progress', () => {
+test('brush crosshair guide turns active when a 2-point box is in progress', () => {
   const fakeContraption = {
     entityNodes: new Map([
       ['arm_node', { group: { matrixWorld: new THREE.Matrix4(), updateWorldMatrix() {} } }]

@@ -356,7 +356,7 @@ test('axis gizmo expansion keeps the cuboid selection hologram visible', () => {
   assert.equal(last.bounds.maxX, 1, 'the guide box must follow the expanded bounds');
 });
 
-test('whole-entity subtree highlight is depth-independent so it cannot z-fight the model', () => {
+test('whole-entity subtree highlight respects geometry depth and biases coplanar surfaces', () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     21,
@@ -374,8 +374,11 @@ test('whole-entity subtree highlight is depth-independent so it cannot z-fight t
   contraption.highlightSubtree(['root']);
   assert.ok(contraption.subtreeHighlightBoxes.length > 0, 'subtree highlight boxes should be created');
   const { materials } = contraption.subtreeHighlightBoxes[0];
-  assert.equal(materials.lineMat.depthTest, false, 'subtree outline must be a depth-independent overlay');
+  assert.equal(materials.lineMat.depthTest, true, 'the model occludes hidden subtree edges');
   assert.equal(materials.lineMat.depthWrite, false);
+  assert.equal(materials.lineMat.polygonOffset, true, 'coplanar edges use depth bias instead of disabling occlusion');
+  assert.equal(materials.lineMat.polygonOffsetFactor, -1);
+  assert.equal(materials.lineMat.polygonOffsetUnits, -1);
   assert.equal(materials.fillMat, undefined, 'subtree selection must not add a surface fill');
 });
 
@@ -392,9 +395,8 @@ test('focus highlight encloses blocks with an open thick outline', () => {
 
   contraption.setFocusHighlight('root');
   const materials = contraption.focusHighlightMaterials;
-  assert.equal(requireValue(materials).focusedLine.depthTest, false);
-  assert.equal(requireValue(materials).childLine.depthTest, false);
-  assert.deepEqual(Object.keys(requireValue(materials)).sort(), ['childLine', 'focusedLine']);
+  assert.equal(requireValue(materials).get(0)?.depthTest, true);
+  assert.deepEqual([...requireValue(materials).keys()], [0]);
   for (const entry of contraption.focusHighlightEntries) {
     assert.equal(entry.container.children.length, 1, 'only the outline is attached');
   }

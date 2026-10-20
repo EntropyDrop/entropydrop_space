@@ -1,6 +1,7 @@
 import type { UiPlayerController, UiWorld, UiContraptionManager, UiSceneRenderer, UiNavigationSystem, UiMinimap } from './UiPorts.ts';
 import * as THREE from 'three';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { componentOutlineColor } from '@entropydrop/space-engine/render/ComponentOutlineColors.ts';
 import { retainView, EMPTY_MODELING_VIEW, type EntityLabelView, type ModelingView } from './SimulationViews.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import {
@@ -257,6 +258,7 @@ export interface SpaceUiSnapshot {
   entityContextMenu: EntityContextMenuView | null;
   currentUserName: string | null;
   brushMicro: boolean;
+  hammerMicro: boolean;
   bulkEdit: BulkEditView | null;
   worldEditSync: WorldEditSyncView;
   telemetry: TelemetryView;
@@ -289,7 +291,7 @@ type Listener = () => void;
 
 const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: `Select and copy world/entity regions (max ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}); no build action` },
-  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · RMB / Arrows rotate' },
+  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · RMB / Arrows rotate · Tab micro/std' },
   { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag COM XYZ axes to move · drag arrows to rotate · hold entity to lift · right-click to start' },
   { type: 'tool', value: SpecialTool.SHOVEL, name: 'Shovel', icon: '', desc: 'Remove / place 1x1x1 standard blocks' },
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
@@ -442,6 +444,7 @@ export class SpaceUiStore {
     entityContextMenu: null,
     currentUserName: null,
     brushMicro: false,
+    hammerMicro: false,
     bulkEdit: null,
     worldEditSync: EMPTY_WORLD_EDIT_SYNC,
     telemetry: EMPTY_TELEMETRY,
@@ -624,6 +627,7 @@ export class SpaceUiStore {
     const cameraDistance = Number(controller?.thirdPersonDistance || 4);
     this.patch({
       controller,
+      hammerMicro: Boolean(controller?.hammerMicroMode),
       paletteColors,
       fov,
       perspective,
@@ -872,6 +876,7 @@ export class SpaceUiStore {
       entityContextMenu: null,
       agentSetupOpen: false
     });
+    if (controller?.activeTool === SpecialTool.HAMMER) this.syncInventoryState();
     if (resumePointerLock) void controller?.requestLock?.();
     else controller?.unlock?.();
   }
@@ -905,6 +910,7 @@ export class SpaceUiStore {
         activeModal: null,
         agentSetupOpen: false
       });
+      if (this.snapshot.controller?.activeTool === SpecialTool.HAMMER) this.syncInventoryState();
       this.snapshot.sceneRenderer?.setEntityPreviewTarget?.(null);
       this.snapshot.editingContraption?.setHighlightedNode?.(null);
       void this.snapshot.controller?.requestLock?.();
@@ -1425,6 +1431,7 @@ export class SpaceUiStore {
     }
     controller.activeTool = slot.value;
     controller.selectedBlock = null;
+    if (slot.value === SpecialTool.HAMMER) this.syncInventoryState();
     this.patch({});
     if (notify) this.showToast(`Tool [${this.snapshot.selectedHotbarIndex + 1}]: ${slot.name} - ${slot.desc}`);
   }
@@ -1454,6 +1461,7 @@ export class SpaceUiStore {
     }
     this.patch({
       activeInventoryCategory,
+      hammerMicro: Boolean(controller.hammerMicroMode),
       selectedInventoryIndex: Number(controller.selectedInventoryIndex ?? 0),
       activeColorSetId,
       inventoryRevision: this.snapshot.inventoryRevision + 1,
@@ -2283,7 +2291,8 @@ export class SpaceUiStore {
       const contraption = controller.selectedBlockSelection?.contraption || controller.selectedSubtree?.contraption;
       const nodeId = controller.selectedBlockSelection?.nodeId || controller.selectedSubtree?.rootId;
       const node = nodeId ? contraption?.entityNodes?.get?.(nodeId) : null;
-      const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone() } : null;
+      const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
+        color: componentOutlineColor(contraption?.entityNodes, nodeId!) } : null;
       if (isShape && Array.isArray(shapeCells) && shapeCells.length > 0) {
         if (controller.selectorMicroMode) {
           sceneRenderer?.updateSelectionHologram?.(bounds, null, shapeCells, true, frame);
@@ -2362,6 +2371,7 @@ export class SpaceUiStore {
         ? this.snapshot.entityContextMenu : null,
       selector: this.buildSelectorView(),
       brushMicro: Boolean(controller?.brushMicroMode),
+      hammerMicro: Boolean(controller?.hammerMicroMode),
       telemetry,
       activeInventoryCategory: controller ? controller.activeInventoryCategory === 'colorset' ? 'colorset' : 'item' : this.snapshot.activeInventoryCategory,
       selectedInventoryIndex: Number(controller?.selectedInventoryIndex ?? this.snapshot.selectedInventoryIndex)

@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { createEntityPlacementObb, ENTITY_PLACEMENT_EPSILON, entityPlacementObbsOverlap, getEntityPlacementShape, getRotatedEntityPlacementBounds, getRotatedEntityTerrainShape, type EntityPlacementObb, type EntityPlacementShape, } from '../inventory/InventoryPlacementGeometry.ts';
 import { normalizeQuarterTurns, rotateChildDefinitionsX90, rotateChildDefinitionsY90 } from '../inventory/InventoryRotation.ts';
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
+import { toMicroPlacementItem } from '../inventory/InventoryMicroPlacement.ts';
 import type { Point3 } from '../render/PreviewTypes.ts';
 import { SpecialTool } from './ControlBindings.ts';
 import type { PlayerController } from './PlayerController.ts';
@@ -18,7 +19,6 @@ interface PlacementHit {
 }
 type PlacementSlot = InventoryInput & { placementRotation?: number[]; itemName?: string };
 const ENTITY_PLACEMENT_MAX_DROP = 48;
-const ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS = MAX_ENTITY_BOUNDS * MICRO_DIVISIONS;
 const ENTITY_TARGET_PLACEMENT_BUCKET_SIZE = 2;
 const entityPlacementTargetObbCache = new WeakMap<object, {
   poseSignature: string;
@@ -38,6 +38,7 @@ export interface PlacementSessionPort {
   rotateBlocksY90: PlayerController['rotateBlocksY90'];
   sceneRenderer: PlayerController['sceneRenderer'];
   selectedInventoryIndex: PlayerController['selectedInventoryIndex'];
+  setActiveInventoryCategory: PlayerController['setActiveInventoryCategory'];
   sound: PlayerController['sound'];
   ui: PlayerController['ui'];
   world: PlayerController['world'];
@@ -48,12 +49,57 @@ export interface PlacementSessionPort {
 export class PlacementSession {
   private readonly host: PlacementSessionPort;
   constructor(host: PlacementSessionPort) { this.host = host; }
+  hammerMicroMode = false;
   hammerRotationTurnsY = 0;
   hammerRotationTurnsX = 0;
   hammerRotatedSlotSource: PlacementSlot | null = null;
   hammerRotatedSlotTurnsKey: string | null = null;
   hammerRotatedSlotCache: PlacementSlot | null = null;
   inventoryPlacementPreview: ReturnType<PlacementSession['getInventoryPlacementPose']> = null;
+  inventoryPlacementError: string | null = null;
+  private microPlacementItems = new WeakMap<InventoryInput, PlacementSlot | Error>();
+
+  ensureHammerInventoryCategory() {
+    if (this.host.activeTool === SpecialTool.HAMMER && this.host.activeInventoryCategory === 'colorset') {
+      this.host.setActiveInventoryCategory('item');
+    }
+  }
+
+  preparePlacementItem(slot: PlacementSlot): PlacementSlot | null {
+    this.inventoryPlacementError = null;
+    if (!this.hammerMicroMode || this.host.activeTool !== SpecialTool.HAMMER) return slot;
+    let prepared = this.microPlacementItems.get(slot);
+    if (!prepared) {
+      try {
+        prepared = toMicroPlacementItem(slot);
+        this.microPlacementItems.set(prepared, prepared);
+      } catch (error) {
+        prepared = error instanceof Error ? error : new Error('Item micro conversion failed');
+      }
+      this.microPlacementItems.set(slot, prepared);
+    }
+    if (prepared instanceof Error) {
+      this.inventoryPlacementError = prepared.message;
+      return null;
+    }
+    if (prepared !== slot) {
+      prepared.name = slot.name;
+      prepared.id = slot.id;
+    }
+    return prepared;
+  }
+
+  toggleHammerMicroMode() {
+    this.hammerMicroMode = !this.hammerMicroMode;
+    this.updateInventoryPlacementPreview();
+    this.host.ui?.syncInventoryState?.();
+    this.host.ui?.showToast?.(this.inventoryPlacementError || (this.hammerMicroMode
+      ? 'Hammer: MICRO positioning (0.125 m) · Tab switches to standard'
+      : 'Hammer: STANDARD positioning (1 m) · Tab switches to micro'));
+    return this.hammerMicroMode;
+  }
+
+  get placementStep() { return this.hammerMicroMode ? MICRO_SIZE : 1; }
 
   clearHammerRotation() {
     this.hammerRotationTurnsY = 0;
@@ -61,6 +107,8 @@ export class PlacementSession {
     this.hammerRotatedSlotSource = null;
     this.hammerRotatedSlotTurnsKey = null;
     this.hammerRotatedSlotCache = null;
+    this.microPlacementItems = new WeakMap();
+    this.inventoryPlacementError = null;
     this.inventoryPlacementPreview = null;
     if (this.host.sceneRenderer) this.host.sceneRenderer.inventoryPlacementSlot = null;
   }
@@ -80,19 +128,26 @@ export class PlacementSession {
   }
 
   getActiveHammerInventoryItem() {
+    this.ensureHammerInventoryCategory();
     const stored = this.host.inventorySlots?.[this.host.selectedInventoryIndex];
-    const slot = this.itemPlacementSlot(stored);
-    if (!slot) return null;
+    this.inventoryPlacementError = null;
+    const prepared = stored ? this.preparePlacementItem(stored) : null;
+    if (!prepared) return null;
 
     const turnsY = normalizeQuarterTurns(this.hammerRotationTurnsY);
     const turnsX = normalizeQuarterTurns(this.hammerRotationTurnsX);
-    if (turnsY === 0 && turnsX === 0) return slot;
-
-    const cacheKey = `${turnsY}:${turnsX}`;
-    if (this.hammerRotatedSlotSource === slot &&
+    const cacheKey = JSON.stringify([turnsY, turnsX, prepared.name, prepared.id]);
+    if (this.hammerRotatedSlotSource === prepared &&
       this.hammerRotatedSlotTurnsKey === cacheKey &&
       this.hammerRotatedSlotCache) {
       return this.hammerRotatedSlotCache;
+    }
+    const slot = this.itemPlacementSlot(prepared)!;
+    if (turnsY === 0 && turnsX === 0) {
+      this.hammerRotatedSlotSource = prepared;
+      this.hammerRotatedSlotTurnsKey = cacheKey;
+      this.hammerRotatedSlotCache = slot;
+      return slot;
     }
 
     const isEntity = slot.kind === 'entity' || slot.kind === 'item';
@@ -141,13 +196,14 @@ export class PlacementSession {
         blocks: rotatedBlocks,
         childEntities: rotatedChildren
       };
-    this.hammerRotatedSlotSource = slot;
+    this.hammerRotatedSlotSource = prepared;
     this.hammerRotatedSlotTurnsKey = cacheKey;
     this.hammerRotatedSlotCache = rotatedSlot;
     return rotatedSlot;
   }
 
   rotateActiveInventoryItem(direction = 1, axis: 'x' | 'y' = 'y') {
+    this.ensureHammerInventoryCategory();
     const category = this.host.activeInventoryCategory;
     if (category === 'colorset') return false;
     const slot = this.host.inventorySlots?.[this.host.selectedInventoryIndex];
@@ -215,7 +271,7 @@ export class PlacementSession {
   }
 
   usesMicroBlockSetPlacement(slot: InventoryInput | null) {
-    return slot?.kind === 'blockset'
+    return this.hammerMicroMode && slot?.kind === 'blockset'
       && Array.isArray(slot.blocks)
       && slot.blocks.length > 0
       && slot.blocks.every(block => (Number(block?.size) || 1) < 1);
@@ -278,9 +334,13 @@ export class PlacementSession {
     return Math.max(minOriginY, Math.min(maxOriginY, y));
   }
 
-  snapEntityPlacementMicroValue(value: number) {
-    const units = Math.round(value * MICRO_DIVISIONS);
-    return units === 0 ? 0 : units / MICRO_DIVISIONS;
+  snapPlacementValue(value: number, normal = 0, step = this.placementStep) {
+    // Snap away from the contacted face so coarse positioning cannot sink
+    // the preview into a micro voxel or a component with an offset pivot.
+    const units = normal > 0.5 ? Math.ceil(value / step - 1e-6)
+      : normal < -0.5 ? Math.floor(value / step + 1e-6)
+        : Math.round(value / step);
+    return units === 0 ? 0 : units * step;
   }
 
   targetEntityLocalToWorld(target: Contraption | null | undefined, nodeId: string, point: THREE.Vector3) {
@@ -493,16 +553,17 @@ export class PlacementSession {
       const normal = localNormal[axis];
       if (normal > 0) originLocal[axis] = surfaceLocal[axis] - bounds[({ x: 'minX', y: 'minY', z: 'minZ' } as const)[axis]];
       else if (normal < 0) originLocal[axis] = surfaceLocal[axis] - bounds[({ x: 'maxX', y: 'maxY', z: 'maxZ' } as const)[axis]];
-      originLocal[axis] = this.snapEntityPlacementMicroValue(originLocal[axis]);
+      originLocal[axis] = this.snapPlacementValue(originLocal[axis], normal);
     }
 
     const position = this.targetEntityLocalToWorld(target, nodeId, originLocal);
     const outwardWorld = localNormal.clone().applyQuaternion(targetWorldRotation).normalize();
-    for (let step = 0; step <= ENTITY_TARGET_PLACEMENT_MAX_OUTWARD_STEPS; step++) {
+    const maxSteps = Math.ceil(MAX_ENTITY_BOUNDS / this.placementStep);
+    for (let step = 0; step <= maxSteps; step++) {
       if (!this.entitySlotOverlapsTarget(slot, position, worldRotation, target)) {
         return { position, quaternion: worldRotation, localNormal };
       }
-      position.addScaledVector(outwardWorld, 1 / MICRO_DIVISIONS);
+      position.addScaledVector(outwardWorld, this.placementStep);
     }
     return null;
   }
@@ -556,7 +617,9 @@ export class PlacementSession {
   }
 
   getInventoryPlacementPose(slot: InventoryInput) {
-    if (!slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return null;
+    const prepared = slot && this.preparePlacementItem(slot);
+    if (!prepared || !Array.isArray(prepared.blocks) || prepared.blocks.length === 0) return null;
+    slot = prepared;
 
     const placementHit = this.getInventoryPlacementHit();
     if (!placementHit) return null;
@@ -607,10 +670,18 @@ export class PlacementSession {
           if ((Number(normal.z) || 0) > 0.5) originZ = surface.z - terrainShape.minZ;
           else if ((Number(normal.z) || 0) < -0.5) originZ = surface.z - terrainShape.maxZ;
           if ((Number(normal.y) || 0) < -0.5) originY = surface.y - terrainShape.maxY;
-          const candidateOrigin = new THREE.Vector3(originX, originY, originZ);
+          // Micro mode has already subdivided all standard terrain voxels.
+          const step = this.terrainPlacementStep(slot);
+          const candidateOrigin = new THREE.Vector3(
+            this.snapPlacementValue(originX, normal.x, step),
+            this.snapPlacementValue(originY, normal.y, step),
+            this.snapPlacementValue(originZ, normal.z, step),
+          );
           candidateOrigin.y = this.clampEntityPlacementY(terrainShape, candidateOrigin.y);
           position.copy(candidateOrigin);
-          position.y = this.resolveEntityTerrainSupport(terrainShape, position, placementHit).y;
+          const support = this.resolveEntityTerrainSupport(terrainShape, position, placementHit);
+          position.y = this.clampEntityPlacementY(terrainShape,
+            this.snapPlacementValue(support.y, support.supported ? 1 : normal.y, step));
         }
       }
     }
@@ -627,8 +698,12 @@ export class PlacementSession {
     };
   }
 
+  terrainPlacementStep(slot: InventoryInput) {
+    return (slot.blockSet?.blocks || []).some(block => (block.size || 1) === 1) ? 1 : this.placementStep;
+  }
+
   snapItemTerrainOrigin(slot: InventoryInput, position: Point3) {
-    const step = (slot.blockSet?.blocks || []).some(block => (block.size || 1) === 1) ? 1 : MICRO_SIZE;
+    const step = this.terrainPlacementStep(slot);
     return new THREE.Vector3(
       Math.round(position.x / step) * step,
       Math.ceil((position.y - 1e-6) / step) * step,
@@ -640,8 +715,7 @@ export class PlacementSession {
     this.inventoryPlacementPreview = null;
     if (this.host.worldPickingSuspended) return;
     if (this.host.activeTool !== SpecialTool.HAMMER) return;
-    // Color sets apply to the palette with left-click — no placement ghost.
-    if (this.host.activeInventoryCategory === 'colorset') return;
+    if (this.host.ui?.hasAnyModalOpen?.()) return;
     const slot = this.getActiveHammerInventoryItem();
     if (!slot) return;
     this.inventoryPlacementPreview = this.getInventoryPlacementPose(slot);

@@ -128,8 +128,16 @@ for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH]) {
           controller.hoveredContraptionHit = { contraption: entity, entityId: 'root', kind,
             block: entity.blocks[0], cell: { x: 0, y: 0, z: 0 },
             point: new THREE.Vector3(0.5, 50.5, 0.5) };
+          let menusOpened = 0;
+          controller.ui.showEntityContextMenu = (target: Contraption) => {
+            assert.equal(target, entity);
+            menusOpened++;
+            return true;
+          };
           controller.performBasicAction = () => assert.fail('clicks on running entities must not dispatch edits or Stop');
-          for (let attempt = 0; attempt < 3; attempt++) assert.equal(controller[method]({ shiftKey }), false);
+          const opensMenu = method === 'handleRightClick';
+          for (let attempt = 0; attempt < 3; attempt++) assert.equal(controller[method]({ shiftKey }), opensMenu);
+          assert.equal(menusOpened, opensMenu ? 3 : 0);
           assert.equal(entity.isPhysicsSimulationEnabled(), true);
           assert.equal(entity.getComponentState('root').preserved, 42);
           assert.equal(entity.blocks.length, 2);

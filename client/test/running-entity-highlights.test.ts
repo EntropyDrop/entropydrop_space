@@ -79,7 +79,7 @@ for (const tool of new Set(Object.values(SpecialTool))) {
         assert.equal(entity.isHighlighted, ![SpecialTool.SELECTOR, SpecialTool.WRENCH, SpecialTool.MODELING].includes(tool));
         assert.equal(entity.focusedHighlightNodeId,
           [SpecialTool.BRUSH, SpecialTool.WRENCH, SpecialTool.MODELING].includes(tool) ? null : 'arm');
-        assert.equal(!!controller.getCursorHighlight(), tool !== SpecialTool.MODELING);
+        assert.equal(!!controller.getCursorHighlight(), ![SpecialTool.MODELING, SpecialTool.HAMMER].includes(tool));
         assert.equal(!!controller.microCarvePreview, tool === SpecialTool.SPOON);
         assert.equal(!!controller.focusBlockPreview, tool === SpecialTool.BRUSH);
       });

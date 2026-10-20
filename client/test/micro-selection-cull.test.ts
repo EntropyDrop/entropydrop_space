@@ -55,6 +55,7 @@ test('entity block selection highlight renders single outer bounding box wirefra
   assert.equal(contraption.subtreeHighlightBoxes.length, 1, 'should combine into 1 highlight box per node');
   const outline = contraption.subtreeHighlightBoxes[0].group;
   assert.equal(outline.isMesh, true, 'thick beams render independently of native line width');
+  assert.equal(outline.material.depthTest, true, 'the entity occludes selected block bounds');
   assert.deepEqual(outline.geometry.parameters, { width: 0.25, height: 0.125, depth: 0.125, thickness: 0.015625 });
   outline.updateMatrixWorld(true);
   const throughFace = new THREE.Raycaster(new THREE.Vector3(0.125, 0.0625, 1), new THREE.Vector3(0, 0, -1));

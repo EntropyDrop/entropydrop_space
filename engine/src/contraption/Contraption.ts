@@ -11,7 +11,8 @@ import { isValidComponentId, isValidConstraintId } from './PortableIds.ts';
 export { isValidPortableId, isValidComponentId, isValidConstraintId } from './PortableIds.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
-import { SelectionOutlineGeometry, createSelectionOutlineMaterial } from '../render/SelectionOutline.ts';
+import { SelectionOutlineGeometry, createSelectionOutlineMaterial, createSelectionOutline } from '../render/SelectionOutline.ts';
+import { COMPONENT_OUTLINE_COLORS, componentOutlineColor, componentOutlineDepth } from '../render/ComponentOutlineColors.ts';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { normalizeDecorations, offsetDecorations, patchDecoration, freezeDecorationSnapshot, type DecorationDefinition } from './Decorations.ts';
 import { createDecorationGroup, raycastDecorationGroup, editDecorationGroup,
@@ -387,18 +388,15 @@ export class Contraption {
   nextChildId: number;
   glueSelectionGroup: THREE.Group | null;
   glueHighlightEntries: Array<{ container: THREE.Group; role: string; cell: { x: number; y: number; z: number }; entityId: string }>;
-  glueHighlightMaterials: { selectedLine: THREE.MeshBasicNodeMaterial } | null;
+  glueHighlightMaterials: { selectedLine: THREE.MeshStandardNodeMaterial } | null;
   glueHighlightGeometries: { boxGeometry: SelectionOutlineGeometry } | null;
   focusHighlightEntries: Array<{ container: THREE.Group; ownerNode: EntityNode; isChild: boolean }> = [];
   focusHighlightGeometries: THREE.BufferGeometry[] = [];
-  focusHighlightMaterials: {
-    focusedLine: THREE.MeshBasicNodeMaterial;
-    childLine: THREE.MeshBasicNodeMaterial;
-  } | null = null;
+  focusHighlightMaterials: Map<number, THREE.MeshStandardNodeMaterial> | null = null;
   focusedHighlightNodeId: string | null = null;
   nodeHighlightBox: THREE.Group | null;
   nodeHighlightGeometries: { box: SelectionOutlineGeometry } | null;
-  nodeHighlightMaterials: { lineMat: THREE.MeshBasicNodeMaterial; pivotMat?: any } | null;
+  nodeHighlightMaterials: { lineMat: THREE.MeshStandardNodeMaterial; pivotMat?: any } | null;
   subtreeHighlightBoxes: any[];
   selectedNodeId: string | null;
   highlightBox: any;
@@ -4001,10 +3999,7 @@ export class Contraption {
     if (!node) return;
     this.focusedHighlightNodeId = nodeId;
 
-    const materials = {
-      focusedLine: createSelectionOutlineMaterial(0x00d2d3),
-      childLine: createSelectionOutlineMaterial(0x2ed573),
-    };
+    const materials = new Map<number, THREE.MeshStandardNodeMaterial>();
     this.focusHighlightMaterials = materials;
     this.focusHighlightGeometries = [];
 
@@ -4030,7 +4025,13 @@ export class Contraption {
       const container = new THREE.Group();
       container.name = isChild ? 'ChildBreathingHighlight' : 'FocusedNodeHighlight';
       container.position.set(cx, cy, cz);
-      const outline = new THREE.Mesh(outlineGeometry, isChild ? materials.childLine : materials.focusedLine);
+      const depth = componentOutlineDepth(this.entityNodes, ownerNode.id);
+      let material = materials.get(depth);
+      if (!material) {
+        material = createSelectionOutlineMaterial(componentOutlineColor(this.entityNodes, ownerNode.id));
+        materials.set(depth, material);
+      }
+      const outline = createSelectionOutline(outlineGeometry, material);
       outline.renderOrder = 23;
       container.add(outline);
       ownerNode.group.add(container);
@@ -4041,7 +4042,7 @@ export class Contraption {
     const focusedBlocks = this.blocks.filter(b => (b.entityId || this.rootComponentId) === nodeId);
     createBoxForBlocks(node, focusedBlocks, false);
 
-    // 2. All descendant child components with green breathing light
+    // 2. Descendants keep their absolute-depth colors while their outlines pulse.
     const subtreeIds = this.collectSubtreeNodeIds(nodeId);
     if (subtreeIds) {
       for (const childId of subtreeIds) {
@@ -4064,7 +4065,7 @@ export class Contraption {
     }
     this.focusHighlightGeometries = [];
     if (this.focusHighlightMaterials) {
-      for (const mat of Object.values(this.focusHighlightMaterials)) mat.dispose();
+      for (const mat of this.focusHighlightMaterials.values()) mat.dispose();
     }
     this.focusHighlightMaterials = null;
     this.focusedHighlightNodeId = null;
@@ -4075,11 +4076,11 @@ export class Contraption {
     const node = this.entityNodes.get(nodeId);
     if (!node || !cellKeys) return;
 
-    // Show focused node + direct child green breathing boxes
+    // Show the focused node and descendants with their depth colors.
     this.setFocusHighlight(nodeId);
 
     const boxGeometry = new SelectionOutlineGeometry();
-    const materials = { selectedLine: createSelectionOutlineMaterial(0xff9f43) };
+    const materials = { selectedLine: createSelectionOutlineMaterial(componentOutlineColor(this.entityNodes, nodeId)) };
     this.glueHighlightMaterials = materials;
     this.glueHighlightGeometries = { boxGeometry };
 
@@ -4092,7 +4093,7 @@ export class Contraption {
         y + 0.5 - node.pivotLocal.y,
         z + 0.5 - node.pivotLocal.z
       );
-      const outline = new THREE.Mesh(boxGeometry, materials.selectedLine);
+      const outline = createSelectionOutline(boxGeometry, materials.selectedLine);
       outline.renderOrder = 25;
       container.add(outline);
       node.group.add(container);
@@ -4122,10 +4123,10 @@ export class Contraption {
       this.glueHighlightMaterials.selectedLine.opacity = 0.52 + counterWave * 0.46;
     }
     if (this.focusHighlightMaterials) {
-      // Green breathing light on direct children bounding boxes
-      this.focusHighlightMaterials.childLine.opacity = 0.35 + wave * 0.60;
-      // Focused node bounding box steady or subtle pulse
-      this.focusHighlightMaterials.focusedLine.opacity = 0.7 + counterWave * 0.25;
+      const focusedDepth = componentOutlineDepth(this.entityNodes, this.focusedHighlightNodeId || this.rootComponentId);
+      for (const [depth, material] of this.focusHighlightMaterials) {
+        material.opacity = depth === focusedDepth ? 0.7 + counterWave * 0.25 : 0.35 + wave * 0.60;
+      }
     }
   }
 
@@ -4176,7 +4177,7 @@ export class Contraption {
     }
 
     const geometry = new SelectionOutlineGeometry(width, height, depth);
-    this.highlightBox = new THREE.Mesh(geometry, createSelectionOutlineMaterial(0xf1c40f, wasVisible ? 0.9 : 0));
+    this.highlightBox = createSelectionOutline(geometry, createSelectionOutlineMaterial(COMPONENT_OUTLINE_COLORS[0], wasVisible ? 0.9 : 0));
     this.highlightBox.renderOrder = 30;
     this.highlightBox.position.copy(boxOffset);
     this.rootGroup.add(this.highlightBox);
@@ -4313,8 +4314,8 @@ export class Contraption {
       const cz = (minZ + maxZ) / 2 - pivot.z;
 
       const boxGeo = new SelectionOutlineGeometry(sx, sy, sz);
-      const lineMat = createSelectionOutlineMaterial(0xff9f43);
-      const lines = new THREE.Mesh(boxGeo, lineMat);
+      const lineMat = createSelectionOutlineMaterial(componentOutlineColor(this.entityNodes, nodeId));
+      const lines = createSelectionOutline(boxGeo, lineMat);
       lines.position.set(cx, cy, cz);
       lines.renderOrder = 33;
       node.group.add(lines);
@@ -4322,7 +4323,7 @@ export class Contraption {
     }
   }
 
-  /** Build a cyan highlight attached to one node group, including a red pivot indicator. */
+  /** Build a depth-colored highlight attached to one node, including its pivot. */
   buildNodeHighlightBox(nodeId: string) {
     const node = this.entityNodes.get(nodeId);
     if (!node) return null;
@@ -4377,8 +4378,8 @@ export class Contraption {
       const cz = (minZ + maxZ) / 2 - node.pivotLocal.z;
 
       const box = new SelectionOutlineGeometry(sx, sy, sz);
-      const lineMat = createSelectionOutlineMaterial(0x00d2d3);
-      const outline = new THREE.Mesh(box, lineMat);
+      const lineMat = createSelectionOutlineMaterial(componentOutlineColor(this.entityNodes, nodeId));
+      const outline = createSelectionOutline(box, lineMat);
       outline.renderOrder = 32;
       outline.position.set(cx, cy, cz);
       group.add(outline);

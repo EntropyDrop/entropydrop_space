@@ -17,6 +17,7 @@ export interface ToolInteractionSessionPort {
   clearHammerRotation: PlayerController['clearHammerRotation'];
   clearSelection: PlayerController['clearSelection'];
   clearWrenchPivotDisplay: PlayerController['clearWrenchPivotDisplay'];
+  enableSelectorMicroMode: PlayerController['enableSelectorMicroMode'];
   contraptions: PlayerController['contraptions'];
   currentRaycast: PlayerController['currentRaycast'];
   focusBlockPreview: PlayerController['focusBlockPreview'];
@@ -507,7 +508,14 @@ export class ToolInteractionSession {
         return;
       }
 
-      // Micro selection mode (Tab) targets the 0.125 m cell under the crosshair
+      // A real micro voxel promotes the box before quantizing either corner.
+      // Entity-to-world mismatches are rejected below without changing mode.
+      if (!isMultiSelect && this.host.currentRaycast?.hit && this.host.currentRaycast.kind === 'micro'
+        && !(this.host.selectorRange?.pointA && !this.host.selectorRange.pointB)) {
+        this.host.enableSelectorMicroMode();
+      }
+
+      // Micro selection mode targets the 0.125 m cell under the crosshair
       // instead of the whole standard cell.
       const microCell = this.host.selectorMicroMode ? this.host.selectorMicroCellFromRaycast() : null;
       const targetPoint = microCell
@@ -632,6 +640,18 @@ export class ToolInteractionSession {
   handleRightClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
     if (this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
+    // Every tool uses Wrench RMB actions when pointing at a running entity.
+    const target = this.host.hoveredContraptionHit?.contraption || this.host.hoveredContraption;
+    if (this.activeTool === SpecialTool.WRENCH || this.host.handleRunningEntityInteraction(target)) {
+      if (!target) {
+        this.host.ui?.showToast?.('Wrench: point at an entity to open its actions');
+        return false;
+      }
+      return this.host.ui?.showEntityContextMenu?.(target, {
+        x: Number(e?.clientX),
+        y: Number(e?.clientY)
+      }) ?? false;
+    }
     if (this.activeTool === SpecialTool.MODELING) return this.host.modeling.beginCreation(e);
     // Selector RMB opens the complete action menu. Pointer lock is released by
     // the UI bridge so the player can choose an item, then restored on close.
@@ -642,24 +662,10 @@ export class ToolInteractionSession {
       });
       return true;
     }
-    // Wrench RMB opens the same entity action menu as the nameplate ellipsis.
-    if (this.activeTool === SpecialTool.WRENCH) {
-      const target = this.host.hoveredContraptionHit?.contraption || this.host.hoveredContraption;
-      if (!target) {
-        this.host.ui?.showToast?.('Wrench: point at an entity to open its actions');
-        return false;
-      }
-      return this.host.ui?.showEntityContextMenu?.(target, {
-        x: Number(e?.clientX),
-        y: Number(e?.clientY)
-      }) ?? false;
-    }
     if (this.host.bulkEditJob) {
       this.host.ui?.showToast?.(`Please wait for ${this.host.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
     }
-    if ([SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH].includes(this.activeTool)
-      && this.host.handleRunningEntityInteraction(this.host.hoveredContraptionHit?.contraption)) return false;
     const isRecolorModifier = e && (e.shiftKey || this.host.keys.crouch);
 
     // 1. Shovel -> place one standard block, replacing micro cells in the cell.

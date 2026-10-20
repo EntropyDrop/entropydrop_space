@@ -7,6 +7,7 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/Mic
 import { MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import type { ComponentSelection, ComponentRange, SelectedVoxel } from './SelectionTypes.ts';
 import type { Point3 } from '../render/PreviewTypes.ts';
+import { componentOutlineColor } from '@entropydrop/space-engine/constants/ComponentOutlineColors.ts';
 
 export function contraptionRootId(contraption: Contraption | null | undefined): string {
   const explicit = contraption?.rootComponentId;
@@ -68,6 +69,7 @@ export function rangePreviewFrame(range: ComponentSelection | null) {
       min.x <= max.x && min.y <= max.y && min.z <= max.z;
     return {
       object: node.group,
+      color: componentOutlineColor(range.contraption.entityNodes, range.nodeId),
       pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
       // The live range is only a selector aid. Clamp it to real component
       // bounds so pointing outside the entity cannot draw cyan ghost cells.

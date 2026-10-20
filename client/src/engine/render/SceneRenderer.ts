@@ -40,7 +40,8 @@ import {
   type LightingQuality,
 } from './LightingQuality.ts';
 
-import { SelectionOutlineGeometry, createSelectionOutlineMaterial, updateSelectionOutlineGeometry } from '@entropydrop/space-engine/render/SelectionOutline.ts';
+import { SelectionOutlineGeometry, createSelectionOutlineMaterial, createSelectionOutline, updateSelectionOutlineGeometry } from '@entropydrop/space-engine/render/SelectionOutline.ts';
+import { COMPONENT_OUTLINE_COLORS } from '@entropydrop/space-engine/render/ComponentOutlineColors.ts';
 
 export const ENTITY_PREVIEW_LAYER = 1;
 export const ENTITY_PREVIEW_MAX_FPS = 30;
@@ -236,7 +237,7 @@ export class SceneRenderer {
   declare inventoryPlacementWire: THREE.LineSegments | null;
   declare inventoryPlacementSlot: InventoryInput | null;
   declare selectionGroup: THREE.Group;
-  declare selectionWireframe: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicNodeMaterial>;
+  declare selectionWireframe: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
   declare timeOfDay: number;
   declare world: World | null;
   declare flatCameraPosition: THREE.Vector3;
@@ -500,7 +501,7 @@ export class SceneRenderer {
     const gridGeo = new THREE.BufferGeometry();
     gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     const gridMat = new THREE.LineBasicNodeMaterial({
-      color: 0x48dbfb,
+      color: COMPONENT_OUTLINE_COLORS[0],
       transparent: true,
       opacity: 0.72,
       depthTest: false,
@@ -511,9 +512,9 @@ export class SceneRenderer {
     this.microCarveGroup.add(gridLines);
     this.microCarveGroup.renderOrder = 41;
 
-    this.microCarveFocusCell = new THREE.Mesh(
+    this.microCarveFocusCell = createSelectionOutline(
       new SelectionOutlineGeometry(MICRO_SIZE, MICRO_SIZE, MICRO_SIZE),
-      createSelectionOutlineMaterial(0xff9f43)
+      createSelectionOutlineMaterial(COMPONENT_OUTLINE_COLORS[0])
     );
     this.microCarveFocusCell.renderOrder = 42;
     this.microCarveFocusCell.visible = false;
@@ -545,6 +546,8 @@ export class SceneRenderer {
       this.microCarveGroup.quaternion.set(0, 0, 0, 1);
     }
     if (preview.microCenter && this.microCarveFocusCell) {
+      (this.microCarveFocusCell.material as THREE.MeshStandardNodeMaterial).color
+        .setHex(preview.color ?? COMPONENT_OUTLINE_COLORS[0]);
       this.microCarveFocusCell.position.copy(preview.microCenter);
       if (preview.quaternion) {
         this.microCarveFocusCell.quaternion.copy(preview.quaternion);
@@ -666,8 +669,8 @@ export class SceneRenderer {
   setupSelectionHologram() {
     this.selectionGroup = new THREE.Group();
     this.selectionGroup.name = 'SelectionOutline';
-    this.selectionWireframe = new THREE.Mesh(
-      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(0x00d2d3)
+    this.selectionWireframe = createSelectionOutline(
+      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(COMPONENT_OUTLINE_COLORS[0])
     );
     this.selectionWireframe.renderOrder = 42;
     this.selectionGroup.add(this.selectionWireframe);
@@ -1059,8 +1062,8 @@ export class SceneRenderer {
    * Selector focus guide: a simple 1x1x1 wireframe for the block under the crosshair.
    */
   setupFocusBlockGuide() {
-    this.focusBlockGuide = new THREE.Mesh(
-      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(0x48dbfb)
+    this.focusBlockGuide = createSelectionOutline(
+      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(COMPONENT_OUTLINE_COLORS[0])
     );
     this.focusBlockGuide.name = 'FocusBlockGuide';
     this.focusBlockGuide.renderOrder = 40;
@@ -1068,7 +1071,7 @@ export class SceneRenderer {
     this.scene.add(this.focusBlockGuide);
   }
 
-  setFocusBlockGuide(center: Point3 | null, active = false, cellSize = 1, quaternion: THREE.Quaternion | null = null) {
+  setFocusBlockGuide(center: Point3 | null, active = false, cellSize = 1, quaternion: THREE.Quaternion | null = null, color: number = COMPONENT_OUTLINE_COLORS[0]) {
     if (!this.focusBlockGuide) return;
     if (!center) {
       this.focusBlockGuide.visible = false;
@@ -1080,9 +1083,9 @@ export class SceneRenderer {
     );
     updateSelectionOutlineGeometry(this.focusBlockGuide, cellSize, cellSize, cellSize);
     this.focusBlockGuide.scale.setScalar(cellSize);
-    // Orange while point 1 is set; cyan while waiting for point 1.
-    (this.focusBlockGuide.material as THREE.MeshBasicNodeMaterial).color
-      .setHex(active ? 0xff9f43 : 0x48dbfb);
+    const material = this.focusBlockGuide.material as THREE.MeshStandardNodeMaterial;
+    material.color.setHex(color);
+    material.opacity = active ? 0.98 : 0.9;
     this.focusBlockGuide.visible = true;
   }
 
@@ -1504,8 +1507,8 @@ export class SceneRenderer {
     this.boxSelectionGroup = new THREE.Group();
     this.boxSelectionGroup.name = 'BoxSelectionPreview';
 
-    this.boxSelectionEdges = new THREE.Mesh(
-      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(0x48dbfb)
+    this.boxSelectionEdges = createSelectionOutline(
+      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(COMPONENT_OUTLINE_COLORS[0])
     );
     this.boxSelectionEdges.renderOrder = 42;
     this.boxSelectionGroup.add(this.boxSelectionEdges);
@@ -1520,6 +1523,8 @@ export class SceneRenderer {
       this.boxSelectionGroup.visible = false;
       return;
     }
+    (this.boxSelectionEdges.material as THREE.MeshStandardNodeMaterial).color
+      .setHex(frame?.color ?? COMPONENT_OUTLINE_COLORS[0]);
     const applyFrame = (center: THREE.Vector3) => {
       this.boxSelectionGroup.scale.set(1, 1, 1);
       if (frame?.object?.localToWorld) {
@@ -1646,6 +1651,7 @@ export class SceneRenderer {
       this.selectionGroup.visible = false;
       return;
     }
+    this.selectionWireframe.material.color.setHex(frame?.color ?? COMPONENT_OUTLINE_COLORS[0]);
 
     // Keep the confirmed region, including its empty cells. Sparse and shaped
     // selections use the same open bounding box without a second surface layer.

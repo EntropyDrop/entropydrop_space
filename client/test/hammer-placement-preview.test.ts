@@ -7,8 +7,9 @@ import { ContraptionManager } from '@entropydrop/space-engine/contraption/Contra
 import { SceneRenderer, getInventoryPreviewBlocks, buildUnifiedInventoryPreviewMesh } from '../src/engine/render/SceneRenderer.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 
-function makeController(slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput) {
+function makeController(slot: import('@entropydrop/space-engine/storage/InventoryTypes.ts').InventoryInput, microMode = false) {
   const controller = Object.create(PlayerController.prototype);
+  controller.hammerMicroMode = microMode;
   controller.activeTool = SpecialTool.HAMMER;
   controller.inventorySlots = [slot];
   controller.selectedInventoryIndex = 0;
@@ -71,7 +72,7 @@ test('Hammer aims a micro block set on the adjacent 0.125 m cell of a focused mi
       { dx: 0.125, dy: 0, dz: 0, size: 0.125, color: 0xf2a93b }
     ]
   };
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   controller.currentRaycast = {
     hit: true as const,
     kind: 'micro',
@@ -94,7 +95,7 @@ test('Hammer aims a micro block set at 0.125 m precision across a standard block
     blockCount: 1,
     blocks: [{ dx: 0, dy: 0, dz: 0, size: 0.125, color: 0x48dbfb }]
   };
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   controller.currentRaycast = {
     hit: true as const,
     kind: 'standard',
@@ -108,7 +109,7 @@ test('Hammer aims a micro block set at 0.125 m precision across a standard block
   assert.deepEqual(pose.position.toArray(), [4.375, 6, 7.625]);
 });
 
-test('Hammer keeps block sets containing standard voxels on the 1 m grid', () => {
+test('Hammer micro mode converts mixed standard and micro block sets onto the micro grid', () => {
   const slot = {
     kind: 'blockset',
     blockCount: 2,
@@ -117,7 +118,7 @@ test('Hammer keeps block sets containing standard voxels on the 1 m grid', () =>
       { dx: 1, dy: 0, dz: 0, size: 1, color: 0xf2a93b }
     ]
   };
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   controller.currentRaycast = {
     hit: true as const,
     kind: 'micro',
@@ -128,7 +129,10 @@ test('Hammer keeps block sets containing standard voxels on the 1 m grid', () =>
 
   const pose = controller.getInventoryPlacementPose(slot);
 
-  assert.deepEqual(pose.position.toArray(), [3, 0, 1]);
+  assert.deepEqual(pose.position.toArray(), [2.375, 0.375, 1.25]);
+  assert.equal(pose.slot.blocks.length, 513);
+  assert.equal(pose.slot.blocks.every((block: typeof slot.blocks[number]) => block.size === 0.125), true);
+  assert.equal(slot.blocks[1].size, 1, 'conversion leaves the backpack copy intact');
 });
 
 test('Hammer centres entity geometry on the hit and settles its bottom onto terrain', () => {
@@ -140,7 +144,7 @@ test('Hammer centres entity geometry on the hit and settles its bottom onto terr
       { localX: 5, localY: 3, localZ: -2, size: 1, entityId: 'root' }
     ]
   };
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   controller.world = flatTerrain(() => 2);
   controller.physics.getAABB = () => ({
     minX: -100, minY: 0, minZ: -100,
@@ -214,7 +218,7 @@ test('Hammer keeps an entity outside a side face while centring it along the tan
       { localX: 5, localY: 0, localZ: -2, size: 1, entityId: 'root' }
     ]
   };
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   controller.world = flatTerrain(() => 0);
   controller.currentRaycast = {
     hit: true as const,
@@ -354,7 +358,7 @@ test('entity-on-entity placement snaps to the targeted component micro grid with
     rootComponentId: 'root',
     blocks: [{ localX: 0, localY: 0, localZ: 0, size: 0.125, entityId: 'root' }]
   };
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   const targetOrigin = new THREE.Vector3(10.13, 7.07, -2.11);
   const targetRotation = new THREE.Quaternion().setFromAxisAngle(
     new THREE.Vector3(0, 1, 0),
@@ -412,7 +416,7 @@ test('entity side placement rotates its authored up axis outward and stays tange
       { localX: 0, localY: 1, localZ: 0, size: 1, entityId: 'root' }
     ]
   };
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   const target = {
     collisionPoseVersion: 1,
     collisionEntries: [],
@@ -464,7 +468,7 @@ test('entity-on-entity placement moves outward on the micro grid until target vo
     ],
     childEntities: [], scripts: [], enabled: [], constraints: []
   }, new THREE.Vector3(), null, false);
-  const controller = makeController(slot);
+  const controller = makeController(slot, true);
   controller.hoveredContraptionHit = {
     point: new THREE.Vector3(1, 0.5, 0.5),
     worldNormal: new THREE.Vector3(1, 0, 0),
@@ -476,7 +480,7 @@ test('entity-on-entity placement moves outward on the micro grid until target vo
   const pose = controller.getInventoryPlacementPose(slot);
 
   assert.ok(Math.abs(pose.position.x - 2) < 1e-8,
-    'the centred x=1 pose overlaps an existing block and must move to the first clear 0.2-grid offset');
+    'the centred x=1 pose overlaps an existing block and must move to the first clear micro-grid offset');
   assert.equal((controller as any).entitySlotOverlapsTarget(slot, pose.position, pose.quaternion, target), false);
 });
 

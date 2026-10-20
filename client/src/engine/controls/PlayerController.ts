@@ -41,6 +41,7 @@ import { encodeInventoryResource, INVENTORY_PROTOBUF_SCHEMA_VERSION, MAX_BACKPAC
 import { bendDirection, bendPointForView, TORUS_SIZE_X, TORUS_SIZE_Z, unbendPointForView, unwrapPeriodicNear, wrapMicroX, wrapMicroZ, } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { BlockTypes, colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+import { componentOutlineColor } from '@entropydrop/space-engine/render/ComponentOutlineColors.ts';
 import { normalizeGradientStops, sampleGradientColor, type GradientStop, } from '@entropydrop/space-engine/voxel/Palette.ts';
 import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import * as THREE from 'three';
@@ -173,6 +174,7 @@ export class PlayerController {
       get clearHammerRotation() { return host.clearHammerRotation.bind(host); },
       get clearSelection() { return host.clearSelection.bind(host); },
       get clearWrenchPivotDisplay() { return host.clearWrenchPivotDisplay.bind(host); },
+      get enableSelectorMicroMode() { return host.enableSelectorMicroMode.bind(host); },
       get contraptions() { return host.contraptions; },
       set contraptions(value) { host.contraptions = value; },
       get currentRaycast() { return host.currentRaycast; },
@@ -290,6 +292,7 @@ export class PlayerController {
       set sceneRenderer(value) { host.sceneRenderer = value; },
       get selectedInventoryIndex() { return host.selectedInventoryIndex; },
       set selectedInventoryIndex(value) { host.selectedInventoryIndex = value; },
+      get setActiveInventoryCategory() { return host.setActiveInventoryCategory.bind(host); },
       get sound() { return host.sound; },
       set sound(value) { host.sound = value; },
       get ui() { return host.ui; },
@@ -303,6 +306,9 @@ export class PlayerController {
 
   get inventoryPlacementPreview(): PlacementSession['inventoryPlacementPreview'] { return this.placementSession.inventoryPlacementPreview; }
   set inventoryPlacementPreview(value: PlacementSession['inventoryPlacementPreview']) { this.placementSession.inventoryPlacementPreview = value; }
+
+  get hammerMicroMode(): boolean { return this.placementSession.hammerMicroMode; }
+  set hammerMicroMode(value: boolean) { this.placementSession.hammerMicroMode = value; }
 
   get hammerRotatedSlotCache(): PlacementSession['hammerRotatedSlotCache'] { return this.placementSession.hammerRotatedSlotCache; }
   set hammerRotatedSlotCache(value: PlacementSession['hammerRotatedSlotCache']) { this.placementSession.hammerRotatedSlotCache = value; }
@@ -1053,11 +1059,10 @@ export class PlayerController {
         if (this.ui) this.ui.toggleGlobalSettingsModal();
         break;
 
-      case 'Tab': // Tab: switch the hammer bar between block sets and entities,
-        // or toggle the selector / brush between standard (1 m) and micro (0.125 m) blocks.
+      case 'Tab': // Toggle positioning / selection between 1 m and 0.125 m.
         if (this.activeTool === SpecialTool.HAMMER) {
           e.preventDefault();
-          this.toggleHammerCategory();
+          if (!e.repeat) this.toggleHammerMicroMode();
         } else if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
           e.preventDefault();
           this.toggleSelectorMicroMode();
@@ -1151,7 +1156,7 @@ export class PlayerController {
     if (!this.isLocked) return;
     if (this.ui) {
       if (this.activeTool === SpecialTool.HAMMER) {
-        // Wheel cycles the active backpack category's slots when the Hammer is active.
+        // Hammer always cycles the Item hotbar, independently of backpack browsing.
         this.cycleInventorySlot(e.deltaY > 0 ? 1 : -1);
       } else if (this.activeTool === SpecialTool.BRUSH || e.shiftKey) {
         // Wheel with Brush (or Shift+Wheel) cycles palette colors.
@@ -1349,6 +1354,10 @@ export class PlayerController {
     if (!this.canEditEntityInternals(contraption)) {
       this.startSubtreeSelection(contraption, contraptionRootId(contraption), { wholeOnly: true });
       return;
+    }
+
+    if (!shiftHeld && (hit.kind === 'micro' || (hit.block?.size || 1) < 1)) {
+      this.enableSelectorMicroMode();
     }
 
     // Shift+click: multi-select / toggle individual block or micro-block.
@@ -2916,10 +2925,10 @@ export class PlayerController {
    * build (LMB/RMB). Placement always requires a hovered surface — terrain
    * or entity — so aiming at the sky (high altitude, open air) yields no
    * pose instead of falling back to a point in front of the eye.
-   * Pure-micro block sets snap to the 1/5 grid; block sets containing standard
-   * voxels stay on the 1 m grid. On terrain, entity slots geometrically centre
-   * and settle onto sampled support without moving away from the player. On
-   * another entity, they align to the targeted component's 0.125 m grid, rotate
+   * Tab selects a 1 m or 0.125 m positioning grid; micro mode subdivides standard
+   * voxels into micro voxels at their original size. On terrain, entity slots snap their
+   * origin and settle onto sampled support without moving away from the player.
+   * On another entity, they snap in the targeted component's local grid, rotate
    * outward from side faces, and move only along that normal to clear voxels.
    */
   getInventoryPlacementPose(slot: InventoryInput) {
@@ -2929,6 +2938,10 @@ export class PlayerController {
   /** Refresh the Hammer hover ghost without mutating either world or entity state. */
   updateInventoryPlacementPreview() {
     return this.placementSession.updateInventoryPlacementPreview();
+  }
+
+  toggleHammerMicroMode() {
+    return this.placementSession.toggleHammerMicroMode();
   }
 
   /**
@@ -3017,11 +3030,11 @@ export class PlayerController {
 
     const pose = this.getInventoryPlacementPose(slot);
     if (!pose) {
-      if (this.ui) this.ui.showToast('No surface under the crosshair — aim at terrain or an entity to build');
+      this.ui?.showToast?.(this.placementSession.inventoryPlacementError || 'No surface under the crosshair — aim at terrain or an entity to build');
       return false;
     }
     const target = pose.position.clone?.() || { ...pose.position };
-    const blocks = [...slot.blocks];
+    const blocks = [...(pose.slot?.blocks || slot.blocks)];
     let placed = 0;
 
     if (blocks.length > BULK_EDIT_THRESHOLD) {
@@ -5376,6 +5389,10 @@ export class PlayerController {
     return this.selectionSession.toggleSelectorMicroMode();
   }
 
+  enableSelectorMicroMode() {
+    return this.selectionSession.enableSelectorMicroMode();
+  }
+
   /** Switch active geometric selection shape (box, cylinder, sphere, stairs, line). */
   setSelectorShape(shape: SelectorShape) {
     return this.selectionSession.setSelectorShape(shape);
@@ -5627,9 +5644,10 @@ export class PlayerController {
     }
     const pose = this.getInventoryPlacementPose(slot);
     if (!pose) {
-      this.ui?.showToast?.('No surface under the crosshair — aim at terrain or an entity to build');
+      this.ui?.showToast?.(this.placementSession.inventoryPlacementError || 'No surface under the crosshair — aim at terrain or an entity to build');
       return false;
     }
+    slot = pose.slot || slot;
     const rotation = pose.quaternion || new THREE.Quaternion();
     const origin = pose.position.clone();
     if (singleEntity && (installAsComponent || pose.targetContraption)) {
@@ -5831,27 +5849,17 @@ export class PlayerController {
    * - **Entity on terrain** (R copy, imported): spawns an independent physics entity.
    * - **Entity on entity**: installs the template under the hit stopped component.
    * - **Shift + entity**: explicitly requests component installation and requires an entity target.
-   * - **Color set**: applies its 9 colors to the keyboard palette.
    */
   pasteInventorySlot(installAsComponent = false) {
     if (this.activeTool !== SpecialTool.HAMMER) return false;
-    const category = this.activeInventoryCategory;
     const slot = this.getActiveHammerInventoryItem();
     if (!slot) {
-      if (this.ui) this.ui.showToast(`${category} slot is empty - copy or import something first`);
+      this.ui?.showToast?.(this.placementSession.inventoryPlacementError || 'Item slot is empty - copy or import something first');
       return false;
     }
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
-    }
-
-    if (category === 'colorset') {
-      this.ui?.applyColorSetToPalette?.(slot);
-      if (this.ui) {
-        this.ui.showToast(`Applied color set "${slot.name || 'unnamed'}" to the keyboard palette`);
-      }
-      return true;
     }
 
     if (this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
@@ -5899,6 +5907,7 @@ export class PlayerController {
    * `direction` (+1 or −1); used when the Hammer is active.
    */
   cycleInventorySlot(direction: number) {
+    this.placementSession.ensureHammerInventoryCategory();
     const count = this.inventorySlots.length;
     this.selectedInventoryIndex = (this.selectedInventoryIndex + direction + count) % count;
     this.ui?.renderInventoryBar?.();
@@ -5907,11 +5916,7 @@ export class PlayerController {
       const prefix = `${this.activeInventoryCategory} slot ${this.selectedInventoryIndex + 1}`;
       this.ui.showToast(!slot
         ? `${prefix}: empty`
-        : this.activeInventoryCategory === 'colorset'
-          ? `${prefix}: ${slot.name || 'unnamed'} (Hammer LMB applies palette)`
-          : this.activeInventoryCategory === 'blockset'
-            ? `${prefix}: ${slot.name || 'unnamed'} · ${slot.blockCount} voxels (Hammer LMB builds · RMB rotates 90°)`
-            : `${prefix}: ${slot.name || 'unnamed'} · ${slot.blockCount} blocks`);
+        : `${prefix}: ${slot.name || 'unnamed'} · ${slot.blockCount} blocks`);
     }
   }
 
@@ -6510,7 +6515,7 @@ export class PlayerController {
    */
   getCursorHighlight() {
     if (this.worldPickingSuspended) return null;
-    if (this.activeTool === SpecialTool.MODELING) return null;
+    if (this.activeTool === SpecialTool.MODELING || this.activeTool === SpecialTool.HAMMER) return null;
     if (this.hoveredContraptionHit) {
       const hit = this.hoveredContraptionHit;
       const contraption = hit.contraption;
@@ -6704,6 +6709,7 @@ export class PlayerController {
               center,
               cellSize,
               active: brushBoxPending,
+              color: componentOutlineColor(contraption.entityNodes, nodeId),
               quaternion: focusQuaternion
             };
           }
@@ -6747,7 +6753,7 @@ export class PlayerController {
         return;
       }
       // Selector: once a level is active, hovering inside the entity shows the 1×1×1 focus
-      // outline. After corner 1 is set (box-selection in progress) the outline turns orange and
+      // outline. After corner 1 is set (box-selection in progress) it brightens and
       // a live AABB preview is drawn. Range corners are stored in node-local space and converted
       // back to world space here so the preview co-moves with rotating/translating components.
       // Hovering a *different* entity shows nothing (a click there switches the level) — and it
@@ -6764,6 +6770,7 @@ export class PlayerController {
               center: cursor.center,
               cellSize: cursor.size ?? 1,
               active: !!this.selectorRange.pointA,
+              color: componentOutlineColor(contraption.entityNodes, this.selectorRange.nodeId),
               quaternion: cursor.quaternion || new THREE.Quaternion()
             };
           }
@@ -6794,7 +6801,8 @@ export class PlayerController {
       if (hit.kind === 'micro' && hit.block) {
         microCenter = contraption.getBlockWorldCenter(hit.block);
       }
-      this.microCarvePreview = { cellOrigin, microCenter, quaternion };
+      this.microCarvePreview = { cellOrigin, microCenter, quaternion,
+        color: componentOutlineColor(contraption.entityNodes, nodeId) };
       return;
     }
 

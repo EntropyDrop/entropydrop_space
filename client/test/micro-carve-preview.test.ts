@@ -76,7 +76,7 @@ test('micro-carve preview applies entity quaternion orientation', () => {
   assert.equal(renderer.microCarveFocusCell.visible, false);
 });
 
-test('focusBlockGuide registers and positions a 1x1x1 X-ray wireframe', () => {
+test('focusBlockGuide registers and positions a 1x1x1 depth-tested wireframe', () => {
   const renderer = makeRendererWithPreview();
   renderer.setupFocusBlockGuide();
   renderer.setFocusBlockGuide({ x: 2.5, y: 3.5, z: 4.5 });
@@ -84,7 +84,7 @@ test('focusBlockGuide registers and positions a 1x1x1 X-ray wireframe', () => {
   assert.equal(renderer.focusBlockGuide.visible, true);
   assert.deepEqual(renderer.focusBlockGuide.position.toArray(), [2.5, 3.5, 4.5], 'place the wireframe at the focused cell center');
   assert.deepEqual(renderer.focusBlockGuide.scale.toArray(), [1, 1, 1], 'standard cells keep the full 1.0 m guide');
-  assert.equal((renderer.focusBlockGuide.material as any).depthTest, false, 'disable depth testing for X-ray visibility');
+  assert.equal((renderer.focusBlockGuide.material as any).depthTest, true, 'geometry occludes the focused block guide');
 
   // A 0.125 m micro target shrinks the guide to hug the micro block.
   renderer.setFocusBlockGuide({ x: 2.6, y: 3.5, z: 4.6 }, false, 0.2);
@@ -118,7 +118,7 @@ test('setBoxSelectionPreview creates a live block-aligned outline with open face
   assert.ok(renderer.boxSelectionGroup.visible);
   assert.deepEqual(renderer.boxSelectionGroup.position.toArray(), [3.5, 4.5, 5.5], 'center should use cell centers and span+1');
   assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [5, 5, 5], 'box size should be span plus one cell');
-  assert.equal((renderer.boxSelectionEdges.material as any).depthTest, false, 'outline should remain visible through geometry');
+  assert.equal((renderer.boxSelectionEdges.material as any).depthTest, true, 'geometry occludes the selection preview');
   assert.ok(
     renderer.boxSelectionEdges.geometry.attributes.position.count > 24,
     'large selection beams need intermediate vertices for the torus shader to curve'
@@ -202,7 +202,7 @@ test('entity box selection preview is clamped to real component bounds', () => {
   assert.deepEqual(renderer.boxSelectionEdges.scale.toArray(), [2, 1, 1], 'micro preview is clamped to the same physical bounds');
 });
 
-test('confirmed selection hologram is torus-segmented and remains visible over terrain', () => {
+test('confirmed selection hologram is torus-segmented and distinguishes occluded edges', () => {
   const renderer = makeRendererWithPreview();
   renderer.setupSelectionHologram();
   renderer.updateSelectionHologram({ minX: 10, maxX: 17, minY: 4, maxY: 7, minZ: 20, maxZ: 25 });
@@ -210,7 +210,10 @@ test('confirmed selection hologram is torus-segmented and remains visible over t
   assert.ok(renderer.selectionGroup.visible);
   assert.equal(renderer.selectionGroup.children.length, 1, 'no selection face fill is attached');
   assert.ok(renderer.selectionWireframe.geometry.attributes.position.count / 2 > 12);
-  assert.equal(renderer.selectionWireframe.material.depthTest, false);
+  assert.equal(renderer.selectionWireframe.material.depthTest, true);
+  const occluded = renderer.selectionWireframe.children[0] as THREE.Mesh;
+  assert.equal(occluded.geometry, renderer.selectionWireframe.geometry, 'the faint pass follows confirmed selection bounds');
+  assert.equal((occluded.material as THREE.Material).depthFunc, THREE.GreaterDepth);
 });
 
 test('selection tessellation is capped and reused while its span stays unchanged', () => {

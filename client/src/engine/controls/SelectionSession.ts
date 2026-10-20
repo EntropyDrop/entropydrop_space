@@ -7,6 +7,7 @@ import type { Point3, SelectionFrame, SelectionGizmoHandle, SelectionGizmoHit } 
 import { SpecialTool } from './ControlBindings.ts';
 import type { PlayerController } from './PlayerController.ts';
 import { contraptionBlockOwnerId } from './SelectionGeometry.ts';
+import { componentOutlineColor } from '@entropydrop/space-engine/render/ComponentOutlineColors.ts';
 import type { ComponentBlockSelection, ComponentRange, ComponentSelection, SubtreeSelection, SelectedVoxel, SelectionGizmoDrag } from './SelectionTypes.ts';
 import { computeSelectionCells, type SelectorShape, type StairsOrientation } from './SelectorShapes.ts';
 
@@ -94,6 +95,32 @@ export class SelectionSession {
         : 'Selector: STANDARD mode · Tab switches to MICRO');
     }
     return this.selectorMicroMode;
+  }
+
+  /** Promote a box to the micro grid without clearing its first corner. */
+  enableSelectorMicroMode() {
+    if (this.selectorMicroMode) return;
+    this.selectorMicroMode = true;
+    const toMicro = (point: Point3) => ({
+      x: point.x * MICRO_DIVISIONS,
+      y: point.y * MICRO_DIVISIONS,
+      z: point.z * MICRO_DIVISIONS,
+    });
+    const manager = this.host.contraptions;
+    if (manager?.selectionCornerA && !manager.selectionCornerA.micro && !manager.selectionCornerB) {
+      manager.selectionCornerA = { ...toMicro(manager.selectionCornerA), micro: true };
+    }
+    const anchor = this.selectionShapeAnchor;
+    if (anchor && !anchor.micro) {
+      this.selectionShapeAnchor = {
+        ...anchor,
+        cornerA: toMicro(anchor.cornerA),
+        cornerB: anchor.cornerB ? toMicro(anchor.cornerB) : null,
+        micro: true,
+      };
+    }
+    this.host.ui?.updateToolPanelMode?.();
+    this.host.ui?.renderHotbar?.();
   }
 
   setSelectorShape(shape: SelectorShape) {
@@ -266,7 +293,8 @@ export class SelectionSession {
     this.updateSelectionAxisGizmo();
 
     const node = contraption.entityNodes?.get?.(nodeId);
-    const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone() } : null;
+    const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
+      color: componentOutlineColor(contraption.entityNodes, nodeId) } : null;
     if (shape === 'box' || !shapeCells || shapeCells.length === 0) {
       // Micro bounds are expressed in 0.125 m grid units, so the outer guide box
       // must be scaled by MICRO_SIZE too.
@@ -776,7 +804,8 @@ export class SelectionSession {
     contraption.highlightBlocks?.(matchingBlocks);
 
     const node = contraption.entityNodes?.get?.(nodeId);
-    const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone() } : null;
+    const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
+      color: componentOutlineColor(contraption.entityNodes, nodeId) } : null;
     // Keep the outer cuboid guide box visible while the axis gizmo expands the
     // box selection instead of hiding the hologram.
     this.host.sceneRenderer?.updateSelectionHologram?.(bounds, null, null, isMicro, frame);

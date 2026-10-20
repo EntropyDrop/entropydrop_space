@@ -38,6 +38,46 @@ for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.SELECTOR,
   });
 }
 
+for (const tool of new Set(Object.values(SpecialTool))) {
+  for (const [state, properties] of Object.entries({
+    scripts: { scriptStatus: 'running' },
+    physics: { scriptStatus: 'stopped', canEditInternalSelection: () => false },
+    server: { scriptStatus: 'stopped', serverManaged: true, serverDesiredRunState: 'running' }
+  })) {
+    test(`${tool}: right-click opens entity actions while ${state} runs, before tool actions or bulk editing`, () => {
+      const { controller, target, calls } = harness();
+      Object.assign(target, properties);
+      controller._activeTool = tool;
+      controller.hoveredContraptionHit = { contraption: target };
+      controller.bulkEditJob = { label: 'Editing' };
+      controller.keys = { crouch: true };
+      const unexpected = () => assert.fail('running entity right-click must only open entity actions');
+      controller.ui.showSelectorContextMenu = unexpected;
+      controller.modeling = { beginCreation: unexpected };
+      controller.paintTargetedBlock = unexpected;
+      controller.handleBrushRightClick = unexpected;
+      controller.sampleTargetedColor = unexpected;
+      controller.rotateActiveInventoryItem = unexpected;
+      controller.performBasicAction = unexpected;
+      controller.ui.showEntityContextMenu = (entity: unknown, position: unknown) => {
+        calls.push(['menu', entity, position]);
+        return true;
+      };
+
+      assert.equal(controller.handleRightClick({ clientX: 31, clientY: 47, shiftKey: true }), true);
+      assert.deepEqual(calls, [['menu', target, { x: 31, y: 47 }]]);
+      assert.equal(controller.activeTool, tool);
+      assert.equal(controller.isEntityRunning(target), true, 'opening the menu preserves playback');
+
+      calls.length = 0;
+      controller.hoveredContraptionHit = null;
+      controller.hoveredContraption = target;
+      assert.equal(controller.handleRightClick({ clientX: 31, clientY: 47 }), true);
+      assert.deepEqual(calls, [['menu', target, { x: 31, y: 47 }]], 'hover fallback matches Wrench');
+    });
+  }
+}
+
 test('menu locks a target, opens before unlocking, prevents canvas resume, closes mutually exclusive menus and handles Escape', () => {
   const { target, other } = harness();
   const store = new SpaceUiStore();

@@ -904,7 +904,7 @@ test('inventory export filenames use the item name', () => {
   assert.equal(ui.inventoryProtobufFilename('robot/body?.pb'), 'robot_body_.edpb');
 });
 
-test('Hammer retains one shared Item hotbar when Tab is pressed', () => {
+test('Hammer legacy category toggle retains one shared Item hotbar', () => {
   const controller = makeController();
   controller.selectedInventoryIndex = 5;
   assert.equal(controller.toggleHammerCategory(), 'item');
@@ -914,23 +914,97 @@ test('Hammer retains one shared Item hotbar when Tab is pressed', () => {
   assert.equal(controller.selectedInventoryIndex, 5);
 });
 
-test('hammer left-click applies a selected color set to the palette', () => {
-  const controller = makeController();
+test('Hammer left-click builds the Item hotbar even when a color-set category was left active', () => {
+  const world = new World(new THREE.Scene());
+  world.setBlock(10, 80, 20, BlockTypes.AIR);
+  const controller = makeController({ world });
   controller.activeTool = SpecialTool.HAMMER;
+  controller.inventories.item.items[1] = { kind: 'blockset', name: 'Build me', blockCount: 1,
+    blocks: [{ dx: 0, dy: 0, dz: 0, size: 1, color: 0x48dbfb }] };
+  controller.selectedInventoryIndex = 1;
   const set = { name: 'test set', colors: new Array(9).fill('#123456') };
   controller.setActiveInventoryCategory('colorset');
   controller.inventories.colorset.items[2] = set;
   controller.selectedInventoryIndex = 2;
+  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 10, y: 79, z: 20 }, normal: { x: 0, y: 1, z: 0 } };
 
   assert.equal(controller.pasteInventorySlot(), true);
-  assert.equal(controller.__appliedColorSets.length, 1);
-  assert.equal(controller.__appliedColorSets[0], set);
-  assert.ok(controller.__toasts.some((m: string) => m.includes('Applied color set')));
+  assert.equal(world.getBlock(10, 80, 20), BlockTypes.COLOR_BLOCK);
+  assert.equal(world.getBlockColor(10, 80, 20), 0x48dbfb);
+  assert.equal(controller.__appliedColorSets.length, 0);
+  assert.equal(controller.activeInventoryCategory, 'item');
+  assert.equal(controller.selectedInventoryIndex, 1, 'the Item and Color Set cursors stay independent');
+  assert.equal(controller.__toasts.some((m: string) => m.includes('Applied color set')), false);
 
-  // An empty color-set slot reports empty instead of applying.
+  // A populated color-set slot must not hide an empty Item slot.
+  controller.activeTool = SpecialTool.HAMMER;
   controller.selectedInventoryIndex = 5;
+  controller.setActiveInventoryCategory('colorset');
   assert.equal(controller.pasteInventorySlot(), false);
   assert.ok(controller.__toasts.some((m: string) => m.includes('slot is empty')));
+  assert.equal(controller.__appliedColorSets.length, 0);
+});
+
+for (const close of ['toggleInventoryModal', 'closeAllModals'] as const) {
+  test(`closing the color-set backpack via ${close} restores Hammer's Item hotbar`, () => {
+    const controller = makeController();
+    const ui = new SpaceUiStore();
+    (ui as any).patch({ controller });
+    controller.ui = ui;
+    ui.selectTool(SpecialTool.HAMMER);
+    controller.inventories.item.items[3] = { kind: 'blockset', name: 'Kept item', blockCount: 1,
+      blocks: [{ dx: 0, dy: 0, dz: 0, size: 1 }] };
+    controller.selectedInventoryIndex = 3;
+    ui.toggleInventoryModal(true);
+    ui.selectInventoryCategory('colorset');
+    controller.selectedInventoryIndex = 2;
+    controller.updateInventoryPlacementPreview();
+    assert.equal(controller.activeInventoryCategory, 'colorset', 'browsing color sets stays available while the modal is open');
+    assert.equal(ui.getSnapshot().activeInventoryCategory, 'colorset');
+    assert.equal(controller.inventoryPlacementPreview, null, 'the world ghost must not change backpack browsing');
+    if (close === 'toggleInventoryModal') ui.toggleInventoryModal(false);
+    else ui.closeAllModals(false);
+    assert.equal(controller.activeInventoryCategory, 'item');
+    assert.equal(controller.selectedInventoryIndex, 3);
+    assert.equal(ui.getSnapshot().activeInventoryCategory, 'item');
+    assert.equal(ui.getSnapshot().selectedInventoryIndex, 3);
+    assert.equal(controller.getActiveHammerInventoryItem().name, 'Kept item');
+  });
+}
+
+test('switching from Brush color sets to Hammer restores the selected Item immediately', () => {
+  const controller = makeController();
+  const ui = new SpaceUiStore();
+  (ui as any).patch({ controller });
+  controller.ui = ui;
+  controller.selectedInventoryIndex = 4;
+  ui.selectTool(SpecialTool.BRUSH);
+  controller.setActiveInventoryCategory('colorset');
+  controller.selectedInventoryIndex = 2;
+  ui.selectTool(SpecialTool.HAMMER);
+  assert.equal(controller.activeInventoryCategory, 'item');
+  assert.equal(controller.selectedInventoryIndex, 4);
+  assert.equal(ui.getSnapshot().selectedInventoryIndex, 4);
+});
+
+test('Hammer preview, rotation and wheel cycling recover from a stale color-set category', () => {
+  const controller = makeController();
+  controller.activeTool = SpecialTool.HAMMER;
+  controller.inventories.item.items[1] = { kind: 'blockset', name: 'Construction item', blockCount: 1,
+    blocks: [{ dx: 0, dy: 0, dz: 0, size: 1 }] };
+  controller.selectedInventoryIndex = 1;
+  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 10, y: 79, z: 20 }, normal: { x: 0, y: 1, z: 0 } };
+  controller.setActiveInventoryCategory('colorset');
+  controller.updateInventoryPlacementPreview();
+  assert.equal(controller.inventoryPlacementPreview.slot.name, 'Construction item');
+  assert.equal(controller.activeInventoryCategory, 'item');
+  controller.setActiveInventoryCategory('colorset');
+  assert.equal(controller.rotateActiveInventoryItem(1, 'y'), true);
+  assert.equal(controller.activeInventoryCategory, 'item');
+  controller.setActiveInventoryCategory('colorset');
+  controller.cycleInventorySlot(1);
+  assert.equal(controller.activeInventoryCategory, 'item');
+  assert.equal(controller.selectedInventoryIndex, 2);
 });
 
 test('large Hammer block sets are applied across bounded frame slices', () => {

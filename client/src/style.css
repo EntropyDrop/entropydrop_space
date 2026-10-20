@@ -179,7 +179,7 @@ canvas {
   width: 16px;
   height: 16px;
   pointer-events: none;
-  z-index: 10;
+  z-index: 130;
 }
 
 #crosshair::before,
@@ -4210,6 +4210,9 @@ button.palette-title:hover {
 }
 
 .backpack-item-name-input {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;

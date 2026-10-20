@@ -9,6 +9,7 @@ import { ContraptionPhysics } from '../src/physics/ContraptionPhysics.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 import { VoxelMaterialIds } from '../src/voxel/VoxelMaterials.ts';
 import { World } from '../src/voxel/World.ts';
+import { COMPONENT_OUTLINE_COLORS } from '../src/render/ComponentOutlineColors.ts';
 
 function standardBlock(x: number, y = 0, z = 0) {
   return {
@@ -229,7 +230,7 @@ self.applyForce([100000, 0, 0]);
   assert.equal(contraption.getEntityNode('blades').localQuaternion.equals(startRotation), false);
 });
 
-test('Selector child selection uses single-click and Shift multi-select, with green breathing child bounding boxes', () => {
+test('Selector child selection uses single-click and Shift multi-select, with depth-colored breathing boxes', () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     3,
@@ -271,12 +272,12 @@ test('Selector child selection uses single-click and Shift multi-select, with gr
   info = manager.selectChildEntityCell(hit(1), true);
   assert.deepEqual(new Set(info.cells), new Set(['0,0,0', '1,0,0']));
 
-  // Direct child 'arm' has green breathing bounding box in focusChildBreathing highlights
+  // The direct child keeps its own depth color while its bounding box pulses.
   assert.ok(contraption.focusHighlightMaterials);
-  assert.equal(contraption.focusHighlightMaterials.childLine.color.getHex(), 0x2ed573);
-  const beforePulse = contraption.focusHighlightMaterials.childLine.opacity;
+  assert.equal(contraption.focusHighlightMaterials.get(1).color.getHex(), COMPONENT_OUTLINE_COLORS[1]);
+  const beforePulse = contraption.focusHighlightMaterials.get(1).opacity;
   contraption.update(0.2, null, null);
-  assert.notEqual(contraption.focusHighlightMaterials.childLine.opacity, beforePulse);
+  assert.notEqual(contraption.focusHighlightMaterials.get(1).opacity, beforePulse);
 
   // 2. Clicking 'arm' component focuses into 'arm', allowing child-of-child selection
   info = manager.selectChildEntityCell(hit(3, 'arm'), false);

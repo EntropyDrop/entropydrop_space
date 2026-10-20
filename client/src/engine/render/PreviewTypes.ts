@@ -6,12 +6,13 @@ import type { RemotePlayerMotionSample } from './RemotePlayerMotion.ts';
 
 export interface Point3 { x: number; y: number; z: number }
 export interface SelectionFrame {
+  color?: number;
   object?: THREE.Object3D;
   pivot?: THREE.Vector3;
   bounds?: { min: number[] | THREE.Vector3; max: number[] | THREE.Vector3 } | null;
 }
 export interface MicroCarvePreview {
-  cellOrigin: Point3; microCenter?: Point3 | null; quaternion?: THREE.Quaternion | null;
+  cellOrigin: Point3; microCenter?: Point3 | null; quaternion?: THREE.Quaternion | null; color?: number;
 }
 export interface InventoryPlacementPreview {
   slot: InventoryInput; position: Point3; quaternion?: THREE.Quaternion | null;

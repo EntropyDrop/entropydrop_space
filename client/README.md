@@ -15,6 +15,8 @@ does not require a Selector A/B range and does not change the source's playback;
 block selection actions still require confirmed A/B. Online deletion waits for
 the backend acknowledgement and leaves the entity intact on failure. Existing
 execution-occupancy restrictions and the paid-hosting availability switch remain enforced.
+Right-clicking a running entity with any tool opens the same entity action menu
+as Wrench. Stopped entities retain each tool's usual right-click behavior.
 Menu actions retain text rows with leading icons and shortened captions, descriptive
 hover titles and accessible labels. Nameplate playback uses filled green play/red
 stop icons matching the code editor to the right of the entity name.
@@ -23,6 +25,16 @@ the playback icon remains on the right and hosting retains its purple badge.
 The delete confirmation retains its explicit irreversible-action warning.
 Nameplates share the world render pass's bent camera and interpolated component
 transforms, caching authored extents rather than transforming every voxel per frame.
+Selection bounding boxes respond to scene lighting, cast and receive shadows,
+and show occluded edges at 30% of the visible opacity. This applies to both live
+previews and confirmed selections.
+Component outlines alternate white and black across all 16 hierarchy levels:
+odd-numbered levels are white, even-numbered levels are black, starting with a
+white root. Changing focus preserves descendant colors; preview, focus and
+confirmed-selection boxes use the same color for a component.
+Box-selecting a focused micro voxel automatically enables MICRO mode on terrain
+or an editable Entity. If point A is already set, it is preserved and converted
+to the micro grid before confirming point B; the toolbar mode updates immediately.
 
 Modeling (`7`) edits visual decoration cubes owned by an entity component.
 Aim and left-click a decoration to select it while keeping pointer lock. Hold
@@ -329,6 +341,18 @@ installs the item as a rigid child component under the crosshair; `Shift` + left
 requests this installation mode explicitly, and the combined entity stays stopped.
 Successful Hammer construction automatically switches to the Wrench; large items
 switch after their frame-sliced construction finishes.
+Hammer hides the black target-cell wireframe and keeps its placement ghost.
+Hammer construction, rotation and slot cycling always use the Item hotbar.
+Browsing Color Sets does not change what Hammer builds; apply a palette by
+clicking its Color Set card in the backpack.
+Press `Tab` (or click the mode badge) to switch positioning between **STANDARD**
+(1 m, the default) and **MICRO** (0.125 m). The ghost and construction share the
+same snapped origin; installation uses the target component's local grid.
+In MICRO mode, every standard voxel in the Item is subdivided into 8 × 8 × 8
+micro voxels while preserving its size, colors, materials and Entity structure.
+Preview and construction use this temporary converted copy; the backpack Item
+stays unchanged, and STANDARD mode uses its original voxels. Conversion respects
+the existing 65,536-voxel Item limit and refuses oversized results before building.
 Mixed Items or Items with multiple Entities place static geometry as terrain and
 each Entity as an independent running body, preserving their shared frame. They
 cannot be installed as one child component.

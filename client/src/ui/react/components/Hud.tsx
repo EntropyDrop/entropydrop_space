@@ -450,8 +450,8 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
 }
 
 function InventoryBar() {
-  const { controller, activeInventoryCategory, selectedInventoryIndex, inventoryRevision } = useSpaceUiFields(
-    'controller', 'activeInventoryCategory', 'selectedInventoryIndex', 'inventoryRevision',
+  const { controller, hammerMicro, selectedInventoryIndex, inventoryRevision } = useSpaceUiFields(
+    'controller', 'hammerMicro', 'selectedInventoryIndex', 'inventoryRevision',
   );
   const category = 'item';
   const items = controller?.inventories?.[category]?.items || [];
@@ -464,9 +464,10 @@ function InventoryBar() {
           <button type="button" tabIndex={-1} className="palette-title" id="backpack-bar-title" title="Click or press B to open full backpack" onClick={() => spaceUiStore.toggleInventoryModal(true)}>
             <LiaBoxesSolid size={14} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />Backpack
           </button>
-          <div id="inv-cat-tabs" className="inv-cat-tabs">
-            <span className="inv-cat-tab active">Items</span>
-          </div>
+          <button type="button" id="hammer-mode-toggle" tabIndex={-1} className="selector-mode-btn" title={`Positioning: ${hammerMicro ? '0.125 m' : '1 m'} · Click or press Tab to switch grid`} onClick={() => controller?.toggleHammerMicroMode?.()}>
+            <span className={`mode-badge ${hammerMicro ? 'micro' : 'std'}`}>{hammerMicro ? 'MICRO' : 'STANDARD'}</span>
+            <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
+          </button>
         </div>
         <span className="palette-hotkey-hint"><b>B</b> Full Backpack · <b>Arrows/RMB</b> Rotate · <b>LMB</b> Build</span>
       </div>
@@ -741,7 +742,7 @@ function WrenchPanel() {
 }
 
 function Hotbar() {
-  const { hotbarSlots, selectedHotbarIndex, selector, brushMicro } = useSpaceUiFields('hotbarSlots', 'selectedHotbarIndex', 'selector', 'brushMicro');
+  const { hotbarSlots, selectedHotbarIndex, selector, brushMicro, hammerMicro } = useSpaceUiFields('hotbarSlots', 'selectedHotbarIndex', 'selector', 'brushMicro', 'hammerMicro');
   return (
     <div id="hotbar">
       {hotbarSlots.map((slot, index) => (
@@ -753,6 +754,8 @@ function Hotbar() {
             <span className={`slot-mode-badge ${selector.micro ? 'micro' : 'std'}`}>{selector.micro ? 'MICRO' : 'STD'}</span>
           ) : slot.value === SpecialTool.BRUSH ? (
             <span className={`slot-mode-badge ${brushMicro ? 'micro' : 'std'}`}>{brushMicro ? 'MICRO' : 'STD'}</span>
+          ) : slot.value === SpecialTool.HAMMER ? (
+            <span className={`slot-mode-badge ${hammerMicro ? 'micro' : 'std'}`}>{hammerMicro ? 'MICRO' : 'STD'}</span>
           ) : null}
         </button>
       ))}

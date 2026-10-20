@@ -531,7 +531,6 @@ function InventoryItemCard({
       className={`backpack-slot-card group ${item ? 'filled' : 'empty'} ${isHotbar ? 'hotbar-slot' : 'storage-slot'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
       data-category={category}
       data-slot-index={index}
-      draggable={Boolean(item)}
       onDragStart={e => {
         const target = e.target as HTMLElement | null;
         if (target?.tagName === 'INPUT' || target?.closest('.backpack-slot-name-row')) {
@@ -546,7 +545,7 @@ function InventoryItemCard({
       onDragEnd={onDragEnd}
       title={item ? `${name} (Slot #${index + 1}${isHotbar ? ' · Hotbar' : ''}) · Drag to reorder` : `Empty slot #${index + 1}`}
     >
-      <div className="backpack-slot-thumb-container">
+      <div className="backpack-slot-thumb-container" draggable={Boolean(item)}>
         <span className={`backpack-slot-index ${isHotbar ? 'hotbar-badge' : ''}`}>#{index + 1}</span>
         {thumbnail ? (
           <img className="inv-slot-thumb" src={thumbnail} alt={name || fallback} draggable={false} />
@@ -697,9 +696,7 @@ function InventorySlotsRow({ items, onPublish }: {
         <div className="backpack-subgroup-header">
           <div className="backpack-hotbar-label-group">
             <span className="backpack-hotbar-badge">HOTBAR</span>
-            <span className="backpack-hotbar-label">Equipped Hotbar · Slots 1–9</span>
           </div>
-          <span className="backpack-subgroup-hint">Active on number keys 1–9 · Always pinned</span>
         </div>
         <div className="backpack-slots-row hotbar-grid">
           {Array.from({ length: 9 }, (_, index) => renderSlot(index, true))}
