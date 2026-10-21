@@ -9,6 +9,7 @@ import {
 import { generateCopperMetropolisChunk } from './CopperMetropolisGenerator.ts';
 import { generateAetherArchipelagoChunk } from './AetherArchipelagoGenerator.ts';
 import { generateMixedChunk, TERRAIN_GENERATOR_MIXED } from './MixedBiomeGenerator.ts';
+import { generateTutorialChunk, TERRAIN_GENERATOR_TUTORIAL, TUTORIAL_GROUND_HEIGHT } from './TutorialGenerator.ts';
 export { TERRAIN_GENERATOR_MIXED };
 import { generateTerrainLabChunk, TERRAIN_GENERATOR_COLOSSUS_HARBOR, TERRAIN_GENERATOR_TITAN_CANYON,
   TERRAIN_GENERATOR_ASTRAL_FOUNDRY, TERRAIN_GENERATOR_BRUTALIST_DUSK } from './TerrainLabGenerator.ts';
@@ -54,7 +55,7 @@ export class TerrainGenerator {
     this.seed = Number.isFinite(Number(seed)) ? Math.floor(Number(seed)) : 42;
     this.version = [TERRAIN_GENERATOR_COPPER_METROPOLIS, TERRAIN_GENERATOR_AETHER_ARCHIPELAGO,
       TERRAIN_GENERATOR_COLOSSUS_HARBOR, TERRAIN_GENERATOR_TITAN_CANYON, TERRAIN_GENERATOR_ASTRAL_FOUNDRY,
-      TERRAIN_GENERATOR_BRUTALIST_DUSK, TERRAIN_GENERATOR_MIXED].includes(version)
+      TERRAIN_GENERATOR_BRUTALIST_DUSK, TERRAIN_GENERATOR_MIXED, TERRAIN_GENERATOR_TUTORIAL].includes(version)
       ? version
       : TERRAIN_GENERATOR_NATURE;
     let state = this.seed;
@@ -68,6 +69,7 @@ export class TerrainGenerator {
   }
 
   sampleHeight(wx: number, wz: number) {
+    if (this.version === TERRAIN_GENERATOR_TUTORIAL) return TUTORIAL_GROUND_HEIGHT;
     // Torus angular coordinates.
     const theta = (wx / TORUS_SIZE_X) * Math.PI * 2;
     const phi = (wz / TORUS_SIZE_Z) * Math.PI * 2;
@@ -111,6 +113,7 @@ export class TerrainGenerator {
 
   generateChunk(chunk: Chunk, includeDetails = true) {
     chunk.resetForTerrainGeneration();
+    if (this.version === TERRAIN_GENERATOR_TUTORIAL) return generateTutorialChunk(chunk);
     if (this.version === TERRAIN_GENERATOR_MIXED) {
       chunk.terrainDetails = generateMixedChunk(chunk, this.seed, includeDetails);
       return chunk.terrainDetails;

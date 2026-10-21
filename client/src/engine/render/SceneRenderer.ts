@@ -44,6 +44,8 @@ import {
 
 import { SelectionOutlineGeometry, createSelectionOutlineMaterial, createSelectionOutline, updateSelectionOutlineGeometry } from '@entropydrop/space-engine/render/SelectionOutline.ts';
 import { COMPONENT_OUTLINE_COLORS } from '@entropydrop/space-engine/render/ComponentOutlineColors.ts';
+import { buildSelectionHighlightGeometry, createSelectionHighlightMaterial } from '@entropydrop/space-engine/render/SelectionHighlight.ts';
+import { collectSelectionVolumeBoxes, selectionVolumeBounds } from './SelectionVolume.ts';
 
 export const ENTITY_PREVIEW_LAYER = 1;
 export const ENTITY_PREVIEW_MAX_FPS = 30;
@@ -241,6 +243,8 @@ export class SceneRenderer {
   declare inventoryPlacementExact: boolean;
   declare inventoryPlacementMaterialId: number | undefined;
   declare selectionGroup: THREE.Group;
+  declare selectionHighlight: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicNodeMaterial>;
+  private selectionHighlightStamp: unknown[] | null = null;
   declare selectionWireframe: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
   declare timeOfDay: number;
   declare world: World | null;
@@ -685,6 +689,11 @@ export class SceneRenderer {
     this.selectionGroup.add(this.selectionWireframe);
     this.selectionGroup.visible = false;
     this.scene.add(this.selectionGroup);
+    this.selectionHighlight = new THREE.Mesh(new THREE.BufferGeometry(), createSelectionHighlightMaterial());
+    this.selectionHighlight.name = 'SelectionVolume';
+    this.selectionHighlight.renderOrder = 41;
+    this.selectionHighlight.visible = false;
+    this.scene.add(this.selectionHighlight);
   }
 
   setCursor(hitPos: Point3 | null, size = 1, quaternion: THREE.Quaternion | null = null, center: Point3 | null = null) {
@@ -1654,16 +1663,19 @@ export class SceneRenderer {
     if (this.boxSelectionGroup) this.boxSelectionGroup.visible = false;
   }
 
-  updateSelectionHologram(bounds: CollisionBounds | null, connectedBlocks: Point3[] | null = null, microBlocks: Point3[] | null = null, isMicroShape = false, frame: SelectionFrame | null = null) {
+  updateSelectionHologram(bounds: CollisionBounds | null, connectedBlocks: Point3[] | null = null, microBlocks: Point3[] | null = null, isMicroShape = false, frame: SelectionFrame | null = null, microBoxBounds: CollisionBounds | null = null) {
+    bounds = microBoxBounds ?? bounds;
     const cells = microBlocks ?? connectedBlocks;
     if (!bounds && !cells?.length) {
       this.selectionGroup.visible = false;
+      this.selectionHighlight.visible = false;
+      this.selectionHighlightStamp = null;
       return;
     }
     this.selectionWireframe.material.color.setHex(frame?.color ?? COMPONENT_OUTLINE_COLORS[0]);
 
-    // Keep the confirmed region, including its empty cells. Sparse and shaped
-    // selections use the same open bounding box without a second surface layer.
+    // The outer guide spans the full region; the orange volume follows the
+    // selected shape, including cells that are currently empty.
     let minX = bounds?.minX ?? Infinity, minY = bounds?.minY ?? Infinity, minZ = bounds?.minZ ?? Infinity;
     let maxX = bounds?.maxX ?? -Infinity, maxY = bounds?.maxY ?? -Infinity, maxZ = bounds?.maxZ ?? -Infinity;
     if (!bounds && cells) {
@@ -1672,7 +1684,8 @@ export class SceneRenderer {
         maxX = Math.max(maxX, cell.x); maxY = Math.max(maxY, cell.y); maxZ = Math.max(maxZ, cell.z);
       }
     }
-    const scale = microBlocks !== null || isMicroShape ? MICRO_SIZE : 1;
+    const micro = microBlocks !== null || isMicroShape || microBoxBounds !== null;
+    const scale = micro ? MICRO_SIZE : 1;
     const sx = Math.max(0.001, (maxX - minX + 1) * scale);
     const sy = Math.max(0.001, (maxY - minY + 1) * scale);
     const sz = Math.max(0.001, (maxZ - minZ + 1) * scale);
@@ -1692,6 +1705,26 @@ export class SceneRenderer {
       this.selectionGroup.quaternion.identity();
     }
     this.selectionGroup.visible = true;
+    const region = { minX, minY, minZ, maxX, maxY, maxZ };
+    const volumeBounds = selectionVolumeBounds(region, micro);
+    const origin = new THREE.Vector3(volumeBounds.minX, volumeBounds.minY, volumeBounds.minZ);
+    if (frame?.object?.localToWorld) {
+      this.selectionHighlight.position.copy(frame.object.localToWorld(origin.clone().sub(previewVector3(frame.pivot))));
+      frame.object.getWorldQuaternion(this.selectionHighlight.quaternion);
+    } else {
+      this.selectionHighlight.position.copy(origin);
+      this.selectionHighlight.quaternion.identity();
+    }
+    const selectedCells = microBoxBounds ? null : cells;
+    const stamp = [micro, selectedCells, selectedCells?.length, !!microBoxBounds,
+      minX, minY, minZ, maxX, maxY, maxZ];
+    if (this.selectionHighlightStamp?.length === stamp.length && stamp.every((value, index) => value === this.selectionHighlightStamp![index])) return;
+    const boxes = collectSelectionVolumeBoxes(region, selectedCells, micro);
+    const geometry = buildSelectionHighlightGeometry(boxes, origin);
+    this.selectionHighlight.geometry.dispose();
+    this.selectionHighlight.geometry = geometry;
+    this.selectionHighlight.visible = boxes.length > 0;
+    this.selectionHighlightStamp = stamp;
   }
 
   onWindowResize() {
@@ -2291,6 +2324,7 @@ export class SceneRenderer {
       this.selectionAxisGizmo,
       this.inventoryPlacementGroup,
       this.selectionGroup,
+      this.selectionHighlight,
       this.previewForceArrow,
     ];
     for (const record of this.remotePlayers?.values() ?? []) overlays.push(record.nameTag);

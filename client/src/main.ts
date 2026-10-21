@@ -37,13 +37,15 @@ import { isMonitoringRoute } from './bootstrap/MonitoringRoute.ts';
 import { installNetworkTrafficMonitor } from './bootstrap/NetworkTraffic.ts';
 import { preloadInitialDistantTerrain } from './bootstrap/InitialDistantTerrain.ts';
 import { LinkedWorldSnapshots } from './bootstrap/LinkedWorldSnapshots.ts';
-import { SPACE_OFFLINE_BUILD } from './bootstrap/SpaceFeatures.ts';
+import { SPACE_OFFLINE_BUILD, SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from './bootstrap/SpaceFeatures.ts';
 import { onlinePanelSettingsTab } from './bootstrap/SpaceSiteLinks.ts';
+import { captureTutorialLevel, tutorialDestination, type TutorialLevel } from './bootstrap/TutorialLevel.ts';
+import { configureTutorialTerrain } from './bootstrap/TutorialTerrain.ts';
 
 installNetworkTrafficMonitor();
 logConsoleSecurityWarning();
 
-if (!SPACE_OFFLINE_BUILD && isMonitoringRoute()) {
+if (!SPACE_LOCAL_SESSION && isMonitoringRoute()) {
   const gate = typeof document !== 'undefined' ? document.getElementById('space-entry-gate') : null;
   if (gate) {
     gate.hidden = true;
@@ -93,13 +95,16 @@ class Game {
   started: boolean;
   surfaceSnapshotRemote: ReadySpaceSession['surface_snapshot_remote'];
   linkedWorldSnapshots: LinkedWorldSnapshots;
+  readonly offline: boolean;
 
   constructor(
     session: ReadySpaceSession,
     persistentStorage: SpaceStorage | null,
     developmentOffline = false,
+    tutorial?: { storage: SpaceStorage; level: TutorialLevel },
   ) {
-    const offline = SPACE_OFFLINE_BUILD || (import.meta.env.DEV && developmentOffline);
+    const offline = this.offline = SPACE_LOCAL_SESSION || (import.meta.env.DEV && developmentOffline);
+    const worldStorage = tutorial?.storage ?? persistentStorage;
     this.canvasContainer = document.getElementById('canvas-container');
     if (!this.canvasContainer) throw new Error('Missing canvas container');
 
@@ -117,7 +122,7 @@ class Game {
       {
         worldId: session.world.id,
         remote: session.terrain_edit_remote,
-        storage: persistentStorage,
+        storage: worldStorage,
         onSyncStatus: status => spaceUiStore.setWorldEditSync(status),
         // Rejected/expired edits must not remain visible locally. Persistence
         // drains valid edits and durably clears the outbox before this reload.
@@ -127,6 +132,7 @@ class Game {
       },
       session.world.terrain_generator_version,
     );
+    if (tutorial) configureTutorialTerrain(this.world, tutorial.level.spawn);
     this.surfaceSnapshotRemote = session.surface_snapshot_remote;
     this.sceneRenderer.setWorld(this.world);
     this.soundManager = new SoundManager();
@@ -137,11 +143,11 @@ class Game {
       this.world,
       this.soundManager,
       this.particleSystem,
-      persistentStorage
+      worldStorage
     );
     this.contraptionManager.setPhysics(this.contraptionPhysics);
     this.contraptionManager.setWorldIdentity(session.world);
-    this.contraptionManager.setEntityPersistenceMode(SPACE_OFFLINE_BUILD ? 'browser' : offline ? 'none' : 'remote');
+    this.contraptionManager.setEntityPersistenceMode(tutorial || SPACE_OFFLINE_BUILD ? 'browser' : offline ? 'none' : 'remote');
 
     this.playerPhysics = new PlayerPhysics(this.world, this.contraptionManager);
     this.uiStore = spaceUiStore;
@@ -255,6 +261,24 @@ class Game {
     );
     this.controller.navigationSystem = this.navigationSystem;
     this.uiStore.setNavigationSystem(this.navigationSystem);
+    this.uiStore.setTutorialActions({
+      navigate: async enter => {
+        if (persistentStorage && !this.controller.saveInventoriesToLocalStorage()) {
+          throw new Error('Could not save the shared backpack.');
+        }
+        this.world.flushPersistedEdits();
+        this.contraptionManager.saveEntitiesToStorage();
+        await persistentStorage?.whenIdle?.();
+        window.location.href = tutorialDestination(window.location.href, enter);
+      },
+      save: import.meta.env.DEV && SPACE_TUTORIAL_AUTHORING && tutorial ? async () => {
+        this.world.flushPersistedEdits();
+        if (!this.contraptionManager.saveEntitiesToStorage()) throw new Error('Could not capture tutorial entities.');
+        const level = captureTutorialLevel(tutorial.storage, tutorial.level);
+        const { writeTutorialLevel } = await import('./bootstrap/TutorialLevelWriter.ts');
+        await writeTutorialLevel(level);
+      } : null,
+    });
 
     // 4. Clock & FPS tracking
     this.clock = new THREE.Clock();
@@ -278,7 +302,7 @@ class Game {
 
     // 5. Initial Spawn & Worldgen
     const spawnAdjusted = this.initializeSpawn(session);
-    if (SPACE_OFFLINE_BUILD) this.contraptionManager.loadEntitiesFromStorage();
+    if (tutorial || SPACE_OFFLINE_BUILD) this.contraptionManager.loadEntitiesFromStorage();
     // bootstrapSpace already loaded this window. If a first-entry random spawn
     // crosses into an adjacent tile, the first frame will fetch that tile too.
     this.lastSavedPlayerPosition = session.player.resumed && !spawnAdjusted
@@ -423,10 +447,12 @@ class Game {
     this.frameCount = 0;
     this.lastFpsTime = performance.now();
     requestAnimationFrame(this.animate);
-    if (!SPACE_OFFLINE_BUILD) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
+    if (!this.offline) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
     window.addEventListener('pagehide', () => this.linkedWorldSnapshots.dispose());
     window.addEventListener('pageshow', event => {
-      if (!SPACE_OFFLINE_BUILD && event.persisted) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
+      // Re-entering a tutorial must also reset when restored from the back/forward cache.
+      if (SPACE_TUTORIAL && event.persisted) { window.location.reload(); return; }
+      if (!this.offline && event.persisted) this.uiStore.connectLinkedWorlds(enabled => { void this.linkedWorldSnapshots.setEnabled(enabled); });
     });
     // Initial preparation owns the first downloads. Only then begin refreshes.
     window.setTimeout(() => { void this.syncSurfaceSnapshots(); }, 1000);
@@ -685,6 +711,26 @@ class Game {
 
 // Start Game on page load
 window.addEventListener('DOMContentLoaded', () => {
+  if (SPACE_TUTORIAL) {
+    void import('./bootstrap/TutorialSpace.ts').then(({ enterTutorialSpace }) =>
+      enterTutorialSpace(async (session, backpackStorage, storage, level, reportProgress) => {
+        const game = new Game(session, backpackStorage, false, { storage, level });
+        if (import.meta.env.DEV) (window as any).game = game;
+        await game.sceneRenderer.ready;
+        await game.preloadInitialTerrain(reportProgress);
+        reportProgress(98, 'Preparing tutorial rendering…');
+        await game.sceneRenderer.prepareInitialTerrainPipelines();
+        await game.sceneRenderer.preparePlayerPipelines();
+        game.start();
+        if (import.meta.env.DEV) {
+          if (new URLSearchParams(location.search).get('dev_perf') === '1') {
+            const { installFrameDiagnostics } = await import('./dev/FrameDiagnostics.ts');
+            installFrameDiagnostics(game);
+          }
+        }
+      }));
+    return;
+  }
   if (SPACE_OFFLINE_BUILD) {
     void import('./bootstrap/OfflineSpace.ts').then(({ enterOfflineSpace }) =>
       enterOfflineSpace(async (session, storage, reportProgress) => {

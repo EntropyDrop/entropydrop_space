@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { PlayerController } from '../src/engine/controls/PlayerController.ts';
-import { PlayerPhysics } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
+import { PlayerPhysics, PLAYER_AIR_DASH_EXIT_SPEED } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 
 function createController() {
@@ -106,7 +106,11 @@ test('holding the second Space keeps dashing and supplies live camera aim withou
   controller.keys.jump = false;
   for (let frame = 0; frame < 4; frame++) controller.updateSimulation(0.05);
   assert.equal(controller.physics.isDashing, false);
-  assert.equal(controller.physics.velocity.length(), 0);
+  assert.ok(Math.abs(controller.physics.velocity.length() - PLAYER_AIR_DASH_EXIT_SPEED) < 1e-8);
+  assert.ok(controller.physics.velocity.clone().normalize().dot(gaze) > 0.99999);
+  const previous = controller.physics.position.clone();
+  controller.updateSimulation(0.05);
+  assert.ok(controller.physics.position.x > previous.x, 'releasing Space preserves momentum along the final aim');
 });
 
 test('losing control input ends a sustained dash instead of leaving Space stuck', () => {

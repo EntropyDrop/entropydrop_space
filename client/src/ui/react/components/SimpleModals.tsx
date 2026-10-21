@@ -1,7 +1,7 @@
 import { mainSiteUrl, onlinePanelSettingsTab } from '../../../bootstrap/SpaceSiteLinks.ts';
 import React from 'react';
 import { SpaceAgentInstructions } from './SpaceAgentInstructions.tsx';
-import { SPACE_HOSTING_UI_ENABLED, SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_HOSTING_UI_ENABLED, SPACE_LOCAL_SESSION, SPACE_TUTORIAL } from '../../../bootstrap/SpaceFeatures.ts';
 import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import { CharacterSkinPreview } from './CharacterSkinPreview.tsx';
 import { LIGHTING_PRESETS, LIGHTING_QUALITY_LEVELS } from '../../../engine/render/LightingQuality.ts';
@@ -60,7 +60,7 @@ function ModalBackdrop({ id, className = '', children, onClose }: { id: string; 
 }
 
 export function SpaceApiKeysSettings({ offlineFeature = 'api-keys' }: { offlineFeature?: 'api-keys' | 'agent-build' } = {}) {
-  return SPACE_OFFLINE_BUILD ? <OnlineSpaceNotice feature={offlineFeature} /> : <OnlineSpaceApiKeysSettings />;
+  return SPACE_LOCAL_SESSION ? <OnlineSpaceNotice feature={offlineFeature} /> : <OnlineSpaceApiKeysSettings />;
 }
 
 function OnlineSpaceApiKeysSettings() {
@@ -294,8 +294,8 @@ export function GlobalSettingsModal() {
           ) : null}
         </div>
         <div className="settings-tab-panel" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`} tabIndex={0}>
-          {tab === 'character' && SPACE_OFFLINE_BUILD ? <OnlineSpaceNotice feature="character" /> : null}
-          {tab === 'character' && !SPACE_OFFLINE_BUILD ? <>
+          {tab === 'character' && SPACE_LOCAL_SESSION ? <OnlineSpaceNotice feature="character" /> : null}
+          {tab === 'character' && !SPACE_LOCAL_SESSION ? <>
             {state.currentSkin ? <section className="settings-section settings-character-card">
               <div className="settings-section-title">CURRENT SKIN</div>
               <CharacterSkinPreview url={state.currentSkin.url} model={state.currentSkin.model} />
@@ -330,10 +330,10 @@ export function GlobalSettingsModal() {
             ) : null}
           </> : null}
           {tab === 'graphics' ? <>
-            {SPACE_OFFLINE_BUILD && <OnlineSpaceNotice feature="worlds" compact />}
+            {SPACE_LOCAL_SESSION && <OnlineSpaceNotice feature="worlds" compact />}
             <div className="settings-section">
               <div className="settings-section-title">CAMERA &amp; VIEW</div>
-              {!SPACE_OFFLINE_BUILD && <div className="settings-row">
+              {!SPACE_LOCAL_SESSION && <div className="settings-row">
                 <div className="settings-label-group">
                   <label className="settings-label" htmlFor="setting-linked-worlds">Chain-Linked Worlds (Experimental)</label>
                   <span className="settings-desc" id="setting-linked-worlds-description">Keep this world as the fixed middle link of a three-ring chain. Two equal-size, read-only snapshot worlds loop through opposite sides of it. The left and right rings spin around their own axes in opposite directions, once every {LINKED_WORLD_ROTATION_PERIOD_SECONDS[0] / 60} and {LINKED_WORLD_ROTATION_PERIOD_SECONDS[1] / 60} minutes. Uses extra memory; snapshot data does not update.</span>
@@ -499,12 +499,12 @@ export function GlobalSettingsModal() {
                   ))}
                 </div>
               </div>
-              <div className="settings-row">
+              {!SPACE_TUTORIAL && <div className="settings-row">
                 <div className="settings-label-group"><span className="settings-label">Near Terrain AOI</span><span className="settings-desc">Detailed chunk radius (4 ~ 16), within the synchronized AOI. Z is capped at 6 chunks.</span></div>
                 <div className="settings-control-group"><input id="setting-render-dist-slider" className="settings-slider" type="range" min="4" max="16" step="1" value={state.renderDistance} onChange={event => spaceUiStore.setRenderDistance(Number(event.target.value))} /><span id="setting-render-dist-val" className="settings-value-badge">{state.renderDistance} Chunks</span></div>
-              </div>
+              </div>}
             </div>
-            <div className="settings-section">
+            {!SPACE_TUTORIAL && <div className="settings-section">
               <div className="settings-section-title">
                 DISTANT TERRAIN LOD
               </div>
@@ -536,7 +536,7 @@ export function GlobalSettingsModal() {
                   Reset Recommended
                 </button>
               </div>
-            </div>
+            </div>}
           </> : null}
           {tab === 'sound' ? <div className="settings-section">
             <div className="settings-section-title">AUDIO &amp; SOUND</div>
@@ -580,7 +580,7 @@ export function GlobalSettingsModal() {
             : null}
           {tab === 'api' ? <div className="settings-section">
             <div className="settings-section-title">spaceAPI · AGENT ACCESS</div>
-            {!SPACE_OFFLINE_BUILD && <div className="settings-desc">All API keys include full Space permissions: read your position, create and edit your entities, start/stop them, and build blocksets in worlds you can access.{SPACE_HOSTING_UI_ENABLED ? ' Hosted entity execution is also available.' : ''} Existing keys have the same full access. Keep them secret and revoke unused keys.</div>}
+            {!SPACE_LOCAL_SESSION && <div className="settings-desc">All API keys include full Space permissions: read your position, create and edit your entities, start/stop them, and build blocksets in worlds you can access.{SPACE_HOSTING_UI_ENABLED ? ' Hosted entity execution is also available.' : ''} Existing keys have the same full access. Keep them secret and revoke unused keys.</div>}
             <SpaceApiKeysSettings />
           </div> : null}
         </div>
@@ -621,11 +621,11 @@ export function PauseScreen() {
           </button>
         ) : null}
         <div className="hero-block-icon">■</div>
-        <h1 className="game-logo">EntropyDrop · Space <span className="game-logo-beta">{SPACE_OFFLINE_BUILD ? 'OFFLINE' : 'BETA'}</span></h1>
+        <h1 className="game-logo">EntropyDrop · Space <span className="game-logo-beta">{SPACE_TUTORIAL ? 'TUTORIAL' : SPACE_LOCAL_SESSION ? 'OFFLINE' : 'BETA'}</span></h1>
         <div className="controls-guide">
           <span><kbd className="key-badge">W</kbd><kbd className="key-badge">A</kbd><kbd className="key-badge">S</kbd><kbd className="key-badge">D</kbd> Move / Drive</span>
           <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
-          <span><kbd className="key-badge">Space</kbd> again in midair: Tap to dash 5 m · Hold to keep dashing toward the crosshair</span>
+          <span><kbd className="key-badge">Space</kbd> again in midair: Tap to dash · Hold to keep dashing toward the crosshair</span>
           <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
           <span><kbd className="key-badge">B</kbd> Backpack / Color sets</span>
           <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy</span>
@@ -657,6 +657,10 @@ export function PauseScreen() {
             }}
           >
             {hasStarted ? 'Resume' : 'Play'}
+          </button>
+          <button id="tutorial-btn" type="button" tabIndex={-1} className="start-btn"
+            onClick={() => void spaceUiStore.navigateTutorial(!SPACE_TUTORIAL)}>
+            {SPACE_TUTORIAL ? 'Leave tutorial' : 'Tutorial'}
           </button>
           {isAdmin ? (
             <button

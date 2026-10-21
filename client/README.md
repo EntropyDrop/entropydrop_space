@@ -96,18 +96,20 @@ bindings remain the same.
 
 Press **Space** to jump, then release and press it again in midair to dash along
 the crosshair's full 3D direction: look up to climb or down to dive. A quick tap
-locks that direction for a 5 m dash, easing in and out over 0.4 seconds. Keep the
+locks that direction for a 5 m active dash, easing in and out over 0.4 seconds. Keep the
 second press held to sustain peak speed and smoothly steer with the crosshair.
 Releasing Space finishes the eased deceleration; a sustained dash settles over
-0.2 seconds. The dash pauses gravity and stops at walls, ceilings and floors.
+0.2 seconds. A clear exit retains at least 6 m/s along the final dash direction;
+normal air control and gravity then reduce that momentum, adding a short coast.
+Movement keys can brake or redirect it. The dash pauses gravity and stops at walls, ceilings and floors.
 It becomes available again on landing, and gravity resumes after it finishes.
 Holding the first jump does not trigger a dash or repeat jumps. In flight mode,
 Space still ascends continuously.
 The dash leans the torso, tucks the legs and lets the arms trail, with a smooth
 return to the airborne pose. The first-person hand/tool retracts slightly and
 the FOV opens by up to 4.5 degrees without rotating the aim. Render frames sample
-the dash curve between simulation ticks; held forward movement carries through
-the end instead of braking to zero. A short tap still covers exactly 5 m.
+the dash curve between simulation ticks; exit velocity carries through the end
+instead of braking to zero, including when no movement key is held.
 
 ## Documentation map
 

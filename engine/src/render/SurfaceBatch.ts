@@ -38,7 +38,10 @@ function copy(target: Mesh, source: Mesh, start: number, count: number) {
       const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(1, count))));
       const ArrayType = attribute.array.constructor as { new(length: number): typeof attribute.array };
       existing = alignedInstanceAttribute(new ArrayType(capacity * attribute.itemSize),
-        attribute.itemSize, attribute.normalized).setUsage(THREE.DynamicDrawUsage);
+        attribute.itemSize, attribute.normalized);
+      // Published snapshots are immutable until the next explicit copy below.
+      // WebGPU uploads DynamicDrawUsage attributes every frame, even when their
+      // version has not changed; keep the default version-driven static usage.
       // Dispose the old GPU attributes before replacing one of their handles.
       target.geometry.dispose();
       target.geometry.setAttribute(name, existing);

@@ -35,7 +35,7 @@ import { selectorMenuPosition } from '../utils/selectorMenuPosition.ts';
 import { SiDiscord } from 'react-icons/si';
 import { formatByteRate } from '../../../bootstrap/NetworkTraffic.ts';
 import { mainSiteUrl, onlineSpaceUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
-import { SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_OFFLINE_BUILD, SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from '../../../bootstrap/SpaceFeatures.ts';
 
 import { LuShovel } from "react-icons/lu";
 import { ModelingPanel, ModelingToolbar } from './ModelingPanel.tsx';
@@ -785,7 +785,7 @@ function BulkEditProgressPanel() {
     : worldEditSync.backpressured
       ? `Queue paused · ${worldEditSync.pendingBatches} batches / ${worldEditSync.pendingMutations} edits pending`
       : syncIdle
-        ? 'Server synced'
+        ? SPACE_TUTORIAL ? 'Local only' : 'Server synced'
         : `Server sync · ${worldEditSync.pendingBatches} batches / ${worldEditSync.pendingMutations} edits pending`;
   const quotaText = isAdmin
     ? `Terrain edit allowance: unlimited (administrator)${worldEditSync.quota ? ` · ${worldEditSync.quota.usedToday.toLocaleString()} edits today` : ''}`
@@ -809,7 +809,7 @@ function BulkEditProgressPanel() {
         <div className={`bulk-edit-track sync ${syncIdle ? 'idle' : 'active'}`}><span /></div>
         <span className="bulk-edit-value">{syncText}</span>
       </div>
-      {quotaText ? <div className="bulk-edit-detail">{quotaText}</div> : null}
+      {!SPACE_TUTORIAL && quotaText ? <div className="bulk-edit-detail">{quotaText}</div> : null}
       {bulkEdit.detail ? <div className="bulk-edit-detail">{bulkEdit.detail}</div> : null}
     </div>
   );
@@ -849,7 +849,7 @@ function HudMetrics() {
 }
 
 export function Hud() {
-  const state = useSpaceUiFields('hotbarSlots', 'selectedHotbarIndex', 'toast');
+  const state = useSpaceUiFields('hotbarSlots', 'selectedHotbarIndex', 'toast', 'tutorialSaving');
   const activeTool = state.hotbarSlots[state.selectedHotbarIndex]?.value;
   return (
     <>
@@ -857,12 +857,18 @@ export function Hud() {
       <div id="hud-overlay">
         <div className="hud-top">
           <div className="hud-card">
-            <div className="hud-badge"><span className="hud-badge-dot" />EntropyDrop · Space <span className="hud-beta-badge">{SPACE_OFFLINE_BUILD ? 'OFFLINE' : 'BETA'}</span></div>
+            <div className="hud-badge"><span className="hud-badge-dot" />EntropyDrop · Space <span className="hud-beta-badge">{SPACE_TUTORIAL ? 'TUTORIAL' : SPACE_OFFLINE_BUILD ? 'OFFLINE' : 'BETA'}</span></div>
             <HudMetrics />
             <NearbyEntities />
-            {!SPACE_OFFLINE_BUILD && <HostedEntities />}
+            {!SPACE_LOCAL_SESSION && <HostedEntities />}
           </div>
-          <div className="hud-actions">
+          <div className={`hud-actions${SPACE_TUTORIAL ? ' tutorial-actions' : ''}`}>
+            {SPACE_TUTORIAL_AUTHORING &&
+              <button id="save-tutorial-btn" type="button" tabIndex={-1} className="icon-btn tutorial-save-btn"
+                title="Save tutorial level"
+                disabled={state.tutorialSaving}
+                onClick={() => void spaceUiStore.saveTutorialLevel()}>{state.tutorialSaving ? 'Saving…' : 'Save Level'}</button>
+            }
             <button
               id="agent-build-btn"
               type="button"
@@ -880,9 +886,10 @@ export function Hud() {
               type="button"
               tabIndex={-1}
               className="icon-btn"
-              title={SPACE_OFFLINE_BUILD ? 'Open Space Online' : 'Home'}
+              title={SPACE_TUTORIAL ? 'Leave tutorial' : SPACE_OFFLINE_BUILD ? 'Open Space Online' : 'Home'}
               onClick={() => {
-                if (SPACE_OFFLINE_BUILD) window.open(onlineSpaceUrl(), '_blank', 'noopener,noreferrer');
+                if (SPACE_TUTORIAL) void spaceUiStore.navigateTutorial(false);
+                else if (SPACE_OFFLINE_BUILD) window.open(onlineSpaceUrl(), '_blank', 'noopener,noreferrer');
                 else window.location.href = mainSiteUrl('/space/intro');
               }}
             >

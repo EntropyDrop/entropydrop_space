@@ -117,7 +117,9 @@ test('home button in HUD links to frontend space intro', () => {
     new URL('../src/ui/react/components/Hud.tsx', import.meta.url),
     'utf8',
   );
-  assert.match(hudSource, /id="home-btn"[\s\S]{0,200}mainSiteUrl\('\/space\/intro'\)/);
+  const homeButton = hudSource.match(/id="home-btn"[\s\S]*?<\/button>/)?.[0] || '';
+  assert.match(homeButton, /mainSiteUrl\('\/space\/intro'\)/);
+  assert.match(homeButton, /SPACE_TUTORIAL\) void spaceUiStore\.navigateTutorial\(false\)/);
 });
 
 test('help button in HUD toggles controls help popup', () => {

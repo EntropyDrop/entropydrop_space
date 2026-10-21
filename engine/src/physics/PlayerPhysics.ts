@@ -25,14 +25,20 @@ export const PLAYER_MASS_KG = 50;
 export const PLAYER_GRAVITY_MPS2 = -24;
 export const PLAYER_AIR_DASH_DISTANCE = 5;
 export const PLAYER_AIR_DASH_DURATION = 0.4;
+export const PLAYER_AIR_DASH_EXIT_SPEED = 6;
 const DASH_HOLD_TIME = PLAYER_AIR_DASH_DURATION / 2;
 
 function dashEase(progress: number, entrySlope = 0, exitSlope = 0): number {
-  const squared = progress * progress;
-  const cubed = squared * progress;
-  return squared * (3 - 2 * progress)
-    + entrySlope * (cubed - 2 * squared + progress)
-    + exitSlope * (cubed - squared);
+  // Join two velocity parabolas at the midpoint. Unequal entry/exit speeds
+  // still meet the held cruise with zero acceleration, including on release.
+  const peakSlope = 1.5 - (entrySlope + exitSlope) / 4;
+  if (progress <= 0.5) {
+    return entrySlope * progress
+      + (peakSlope - entrySlope) * (2 * progress ** 2 - 4 / 3 * progress ** 3);
+  }
+  const remaining = 1 - progress;
+  return 1 - exitSlope * remaining
+    - (peakSlope - exitSlope) * (2 * remaining ** 2 - 4 / 3 * remaining ** 3);
 }
 
 /** Extend the midpoint's peak speed while held, without repeating the easing. */
@@ -366,7 +372,8 @@ export class PlayerPhysics {
         }
         const slopeScale = PLAYER_AIR_DASH_DURATION / PLAYER_AIR_DASH_DISTANCE;
         this.dashEntrySlope = THREE.MathUtils.clamp(this.velocity.dot(this.dashDirection), 0, speed) * slopeScale;
-        this.dashExitSlope = Math.max(0, targetMove.dot(this.dashDirection)) * speed * slopeScale;
+        this.dashExitSlope = Math.max(PLAYER_AIR_DASH_EXIT_SPEED,
+          targetMove.dot(this.dashDirection) * speed) * slopeScale;
       } else {
         this.velocity.y = this.jumpForce;
       }
@@ -392,8 +399,8 @@ export class PlayerPhysics {
         this.dashTurn.identity().slerp(this.dashTurnTarget, 1 - Math.exp(-12 * dt));
         this.dashDirection.applyQuaternion(this.dashTurn).normalize();
       }
-      // A tap still integrates to exactly 5 m. Holding extends only the cruise
-      // phase; releasing resumes the original eased deceleration.
+      // The active dash covers 5 m. Holding extends only the cruise phase;
+      // releasing eases into momentum that normal movement and gravity decay.
       const distance = dashDistance(this.dashElapsed, dt, holding, this.dashEntrySlope, this.dashExitSlope);
       this.velocity.copy(this.dashDirection).multiplyScalar(distance / dt);
     } else {
@@ -422,8 +429,9 @@ export class PlayerPhysics {
       if (blocked || this.isOnGround || completed) {
         this.stopDash();
         if (completed && !blocked && !this.isOnGround) {
-          // Continue held forward movement instead of braking to zero for a tick.
-          const exitSpeed = Math.max(0, targetMove.dot(this.dashDirection)) * speed;
+          // Match the curve's exit velocity; normal air control then bleeds off
+          // this momentum, even if no movement key is held.
+          const exitSpeed = this.dashExitSlope * PLAYER_AIR_DASH_DISTANCE / PLAYER_AIR_DASH_DURATION;
           this.velocity.copy(this.dashDirection).multiplyScalar(exitSpeed);
         }
       } else {

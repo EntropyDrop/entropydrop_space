@@ -2,12 +2,13 @@ import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { devTrafficFixture } from './tools/dev-traffic-fixture.mjs';
 import { compilerWorkerBoundary } from './tools/compiler-worker-boundary.mjs';
+import { devTutorialLevel } from './tools/dev-tutorial-level.mjs';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, fileURLToPath(new URL('../', import.meta.url)), 'VITE_');
   const offline = mode === 'offline';
   return {
-  plugins: [devTrafficFixture(), compilerWorkerBoundary(), ...(offline ? [{
+  plugins: [devTrafficFixture(), devTutorialLevel(), compilerWorkerBoundary(), ...(offline ? [{
     name: 'offline-distribution',
     transformIndexHtml(html) {
       return html.replace(/(<meta http-equiv="Content-Security-Policy" content=")[^"]+/, `$1${[

@@ -667,6 +667,25 @@ canvas {
   gap: 8px;
 }
 
+.hud-actions .tutorial-save-btn {
+  width: auto;
+  padding: 0 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #a7f3d0;
+  border-color: #478577;
+}
+
+.hud-actions.tutorial-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.tutorial-actions .icon-btn {
+  flex-shrink: 0;
+}
+
 .icon-btn {
   width: 36px;
   height: 36px;

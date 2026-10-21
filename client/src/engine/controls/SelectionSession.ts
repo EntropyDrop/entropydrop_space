@@ -289,13 +289,13 @@ export class SelectionSession {
       };
     }
     contraption.clearSubtreeHighlight?.();
-    contraption.highlightBlocks?.(matchingBlocks);
+    contraption.highlightBlocks?.(matchingBlocks, { surface: false });
     this.updateSelectionAxisGizmo();
 
     const node = contraption.entityNodes?.get?.(nodeId);
     const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
       color: componentOutlineColor(contraption.entityNodes, nodeId) } : null;
-    if (shape === 'box' || !shapeCells || shapeCells.length === 0) {
+    if (shape === 'box' || !shapeCells) {
       // Micro bounds are expressed in 0.125 m grid units, so the outer guide box
       // must be scaled by MICRO_SIZE too.
       this.host.sceneRenderer?.updateSelectionHologram?.(bounds, null, null, isMicro, frame);
@@ -402,7 +402,9 @@ export class SelectionSession {
       bounds,
       this.host.contraptions.connectedSelection,
       this.host.contraptions.microSelection,
-      isMicro && shape !== 'box'
+      isMicro && shape !== 'box',
+      null,
+      this.host.contraptions.microBounds
     );
   }
 
@@ -601,7 +603,9 @@ export class SelectionSession {
       bounds,
       this.host.contraptions.connectedSelection,
       this.host.contraptions.microSelection,
-      isMicro && this.selectorShape !== 'box'
+      isMicro && this.selectorShape !== 'box',
+      null,
+      this.host.contraptions.microBounds
     );
 
     this.host.sound?.playWrenchClick?.();
@@ -749,9 +753,10 @@ export class SelectionSession {
       }
     }
 
+    const cornerA = { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
+    const cornerB = { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
+    this.selectionShapeAnchor = { ...this.selectionShapeAnchor, cornerA, cornerB, micro: isMicro };
     if (this.selectorShape && this.selectorShape !== 'box') {
-      const cornerA = { x: bounds.minX, y: bounds.minY, z: bounds.minZ };
-      const cornerB = { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ };
       this.applyEntitySelectionShape(this.selectorShape, cornerA, cornerB);
       return { ok: true, bounds, count: this.selectedBlockSelection?.blocks?.length || 0 };
     }
@@ -800,8 +805,13 @@ export class SelectionSession {
     this.selectedBlockSelection.micro = isMicro;
     this.selectedBlockSelection.virtualMicro = matchingBlocks.some((b: SelectedVoxel) => b.virtualMicro === true);
     this.selectedBlockSelection.shapeCells = null;
+    if (this.host.contraptions) {
+      this.host.contraptions.entitySelection = {
+        kind: 'entity-blocks', contraption, nodeId, blocks: matchingBlocks, components: [nodeId]
+      };
+    }
     contraption.clearSubtreeHighlight?.();
-    contraption.highlightBlocks?.(matchingBlocks);
+    contraption.highlightBlocks?.(matchingBlocks, { surface: false });
 
     const node = contraption.entityNodes?.get?.(nodeId);
     const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
@@ -1071,6 +1081,7 @@ export class SelectionSession {
         if (result.ok) {
           this.host.sound?.playWrenchClick?.();
           this.updateSelectionAxisGizmo();
+          this.host.ui?.updateToolPanelMode?.();
         }
       } else {
         const result = this.host.contraptions.expandSelectionAxis(
@@ -1080,36 +1091,22 @@ export class SelectionSession {
           isMicro
         );
 
-        if (result.ok) {
+        if (result.ok && result.bounds) {
           this.host.sound?.playWrenchClick?.();
+          // Resize commits a new volume for every shape, including boxes. Read
+          // the returned bounds directly; sparse cells can still describe the
+          // old shape until they are recomputed below.
+          const resized = result.bounds;
+          this.selectionShapeAnchor = {
+            ...this.selectionShapeAnchor,
+            cornerA: { x: resized.minX, y: resized.minY, z: resized.minZ },
+            cornerB: { x: resized.maxX, y: resized.maxY, z: resized.maxZ },
+            micro: isMicro
+          };
           if (this.selectorShape !== 'box') {
             const cylinderAxis = this.selectionShapeAnchor?.cylinderAxis || 'y';
             const stairsAxis = this.selectionShapeAnchor?.stairsAxis;
             const stairsOrientation = this.selectionShapeAnchor?.stairsOrientation;
-            if (isMicro) {
-              const mb = this.host.contraptions.getMicroSelectionBounds();
-              if (mb) {
-                this.selectionShapeAnchor = {
-                  cornerA: { x: mb.minX, y: mb.minY, z: mb.minZ },
-                  cornerB: { x: mb.maxX, y: mb.maxY, z: mb.maxZ },
-                  micro: true,
-                  cylinderAxis,
-                  stairsAxis,
-                  stairsOrientation
-                };
-              }
-            } else {
-              if (this.host.contraptions.selectionCornerA && this.host.contraptions.selectionCornerB) {
-                this.selectionShapeAnchor = {
-                  cornerA: { ...this.host.contraptions.selectionCornerA },
-                  cornerB: { ...this.host.contraptions.selectionCornerB },
-                  micro: false,
-                  cylinderAxis,
-                  stairsAxis,
-                  stairsOrientation
-                };
-              }
-            }
             const anchorA = this.selectionShapeAnchor?.cornerA;
             const anchorB = this.selectionShapeAnchor?.cornerB;
             if (anchorA && anchorB) {
@@ -1121,6 +1118,8 @@ export class SelectionSession {
                 this.host.contraptions.connectedSelection = cells;
               }
             }
+          } else if (!isMicro) {
+            this.host.contraptions.connectedSelection = null;
           }
           const updatedBounds = isMicro
             ? this.host.contraptions.getMicroSelectionBounds()
@@ -1130,8 +1129,11 @@ export class SelectionSession {
             updatedBounds,
             this.host.contraptions.connectedSelection,
             this.host.contraptions.microSelection,
-            isMicro && this.selectorShape !== 'box'
+            isMicro && this.selectorShape !== 'box',
+            null,
+            this.host.contraptions.microBounds
           );
+          this.host.ui?.updateToolPanelMode?.();
         }
       }
     }

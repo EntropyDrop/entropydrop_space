@@ -36,7 +36,7 @@ test('micro selection hologram renders unified outer bounding box like standard 
   assert.ok(Math.abs(renderer.selectionGroup.position.z - 0.125) < 1e-4);
 });
 
-test('entity block selection highlight renders single outer bounding box wireframe per node', () => {
+test('entity block selection batches orange voxel surfaces inside its outer guide', () => {
   const contraption = Object.create(Contraption.prototype);
   contraption.entityNodes = new Map();
   const rootNode = { id: 'root', group: new THREE.Group(), pivotLocal: new THREE.Vector3(0, 0, 0) };
@@ -59,7 +59,10 @@ test('entity block selection highlight renders single outer bounding box wirefra
   assert.deepEqual(outline.geometry.parameters, { width: 0.25, height: 0.125, depth: 0.125, thickness: 0.015625 });
   outline.updateMatrixWorld(true);
   const throughFace = new THREE.Raycaster(new THREE.Vector3(0.125, 0.0625, 1), new THREE.Vector3(0, 0, -1));
-  assert.equal(throughFace.intersectObject(outline).length, 0, 'the center has no translucent surface');
+  assert.ok(throughFace.intersectObject(outline).length > 0, 'selected occupied faces receive an orange tint');
+  const surface = outline.getObjectByName('SelectedEntityVoxels');
+  assert.equal(surface.material.color.getHex(), 0xff9500);
+  assert.equal(surface.geometry.getIndex().count, 60, 'the shared face between two cells is culled');
   const throughBeam = new THREE.Raycaster(new THREE.Vector3(0, 0.0625, 1), new THREE.Vector3(0, 0, -1));
   assert.ok(throughBeam.intersectObject(outline).length > 0, 'the border contains actual geometry');
 });

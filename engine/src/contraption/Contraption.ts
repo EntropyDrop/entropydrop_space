@@ -12,6 +12,7 @@ export { isValidPortableId, isValidComponentId, isValidConstraintId } from './Po
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
 import { SelectionOutlineGeometry, createSelectionOutlineMaterial, createSelectionOutline } from '../render/SelectionOutline.ts';
+import { buildSelectionHighlightGeometry, createSelectionHighlightMaterial } from '../render/SelectionHighlight.ts';
 import { COMPONENT_OUTLINE_COLORS, componentOutlineColor, componentOutlineDepth } from '../render/ComponentOutlineColors.ts';
 import { normalizeInventoryName } from '../storage/InventoryName.ts';
 import { normalizeDecorations, offsetDecorations, patchDecoration, freezeDecorationSnapshot, type DecorationDefinition } from './Decorations.ts';
@@ -4274,7 +4275,7 @@ export class Contraption {
    * Highlight concrete blocks selected by a two-point box. Each wireframe attaches
    * to its owning node group and follows entity transforms.
    */
-  highlightBlocks(blockList: RuntimeVoxel[]) {
+  highlightBlocks(blockList: RuntimeVoxel[], { surface = true }: { surface?: boolean } = {}) {
     this.clearSubtreeHighlight();
     if (!blockList || blockList.length === 0) return;
 
@@ -4318,8 +4319,19 @@ export class Contraption {
       const lines = createSelectionOutline(boxGeo, lineMat);
       lines.position.set(cx, cy, cz);
       lines.renderOrder = 33;
+      const surfaceGeometry = surface ? buildSelectionHighlightGeometry(blocks.map(b => ({
+        minX: b.localX, minY: b.localY, minZ: b.localZ,
+        maxX: b.localX + (b.size || 1), maxY: b.localY + (b.size || 1), maxZ: b.localZ + (b.size || 1),
+      })), { x: (minX + maxX) / 2, y: (minY + maxY) / 2, z: (minZ + maxZ) / 2 }) : null;
+      const surfaceMaterial = surface ? createSelectionHighlightMaterial() : null;
+      if (surfaceGeometry && surfaceMaterial) {
+        const mesh = new THREE.Mesh(surfaceGeometry, surfaceMaterial);
+        mesh.name = 'SelectedEntityVoxels';
+        mesh.renderOrder = 32;
+        lines.add(mesh);
+      }
       node.group.add(lines);
-      this.subtreeHighlightBoxes.push({ group: lines, geometries: { box: boxGeo }, materials: { lineMat } });
+      this.subtreeHighlightBoxes.push({ group: lines, geometries: { box: boxGeo, surfaceGeometry }, materials: { lineMat, surfaceMaterial } });
     }
   }
 

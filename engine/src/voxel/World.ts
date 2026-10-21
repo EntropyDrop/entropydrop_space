@@ -194,6 +194,7 @@ export class World {
   mesher: LowPolyMesher;
   renderDistance: number;
   private renderDistanceZOverride: number | null = null;
+  private fixedTerrainCenter: { cx: number; cz: number } | null = null;
 
   get renderDistanceZ() {
     return this.renderDistanceZOverride ?? terrainRenderDistanceZ(this.renderDistance);
@@ -1536,8 +1537,8 @@ export class World {
     const boundedWorkBudgetMs = Number.isFinite(workBudgetMs)
       ? Math.max(0, Math.min(STREAM_WORK_BUDGET_MS, workBudgetMs))
       : STREAM_WORK_BUDGET_MS;
-    const centerCx = Math.floor(wrapX(playerX) / CHUNK_SIZE_X);
-    const centerCz = Math.floor(wrapZ(playerZ) / CHUNK_SIZE_Z);
+    const centerCx = this.fixedTerrainCenter?.cx ?? Math.floor(wrapX(playerX) / CHUNK_SIZE_X);
+    const centerCz = this.fixedTerrainCenter?.cz ?? Math.floor(wrapZ(playerZ) / CHUNK_SIZE_Z);
     const r = this.renderDistance;
     const rz = this.renderDistanceZ;
     this.distantSurface.setNearField(centerCx, centerCz, r);
@@ -2309,7 +2310,19 @@ export class World {
     globalThis.setTimeout(() => run(1), 0);
   }
 
+  /** Pin a local lesson's detailed terrain to its spawn and omit all far terrain. */
+  setFixedTerrainWindow(x: number, z: number, radius: number) {
+    this.fixedTerrainCenter = null;
+    this.setRenderDistance(radius, radius);
+    this.fixedTerrainCenter = {
+      cx: Math.floor(wrapX(x) / CHUNK_SIZE_X),
+      cz: Math.floor(wrapZ(z) / CHUNK_SIZE_Z),
+    };
+    this.distantSurface.setEnabled(false);
+  }
+
   setRenderDistance(distance: number, radiusZ?: number) {
+    if (this.fixedTerrainCenter) return;
     this.renderDistance = Math.max(3, Math.min(MAX_RENDER_DISTANCE, Math.round(Number(distance)) || DEFAULT_RENDER_DISTANCE));
     this.renderDistanceZOverride = radiusZ === undefined ? null
       : Math.max(1, Math.min(this.renderDistance, Math.round(radiusZ) || 1));
@@ -2325,10 +2338,11 @@ export class World {
   }
 
   setDistantSurfaceEnabled(enabled: boolean): boolean {
-    return this.distantSurface.setEnabled(enabled);
+    return this.distantSurface.setEnabled(enabled && !this.fixedTerrainCenter);
   }
 
   installSurfaceZone(zone: SurfaceZoneSnapshot) {
+    if (this.fixedTerrainCenter) return;
     this.distantSurface.installZone(zone);
   }
 
@@ -2344,6 +2358,7 @@ export class World {
   private readonly distantChunkRevisions = new Map<string, number>();
 
   private captureDistantChunk(chunk: Chunk) {
+    if (this.fixedTerrainCenter) return;
     const microRevision = this.microVoxels.getChunkRevision(chunk.cx, chunk.cz);
     const getMicroEditsForChunk = this.editPersistence?.getMicroEditsForChunk;
     const hasAuthoredMicro = typeof getMicroEditsForChunk === 'function'

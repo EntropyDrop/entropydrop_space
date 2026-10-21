@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SPACE_HOSTING_UI_ENABLED, SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_HOSTING_UI_ENABLED, SPACE_LOCAL_SESSION, SPACE_TUTORIAL } from '../../../bootstrap/SpaceFeatures.ts';
 import { onlineSpaceUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
 import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import { apiDocsBodyMarkup } from '../apiDocsMarkup.ts';
@@ -175,7 +175,7 @@ function ComponentInspector() {
 }
 
 function AgentChat() {
-  return SPACE_OFFLINE_BUILD ? <div className="agent-column"><OnlineSpaceNotice feature="ai-assistant" /></div> : <OnlineAgentChat />;
+  return SPACE_LOCAL_SESSION ? <div className="agent-column"><OnlineSpaceNotice feature="ai-assistant" /></div> : <OnlineAgentChat />;
 }
 
 function OnlineAgentChat() {
@@ -273,7 +273,7 @@ export function CodeEditorModal() {
   const runtimeTitle = `Runtime: #${contraption.id} (${contraption.blocks.length} blocks) · ${String(contraption.bodyType).toUpperCase()}${childIds.length ? ` · children: ${childIds.join(', ')}` : ' · no children'}`;
   const status = contraption.scriptRuntimeClient?.compiling?.size ? 'compiling' : playback === 'play' ? 'running' : 'stopped';
   const backendManaged = contraption.serverManaged === true;
-  const persistenceLabel = backendManaged ? 'backend' : SPACE_OFFLINE_BUILD ? 'browser save' : 'session';
+  const persistenceLabel = SPACE_TUTORIAL ? 'temporary tutorial' : backendManaged ? 'backend' : SPACE_LOCAL_SESSION ? 'browser save' : 'session';
   const sourceLabel = backendManaged ? 'world entity' : 'local';
   const accessLabel = backendManaged
     ? contraption.serverCanEdit === true
@@ -350,7 +350,7 @@ export function CodeEditorModal() {
 export function ApiDocsModal() {
   const open = useSpaceUi(state => state.apiDocsOpen);
   if (!open) return null;
-  const apiOrigin = SPACE_OFFLINE_BUILD ? new URL(onlineSpaceUrl()).origin : spaceUiStore.getApiKeyClient()?.getAgentConnection().origin || resolveApiOrigin(
+  const apiOrigin = SPACE_LOCAL_SESSION ? new URL(onlineSpaceUrl()).origin : spaceUiStore.getApiKeyClient()?.getAgentConnection().origin || resolveApiOrigin(
     import.meta.env.VITE_SPACE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL, window.location.origin,
   );
   return (

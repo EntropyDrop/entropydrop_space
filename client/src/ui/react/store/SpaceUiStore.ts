@@ -52,7 +52,7 @@ import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootst
 import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
 import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
 import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
-import { SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from '../../../bootstrap/SpaceFeatures.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | 'help' | null;
 export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
@@ -262,6 +262,7 @@ export interface SpaceUiSnapshot {
   brushMicro: boolean;
   hammerMicro: boolean;
   bulkEdit: BulkEditView | null;
+  tutorialSaving: boolean;
   worldEditSync: WorldEditSyncView;
   telemetry: TelemetryView;
   fov: number;
@@ -385,6 +386,10 @@ export class SpaceUiStore {
   private remotePlayers: any[] = [];
   private particleSystem: any = null;
   private marketClient: SpaceMarketClient | null = null;
+  private tutorialActions: {
+    navigate(enter: boolean): Promise<void>;
+    save: (() => Promise<void>) | null;
+  } | null = null;
   private apiKeyClient: SpaceApiKeyClient | null = null;
   private queueCancelHandler: (() => Promise<void>) | null = null;
   private enterOnlineHandler: (() => void) | null = null;
@@ -431,7 +436,7 @@ export class SpaceUiStore {
     globalPlaybackState: 'play',
     agentMessages: [],
     agentBusy: false,
-    agentConfig: SPACE_OFFLINE_BUILD ? normalizeAgentConfig() : loadAgentConfig(),
+    agentConfig: SPACE_LOCAL_SESSION ? normalizeAgentConfig() : loadAgentConfig(),
     fpsText: '60 FPS',
     terrainLoadProgress: { readyChunks: 0, totalChunks: 0, ready: false },
     networkRates: { downloadBytesPerSecond: 0, uploadBytesPerSecond: 0 },
@@ -449,6 +454,7 @@ export class SpaceUiStore {
     brushMicro: false,
     hammerMicro: false,
     bulkEdit: null,
+    tutorialSaving: false,
     worldEditSync: EMPTY_WORLD_EDIT_SYNC,
     telemetry: EMPTY_TELEMETRY,
     fov: 75,
@@ -524,7 +530,7 @@ export class SpaceUiStore {
   }
 
   setEntityHostingHandlers(handlers: EntityHostingHandlers | null): void {
-    this.entityHostingHandlers = SPACE_OFFLINE_BUILD ? null : handlers;
+    this.entityHostingHandlers = SPACE_LOCAL_SESSION ? null : handlers;
     this.patch({ hosting: EMPTY_HOSTING, hostingBusyIds: [], hostingError: null });
   }
 
@@ -674,7 +680,7 @@ export class SpaceUiStore {
   }
 
   setAuthenticatedSession(apiOrigin: string, token: string, isAdmin = false, worldId: string | null = null, accountOrigin: string = apiOrigin, currentUserName: string | null = null): void {
-    if (SPACE_OFFLINE_BUILD || !token) {
+    if (SPACE_LOCAL_SESSION || !token) {
       this.marketClient = null;
       this.apiKeyClient = null;
       this.patch({ isAdmin: false, apiWorldId: null, currentUserName: null });
@@ -725,7 +731,7 @@ export class SpaceUiStore {
     );
     try {
       const saved = localStorage.getItem('space_setting_distant_surface');
-      if (saved) {
+      if (!SPACE_TUTORIAL && saved) {
         const parsed = JSON.parse(saved);
         distantSurfaceSettings = world?.setDistantSurfaceSettings?.(parsed)
           || normalizeDistantSurfaceSettings(parsed);
@@ -736,10 +742,10 @@ export class SpaceUiStore {
       renderDistance: Number(world?.renderDistance || 12),
       distantSurfaceSettings,
     });
-    world?.setDistantSurfaceEnabled?.(true);
+    world?.setDistantSurfaceEnabled?.(!SPACE_TUTORIAL);
     try {
       const saved = localStorage.getItem('space_setting_render_dist');
-      if (saved) this.setRenderDistance(Number(saved), false);
+      if (!SPACE_TUTORIAL && saved) this.setRenderDistance(Number(saved), false);
     } catch { }
   }
 
@@ -763,7 +769,7 @@ export class SpaceUiStore {
       shadowsEnabled = localStorage.getItem('space_setting_shadows') === 'true';
       lightingQuality = normalizeLightingQuality(localStorage.getItem(LIGHTING_QUALITY_SETTING_KEY));
     } catch { }
-    this.snapshot.world?.setDistantSurfaceEnabled?.(true);
+    this.snapshot.world?.setDistantSurfaceEnabled?.(!SPACE_TUTORIAL);
     const state = sceneRenderer?.setResolutionScale?.(
       setting === 'auto' ? 'auto' : Number(setting)
     ) || sceneRenderer?.getResolutionScaleState?.();
@@ -942,6 +948,34 @@ export class SpaceUiStore {
     this.toggleModal('help', forceState);
   }
 
+  setTutorialActions(actions: NonNullable<SpaceUiStore['tutorialActions']>): void {
+    this.tutorialActions = { ...actions, save: SPACE_TUTORIAL_AUTHORING ? actions.save : null };
+  }
+
+  async navigateTutorial(enter: boolean): Promise<void> {
+    if (!this.tutorialActions) return;
+    try { await this.tutorialActions.navigate(enter); }
+    catch {
+      this.showToast('Could not save your backpack before switching worlds. Please try again.', { tone: 'warning' });
+    }
+  }
+
+  async saveTutorialLevel(): Promise<void> {
+    if (!this.tutorialActions?.save || this.snapshot.tutorialSaving) return;
+    if (this.snapshot.bulkEdit && !['complete', 'failed'].includes(this.snapshot.bulkEdit.phase)) {
+      this.showToast('Wait for the current terrain edit to finish before saving.', { tone: 'warning' });
+      return;
+    }
+    this.patch({ tutorialSaving: true });
+    try {
+      this.saveCurrentDraft();
+      await this.tutorialActions.save();
+      this.showToast('Tutorial level saved.');
+    } catch (error) {
+      this.showToast(`Could not save the tutorial: ${error instanceof Error ? error.message : String(error)}`, { tone: 'warning' });
+    } finally { this.patch({ tutorialSaving: false }); }
+  }
+
   toggleCodeEditorModal(forceState: boolean | null = null): void {
     this.toggleModal('code', forceState);
   }
@@ -951,7 +985,7 @@ export class SpaceUiStore {
   }
 
   toggleAdminMonitoring(forceState: boolean | null = null): void {
-    if (SPACE_OFFLINE_BUILD) return;
+    if (SPACE_LOCAL_SESSION) return;
     this.toggleModal('monitoring', forceState);
   }
 
@@ -1892,13 +1926,13 @@ export class SpaceUiStore {
   }
 
   toggleAgentSetup(forceState: boolean | null = null): void {
-    if (SPACE_OFFLINE_BUILD) return;
+    if (SPACE_LOCAL_SESSION) return;
     const agentSetupOpen = forceState === null ? !this.snapshot.agentSetupOpen : forceState;
     this.patch({ agentSetupOpen });
   }
 
   saveAgentSettings(config: any): void {
-    if (SPACE_OFFLINE_BUILD) return;
+    if (SPACE_LOCAL_SESSION) return;
     const normalized = normalizeAgentConfig(config);
     saveAgentConfig(normalized);
     this.patch({ agentConfig: normalized, agentSetupOpen: false });
@@ -1908,7 +1942,7 @@ export class SpaceUiStore {
   }
 
   async sendAgentMessage(promptValue: string): Promise<void> {
-    if (SPACE_OFFLINE_BUILD) return;
+    if (SPACE_LOCAL_SESSION) return;
     const prompt = promptValue.trim();
     const state = this.snapshot;
     if (!prompt || state.agentBusy || !state.editingContraption) return;
@@ -2082,6 +2116,7 @@ export class SpaceUiStore {
   }
 
   setRenderDistance(distance: number, persist = true): void {
+    if (SPACE_TUTORIAL) return;
     const value = Math.max(4, Math.min(16, Math.round(Number(distance)) || 8));
     this.snapshot.world?.setRenderDistance?.(value);
     this.patch({ renderDistance: value });
@@ -2095,7 +2130,7 @@ export class SpaceUiStore {
   }
 
   connectLinkedWorlds(handler: (enabled: boolean) => void): void {
-    if (SPACE_OFFLINE_BUILD) {
+    if (SPACE_LOCAL_SESSION) {
       this.patch({ linkedWorlds: { ...LINKED_WORLDS_OFF } });
       return;
     }
@@ -2110,7 +2145,7 @@ export class SpaceUiStore {
   }
 
   setLinkedWorldsEnabled(enabled: boolean, persist = true): void {
-    if (SPACE_OFFLINE_BUILD) return;
+    if (SPACE_LOCAL_SESSION) return;
     this.linkedWorldsHandler?.(enabled);
     if (persist) try { localStorage.setItem(LINKED_WORLDS_SETTING_KEY, String(enabled)); } catch { }
   }
@@ -2129,6 +2164,7 @@ export class SpaceUiStore {
     setting: number | boolean,
     persist = true,
   ): void {
+    if (SPACE_TUTORIAL) return;
     const candidate = { ...this.snapshot.distantSurfaceSettings, [key]: setting };
     const value = this.snapshot.world?.setDistantSurfaceSettings?.(candidate)
       || normalizeDistantSurfaceSettings(candidate);
@@ -2139,6 +2175,7 @@ export class SpaceUiStore {
   }
 
   resetDistantSurfaceSettings(): void {
+    if (SPACE_TUTORIAL) return;
     const value = this.snapshot.world?.setDistantSurfaceSettings?.(
       DEFAULT_DISTANT_SURFACE_SETTINGS,
     ) || normalizeDistantSurfaceSettings(DEFAULT_DISTANT_SURFACE_SETTINGS);
@@ -2304,7 +2341,7 @@ export class SpaceUiStore {
       const node = nodeId ? contraption?.entityNodes?.get?.(nodeId) : null;
       const frame = node?.group ? { object: node.group, pivot: (node.pivotLocal || new THREE.Vector3()).clone(),
         color: componentOutlineColor(contraption?.entityNodes, nodeId!) } : null;
-      if (isShape && Array.isArray(shapeCells) && shapeCells.length > 0) {
+      if (isShape && Array.isArray(shapeCells)) {
         if (controller.selectorMicroMode) {
           sceneRenderer?.updateSelectionHologram?.(bounds, null, shapeCells, true, frame);
         } else {
@@ -2326,7 +2363,9 @@ export class SpaceUiStore {
         contraptions?.getSelectionBounds?.() ?? null,
         contraptions?.connectedSelection ?? null,
         contraptions?.microSelection ?? null,
-        isMicroShape
+        isMicroShape,
+        null,
+        contraptions?.microBounds ?? null
       );
     }
 
@@ -2373,7 +2412,7 @@ export class SpaceUiStore {
       terrainLoadProgress: this.snapshot.world?.getTerrainAoiLoadProgress?.()
         ?? { readyChunks: 0, totalChunks: 0, ready: false },
       networkRates: networkTraffic.sample(),
-      pingText: roundedPing === null ? '-- ms' : `${roundedPing} ms`,
+      pingText: SPACE_TUTORIAL ? 'Local tutorial' : roundedPing === null ? '-- ms' : `${roundedPing} ms`,
       pingClass: roundedPing === null ? 'hud-ping ping-unknown' : `hud-ping ${roundedPing < 80 ? 'ping-good' : roundedPing < 180 ? 'ping-medium' : 'ping-poor'}`,
       positionText: `X: ${playerPos.x.toFixed(1)} | Y: ${playerPos.y.toFixed(1)} | Z: ${playerPos.z.toFixed(1)}`,
       nearbyEntities: entities,

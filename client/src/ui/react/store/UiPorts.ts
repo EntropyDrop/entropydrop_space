@@ -95,6 +95,7 @@ export type UiContraptionManager = Pick<ContraptionManager,
   | 'getWorldGlueSelectionInfo'
   | 'hasValidSelection'
   | 'microSelection'
+  | 'microBounds'
   | 'performBasicAction'
   | 'saveEntitiesToStorage'
   | 'selectionBoxConfirmed'

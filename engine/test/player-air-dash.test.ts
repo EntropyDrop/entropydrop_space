@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { PlayerPhysics, PLAYER_AIR_DASH_DISTANCE, PLAYER_AIR_DASH_DURATION } from '../src/physics/PlayerPhysics.ts';
+import { PlayerPhysics, PLAYER_AIR_DASH_DISTANCE, PLAYER_AIR_DASH_DURATION,
+  PLAYER_AIR_DASH_EXIT_SPEED } from '../src/physics/PlayerPhysics.ts';
 import type { PlayerTerrain } from '../src/physics/PhysicsTerrain.ts';
 import { Contraption } from '../src/contraption/Contraption.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
@@ -28,7 +29,22 @@ function near(actual: number, expected: number) {
   assert.ok(Math.abs(actual - expected) < 1e-8, `expected ${expected}, got ${actual}`);
 }
 
-test('second jump travels exactly 5 m along the locked camera heading at different tick rates', () => {
+// Reference samples for a stationary takeoff: join cubic Hermite segments at
+// the held cruise, with the final tangent matching the retained momentum.
+const cruiseSpeed = 1.5 * PLAYER_AIR_DASH_DISTANCE / PLAYER_AIR_DASH_DURATION - PLAYER_AIR_DASH_EXIT_SPEED / 4;
+const midpointDistance = PLAYER_AIR_DASH_DISTANCE / 2 - PLAYER_AIR_DASH_EXIT_SPEED * PLAYER_AIR_DASH_DURATION / 12;
+function expectedDashTravel(progress: number) {
+  const firstHalf = progress <= 0.5;
+  const t = firstHalf ? progress * 2 : (progress - 0.5) * 2;
+  const start = firstHalf ? 0 : midpointDistance;
+  const end = firstHalf ? midpointDistance : PLAYER_AIR_DASH_DISTANCE;
+  const entry = firstHalf ? 0 : cruiseSpeed * PLAYER_AIR_DASH_DURATION / 2;
+  const exit = (firstHalf ? cruiseSpeed : PLAYER_AIR_DASH_EXIT_SPEED) * PLAYER_AIR_DASH_DURATION / 2;
+  return start * (2 * t ** 3 - 3 * t ** 2 + 1) + end * (-2 * t ** 3 + 3 * t ** 2)
+    + entry * (t ** 3 - 2 * t ** 2 + t) + exit * (t ** 3 - t ** 2);
+}
+
+test('second jump covers 5 m along the locked heading before coasting at different tick rates', () => {
   for (const dt of [1 / 120, 1 / 60, 0.05, 0.073, 0.1]) {
     for (const yaw of [0, Math.PI / 2, Math.PI, Math.PI / 4]) {
       const player = createPlayer();
@@ -45,9 +61,11 @@ test('second jump travels exactly 5 m along the locked camera heading at differe
       near(player.position.y, start.y);
       near(player.position.x - start.x, -Math.sin(yaw) * PLAYER_AIR_DASH_DISTANCE);
       near(player.position.z - start.z, -Math.cos(yaw) * PLAYER_AIR_DASH_DISTANCE);
+      near(player.velocity.length(), PLAYER_AIR_DASH_EXIT_SPEED);
       player.update(0.05, {}, yaw);
-      near(player.position.x - start.x, -Math.sin(yaw) * PLAYER_AIR_DASH_DISTANCE);
-      near(player.position.z - start.z, -Math.cos(yaw) * PLAYER_AIR_DASH_DISTANCE);
+      const coastDistance = PLAYER_AIR_DASH_EXIT_SPEED * 0.8 * 0.05;
+      near(player.position.x - start.x, -Math.sin(yaw) * (PLAYER_AIR_DASH_DISTANCE + coastDistance));
+      near(player.position.z - start.z, -Math.cos(yaw) * (PLAYER_AIR_DASH_DISTANCE + coastDistance));
     }
   }
 });
@@ -73,15 +91,16 @@ test('pitched dashes follow a locked 3D ray for exactly 5 m, then gravity resume
         const displacement = player.position.clone().sub(start);
         near(displacement.length(), PLAYER_AIR_DASH_DISTANCE);
         near(displacement.distanceTo(direction.clone().multiplyScalar(PLAYER_AIR_DASH_DISTANCE)), 0);
-        near(player.velocity.length(), 0);
+        near(player.velocity.distanceTo(direction.clone().multiplyScalar(PLAYER_AIR_DASH_EXIT_SPEED)), 0);
+        const exitY = player.velocity.y;
         player.update(0.05, {}, yaw, gaze);
-        assert.ok(player.velocity.y < 0, 'gravity must resume after the dash');
+        near(player.velocity.y, exitY + player.gravity * 0.05);
       }
     }
   }
 });
 
-test('dash eases in and out over 0.4 seconds without an instantaneous teleport', () => {
+test('dash eases into retained momentum over 0.4 seconds without an instantaneous teleport', () => {
   const player = createPlayer();
   firstJump(player);
   const distances: number[] = [];
@@ -94,13 +113,14 @@ test('dash eases in and out over 0.4 seconds without an instantaneous teleport',
   near(8 * 0.05, PLAYER_AIR_DASH_DURATION);
   assert.ok(distances[0] > 0 && distances[0] < distances[1]);
   assert.ok(distances[1] < distances[2] && distances[2] < distances[3]);
-  for (let i = 0; i < 4; i++) near(distances[i], distances[7 - i]);
+  for (let i = 4; i < 7; i++) assert.ok(distances[i] > distances[i + 1]);
   assert.equal(player.isDashing, false);
-  near(player.velocity.z, 0);
+  near(player.velocity.z, -PLAYER_AIR_DASH_EXIT_SPEED);
+  assert.ok(distances[7] / 0.05 > PLAYER_AIR_DASH_EXIT_SPEED, 'deceleration must reach the carry speed without reaccelerating');
 });
 
 test('holding the second jump cruises continuously across tick rates and eases out on release', () => {
-  const peakSpeed = 1.5 * PLAYER_AIR_DASH_DISTANCE / PLAYER_AIR_DASH_DURATION;
+  const peakSpeed = cruiseSpeed;
   for (const dt of [1 / 120, 1 / 60, 0.05, 0.073, 0.1]) {
     const player = createPlayer();
     firstJump(player);
@@ -117,7 +137,7 @@ test('holding the second jump cruises continuously across tick rates and eases o
         near(player.dashIntensity, 1);
       }
     }
-    near(start.z - player.position.z, 2.5 + 1.8 * peakSpeed);
+    near(start.z - player.position.z, midpointDistance + 1.8 * peakSpeed);
     const releaseZ = player.position.z;
     let previousSpeed = peakSpeed;
     for (let frame = 0; frame < 4; frame++) {
@@ -126,7 +146,7 @@ test('holding the second jump cruises continuously across tick rates and eases o
       previousSpeed = player.velocity.length();
     }
     assert.equal(player.isDashing, false);
-    near(releaseZ - player.position.z, 2.5);
+    near(releaseZ - player.position.z, PLAYER_AIR_DASH_DISTANCE - midpointDistance);
     near(player.dashIntensity, 0);
     player.update(0.05, {}, 0);
     assert.ok(player.velocity.y < 0);
@@ -164,7 +184,7 @@ test('a release cannot be undone by another press before landing', () => {
   player.update(0.05, { jump: true, jumpPressed: true }, 0);
   for (let frame = 0; frame < 3; frame++) player.update(0.05, { jump: true }, 0);
   assert.equal(player.isDashing, false);
-  near(player.velocity.length(), 0);
+  near(player.velocity.length(), PLAYER_AIR_DASH_EXIT_SPEED);
   player.update(0.05, { jump: true }, 0);
   assert.equal(player.isDashing, false);
   assert.ok(player.velocity.y < 0);
@@ -175,7 +195,7 @@ test('render interpolation remains smooth when a tick crosses into sustained cru
   firstJump(player);
   const start = player.position.clone();
   const dt = 0.073;
-  const peakSpeed = 18.75;
+  const peakSpeed = cruiseSpeed;
   for (let frame = 0; frame < 8; frame++) {
     player.update(dt, { jump: true }, 0);
     const simulation = player.position.clone();
@@ -183,7 +203,7 @@ test('render interpolation remains smooth when a tick crosses into sustained cru
       player.beginRenderInterpolation(alpha);
       const seconds = (frame + alpha) * dt;
       const t = Math.min(0.5, seconds / PLAYER_AIR_DASH_DURATION);
-      const distance = 5 * t * t * (3 - 2 * t) + Math.max(0, seconds - 0.2) * peakSpeed;
+      const distance = expectedDashTravel(t) + Math.max(0, seconds - 0.2) * peakSpeed;
       near(start.z - player.position.z, distance);
       near(player.dashIntensity, Math.sin(Math.PI * t) ** 2);
       player.endRenderInterpolation();
@@ -192,7 +212,7 @@ test('render interpolation remains smooth when a tick crosses into sustained cru
   }
 });
 
-test('running through a dash preserves forward speed at both ends and still travels 5 m', () => {
+test('running through a dash preserves takeoff speed and eases back to walking after the active 5 m', () => {
   const player = createPlayer();
   firstJump(player);
   player.velocity.z = -player.walkSpeed;
@@ -201,9 +221,60 @@ test('running through a dash preserves forward speed at both ends and still trav
   assert.ok(-player.velocity.z >= player.walkSpeed, 'takeoff must not first brake the walking player');
   for (let frame = 1; frame < 8; frame++) player.update(0.05, { forward: true }, 0);
   near(start - player.position.z, 5);
-  near(player.velocity.z, -player.walkSpeed);
+  near(player.velocity.z, -PLAYER_AIR_DASH_EXIT_SPEED);
   player.update(0.05, { forward: true }, 0);
-  near(start - player.position.z, 5 + player.walkSpeed * 0.05);
+  assert.ok(-player.velocity.z > player.walkSpeed && -player.velocity.z < PLAYER_AIR_DASH_EXIT_SPEED);
+  near(start - player.position.z, 5 - player.velocity.z * 0.05);
+});
+
+test('released dash momentum decays gradually and opposing input brakes it sooner', () => {
+  const coast = createPlayer();
+  const braking = createPlayer();
+  for (const player of [coast, braking]) {
+    firstJump(player);
+    player.position.y = 20;
+    for (let frame = 0; frame < 8; frame++) player.update(0.05, { jump: frame === 0 }, 0);
+  }
+  const startZ = coast.position.z;
+  let previousSpeed = -coast.velocity.z;
+  for (let frame = 0; frame < 12; frame++) {
+    coast.update(0.05, {}, 0);
+    const speed = -coast.velocity.z;
+    assert.ok(speed > 0 && speed < previousSpeed, 'released momentum must steadily decay');
+    previousSpeed = speed;
+    assert.equal(coast.isDashing, false);
+  }
+  assert.ok(startZ - coast.position.z > 0.5 && startZ - coast.position.z < 1.5, 'coasting should be short but noticeable');
+  for (let frame = 0; frame < 4; frame++) braking.update(0.05, { backward: true }, 0);
+  assert.ok(braking.velocity.z > 0, 'the player must be able to brake and reverse the carried velocity');
+});
+
+test('coasting still stops at walls and teleporting clears its remaining momentum', () => {
+  let wallPresent = true;
+  const player = createPlayer({
+    getBlock: (_x, _y, z) => wallPresent && z === -7 ? BlockTypes.COLOR_BLOCK : BlockTypes.AIR,
+    getMicroBlocksInAABB: () => []
+  });
+  firstJump(player);
+  player.position.y = 20;
+  for (let frame = 0; frame < 8; frame++) player.update(0.05, { jump: frame === 0 }, 0);
+  near(player.position.z, -5);
+  for (let frame = 0; frame < 12; frame++) player.update(0.05, {}, 0);
+  near(player.position.z, -6 + player.width / 2);
+  near(player.velocity.z, 0);
+  wallPresent = false;
+  player.update(0.05, {}, 0);
+  near(player.velocity.z, 0);
+
+  player.setInitialPosition(0, 0, 0);
+  player.update(0.05, {}, 0);
+  firstJump(player);
+  for (let frame = 0; frame < 8; frame++) player.update(0.05, { jump: frame === 0 }, 0);
+  assert.ok(player.velocity.z < 0);
+  player.setInitialPosition(10, 10, 10);
+  player.update(0.05, {}, 0);
+  near(player.position.z, 10);
+  near(player.velocity.z, 0);
 });
 
 test('rendered dash samples follow the smooth curve between physics ticks and restore exact physics', () => {
@@ -216,7 +287,7 @@ test('rendered dash samples follow the smooth curve between physics ticks and re
     for (const alpha of [0, 0.25, 0.5, 0.75, 1]) {
       player.beginRenderInterpolation(alpha);
       const t = (frame + alpha) / 8;
-      near(start - player.position.z, 5 * t * t * (3 - 2 * t));
+      near(start - player.position.z, expectedDashTravel(t));
       near(player.dashIntensity, Math.sin(Math.PI * t) ** 2);
       player.endRenderInterpolation();
       assert.deepEqual(player.position.toArray(), simulation.toArray());
@@ -237,7 +308,7 @@ test('pitched dash rendering eases all three axes along the same ray', () => {
     for (const alpha of [0, 0.25, 0.5, 0.75, 1]) {
       player.beginRenderInterpolation(alpha);
       const t = (frame + alpha) / 8;
-      const expected = start.clone().addScaledVector(direction, 5 * t * t * (3 - 2 * t));
+      const expected = start.clone().addScaledVector(direction, expectedDashTravel(t));
       near(player.position.distanceTo(expected), 0);
       player.endRenderInterpolation();
       near(player.position.distanceTo(simulation), 0);
@@ -283,7 +354,7 @@ test('a third press is ignored and landing restores the second jump', () => {
   assert.ok(player.velocity.length() > previousSpeed, 'a third press must not restart the easing');
   for (let frame = 0; !player.isOnGround && frame < 80; frame++) player.update(0.05, {}, 0);
   assert.equal(player.isOnGround, true);
-  near(player.position.z, -5);
+  assert.ok(player.position.z < -5, 'the spent dash may coast until landing, without rearming');
   firstJump(player);
   player.update(0.05, { jump: true }, 0);
   assert.equal(player.isDashing, true);

@@ -1,5 +1,5 @@
 import { MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-import { SPACE_OFFLINE_BUILD } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_LOCAL_SESSION } from '../../../bootstrap/SpaceFeatures.ts';
 import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -561,8 +561,8 @@ function InventoryItemCard({
             <button
               type="button"
               className="backpack-pixel-btn publish"
-              title={SPACE_OFFLINE_BUILD ? 'Publish in Space Online' : 'Publish to market (AGPL-3.0)'}
-              aria-label={SPACE_OFFLINE_BUILD ? 'Publish item online' : 'Publish item to market'}
+              title={SPACE_LOCAL_SESSION ? 'Publish in Space Online' : 'Publish to market (AGPL-3.0)'}
+              aria-label={SPACE_LOCAL_SESSION ? 'Publish item online' : 'Publish item to market'}
               onClick={() => onPublish(category, item)}
             >
               <PixelPublishIcon />
@@ -795,8 +795,8 @@ function ColorSetCard({
             type="button"
             tabIndex={-1}
             className="backpack-pixel-btn publish"
-            title={SPACE_OFFLINE_BUILD ? 'Publish in Space Online' : 'Publish to market (AGPL-3.0)'}
-            aria-label={SPACE_OFFLINE_BUILD ? 'Publish color set online' : 'Publish color set to market'}
+            title={SPACE_LOCAL_SESSION ? 'Publish in Space Online' : 'Publish to market (AGPL-3.0)'}
+            aria-label={SPACE_LOCAL_SESSION ? 'Publish color set online' : 'Publish color set to market'}
             onClick={event => {
               event.stopPropagation();
               onPublish('colorset', item);
@@ -1017,7 +1017,7 @@ function MarketResourceCard({
 }
 
 function MarketSection(props: Parameters<typeof OnlineMarketSection>[0]) {
-  if (SPACE_OFFLINE_BUILD) return (
+  if (SPACE_LOCAL_SESSION) return (
     <div className="market-section-container">
       <div className="market-toolbar-top">
         <h3>Market</h3>
@@ -1319,7 +1319,7 @@ export function InventoryModal() {
   const colorsets = inventories?.colorset?.items || [];
 
   const handlePublishRequest = (category: InventoryCategory, item: any) => {
-    if (SPACE_OFFLINE_BUILD) {
+    if (SPACE_LOCAL_SESSION) {
       setPendingPublish({ category, item });
       return;
     }
@@ -1350,7 +1350,7 @@ export function InventoryModal() {
   };
 
   const doPublish = async (category: InventoryCategory, item: any) => {
-    if (SPACE_OFFLINE_BUILD || !marketClient || !state.controller) return;
+    if (SPACE_LOCAL_SESSION || !marketClient || !state.controller) return;
     const encoded = state.controller.encodeInventoryItem?.(category, item);
     if (!encoded) {
       spaceUiStore.showToast('Could not serialize this backpack item.');
@@ -1544,7 +1544,7 @@ export function InventoryModal() {
         )}
       </div>
 
-      {pendingPublish && SPACE_OFFLINE_BUILD && (
+      {pendingPublish && SPACE_LOCAL_SESSION && (
         <div className="market-prompt-modal-backdrop" onClick={event => {
           if (event.target === event.currentTarget) setPendingPublish(null);
         }}>
@@ -1561,7 +1561,7 @@ export function InventoryModal() {
         </div>
       )}
 
-      {pendingPublish && !SPACE_OFFLINE_BUILD && (
+      {pendingPublish && !SPACE_LOCAL_SESSION && (
         <div
           className="market-prompt-modal-backdrop"
           id="market-agpl-confirm-modal"
