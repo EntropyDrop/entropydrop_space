@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import type { InventoryBlockSet } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
 import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
+import { MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import { VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import { toMicroPlacementItem } from '../inventory/InventoryMicroPlacement.ts';
 import type { InventoryPlacementPreview } from '../render/PreviewTypes.ts';
 import { voxelizeText, type TextVoxelOptions, type TextVoxelResult } from '../voxel/TextVoxelizer.ts';
 
@@ -19,12 +21,14 @@ export interface TextCreationOptions extends TextVoxelOptions { orientation: Tex
 export interface TextCreationView extends TextCreationOptions {
   open: boolean; busy: boolean; error: string | null; blockCount: number;
   width: number; height: number; canCreate: boolean;
+  offsetX: number; offsetY: number; offsetZ: number;
 }
 export const EMPTY_TEXT_CREATION: TextCreationView = Object.freeze({
   open: false, text: 'Text', fontSize: 12, color: 0xffffff, micro: true,
   materialId: VoxelMaterialIds.DEFAULT,
   orientation: 'vertical',
   busy: false, error: null, blockCount: 0, width: 0, height: 0, canCreate: false,
+  offsetX: 0, offsetY: 0, offsetZ: 0,
 });
 
 function axisNormal(value: THREE.Vector3) {
@@ -89,6 +93,9 @@ export class TextCreationSession {
   private state: TextCreationView = { ...EMPTY_TEXT_CREATION };
   private anchor: TextCreationAnchor | null = null;
   private placement: TextPlacement | null = null;
+  private basePlacement: TextPlacement | null = null;
+  private bounds = new THREE.Box3();
+  private microSlot: InventoryBlockSet | Error | null = null;
   private generation = 0;
   ready: Promise<void> = Promise.resolve();
   private host: TextCreationHost;
@@ -106,7 +113,7 @@ export class TextCreationSession {
   open(anchor: TextCreationAnchor, color: number, micro = EMPTY_TEXT_CREATION.micro) {
     if (!this.host.canEdit(anchor)) return false;
     this.anchor = { ...anchor, point: anchor.point.clone(), normal: anchor.normal.clone(), forward: anchor.forward.clone() };
-    this.state = { ...this.state, open: true, color, micro };
+    this.state = { ...this.state, open: true, color, micro, offsetX: 0, offsetY: 0, offsetZ: 0 };
     this.host.unlock();
     this.ready = this.regenerate();
     return true;
@@ -118,13 +125,22 @@ export class TextCreationSession {
   private async regenerate() {
     const revision = ++this.generation;
     this.placement = null;
+    this.basePlacement = null;
+    this.microSlot = null;
     this.state = { ...this.state, busy: true, error: null, blockCount: 0 };
     this.host.refresh();
     try {
       const result = await this.voxelize({ ...this.state });
       if (revision !== this.generation || !this.anchor || !this.state.open) return;
-      this.placement = placeTextOnSurface(result, this.anchor, this.state.orientation);
+      this.basePlacement = placeTextOnSurface(result, this.anchor, this.state.orientation);
+      this.bounds.makeEmpty();
+      for (const block of this.basePlacement.slot.blocks) {
+        const point = new THREE.Vector3(block.dx, block.dy, block.dz);
+        this.bounds.expandByPoint(point);
+        this.bounds.expandByPoint(point.addScalar(block.size || 1));
+      }
       this.state = { ...this.state, busy: false, blockCount: result.slot.blockCount, width: result.width, height: result.height };
+      this.updatePlacement();
     } catch (error) {
       if (revision !== this.generation) return;
       this.state = { ...this.state, busy: false, error: error instanceof Error ? error.message : 'Text preview failed.' };
@@ -132,7 +148,42 @@ export class TextCreationSession {
     this.host.refresh();
   }
   getPreview(): InventoryPlacementPreview | null {
-    return this.view.canCreate && this.anchor && this.placement ? this.host.preview(this.anchor, this.placement) : null;
+    // Keep an over-limit standard preview draggable so moving back to a whole
+    // cell can recover without discarding the text.
+    return this.state.open && this.anchor && this.placement && this.host.canEdit(this.anchor)
+      ? this.host.preview(this.anchor, this.placement) : null;
+  }
+  get offset() { return new THREE.Vector3(this.state.offsetX, this.state.offsetY, this.state.offsetZ); }
+  setOffset(offset: THREE.Vector3) {
+    if (!this.state.open || !this.basePlacement || !this.anchor || !this.host.canEdit(this.anchor)
+      || !offset.toArray().every(Number.isFinite)) return false;
+    const snapped = offset.clone().divideScalar(MICRO_SIZE).round().multiplyScalar(MICRO_SIZE);
+    this.state = { ...this.state, offsetX: snapped.x || 0, offsetY: snapped.y || 0, offsetZ: snapped.z || 0 };
+    this.updatePlacement();
+    this.host.refresh();
+    return true;
+  }
+  private updatePlacement() {
+    if (!this.basePlacement || !this.anchor) return;
+    const position = this.basePlacement.position.clone().add(this.offset);
+    if (!this.anchor.target) {
+      position.y = THREE.MathUtils.clamp(position.y, -this.bounds.min.y, CHUNK_SIZE_Y - this.bounds.max.y) || 0;
+      this.state.offsetY = position.y - this.basePlacement.position.y;
+    }
+    let slot = this.basePlacement.slot;
+    this.state.error = null;
+    if (!this.state.micro && position.toArray().some(value => !Number.isInteger(value))) {
+      // Standard cells at fractional origins must be subdivided to preserve
+      // the displayed shape on the world's and component's micro grids.
+      if (!this.microSlot) {
+        try { this.microSlot = toMicroPlacementItem(slot); }
+        catch (error) { this.microSlot = error instanceof Error ? error : new Error('Micro construction failed.'); }
+      }
+      if (this.microSlot instanceof Error) this.state.error = this.microSlot.message;
+      else slot = this.microSlot;
+    }
+    this.placement = { slot, position };
+    this.state.blockCount = slot.blockCount;
   }
   create() {
     if (!this.view.canCreate || !this.anchor || !this.placement) return false;
@@ -143,6 +194,8 @@ export class TextCreationSession {
   close(resume = true) {
     this.generation++;
     this.placement = null;
+    this.basePlacement = null;
+    this.microSlot = null;
     this.state = { ...this.state, open: false, busy: false };
     this.host.refresh();
     if (resume) void this.host.requestLock();

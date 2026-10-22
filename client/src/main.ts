@@ -263,13 +263,30 @@ class Game {
     this.uiStore.setNavigationSystem(this.navigationSystem);
     this.uiStore.setTutorialActions({
       navigate: async enter => {
-        if (persistentStorage && !this.controller.saveInventoriesToLocalStorage()) {
-          throw new Error('Could not save the shared backpack.');
+        // Reserve the tab during the click, before awaiting storage writes.
+        const tutorialTab = enter ? window.open('about:blank', '_blank') : null;
+        if (enter && !tutorialTab) {
+          this.uiStore.showToast('Allow pop-ups to open the tutorial in a new tab.', { tone: 'warning' });
+          return;
         }
-        this.world.flushPersistedEdits();
-        this.contraptionManager.saveEntitiesToStorage();
-        await persistentStorage?.whenIdle?.();
-        window.location.href = tutorialDestination(window.location.href, enter);
+        if (tutorialTab) tutorialTab.opener = null;
+        try {
+          if (persistentStorage && !this.controller.saveInventoriesToLocalStorage()) {
+            throw new Error('Could not save the shared backpack.');
+          }
+          this.world.flushPersistedEdits();
+          this.contraptionManager.saveEntitiesToStorage();
+          await persistentStorage?.whenIdle?.();
+          const destination = tutorialDestination(window.location.href, enter);
+          if (tutorialTab) {
+            if (!tutorialTab.closed) tutorialTab.location.replace(destination);
+          } else {
+            window.location.href = destination;
+          }
+        } catch (error) {
+          tutorialTab?.close();
+          throw error;
+        }
       },
       save: import.meta.env.DEV && SPACE_TUTORIAL_AUTHORING && tutorial ? async () => {
         this.world.flushPersistedEdits();
@@ -678,6 +695,7 @@ class Game {
     }
 
     // 6e. Hammer inventory hover ghost (entity slots and plain block sets).
+    this.controller.updateTextCreationGizmo();
     this.sceneRenderer.setInventoryPlacementPreview(
       this.controller.textCreationPreview || this.controller.inventoryPlacementPreview
     );

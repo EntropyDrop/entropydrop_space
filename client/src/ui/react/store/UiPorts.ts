@@ -18,6 +18,7 @@ export type UiPlayerController = Pick<PlayerController,
   | 'canUseSelectionActions'
   | 'clearSelection'
   | 'copySelectionSmart'
+  | 'cutSelectionSmart'
   | 'deleteInventoryItem'
   | 'deleteSelectionBlocks'
   | 'encodeInventoryItem'

@@ -78,6 +78,7 @@ test('F3 toggles perspective and perspective shortcuts stay engine-owned', () =>
   assert.equal(RESERVED_ENTITY_INPUT_CODES.has('F3'), true);
   assert.equal(RESERVED_ENTITY_INPUT_CODES.has('F5'), true);
   assert.equal(RESERVED_ENTITY_INPUT_CODES.has('KeyB'), true, 'the backpack shortcut stays engine-owned');
+  assert.equal(RESERVED_ENTITY_INPUT_CODES.has('KeyX'), true, 'the cut shortcut stays engine-owned');
   assert.equal(RESERVED_ENTITY_INPUT_CODES.has('KeyE'), false, 'the old backpack shortcut is available to entity scripts');
 });
 

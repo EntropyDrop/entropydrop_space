@@ -220,6 +220,7 @@ export class SceneRenderer {
   declare wrenchTetherLine: THREE.Line;
   declare wrenchPivotGizmo: THREE.Group;
   declare modelingGizmo: THREE.Group | undefined;
+  declare textCreationGizmo: THREE.Group | undefined;
   declare modelingOwnershipLink: THREE.Group | undefined;
   declare modelingPreview: THREE.Group | undefined;
   private declare wrenchTransformGizmo: TransformGizmo;
@@ -2319,6 +2320,7 @@ export class SceneRenderer {
       this.wrenchTetherLine,
       this.wrenchPivotGizmo,
       this.modelingGizmo,
+      this.textCreationGizmo,
       this.modelingOwnershipLink,
       this.modelingPreview,
       this.selectionAxisGizmo,

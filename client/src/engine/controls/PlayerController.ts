@@ -20,6 +20,7 @@ import { SelectionSession } from './SelectionSession.ts';
 import type { ComponentRange, ComponentSelection, SelectedVoxel } from './SelectionTypes.ts';
 import { ToolInteractionSession } from './ToolInteractionSession.ts';
 import { EMPTY_TEXT_CREATION, TextCreationSession, type TextCreationAnchor, type TextPlacement } from './TextCreationSession.ts';
+import { TextCreationGizmo } from './TextCreationGizmo.ts';
 
 type PlacementSlot = InventoryInput & { placementRotation?: number[]; itemName?: string };
 type SelectionGradient = { stops: GradientStop[]; start: Point3; end: Point3 };
@@ -174,7 +175,6 @@ export class PlayerController {
       get canPlaceStandardAt() { return host.canPlaceStandardAt.bind(host); },
       get clearHammerRotation() { return host.clearHammerRotation.bind(host); },
       get closeTextCreation() { return host.closeTextCreation.bind(host); },
-      get openTextCreation() { return host.openTextCreation.bind(host); },
       get clearSelection() { return host.clearSelection.bind(host); },
       get clearWrenchPivotDisplay() { return host.clearWrenchPivotDisplay.bind(host); },
       get enableSelectorMicroMode() { return host.enableSelectorMicroMode.bind(host); },
@@ -273,9 +273,14 @@ export class PlayerController {
   set _activeTool(value: ToolInteractionSession['_activeTool']) { this.toolSession._activeTool = value; }
 
   private _textCreationSession?: TextCreationSession;
+  private _textCreationGizmo?: TextCreationGizmo;
+  updateTextCreationGizmo() {
+    if (this._textCreationSession?.isOpen) this._textCreationGizmo ??= new TextCreationGizmo(this);
+    this._textCreationGizmo?.update();
+  }
   get textCreation(): TextCreationSession {
     return this._textCreationSession ??= new TextCreationSession({
-      refresh: () => this.ui?.refresh?.(),
+      refresh: () => { this.updateTextCreationGizmo(); this.ui?.refresh?.(); },
       unlock: () => {
         if (this.keys) for (const key of Object.keys(this.keys)) this.keys[key as keyof typeof this.keys] = false;
         this.unlock();
@@ -300,7 +305,7 @@ export class PlayerController {
     if (this._textCreationSession?.isOpen) this._textCreationSession.close(resume);
   }
   openTextCreation(): boolean {
-    if (this.activeTool !== SpecialTool.HAMMER || this.bulkEditJob) return false;
+    if (this.activeTool !== SpecialTool.HAMMER || this.bulkEditJob || this.worldPickingSuspended || this.ui?.hasAnyModalOpen?.()) return false;
     const hit = this.placementSession.getInventoryPlacementHit();
     const surface = hit && this.placementSession.getEntityPlacementSurfacePoint(hit);
     if (!hit || !surface) {
@@ -853,6 +858,10 @@ export class PlayerController {
   setupEventListeners() {
     // Mouse Look
     document.addEventListener('mousemove', (e) => {
+      if (this._textCreationSession?.isOpen) {
+        this._textCreationGizmo?.pointerMove(e);
+        return;
+      }
       if (this.worldPickingSuspended) return;
       if (this.activeTool === SpecialTool.MODELING && !this.isLocked) {
         this.modeling.pointerMove(e);
@@ -900,6 +909,7 @@ export class PlayerController {
     document.addEventListener('mouseup', (e) => {
       if (e.button === 2) this.modeling?.endCreation();
       if (e.button !== 0) return;
+      this._textCreationGizmo?.endDrag();
       this.modeling?.endDrag();
       this.releaseWrenchGizmoDrag();
       this.releaseWrenchGrab();
@@ -908,6 +918,10 @@ export class PlayerController {
 
     // Mouse Clicks
     document.addEventListener('mousedown', (e) => {
+      if (this._textCreationSession?.isOpen) {
+        if (this._textCreationGizmo?.pointerDown(e)) { e.preventDefault(); e.stopPropagation(); }
+        return;
+      }
       if (this.worldPickingSuspended) return;
       if (!this.isLocked) {
         if (this.activeTool === SpecialTool.MODELING && this.modeling.pointerDown(e)) {
@@ -986,6 +1000,7 @@ export class PlayerController {
     });
 
     window.addEventListener('blur', () => {
+      this._textCreationGizmo?.endDrag();
       this.modeling?.cancelDrag();
       this.resetEntityInputState();
       this.releaseWrenchGizmoDrag();
@@ -1067,6 +1082,12 @@ export class PlayerController {
       return;
     }
 
+    if (e.code === 'KeyT' && this.activeTool === SpecialTool.HAMMER && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (!e.repeat) this.openTextCreation();
+      return;
+    }
+
     this.recordEntityKeyDown(e.code);
 
     if (this.activeTool === SpecialTool.MODELING) {
@@ -1113,6 +1134,13 @@ export class PlayerController {
       case 'KeyR': // R key: unified smart copy selection (entity or world blocks)
         if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
           this.copySelectionSmart();
+        }
+        break;
+
+      case 'KeyX':
+        if (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) {
+          e.preventDefault();
+          if (!e.repeat) this.cutSelectionSmart();
         }
         break;
 
@@ -2308,6 +2336,20 @@ export class PlayerController {
     return null;
   }
 
+  /** Save the confirmed selection before removing any source content. */
+  cutSelectionSmart() {
+    if (this.bulkEditJob) {
+      this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
+      return null;
+    }
+    if (!this.requireConfirmedSelection('cutting')) return null;
+    if (this.selectedBlockSelection) {
+      if (!this.canDeleteSelectedEntityBlocks()) return null;
+      return this.copySelectionToInventory(true);
+    }
+    return this.copyWorldSelectionToInventory(true);
+  }
+
   /** The cyan outer box defines which complete entities accompany orange world cells. */
   private captureWorldSelectionEntities() {
     const manager = this.contraptions;
@@ -2322,6 +2364,7 @@ export class PlayerController {
     const center = region.getCenter(new THREE.Vector3());
     const blockBounds = new THREE.Box3();
     const entityList = [];
+    const sourceEntities: Contraption[] = [];
     let voxelCount = 0;
     for (const entity of manager.contraptions || []) {
       if (!entity.blocks?.length) continue;
@@ -2356,12 +2399,13 @@ export class PlayerController {
           .add(periodicOffset).sub(origin).toArray();
       }
       entityList.push(portable);
+      sourceEntities.push(entity);
     }
-    return { origin, entityList };
+    return { origin, entityList, sourceEntities };
   }
 
   /** R copies one portable Item without editing or stopping any enclosed source entity. */
-  copyWorldSelectionToInventory() {
+  copyWorldSelectionToInventory(cut = false) {
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return null;
@@ -2370,17 +2414,60 @@ export class PlayerController {
     try {
       const capture = this.captureWorldSelectionEntities();
       if (!capture) return null;
+      if (cut && !this.canCutWorldEntities(capture)) return null;
       if (this.contraptions.getSelectionBlockCount?.() > BULK_EDIT_THRESHOLD) {
-        return this.startLargeWorldBlockSetCopy(this.contraptions, capture);
+        return this.startLargeWorldBlockSetCopy(this.contraptions, capture, cut);
       }
-      return this.finishWorldSelectionCopy(this.sampleWorldSelectionAsBlockSet(capture.origin), capture);
+      return this.finishWorldSelectionCopy(this.sampleWorldSelectionAsBlockSet(capture.origin), capture, cut);
     } catch (error) {
       this.ui?.showToast?.(`Copy failed: ${error instanceof Error ? error.message : 'Invalid selection'}`, { tone: 'warning' });
       return null;
     }
   }
 
-  private finishWorldSelectionCopy(blocks: InventoryVoxel[], capture: WorldSelectionCapture) {
+  private canCutWorldEntities(capture: WorldSelectionCapture) {
+    if (capture.sourceEntities.some(entity => !this.canEditEntityInternals(entity))) {
+      this.ui?.showToast?.('Stop all enclosed entities and ensure they are editable before cutting', { tone: 'warning' });
+      return false;
+    }
+    return true;
+  }
+
+  /** Delete the sampled voxels, so later selection changes cannot redirect a cut. */
+  private removeCopiedWorldSelection(blocks: InventoryVoxel[], capture: WorldSelectionCapture) {
+    const step = (index: number) => {
+      const block = blocks[index];
+      const cell = {
+        x: capture.origin.x + Number(block.dx),
+        y: capture.origin.y + Number(block.dy),
+        z: capture.origin.z + Number(block.dz)
+      };
+      if ((block.size || 1) >= 1) {
+        return this.performBasicAction({ domain: ActionDomain.WORLD, action: 'clear-cell', cell }).removed || 0;
+      }
+      const micro = { x: Math.round(cell.x * MICRO_DIVISIONS), y: Math.round(cell.y * MICRO_DIVISIONS), z: Math.round(cell.z * MICRO_DIVISIONS) };
+      const standard = { x: Math.floor(cell.x), y: Math.floor(cell.y), z: Math.floor(cell.z) };
+      return this.performBasicAction(this.world.getBlock(standard.x, standard.y, standard.z) !== BlockTypes.AIR
+        ? { domain: ActionDomain.WORLD, action: 'subdivide-standard', cell: standard, micro }
+        : { domain: ActionDomain.WORLD, action: 'remove-micro', micro }).removed || 0;
+    };
+    const finish = () => {
+      for (const entity of capture.sourceEntities) {
+        if (!this.contraptions.contraptions.includes(entity)) continue;
+        this.contraptions.removeContraption(entity);
+        this.ui?.notifyContraptionRemoved?.(entity);
+      }
+      this.ui?.showToast?.(`Cut ${blocks.length} selected voxels and ${capture.entityList.length} entities to the hotbar · switched to Hammer`);
+    };
+    if (blocks.length > BULK_EDIT_THRESHOLD) {
+      this.startBulkEditJob({ label: 'Cutting world selection', total: blocks.length, step, finish });
+    } else {
+      blocks.forEach((_, index) => step(index));
+      finish();
+    }
+  }
+
+  private finishWorldSelectionCopy(blocks: InventoryVoxel[], capture: WorldSelectionCapture, cut = false) {
     if (!blocks.length && !capture.entityList.length) {
       this.ui?.showToast?.('Selection contains no world voxels or fully enclosed entities');
       return null;
@@ -2396,16 +2483,18 @@ export class PlayerController {
       this.ui?.showToast?.(`Copy failed: ${parsed.error}`, { tone: 'warning' });
       return null;
     }
-    const index = this.addInventoryItem('item', parsed.item);
+    if (cut && !this.canCutWorldEntities(capture)) return null;
+    const index = this.addInventoryItem('item', parsed.item, 'hotbar-end');
     if (index === null) {
       this.ui?.showToast?.(`Item inventory is full (${MAX_BACKPACK_ITEM_SLOTS}) - delete one first`);
       return null;
     }
     this.setActiveInventoryCategory('item');
     this.ui?.renderInventoryBar?.();
+    if (cut) this.removeCopiedWorldSelection(blocks, capture);
     this.clearSelection();
     this.activateTool(SpecialTool.HAMMER);
-    this.ui?.showToast?.(`Copied ${blocks.length} selected voxels and ${capture.entityList.length} entities to item slot ${index + 1} · switched to Hammer`);
+    if (!cut) this.ui?.showToast?.(`Copied ${blocks.length} selected voxels and ${capture.entityList.length} entities to item slot ${index + 1} · switched to Hammer`);
     return parsed.item;
   }
 
@@ -2436,7 +2525,7 @@ export class PlayerController {
     }));
   }
 
-  copySelectionToInventory() {
+  copySelectionToInventory(cut = false) {
     if (!this.requireConfirmedSelection('copying')) return null;
     if (this.selectedBlockSelection && this.selectedBlockSelection.blocks.length > 0) {
       const { contraption, nodeId, blocks } = this.selectedBlockSelection;
@@ -2469,17 +2558,18 @@ export class PlayerController {
         constraint.bodyA === null && constraint.bodyB === slotRootId
       ));
       slot.nodeCount = 1;
-      const index = this.addInventoryItem('entity', slot);
+      const index = this.addInventoryItem('entity', slot, 'hotbar-end');
       if (index === null) {
         this.ui?.showToast?.(`Item inventory is full (${this.inventories.entity.items.length}) - delete one first`);
         return null;
       }
       this.setActiveInventoryCategory('entity');
       this.ui?.renderInventoryBar?.();
+      if (cut) this.deleteSelectionBlocks(true);
       this.clearSelection();
       this.activateTool(SpecialTool.HAMMER);
       if (this.ui) {
-        this.ui.showToast(`Copied ${blocks.length} own blocks of [${nodeId}] to item slot ${index + 1} · switched to Hammer`);
+        this.ui.showToast(`${cut ? 'Cut' : 'Copied'} ${blocks.length} own blocks of [${nodeId}] to item slot ${index + 1} · switched to Hammer`);
       }
       return slot;
     }
@@ -2487,7 +2577,7 @@ export class PlayerController {
       return this.copySelectedSubtreeToInventory();
     }
     if (this.contraptions && this.contraptions.hasValidSelection()) {
-      return this.copyWorldSelectionToInventory();
+      return this.copyWorldSelectionToInventory(cut);
     }
     if (this.ui) this.ui.showToast('Nothing selected - click an entity/component with the selector, or box-select its blocks');
     return null;
@@ -2513,7 +2603,7 @@ export class PlayerController {
     }
     const blocks = this.stripCopiedBottomGap(rawBlocks, 'dy');
     const slot = { kind: 'blockset', name, blocks, blockCount: blocks.length };
-    const index = this.addInventoryItem('blockset', slot);
+    const index = this.addInventoryItem('blockset', slot, 'hotbar-end');
     if (index === null) {
       this.ui?.showToast?.(`Item inventory is full (${this.inventories.item.items.length}) - delete one first`);
       return null;
@@ -2584,7 +2674,7 @@ export class PlayerController {
   }
 
   /** Scan and normalize a large world selection through the shared executor. */
-  private startLargeWorldBlockSetCopy(manager: ContraptionManager, itemCapture: WorldSelectionCapture | null = null) {
+  private startLargeWorldBlockSetCopy(manager: ContraptionManager, itemCapture: WorldSelectionCapture | null = null, cut = false) {
     const microCells = Array.isArray(manager.microSelection)
       ? manager.microSelection.map(cell => ({ x: cell.x, y: cell.y, z: cell.z }))
       : null;
@@ -2680,7 +2770,7 @@ export class PlayerController {
         return 1;
       },
       finish: () => itemCapture
-        ? this.finishWorldSelectionCopy(rawBlocks, itemCapture)
+        ? this.finishWorldSelectionCopy(rawBlocks, itemCapture, cut)
         : this.finishBlockSetCopy(rawBlocks, `world selection (${rawBlocks.length} voxels)`)
     });
     if (started && !itemCapture) manager.clearSelection?.();
@@ -2999,6 +3089,7 @@ export class PlayerController {
       this.ui?.showToast?.(`${job.label} could not be completed`);
       return false;
     }
+    if (this.bulkEditJob) return true;
     const finalSync = this.world?.editPersistence?.getSyncStatus?.();
     if (finalSync) this.ui?.setWorldEditSync?.(finalSync);
     const hasPendingSync = job.mutatesWorld !== false
@@ -3211,7 +3302,7 @@ export class PlayerController {
     this.setActiveInventoryCategory('blockset');
     this.ui?.renderInventoryBar?.();
     if (this.ui) {
-      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into item slot ${index + 1} · Hammer LMB builds · Arrows rotate · RMB text`);
+      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into item slot ${index + 1} · Hammer LMB builds · Arrows rotate · T text`);
     }
     return this.inventories.item.items[index];
   }
@@ -3716,6 +3807,23 @@ export class PlayerController {
     return started;
   }
 
+  private canDeleteSelectedEntityBlocks() {
+    const coverage = new Map<RuntimeVoxel, Set<string>>();
+    for (const block of this.selectedBlockSelection?.blocks || []) {
+      if (!block.virtualMicro || !block.sourceBlock) continue;
+      let cells = coverage.get(block.sourceBlock);
+      if (!cells) coverage.set(block.sourceBlock, cells = new Set());
+      cells.add(this.microCellKey(block));
+    }
+    const partialCount = [...coverage.values()].filter(cells => cells.size < MICRO_DIVISIONS ** 3).length;
+    if (partialCount <= MAX_MICRO_MATERIALIZE_BLOCKS) return true;
+    this.ui?.showToast?.(
+      `Micro edit would subdivide ${partialCount} standard blocks (limit ${MAX_MICRO_MATERIALIZE_BLOCKS}) — narrow the selection`,
+      { tone: 'warning' }
+    );
+    return false;
+  }
+
   /**
    * Delete removes blocks in a confirmed A/B selection and then resets it.
    *
@@ -3724,7 +3832,7 @@ export class PlayerController {
    * - Confirmed world boxes/shapes remove standard and 8x8x8 microblocks.
    * - Preselected subtrees and Shift-picked cells cannot be deleted.
    */
-  deleteSelectionBlocks() {
+  deleteSelectionBlocks(preserveUnselectedComponents = false) {
     const manager = this.contraptions;
     if (!manager) return;
     if (this.bulkEditJob) {
@@ -3739,21 +3847,7 @@ export class PlayerController {
       // The shared delete action carves virtual cells in one mutation, creating
       // only the survivors of partially covered standard blocks.
       const { contraption, nodeId, blocks } = this.selectedBlockSelection;
-      const coverage = new Map<any, Set<string>>();
-      for (const block of blocks) {
-        if (!block.virtualMicro || !block.sourceBlock) continue;
-        let cells = coverage.get(block.sourceBlock);
-        if (!cells) coverage.set(block.sourceBlock, cells = new Set());
-        cells.add(this.microCellKey(block));
-      }
-      const partialCount = [...coverage.values()].filter(cells => cells.size < MICRO_DIVISIONS ** 3).length;
-      if (partialCount > MAX_MICRO_MATERIALIZE_BLOCKS) {
-        this.ui?.showToast?.(
-          `Micro edit would subdivide ${partialCount} standard blocks (limit ${MAX_MICRO_MATERIALIZE_BLOCKS}) — narrow the selection`,
-          { tone: 'warning' }
-        );
-        return;
-      }
+      if (!this.canDeleteSelectedEntityBlocks()) return;
       const result = this.performBasicAction({
         domain: ActionDomain.SELECTION,
         action: 'delete',
@@ -3769,7 +3863,10 @@ export class PlayerController {
           : (blocks[0]?.size || 1) < 1 ? 'micro' : 'standard';
         this.sound?.playBlockBreak({ kind, count: result.removed });
         const remainingBlocks = contraption.blocks.filter((b: any) => contraptionBlockOwnerId(contraption, b) === nodeId);
-        if (remainingBlocks.length === 0) {
+        // Cutting a parent's own blocks must leave its unselected children intact.
+        const keepChildren = preserveUnselectedComponents && this.collectSubtreeIds(contraption, nodeId).size > 1
+          && contraption.blocks.length > 0;
+        if (remainingBlocks.length === 0 && !keepChildren) {
           if (nodeId === contraptionRootId(contraption) || contraption.blocks.length === 0) {
             this.contraptions?.removeContraption?.(contraption);
             this.ui?.notifyContraptionRemoved?.(contraption);
@@ -4962,7 +5059,7 @@ export class PlayerController {
     if (action === 'program') return this.openCodeEditorForTarget(contraption);
     if (action === 'copy') {
       const slot = contraption.serializeSubtree(contraptionRootId(contraption));
-      const index = this.addInventoryItem('entity', slot);
+      const index = this.addInventoryItem('entity', slot, 'hotbar-end');
       if (index === null) {
         this.ui?.showToast?.('Item inventory is full; remove an item first', { tone: 'warning' });
         return false;
@@ -5413,7 +5510,7 @@ export class PlayerController {
     }
     const slot = contraption.serializeSubtree(rootId);
     if (!slot) return null;
-    const index = this.addInventoryItem('entity', slot);
+    const index = this.addInventoryItem('entity', slot, 'hotbar-end');
     if (index === null) {
       this.ui?.showToast?.(`Item inventory is full (${this.inventories.entity.items.length}) - delete one first`);
       return null;
@@ -5598,17 +5695,16 @@ export class PlayerController {
       : { x: cornerA.x, y: cornerA.y, z: cornerA.z };
   }
 
-  /** Use an empty shared Item or Color Set slot, preferring the selected empty
-   *  hotbar slot. Returns its index, or null when the group is full. */
-  addInventoryItem(category: InventoryKind, item: InventoryInput | null): number | null {
+  /** Copies append to the hotbar; other additions use the first empty slot. */
+  addInventoryItem(category: InventoryKind, item: InventoryInput | null, placement: 'first-empty' | 'hotbar-end' = 'first-empty'): number | null {
     this.inventoryCategory();
     const view = category === 'colorset' ? 'colorset' : 'item';
     const group = inventoryGroup(this.inventories, view);
     if (!group) return null;
     const previousSelected = group.selected;
-    const index = addInventoryItem(this.inventories, category, item);
+    const index = addInventoryItem(this.inventories, category, item, placement);
     if (index === null) return null;
-    if (this.activeInventoryCategory === view && previousSelected !== this.inventories[view].selected) this.clearHammerRotation();
+    if (this.activeInventoryCategory === view && (placement === 'hotbar-end' || previousSelected !== this.inventories[view].selected)) this.clearHammerRotation();
     this.saveInventoriesToLocalStorage();
     return index;
   }

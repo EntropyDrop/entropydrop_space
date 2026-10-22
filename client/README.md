@@ -347,9 +347,13 @@ Hammer hides the black target-cell wireframe and keeps its placement ghost.
 Hammer construction, rotation and slot cycling always use the Item hotbar.
 Browsing Color Sets does not change what Hammer builds; apply a palette by
 clicking its Color Set card in the backpack.
-Hammer right-click opens the text creation side panel at the focused surface.
+With Hammer selected, press `T` to open the text creation side panel at the focused surface.
 Edit multiline text (including Chinese), font size (8–128 cells), color, material and
-voxel size (micro or standard) while the pinned voxel preview updates. Choose
+voxel size (micro or standard) while the voxel preview updates. Drag the colored
+X/Y/Z arrows or edit the position offsets to move the preview in 0.125 m steps,
+using the focused component's local axes when building on an entity. Edits keep
+the current offset. Standard text at fractional positions is subdivided into
+micro voxels without changing its shape, subject to the voxel limit. Choose
 Vertical to stand the text upright or Horizontal to lay it flat, keeping it
 outside the focused surface in both cases. Text defaults to Vertical, size 12,
 and Micro. Create

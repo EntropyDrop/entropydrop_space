@@ -49,7 +49,7 @@ export function inventoryGroup(inventories: Partial<Inventories>, category: stri
   }
 }
 
-export function addInventoryItem(inventories: Inventories, category: InventoryKind, item: InventoryInput | null): number | null {
+export function addInventoryItem(inventories: Inventories, category: InventoryKind, item: InventoryInput | null, placement: 'first-empty' | 'hotbar-end' = 'first-empty'): number | null {
   const originalCategory = category;
   category = category === 'colorset' ? 'colorset' : 'item';
   const group = inventoryGroup(inventories, category);
@@ -89,9 +89,25 @@ export function addInventoryItem(inventories: Inventories, category: InventoryKi
       ? `${prefix}${globalThis.crypto.randomUUID()}`
       : `${prefix}${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   }
-  // Put an item into the first available empty slot in the category.
-  const index = group.items.findIndex(slot => !slot);
+  let index = group.items.findIndex(slot => !slot);
   if (index < 0) return null;
+  if (category === 'item' && placement === 'hotbar-end') {
+    const hotbar = group.items.slice(0, 9).filter(slot => slot !== null);
+    if (hotbar.length === 9) {
+      // Append the displaced last hotbar item after the occupied storage slots.
+      // Only close a storage gap when the final physical slot is occupied.
+      let storageEnd = group.items.length;
+      while (storageEnd > 9 && !group.items[storageEnd - 1]) storageEnd--;
+      if (storageEnd === group.items.length) {
+        group.items.splice(index, 1);
+        group.items.push(null);
+        storageEnd--;
+      }
+      group.items[storageEnd] = hotbar.pop()!;
+    }
+    index = hotbar.length;
+    for (let i = 0; i < 9; i++) group.items[i] = hotbar[i] || null;
+  }
   item.name = inventoryItemName(category, item, index);
   group.items[index] = item;
   if (index < 9) {

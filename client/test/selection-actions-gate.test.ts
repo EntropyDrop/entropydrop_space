@@ -34,7 +34,7 @@ function fixture() {
 }
 
 const operations = [
-  'deleteSelectionBlocks', 'copySelectionSmart', 'copySelectionToInventory', 'copySelectionAsBlockSet',
+  'deleteSelectionBlocks', 'copySelectionSmart', 'cutSelectionSmart', 'copySelectionToInventory', 'copySelectionAsBlockSet',
   'copySelectedSubtreeToInventory', 'fillSelectionBlocks', 'paintSelectionBlocks',
   'createChildFromSelectedBlocks', 'assembleSelection', 'rotateSelection'
 ];

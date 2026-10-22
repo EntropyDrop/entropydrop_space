@@ -26,16 +26,19 @@ test('tool sessions isolate held input and publish immutable frame edges', () =>
 });
 
 test('leaving Hammer clears placement pose without leaking into another session', () => {
+  let textClosed = false;
   const placement = new PlacementSession({} as PlacementSessionPort);
   const other = new PlacementSession({} as PlacementSessionPort);
   const tools = new ToolInteractionSession({
     clearHammerRotation: () => placement.clearHammerRotation(),
+    closeTextCreation: resume => { assert.equal(resume, false); textClosed = true; },
   } as ToolInteractionSessionPort);
   tools.activeTool = SpecialTool.HAMMER;
   placement.hammerRotationTurnsX = 1;
   placement.hammerRotationTurnsY = 3;
   other.hammerRotationTurnsX = 2;
   tools.activeTool = SpecialTool.SELECTOR;
+  assert.equal(textClosed, true);
   assert.equal(placement.hammerRotationTurnsX, 0);
   assert.equal(placement.hammerRotationTurnsY, 0);
   assert.equal(placement.hammerRotatedSlotCache, null);

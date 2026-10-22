@@ -628,8 +628,8 @@ export function PauseScreen() {
           <span><kbd className="key-badge">Space</kbd> again in midair: Tap to dash · Hold to keep dashing toward the crosshair</span>
           <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
           <span><kbd className="key-badge">B</kbd> Backpack / Color sets</span>
-          <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy</span>
-          <span><kbd className="key-badge">2</kbd> Hammer: LMB build / attach to entity · Arrows rotate · RMB text · Tab standard/micro positioning</span>
+          <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy · X cut</span>
+          <span><kbd className="key-badge">2</kbd> Hammer: LMB build / attach to entity · Arrows rotate · T text · Tab standard/micro positioning</span>
           <span><kbd className="key-badge">3</kbd> Wrench: drag COM axes to move · drag arrows to rotate · hold entity to lift · RMB to start</span>
           <span><kbd className="key-badge">4</kbd> Shovel: remove / place 1m blocks</span>
           <span><kbd className="key-badge">5</kbd> Spoon: micro-carve 8x8x8</span>
@@ -658,7 +658,9 @@ export function PauseScreen() {
           >
             {hasStarted ? 'Resume' : 'Play'}
           </button>
-          <button id="tutorial-btn" type="button" tabIndex={-1} className="start-btn"
+          <button id="tutorial-btn" type="button" tabIndex={-1} className="tutorial-btn"
+            title={SPACE_TUTORIAL ? 'Leave tutorial' : 'Open tutorial in a new tab'}
+            aria-label={SPACE_TUTORIAL ? 'Leave tutorial' : 'Open tutorial in a new tab'}
             onClick={() => void spaceUiStore.navigateTutorial(!SPACE_TUTORIAL)}>
             {SPACE_TUTORIAL ? 'Leave tutorial' : 'Tutorial'}
           </button>

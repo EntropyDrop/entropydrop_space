@@ -1,8 +1,8 @@
 # Tutorial level
 
-Open the controls screen and choose **Tutorial**, or add `?tutorial=1` to the
-game URL. This works in the online and offline builds without account admission
-or server APIs.
+Open the controls screen and choose **Tutorial** to open it in a new tab,
+or add `?tutorial=1` to the game URL. This works in the online and offline builds
+without account admission or server APIs.
 
 The base world is a torus with a constant ground height (top surface at Y=17),
 generated in the browser by terrain generator version 9. Gray and off-white

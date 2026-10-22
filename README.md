@@ -1,6 +1,7 @@
 # EntropyDrop Space
 
-Space is a Node 24+ / npm 10+ workspace with one root lockfile:
+Space uses Node 24.22.1 / npm 10+ with one root lockfile. Node 26.12.1+ on
+the 26.x release line is also supported; older unpatched runtimes are excluded:
 
 - `client/`: Three.js browser client and UI (`@entropydrop/space`).
 - `engine/`: shared TypeScript physics, voxels, simulation and scripting (`@entropydrop/space-engine`).

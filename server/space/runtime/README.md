@@ -7,7 +7,7 @@ The coordinator uses one independent runtime process per entity/core, capped glo
 at 128 physical CPU reservations. Linux pins each process before sending guest input.
 See [hosting allocation, UI and deployment](../../docs/entity-hosting.md).
 
-Use Node 24+ and run from the Space workspace root:
+Use Node 24.22.1+ on the 24.x line (or 26.12.1+ on 26.x) and run from the Space workspace root:
 
 ```sh
 npm ci

@@ -4,7 +4,7 @@ export const RESERVED_ENTITY_INPUT_CODES = new Set([
   'Escape',
   'Backspace', 'Delete',
   'F3', 'F5',
-  'KeyB', 'KeyC', 'KeyF', 'KeyG', 'KeyR', 'KeyV',
+  'KeyB', 'KeyC', 'KeyF', 'KeyG', 'KeyR', 'KeyV', 'KeyX',
   'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5',
   'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'
 ]);

@@ -279,7 +279,7 @@ test('R still copies an entity slot and paste creates an entity', () => {
   assert.equal(pasted.blocks.length, 1);
 });
 
-test('Hammer LMB builds block sets into empty cells only, skipping occupied cells; RMB rotates the block set 90°', () => {
+test('Hammer LMB skips occupied cells, RMB leaves text closed, and arrows rotate the block set 90°', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 10, 20, 30, 12, 23, 32);
@@ -309,14 +309,17 @@ test('Hammer LMB builds block sets into empty cells only, skipping occupied cell
   assert.ok(controller.__toasts.some((m: string) => m.includes('occupied cell(s) skipped')));
   assert.equal(controller.activeTool, SpecialTool.WRENCH);
 
-  // Re-equip Hammer; RMB rotates the active block set 90 degrees.
+  // Re-equip Hammer; RMB has no text or rotation action on terrain.
   controller.activateTool(SpecialTool.HAMMER);
   controller.handleRightClick();
+  assert.equal(controller.textCreationView.open, false);
+  assert.equal(controller.hammerRotationTurnsY, 0);
+  controller.handleKeyDown({ code: 'ArrowRight', preventDefault() {} } as KeyboardEvent);
   assert.ok(controller.__toasts.some((m: string) => m.includes('Rotated')));
   const rotatedSlot = controller.getActiveHammerInventoryItem();
   assert.equal(rotatedSlot.blocks[0].dz !== 0 || rotatedSlot.blocks[1].dz !== 0, true);
   assert.deepEqual(controller.inventorySlots[0].blocks.map((block: import('@entropydrop/space-engine/storage/InventoryTypes.ts').BlockSetVoxel) => [block.dx, block.dz]), [[0, 0], [1, 0]],
-    'RMB rotation must remain temporary and leave the backpack item unchanged');
+    'arrow rotation must remain temporary and leave the backpack item unchanged');
 
   const rotatedBlueBlock = rotatedSlot.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.color === 0x123456);
   controller.handleLeftClick();

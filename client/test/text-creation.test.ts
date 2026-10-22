@@ -11,6 +11,8 @@ import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import { setTorusViewCorrection } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { transformAxis, transformScreenPoint, transformViewCamera } from '../src/engine/render/TransformGizmo.ts';
 
 const options: TextVoxelOptions = { text: '\u4e2d\u6587', fontSize: 16, micro: true, color: 0x66bbcc, materialId: 0 };
 const raster = (opts = options) => textMaskToVoxels([255, 0, 255, 255, 255, 0], 3, 2, opts);
@@ -123,10 +125,12 @@ function controllerHarness() {
   return { c, store };
 }
 
-test('Hammer RMB opens panel, suspends picking and movement; Escape cancels and resumes', async () => {
+test('Hammer T opens panel, suspends picking and movement; Escape cancels and resumes', async () => {
   const { c, store } = controllerHarness();
   c.hammerMicroMode = false;
-  assert.equal(c.handleRightClick(null), true); await c.textCreation.ready;
+  c.handleRightClick(null);
+  assert.equal(c.textCreationView.open, false, 'RMB no longer creates text');
+  c.handleKeyDown({ code: 'KeyT', preventDefault() {} }); await c.textCreation.ready;
   assert.equal(c.textCreationView.fontSize, 12);
   assert.equal(c.textCreationView.orientation, 'vertical');
   assert.equal(c.textCreationView.materialId, 0);
@@ -134,9 +138,136 @@ test('Hammer RMB opens panel, suspends picking and movement; Escape cancels and 
   assert.equal(store.getSnapshot().textCreation.open, true); assert.equal(store.hasAnyModalOpen(), true);
   assert.equal(c.worldPickingSuspended, true); assert.equal(c.keys.forward, false);
   assert.ok(c.textCreationPreview); assert.equal(c.currentRaycast.hit, false);
+  store.resumeFromCanvas();
+  assert.equal(store.getSnapshot().textCreation.open, true, 'canvas clicks and drags keep the text panel open');
+  assert.equal(store.getSnapshot().pointerLocked, false);
   c.handleKeyDown({ code: 'Digit1' }); assert.equal(c.activeTool, SpecialTool.HAMMER);
   assert.equal(store.handleEscape(), true); assert.equal(store.getSnapshot().textCreation.open, false);
   assert.equal(c.worldPickingSuspended, false); assert.equal(store.getSnapshot().pointerLocked, true);
+});
+
+test('text shortcut ignores repeats, modifiers, editable fields and suspended world input', () => {
+  const { c, store } = controllerHarness();
+  for (const patch of [{ repeat: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true },
+    { target: { tagName: 'TEXTAREA' } }, { target: { isContentEditable: true } }]) {
+    c.handleKeyDown({ code: 'KeyT', preventDefault() {}, ...patch });
+    assert.equal(c.textCreationView.open, false);
+  }
+  c.worldPickingSuspended = true;
+  c.handleKeyDown({ code: 'KeyT', preventDefault() {} });
+  assert.equal(c.textCreationView.open, false);
+  c.worldPickingSuspended = false;
+  store.toggleHelpModal(true);
+  c.handleKeyDown({ code: 'KeyT', preventDefault() {} });
+  assert.equal(c.textCreationView.open, false, 'other modal dialogs keep keyboard focus');
+  store.toggleHelpModal(false);
+  c.activeTool = SpecialTool.SHOVEL;
+  c.handleKeyDown({ code: 'KeyT', preventDefault() {} });
+  assert.equal(c.textCreationView.open, false);
+});
+
+test('text offsets snap to micro cells, survive edits, respect world height and reset on reopen', async () => {
+  const { c, store } = controllerHarness();
+  c.openTextCreation(); await c.textCreation.ready;
+  const original = c.textCreationPreview.position.clone();
+  c.textCreation.setOffset(new THREE.Vector3(.18, -.2, .32));
+  assert.deepEqual(c.textCreation.offset.toArray(), [.125, -.25, .375]);
+  assert.deepEqual(c.textCreationPreview.position.toArray(), original.add(c.textCreation.offset).toArray());
+  assert.equal(store.getSnapshot().textCreation.offsetX, .125);
+  c.textCreation.edit({ text: 'Moved text', fontSize: 24, color: 0xff0000, orientation: 'horizontal' });
+  await c.textCreation.ready;
+  assert.deepEqual(c.textCreation.offset.toArray(), [.125, -.25, .375]);
+  c.textCreation.setOffset(new THREE.Vector3(.125, -1000, .375));
+  assert.equal(c.textCreationPreview.position.y, 0);
+  c.textCreation.setOffset(new THREE.Vector3(.125, 1000, .375));
+  assert.equal(c.textCreationPreview.position.y, CHUNK_SIZE_Y - .125);
+  assert.equal(c.textCreation.setOffset(new THREE.Vector3(NaN, 0, 0)), false);
+  c.textCreation.close(false);
+  c.textCreation.open(anchor(), options.color); await c.textCreation.ready;
+  assert.deepEqual(c.textCreation.offset.toArray(), [0, 0, 0]);
+  c.textCreation.close(false);
+});
+
+test('fractionally moved standard text builds micro voxels at exactly the preview coordinates', async () => {
+  const { c } = controllerHarness();
+  const commands: any[] = [];
+  c.performBasicAction = (command: any) => { commands.push(command); return { placed: 1 }; };
+  c.activateTool = () => {};
+  c.openTextCreation(); await c.textCreation.ready;
+  c.textCreation.edit({ micro: false }); await c.textCreation.ready;
+  const standard = c.textCreationPreview;
+  c.textCreation.setOffset(new THREE.Vector3(.125, -.25, .375));
+  const preview = c.textCreationPreview;
+  assert.equal(preview.slot.blockCount, standard.slot.blockCount * 512);
+  assert.ok(preview.slot.blocks.every((b: any) => b.size === .125));
+  assert.deepEqual(preview.position.toArray(), standard.position.clone().add(c.textCreation.offset).toArray());
+  assert.equal(c.textCreation.create(), true);
+  while (c.bulkEditJob) c.processBulkEditFrame(64, Infinity);
+  assert.deepEqual(commands.map(command => command.micro), preview.slot.blocks.map((b: any) =>
+    [preview.position.x + b.dx, preview.position.y + b.dy, preview.position.z + b.dz].map(v => v * 8)));
+});
+
+test('over-limit fractional standard text stays movable and recovers on the whole-cell grid', async () => {
+  const { c } = controllerHarness();
+  (c.textCreation as any).voxelize = async (opts: TextVoxelOptions) => textMaskToVoxels(new Uint8Array(129).fill(255), 129, 1, opts);
+  c.openTextCreation(); await c.textCreation.ready;
+  c.textCreation.edit({ micro: false }); await c.textCreation.ready;
+  c.textCreation.setOffset(new THREE.Vector3(.125, 0, 0));
+  assert.match(c.textCreationView.error, /65,536/);
+  assert.equal(c.textCreationView.canCreate, false);
+  assert.ok(c.textCreationPreview, 'keep the preview available for drag recovery');
+  assert.equal(c.textCreation.create(), false);
+  c.textCreation.setOffset(new THREE.Vector3(1, 0, 0));
+  assert.equal(c.textCreationView.error, null);
+  assert.equal(c.textCreationView.canCreate, true);
+  c.textCreation.close(false);
+});
+
+for (const axis of ['x', 'y', 'z'] as const) test(`text ${axis.toUpperCase()} arrow drags in the rendered local frame while world picking is suspended`, async t => {
+  const { c } = controllerHarness();
+  const previousDocument = globalThis.document, previousWindow = globalThis.window;
+  const listeners = new Map<string, (event: any) => void>();
+  globalThis.document = { addEventListener: (name: string, callback: EventListener) => listeners.set(name, callback) } as any;
+  globalThis.window = { addEventListener: (name: string, callback: EventListener) => listeners.set(name, callback) } as any;
+  t.after(() => { c.textCreation.close(false); globalThis.document = previousDocument; globalThis.window = previousWindow; setTorusViewCorrection(null); });
+  const rect = { left: 30, top: 20, width: 1000, height: 700 };
+  c.sceneRenderer = { scene: new THREE.Scene(), renderer: { domElement: { getBoundingClientRect: () => rect } } };
+  c.camera = new THREE.PerspectiveCamera(60, rect.width / rect.height, .1, 1000);
+  c.camera.position.set(9, 24, 13); c.camera.lookAt(4.5, 20, 6.5);
+  const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(.1, .4, -.2));
+  // Exercise picking and dragging against rotated component axes as well as camera bend.
+  const host = (c.textCreation as any).host;
+  const originalPreview = host.preview;
+  host.preview = (a: TextCreationAnchor, p: any) => ({ ...originalPreview(a, p), quaternion: rotation });
+  c.openTextCreation(); await c.textCreation.ready;
+  setTorusViewCorrection(c.camera.position);
+  c.updateTextCreationGizmo();
+  const group = c.sceneRenderer.textCreationGizmo as THREE.Group;
+  assert.deepEqual([...new Set(group.children.map(child => child.userData.transformHandle))], ['move-x', 'move-y', 'move-z']);
+  assert.ok(group.quaternion.angleTo(rotation) < 1e-7);
+  assert.equal(c.worldPickingSuspended, true);
+  c.setupEventListeners();
+  const camera = transformViewCamera(c.camera);
+  const project = (p: THREE.Vector3) => transformScreenPoint(p, camera, rect.width, rect.height);
+  const start = project(group.localToWorld(transformAxis(axis).multiplyScalar(.97)))
+    .add(new THREE.Vector2(rect.left + rect.width / 2, rect.top + rect.height / 2));
+  const screenVector = project(group.position.clone().add(transformAxis(axis).applyQuaternion(rotation))).sub(project(group.position));
+  const event = (delta: number) => ({ button: 0, clientX: start.x + screenVector.x * delta,
+    clientY: start.y + screenVector.y * delta, preventDefault() {}, stopPropagation() {} });
+  listeners.get('mousedown')!({ ...event(0), target: { closest: () => null } });
+  listeners.get('mousemove')!(event(.3));
+  assert.deepEqual(c.textCreation.offset.toArray(), [0, 0, 0], 'panel clicks cannot grab scene handles');
+  listeners.get('mousedown')!(event(0));
+  listeners.get('mousemove')!(event(.18));
+  assert.deepEqual(c.textCreation.offset.toArray(), transformAxis(axis).multiplyScalar(.125).toArray());
+  listeners.get('mousemove')!(event(-.2));
+  assert.deepEqual(c.textCreation.offset.toArray(), transformAxis(axis).multiplyScalar(-.25).toArray().map(v => v || 0));
+  listeners.get('mouseup')!({ button: 0 });
+  listeners.get('mousemove')!(event(.5));
+  assert.equal(c.textCreation.offset[axis], -.25, 'mouse release ends dragging');
+  c.textCreation.close(false);
+  assert.equal(c.sceneRenderer.textCreationGizmo, undefined);
+  assert.equal(group.parent, null, 'closing disposes the overlay');
 });
 
 for (const orientation of ['vertical', 'horizontal'] as const) test(`${orientation} terrain text writes exactly the displayed micro cells and switches to Wrench`, async () => {
@@ -146,6 +277,7 @@ for (const orientation of ['vertical', 'horizontal'] as const) test(`${orientati
   c.activateTool = (tool: string) => { c.activeTool = tool; };
   c.openTextCreation(); await c.textCreation.ready;
   c.textCreation.edit({ materialId: 1, orientation }); await c.textCreation.ready;
+  c.textCreation.setOffset(new THREE.Vector3(.125, .25, -.375));
   const preview = c.textCreationPreview;
   assert.equal(preview.materialId, 1);
   const expected = preview.slot.blocks.map((b: any) => [b.dx + preview.position.x, b.dy + preview.position.y, b.dz + preview.position.z].map(v => v * 8));
@@ -194,6 +326,32 @@ test('stopped component creation uses its local frame and skips both standard an
     assert.equal(target.blocks[2].materialId, 61);
     assert.equal(target.blocks[0].color, 0xffffff); assert.equal(target.blocks[1].color, 0xffffff);
   } finally { manager.removeContraption(target, { skipSave: true }); }
+});
+
+test('moved text on a rotated component keeps local micro offsets through preview and construction', async () => {
+  const { c } = controllerHarness();
+  const manager = new ContraptionManager(new THREE.Scene(), null, null, null);
+  const target = manager.buildFromSlot({ kind: 'entity', rootComponentId: 'root', blocks: [
+    { localX: 0, localY: 0, localZ: 0, size: 1, color: 0xffffff, entityId: 'root' },
+  ], childEntities: [], scripts: [], constraints: [] }, new THREE.Vector3(8, 20, 10), null, false)!;
+  target.stopAllNodeScripts(); c.contraptions = manager; c.activateTool = () => {};
+  const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 3);
+  target.rootGroup.quaternion.copy(rotation);
+  target.rootGroup.updateMatrixWorld(true);
+  try {
+    const focus = { ...anchor(), point: new THREE.Vector3(2, 1, 0), target, nodeId: 'root' };
+    c.textCreation.open(focus, options.color); await c.textCreation.ready;
+    c.textCreation.setOffset(new THREE.Vector3(.125, .25, -.375));
+    const preview = c.textCreationPreview;
+    const local = placeTextOnSurface(raster(), focus, 'vertical').position.add(c.textCreation.offset);
+    const world = target.entityLocalToWorld('root', local.clone());
+    assert.ok(preview.position.distanceTo(world) < 1e-8);
+    assert.ok(preview.quaternion.angleTo(rotation) < 1e-7);
+    const expected = preview.slot.blocks.map((b: any) => [b.dx + local.x, b.dy + local.y, b.dz + local.z]);
+    assert.equal(c.textCreation.create(), true);
+    assert.deepEqual(target.blocks.slice(1).map(b => [b.localX, b.localY, b.localZ]), expected);
+    assert.ok(target.blocks.slice(1).every(b => b.size === .125));
+  } finally { c.textCreation.close(false); manager.removeContraption(target, { skipSave: true }); }
 });
 
 test('generated text keeps fine strokes beyond the ordinary 200-voxel ghost threshold', () => {

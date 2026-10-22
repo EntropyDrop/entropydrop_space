@@ -469,7 +469,7 @@ function InventoryBar() {
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
           </button>
         </div>
-        <span className="palette-hotkey-hint"><b>B</b> Full Backpack · <b>Arrows</b> Rotate · <b>RMB</b> Text · <b>LMB</b> Build</span>
+        <span className="palette-hotkey-hint"><b>B</b> Full Backpack · <b>Arrows</b> Rotate · <b>T</b> Text · <b>LMB</b> Build</span>
       </div>
       <div id="inventory-bar" className="inventory-bar">
         {Array.from({ length: 9 }, (_, index) => {
@@ -568,6 +568,7 @@ function SelectorPanel() {
             Paint (P)
           </button>
           <button id="copy-btn" tabIndex={-1} className="banner-btn secondary" title="Copy selected blocks and complete entities inside the world selection (R)" disabled={!selector.canCopy} onClick={() => controller?.copySelectionSmart?.()}>Copy (R)</button>
+          <button id="cut-btn" tabIndex={-1} className="banner-btn secondary" title="Cut selection to the hotbar (X)" disabled={!selector.canCopy} onClick={() => controller?.cutSelectionSmart?.()}>Cut (X)</button>
           <button id="delete-btn" tabIndex={-1} className="banner-btn danger" title="Delete selection (Del)" disabled={!selector.canDelete} onClick={() => controller?.deleteSelectionBlocks?.()}>Delete (Del)</button>
         </div>
       </div>
@@ -705,6 +706,7 @@ function SelectorContextMenu() {
             <button type="button" role="menuitem" disabled={!selector.canModify} onClick={() => run(() => controller?.fillSelectionBlocks?.())}>Fill <kbd>F</kbd></button>
             <button type="button" role="menuitem" disabled={!selector.canModify} onClick={() => run(() => controller?.paintSelectionBlocks?.())}>Paint <kbd>P</kbd></button>
             <button type="button" role="menuitem" disabled={!selector.canCopy} onClick={() => run(() => controller?.copySelectionSmart?.())}>Copy <kbd>R</kbd></button>
+            <button type="button" role="menuitem" disabled={!selector.canCopy} onClick={() => run(() => controller?.cutSelectionSmart?.())}>Cut <kbd>X</kbd></button>
             <button type="button" role="menuitem" className="danger" disabled={!selector.canDelete} onClick={() => run(() => controller?.deleteSelectionBlocks?.())}>Delete <kbd>Del</kbd></button>
             <button type="button" role="menuitem" disabled={!selector.hasSelection} onClick={() => run(() => controller?.clearSelection?.())}>Clear Selection</button>
           </div>

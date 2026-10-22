@@ -16,7 +16,6 @@ export interface ToolInteractionSessionPort {
   canPlaceStandardAt: PlayerController['canPlaceStandardAt'];
   clearHammerRotation: PlayerController['clearHammerRotation'];
   closeTextCreation: PlayerController['closeTextCreation'];
-  openTextCreation: PlayerController['openTextCreation'];
   clearSelection: PlayerController['clearSelection'];
   clearWrenchPivotDisplay: PlayerController['clearWrenchPivotDisplay'];
   enableSelectorMicroMode: PlayerController['enableSelectorMicroMode'];
@@ -825,10 +824,6 @@ export class ToolInteractionSession {
     if (this.activeTool === SpecialTool.PIPETTE) {
       this.host.sampleTargetedColor();
       return;
-    }
-
-    if (this.activeTool === SpecialTool.HAMMER) {
-      return this.host.openTextCreation();
     }
 
     return;

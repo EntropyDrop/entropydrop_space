@@ -6649,6 +6649,29 @@ button.palette-title:hover {
   box-shadow: 2px 2px 0px #000;
 }
 
+.tutorial-btn {
+  align-self: stretch;
+  min-height: 48px;
+  margin-top: 4px;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.tutorial-btn:hover {
+  background: var(--bg-surface-card);
+  color: var(--text-main);
+  border-color: var(--border-medium);
+}
+
+.tutorial-btn:active {
+  background: var(--bg-input);
+}
+
 /* =========================================================================
    SCRIPT API REFERENCE MODAL
    ========================================================================= */
@@ -7499,6 +7522,12 @@ button.palette-title:hover {
 .text-creation-orientation { margin: 0 0 18px; font-size: 13px; color: #bfd0c9; }
 .text-creation-orientation > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 6px; }
 .text-creation-orientation button[aria-pressed="true"] { color: #12251d; background: #a6d9b8; border-color: #a6d9b8; }
+.text-creation-position { margin: 0 0 18px; font-size: 13px; color: #bfd0c9; }
+.text-creation-position > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 8px 0 6px; }
+.text-creation-position input { display: block; width: 100%; margin-top: 6px; font-size: 12px; }
+.text-creation-position .axis-x { color: #ff7979; }
+.text-creation-position .axis-y { color: #80d994; }
+.text-creation-position .axis-z { color: #80baff; }
 .text-creation-panel .text-creation-color { display: flex; align-items: center; gap: 12px; }
 .text-creation-color input { width: 44px; height: 32px; padding: 3px; margin-left: auto; cursor: pointer; }
 .text-creation-color span { width: 76px; color: #eaf1ef; font-size: 13px; }

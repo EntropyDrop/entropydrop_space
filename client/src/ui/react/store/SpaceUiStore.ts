@@ -294,7 +294,7 @@ type Listener = () => void;
 
 const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: `Select and copy world/entity regions (max ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}); no build action` },
-  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · Arrows rotate · RMB text · Tab micro/std' },
+  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · Arrows rotate · T text · Tab micro/std' },
   { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag COM XYZ axes to move · drag arrows to rotate · hold entity to lift · right-click to start' },
   { type: 'tool', value: SpecialTool.SHOVEL, name: 'Shovel', icon: '', desc: 'Remove / place 1x1x1 standard blocks' },
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
@@ -816,7 +816,7 @@ export class SpaceUiStore {
 
   resumeFromCanvas(): void {
     const state = this.snapshot;
-    if (state.textCreation.open) { state.controller?.closeTextCreation(); return; }
+    if (state.textCreation.open) return;
     if (state.controller?.modeling?.capturesPointer()) return;
     if (state.hasStarted && !state.activeModal && !state.apiDocsOpen
       && !state.selectorContextMenu && !state.entityContextMenu && !state.controller?.isLocked) {
@@ -1617,7 +1617,7 @@ export class SpaceUiStore {
     if (clone.publicId !== undefined || category === 'entity') clone.publicId = newUniqueId;
     if (clone.contraptionId !== undefined) clone.contraptionId = newUniqueId;
 
-    const newIndex = controller.addInventoryItem?.(category, clone);
+    const newIndex = controller.addInventoryItem?.(category, clone, 'hotbar-end');
     if (newIndex !== null && newIndex !== undefined && newIndex >= 0) {
       this.showToast(`Copied to slot ${newIndex + 1}`);
       this.syncInventoryState();
@@ -2271,7 +2271,7 @@ export class SpaceUiStore {
         shape,
         title: 'Component Blocks Selected',
         details: `[${nodeId}] · ${blocks.length} blocks · ${confirmed
-          ? `A/B [2/2] · ${canDelete ? 'R copy · F fill · P recolor · Del delete' : 'no editable blocks in this shape'}`
+          ? `A/B [2/2] · ${canDelete ? 'R copy · X cut · F fill · P recolor · Del delete' : 'no editable blocks in this shape'}`
           : 'confirm A/B before using selection actions'}`,
         hasSelection: true,
         canAssemble: canDelete,
@@ -2290,8 +2290,8 @@ export class SpaceUiStore {
       } else if (worldSelection.ready) {
         const bounds = contraptions.getSelectionBounds?.();
         details = bounds
-          ? `Box [2/2] · ${bounds.maxX - bounds.minX + 1}x${bounds.maxY - bounds.minY + 1}x${bounds.maxZ - bounds.minZ + 1} (${worldSelection.count} cells) · G assemble · R copy · Del delete`
-          : `Box [2/2] · ${worldSelection.count} cells · G assemble · R copy · Del delete`;
+          ? `Box [2/2] · ${bounds.maxX - bounds.minX + 1}x${bounds.maxY - bounds.minY + 1}x${bounds.maxZ - bounds.minZ + 1} (${worldSelection.count} cells) · G assemble · R copy · X cut · Del delete`
+          : `Box [2/2] · ${worldSelection.count} cells · G assemble · R copy · X cut · Del delete`;
       } else {
         details = `${isMicro ? 'Micro box' : 'Box'} [${worldSelection.pointCount}/2] · preview ${worldSelection.count} cells · need ${2 - worldSelection.pointCount} more clicks`;
       }
@@ -2316,8 +2316,8 @@ export class SpaceUiStore {
         shape,
         title: 'Selection Ready',
         details: bounds
-          ? `Region: ${bounds.maxX - bounds.minX + 1}x${bounds.maxY - bounds.minY + 1}x${bounds.maxZ - bounds.minZ + 1} (${count} blocks) · G assemble · R copy`
-          : `Selected structure (${count} blocks) · G assemble · R copy`,
+          ? `Region: ${bounds.maxX - bounds.minX + 1}x${bounds.maxY - bounds.minY + 1}x${bounds.maxZ - bounds.minZ + 1} (${count} blocks) · G assemble · R copy · X cut`
+          : `Selected structure (${count} blocks) · G assemble · R copy · X cut`,
         hasSelection: true,
         canAssemble: canDelete,
         assembleLabel: 'Assemble (G)',

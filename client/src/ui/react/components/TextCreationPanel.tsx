@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { colorToHex } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import { TEXT_MAX_LENGTH } from '../../../engine/voxel/TextVoxelizer.ts';
 import { useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { MaterialSelector } from './MaterialSelector.tsx';
@@ -18,7 +19,7 @@ export function TextCreationPanel() {
     onContextMenu={event => event.preventDefault()}>
     <header><div><span className="text-creation-eyebrow">HAMMER / TEXT</span><h2>Create text</h2></div>
       <button type="button" aria-label="Close text creation" onClick={() => session?.close()}>×</button></header>
-    <p className="text-creation-description">Preview pinned to the focused surface.<br />Chinese and multiline text supported.</p>
+    <p className="text-creation-description">Drag the X / Y / Z arrows to position text.<br />Movement snaps to 0.125 m. Chinese and multiline text supported.</p>
     <label htmlFor="voxel-text-content">Text</label>
     <textarea ref={input} id="voxel-text-content" value={draft} rows={3} maxLength={TEXT_MAX_LENGTH}
       placeholder="Enter text…"
@@ -42,6 +43,14 @@ export function TextCreationPanel() {
           onClick={() => session?.edit({ orientation: 'horizontal' })}>Horizontal</button>
       </div>
       <small>{view.orientation === 'vertical' ? 'Standing upright' : 'Lying flat'}</small>
+    </div>
+    <div className="text-creation-position">
+      <span>Position offset (m)</span>
+      <div>{(['X', 'Y', 'Z'] as const).map((axis, index) => <label key={axis} className={`axis-${axis.toLowerCase()}`}>{axis}
+        <input aria-label={`Text offset ${axis}`} type="number" step={MICRO_SIZE} disabled={view.busy}
+          value={view[`offset${axis}`]} onChange={event => session?.setOffset(session.offset.setComponent(index, event.currentTarget.valueAsNumber))} />
+      </label>)}</div>
+      <small>Drag an axis or enter an offset · 0.125 m steps</small>
     </div>
     <label className="text-creation-color">Color<input aria-label="Text color" type="color" value={colorToHex(view.color)}
       onChange={event => session?.edit({ color: parseInt(event.target.value.slice(1), 16) })} /><span>{colorToHex(view.color).toUpperCase()}</span></label>

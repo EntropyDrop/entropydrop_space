@@ -17,7 +17,7 @@ export class TransformGizmo {
   readonly group = new THREE.Group();
   private handles: Handle[] = [];
 
-  constructor({ includeScale = true, name = 'TransformGizmo' } = {}) {
+  constructor({ includeScale = true, includeRotate = true, name = 'TransformGizmo' } = {}) {
     this.group.name = name;
     this.group.visible = false;
     const colors = { x: 0xff5757, y: 0x65de88, z: 0x589aff };
@@ -25,6 +25,7 @@ export class TransformGizmo {
       const vector = transformAxis(axis);
       for (const kind of ['move', 'rotate', 'scale'] as const) {
         if (kind === 'scale' && !includeScale) continue;
+        if (kind === 'rotate' && !includeRotate) continue;
         const material = new THREE.MeshBasicNodeMaterial({ color: colors[axis], depthTest: false, depthWrite: false, fog: false, toneMapped: false });
         const handle: Handle = { key: `${kind}-${axis}`, kind, axis, material, color: colors[axis], segments: [], radius: kind === 'scale' ? 0.09 : 0.055 };
         const mesh = (geometry: THREE.BufferGeometry, position: THREE.Vector3, direction?: THREE.Vector3) => {
