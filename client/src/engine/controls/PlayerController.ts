@@ -13,6 +13,7 @@ import type { Point3, SelectionGizmoHandle } from '../render/PreviewTypes.ts';
 import type { SceneRenderer } from '../render/SceneRenderer.ts';
 import { DrivingSession } from './DrivingSession.ts';
 import { PlacementSession } from './PlacementSession.ts';
+import { HammerPlacementSession, type HammerPlacementPose } from './HammerPlacementSession.ts';
 import { PlayerCamera } from './PlayerCamera.ts';
 import * as selectionGeometry from './SelectionGeometry.ts';
 import { contraptionBlockOwnerId, contraptionRootId } from './SelectionGeometry.ts';
@@ -174,6 +175,9 @@ export class PlayerController {
       get canEditEntityInternals() { return host.canEditEntityInternals.bind(host); },
       get canPlaceStandardAt() { return host.canPlaceStandardAt.bind(host); },
       get clearHammerRotation() { return host.clearHammerRotation.bind(host); },
+      get beginHammerPlacement() { return host.beginHammerPlacement.bind(host); },
+      get cancelHammerPlacement() { return host.cancelHammerPlacement.bind(host); },
+      get hammerPlacementActive() { return host.hammerPlacementActive; },
       get closeTextCreation() { return host.closeTextCreation.bind(host); },
       get clearSelection() { return host.clearSelection.bind(host); },
       get clearWrenchPivotDisplay() { return host.clearWrenchPivotDisplay.bind(host); },
@@ -273,6 +277,11 @@ export class PlayerController {
   set _activeTool(value: ToolInteractionSession['_activeTool']) { this.toolSession._activeTool = value; }
 
   private _textCreationSession?: TextCreationSession;
+  private _hammerPlacement?: HammerPlacementSession;
+  get hammerPlacement(): HammerPlacementSession { return this._hammerPlacement ??= new HammerPlacementSession(this); }
+  get hammerPlacementActive() { return !!this._hammerPlacement?.pose; }
+  beginHammerPlacement(installAsComponent = false) { return this.hammerPlacement.begin(installAsComponent); }
+  cancelHammerPlacement(resume = true) { return this._hammerPlacement?.cancel(resume) ?? false; }
   private _textCreationGizmo?: TextCreationGizmo;
   updateTextCreationGizmo() {
     if (this._textCreationSession?.isOpen) this._textCreationGizmo ??= new TextCreationGizmo(this);
@@ -306,6 +315,7 @@ export class PlayerController {
   }
   openTextCreation(): boolean {
     if (this.activeTool !== SpecialTool.HAMMER || this.bulkEditJob || this.worldPickingSuspended || this.ui?.hasAnyModalOpen?.()) return false;
+    this.cancelHammerPlacement(false);
     const hit = this.placementSession.getInventoryPlacementHit();
     const surface = hit && this.placementSession.getEntityPlacementSurfacePoint(hit);
     if (!hit || !surface) {
@@ -779,6 +789,7 @@ export class PlayerController {
       }
       this.applyPointerLockState(locked);
       if (!locked) {
+        this._hammerPlacement?.endDrag();
         this.modeling?.onPointerUnlocked();
         this.pointerLockDesired = false;
         this.resetEntityInputState();
@@ -863,6 +874,10 @@ export class PlayerController {
         return;
       }
       if (this.worldPickingSuspended) return;
+      if (this.hammerPlacementActive && (!this.isLocked || this.hammerPlacement.isDragging)) {
+        this.hammerPlacement.pointerMove(e);
+        return;
+      }
       if (this.activeTool === SpecialTool.MODELING && !this.isLocked) {
         this.modeling.pointerMove(e);
         return;
@@ -904,12 +919,14 @@ export class PlayerController {
       this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch));
 
       this.updateCameraRotation();
+      if (this.hammerPlacementActive) this.hammerPlacement.update();
     });
 
     document.addEventListener('mouseup', (e) => {
       if (e.button === 2) this.modeling?.endCreation();
       if (e.button !== 0) return;
       this._textCreationGizmo?.endDrag();
+      this._hammerPlacement?.endDrag();
       this.modeling?.endDrag();
       this.releaseWrenchGizmoDrag();
       this.releaseWrenchGrab();
@@ -923,6 +940,10 @@ export class PlayerController {
         return;
       }
       if (this.worldPickingSuspended) return;
+      if (this.hammerPlacementActive) {
+        if (this.hammerPlacement.pointerDown(e)) { e.preventDefault(); e.stopPropagation(); }
+        return;
+      }
       if (!this.isLocked) {
         if (this.activeTool === SpecialTool.MODELING && this.modeling.pointerDown(e)) {
           e.preventDefault();
@@ -1001,6 +1022,7 @@ export class PlayerController {
 
     window.addEventListener('blur', () => {
       this._textCreationGizmo?.endDrag();
+      this._hammerPlacement?.endDrag();
       this.modeling?.cancelDrag();
       this.resetEntityInputState();
       this.releaseWrenchGizmoDrag();
@@ -1018,6 +1040,17 @@ export class PlayerController {
     if (this.ui?.isEntityContextMenuOpen?.()) return;
     const eventTarget = e.target as HTMLElement;
     if (eventTarget && (eventTarget.tagName === 'INPUT' || eventTarget.tagName === 'SELECT' || eventTarget.tagName === 'TEXTAREA' || eventTarget.isContentEditable)) return;
+
+    if (this.hammerPlacementActive && !this.worldPickingSuspended && !this.ui?.hasAnyModalOpen?.()) {
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault();
+        if (!e.repeat) this.hammerPlacement.confirm();
+        return;
+      }
+      if (e.code === 'Escape') { e.preventDefault(); this.cancelHammerPlacement(false); return; }
+      // Rotation and grid selection belong to aiming; the pinned pose only translates.
+      if (e.code === 'Tab' || e.code.startsWith('Arrow')) { e.preventDefault(); return; }
+    }
 
     // Ensure any accidentally focused button or interactive 2D element is blurred
     if (typeof document !== 'undefined' && document.activeElement && document.activeElement !== document.body && (document.activeElement.tagName === 'BUTTON' || document.activeElement.getAttribute('role') === 'button')) {
@@ -2612,7 +2645,7 @@ export class PlayerController {
     this.ui?.renderInventoryBar?.();
     this.clearSelection();
     this.activateTool(SpecialTool.HAMMER);
-    this.ui?.showToast?.(`Copied ${rawBlocks.length} voxels as a block set to block set slot ${index + 1} · switched to Hammer · left-click to build`);
+    this.ui?.showToast?.(`Copied ${rawBlocks.length} voxels as a block set to block set slot ${index + 1} · switched to Hammer · LMB preview · Enter build`);
     return slot;
   }
 
@@ -3137,10 +3170,16 @@ export class PlayerController {
 
   /** Refresh the Hammer hover ghost without mutating either world or entity state. */
   updateInventoryPlacementPreview() {
+    this._hammerPlacement?.update();
+    if (this._hammerPlacement?.pose) {
+      this.inventoryPlacementPreview = this._hammerPlacement.pose;
+      return;
+    }
     return this.placementSession.updateInventoryPlacementPreview();
   }
 
   toggleHammerMicroMode() {
+    if (this.hammerPlacementActive) return this.hammerMicroMode;
     return this.placementSession.toggleHammerMicroMode();
   }
 
@@ -3221,14 +3260,14 @@ export class PlayerController {
         : `Built block set: ${placed}/${total} voxels ${where}`);
   }
 
-  pasteBlockSet(slot: InventoryInput, replace = false) {
+  pasteBlockSet(slot: InventoryInput, replace = false, placementPose?: HammerPlacementPose) {
     if (!this.world || !slot || !Array.isArray(slot.blocks) || slot.blocks.length === 0) return false;
     if (this.bulkEditJob) {
       this.ui?.showToast?.(`Please wait for ${this.bulkEditJob.label.toLowerCase()} to finish`);
       return false;
     }
 
-    const pose = this.getInventoryPlacementPose(slot);
+    const pose = placementPose || this.getInventoryPlacementPose(slot);
     if (!pose) {
       this.ui?.showToast?.(this.placementSession.inventoryPlacementError || 'No surface under the crosshair — aim at terrain or an entity to build');
       return false;
@@ -3302,7 +3341,7 @@ export class PlayerController {
     this.setActiveInventoryCategory('blockset');
     this.ui?.renderInventoryBar?.();
     if (this.ui) {
-      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into item slot ${index + 1} · Hammer LMB builds · Arrows rotate · T text`);
+      this.ui.showToast(`Imported ${name}: ${blocks.length} voxels into item slot ${index + 1} · Hammer LMB preview · Enter build · Arrows rotate · T text`);
     }
     return this.inventories.item.items[index];
   }
@@ -4278,6 +4317,7 @@ export class PlayerController {
 
   /** Clear the Hammer's placement-only rotation without touching inventory data. */
   clearHammerRotation() {
+    this.cancelHammerPlacement(false);
     return this.placementSession.clearHammerRotation();
   }
 
@@ -5841,13 +5881,13 @@ export class PlayerController {
   }
 
   /** Place all static geometry and independent Entity trees in one Item frame. */
-  private pasteCompositeItem(slot: InventoryInput, installAsComponent = false) {
+  private pasteCompositeItem(slot: InventoryInput, installAsComponent = false, placementPose?: HammerPlacementPose) {
     const singleEntity = !slot.blockSet && slot.entityList?.length === 1;
     if (installAsComponent && !singleEntity) {
       this.ui?.showToast?.('Component installation requires an item containing one entity and no static blocks');
       return false;
     }
-    const pose = this.getInventoryPlacementPose(slot);
+    const pose = placementPose || this.getInventoryPlacementPose(slot);
     if (!pose) {
       this.ui?.showToast?.(this.placementSession.inventoryPlacementError || 'No surface under the crosshair — aim at terrain or an entity to build');
       return false;
@@ -6049,15 +6089,15 @@ export class PlayerController {
   }
 
   /**
-   * Hammer left-click: place the current inventory slot at the crosshair.
+   * Commit an inventory placement; Hammer left-click opens the adjustment session first.
    * - **Block set** (T copy, STL import): stamps plain world blocks.
    * - **Entity on terrain** (R copy, imported): spawns an independent physics entity.
    * - **Entity on entity**: installs the template under the hit stopped component.
    * - **Shift + entity**: explicitly requests component installation and requires an entity target.
    */
-  pasteInventorySlot(installAsComponent = false) {
+  pasteInventorySlot(installAsComponent = false, placementPose?: HammerPlacementPose) {
     if (this.activeTool !== SpecialTool.HAMMER) return false;
-    const slot = this.getActiveHammerInventoryItem();
+    const slot = placementPose?.slot || this.getActiveHammerInventoryItem();
     if (!slot) {
       this.ui?.showToast?.(this.placementSession.inventoryPlacementError || 'Item slot is empty - copy or import something first');
       return false;
@@ -6067,15 +6107,15 @@ export class PlayerController {
       return false;
     }
 
-    if (this.handleRunningEntityInteraction(this.hoveredContraptionHit?.contraption)) return false;
+    if (this.handleRunningEntityInteraction(placementPose ? placementPose.targetContraption : this.hoveredContraptionHit?.contraption)) return false;
 
-    if (slot.kind === 'item') return this.pasteCompositeItem(slot, installAsComponent);
+    if (slot.kind === 'item') return this.pasteCompositeItem(slot, installAsComponent, placementPose);
 
     if (slot.kind === 'blockset') {
-      return this.pasteBlockSet(slot);
+      return this.pasteBlockSet(slot, false, placementPose);
     }
 
-    const pose = this.getInventoryPlacementPose(slot);
+    const pose = placementPose || this.getInventoryPlacementPose(slot);
     if (!pose) {
       if (Array.isArray(slot.blocks) && slot.blocks.length > 0 && this.ui) {
         this.ui.showToast('No surface under the crosshair — aim at terrain or an entity to build');

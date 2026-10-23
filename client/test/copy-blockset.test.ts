@@ -279,7 +279,7 @@ test('R still copies an entity slot and paste creates an entity', () => {
   assert.equal(pasted.blocks.length, 1);
 });
 
-test('Hammer LMB skips occupied cells, RMB leaves text closed, and arrows rotate the block set 90°', () => {
+test('Hammer LMB previews, Enter skips occupied cells, and arrows rotate the block set 90° before placement', () => {
   const scene = new THREE.Scene();
   const world = new World(scene) as any;
   clearRegion(world, 10, 20, 30, 12, 23, 32);
@@ -301,8 +301,10 @@ test('Hammer LMB skips occupied cells, RMB leaves text closed, and arrows rotate
     normal: { x: 0, y: 1, z: 0 }
   };
 
-  // LMB: the occupied cell keeps its existing block.
+  // LMB leaves the world unchanged until Enter; occupied cells are preserved.
   controller.handleLeftClick();
+  assert.equal(world.getBlock(10, 21, 30), BlockTypes.AIR);
+  controller.handleKeyDown({ code: 'Enter', preventDefault() {} } as KeyboardEvent);
   assert.equal(world.getBlock(10, 21, 30), BlockTypes.COLOR_BLOCK);
   assert.equal(world.getBlockColor(10, 21, 30), 0xff0000);
   assert.equal(world.getBlockColor(11, 21, 30), 0x00ff00, 'LMB must not overwrite occupied cells');
@@ -323,6 +325,7 @@ test('Hammer LMB skips occupied cells, RMB leaves text closed, and arrows rotate
 
   const rotatedBlueBlock = rotatedSlot.blocks.find((block: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => block.color === 0x123456);
   controller.handleLeftClick();
+  controller.handleKeyDown({ code: 'Enter', preventDefault() {} } as KeyboardEvent);
   assert.equal(world.getBlockColor(10 + rotatedBlueBlock.dx, 21, 30 + rotatedBlueBlock.dz), 0x123456,
     'Hammer placement must build from the temporary rotated view');
 });

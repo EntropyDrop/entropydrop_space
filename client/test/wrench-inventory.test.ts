@@ -150,7 +150,7 @@ test('recursive selection collects a component and all descendants', async () =>
   assert.deepEqual([...rootSubtree].sort(), ['arm', 'hand', 'root']);
 });
 
-test('selector copy switches to Hammer and Hammer left-click builds a new entity', async () => {
+test('selector copy switches to Hammer and confirms the new entity after left-click preview', async () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, worldStub({}), null, null);
   const original = await makeContraptionWithChildren();
@@ -186,7 +186,7 @@ test('selector copy switches to Hammer and Hammer left-click builds a new entity
   assert.equal(controller.inventorySlots[0].blockCount, 1);
   assert.equal(controller.activeTool, SpecialTool.HAMMER, 'successful copy should switch to Hammer');
 
-  // 3. Build with Hammer left-click.
+  // 3. Preview with Hammer left-click, then build with Enter.
   controller.currentRaycast = {
     hit: true as const,
     hitPos: { x: 5, y: 6, z: 7 },
@@ -194,7 +194,9 @@ test('selector copy switches to Hammer and Hammer left-click builds a new entity
   };
   const before = manager.contraptions.length;
   controller.handleLeftClick();
-  assert.equal(manager.contraptions.length, before + 1, 'Hammer build should create a new entity');
+  assert.equal(manager.contraptions.length, before, 'Hammer preview must not create an entity');
+  controller.handleKeyDown({ code: 'Enter', preventDefault() {} } as KeyboardEvent);
+  assert.equal(manager.contraptions.length, before + 1, 'Enter should create the previewed entity');
   const pasted = manager.contraptions[manager.contraptions.length - 1];
   assert.equal(pasted.blocks.length, 1);
   // Entity position equals placement origin plus localCenter; the collider bottom is one cell beyond the hit face.

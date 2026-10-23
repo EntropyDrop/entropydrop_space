@@ -178,7 +178,7 @@ test('Hammer forwards Shift/crouch as an explicit install modifier', () => {
   controller.bulkEditJob = null;
   controller.keys = { crouch: false };
   const calls: boolean[] = [];
-  controller.pasteInventorySlot = (value: boolean) => calls.push(value);
+  controller.beginHammerPlacement = (value: boolean) => calls.push(value);
 
   controller.handleLeftClick({ shiftKey: false });
   controller.handleLeftClick({ shiftKey: true });

@@ -263,6 +263,7 @@ export interface SpaceUiSnapshot {
   currentUserName: string | null;
   brushMicro: boolean;
   hammerMicro: boolean;
+  hammerPlacementActive: boolean;
   bulkEdit: BulkEditView | null;
   tutorialSaving: boolean;
   worldEditSync: WorldEditSyncView;
@@ -297,7 +298,7 @@ type Listener = () => void;
 
 const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: `Select and copy world/entity regions (max ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}); no build action` },
-  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB build / attach to entity · Arrows rotate · T text · Tab micro/std' },
+  { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB preview · Drag XYZ · Enter build / attach · RMB cancel · Arrows rotate · T text · Tab micro/std' },
   { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag COM XYZ axes to move · drag arrows to rotate · hold entity to lift · right-click to start' },
   { type: 'tool', value: SpecialTool.SHOVEL, name: 'Shovel', icon: '', desc: 'Remove / place 1x1x1 standard blocks' },
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
@@ -457,6 +458,7 @@ export class SpaceUiStore {
     currentUserName: null,
     brushMicro: false,
     hammerMicro: false,
+    hammerPlacementActive: false,
     bulkEdit: null,
     tutorialSaving: false,
     worldEditSync: EMPTY_WORLD_EDIT_SYNC,
@@ -521,6 +523,7 @@ export class SpaceUiStore {
     } : EMPTY_MODELING_VIEW);
     next.editorDefinitionVersion = next.editingContraption?.definitionVersion ?? 0;
     next.textCreation = retainView(previous.textCreation, next.controller?.textCreationView ?? EMPTY_TEXT_CREATION);
+    next.hammerPlacementActive = !!next.controller?.hammerPlacementActive;
     next.componentProperties = retainView(previous.componentProperties, next.activeModal === 'code'
       ? next.editingContraption?.getNodeProperties?.(next.selectedComponentNodeId) ?? null : null);
     this.snapshot = next;

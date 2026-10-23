@@ -15,6 +15,9 @@ export interface ToolInteractionSessionPort {
   canEditEntityInternals: PlayerController['canEditEntityInternals'];
   canPlaceStandardAt: PlayerController['canPlaceStandardAt'];
   clearHammerRotation: PlayerController['clearHammerRotation'];
+  beginHammerPlacement: PlayerController['beginHammerPlacement'];
+  cancelHammerPlacement: PlayerController['cancelHammerPlacement'];
+  hammerPlacementActive: PlayerController['hammerPlacementActive'];
   closeTextCreation: PlayerController['closeTextCreation'];
   clearSelection: PlayerController['clearSelection'];
   clearWrenchPivotDisplay: PlayerController['clearWrenchPivotDisplay'];
@@ -112,6 +115,8 @@ export class ToolInteractionSession {
     this.worldPickingSuspended = next;
     if (!next) return;
 
+    this.host.cancelHammerPlacement(false);
+
     this.host.modeling?.deactivate();
     this.host.releaseWrenchGizmoDrag();
     this.host.releaseGizmoDrag();
@@ -187,6 +192,7 @@ export class ToolInteractionSession {
 
   handleLeftClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
+    if (this.host.hammerPlacementActive) return true;
     if (this.host.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
     if (this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     if (this.host.tryClickRunningEntity()) return false;
@@ -216,8 +222,7 @@ export class ToolInteractionSession {
     // Hammer owns inventory construction. Selection never places inventory
     // contents, so copying and building remain distinct tool modes.
     if (this.activeTool === SpecialTool.HAMMER) {
-      this.host.pasteInventorySlot(!!(e?.shiftKey || this.host.keys?.crouch));
-      return;
+      return this.host.beginHammerPlacement(!!(e?.shiftKey || this.host.keys?.crouch));
     }
 
     if (this.activeTool === SpecialTool.WRENCH) {
@@ -641,6 +646,7 @@ export class ToolInteractionSession {
 
   handleRightClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
+    if (this.host.hammerPlacementActive) return this.host.cancelHammerPlacement();
     if (this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
     // Every tool uses Wrench RMB actions when pointing at a running entity.
     const target = this.host.hoveredContraptionHit?.contraption || this.host.hoveredContraption;

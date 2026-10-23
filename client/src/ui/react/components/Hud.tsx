@@ -450,8 +450,8 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
 }
 
 function InventoryBar() {
-  const { controller, hammerMicro, selectedInventoryIndex, inventoryRevision } = useSpaceUiFields(
-    'controller', 'hammerMicro', 'selectedInventoryIndex', 'inventoryRevision',
+  const { controller, hammerMicro, hammerPlacementActive, selectedInventoryIndex, inventoryRevision } = useSpaceUiFields(
+    'controller', 'hammerMicro', 'hammerPlacementActive', 'selectedInventoryIndex', 'inventoryRevision',
   );
   const category = 'item';
   const items = controller?.inventories?.[category]?.items || [];
@@ -464,12 +464,14 @@ function InventoryBar() {
           <button type="button" tabIndex={-1} className="palette-title" id="backpack-bar-title" title="Click or press B to open full backpack" onClick={() => spaceUiStore.toggleInventoryModal(true)}>
             <LiaBoxesSolid size={14} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />Backpack
           </button>
-          <button type="button" id="hammer-mode-toggle" tabIndex={-1} className="selector-mode-btn" title={`Positioning: ${hammerMicro ? '0.125 m' : '1 m'} · Click or press Tab to switch grid`} onClick={() => controller?.toggleHammerMicroMode?.()}>
+          <button type="button" id="hammer-mode-toggle" tabIndex={-1} disabled={hammerPlacementActive} className="selector-mode-btn" title={hammerPlacementActive ? `Placement adjustment: ${hammerMicro ? 'MICRO' : 'STD'} grid` : `Positioning: ${hammerMicro ? 'MICRO' : 'STD'} · Click or press Tab to switch grid`} onClick={() => controller?.toggleHammerMicroMode?.()}>
             <span className={`mode-badge ${hammerMicro ? 'micro' : 'std'}`}>{hammerMicro ? 'MICRO' : 'STANDARD'}</span>
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
           </button>
         </div>
-        <span className="palette-hotkey-hint"><b>B</b> Full Backpack · <b>Arrows</b> Rotate · <b>T</b> Text · <b>LMB</b> Build</span>
+        <span className="palette-hotkey-hint">{hammerPlacementActive
+          ? <><b>Aim + LMB drag XYZ</b> · <b>Enter</b> Confirm · <b>RMB</b> Cancel</>
+          : <><b>B</b> Full Backpack · <b>Arrows</b> Rotate · <b>T</b> Text · <b>LMB</b> Preview</>}</span>
       </div>
       <div id="inventory-bar" className="inventory-bar">
         {Array.from({ length: 9 }, (_, index) => {

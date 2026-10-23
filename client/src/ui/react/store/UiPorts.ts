@@ -57,6 +57,7 @@ export type UiPlayerController = Pick<PlayerController,
   | 'selectedSubtree'
   | 'selectorMicroMode'
   | 'hammerMicroMode'
+  | 'hammerPlacementActive'
   | 'selectorShape'
   | 'setActiveInventoryCategory'
   | 'setFov'
