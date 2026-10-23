@@ -1,0 +1,615 @@
+{
+  "status": "done",
+  "warmup": [
+    {
+      "name": "near",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "near",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "near",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "near",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    }
+  ],
+  "rows": [
+    {
+      "name": "near",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "medium",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "near",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "medium",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "near",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "ultra",
+      "shadows": false,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "near",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "across",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "turned",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    },
+    {
+      "name": "reverse",
+      "quality": "ultra",
+      "shadows": true,
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "identicalPicking": true,
+      "nonempty": true
+    }
+  ]
+}

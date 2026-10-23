@@ -1,0 +1,33 @@
+{
+  "head": "517fa14a4cdb940b0a2e30ea5a3b49c37d9ad0fb",
+  "productionRenderingChangedThisTurn": false,
+  "focusedTests": {
+    "pass": 12,
+    "fail": 0
+  },
+  "fullClientTests": {
+    "pass": 1516,
+    "fail": 3,
+    "total": 1519,
+    "knownBaselineFailures": [
+      "entity-menu-icons.test.ts: OnlineSpaceNotice.tsx unknown file extension",
+      "shovel-cursor.test.ts:106 null entity outline",
+      "shovel-cursor.test.ts:177 null entity outline"
+    ]
+  },
+  "typecheck": "passed, including inventory",
+  "productionBuild": "passed, including development entry exclusion, 4 import orders, compiler worker",
+  "hardwareSampler": "macmon 0.8.2; two real samples through sample-gpu-hardware.mjs",
+  "gpuSmoke": "20 independent and 20 legacy valid GPU samples; no errors, zero stale writes with the final guard; hooks restored; excluded from performance comparison",
+  "files": {
+    "client/src/dev/GpuFrameTimeline.ts": "3ab6e3fa92c7bbefd0cd4671c3e929ad7710cdb55a5056fcfb93e466ec392a06",
+    "client/src/dev/GpuTurnReplay.ts": "5a02e936d73808cc797d258c28d8d810a00ba176ee38acfc76ee6fe8e855e204",
+    "client/src/dev/GpuAttachmentExperiment.ts": "7ab73bb79cf77d5dda1381c9923894c5e8430cde3e07339b11f19892791b6e07",
+    "client/src/dev/TurnPerformanceBenchmark.ts": "10192328f0e4fb419124eb72fe488128fa8a5abf661449ba7044e794af148314",
+    "client/src/dev/FrameDiagnostics.ts": "eeb5028d3b873c687784557753ee0deb2b58c3cb268831457514141383e0c9d3",
+    "client/tools/sample-gpu-hardware.mjs": "da277b10b50faf2eb10358db217148f4c3b97bbe60144825e0ab2a3ab7cdf644",
+    "client/tools/check-no-dev-entry.mjs": "9588b9263e65b9d4b5305eb8ef548068e77cf4528ce3aa43c135498212c1bc24"
+  },
+  "documentationChecks": "English-only, documentation links and generated API docs passed",
+  "productionExclusionCheck": "Passed with explicit GPU timeline/replay/attachment experiment sentinels"
+}

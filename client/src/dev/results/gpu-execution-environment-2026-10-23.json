@@ -1,0 +1,20 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "cssWidth": 1280,
+  "cssHeight": 720,
+  "drawingWidth": 2560,
+  "drawingHeight": 1440,
+  "resolutionScale": 1,
+  "nativeTimestampQuery": true,
+  "freshAdapterQuery": {
+    "powerPreference": "high-performance",
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "adapterModel": "Not exposed; fresh discovery is not an identity proof for the already-created renderer device.",
+  "fixture": "offline aether-archipelago, 128 repeated districts, 153 near chunks, 2089207 resident far faces",
+  "renderer": "Three r183 WebGPU",
+  "realGameFPSClaim": false
+}

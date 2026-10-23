@@ -1,0 +1,1367 @@
+{
+  "date": "2026-10-23",
+  "status": "No production optimization enabled. Await user OS/Xcode installation for native traces.",
+  "metric": "GPU pass envelope per replayed frame; not GPU busy time, ordinary game frames or FPS.",
+  "capabilities": {
+    "devices": [
+      {
+        "captureTraceSupported": false,
+        "counterSets": [
+          {
+            "counters": [
+              "GPUTimestamp"
+            ],
+            "name": "timestamp"
+          }
+        ],
+        "drawBoundary": false,
+        "name": "Apple M1 Pro",
+        "stageBoundary": true
+      }
+    ],
+    "os": "Version 26.5.1 (Build 25F80)"
+  },
+  "replays": {
+    "hudRetained": {
+      "status": "done",
+      "methodsRestored": true,
+      "uiRestored": null,
+      "poses": [
+        {
+          "name": "turned",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 719350,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": true,
+            "diagnosticsVisible": true
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 15,
+            "clockSamples": 15,
+            "nativeDurationSeconds": 15.121785666793585,
+            "gpuMHz": {
+              "mean": 1295.9333333333334,
+              "min": 1295,
+              "max": 1296
+            },
+            "systemDeviceUtilizationPercent": 97.4,
+            "systemTilerUtilizationPercent": 97.4,
+            "systemRendererUtilizationPercent": 97.2,
+            "gpuPowerW": 16.55158716837565,
+            "gpuTemperatureC": 92.69725596110025,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 740390533.6117623,
+              "pid 166, WindowServer": 165408576.54745272,
+              "pid 945, Firefox GPU Help": 64225662.921059914,
+              "pid 39949, com.apple.WebKit": 1914302.1623145414,
+              "pid 492, iTerm2": 324041.29432678374,
+              "pid 72430, com.apple.WebKit": 89837.27384677682,
+              "pid 72425, BambuStudio": 476.66328294999437
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 1.9660800000000007,
+              "afterMs": 1.9392853333333342,
+              "relativeChangePercent": -1.3628472222222188,
+              "pairedMeanDeltaMs": -0.02679466666666667,
+              "pairs": 48,
+              "pairsFaster": 27
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 1.8785279999999993,
+              "afterMs": 1.7368746666666668,
+              "relativeChangePercent": -7.540655946216002,
+              "pairedMeanDeltaMs": -0.1416533333333333,
+              "pairs": 48,
+              "pairsFaster": 35
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 1.9850240000000001,
+              "afterMs": 0.9311573333333332,
+              "relativeChangePercent": -53.090877826498165,
+              "pairedMeanDeltaMs": -1.0538666666666667,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 1.9101013333333328,
+              "afterMs": 1.8790400000000005,
+              "relativeChangePercent": -1.6261615439599142,
+              "pairedMeanDeltaMs": -0.03106133333333334,
+              "pairs": 48,
+              "pairsFaster": 23
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 1.938090666666666,
+              "afterMs": 1.932458666666666,
+              "relativeChangePercent": -0.2905952800281719,
+              "pairedMeanDeltaMs": -0.00563199999999998,
+              "pairs": 48,
+              "pairsFaster": 23
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 2.0790613333333328,
+              "afterMs": 2.0983466666666666,
+              "relativeChangePercent": 0.9275980955508301,
+              "pairedMeanDeltaMs": 0.019285333333333366,
+              "pairs": 48,
+              "pairsFaster": 21
+            }
+          ]
+        },
+        {
+          "name": "near",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 727129,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": true,
+            "diagnosticsVisible": true
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 22,
+            "clockSamples": 23,
+            "nativeDurationSeconds": 22.18356483336538,
+            "gpuMHz": {
+              "mean": 1294.9565217391305,
+              "min": 1294,
+              "max": 1295
+            },
+            "systemDeviceUtilizationPercent": 95.0909090909091,
+            "systemTilerUtilizationPercent": 94.95454545454545,
+            "systemRendererUtilizationPercent": 94.63636363636364,
+            "gpuPowerW": 16.355789391890816,
+            "gpuTemperatureC": 94.46194557521655,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 766718642.191274,
+              "pid 166, WindowServer": 164507965.80318457,
+              "pid 945, Firefox GPU Help": 17507677.955161184,
+              "pid 39949, com.apple.WebKit": 2143595.2407648265,
+              "pid 492, iTerm2": 230662.5214854493,
+              "pid 72430, com.apple.WebKit": 51391.24430917936
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 2.8165119999999995,
+              "afterMs": 2.798250666666666,
+              "relativeChangePercent": -0.6483669635823808,
+              "pairedMeanDeltaMs": -0.01826133333333338,
+              "pairs": 48,
+              "pairsFaster": 22
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 2.8349439999999997,
+              "afterMs": 2.3775573333333333,
+              "relativeChangePercent": -16.133887183191852,
+              "pairedMeanDeltaMs": -0.45738666666666666,
+              "pairs": 48,
+              "pairsFaster": 45
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 2.8514986666666666,
+              "afterMs": 1.2417706666666664,
+              "relativeChangePercent": -56.45199904237492,
+              "pairedMeanDeltaMs": -1.609728,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 2.8504746666666665,
+              "afterMs": 2.4831999999999996,
+              "relativeChangePercent": -12.884684468925888,
+              "pairedMeanDeltaMs": -0.3672746666666667,
+              "pairs": 48,
+              "pairsFaster": 42
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 2.9144746666666665,
+              "afterMs": 2.835967999999999,
+              "relativeChangePercent": -2.693681559993011,
+              "pairedMeanDeltaMs": -0.07850666666666661,
+              "pairs": 48,
+              "pairsFaster": 28
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 2.8209493333333326,
+              "afterMs": 2.678784,
+              "relativeChangePercent": -5.039627321677031,
+              "pairedMeanDeltaMs": -0.14216533333333328,
+              "pairs": 48,
+              "pairsFaster": 31
+            }
+          ]
+        },
+        {
+          "name": "across",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 532839,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": true,
+            "diagnosticsVisible": true
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 11,
+            "clockSamples": 11,
+            "nativeDurationSeconds": 11.094124124851078,
+            "gpuMHz": {
+              "mean": 1296,
+              "min": 1296,
+              "max": 1296
+            },
+            "systemDeviceUtilizationPercent": 97.0909090909091,
+            "systemTilerUtilizationPercent": 97.0909090909091,
+            "systemRendererUtilizationPercent": 96.54545454545455,
+            "gpuPowerW": 16.019038547169078,
+            "gpuTemperatureC": 93.26087327436967,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 735768080.9353278,
+              "pid 166, WindowServer": 152541616.26055512,
+              "pid 945, Firefox GPU Help": 84847039.15394814,
+              "pid 39949, com.apple.WebKit": 2008536.9290294573,
+              "pid 492, iTerm2": 254256.21421356365,
+              "pid 72430, com.apple.WebKit": 173526.5423691879
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 1.5877119999999998,
+              "afterMs": 1.5395839999999996,
+              "relativeChangePercent": -3.0312802321831755,
+              "pairedMeanDeltaMs": -0.04812799999999998,
+              "pairs": 48,
+              "pairsFaster": 23
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 1.3938346666666668,
+              "afterMs": 1.2332373333333335,
+              "relativeChangePercent": -11.521978694747148,
+              "pairedMeanDeltaMs": -0.16059733333333331,
+              "pairs": 48,
+              "pairsFaster": 32
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 1.506986666666667,
+              "afterMs": 0.8620373333333334,
+              "relativeChangePercent": -42.79728199320498,
+              "pairedMeanDeltaMs": -0.6449493333333333,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 1.3161813333333332,
+              "afterMs": 1.3013333333333332,
+              "relativeChangePercent": -1.1281120331950167,
+              "pairedMeanDeltaMs": -0.014847999999999986,
+              "pairs": 48,
+              "pairsFaster": 21
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 1.3658453333333338,
+              "afterMs": 1.3163520000000004,
+              "relativeChangePercent": -3.62364113457454,
+              "pairedMeanDeltaMs": -0.04949333333333333,
+              "pairs": 48,
+              "pairsFaster": 29
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 1.4023680000000003,
+              "afterMs": 1.3064533333333337,
+              "relativeChangePercent": -6.83947912863575,
+              "pairedMeanDeltaMs": -0.09591466666666666,
+              "pairs": 48,
+              "pairsFaster": 32
+            }
+          ]
+        },
+        {
+          "name": "reverse",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 772859,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": true,
+            "diagnosticsVisible": true
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 16,
+            "clockSamples": 16,
+            "nativeDurationSeconds": 16.144191041588783,
+            "gpuMHz": {
+              "mean": 1296,
+              "min": 1296,
+              "max": 1296
+            },
+            "systemDeviceUtilizationPercent": 97.375,
+            "systemTilerUtilizationPercent": 97.25,
+            "systemRendererUtilizationPercent": 97.1875,
+            "gpuPowerW": 15.863638281822205,
+            "gpuTemperatureC": 92.03470277786255,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 786969175.1832538,
+              "pid 166, WindowServer": 167770855.970585,
+              "pid 945, Firefox GPU Help": 18994923.016583752,
+              "pid 39949, com.apple.WebKit": 2815672.205742587,
+              "pid 492, iTerm2": 146613.66394280866,
+              "pid 72430, com.apple.WebKit": 77494.31338969576,
+              "pid 72425, BambuStudio": 45643.35234275589
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 2.2092800000000006,
+              "afterMs": 2.233344,
+              "relativeChangePercent": 1.089223638470438,
+              "pairedMeanDeltaMs": 0.02406400000000002,
+              "pairs": 48,
+              "pairsFaster": 22
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 2.1778773333333326,
+              "afterMs": 1.9397973333333323,
+              "relativeChangePercent": -10.931745161037554,
+              "pairedMeanDeltaMs": -0.23807999999999999,
+              "pairs": 48,
+              "pairsFaster": 39
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 2.214741333333334,
+              "afterMs": 0.9545386666666663,
+              "relativeChangePercent": -56.90067041689145,
+              "pairedMeanDeltaMs": -1.2602026666666666,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 2.237098666666666,
+              "afterMs": 2.183338666666666,
+              "relativeChangePercent": -2.4031126029905425,
+              "pairedMeanDeltaMs": -0.05375999999999993,
+              "pairs": 48,
+              "pairsFaster": 26
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 2.235221333333333,
+              "afterMs": 2.1736106666666672,
+              "relativeChangePercent": -2.75635641750015,
+              "pairedMeanDeltaMs": -0.061610666666666654,
+              "pairs": 48,
+              "pairsFaster": 28
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 2.2217386666666665,
+              "afterMs": 2.141696,
+              "relativeChangePercent": -3.60270394837916,
+              "pairedMeanDeltaMs": -0.08004266666666665,
+              "pairs": 48,
+              "pairsFaster": 30
+            }
+          ]
+        }
+      ]
+    },
+    "uiIsolated": {
+      "status": "done",
+      "methodsRestored": true,
+      "uiRestored": true,
+      "poses": [
+        {
+          "name": "turned",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 719350,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": false,
+            "diagnosticsVisible": false
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 8,
+            "clockSamples": 8,
+            "nativeDurationSeconds": 8.073657124768943,
+            "gpuMHz": {
+              "mean": 1294.25,
+              "min": 1294,
+              "max": 1295
+            },
+            "systemDeviceUtilizationPercent": 92.5,
+            "systemTilerUtilizationPercent": 92,
+            "systemRendererUtilizationPercent": 91.875,
+            "gpuPowerW": 16.30313515663147,
+            "gpuTemperatureC": 87.52442169189453,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 726342276.9105799,
+              "pid 166, WindowServer": 168359510.07009116,
+              "pid 945, Firefox GPU Help": 30309710.360285245,
+              "pid 39949, com.apple.WebKit": 4499153.783551288,
+              "pid 492, iTerm2": 2945118.2571343705,
+              "pid 72430, com.apple.WebKit": 645932.9297005844
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 1.6211626666666665,
+              "afterMs": 1.6515413333333333,
+              "relativeChangePercent": 1.8738814612064392,
+              "pairedMeanDeltaMs": 0.03037866666666667,
+              "pairs": 48,
+              "pairsFaster": 19
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 1.5716693333333334,
+              "afterMs": 1.3508266666666662,
+              "relativeChangePercent": -14.051471386686964,
+              "pairedMeanDeltaMs": -0.2208426666666667,
+              "pairs": 48,
+              "pairsFaster": 47
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 1.582592,
+              "afterMs": 0.6662826666666664,
+              "relativeChangePercent": -57.899277472231226,
+              "pairedMeanDeltaMs": -0.9163093333333333,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 1.609216,
+              "afterMs": 1.5643306666666668,
+              "relativeChangePercent": -2.7892671545232672,
+              "pairedMeanDeltaMs": -0.04488533333333332,
+              "pairs": 48,
+              "pairsFaster": 27
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 1.5767893333333334,
+              "afterMs": 1.5416320000000006,
+              "relativeChangePercent": -2.2296785366381355,
+              "pairedMeanDeltaMs": -0.035157333333333325,
+              "pairs": 48,
+              "pairsFaster": 26
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 1.5972693333333332,
+              "afterMs": 1.564672,
+              "relativeChangePercent": -2.0408163265306034,
+              "pairedMeanDeltaMs": -0.03259733333333333,
+              "pairs": 48,
+              "pairsFaster": 33
+            }
+          ]
+        },
+        {
+          "name": "near",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 727129,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": false,
+            "diagnosticsVisible": false
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 13,
+            "clockSamples": 13,
+            "nativeDurationSeconds": 13.15659762499854,
+            "gpuMHz": {
+              "mean": 1292.7692307692307,
+              "min": 1291,
+              "max": 1295
+            },
+            "systemDeviceUtilizationPercent": 89.23076923076923,
+            "systemTilerUtilizationPercent": 89.23076923076923,
+            "systemRendererUtilizationPercent": 89.23076923076923,
+            "gpuPowerW": 16.64707227853628,
+            "gpuTemperatureC": 90.0880385178786,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 593242772.9772474,
+              "pid 166, WindowServer": 169222923.77245572,
+              "pid 945, Firefox GPU Help": 104955450.06075636,
+              "pid 39949, com.apple.WebKit": 3468839.4599287645,
+              "pid 492, iTerm2": 2758052.2741725203,
+              "pid 72430, com.apple.WebKit": 614143.7345964966
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 2.270549333333332,
+              "afterMs": 2.253311999999999,
+              "relativeChangePercent": -0.7591701743836388,
+              "pairedMeanDeltaMs": -0.017237333333333354,
+              "pairs": 48,
+              "pairsFaster": 26
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 2.3698773333333336,
+              "afterMs": 1.989461333333333,
+              "relativeChangePercent": -16.05213884487976,
+              "pairedMeanDeltaMs": -0.380416,
+              "pairs": 48,
+              "pairsFaster": 47
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 2.326015999999999,
+              "afterMs": 0.9246720000000002,
+              "relativeChangePercent": -60.24653312788904,
+              "pairedMeanDeltaMs": -1.401344,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 2.3495679999999997,
+              "afterMs": 2.0130133333333324,
+              "relativeChangePercent": -14.324108375099897,
+              "pairedMeanDeltaMs": -0.33655466666666667,
+              "pairs": 48,
+              "pairsFaster": 45
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 2.285568,
+              "afterMs": 2.279935999999999,
+              "relativeChangePercent": -0.24641577060937614,
+              "pairedMeanDeltaMs": -0.005632000000000044,
+              "pairs": 48,
+              "pairsFaster": 27
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 2.278741333333333,
+              "afterMs": 2.234709333333333,
+              "relativeChangePercent": -1.9322947872977836,
+              "pairedMeanDeltaMs": -0.044032000000000036,
+              "pairs": 48,
+              "pairsFaster": 32
+            }
+          ]
+        },
+        {
+          "name": "across",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 532839,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": false,
+            "diagnosticsVisible": false
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 6,
+            "clockSamples": 6,
+            "nativeDurationSeconds": 6.08916504168883,
+            "gpuMHz": {
+              "mean": 1266.5,
+              "min": 1126,
+              "max": 1296
+            },
+            "systemDeviceUtilizationPercent": 90.33333333333333,
+            "systemTilerUtilizationPercent": 90,
+            "systemRendererUtilizationPercent": 89.5,
+            "gpuPowerW": 14.891544659932455,
+            "gpuTemperatureC": 90.0272331237793,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 694237505.6445426,
+              "pid 166, WindowServer": 132326941.12960392,
+              "pid 945, Firefox GPU Help": 25236868.59329719,
+              "pid 39949, com.apple.WebKit": 5646012.1814114675,
+              "pid 492, iTerm2": 2134275.867220635,
+              "pid 72430, com.apple.WebKit": 522464.89924629236
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 1.0883413333333334,
+              "afterMs": 1.092778666666667,
+              "relativeChangePercent": 0.4077152265955952,
+              "pairedMeanDeltaMs": 0.0044373333333333305,
+              "pairs": 48,
+              "pairsFaster": 24
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 1.0473813333333342,
+              "afterMs": 0.9581226666666671,
+              "relativeChangePercent": -8.522079191787546,
+              "pairedMeanDeltaMs": -0.08925866666666668,
+              "pairs": 48,
+              "pairsFaster": 43
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 1.1736746666666673,
+              "afterMs": 0.6415359999999996,
+              "relativeChangePercent": -45.339537589065074,
+              "pairedMeanDeltaMs": -0.5321386666666666,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 1.0731520000000005,
+              "afterMs": 1.0042026666666666,
+              "relativeChangePercent": -6.424936386768509,
+              "pairedMeanDeltaMs": -0.06894933333333332,
+              "pairs": 48,
+              "pairsFaster": 42
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 1.0897066666666662,
+              "afterMs": 1.0480640000000006,
+              "relativeChangePercent": -3.8214565387626243,
+              "pairedMeanDeltaMs": -0.04164266666666667,
+              "pairs": 48,
+              "pairsFaster": 36
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 1.0383360000000008,
+              "afterMs": 1.0243413333333333,
+              "relativeChangePercent": -1.3477975016437327,
+              "pairedMeanDeltaMs": -0.013994666666666685,
+              "pairs": 48,
+              "pairsFaster": 32
+            }
+          ]
+        },
+        {
+          "name": "reverse",
+          "width": 2560,
+          "height": 1440,
+          "residentFaces": 2089207,
+          "visibleFaces": 772859,
+          "environment": {
+            "visibility": "visible",
+            "startOverlayVisible": false,
+            "frameProfilerVisible": false,
+            "hudVisible": false,
+            "diagnosticsVisible": false
+          },
+          "capturePixels": {
+            "changedPixels": 0,
+            "maxChannelDelta": 0
+          },
+          "hardware": {
+            "nativeSamples": 10,
+            "clockSamples": 10,
+            "nativeDurationSeconds": 10.123967125080526,
+            "gpuMHz": {
+              "mean": 1291.4,
+              "min": 1268,
+              "max": 1295
+            },
+            "systemDeviceUtilizationPercent": 92.9,
+            "systemTilerUtilizationPercent": 92.7,
+            "systemRendererUtilizationPercent": 92.6,
+            "gpuPowerW": 14.960498809814453,
+            "gpuTemperatureC": 90.16457748413086,
+            "thermalStates": [
+              0
+            ],
+            "lowPowerModes": [
+              false
+            ],
+            "processCounterUnitsPerSecond": {
+              "pid 18767, Codex (Service)": 733942899.9717242,
+              "pid 166, WindowServer": 146245215.11257115,
+              "pid 945, Firefox GPU Help": 30421263.838067856,
+              "pid 39949, com.apple.WebKit": 6145194.786920562,
+              "pid 492, iTerm2": 2256065.6033163806,
+              "pid 72430, com.apple.WebKit": 1082159.7763646292
+            }
+          },
+          "comparisons": [
+            {
+              "candidate": "reference",
+              "beforeMs": 1.789781333333334,
+              "afterMs": 1.7788586666666661,
+              "relativeChangePercent": -0.6102793935349182,
+              "pairedMeanDeltaMs": -0.010922666666666697,
+              "pairs": 48,
+              "pairsFaster": 24
+            },
+            {
+              "candidate": "main-scissor",
+              "beforeMs": 1.7728853333333332,
+              "afterMs": 1.553408,
+              "relativeChangePercent": -12.379668848671542,
+              "pairedMeanDeltaMs": -0.21947733333333333,
+              "pairs": 48,
+              "pairsFaster": 46
+            },
+            {
+              "candidate": "no-far",
+              "beforeMs": 1.8119680000000002,
+              "afterMs": 0.6864213333333334,
+              "relativeChangePercent": -62.11735895262316,
+              "pairedMeanDeltaMs": -1.1255466666666667,
+              "pairs": 48,
+              "pairsFaster": 48
+            },
+            {
+              "candidate": "no-direct",
+              "beforeMs": 1.790975999999999,
+              "afterMs": 1.7467733333333337,
+              "relativeChangePercent": -2.4680769963788096,
+              "pairedMeanDeltaMs": -0.04420266666666665,
+              "pairs": 48,
+              "pairsFaster": 34
+            },
+            {
+              "candidate": "no-sky",
+              "beforeMs": 1.792170666666667,
+              "afterMs": 1.7276586666666667,
+              "relativeChangePercent": -3.5996571755071094,
+              "pairedMeanDeltaMs": -0.06451200000000001,
+              "pairs": 48,
+              "pairsFaster": 31
+            },
+            {
+              "candidate": "discard-private",
+              "beforeMs": 1.7727146666666673,
+              "afterMs": 1.7336319999999998,
+              "relativeChangePercent": -2.2046789255800947,
+              "pairedMeanDeltaMs": -0.0390826666666667,
+              "pairs": 48,
+              "pairsFaster": 28
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "background": {
+    "idleBeforeTestTab": {
+      "nativeSamples": 30,
+      "clockSamples": 30,
+      "nativeDurationSeconds": 30.3496114583686,
+      "gpuMHz": {
+        "mean": 430.56666666666666,
+        "min": 388,
+        "max": 514
+      },
+      "systemDeviceUtilizationPercent": 38.833333333333336,
+      "systemTilerUtilizationPercent": 38.733333333333334,
+      "systemRendererUtilizationPercent": 37.766666666666666,
+      "gpuPowerW": 0.7059224267800649,
+      "gpuTemperatureC": 52.75215225219726,
+      "thermalStates": [
+        0
+      ],
+      "lowPowerModes": [
+        false
+      ],
+      "processCounterUnitsPerSecond": {
+        "pid 166, WindowServer": 204283879.66365317,
+        "pid 18767, Codex (Service)": 47216314.250536,
+        "pid 39949, com.apple.WebKit": 2856652.452336217,
+        "pid 492, iTerm2": 1112486.7956321083,
+        "pid 72425, BambuStudio": 154562.63769421427,
+        "pid 72430, com.apple.WebKit": 118112.45112370505
+      }
+    },
+    "pausedWithStartOverlay": {
+      "nativeSamples": 20,
+      "clockSamples": 20,
+      "nativeDurationSeconds": 20.176445833407342,
+      "gpuMHz": {
+        "mean": 783,
+        "min": 641,
+        "max": 1219
+      },
+      "systemDeviceUtilizationPercent": 72.8,
+      "systemTilerUtilizationPercent": 72.7,
+      "systemRendererUtilizationPercent": 71.6,
+      "gpuPowerW": 4.235616862773895,
+      "gpuTemperatureC": 69.14943008422851,
+      "thermalStates": [
+        0
+      ],
+      "lowPowerModes": [
+        false
+      ],
+      "processCounterUnitsPerSecond": {
+        "pid 18767, Codex (Service)": 532584017.6572518,
+        "pid 166, WindowServer": 142581012.91738644,
+        "pid 945, Firefox GPU Help": 70917226.74123526,
+        "pid 39949, com.apple.WebKit": 1893856.446051132,
+        "pid 492, iTerm2": 396299.5299578822,
+        "pid 72430, com.apple.WebKit": 25543.398686534918,
+        "pid 72425, BambuStudio": 1759.4773773892593
+      }
+    },
+    "canvasOnly": {
+      "nativeSamples": 20,
+      "clockSamples": 20,
+      "nativeDurationSeconds": 20.3060629167594,
+      "gpuMHz": {
+        "mean": 502,
+        "min": 419,
+        "max": 859
+      },
+      "systemDeviceUtilizationPercent": 12.7,
+      "systemTilerUtilizationPercent": 12.7,
+      "systemRendererUtilizationPercent": 12.2,
+      "gpuPowerW": 0.48873898200690746,
+      "gpuTemperatureC": 60.902068519592284,
+      "thermalStates": [
+        0
+      ],
+      "lowPowerModes": [
+        false
+      ],
+      "processCounterUnitsPerSecond": {
+        "pid 166, WindowServer": 39710494.117226236,
+        "pid 945, Firefox GPU Help": 22947485.433791988,
+        "pid 39949, com.apple.WebKit": 3644447.242351507,
+        "pid 18767, Codex (Service)": 1806160.0690565102,
+        "pid 492, iTerm2": 839788.1987219518,
+        "pid 72430, com.apple.WebKit": 93139.22682860607,
+        "pid 72425, BambuStudio": 28794.749745280125
+      }
+    },
+    "overlayRestored": {
+      "nativeSamples": 15,
+      "clockSamples": 15,
+      "nativeDurationSeconds": 15.143166666850448,
+      "gpuMHz": {
+        "mean": 732.8,
+        "min": 682,
+        "max": 773
+      },
+      "systemDeviceUtilizationPercent": 71.2,
+      "systemTilerUtilizationPercent": 71.2,
+      "systemRendererUtilizationPercent": 70.2,
+      "gpuPowerW": 3.5612773100535073,
+      "gpuTemperatureC": 65.89388987223307,
+      "thermalStates": [
+        0
+      ],
+      "lowPowerModes": [
+        false
+      ],
+      "processCounterUnitsPerSecond": {
+        "pid 18767, Codex (Service)": 566962183.1340299,
+        "pid 166, WindowServer": 154753673.29410797,
+        "pid 945, Firefox GPU Help": 16739610.253046384,
+        "pid 39949, com.apple.WebKit": 1609152.6650989512,
+        "pid 492, iTerm2": 305016.5861352608,
+        "pid 72430, com.apple.WebKit": 79007.05488628402,
+        "pid 72425, BambuStudio": 74665.16250363385
+      }
+    },
+    "pausedNormalHud": {
+      "nativeSamples": 20,
+      "clockSamples": 20,
+      "nativeDurationSeconds": 20.160876291804016,
+      "gpuMHz": {
+        "mean": 1097.9,
+        "min": 926,
+        "max": 1283
+      },
+      "systemDeviceUtilizationPercent": 78.15,
+      "systemTilerUtilizationPercent": 78.05,
+      "systemRendererUtilizationPercent": 76.65,
+      "gpuPowerW": 7.173336243629455,
+      "gpuTemperatureC": 74.47814292907715,
+      "thermalStates": [
+        0
+      ],
+      "lowPowerModes": [
+        false
+      ],
+      "processCounterUnitsPerSecond": {
+        "pid 18767, Codex (Service)": 534189908.71831363,
+        "pid 166, WindowServer": 161515834.07730055,
+        "pid 945, Firefox GPU Help": 92459900.94973202,
+        "pid 39949, com.apple.WebKit": 1349598.232050126,
+        "pid 519, NotificationCent": 1177507.5476084754,
+        "pid 492, iTerm2": 181331.0070002357,
+        "pid 72430, com.apple.WebKit": 52211.2722068496,
+        "pid 72425, BambuStudio": 8804.180802010027
+      }
+    },
+    "pausedHudHidden": {
+      "nativeSamples": 15,
+      "clockSamples": 15,
+      "nativeDurationSeconds": 15.142037332989275,
+      "gpuMHz": {
+        "mean": 451.2,
+        "min": 409,
+        "max": 496
+      },
+      "systemDeviceUtilizationPercent": 42,
+      "systemTilerUtilizationPercent": 42,
+      "systemRendererUtilizationPercent": 41.06666666666667,
+      "gpuPowerW": 0.832752279440562,
+      "gpuTemperatureC": 61.43071950276693,
+      "thermalStates": [
+        0
+      ],
+      "lowPowerModes": [
+        false
+      ],
+      "processCounterUnitsPerSecond": {
+        "pid 166, WindowServer": 206640607.41569275,
+        "pid 18767, Codex (Service)": 53018104.98452353,
+        "pid 945, Firefox GPU Help": 20857513.626117256,
+        "pid 39949, com.apple.WebKit": 2568363.1036407207,
+        "pid 492, iTerm2": 981979.285416581,
+        "pid 72430, com.apple.WebKit": 107113.5253686373,
+        "pid 72425, BambuStudio": 35175.25338810213
+      }
+    }
+  },
+  "uiStages": [
+    {
+      "name": "reference",
+      "startOverlayVisible": true,
+      "queue": {
+        "submits": 0,
+        "writes": 0,
+        "started": 1792759523450
+      },
+      "hardware": {
+        "nativeSamples": 6,
+        "clockSamples": 6,
+        "nativeDurationSeconds": 6.050270874984562,
+        "gpuMHz": {
+          "mean": 749.3333333333334,
+          "min": 728,
+          "max": 791
+        },
+        "systemDeviceUtilizationPercent": 71,
+        "systemTilerUtilizationPercent": 71,
+        "systemRendererUtilizationPercent": 69.83333333333333,
+        "gpuPowerW": 3.6179115772247314,
+        "gpuTemperatureC": 69.01202774047852,
+        "thermalStates": [
+          0
+        ],
+        "lowPowerModes": [
+          false
+        ],
+        "processCounterUnitsPerSecond": {
+          "pid 18767, Codex (Service)": 563438389.0305899,
+          "pid 166, WindowServer": 150706709.6400583,
+          "pid 945, Firefox GPU Help": 18429829.06121282,
+          "pid 39949, com.apple.WebKit": 2186816.8009971553,
+          "pid 492, iTerm2": 297603.7002648405,
+          "pid 72430, com.apple.WebKit": 103129.10163738612
+        }
+      }
+    },
+    {
+      "name": "hide-dev",
+      "startOverlayVisible": true,
+      "queue": {
+        "submits": 0,
+        "writes": 0,
+        "started": 1792759523450
+      },
+      "hardware": {
+        "nativeSamples": 6,
+        "clockSamples": 6,
+        "nativeDurationSeconds": 6.045064458157867,
+        "gpuMHz": {
+          "mean": 727.5,
+          "min": 664,
+          "max": 794
+        },
+        "systemDeviceUtilizationPercent": 71.83333333333333,
+        "systemTilerUtilizationPercent": 71.83333333333333,
+        "systemRendererUtilizationPercent": 70.83333333333333,
+        "gpuPowerW": 3.464815100034078,
+        "gpuTemperatureC": 68.91086069742839,
+        "thermalStates": [
+          0
+        ],
+        "lowPowerModes": [
+          false
+        ],
+        "processCounterUnitsPerSecond": {
+          "pid 18767, Codex (Service)": 547533980.9707555,
+          "pid 166, WindowServer": 175612112.88117528,
+          "pid 945, Firefox GPU Help": 15696496.4818448,
+          "pid 39949, com.apple.WebKit": 1801297.2525553894,
+          "pid 492, iTerm2": 479599.1870835213,
+          "pid 72425, BambuStudio": 208469.07567699082,
+          "pid 72430, com.apple.WebKit": 83711.59703964644
+        }
+      }
+    },
+    {
+      "name": "hide-hud",
+      "startOverlayVisible": true,
+      "queue": {
+        "submits": 0,
+        "writes": 0,
+        "started": 1792759523450
+      },
+      "hardware": {
+        "nativeSamples": 7,
+        "clockSamples": 6,
+        "nativeDurationSeconds": 7.079928499646485,
+        "gpuMHz": {
+          "mean": 537.8333333333334,
+          "min": 496,
+          "max": 615
+        },
+        "systemDeviceUtilizationPercent": 66.57142857142857,
+        "systemTilerUtilizationPercent": 66.57142857142857,
+        "systemRendererUtilizationPercent": 65.57142857142857,
+        "gpuPowerW": 2.9165488481521606,
+        "gpuTemperatureC": 67.88293838500977,
+        "thermalStates": [
+          0
+        ],
+        "lowPowerModes": [
+          false
+        ],
+        "processCounterUnitsPerSecond": {
+          "pid 18767, Codex (Service)": 349763601.72615397,
+          "pid 166, WindowServer": 275488122.38674295,
+          "pid 945, Firefox GPU Help": 25708539.995720062,
+          "pid 39949, com.apple.WebKit": 1786241.0617044314,
+          "pid 492, iTerm2": 577395.2378479695,
+          "pid 72430, com.apple.WebKit": 257164.74397882854
+        }
+      }
+    },
+    {
+      "name": "hide-navigation",
+      "startOverlayVisible": true,
+      "queue": {
+        "submits": 0,
+        "writes": 0,
+        "started": 1792759523450
+      },
+      "hardware": {
+        "nativeSamples": 7,
+        "clockSamples": 6,
+        "nativeDurationSeconds": 7.057716291863471,
+        "gpuMHz": {
+          "mean": 708.6666666666666,
+          "min": 676,
+          "max": 753
+        },
+        "systemDeviceUtilizationPercent": 71.28571428571429,
+        "systemTilerUtilizationPercent": 71.28571428571429,
+        "systemRendererUtilizationPercent": 70.28571428571429,
+        "gpuPowerW": 3.528834660847982,
+        "gpuTemperatureC": 68.13276545206706,
+        "thermalStates": [
+          0
+        ],
+        "lowPowerModes": [
+          false
+        ],
+        "processCounterUnitsPerSecond": {
+          "pid 18767, Codex (Service)": 548114870.3100679,
+          "pid 166, WindowServer": 176488197.24249914,
+          "pid 945, Firefox GPU Help": 13840241.795013994,
+          "pid 39949, com.apple.WebKit": 2213552.423184059,
+          "pid 492, iTerm2": 438834.15993507515,
+          "pid 72430, com.apple.WebKit": 127260.28687713857
+        }
+      }
+    },
+    {
+      "name": "no-backdrop",
+      "startOverlayVisible": true,
+      "queue": {
+        "submits": 0,
+        "writes": 0,
+        "started": 1792759523450
+      },
+      "hardware": {
+        "nativeSamples": 7,
+        "clockSamples": 6,
+        "nativeDurationSeconds": 7.081796749960631,
+        "gpuMHz": {
+          "mean": 425.6666666666667,
+          "min": 409,
+          "max": 460
+        },
+        "systemDeviceUtilizationPercent": 47.714285714285715,
+        "systemTilerUtilizationPercent": 47.714285714285715,
+        "systemRendererUtilizationPercent": 46.857142857142854,
+        "gpuPowerW": 1.4147498806317647,
+        "gpuTemperatureC": 66.30022303263347,
+        "thermalStates": [
+          0
+        ],
+        "lowPowerModes": [
+          false
+        ],
+        "processCounterUnitsPerSecond": {
+          "pid 166, WindowServer": 311149109.15965635,
+          "pid 18767, Codex (Service)": 145314369.97337162,
+          "pid 945, Firefox GPU Help": 24450539.335368894,
+          "pid 39949, com.apple.WebKit": 3187509.017415035,
+          "pid 492, iTerm2": 989679.3493881285,
+          "pid 72430, com.apple.WebKit": 103340.01748978018
+        }
+      }
+    },
+    {
+      "name": "pause-animations",
+      "startOverlayVisible": true,
+      "queue": {
+        "submits": 0,
+        "writes": 0,
+        "started": 1792759523450
+      },
+      "hardware": {
+        "nativeSamples": 7,
+        "clockSamples": 6,
+        "nativeDurationSeconds": 7.06953754182905,
+        "gpuMHz": {
+          "mean": 612,
+          "min": 597,
+          "max": 628
+        },
+        "systemDeviceUtilizationPercent": 28.714285714285715,
+        "systemTilerUtilizationPercent": 28.571428571428573,
+        "systemRendererUtilizationPercent": 28.285714285714285,
+        "gpuPowerW": 1.0438693563143413,
+        "gpuTemperatureC": 64.90415445963542,
+        "thermalStates": [
+          0
+        ],
+        "lowPowerModes": [
+          false
+        ],
+        "processCounterUnitsPerSecond": {
+          "pid 18767, Codex (Service)": 160222803.58482185,
+          "pid 166, WindowServer": 91324213.80889414,
+          "pid 945, Firefox GPU Help": 16989330.24817429,
+          "pid 39949, com.apple.WebKit": 2522182.801137909,
+          "pid 492, iTerm2": 686513.5054851597,
+          "pid 72430, com.apple.WebKit": 91707.97893977398
+        }
+      }
+    },
+    {
+      "name": "reference-repeat",
+      "startOverlayVisible": true,
+      "queue": {
+        "submits": 0,
+        "writes": 0,
+        "started": 1792759523450
+      },
+      "hardware": {
+        "nativeSamples": 7,
+        "clockSamples": 6,
+        "nativeDurationSeconds": 7.0549392914399505,
+        "gpuMHz": {
+          "mean": 739.6666666666666,
+          "min": 703,
+          "max": 812
+        },
+        "systemDeviceUtilizationPercent": 71.14285714285714,
+        "systemTilerUtilizationPercent": 71,
+        "systemRendererUtilizationPercent": 69.85714285714286,
+        "gpuPowerW": 3.5413766304651895,
+        "gpuTemperatureC": 66.41591771443684,
+        "thermalStates": [
+          0
+        ],
+        "lowPowerModes": [
+          false
+        ],
+        "processCounterUnitsPerSecond": {
+          "pid 18767, Codex (Service)": 564599159.1781657,
+          "pid 166, WindowServer": 146132907.51500937,
+          "pid 945, Firefox GPU Help": 21378042.49896198,
+          "pid 39949, com.apple.WebKit": 2266644.734902622,
+          "pid 492, iTerm2": 325038.23282821773,
+          "pid 72430, com.apple.WebKit": 28118.59773771499
+        }
+      }
+    }
+  ],
+  "queueProof": {
+    "submits": 0,
+    "writes": 0,
+    "started": 1792760381545,
+    "end": 1792760665437,
+    "overlay": "none"
+  },
+  "excluded": [
+    {
+      "file": "gpu-hardware-scene-replay-2026-10-23.json",
+      "reason": "Start overlay and profiler reopened after HMR; retained as a contaminated instrument audit, not valid gameplay evidence."
+    },
+    {
+      "reason": "Initial attempted four-view replay had zero resident far faces after HMR. Workload guard rejected it before recording any rows; no numeric result is used."
+    }
+  ],
+  "productionUnchanged": {
+    "engine/src/render/VoxelFaceArena.ts": true,
+    "engine/src/render/DistantVoxelLayer.ts": true,
+    "client/src/engine/render/SpaceRenderer.ts": true
+  },
+  "sourceHashes": {
+    "engine/src/render/VoxelFaceArena.ts": "873e4edc0b54091d21abcbfefb280d9e4a8e872c87a61feac99e24226de7e1e7",
+    "engine/src/render/DistantVoxelLayer.ts": "b7929ebdb193769a1fdc0c5a6b0099d9806e44bb226bff75fc731c1c1cc3825d",
+    "client/src/engine/render/SpaceRenderer.ts": "8796bcad3e142ef7d18b61869a4215e606a06e78016fd88d6819ba2cde725889",
+    "client/src/dev/GpuSceneReplay.ts": "555288a8f6bc1f184a1db4be73fc4520ebf41a40d00ccf6944e7d14e3b35ad1f",
+    "client/src/dev/GpuBenchmarkEnvironment.ts": "24f497b83ca7632ad80226e047806ffe6514c05747cca5f5c174b9145b15086b",
+    "client/tools/GpuHardwareProbe.m": "0ecfd6bc128f568a3be21d226d0f3f762722bc623d4bd7993f28463c82a3b1ab",
+    "client/src/style.css": "baf33b3be6baa0b19701d9d0cfb851ea922b9848dc1ee0c518342794b2a265f7"
+  },
+  "validation": {
+    "focusedTests": {
+      "passed": 8,
+      "failed": 0
+    },
+    "clientTypecheck": true,
+    "inventoryTypecheck": true,
+    "productionBuild": true,
+    "productionDevelopmentEntryExclusion": true,
+    "productionImportOrders": 4,
+    "compilerWorker": true,
+    "documentationLinks": true,
+    "englishOnly": true,
+    "nativeCompileWarningsAsErrors": true,
+    "defaultCompactMapsEnabled": false,
+    "finalUiIsolationStyles": 0,
+    "finalStartOverlayDisplay": "none",
+    "finalHudDisplay": "flex",
+    "fullApplicationSuiteRerun": false
+  }
+}

@@ -16,8 +16,9 @@ type FaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNode
 // Aligned publication attributes use 32 bytes per face.
 export const MAX_VOXEL_LOD_FACES = 4 * 1024 * 1024;
 export const VOXEL_GPU_BYTES_PER_FACE = 32;
-// Settled pages use 16-byte records, 24-byte quad indices and 2-byte block maps
-// per face. Reserve some page slack; transition/CPU copies remain extra.
+// Keep the historical 48-byte budget so the smaller block index buffers do not
+// silently select more faces. Actual settled storage is 16-byte records and
+// 2-byte maps per face plus 768 bytes of indices per page; slack/copies are extra.
 export const VOXEL_RESIDENT_BYTES_PER_FACE = 48;
 export const voxelFaceBudget = (mib: number) => Math.floor(mib * 1024 * 1024 / VOXEL_RESIDENT_BYTES_PER_FACE);
 
@@ -203,6 +204,21 @@ export class DistantVoxelLayer {
     this.group.needsUpdate = true;
   }
   getMergedBuffersEnabled() { return !!this.arena; }
+
+  setCompactMapsEnabled(enabled: boolean) {
+    this.arena?.setCompactMapsEnabled(enabled); this.arenaDirty = true;
+  }
+  getCompactMapsEnabled() { return this.arena?.getCompactMapsEnabled() ?? false; }
+  setBlockInstancingEnabled(enabled: boolean, faces = 32) {
+    this.arena?.setBlockInstancingEnabled(enabled, faces); this.arenaDirty = true;
+  }
+  getBlockInstancingEnabled() { return this.arena?.getBlockInstancingEnabled() ?? false; }
+  getInstanceFaces() { return this.arena?.getInstanceFaces() ?? 32; }
+
+  setTurnOptimizationsEnabled(cached: boolean) {
+    this.arena?.setViewOptimizationsEnabled(cached);
+    this.arenaDirty = true;
+  }
 
   /** Development reference paths retain identical geometry and visibility. */
   setMaintenanceOptimizationsEnabled(matrix: boolean, arena = matrix) {

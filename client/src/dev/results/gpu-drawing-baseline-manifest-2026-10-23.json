@@ -1,0 +1,6 @@
+{
+  "engine/src/render/VoxelFaceArena.ts": "9eb2e89b83c33087de7068442cddfc7763b990c6d8dd1ae872262ccdda139f86",
+  "engine/src/render/DistantVoxelLayer.ts": "1790fb09ee6c6a1eeebf09b009891aeef66ff61b3474b80d8b11ad1102c4553d",
+  "engine/src/torus/TorusWorld.ts": "93894fc155587e32ea1d7ba6675126395e9310bd9a3b5f3e24f11f1775a6d9b9",
+  "client/src/dev/TurnPerformanceBenchmark.ts": "70c26583d380396061489428219165498d8d45d0b4735fbabaf390d622f14c7c"
+}

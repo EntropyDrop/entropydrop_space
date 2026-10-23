@@ -155,3 +155,221 @@ test('visibility guards reuse maps during motion and restore faces on reversal a
     assert.equal(mesh.geometry.getAttribute('voxelOffset'), undefined, 'coverage changes do not recreate geometry');
   } finally { arena.dispose(); coverage.dispose(); }
 });
+
+function cullingFixture(cached: boolean, clustered = false) {
+  const group = new THREE.BundleGroup(), mesh = source(16 * 96, 0), bounds = new Float32Array(96 * 12);
+  for (let i = 0; i < 96; i++) {
+    const angle = i * Math.PI * 2 / 96;
+    bounds.set([Math.sin(angle) * (clustered ? 50 : 1000) + (clustered ? 800 : 0),
+      (i % 7 - 3) * 80, Math.cos(angle) * (clustered ? 50 : 1000) - (clustered ? 800 : 0),
+      20, Math.sin(angle), 0, Math.cos(angle), i % 3 ? 2 : .01, 5, 6, 5, 6], i * 12);
+  }
+  mesh.geometry.userData.voxelVisibility = bounds;
+  mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); mesh.material = mesh.userData.maskedMaterial;
+  group.add(mesh);
+  const arena = new VoxelFaceArena(group, make); arena.setViewOptimizationsEnabled(cached);
+  const camera = new THREE.PerspectiveCamera(75, 16 / 9, .1, 10000), frustum = new THREE.Frustum();
+  camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+  const data = new Uint8Array(1024 * 128 * 2), coverage = new THREE.DataTexture(data, 1024, 128, THREE.RGFormat);
+  const tick = (mask = coverage) => {
+    camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), THREE.WebGPUCoordinateSystem);
+    arena.setView(camera.position, frustum, mask, true); arena.restoreSources(); arena.sync(Infinity);
+  };
+  return { arena, mesh, bounds, camera, frustum, data, coverage, tick };
+}
+
+test('cached rotation tests preserve exact maps through position, coverage, material and texture changes', () => {
+  const a = cullingFixture(true, true), b = cullingFixture(false, true);
+  const textures: THREE.DataTexture[] = [];
+  try {
+    a.tick(); b.tick(); const positionTests = a.arena.stats.positionBlockTests;
+    for (let frame = 1; frame <= 70; frame++) {
+      for (const f of [a, b]) {
+        f.camera.rotation.y = frame * .13;
+        if (frame === 20) f.camera.position.x = 35;
+        if (frame === 30 || frame === 40) { f.data[0] = frame === 30 ? 255 : 128; f.coverage.needsUpdate = true; }
+        if (frame === 50) f.mesh.material = f.mesh.userData.opaqueMaterial;
+        if (frame === 60) f.mesh.material = f.mesh.userData.maskedMaterial;
+        if (frame >= 65) {
+          if (textures.length < 2) {
+            for (let i = 0; i < 2; i++) { const data = f.data.slice(); data[0] = 255;
+              const texture = new THREE.DataTexture(data, 1024, 128, THREE.RGFormat);
+              texture.version = f.coverage.version; textures.push(texture); }
+          }
+          f.tick(textures[f === a ? 0 : 1]);
+        } else f.tick();
+      }
+      for (const key of ['visibleFaces', 'backFaces', 'outsideFaces', 'coveredFaces', 'paddedFaces', 'draws'] as const)
+        assert.equal(a.arena.stats[key], b.arena.stats[key], `${key} at frame ${frame}`);
+      assert.deepEqual(a.arena.pages.map(p => p.map.array), b.arena.pages.map(p => p.map.array));
+      if (frame < 20) assert.equal(a.arena.stats.positionBlockTests, positionTests, 'rotation reuses position-only work');
+    }
+    assert.equal(a.arena.stats.coveredFaces, 16 * 96, 'a new texture with the same version invalidates coverage');
+    assert.ok(a.arena.stats.blockCacheBytes > 0);
+  } finally {
+    for (const f of [a, b]) { f.arena.dispose(); f.coverage.dispose(); assert.equal(f.arena.stats.blockCacheBytes, 0); }
+    textures.forEach(t => t.dispose());
+  }
+});
+
+test('cached rotation guards retain every sphere intersecting the current frustum', () => {
+  const f = cullingFixture(true);
+  // Wide normal cones disable back-face rejection, isolating frustum guards.
+  for (let i = 0; i < 96; i++) f.bounds[i * 12 + 7] = 2;
+  f.mesh.material = f.mesh.userData.opaqueMaterial;
+  let rejected = 0;
+  try {
+    for (let frame = 0; frame < 180; frame++) {
+      f.camera.rotation.y = frame * .017;
+      f.camera.position.set(Math.sin(frame * .09) * 30, 0, Math.cos(frame * .09) * 30);
+      f.tick();
+      const page = f.arena.pages[0], drawn = new Set<number>();
+      for (let i = 0; i < f.arena.stats.paddedFaces / 16; i++) drawn.add(f.arena.getCompactMapsEnabled() ? (page.map.array[i * 4] >>> 5) / 16 : page.map.array[i * 8] / 16);
+      rejected += 96 - drawn.size;
+      for (let block = 0; block < 96; block++) {
+        const at = block * 12, sphere = new THREE.Sphere(new THREE.Vector3(f.bounds[at], f.bounds[at + 1], f.bounds[at + 2]), f.bounds[at + 3]);
+        if (f.frustum.intersectsSphere(sphere)) assert.ok(drawn.has(block), `visible block ${block} at frame ${frame}`);
+      }
+    }
+    assert.ok(rejected > 1000, 'the guard test exercises actual rejection');
+  } finally { f.arena.dispose(); f.coverage.dispose(); }
+});
+
+// Decode the actual draw arguments and index buffers into the ordered GPU face
+// records/corners. This checks topology across partial blocks and run barriers.
+function submittedVertices(arena: VoxelFaceArena) {
+  const output: unknown[] = [];
+  const draws = arena.pages.flatMap(page => page.runs.filter(mesh => mesh.visible).map(mesh => ({ page, mesh })))
+    .sort((a, b) => a.mesh.renderOrder - b.mesh.renderOrder);
+  for (const { page, mesh } of draws) {
+    const geometry = mesh.geometry, indices = geometry.index!.array;
+    const instances = geometry.isInstancedBufferGeometry ? geometry.instanceCount : 1;
+    for (let instance = 0; instance < instances; instance++) for (let i = 0; i < geometry.drawRange.count; i++) {
+      const vertex = indices[geometry.drawRange.start + i], face = Math.floor(vertex / 4) + instance * (indices.length / 6);
+      if (face >= mesh.userData.voxelArenaFaces) continue;
+      const compact = arena.getCompactMapsEnabled(), stride = compact ? 4 : 8;
+      const at = (Math.floor(face / 16) + mesh.userData.voxelArenaBase) * stride, local = face % 16;
+      const start = compact ? page.map.array[at] >>> 5 : page.map.array[at];
+      const count = compact ? page.map.array[at] & 31 : page.map.array[at + 1];
+      const valid = local < count, record = (start + Math.min(local, count - 1)) * 4;
+      const origin = compact ? page.map.array.slice(at + 1, at + 4) : page.map.array.slice(at + 2, at + 5);
+      if (!valid) continue;
+      output.push([mesh.renderOrder, mesh.material === page.mesh.userData.maskedMaterial, valid, vertex % 4,
+        ...origin, ...page.data.array.slice(record, record + 4)]);
+    }
+  }
+  return output;
+}
+
+test('block instances preserve triangle order, partial blocks and material/unmerged barriers', () => {
+  const group = new THREE.BundleGroup(), a = source(17, 0), barrier = source(7, 512), b = source(33, 1024), c = source(5, 1536);
+  barrier.userData.voxelArenaCompatible = false;
+  b.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); b.material = b.userData.maskedMaterial;
+  group.add(a, barrier, b, c);
+  const arena = new VoxelFaceArena(group, () => {
+    const mesh = make(); mesh.userData.opaqueMaterial = mesh.material;
+    mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); return mesh;
+  });
+  try {
+    arena.setBlockInstancingEnabled(true);
+    settle(arena); const expected = submittedVertices(arena), page = arena.pages[0];
+    assert.ok(expected.length > 0); assert.equal(page.mesh.geometry.index!.array.byteLength, 768);
+    assert.equal(arena.stats.draws, 3); const bytes = arena.stats.bytes, dataVersion = page.data.version;
+    for (const blocks of [false, true, false, true]) {
+      arena.restoreSources(); arena.setBlockInstancingEnabled(blocks); arena.sync(Infinity);
+      assert.deepEqual(submittedVertices(arena), expected);
+      assert.equal(page.data.version, dataVersion, 'changing draw layout does not republish faces');
+      assert.equal(arena.stats.residentFaces, 55); assert.equal(arena.stats.visibleFaces, 55);
+      assert.equal(arena.stats.bytes, blocks ? bytes : bytes - 768 + 256 * 1024 * 6 * 4);
+      assert.equal(a.geometry.getAttribute('voxelOffset'), undefined);
+    }
+    arena.restoreSources(); group.remove(b); arena.sync(Infinity);
+    const changed = submittedVertices(arena);
+    arena.restoreSources(); arena.setBlockInstancingEnabled(false); arena.sync(Infinity);
+    assert.deepEqual(submittedVertices(arena), changed, 'removal updates both layouts identically');
+  } finally { arena.dispose(); }
+});
+
+test('drawing reference switches retain storage and release replaced materials exactly once', () => {
+  const group = new THREE.BundleGroup(), mesh = source(33, 0); group.add(mesh);
+  const retired = new Map<THREE.Material, number>();
+  const arena = new VoxelFaceArena(group, () => {
+    const page = make(); page.userData.opaqueMaterial = page.material;
+    page.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial();
+    for (const material of [page.material, page.userData.maskedMaterial]) {
+      retired.set(material, 0); material.addEventListener('dispose', () => retired.set(material, retired.get(material)! + 1));
+    }
+    return page;
+  });
+  try {
+    arena.setBlockInstancingEnabled(true);
+    settle(arena); const page = arena.pages[0], data = page.data, map = page.map, index = page.mesh.geometry.index;
+    arena.restoreSources(); arena.setBlockInstancingEnabled(false); arena.sync(Infinity);
+    assert.equal(page.data, data); assert.equal(page.map, map); assert.notEqual(page.mesh.geometry.index, index);
+    assert.deepEqual([...retired.values()], [1, 1, 0, 0]);
+    arena.setBlockInstancingEnabled(false); assert.equal(retired.size, 4, 'idempotent switches do not create materials');
+    let disposals = 0; page.mesh.geometry.addEventListener('dispose', () => disposals++);
+    arena.setBlockInstancingEnabled(true); assert.equal(disposals, 1);
+    arena.setBlockInstancingEnabled(true); assert.equal(disposals, 1);
+    arena.dispose(); assert.deepEqual([...retired.values()], [1, 1, 1, 1, 1, 1]);
+  } finally { arena.dispose(); }
+});
+
+
+test('compact maps preserve ordered faces, origins and tails through switches and publication', () => {
+  const group = new THREE.BundleGroup(), a = source(17, -16384), b = source(33, 512), barrier = source(7, 0);
+  barrier.userData.voxelArenaCompatible = false;
+  b.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); b.material = b.userData.maskedMaterial;
+  a.userData.voxelOrigin.y = 17.25; b.userData.voxelOrigin.z = 16384;
+  group.add(a, barrier, b); const arena = new VoxelFaceArena(group, make);
+  try {
+    assert.equal(arena.getCompactMapsEnabled(), false, 'experimental maps must not become the default without full-frame evidence');
+    arena.setCompactMapsEnabled(true);
+    settle(arena); const expected = submittedVertices(arena), page = arena.pages[0], data = page.data;
+    const compactBytes = arena.stats.bytes, compactUpload = arena.stats.mapUploadBytes;
+    assert.equal(page.map.count, 256 * 1024 / 16);
+    for (const enabled of [false, true, false, true]) {
+      arena.restoreSources(); arena.setCompactMapsEnabled(enabled); arena.sync(Infinity);
+      assert.deepEqual(submittedVertices(arena), expected);
+      assert.equal(page.data, data); assert.equal(arena.stats.residentFaces, 50);
+      assert.equal(arena.stats.bytes, compactBytes + (enabled ? 0 : 256 * 1024));
+      assert.equal(arena.stats.mapUploadBytes, compactUpload * (enabled ? 1 : 2));
+    }
+    arena.restoreSources(); group.remove(a); const c = source(19, 1024); group.add(c); settle(arena);
+    const changed = submittedVertices(arena);
+    arena.restoreSources(); arena.setCompactMapsEnabled(false); arena.sync(Infinity);
+    assert.deepEqual(submittedVertices(arena), changed, 'reused ranges and new partial blocks decode identically');
+  } finally { arena.dispose(); }
+});
+
+test('compact map addresses remain lossless at the last page block for every tail count', () => {
+  const group = new THREE.BundleGroup(), a = source(256 * 1024 - 16, 0); group.add(a);
+  const arena = new VoxelFaceArena(group, make);
+  try {
+    arena.setCompactMapsEnabled(true); settle(arena);
+    for (let count = 1; count <= 16; count++) {
+      arena.restoreSources(); const tail = source(count, -512); group.add(tail); settle(arena);
+      const page = arena.pages[0], at = (page.map.count - 1) * 4, address = page.map.array[at];
+      assert.equal(arena.pages.length, 1); assert.equal(address >>> 5, 256 * 1024 - 16);
+      assert.equal(address & 31, count); assert.ok(address < 2 ** 23);
+      arena.restoreSources(); group.remove(tail); arena.sync(Infinity);
+    }
+  } finally { arena.dispose(); }
+});
+
+test('map switches retire GPU storage once per renderer without retaining previous layouts', () => {
+  const group = new THREE.BundleGroup(); group.add(source(17, 0));
+  const arena = new VoxelFaceArena(group, make), deleted: unknown[][] = [[], []];
+  arena.setCompactMapsEnabled(true); settle(arena); const page = arena.pages[0], old = page.map;
+  for (const row of deleted) {
+    const renderer = { _attributes: { delete: (a: unknown) => row.push(a) } };
+    for (let i = 0; i < 2; i++) page.mesh.onBeforeRender(renderer as any,
+      null as any, null as any, page.mesh.geometry, page.mesh.material, null as any);
+  }
+  arena.setCompactMapsEnabled(false); const reference = page.map;
+  arena.setCompactMapsEnabled(false); assert.equal(page.map, reference);
+  arena.setCompactMapsEnabled(true); const compact = page.map;
+  arena.dispose(); arena.dispose();
+  for (const row of deleted) assert.deepEqual(row, [old, reference, page.data, compact]);
+});

@@ -1,6 +1,7 @@
 /** Development-only measurements. Explicit pixel/completion probes are separate from frame sampling. */
 import * as THREE from 'three/webgpu';
 import { frameMetrics } from './FrameMetrics.ts';
+import { gpuTimestampSpan } from './GpuTimestampSpan.ts';
 export class FrameSamples {
   private values: number[] = [];
   private capacity: number;
@@ -30,6 +31,21 @@ export function interceptMethod(target: any, key: string, invoke: (original: (..
     if (descriptor) Object.defineProperty(target, key, descriptor);
     else delete target[key];
   };
+}
+
+/** r183 retains timestampWrites on cached pass descriptors after disabling
+ * tracking. Clear them on unsampled frames and when the diagnostic closes. */
+export function guardTimestampWrites(backend: any) {
+  const descriptors = new Map<string, any>();
+  const restore = interceptMethod(backend, 'initTimestampQuery', (original, args) => {
+    const descriptor = args[2];
+    if (descriptor) {
+      descriptors.set(`${args[0]}:${String(args[1]).replace(/:f\d+$/, '')}`, descriptor);
+      if (!backend.trackTimestamp) delete descriptor.timestampWrites;
+    }
+    return original(...args);
+  });
+  return () => { restore(); for (const descriptor of descriptors.values()) delete descriptor.timestampWrites; descriptors.clear(); };
 }
 
 export function withHiddenObjects(objects: Iterable<any>, draw: () => void) {
@@ -65,6 +81,7 @@ export function installFrameDiagnostics(game: any) {
   };
   const stage = new Map<string, number>();
   const undo: (() => void)[] = [];
+  undo.push(guardTimestampWrites(backend));
   const autoReset = renderer.info.autoReset;
   renderer.info.autoReset = false;
   let previous = 0, published = 0, epoch = 0, disposed = false;
@@ -509,14 +526,18 @@ export function installFrameDiagnostics(game: any) {
     backend.trackTimestamp = sample;
     try { return original(...args); }
     finally {
-      if (sample) pending = renderer.resolveTimestampsAsync().then(() => {
-        // The HDR chain contains several renderer.render calls. Sum all of
-        // this sample's passes instead of returning only the last frame ID.
-        const times = backend.timestampQueryPool.render?.timestamps;
-        let total = 0;
-        if (times) for (const value of times.values()) total += value;
-        if (!disposed && sampleEpoch === epoch && total > 0) metric('GPU').add(total);
-      }).catch((error: unknown) => showResults([`GPU timer failed: ${String(error)}`])).finally(() => { pending = null; });
+      if (sample) {
+        let span = 0;
+        const buffer = backend.timestampQueryPool.render?.resultBuffer;
+        const restore = buffer ? interceptMethod(buffer, 'getMappedRange', (original, args) => {
+          const bytes = original(...args); span = gpuTimestampSpan(new BigUint64Array(bytes))?.spanMs ?? 0; return bytes;
+        }) : () => {};
+        pending = renderer.resolveTimestampsAsync().then(() => {
+          // GPU pass intervals can overlap. Use the complete frame span rather
+          // than summing passes or taking only the final fullscreen render.
+          if (!disposed && sampleEpoch === epoch && span > 0) metric('GPU').add(span);
+        }).catch((error: unknown) => showResults([`GPU timer failed: ${String(error)}`])).finally(() => { restore(); pending = null; });
+      }
       backend.trackTimestamp = false;
     }
   }));

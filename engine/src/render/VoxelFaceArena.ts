@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { storage, vertexIndex, uint, float, vec2, vec3, varying, min, uniform, wgslFn } from 'three/tsl';
+import { storage, vertexIndex, instanceIndex, uint, float, vec2, vec3, varying, min, uniform, wgslFn } from 'three/tsl';
 import { VOXEL_FACE_BLOCK, VOXEL_VISIBILITY_STRIDE, voxelBlockBackFacing } from './VoxelFaceVisibility.ts';
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { orderVoxelPages } from './VoxelDrawOrder.ts';
@@ -8,6 +8,20 @@ export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.Mesh
 export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
 const BLOCK = VOXEL_FACE_BLOCK;
 const PAGE_FACES = 256 * 1024;
+// r183 promotes non-normalized uint16 attributes (including indices) to uint32.
+// Use the backend's actual representation so allocation accounting stays exact.
+const blockIndexTemplates = new Map<number, Uint32Array>();
+function blockIndex(faces: number) {
+  let indices = blockIndexTemplates.get(faces);
+  if (!indices) {
+    indices = new Uint32Array(faces * 6);
+    for (let i = 0; i < faces; i++) {
+      const v = i * 4; indices.set([v, v + 1, v + 2, v, v + 2, v + 3], i * 6);
+    }
+    blockIndexTemplates.set(faces, indices);
+  }
+  return new THREE.BufferAttribute(indices, 1);
+}
 let quadIndices: Uint32Array | undefined;
 function pageIndex(capacity: number) {
   if (!quadIndices || quadIndices.length < capacity * 6) {
@@ -27,13 +41,17 @@ export const ARENA_COPY_MS = .75;
 const names = ['voxelOffset', 'voxelSpan', 'voxelDirection', 'voxelEmission', 'color'] as const;
 const unpackColor = wgslFn('fn voxelArenaColor(value: u32) -> vec3<f32> { return unpack4x8unorm(value).xyz; }');
 type Range = { start: number; count: number };
+type BlockTests = { data: Float32Array; position: number; coverage: number;
+  distance: Float64Array; facing: Uint8Array; covered: Uint8Array;
+  sphere: THREE.Sphere; view: number; planeMask: number };
 type Entry = Range & { mesh: VoxelFaceMesh; geometry: THREE.InstancedBufferGeometry; page: Page; allocated: number; copied: number;
   attributes?: THREE.BufferAttribute[]; versions: number[]; origin: THREE.Vector3;
   visibility?: { map: Float32Array; blocks: number; faces: number; view: number; mask: number; masked: boolean;
     back: number; outside: number; covered: number };
-  invalid: boolean; releasing: boolean; onDispose: () => void };
+  blockTests?: BlockTests; invalid: boolean; releasing: boolean; onDispose: () => void };
 type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; free: Range[];
-  map: THREE.StorageBufferAttribute; data: THREE.StorageBufferAttribute; release: Set<() => void> };
+  map: THREE.StorageBufferAttribute; data: THREE.StorageBufferAttribute; release: Set<() => void>;
+  releaseMap: Set<(attribute: THREE.StorageBufferAttribute) => void> };
 
 /** Primary store for immutable, settled far faces. Records use 16 bytes instead
  * of 32-byte vertex attributes. Publication is bounded; incomplete/fading draws
@@ -67,14 +85,24 @@ export class VoxelFaceArena {
   private readonly frustum = new THREE.Frustum();
   private coverage: THREE.DataTexture | null = null;
   private coverageVersion = -1;
+  private coverageEpoch = 0;
   private visibilityDirty = true;
   private visibilityEnabled = false;
   private viewEpoch = 0;
+  private positionEpoch = 0;
+  private resetView = true;
+  private cachedBlockTests = true;
+  private blockInstancing = true;
+  private instanceFaces = 32;
+  // Experimental: far replay improves, but ordinary turning GPU spans regress.
+  // Keep the original layout until the full-frame regression is resolved.
+  private compactMaps = false;
   private emptyFrustum = false;
   readonly stats = { residentFaces: 0, bytes: 0, visibleFaces: 0, paddedFaces: 0, draws: 0,
     sourceDraws: 0, mapUploadBytes: 0, copyFaces: 0, copyMs: 0, maxCopyMs: 0, pendingSources: 0,
     releasedSourceBytes: 0, pages: 0, backFaces: 0, outsideFaces: 0, coveredFaces: 0,
-    maintenancePasses: 0, sourceListBuilds: 0 };
+    maintenancePasses: 0, sourceListBuilds: 0, blockCacheBytes: 0,
+    positionBlockTests: 0, coverageBlockTests: 0, drawnFaces: 0, instancePaddingFaces: 0 };
   private readonly root: THREE.BundleGroup;
   private readonly make: (inputs: ArenaInputs) => VoxelFaceMesh;
   constructor(root: THREE.BundleGroup, make: (inputs: ArenaInputs) => VoxelFaceMesh) {
@@ -84,17 +112,85 @@ export class VoxelFaceArena {
   }
   get hasPendingWork() { return this.stats.pendingSources > 0; }
 
+  /** Reference controls for identical-world development comparisons. */
+  setViewOptimizationsEnabled(cached: boolean) {
+    if (cached === this.cachedBlockTests) return;
+    this.cachedBlockTests = cached; this.resetView = true;
+  }
+  getViewOptimizations() { return { cached: this.cachedBlockTests }; }
+
+  /** Reuse one indexed group across visibility blocks; the reference retains a
+   * page-wide index list. Real triangles keep their order; tail padding collapses. */
+  setBlockInstancingEnabled(enabled: boolean, faces = 32) {
+    if (!Number.isInteger(faces) || faces < BLOCK || faces > 1024 || faces % BLOCK !== 0) throw new Error('Invalid Arena instance face count.');
+    if (this.blockInstancing === enabled && this.instanceFaces === faces) return;
+    this.blockInstancing = enabled; this.instanceFaces = faces;
+    for (const page of this.pages) {
+      const index = enabled ? blockIndex(faces) : pageIndex(page.data.count);
+      for (const mesh of page.runs) {
+        mesh.geometry.dispose(); mesh.geometry.setIndex(index); this.updateDrawRange(mesh);
+      }
+    }
+    this.rebuildDrawingMaterials();
+    this.maintenanceDirty = this.visibilityDirty = true; this.root.needsUpdate = true;
+  }
+  getBlockInstancingEnabled() { return this.blockInstancing; }
+  /** Same-load GPU reference: replace only the mapping layout, never face data.
+   * Only the selected layout is allocated. Old GPU maps are retired
+   * immediately; a reference toggle must not accumulate hidden allocations. */
+  setCompactMapsEnabled(enabled: boolean) {
+    if (this.compactMaps === enabled) return;
+    this.compactMaps = enabled;
+    for (const page of this.pages) {
+      const previous = page.map;
+      page.map = this.createMap(page.data.count);
+      for (const release of page.releaseMap) release(previous);
+      for (const entry of page.entries) entry.visibility = undefined;
+    }
+    this.rebuildDrawingMaterials();
+    this.maintenanceDirty = this.visibilityDirty = true; this.root.needsUpdate = true;
+  }
+  getCompactMapsEnabled() { return this.compactMaps; }
+  private get mapStride() { return this.compactMaps ? 4 : 8; }
+  private createMap(capacity: number) {
+    return new THREE.StorageBufferAttribute(new Float32Array(capacity / BLOCK * this.mapStride), 4);
+  }
+  getInstanceFaces() { return this.instanceFaces; }
+  /** The development topology switch preserves face records and visibility
+   * maps while replacing shader inputs and retiring the old pipelines. */
+  private rebuildDrawingMaterials() {
+    for (const page of this.pages) {
+      const oldOpaque = page.mesh.userData.opaqueMaterial ?? page.mesh.material;
+      const oldMasked = page.mesh.userData.maskedMaterial;
+      const replacement = this.createDrawingMesh(page.data, page.map);
+      const opaque = replacement.userData.opaqueMaterial ?? replacement.material;
+      const masked = replacement.userData.maskedMaterial;
+      for (const mesh of page.runs) mesh.material = oldMasked && mesh.material === oldMasked ? masked : opaque;
+      page.mesh.userData.opaqueMaterial = opaque; page.mesh.userData.maskedMaterial = masked;
+      replacement.geometry.dispose();
+      for (const material of new Set<THREE.Material>([oldOpaque, oldMasked].filter(Boolean))) material.dispose();
+    }
+  }
+  private updateDrawRange(mesh: VoxelFaceMesh) {
+    const faces = mesh.userData.voxelArenaFaces ?? 0;
+    (mesh.geometry as any).isInstancedBufferGeometry = this.blockInstancing;
+    mesh.geometry.instanceCount = this.blockInstancing ? Math.ceil(faces / this.instanceFaces) : faces;
+    mesh.geometry.setDrawRange(0, this.blockInstancing ? this.instanceFaces * 6 : faces * 6);
+  }
+
   setView(camera: THREE.Vector3, frustum: THREE.Frustum, coverage: THREE.DataTexture, enabled: boolean) {
     // Retain a conservative guard around the last visibility query. Ordinary
     // motion then reuses GPU maps and command bundles instead of rebuilding
     // every face-block list each frame. The padding below bounds all accepted
     // camera translations, rotations and clip-plane offset changes.
-    if (!this.coverage || camera.distanceToSquared(this.camera) >= 16 ** 2 || frustum.planes.some((p, i) => {
+    if (this.resetView || !this.coverage || camera.distanceToSquared(this.camera) >= 16 ** 2 || frustum.planes.some((p, i) => {
       const old = this.frustum.planes[i];
       return p.normal.distanceToSquared(old.normal) >= .06 ** 2
         || Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(this.camera)) >= 1;
     })
       || enabled !== this.visibilityEnabled) {
+      if (!this.camera.equals(camera)) this.positionEpoch++;
+      this.resetView = false;
       this.camera.copy(camera); this.frustum.copy(frustum); this.viewEpoch++;
       this.emptyFrustum = frustum.planes.some(p => p.normal.lengthSq() === 0 && p.constant < 0);
       this.visibilityEnabled = enabled; this.visibilityDirty = true;
@@ -102,6 +198,7 @@ export class VoxelFaceArena {
     const version = coverage.userData.voxelVisibilityVersion ?? coverage.version;
     if (coverage !== this.coverage || version !== this.coverageVersion) {
       this.coverage = coverage; this.coverageVersion = version; this.visibilityDirty = true;
+      this.coverageEpoch++;
     }
   }
 
@@ -124,25 +221,111 @@ export class VoxelFaceArena {
     return 0;
   }
 
+  /** Rotation cannot change distance, normal-cone facing, or flat ownership.
+   * Keep those exact tests until their position/coverage inputs change. */
+  private prepareBlockTests(entry: Entry, masked: boolean): BlockTests | undefined {
+    const data = entry.geometry.userData.voxelVisibility as Float32Array | undefined;
+    if (!this.cachedBlockTests || !this.visibilityEnabled || !data) return;
+    let cache = entry.blockTests;
+    if (!cache || cache.data !== data) {
+      if (cache) this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength;
+      const blocks = Math.ceil(entry.count / BLOCK);
+      cache = entry.blockTests = { data, position: -1, coverage: -1,
+        distance: new Float64Array(blocks), facing: new Uint8Array(blocks), covered: new Uint8Array(blocks),
+        sphere: new THREE.Sphere(), view: -1, planeMask: 63 };
+      this.stats.blockCacheBytes += cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength;
+      // Enclose every block sphere. Whole-entry plane acceptance/rejection can
+      // then avoid repeated plane tests without changing any block decision.
+      const bounds = new THREE.Box3(), point = new THREE.Vector3();
+      for (let at = 0; at + VOXEL_VISIBILITY_STRIDE <= data.length; at += VOXEL_VISIBILITY_STRIDE) {
+        const radius = data[at + 3];
+        bounds.expandByPoint(point.set(data[at] - radius, data[at + 1] - radius, data[at + 2] - radius));
+        bounds.expandByPoint(point.set(data[at] + radius, data[at + 1] + radius, data[at + 2] + radius));
+      }
+      bounds.getBoundingSphere(cache.sphere); cache.sphere.radius += .001;
+    }
+    const count = Math.min(cache.distance.length, Math.floor(data.length / VOXEL_VISIBILITY_STRIDE));
+    if (cache.position !== this.positionEpoch) {
+      const { x, y, z } = this.camera;
+      for (let block = 0; block < count; block++) {
+        const at = block * VOXEL_VISIBILITY_STRIDE;
+        const distance = Math.hypot(x - data[at], y - data[at + 1], z - data[at + 2]);
+        cache.distance[block] = distance;
+        cache.facing[block] = voxelBlockBackFacing(data, at, x, y, z, 18) ? 1
+          : distance - data[at + 3] > 274 ? 0 : 2;
+      }
+      cache.position = this.positionEpoch; this.stats.positionBlockTests += count;
+    }
+    if (masked && cache.coverage !== this.coverageEpoch) {
+      for (let block = 0; block < count; block++) cache.covered[block] = this.coverage
+        && voxelHandoffMode(this.coverage.image.data!, data, block * VOXEL_VISIBILITY_STRIDE + 8) === 2 ? 1 : 0;
+      cache.coverage = this.coverageEpoch; this.stats.coverageBlockTests += count;
+    }
+    if (cache.view !== this.viewEpoch) {
+      const { center, radius } = cache.sphere, distance = center.distanceTo(this.camera);
+      const margin = 18 + (distance + radius) * .061;
+      cache.planeMask = 0;
+      for (let plane = 0; plane < 6; plane++) {
+        const p = this.frustum.planes[plane], value = p.distanceToPoint(center);
+        // Match the reference even for non-unit planes supplied by tests or
+        // custom cameras. Standard camera frustum planes are normalized.
+        const extent = radius * Math.max(1, p.normal.length());
+        if (value + extent + margin < 0) { cache.planeMask = -1; break; }
+        if (!(value - extent >= 0)) cache.planeMask |= 1 << plane;
+      }
+      cache.view = this.viewEpoch;
+    }
+    return cache;
+  }
+
+  private culledCached(cache: BlockTests, block: number, masked: boolean) {
+    if (this.emptyFrustum) return 2;
+    const at = block * VOXEL_VISIBILITY_STRIDE, data = cache.data;
+    if (at + VOXEL_VISIBILITY_STRIDE > data.length) return 0;
+    if (masked && cache.covered[block]) return 3;
+    if (cache.facing[block] === 1) return 1;
+    if (cache.facing[block] === 2) return 0;
+    if (cache.planeMask === -1) return 2;
+    if (cache.planeMask === 0) return 0;
+    // 18 bounds accepted translation/plane-offset changes. The angular term
+    // bounds delta-normal dot (block-center - camera), with rounding slack.
+    const margin = -data[at + 3] - 18 - cache.distance[block] * .061;
+    for (let i = 0; i < 6; i++) if (cache.planeMask & (1 << i)) {
+      const p = this.frustum.planes[i];
+      if (p.normal.x * data[at] + p.normal.y * data[at + 1] + p.normal.z * data[at + 2] + p.constant < margin) return 2;
+    }
+    return 0;
+  }
+
   private visibleBlocks(entry: Entry, masked: boolean) {
     const cached = entry.visibility;
     if (cached && cached.view === this.viewEpoch && cached.masked === masked
-      && (!masked || cached.mask === this.coverageVersion)) return cached;
-    const result = cached ?? { map: new Float32Array(Math.ceil(entry.count / BLOCK) * 8),
+      && (!masked || cached.mask === this.coverageEpoch)) return cached;
+    const result = cached ?? { map: new Float32Array(Math.ceil(entry.count / BLOCK) * this.mapStride),
       blocks: 0, faces: 0, view: 0, mask: -1, masked, back: 0, outside: 0, covered: 0 };
     result.blocks = result.faces = result.back = result.outside = result.covered = 0;
-    result.view = this.viewEpoch; result.mask = this.coverageVersion; result.masked = masked;
+    result.view = this.viewEpoch; result.mask = this.coverageEpoch; result.masked = masked;
+    const tests = this.prepareBlockTests(entry, masked);
     for (let offset = 0; offset < entry.count; offset += BLOCK) {
-      const count = Math.min(BLOCK, entry.count - offset), culled = this.culled(entry, offset / BLOCK, masked);
+      const count = Math.min(BLOCK, entry.count - offset), culled = tests
+        ? this.culledCached(tests, offset / BLOCK, masked) : this.culled(entry, offset / BLOCK, masked);
       if (culled) {
         if (culled === 1) result.back += count;
         else if (culled === 2) result.outside += count;
         else result.covered += count;
         continue;
       }
-      const dst = result.blocks++ * 8, map = result.map;
-      map[dst] = entry.start + offset; map[dst + 1] = count; map[dst + 2] = entry.origin.x;
-      map[dst + 3] = entry.origin.y; map[dst + 4] = entry.origin.z; result.faces += count;
+      const dst = result.blocks++ * this.mapStride, map = result.map;
+      if (this.compactMaps) {
+        // A page has 2^18 faces. Five low bits hold the 1..16 face count;
+        // the combined integer stays below 2^23 and is exact in Float32.
+        map[dst] = (entry.start + offset) * 32 + count;
+        map[dst + 1] = entry.origin.x; map[dst + 2] = entry.origin.y; map[dst + 3] = entry.origin.z;
+      } else {
+        map[dst] = entry.start + offset; map[dst + 1] = count; map[dst + 2] = entry.origin.x;
+        map[dst + 3] = entry.origin.y; map[dst + 4] = entry.origin.z;
+      }
+      result.faces += count;
     }
     entry.visibility = result; return result;
   }
@@ -154,37 +337,53 @@ export class VoxelFaceArena {
       && (!range || (range.x === 0 && range.y === 1))
       && (mesh.material === mesh.userData.opaqueMaterial || mesh.material === mesh.userData.maskedMaterial);
   }
-  private createPage(capacity: number) {
-    const data = new THREE.StorageBufferAttribute(new Uint32Array(capacity * 4), 4);
-    // Two vec4s per block preserve the original local offset + origin arithmetic.
-    const map = new THREE.StorageBufferAttribute(new Float32Array(capacity / BLOCK * 8), 4);
+  private createDrawingMesh(data: THREE.StorageBufferAttribute, map: THREE.StorageBufferAttribute) {
+    const capacity = data.count;
     const records = storage(data, 'uvec4' as 'vec4', capacity).toReadOnly();
-    const remap = storage(map, 'vec4', capacity / BLOCK * 2).toReadOnly();
+    const remap = storage(map, 'vec4', capacity / BLOCK * this.mapStride / 4).toReadOnly();
     const base = uniform(uint(0)).onObjectUpdate(({ object }) => object?.userData.voxelArenaBase ?? 0);
-    const faceIndex = vertexIndex.div(uint(4)), corner = vertexIndex.mod(uint(4));
-    const blockIndex = faceIndex.div(uint(BLOCK)).add(base).mul(2);
-    const block = remap.element(blockIndex), originZ = remap.element(blockIndex.add(1)).x;
-    const local = faceIndex.mod(uint(BLOCK)), valid = local.lessThan(uint(block.y));
-    const face = uint(block.x).add(uint(min(float(local), float(block.y).sub(1))));
+    const runFaces = uniform(uint(0)).onObjectUpdate(({ object }) => object?.userData.voxelArenaFaces ?? 0);
+    const faceIndex = this.blockInstancing ? vertexIndex.div(uint(4)).add(instanceIndex.mul(uint(this.instanceFaces))) : vertexIndex.div(uint(4));
+    const boundedFace = this.blockInstancing ? uint(min(float(faceIndex), float(runFaces).sub(1))) : faceIndex;
+    const corner = vertexIndex.mod(uint(4));
+    const blockIndex = boundedFace.div(uint(BLOCK)).add(base).mul(this.compactMaps ? 1 : 2);
+    const block = remap.element(blockIndex);
+    const origin = this.compactMaps ? block.yzw : vec3(block.z, block.w, remap.element(blockIndex.add(1)).x);
+    const blockFaces = this.compactMaps ? float(uint(block.x).bitAnd(31)) : block.y;
+    const blockStart = this.compactMaps ? uint(block.x).shiftRight(5) : uint(block.x);
+    const local = boundedFace.mod(uint(BLOCK));
+    const valid = this.blockInstancing ? local.lessThan(uint(blockFaces)).and(faceIndex.lessThan(runFaces)) : local.lessThan(uint(blockFaces));
+    const face = blockStart.add(uint(min(float(local), float(blockFaces).sub(1))));
     const record = records.element(face);
-    const mesh = this.make({ origin: vec3(block.z, block.w, originZ),
+    return this.make({ origin,
       offset: vec3(float(uint(record.x).bitAnd(65535)), float(uint(record.x).shiftRight(16)), float(uint(record.y).bitAnd(65535))),
       span: vec3(float(uint(record.y).shiftRight(16)), float(uint(record.z).bitAnd(65535)), 0).xy,
       direction: float(uint(record.z).shiftRight(16).bitAnd(255)), emission: float(uint(record.z).shiftRight(24)),
       color: varying(unpackColor(uint(record.w))), valid,
       quad: vec2(float(corner.equal(1).or(corner.equal(2))), float(corner.greaterThanEqual(2))) });
-    mesh.geometry.setIndex(pageIndex(capacity)); mesh.geometry.deleteAttribute('position'); mesh.geometry.deleteAttribute('normal');
-    (mesh.geometry as any).isInstancedBufferGeometry = false; mesh.geometry.setDrawRange(0, 0);
+  }
+  private createPage(capacity: number) {
+    const data = new THREE.StorageBufferAttribute(new Uint32Array(capacity * 4), 4);
+    // Address/count plus the original xyz origin fit in one vec4. Position
+    // arithmetic stays local offset + origin, including nonzero origin.y.
+    const map = this.createMap(capacity);
+    const mesh = this.createDrawingMesh(data, map);
+    mesh.geometry.setIndex(this.blockInstancing ? blockIndex(this.instanceFaces) : pageIndex(capacity));
+    mesh.geometry.deleteAttribute('position'); mesh.geometry.deleteAttribute('normal');
+    this.updateDrawRange(mesh);
     mesh.userData.voxelArena = true; mesh.name = 'DistantVoxelArena'; mesh.visible = false;
     const page: Page = { mesh, runs: [mesh], entries: new Set(), free: [{ start: 0, count: capacity }],
-      map, data, release: new Set() };
+      map, data, release: new Set(), releaseMap: new Set() };
     const renderers = new WeakSet<object>();
     mesh.onBeforeRender = renderer => {
       if (renderers.has(renderer)) return;
       renderers.add(renderer);
       // r183 omits node-only storage attributes from geometry disposal.
       const attributes = (renderer as any)._attributes;
-      if (attributes) page.release.add(() => { attributes.delete(data); attributes.delete(map); });
+      if (attributes) {
+        page.releaseMap.add(attribute => attributes.delete(attribute));
+        page.release.add(() => { attributes.delete(data); attributes.delete(page.map); });
+      }
     };
     this.pages.push(page); this.root.add(mesh);
     return page;
@@ -230,6 +429,11 @@ export class VoxelFaceArena {
     if (restore) this.restoreAttributes(entry);
     entry.geometry.removeEventListener('dispose', entry.onDispose);
     this.entries.delete(entry.mesh); entry.page.entries.delete(entry);
+    if (entry.blockTests) {
+      const cache = entry.blockTests;
+      this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength;
+      entry.blockTests = undefined;
+    }
     const ranges = entry.page.free;
     ranges.push({ start: entry.start, count: entry.allocated }); ranges.sort((a, b) => a.start - b.start);
     for (let i = ranges.length - 2; i >= 0; i--) if (ranges[i].start + ranges[i].count === ranges[i + 1].start) {
@@ -240,7 +444,7 @@ export class VoxelFaceArena {
     for (const mesh of page.runs) { mesh.removeFromParent(); mesh.geometry.dispose(); }
     for (const material of new Set<THREE.Material>([page.mesh.material,
       page.mesh.userData.opaqueMaterial, page.mesh.userData.maskedMaterial].filter(Boolean))) material.dispose();
-    for (const release of page.release) release(); page.release.clear();
+    for (const release of page.release) release(); page.release.clear(); page.releaseMap.clear();
     this.pages.splice(this.pages.indexOf(page), 1);
   }
   restoreSources() {
@@ -339,7 +543,7 @@ export class VoxelFaceArena {
       return;
     }
     this.visibilityDirty = false;
-    Object.assign(this.stats,{visibleFaces:0,paddedFaces:0,draws:0,sourceDraws:0,backFaces:0,outsideFaces:0,coveredFaces:0});
+    Object.assign(this.stats,{visibleFaces:0,paddedFaces:0,drawnFaces:0,instancePaddingFaces:0,draws:0,sourceDraws:0,backFaces:0,outsideFaces:0,coveredFaces:0});
     const blocks = new Map<Page, number>(), runs = new Map<Page, number>(), changed = new Set<Page>();
     let lastPage: Page | null = null, run: VoxelFaceMesh | null = null;
     let lastMaterial: THREE.Material | null = null;
@@ -376,7 +580,7 @@ export class VoxelFaceArena {
         if (!page.runs[index]) {
           const runGeometry = new THREE.InstancedBufferGeometry(); runGeometry.setIndex(page.mesh.geometry.index);
           const clone = new THREE.Mesh(runGeometry, drawMaterial);
-          (clone.geometry as any).isInstancedBufferGeometry = false;
+          this.updateDrawRange(clone);
           clone.userData.voxelArena = true; clone.frustumCulled = false; clone.matrixAutoUpdate = false; clone.name = page.mesh.name;
           clone.onBeforeRender = page.mesh.onBeforeRender; page.runs.push(clone); this.root.add(clone);
         }
@@ -385,29 +589,32 @@ export class VoxelFaceArena {
         run.material = drawMaterial;
         run.userData.voxelArenaBase = at; run.renderOrder = drawOrder; run.visible = true;
         // Remember the old count before assembling this run.
-        run.userData.voxelArenaOldCount = run.geometry.instanceCount; run.geometry.instanceCount = 0;
+        run.userData.voxelArenaOldCount = run.userData.voxelArenaFaces ?? 0; run.userData.voxelArenaFaces = 0;
         lastPage = page;
         lastMaterial = drawMaterial;
       }
       const n = at + visible.blocks;
-      if (visible.blocks) { page.map.array.set(visible.map.subarray(0, visible.blocks * 8), at * 8); changed.add(page); }
-      run!.geometry.instanceCount += (n - at) * BLOCK; blocks.set(page, n);
+      if (visible.blocks) { page.map.array.set(visible.map.subarray(0, visible.blocks * this.mapStride), at * this.mapStride); changed.add(page); }
+      run!.userData.voxelArenaFaces += (n - at) * BLOCK; blocks.set(page, n);
     }
     for (const page of [...this.pages]) {
       if (!page.entries.size) { this.disposePage(page); continue; }
       for (const mesh of page.runs) {
         if (!active.has(mesh)) { if (mesh.visible) this.root.needsUpdate = true; mesh.visible = false; }
-        else if (mesh.geometry.instanceCount !== mesh.userData.voxelArenaOldCount) this.root.needsUpdate = true;
-        mesh.geometry.setDrawRange(0, mesh.geometry.instanceCount * 6);
+        else if (mesh.userData.voxelArenaFaces !== mesh.userData.voxelArenaOldCount) this.root.needsUpdate = true;
+        this.updateDrawRange(mesh);
+        if (active.has(mesh)) this.stats.drawnFaces += this.blockInstancing
+          ? mesh.geometry.instanceCount * this.instanceFaces : mesh.userData.voxelArenaFaces;
       }
       if (changed.has(page)) {
-        const length = (blocks.get(page) ?? 0) * 8;
+        const length = (blocks.get(page) ?? 0) * this.mapStride;
         page.map.clearUpdateRanges(); page.map.addUpdateRange(0, length); page.map.needsUpdate = true;
         this.stats.mapUploadBytes += length * 4;
       }
       this.stats.paddedFaces += (blocks.get(page) ?? 0) * BLOCK;
       this.stats.draws += runs.get(page) ?? 0;
     }
+    this.stats.instancePaddingFaces = this.stats.drawnFaces - this.stats.paddedFaces;
     this.stats.pages = this.pages.length;
   }
   dispose(restore = true) {

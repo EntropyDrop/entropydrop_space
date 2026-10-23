@@ -1,0 +1,10 @@
+{
+  "defaultCompactMapsEnabled": false,
+  "sha256": {
+    "engine/src/render/VoxelFaceArena.ts": "873e4edc0b54091d21abcbfefb280d9e4a8e872c87a61feac99e24226de7e1e7",
+    "engine/src/render/DistantVoxelLayer.ts": "b7929ebdb193769a1fdc0c5a6b0099d9806e44bb226bff75fc731c1c1cc3825d",
+    "client/src/dev/GpuDrawingBenchmark.ts": "2a86979430bbe83b44b22df488021e2487d4c1ee535dade508ae496b48af5665",
+    "client/src/dev/GpuExecutionBenchmark.ts": "8daf57067da08b038cb32dc43e4ebbc25f3972b5999b969c05e496ae20600774",
+    "engine/test/voxel-face-arena.test.ts": "ed623d1682acaf6baa3b667f0ca61068135e15d821ba9d043a5e590abd93f2c2"
+  }
+}

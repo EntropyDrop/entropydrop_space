@@ -1,0 +1,32 @@
+{
+  "defaultCompactMapsEnabled": false,
+  "engineTests": {
+    "passed": 637,
+    "failed": 0,
+    "finalDefaultOffRerun": true
+  },
+  "clientTests": {
+    "passed": 1512,
+    "failed": 3,
+    "baselineFailures": [
+      "entity-menu-icons: unsupported .tsx import of OnlineSpaceNotice.tsx",
+      "shovel-cursor: focusing on a block of a large entity displays small wireframe on the pointed block",
+      "shovel-cursor: entity focus wireframe inherits entity rotation quaternion"
+    ],
+    "scope": "Full client suite run on the same candidate before its default was disabled; the only subsequent runtime changes select the original map by default. Final default-off engine tests, both type checks and production build rerun."
+  },
+  "typecheckEngine": 0,
+  "typecheckClientAndInventory": 0,
+  "productionBuild": 0,
+  "productionImportOrderAndCompilerWorkerProbes": 0,
+  "englishCheck": 0,
+  "documentationLinks": 0,
+  "generatedApiDocs": 0,
+  "gitDiffCheck": 0,
+  "nativeProfilerLookup": {
+    "command": "xcrun --find xctrace",
+    "exitCode": 72,
+    "message": "unable to find utility xctrace, not a developer tool or in PATH"
+  },
+  "acceptance": "Not accepted for default enablement: ordinary turning GPU span regresses despite faster far-only replay."
+}

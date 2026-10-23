@@ -1,0 +1,1 @@
+{"devices":[{"captureTraceSupported":false,"counterSets":[{"counters":["GPUTimestamp"],"name":"timestamp"}],"drawBoundary":false,"name":"Apple M1 Pro","stageBoundary":true}],"os":"Version 26.5.1 (Build 25F80)"}

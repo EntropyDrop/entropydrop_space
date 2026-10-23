@@ -1,5 +1,51 @@
 # Local rendering fixture
 
+The [2026-10-23 current-environment rebaseline](../../docs/performance-gpu-rebaseline-2026-10-23.md)
+adds ordinary-frame ABBA/BAAB variants, seeded order randomization, failure cleanup
+and complete Chromium GPU/Viz traces. The color-only attachment candidate showed
+promising samples but failed final integration/control repeatability. Its production
+integration was removed; default rendering remains unchanged. Use explicit
+`sampleTurn.variant.orderSeed` values and identical-code controls when comparing
+synchronous renderer changes. Keep trace capture separate from acceptance timing.
+
+The [2026-10-23 hardware isolation follow-up](../../docs/performance-gpu-hardware-2026-10-23.md)
+adds a native Metal/IOKit probe, complete-scene command replay, interleaved A/A and
+ABBA controls, and computed-visibility guards against HMR reopening the start
+screen. It separates browser UI composition from scene execution, retains a
+contaminated capture as explicitly excluded evidence, and keeps all production
+optimizations unchanged pending native Xcode profiling. `sampleGpuSceneReplay`
+suppresses UI only during its paused offscreen diagnostic; ordinary `sampleTurn`
+measurements keep the gameplay HUD.
+
+The [2026-10-23 turning GPU follow-up](../../docs/performance-gpu-turn-regression-2026-10-23.md)
+adds independent per-pass GPU timelines, deterministic complete-scene replay,
+hardware frequency/temperature collection and cached timestamp-write cleanup.
+Compact maps still regress in ordinary frames; three shader trials and an
+attachment-store experiment fail the stable GPU-time acceptance gate. Production
+rendering is unchanged by this follow-up. Use `sampleTurn` with `timeline: true`
+for raw render/compute intervals and submission/upload attribution. The reversible
+`sampleGpuAttachments` experiment is development-only and never persists.
+
+The [2026-10-23 GPU execution batch](../../docs/performance-gpu-execution-2026-10-23.md)
+implements an experimental 16-byte far visibility map, **disabled by default**.
+Native Medium across-ring replay improves 4.3%, but ordinary turning GPU spans
+regress 6-8% in forward/reverse comparisons, so it fails the acceptance gate.
+The report retains all samples, six directional replays, rejected experiments,
+and unchanged pixel/picking results. Normal rendering keeps the original map.
+
+The [2026-10-23 distant GPU batch](../../docs/performance-gpu-drawing-2026-10-23.md)
+reuses 32-face indexed instances, reducing the fixture's Arena buffer capacity
+from 94.50 to 40.51 MiB. It includes final whole-frame and saturated far-only
+GPU comparisons, rejected experiments, and two complete warmed pixel/picking
+passes. The measurements do not establish a stable GPU-time or FPS improvement.
+
+The [2026-10-23 turning batch](../../docs/performance-turning-2026-10-23.md)
+profiles view-refresh tails, caches position/coverage-dependent block tests,
+and adds conservative whole-source plane tests. It includes CPU/GPU reference
+comparisons and 16 warmed pixel/picking comparisons. GPU diagnostics now report
+the span from the first pass start to the last pass end; older reports below
+used a sum of pass durations, which can overlap on the tested backend.
+
 The [2026-10-23 maintenance batch](../../docs/performance-maintenance-2026-10-23.md)
 implements static far matrices, incremental Arena maintenance, and exact terrain
 picking reuse. It includes reproducible reference switches, nine final browser
@@ -79,8 +125,10 @@ and entry button are stripped from production builds.
 
 The panel reports CPU frame/stage p50/p95, asynchronous WebGPU timestamp queries (when
 supported), drawing-buffer dimensions, and whole-frame calls/triangles including
-all Ultra passes. CPU stages are nested, not additive. GPU samples sum every
-render pass and are discarded across test boundaries; no synchronous GPU wait is used.
+all Ultra passes. CPU stages are nested, not additive. GPU samples measure the
+first render-pass start through the last render-pass end, including gaps.
+Pass intervals can overlap, so their sum is not elapsed GPU frame time. Samples
+are discarded across test boundaries; no synchronous GPU wait is used.
 GPU timing samples one in six frames and can be disabled to check its overhead.
 GPU time does not include browser compositing or presentation, and CPU timing
 does not include other browser tasks outside `Game.animate`.

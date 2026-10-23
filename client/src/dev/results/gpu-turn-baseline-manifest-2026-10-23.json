@@ -1,0 +1,8 @@
+{
+  "baseline": "fourth batch, compact maps disabled",
+  "files": {
+    "client/src/dev/TurnPerformanceBenchmark.ts": "c1dc3fd34d9c7e9ccc435224d0bfbd67bf5e6c1cbe871a91ef7b494e3f3cada5",
+    "client/src/dev/GpuTimestampSpan.ts": "6296a97899593e6126e02abb6888eb0295f165bc4349b239b07e6d09f6a57f14",
+    "engine/src/render/VoxelFaceArena.ts": "873e4edc0b54091d21abcbfefb280d9e4a8e872c87a61feac99e24226de7e1e7"
+  }
+}

@@ -1,0 +1,399 @@
+{
+  "defaultRenderingChanged": false,
+  "compactMapsDefault": false,
+  "resolution": [
+    2560,
+    1440
+  ],
+  "hardware": "Apple M1 Pro / 16 GPU cores",
+  "sampler": "macmon 0.8.2",
+  "tests": {},
+  "native-abba": [
+    {
+      "label": "native-false",
+      "gpuMeanMs": 3.2783018666666672,
+      "gpuP50Ms": 3.2768,
+      "gpuP95Ms": 4.063232,
+      "samples": 480,
+      "cpuP99Ms": 5.800000190734863,
+      "fps": 120.1033505584264,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 3.0123349333333334,
+      "outputTailMeanMs": 0.2659669333333333,
+      "overlapMeanMs": 1.3953706666666668,
+      "uncoveredMeanMs": 0.0038229333333333337,
+      "uploadMeanBytes": 108641.51666666666,
+      "submitGapMeanMs": 0.0939583440621694,
+      "hardware": {
+        "samples": 24,
+        "gpuFreqMHz": 695.625,
+        "gpuTemperatureC": 74.27836195627849,
+        "systemGpuActiveRatio": 0.9936616569757462
+      }
+    },
+    {
+      "label": "native-true",
+      "gpuMeanMs": 3.3080661333333334,
+      "gpuP50Ms": 3.2768,
+      "gpuP95Ms": 4.194304,
+      "samples": 480,
+      "cpuP99Ms": 7.300000190734863,
+      "fps": 120.0226630783459,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 3.0378666666666665,
+      "outputTailMeanMs": 0.27019946666666667,
+      "overlapMeanMs": 1.4255445333333334,
+      "uncoveredMeanMs": 0,
+      "uploadMeanBytes": 88184.89166666666,
+      "submitGapMeanMs": 0.086666672428449,
+      "hardware": {
+        "samples": 24,
+        "gpuFreqMHz": 690.8333333333334,
+        "gpuTemperatureC": 71.8289368947347,
+        "systemGpuActiveRatio": 0.9935403044025103
+      }
+    },
+    {
+      "label": "native-true",
+      "gpuMeanMs": 3.3172982379958253,
+      "gpuP50Ms": 3.2768,
+      "gpuP95Ms": 4.25984,
+      "samples": 479,
+      "cpuP99Ms": 7.299999713897705,
+      "fps": 119.78967017216375,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 3.0461242254697285,
+      "outputTailMeanMs": 0.271174012526096,
+      "overlapMeanMs": 1.4480856450939457,
+      "uncoveredMeanMs": 0.003420459290187892,
+      "uploadMeanBytes": 77382.31315240083,
+      "submitGapMeanMs": 0.08141962322163432,
+      "hardware": {
+        "samples": 24,
+        "gpuFreqMHz": 690.6666666666666,
+        "gpuTemperatureC": 69.91985766092937,
+        "systemGpuActiveRatio": 0.9893173078695933
+      }
+    },
+    {
+      "label": "native-false",
+      "gpuMeanMs": 3.077188266666665,
+      "gpuP50Ms": 2.94912,
+      "gpuP95Ms": 4.58752,
+      "samples": 480,
+      "cpuP99Ms": 7.400000095367432,
+      "fps": 119.80937145904159,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 2.8072618666666664,
+      "outputTailMeanMs": 0.2699264,
+      "overlapMeanMs": 1.3277866666666667,
+      "uncoveredMeanMs": 0,
+      "uploadMeanBytes": 111384.7,
+      "submitGapMeanMs": 0.08708333571751913,
+      "hardware": {
+        "samples": 24,
+        "gpuFreqMHz": 795.625,
+        "gpuTemperatureC": 70.7118148803711,
+        "systemGpuActiveRatio": 0.9842260281244913
+      }
+    }
+  ],
+  "store-frames": [
+    {
+      "label": "attachments-0",
+      "gpuMeanMs": 3.2911359999999985,
+      "gpuP50Ms": 3.2768,
+      "gpuP95Ms": 4.325376,
+      "samples": 480,
+      "cpuP99Ms": 7.400000095367432,
+      "fps": 120.02016305411954,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 3.0284458666666665,
+      "outputTailMeanMs": 0.2626901333333333,
+      "overlapMeanMs": 1.5201621333333333,
+      "uncoveredMeanMs": 0.00027306666666666684,
+      "uploadMeanBytes": 117912.18333333333,
+      "submitGapMeanMs": 0.08874999781449636,
+      "hardware": {
+        "samples": 24,
+        "gpuFreqMHz": 746.125,
+        "gpuTemperatureC": 72.26388518015544,
+        "systemGpuActiveRatio": 0.9861852352817854
+      }
+    },
+    {
+      "label": "attachments-3",
+      "gpuMeanMs": 3.310660266666664,
+      "gpuP50Ms": 3.211264,
+      "gpuP95Ms": 4.58752,
+      "samples": 480,
+      "cpuP99Ms": 7.300000190734863,
+      "fps": 120.09947886074221,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 3.0348629333333332,
+      "outputTailMeanMs": 0.27579733333333334,
+      "overlapMeanMs": 1.4613162666666666,
+      "uncoveredMeanMs": 0,
+      "uploadMeanBytes": 114975.48333333334,
+      "submitGapMeanMs": 0.09229167103767395,
+      "hardware": {
+        "samples": 24,
+        "gpuFreqMHz": 694.75,
+        "gpuTemperatureC": 71.66423956553142,
+        "systemGpuActiveRatio": 0.9851316859324774
+      }
+    },
+    {
+      "label": "attachments-3",
+      "gpuMeanMs": 3.1716154012474016,
+      "gpuP50Ms": 3.145728,
+      "gpuP95Ms": 4.25984,
+      "samples": 481,
+      "cpuP99Ms": 7.300000190734863,
+      "fps": 120.23096343079018,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 2.907972656964657,
+      "outputTailMeanMs": 0.26364274428274426,
+      "overlapMeanMs": 1.4362057713097713,
+      "uncoveredMeanMs": 0,
+      "uploadMeanBytes": 111387.25987525987,
+      "submitGapMeanMs": 0.08627858033051362,
+      "hardware": {
+        "samples": 23,
+        "gpuFreqMHz": 690.7826086956521,
+        "gpuTemperatureC": 71.1324874214504,
+        "systemGpuActiveRatio": 0.9839974823205367
+      }
+    },
+    {
+      "label": "attachments-0",
+      "gpuMeanMs": 3.2114002494802456,
+      "gpuP50Ms": 3.211264,
+      "gpuP95Ms": 4.456448,
+      "samples": 481,
+      "cpuP99Ms": 7.300000190734863,
+      "fps": 120.12462304859967,
+      "pipelineCreations": 0,
+      "gpuError": "",
+      "mainMeanMs": 2.944623767151767,
+      "outputTailMeanMs": 0.26677648232848233,
+      "overlapMeanMs": 1.511006735966736,
+      "uncoveredMeanMs": 0.00558622869022869,
+      "uploadMeanBytes": 89627.20166320166,
+      "submitGapMeanMs": 0.08856549233260125,
+      "hardware": {
+        "samples": 24,
+        "gpuFreqMHz": 763.625,
+        "gpuTemperatureC": 72.78235721588135,
+        "systemGpuActiveRatio": 0.9860106979807218
+      }
+    }
+  ],
+  "address-trial": [
+    {
+      "label": "reference",
+      "gpuMeanMs": 1.401088,
+      "gpuP50Ms": 1.400832,
+      "gpuP95Ms": 1.437696,
+      "samples": 32
+    },
+    {
+      "label": "compact",
+      "gpuMeanMs": 1.33952,
+      "gpuP50Ms": 1.3312,
+      "gpuP95Ms": 1.404928,
+      "samples": 32
+    },
+    {
+      "label": "address",
+      "gpuMeanMs": 1.3708800000000003,
+      "gpuP50Ms": 1.363968,
+      "gpuP95Ms": 1.458176,
+      "samples": 32
+    },
+    {
+      "label": "block",
+      "gpuMeanMs": 1.417856,
+      "gpuP50Ms": 1.404928,
+      "gpuP95Ms": 1.552384,
+      "samples": 32
+    },
+    {
+      "label": "block-repeat",
+      "gpuMeanMs": 1.3689599999999997,
+      "gpuP50Ms": 1.368064,
+      "gpuP95Ms": 1.441792,
+      "samples": 32
+    },
+    {
+      "label": "address-repeat",
+      "gpuMeanMs": 1.3463039999999997,
+      "gpuP50Ms": 1.335296,
+      "gpuP95Ms": 1.417216,
+      "samples": 32
+    },
+    {
+      "label": "compact-repeat",
+      "gpuMeanMs": 1.3474559999999998,
+      "gpuP50Ms": 1.347584,
+      "gpuP95Ms": 1.396736,
+      "samples": 32
+    },
+    {
+      "label": "reference-repeat",
+      "gpuMeanMs": 1.3708799999999999,
+      "gpuP50Ms": 1.363968,
+      "gpuP95Ms": 1.41312,
+      "samples": 32
+    }
+  ],
+  "direct-trial": [
+    {
+      "label": "reference",
+      "gpuMeanMs": 1.4001919999999999,
+      "gpuP50Ms": 1.396736,
+      "gpuP95Ms": 1.449984,
+      "samples": 32
+    },
+    {
+      "label": "direct",
+      "gpuMeanMs": 1.4040319999999995,
+      "gpuP50Ms": 1.400832,
+      "gpuP95Ms": 1.458176,
+      "samples": 32
+    },
+    {
+      "label": "direct-compact",
+      "gpuMeanMs": 1.369344,
+      "gpuP50Ms": 1.37216,
+      "gpuP95Ms": 1.41312,
+      "samples": 32
+    },
+    {
+      "label": "compact",
+      "gpuMeanMs": 1.3415680000000003,
+      "gpuP50Ms": 1.343488,
+      "gpuP95Ms": 1.384448,
+      "samples": 32
+    },
+    {
+      "label": "compact-repeat",
+      "gpuMeanMs": 1.3350399999999993,
+      "gpuP50Ms": 1.3312,
+      "gpuP95Ms": 1.380352,
+      "samples": 32
+    },
+    {
+      "label": "direct-compact-repeat",
+      "gpuMeanMs": 1.353216,
+      "gpuP50Ms": 1.343488,
+      "gpuP95Ms": 1.409024,
+      "samples": 32
+    },
+    {
+      "label": "direct-repeat",
+      "gpuMeanMs": 1.39072,
+      "gpuP50Ms": 1.388544,
+      "gpuP95Ms": 1.437696,
+      "samples": 32
+    },
+    {
+      "label": "reference-repeat",
+      "gpuMeanMs": 1.3934080000000002,
+      "gpuP50Ms": 1.39264,
+      "gpuP95Ms": 1.445888,
+      "samples": 32
+    }
+  ],
+  "store-isolation": [
+    {
+      "label": "store-0",
+      "gpuMeanMs": 1.5749120000000005,
+      "gpuP50Ms": 1.523712,
+      "gpuP95Ms": 2.048,
+      "samples": 96
+    },
+    {
+      "label": "store-1",
+      "gpuMeanMs": 1.5714986666666668,
+      "gpuP50Ms": 1.507328,
+      "gpuP95Ms": 2.064384,
+      "samples": 96
+    },
+    {
+      "label": "store-2",
+      "gpuMeanMs": 1.6177493333333326,
+      "gpuP50Ms": 1.540096,
+      "gpuP95Ms": 2.146304,
+      "samples": 96
+    },
+    {
+      "label": "store-3",
+      "gpuMeanMs": 1.5399253333333325,
+      "gpuP50Ms": 1.507328,
+      "gpuP95Ms": 2.031616,
+      "samples": 96
+    },
+    {
+      "label": "store-3",
+      "gpuMeanMs": 1.5300266666666664,
+      "gpuP50Ms": 1.490944,
+      "gpuP95Ms": 1.96608,
+      "samples": 96
+    },
+    {
+      "label": "store-2",
+      "gpuMeanMs": 1.5677440000000002,
+      "gpuP50Ms": 1.523712,
+      "gpuP95Ms": 2.015232,
+      "samples": 96
+    },
+    {
+      "label": "store-1",
+      "gpuMeanMs": 1.5295146666666664,
+      "gpuP50Ms": 1.507328,
+      "gpuP95Ms": 1.818624,
+      "samples": 96
+    },
+    {
+      "label": "store-0",
+      "gpuMeanMs": 1.5629653333333335,
+      "gpuP50Ms": 1.540096,
+      "gpuP95Ms": 1.900544,
+      "samples": 96
+    }
+  ],
+  "storePixels": {
+    "pixels": {
+      "views": 16,
+      "changedPixels": 0,
+      "identicalPicking": true
+    },
+    "pixelsRepeat": {
+      "views": 16,
+      "changedPixels": 0,
+      "identicalPicking": true
+    }
+  },
+  "native-abba-comparison": {
+    "beforeMs": 3.177745066666666,
+    "afterMs": 3.3126821856645794,
+    "changePercent": 4.246316685795604
+  },
+  "store-frames-comparison": {
+    "beforeMs": 3.251268124740122,
+    "afterMs": 3.2411378339570325,
+    "changePercent": -0.3115796788952685
+  },
+  "productionBaselineChecks": {
+    "engine/src/render/VoxelFaceArena.ts": true,
+    "client/src/engine/render/SpaceRenderer.ts": true
+  }
+}
