@@ -15,6 +15,7 @@ import { loadBackpack, saveBackpack } from '../src/engine/inventory/BackpackPers
 import { addInventoryItem } from '../src/engine/inventory/Backpack.ts';
 import { isTutorialRoute } from '../src/bootstrap/SpaceFeatures.ts';
 import { resolveInitialPlayerPose } from '../src/bootstrap/SpaceBootstrap.ts';
+import { rememberSpacePlayerName } from '../src/bootstrap/SpacePlayerName.ts';
 import source from '../src/tutorial/tutorial-level.json' with { type: 'json' };
 
 // Authoring the bundled lesson must not change these isolated test fixtures.
@@ -216,13 +217,18 @@ test('tutorial entry never contacts APIs and shares only the normal backpack sto
   set('localStorage', shared);
   set('indexedDB', undefined);
   set('fetch', () => assert.fail('tutorial must not call fetch'));
+  const token = `header.${Buffer.from(JSON.stringify({ sub: 'current-player' })).toString('base64url')}.signature`;
+  shared.setItem('token', token);
+  rememberSpacePlayerName({ user_id: 'current-player', username: 'Tutorial Player' }, token, shared);
   const session = createTutorialSession(level);
+  assert.equal(session.player.username, 'Tutorial Player');
   assert.equal(session.token, '');
   assert.equal(session.terrain_edit_remote, null);
   assert.equal(session.surface_snapshot_remote, null);
   assert.equal(session.latency_monitor, null);
   await session.player_position_remote.save({ x_cm: 0, y_cm: 0, z_cm: 0, yaw_q15: 0 });
   await enterTutorialSpace(async (_session, backpackStorage, worldStorage) => {
+    assert.equal(_session.player.username, 'Tutorial Player');
     assert.ok(backpackStorage);
     assert.notEqual(worldStorage, backpackStorage);
     const backpack = loadBackpack(backpackStorage);

@@ -166,10 +166,10 @@ Samples through 4000m add merged side faces only where neighboring
 heights actually differ, keeping nearby LOD boundaries continuous without the
 overdraw of four full skirts per cell; farther tiers draw only their top faces.
 Empty summaries render nothing and terrain edits dirty only their zone.
-Automatic render resolution targets 120 FPS (60 FPS with Ultra lighting), reducing drawing-buffer scale
-quickly below that cadence and restoring clarity only after a sustained healthy interval.
-If 50% resolution is still insufficient, Auto temporarily pauses real-time
-shadows and secondary lighting before accepting a sub-120 cadence. Settings →
+Settings → Graphics → Performance → Render Resolution offers 1× (default),
+0.5× and 0.25× drawing-buffer width and height. Changes apply immediately and
+persist locally; interface size stays unchanged. Legacy Auto preferences use 1×,
+and older fixed preferences use the nearest available scale. Settings →
 Graphics → Performance → Lighting Quality offers four immediately applied,
 locally saved presets: Low uses simple shadow-free daylight; Medium (default)
 keeps the original 1024² soft shadows; High adds 2048² shadows, warmer sun,
@@ -200,6 +200,15 @@ radius. Values are stored locally, applied immediately through the staged rebuil
 constrained to increasing 50m bands and bounded by safe instance limits. A disabled
 tier falls through to the next enabled coarser tier; beyond the final limit no
 snapshot terrain is emitted, and setting connections to 0 disables them.
+Settings → Graphics → Distant Terrain LOD also has a **Distant Terrain & LOD**
+master switch, enabled by default and saved locally. It disables the far terrain,
+authored distant structures and their LOD work together, preserving nearby terrain.
+During gameplay, average frame cadence is sampled in two-second windows; three
+consecutive samples below 60 FPS turn the switch off and display a notification.
+A sample at or above 60 FPS or a visibility change resets the streak. Background
+time and entry loading are excluded. The disabled preference survives reloads;
+use Enabled or Reset Recommended to restore it and start a fresh observation.
+While off, initial distant preparation and subsequent snapshot polls are skipped.
 Recommended defaults keep every tier enabled, cover the full world, use
 400/600/800/1000/1600m transitions, and connect through 4000m.
 

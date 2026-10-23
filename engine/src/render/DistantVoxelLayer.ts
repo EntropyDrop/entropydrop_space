@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { VoxelFaceArena, type ArenaInputs } from './VoxelFaceArena.ts';
+import { StaticTerrainGroup } from './StaticTerrainGroup.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
 import { alignedInstanceAttribute, terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
 import { Fn, attribute, uniform, reference, vec2, vec3, vec4, positionGeometry, varying, float, screenCoordinate, output } from 'three/tsl';
@@ -86,7 +87,7 @@ export type VoxelLodOptions = { synchronous?: boolean; workerFactory?: () => Vox
 /** Resident geometry is independent of camera rotation. Browser selection,
  * indexing and packing run in a worker; only bounded publication touches Three. */
 export class DistantVoxelLayer {
-  readonly group = new THREE.BundleGroup();
+  readonly group = new StaticTerrainGroup();
   private readonly submittedState = new WeakMap<FaceMesh, { visible: boolean; material: THREE.Material; version: number; count: number }>();
   private readonly zones = new Map<string, RenderZone>();
   private readonly cullCamera = new THREE.Vector3();
@@ -190,6 +191,7 @@ export class DistantVoxelLayer {
         const mesh = new THREE.Mesh(geometry(), material(this.mask, new THREE.Vector2(0, 1),
           new THREE.Vector3(), this.drawOptimizations, true, inputs));
         mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
+        this.group.registerStaticLeaf(mesh);
         mesh.userData.opaqueMaterial = mesh.material;
         mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs);
         hookSceneMaterials(mesh); mesh.userData.maskedMaterial = mesh.material;
@@ -202,12 +204,20 @@ export class DistantVoxelLayer {
   }
   getMergedBuffersEnabled() { return !!this.arena; }
 
+  /** Development reference paths retain identical geometry and visibility. */
+  setMaintenanceOptimizationsEnabled(matrix: boolean, arena = matrix) {
+    this.group.matrixCachingEnabled = matrix;
+    if (this.arena) this.arena.incrementalMaintenance = arena;
+    this.arenaDirty = true;
+  }
+
   private make = (coverage: THREE.Vector2, origin: THREE.Vector3, mode: { value: number }): FaceMesh => {
     const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage, origin, this.drawOptimizations));
     // A pooled slot can replace GPU attribute buffers without changing its face count.
     mesh.geometry.addEventListener('dispose', () => { this.group.needsUpdate = true; });
     Object.assign(mesh.userData, { voxelOrigin: origin, voxelHandoffMode: mode, voxelArenaCompatible: true });
     mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
+    this.group.registerStaticLeaf(mesh);
     mesh.userData.maskedMaterial = mesh.material;
     mesh.material = material(this.mask, coverage, origin, this.drawOptimizations, true); hookSceneMaterials(mesh);
     mesh.userData.opaqueMaterial = mesh.material; mesh.material = mesh.userData.maskedMaterial;
@@ -444,8 +454,9 @@ export class DistantVoxelLayer {
     const maskVersion = this.mask.userData.voxelVisibilityVersion ?? this.mask.version;
     const maskChanged = this.maskVersion !== maskVersion;
     this.maskVersion = maskVersion;
-    const arenaWork = cullChanged || maskChanged || this.arenaDirty || this.arena?.hasPendingWork || !!this.packet
+    const maintenanceWork = maskChanged || this.arenaDirty || this.arena?.hasPendingWork || !!this.packet
       || [...this.zones.values()].some(zone => [...zone.batches.values()].some(batch => batch.transitioning));
+    const arenaWork = cullChanged || maintenanceWork;
     if (arenaWork) this.arena?.restoreSources();
     for (const zone of this.zones.values()) for (const batch of zone.batches.values()) {
       const transitioning = batch.transitioning;
@@ -455,7 +466,10 @@ export class DistantVoxelLayer {
     }
     try { this.processPending(); }
     catch (error) { this.fail(String(error)); }
-    if (arenaWork || this.arenaDirty) { this.arena?.sync(); this.arenaDirty = false; }
+    if (arenaWork || this.arenaDirty) {
+      this.arena?.sync(undefined, undefined, !maintenanceWork && !this.arenaDirty);
+      this.arenaDirty = false;
+    }
     else this.arena?.idle();
   }
 

@@ -1,5 +1,11 @@
 # Local rendering fixture
 
+The [2026-10-23 maintenance batch](../../docs/performance-maintenance-2026-10-23.md)
+implements static far matrices, incremental Arena maintenance, and exact terrain
+picking reuse. It includes reproducible reference switches, nine final browser
+measurements, and six warmed pixel comparisons. Earlier audit entries below
+describe the state when those audits were performed.
+
 Open `/space/app/?world=copper-metropolis&dev_offline=1` on localhost while
 running Vite. There is deliberately no navigation link. `main.ts` imports the
 fixture only inside `import.meta.env.DEV`; production builds do not contain it.

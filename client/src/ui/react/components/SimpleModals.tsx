@@ -256,7 +256,7 @@ function OnlineSpaceApiKeysSettings() {
 
 export function GlobalSettingsModal() {
   const state = useSpaceUiFields(
-    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceSettings', 'world', 'musicEnabled', 'effectsEnabled'
+    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceEnabled', 'distantSurfaceSettings', 'world', 'musicEnabled', 'effectsEnabled'
   );
   const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>(() =>
     onlinePanelSettingsTab(typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('panel')) || 'character');
@@ -476,20 +476,17 @@ export function GlobalSettingsModal() {
               </div>
               <div className="settings-row settings-resolution-row">
                 <div className="settings-label-group">
-                  <span className="settings-label">Render Resolution</span>
-                  <span className="settings-desc">Auto adjusts resolution only · targets {state.resolutionTargetFps} FPS · currently {Math.round(state.resolutionScale * 100)}% ({state.resolutionPixelRatio.toFixed(2)}× pixel ratio)</span>
+                  <span className="settings-label" id="setting-resolution-label">Render Resolution</span>
+                  <span className="settings-desc" id="setting-resolution-description">Lower resolution improves performance. Default: 1×.</span>
                 </div>
-                <div className="settings-segmented-control settings-resolution-control" id="setting-resolution-group">
+                <div className="settings-segmented-control settings-resolution-control" id="setting-resolution-group" role="group" aria-labelledby="setting-resolution-label" aria-describedby="setting-resolution-description">
                   {([
-                    ['auto', 'Auto'],
-                    ['1', '100%'],
-                    ['0.8', '80%'],
-                    ['0.67', '67%'],
-                    ['0.5', '50%']
+                    ['1', '1×'],
+                    ['0.5', '0.5×'],
+                    ['0.25', '0.25×']
                   ] as const).map(([value, label]) => (
                     <button
                       key={value}
-                      tabIndex={-1}
                       className={`segment-btn ${state.resolutionScaleMode === value ? 'active' : ''}`}
                       aria-pressed={state.resolutionScaleMode === value}
                       onClick={() => spaceUiStore.setResolutionScale(value)}
@@ -507,6 +504,27 @@ export function GlobalSettingsModal() {
             {!SPACE_TUTORIAL && <div className="settings-section">
               <div className="settings-section-title">
                 DISTANT TERRAIN LOD
+              </div>
+              <div className="settings-row">
+                <div className="settings-label-group">
+                  <span className="settings-label" id="setting-distant-enabled-label">Distant Terrain &amp; LOD</span>
+                  <span className="settings-desc" id="setting-distant-enabled-description">Checks average FPS every 2 seconds. Automatically turns off after 3 consecutive samples below 60 FPS. Re-enable here when ready.</span>
+                </div>
+                <div className="settings-segmented-control" id="setting-distant-enabled-group" role="group" aria-labelledby="setting-distant-enabled-label" aria-describedby="setting-distant-enabled-description">
+                  {([
+                    [true, 'Enabled'],
+                    [false, 'Disabled']
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={String(value)}
+                      className={`segment-btn ${state.distantSurfaceEnabled === value ? 'active' : ''}`}
+                      aria-pressed={state.distantSurfaceEnabled === value}
+                      onClick={() => spaceUiStore.setDistantSurfaceEnabled(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
               {DISTANT_LOD_CONTROLS.map(({ key, label, description, unit }) => {
                 const limits = DISTANT_SURFACE_SETTING_LIMITS[key];
@@ -527,7 +545,7 @@ export function GlobalSettingsModal() {
                   </div>
                 </div>;
               })}
-              <DistantTerrainDetailStatus layer={state.world?.distantSurface} />
+              {state.distantSurfaceEnabled && <DistantTerrainDetailStatus layer={state.world?.distantSurface} />}
               <div className="settings-row">
                 <div className="settings-label-group">
                   <span className="settings-desc">Automatic surface detail · solid terrain connections · persistent distant structures</span>

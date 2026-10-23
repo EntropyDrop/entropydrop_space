@@ -59,7 +59,7 @@ function describeProgress(progress: SurfaceStreamProgress, pass: number): string
 export async function preloadInitialDistantTerrain({
   remote, world, drawFrame, preparePipelines, waitForGpu, reportProgress,
 }: InitialDistantTerrainOptions): Promise<void> {
-  if (!remote) return;
+  if (!remote || !world.distantSurface.isEnabled()) return;
   reportProgress?.(94, 'Loading all distant terrain…');
   // Establish camera demand before the first snapshot pass selects its mips.
   drawFrame();

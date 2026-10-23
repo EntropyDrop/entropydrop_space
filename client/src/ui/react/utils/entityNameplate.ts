@@ -28,7 +28,7 @@ export function entityRunStatus(entity: any, currentUserName: string | null = nu
     return { running: true, tone: 'waiting', icon: 'waiting', caption: 'Waiting for executor', text: 'Starting · waiting for an execution endpoint' };
   }
   const executor = entity.serverExecutorName || (entity.serverExecutesLocally ? currentUserName : null)
-    || (entity.serverManaged ? 'execution endpoint' : currentUserName || 'this browser');
+    || (entity.serverManaged ? 'execution endpoint' : currentUserName || 'Local player');
   return { running: true, tone: 'running', icon: 'play', caption: executor, text: `Running · ${executor}` };
 }
 

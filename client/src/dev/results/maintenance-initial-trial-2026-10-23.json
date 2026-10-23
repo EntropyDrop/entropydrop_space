@@ -1,0 +1,1248 @@
+{
+  "status": "done",
+  "rows": [
+    {
+      "label": "near before",
+      "motion": false,
+      "durationMs": 32008.799999713898,
+      "frames": 3840,
+      "time": "2026-10-23T00:14:17.114Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": -0.85,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3840,
+          "mean": 8.335520833333332,
+          "p50": 8.30000000000291,
+          "p95": 9,
+          "p99": 9.299999999999272,
+          "max": 17,
+          "over16ms": 1,
+          "over33ms": 0
+        },
+        "cpu": {
+          "count": 3840,
+          "mean": 3.7788281173755727,
+          "p50": 3.700000286102295,
+          "p95": 4.400000095367432,
+          "p99": 4.800000190734863,
+          "max": 6.699999809265137,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3840,
+          "mean": 0.532708332190911,
+          "p50": 0.5,
+          "p95": 0.6000003814697266,
+          "p99": 0.6999998092651367,
+          "max": 0.7000002861022949,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3840,
+          "mean": 0.3145572908222675,
+          "p50": 0.3000001907348633,
+          "p95": 0.40000009536743164,
+          "p99": 0.5,
+          "max": 1.299999713897705,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3840,
+          "mean": 3.1241406242052716,
+          "p50": 3.0999999046325684,
+          "p95": 3.799999713897705,
+          "p99": 4.099999904632568,
+          "max": 6.099999904632568,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3840,
+          "mean": 0.7999479100108147,
+          "p50": 0.8000001907348633,
+          "p95": 0.9000000953674316,
+          "p99": 1,
+          "max": 1.1999998092651367,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3840,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 119.96850826658005,
+      "maxPending": 0,
+      "counters": {
+        "calls": 269,
+        "triangles": 1780121,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 727113,
+          "paddedFaces": 727936,
+          "draws": 33,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 822779,
+          "coveredFaces": 104845,
+          "maintenancePasses": 481,
+          "sourceListBuilds": 298
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 1270,
+            "misses": 2
+          },
+          "micro": {
+            "hits": 1270,
+            "misses": 2
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "near after",
+      "motion": false,
+      "durationMs": 32008.10000038147,
+      "frames": 3827,
+      "time": "2026-10-23T00:14:52.137Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": -0.85,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3827,
+          "mean": 8.363652991899661,
+          "p50": 8.30000000000291,
+          "p95": 9,
+          "p99": 9.30000000000291,
+          "max": 34.10000000000582,
+          "over16ms": 6,
+          "over33ms": 2
+        },
+        "cpu": {
+          "count": 3827,
+          "mean": 3.492631295844348,
+          "p50": 3.4000000953674316,
+          "p95": 4.199999809265137,
+          "p99": 4.5,
+          "max": 6.799999713897705,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3827,
+          "mean": 0.2204860189361612,
+          "p50": 0.20000028610229492,
+          "p95": 0.3000001907348633,
+          "p99": 0.3000001907348633,
+          "max": 0.5,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3827,
+          "mean": 0.3226809495418041,
+          "p50": 0.3000001907348633,
+          "p95": 0.40000009536743164,
+          "p99": 0.5,
+          "max": 0.6999998092651367,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3827,
+          "mean": 3.1605173735946286,
+          "p50": 3.0999999046325684,
+          "p95": 3.8000001907348633,
+          "p99": 4.199999809265137,
+          "max": 5.900000095367432,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3827,
+          "mean": 0.8383067726372488,
+          "p50": 0.8000001907348633,
+          "p95": 1,
+          "p99": 1.0999999046325684,
+          "max": 1.5999999046325684,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3827,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 119.56497967676526,
+      "maxPending": 0,
+      "counters": {
+        "calls": 269,
+        "triangles": 1780121,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 727113,
+          "paddedFaces": 727936,
+          "draws": 33,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 822779,
+          "coveredFaces": 104845,
+          "maintenancePasses": 482,
+          "sourceListBuilds": 298
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 5457,
+            "misses": 4
+          },
+          "micro": {
+            "hits": 5457,
+            "misses": 4
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "near before-repeat",
+      "motion": false,
+      "durationMs": 32000.099999904633,
+      "frames": 3835,
+      "time": "2026-10-23T00:15:27.162Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": -0.85,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3835,
+          "mean": 8.34419817470665,
+          "p50": 8.30000000000291,
+          "p95": 9.099999999991269,
+          "p99": 9.30000000000291,
+          "max": 50,
+          "over16ms": 2,
+          "over33ms": 1
+        },
+        "cpu": {
+          "count": 3835,
+          "mean": 3.7457366368916696,
+          "p50": 3.6999998092651367,
+          "p95": 4.400000095367432,
+          "p99": 4.700000286102295,
+          "max": 9.600000381469727,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3835,
+          "mean": 0.5314471977164257,
+          "p50": 0.5,
+          "p95": 0.6000003814697266,
+          "p99": 0.6000003814697266,
+          "max": 5,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3835,
+          "mean": 0.3207561925617004,
+          "p50": 0.3000001907348633,
+          "p95": 0.40000009536743164,
+          "p99": 0.5,
+          "max": 1.3000001907348633,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3835,
+          "mean": 3.0975228217621047,
+          "p50": 3,
+          "p95": 3.700000286102295,
+          "p99": 4.099999904632568,
+          "max": 6,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3835,
+          "mean": 0.8046153808355021,
+          "p50": 0.8000001907348633,
+          "p95": 0.9000000953674316,
+          "p99": 1,
+          "max": 1.1999998092651367,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3835,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 119.84375,
+      "maxPending": 0,
+      "counters": {
+        "calls": 269,
+        "triangles": 1780121,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 727113,
+          "paddedFaces": 727936,
+          "draws": 33,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 822779,
+          "coveredFaces": 104845,
+          "maintenancePasses": 483,
+          "sourceListBuilds": 299
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 5457,
+            "misses": 4
+          },
+          "micro": {
+            "hits": 5457,
+            "misses": 4
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "across before",
+      "motion": false,
+      "durationMs": 32003.599999904633,
+      "frames": 3837,
+      "time": "2026-10-23T00:16:02.257Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": 1.35,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3837,
+          "mean": 8.340969507427678,
+          "p50": 8.300000000017462,
+          "p95": 9.099999999976717,
+          "p99": 9.30000000000291,
+          "max": 33.20000000001164,
+          "over16ms": 2,
+          "over33ms": 0
+        },
+        "cpu": {
+          "count": 3837,
+          "mean": 2.6882199684343893,
+          "p50": 2.6999998092651367,
+          "p95": 3.1999998092651367,
+          "p99": 3.5,
+          "max": 4.100000381469727,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3837,
+          "mean": 0.5147771728451997,
+          "p50": 0.5,
+          "p95": 0.6000003814697266,
+          "p99": 0.6000003814697266,
+          "max": 0.8000001907348633,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3837,
+          "mean": 0.30972113931182155,
+          "p50": 0.3000001907348633,
+          "p95": 0.40000009536743164,
+          "p99": 0.40000009536743164,
+          "max": 0.7000002861022949,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3837,
+          "mean": 2.0679958313431688,
+          "p50": 2,
+          "p95": 2.5999999046325684,
+          "p99": 2.8000001907348633,
+          "max": 3.3000001907348633,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3837,
+          "mean": 0.7968986245036778,
+          "p50": 0.8000001907348633,
+          "p95": 0.9000000953674316,
+          "p99": 0.9000000953674316,
+          "max": 1,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3837,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 119.89013976246942,
+      "maxPending": 0,
+      "counters": {
+        "calls": 28,
+        "triangles": 1098341,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 532839,
+          "paddedFaces": 538368,
+          "draws": 24,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 1017053,
+          "coveredFaces": 104845,
+          "maintenancePasses": 484,
+          "sourceListBuilds": 300
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 5457,
+            "misses": 4
+          },
+          "micro": {
+            "hits": 5457,
+            "misses": 4
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "across after",
+      "motion": false,
+      "durationMs": 32007.799999713898,
+      "frames": 3841,
+      "time": "2026-10-23T00:16:37.289Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": 1.35,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3841,
+          "mean": 8.333168445717265,
+          "p50": 8.300000000017462,
+          "p95": 9.10000000000582,
+          "p99": 9.200000000011642,
+          "max": 9.39999999999418,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "cpu": {
+          "count": 3841,
+          "mean": 2.4456391553027155,
+          "p50": 2.4000000953674316,
+          "p95": 2.9000000953674316,
+          "p99": 3.200000286102295,
+          "max": 3.6000003814697266,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3841,
+          "mean": 0.20564956523514885,
+          "p50": 0.19999980926513672,
+          "p95": 0.3000001907348633,
+          "p99": 0.3000001907348633,
+          "max": 0.40000009536743164,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3841,
+          "mean": 0.31663629158931733,
+          "p50": 0.3000001907348633,
+          "p95": 0.40000009536743164,
+          "p99": 0.40000009536743164,
+          "max": 0.7000002861022949,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3841,
+          "mean": 2.1386357769001525,
+          "p50": 2.0999999046325684,
+          "p95": 2.5999999046325684,
+          "p99": 2.9000000953674316,
+          "max": 3.3000001907348633,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3841,
+          "mean": 0.8283519962125071,
+          "p50": 0.8000001907348633,
+          "p95": 1,
+          "p99": 1,
+          "max": 1.1000003814697266,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3841,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 120.00237442865306,
+      "maxPending": 0,
+      "counters": {
+        "calls": 28,
+        "triangles": 1098341,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 532839,
+          "paddedFaces": 538368,
+          "draws": 24,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 1017053,
+          "coveredFaces": 104845,
+          "maintenancePasses": 485,
+          "sourceListBuilds": 300
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 9659,
+            "misses": 6
+          },
+          "micro": {
+            "hits": 9659,
+            "misses": 6
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "across before-repeat",
+      "motion": false,
+      "durationMs": 32004.5,
+      "frames": 3840,
+      "time": "2026-10-23T00:17:12.319Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": 1.35,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3840,
+          "mean": 8.334505208333333,
+          "p50": 8.300000000017462,
+          "p95": 9.10000000000582,
+          "p99": 9.300000000017462,
+          "max": 58.39999999999418,
+          "over16ms": 6,
+          "over33ms": 2
+        },
+        "cpu": {
+          "count": 3840,
+          "mean": 2.6884635406235855,
+          "p50": 2.6000003814697266,
+          "p95": 3.299999713897705,
+          "p99": 3.6999998092651367,
+          "max": 7.400000095367432,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3840,
+          "mean": 0.5117968748013179,
+          "p50": 0.5,
+          "p95": 0.6000003814697266,
+          "p99": 0.6000003814697266,
+          "max": 1.4000000953674316,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3840,
+          "mean": 0.3072135455906391,
+          "p50": 0.3000001907348633,
+          "p95": 0.40000009536743164,
+          "p99": 0.5,
+          "max": 1.299999713897705,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3840,
+          "mean": 2.0705468717962505,
+          "p50": 2,
+          "p95": 2.6000003814697266,
+          "p99": 3,
+          "max": 5.800000190734863,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3840,
+          "mean": 0.7922656199584405,
+          "p50": 0.8000001907348633,
+          "p95": 0.9000000953674316,
+          "p99": 1,
+          "max": 1.6999998092651367,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3840,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 119.98312737271321,
+      "maxPending": 0,
+      "counters": {
+        "calls": 28,
+        "triangles": 1098341,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 532839,
+          "paddedFaces": 538368,
+          "draws": 24,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 1017053,
+          "coveredFaces": 104845,
+          "maintenancePasses": 486,
+          "sourceListBuilds": 301
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 9659,
+            "misses": 6
+          },
+          "micro": {
+            "hits": 9659,
+            "misses": 6
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "rotation before",
+      "motion": true,
+      "durationMs": 32010.200000286102,
+      "frames": 3811,
+      "time": "2026-10-23T00:17:47.356Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": 1.35,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3811,
+          "mean": 8.397848333770659,
+          "p50": 8.300000000017462,
+          "p95": 9.10000000000582,
+          "p99": 9.300000000017462,
+          "max": 29.699999999982538,
+          "over16ms": 17,
+          "over33ms": 0
+        },
+        "cpu": {
+          "count": 3811,
+          "mean": 3.8073996333930786,
+          "p50": 3.4000000953674316,
+          "p95": 4.400000095367432,
+          "p99": 14.200000286102295,
+          "max": 17.199999809265137,
+          "over16ms": 1,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3811,
+          "mean": 0.49207556876445563,
+          "p50": 0.5,
+          "p95": 0.5999999046325684,
+          "p99": 0.6000003814697266,
+          "max": 1.0999999046325684,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3811,
+          "mean": 1.7677250098631596,
+          "p50": 1.4000000953674316,
+          "p95": 1.8000001907348633,
+          "p99": 11.299999713897705,
+          "max": 14.199999809265137,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3811,
+          "mean": 3.2227761809890336,
+          "p50": 2.8000001907348633,
+          "p95": 3.700000286102295,
+          "p99": 13.599999904632568,
+          "max": 16.59999990463257,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3811,
+          "mean": 0.5199685116760125,
+          "p50": 0.5,
+          "p95": 0.6999998092651367,
+          "p99": 0.8999996185302734,
+          "max": 2.6999998092651367,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3811,
+          "mean": 1.4873524006193186,
+          "p50": 1.1000003814697266,
+          "p95": 1.5,
+          "p99": 11,
+          "max": 13.900000095367432,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 119.07812099661926,
+      "maxPending": 0,
+      "counters": {
+        "calls": 28,
+        "triangles": 1098309,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 532823,
+          "paddedFaces": 538352,
+          "draws": 24,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0.20000028610229492,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 1017069,
+          "coveredFaces": 104845,
+          "maintenancePasses": 4298,
+          "sourceListBuilds": 4113
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 9659,
+            "misses": 6
+          },
+          "micro": {
+            "hits": 9659,
+            "misses": 6
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "rotation after",
+      "motion": true,
+      "durationMs": 32004.599999904633,
+      "frames": 3824,
+      "time": "2026-10-23T00:18:22.386Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": 1.35,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3824,
+          "mean": 8.369403765690386,
+          "p50": 8.299999999988358,
+          "p95": 9.099999999976717,
+          "p99": 9.300000000046566,
+          "max": 22.899999999965075,
+          "over16ms": 8,
+          "over33ms": 0
+        },
+        "cpu": {
+          "count": 3824,
+          "mean": 3.125758364110811,
+          "p50": 2.700000286102295,
+          "p95": 3.5,
+          "p99": 13.800000190734863,
+          "max": 15.599999904632568,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3824,
+          "mean": 0.5128922614592388,
+          "p50": 0.5,
+          "p95": 0.6000003814697266,
+          "p99": 0.6000003814697266,
+          "max": 13,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3824,
+          "mean": 0.7742416280084076,
+          "p50": 0.40000009536743164,
+          "p95": 0.5999999046325684,
+          "p99": 10.700000286102295,
+          "max": 12,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3824,
+          "mean": 2.5214958168472705,
+          "p50": 2.0999999046325684,
+          "p95": 2.8000001907348633,
+          "p99": 13.199999809265137,
+          "max": 14.400000095367432,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3824,
+          "mean": 0.8102249004352042,
+          "p50": 0.8000001907348633,
+          "p95": 0.9000000953674316,
+          "p99": 1,
+          "max": 1.1999998092651367,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3824,
+          "mean": 0.4913964358832547,
+          "p50": 0.10000038146972656,
+          "p95": 0.2999997138977051,
+          "p99": 10.400000095367432,
+          "max": 11.599999904632568,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 119.48282434400042,
+      "maxPending": 0,
+      "counters": {
+        "calls": 28,
+        "triangles": 1098309,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 532823,
+          "paddedFaces": 538352,
+          "draws": 24,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 1017069,
+          "coveredFaces": 104845,
+          "maintenancePasses": 4299,
+          "sourceListBuilds": 4113
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 10019,
+            "misses": 3833
+          },
+          "micro": {
+            "hits": 10019,
+            "misses": 3833
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    },
+    {
+      "label": "rotation before-repeat",
+      "motion": true,
+      "durationMs": 32001.700000286102,
+      "frames": 3806,
+      "time": "2026-10-23T00:18:57.413Z",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "width": 2560,
+      "height": 1440,
+      "quality": "medium",
+      "shadows": false,
+      "view": {
+        "yaw": 1.5707963267948966,
+        "pitch": 1.35,
+        "position": [
+          8192.5,
+          181.62,
+          1024.5
+        ]
+      },
+      "metrics": {
+        "frame": {
+          "count": 3806,
+          "mean": 8.406726221755124,
+          "p50": 8.300000000046566,
+          "p95": 9.100000000034925,
+          "p99": 9.400000000023283,
+          "max": 33.40000000002328,
+          "over16ms": 26,
+          "over33ms": 1
+        },
+        "cpu": {
+          "count": 3806,
+          "mean": 3.8784550733461045,
+          "p50": 3.5,
+          "p95": 4.5,
+          "p99": 14.300000190734863,
+          "max": 15.900000095367432,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "picking": {
+          "count": 3806,
+          "mean": 0.49492906008152604,
+          "p50": 0.5,
+          "p95": 0.5999999046325684,
+          "p99": 0.6000003814697266,
+          "max": 1.4000000953674316,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "lod": {
+          "count": 3806,
+          "mean": 1.788307933511699,
+          "p50": 1.4000000953674316,
+          "p95": 1.8000001907348633,
+          "p99": 11.300000190734863,
+          "max": 12.699999809265137,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "render": {
+          "count": 3806,
+          "mean": 3.2873883347604003,
+          "p50": 2.8999996185302734,
+          "p95": 3.8000001907348633,
+          "p99": 13.700000286102295,
+          "max": 15.300000190734863,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "matrices": {
+          "count": 3806,
+          "mean": 0.5300840814052227,
+          "p50": 0.5,
+          "p95": 0.7000002861022949,
+          "p99": 0.9000000953674316,
+          "max": 1.0999999046325684,
+          "over16ms": 0,
+          "over33ms": 0
+        },
+        "arena": {
+          "count": 3806,
+          "mean": 1.5019180193363335,
+          "p50": 1.1999998092651367,
+          "p95": 1.5,
+          "p99": 11,
+          "max": 12.299999713897705,
+          "over16ms": 0,
+          "over33ms": 0
+        }
+      },
+      "fps": 118.95236904613077,
+      "maxPending": 0,
+      "counters": {
+        "calls": 28,
+        "triangles": 1098277,
+        "arena": {
+          "residentFaces": 2089207,
+          "bytes": 99090432,
+          "visibleFaces": 532807,
+          "paddedFaces": 538336,
+          "draws": 24,
+          "sourceDraws": 2048,
+          "mapUploadBytes": 0,
+          "copyFaces": 0,
+          "copyMs": 0.10000038146972656,
+          "maxCopyMs": 4.200000286102295,
+          "pendingSources": 0,
+          "releasedSourceBytes": 66854624,
+          "pages": 9,
+          "backFaces": 434470,
+          "outsideFaces": 1017085,
+          "coveredFaces": 104845,
+          "maintenancePasses": 8107,
+          "sourceListBuilds": 7921
+        },
+        "lod": {
+          "faces": 2089207,
+          "budget": 3495253,
+          "requestedAreaPx2": 64,
+          "effectiveAreaPx2": 64
+        },
+        "nearChunks": 153,
+        "far": true,
+        "pickingCache": {
+          "standard": {
+            "hits": 10019,
+            "misses": 3833
+          },
+          "micro": {
+            "hits": 10019,
+            "misses": 3833
+          }
+        }
+      },
+      "notes": "RAF cadence, nested CPU stages; GPU timestamps off; fixed resolution and far terrain; offline fixture."
+    }
+  ],
+  "current": "rotation before-repeat"
+}

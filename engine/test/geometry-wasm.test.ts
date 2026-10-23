@@ -59,7 +59,7 @@ test('entity contact collection preserves ordering across candidate batches', ()
 });
 
 test('air and solid discovery reads each numeric cell once, without caching across rays', () => {
-  const host = { rayBentPoint: new THREE.Vector3(), rayFlatPoint: new THREE.Vector3() };
+  const host = Object.assign(Object.create(World.prototype), { rayBentPoint: new THREE.Vector3(), rayFlatPoint: new THREE.Vector3() });
   const origin = bendPointForView(100, 40, 100), direction = bendPointForView(100, 24, 100).sub(origin).normalize();
   for (const divisions of [1, 8]) {
     let calls = 0; const cells = new Set<string>();
@@ -73,7 +73,7 @@ test('air and solid discovery reads each numeric cell once, without caching acro
 
 test('WASM picks preserve seams, edges, view correction, micro black and published values', () => {
   const previous = setGeometryKernelMode('js');
-  const host = { rayBentPoint: new THREE.Vector3(), rayFlatPoint: new THREE.Vector3() };
+  const host = Object.assign(Object.create(World.prototype), { rayBentPoint: new THREE.Vector3(), rayFlatPoint: new THREE.Vector3() });
   try {
     for (const corrected of [false, true]) for (const divisions of [1, 8]) for (const [x, z] of [[100, 100], [16383, 2047], [0, 0]]) {
       const y = 35, cellSize = 1 / divisions;

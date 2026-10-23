@@ -43,6 +43,14 @@ type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; f
  * so coplanar boundary faces retain their reference depth-test ordering. */
 export class VoxelFaceArena {
   groupPageDraws = true;
+  incrementalMaintenance = true;
+  private sources: VoxelFaceMesh[] = [];
+  private sourceSet = new Set<VoxelFaceMesh>();
+  private sourcesDirty = true;
+  private maintenanceDirty = true;
+  private readonly sourceMembershipChanged = (event: { child: THREE.Object3D }) => {
+    if (!event.child.userData.voxelArena) this.sourcesDirty = this.maintenanceDirty = true;
+  };
   private groupedSources: VoxelFaceMesh[] = [];
   private groupedPages: object[] = [];
   private groupedOrder: VoxelFaceMesh[] = [];
@@ -53,6 +61,8 @@ export class VoxelFaceArena {
   private hidden: VoxelFaceMesh[] = [];
   private drawing: (Entry | VoxelFaceMesh)[] = [];
   private drawingMaterials: THREE.Material[] = [];
+  private nextDrawing: (Entry | VoxelFaceMesh)[] = [];
+  private nextMaterials: THREE.Material[] = [];
   private readonly camera = new THREE.Vector3();
   private readonly frustum = new THREE.Frustum();
   private coverage: THREE.DataTexture | null = null;
@@ -63,10 +73,15 @@ export class VoxelFaceArena {
   private emptyFrustum = false;
   readonly stats = { residentFaces: 0, bytes: 0, visibleFaces: 0, paddedFaces: 0, draws: 0,
     sourceDraws: 0, mapUploadBytes: 0, copyFaces: 0, copyMs: 0, maxCopyMs: 0, pendingSources: 0,
-    releasedSourceBytes: 0, pages: 0, backFaces: 0, outsideFaces: 0, coveredFaces: 0 };
+    releasedSourceBytes: 0, pages: 0, backFaces: 0, outsideFaces: 0, coveredFaces: 0,
+    maintenancePasses: 0, sourceListBuilds: 0 };
   private readonly root: THREE.BundleGroup;
   private readonly make: (inputs: ArenaInputs) => VoxelFaceMesh;
-  constructor(root: THREE.BundleGroup, make: (inputs: ArenaInputs) => VoxelFaceMesh) { this.root = root; this.make = make; }
+  constructor(root: THREE.BundleGroup, make: (inputs: ArenaInputs) => VoxelFaceMesh) {
+    this.root = root; this.make = make;
+    root.addEventListener('childadded', this.sourceMembershipChanged);
+    root.addEventListener('childremoved', this.sourceMembershipChanged);
+  }
   get hasPendingWork() { return this.stats.pendingSources > 0; }
 
   setView(camera: THREE.Vector3, frustum: THREE.Frustum, coverage: THREE.DataTexture, enabled: boolean) {
@@ -186,7 +201,9 @@ export class VoxelFaceArena {
     const index = page.free.findIndex(range => range.count >= allocated), range = page.free[index];
     const entry: Entry = { mesh, geometry: mesh.geometry, page, start: range.start, count, allocated, copied: 0, attributes,
       versions: attributes.map(a => a.version), origin: mesh.userData.voxelOrigin.clone(), invalid: false,
-      releasing: false, onDispose: () => { if (!entry.releasing) entry.invalid = true; } };
+      releasing: false, onDispose: () => {
+        if (!entry.releasing) { entry.invalid = true; this.maintenanceDirty = true; }
+      } };
     range.start += allocated; range.count -= allocated;
     if (!range.count) page.free.splice(index, 1);
     page.entries.add(entry); this.entries.set(mesh, entry);
@@ -231,74 +248,91 @@ export class VoxelFaceArena {
     this.hidden.length = 0;
   }
   idle() { this.stats.copyFaces = this.stats.copyMs = this.stats.mapUploadBytes = 0; }
-  sync(budgetMs = ARENA_COPY_MS, budgetFaces = ARENA_COPY_FACES) {
-    const sources = (this.root.children as VoxelFaceMesh[]).filter(mesh => !mesh.userData.voxelArena).sort((a, b) => a.id - b.id);
-    const sourceSet = new Set(sources);
-    for (const [mesh, order] of this.orders) if (!sourceSet.has(mesh)) { mesh.renderOrder = order; this.orders.delete(mesh); }
-    for (const mesh of sources) {
-      if (!this.orders.has(mesh)) { this.orders.set(mesh, mesh.renderOrder); mesh.renderOrder = mesh.id; }
+  /** visibilityOnly is used by the owner only when no geometry, origin, material
+   * eligibility or transition changed. Public/default calls validate everything. */
+  sync(budgetMs = ARENA_COPY_MS, budgetFaces = ARENA_COPY_FACES, visibilityOnly = false) {
+    if (this.sourcesDirty || !this.incrementalMaintenance) {
+      this.sources = (this.root.children as VoxelFaceMesh[]).filter(mesh => !mesh.userData.voxelArena).sort((a, b) => a.id - b.id);
+      this.sourceSet = new Set(this.sources); this.sourcesDirty = false;
+      this.stats.sourceListBuilds++;
     }
-    for (const entry of this.entries.values()) {
-      const mesh = entry.mesh;
-      const replaced = entry.attributes ? names.some((name, i) => mesh.geometry.getAttribute(name) !== entry.attributes![i]
-        || entry.attributes![i].version !== entry.versions[i]) : names.some(name => !!mesh.geometry.getAttribute(name));
-      if (!sourceSet.has(mesh) || entry.invalid || replaced || !this.eligible(mesh)
-        || entry.count !== mesh.geometry.instanceCount || !entry.origin.equals(mesh.userData.voxelOrigin)) {
-        this.remove(entry, sourceSet.has(mesh) && !replaced && entry.count === mesh.geometry.instanceCount);
+    const sources = this.sources, sourceSet = this.sourceSet;
+    if (!this.incrementalMaintenance || !visibilityOnly || this.maintenanceDirty || this.hasPendingWork) {
+      this.maintenanceDirty = false; this.stats.maintenancePasses++;
+      for (const [mesh, order] of this.orders) if (!sourceSet.has(mesh)) { mesh.renderOrder = order; this.orders.delete(mesh); }
+      for (const mesh of sources) {
+        if (!this.orders.has(mesh)) { this.orders.set(mesh, mesh.renderOrder); mesh.renderOrder = mesh.id; }
       }
-    }
-    const started = performance.now(); let copied = 0, pending = 0;
-    for (const mesh of sources) {
-      if (!this.eligible(mesh)) continue;
-      let entry = this.entries.get(mesh);
-      if (entry && !entry.attributes) continue;
-      // Firefox's coarse clock can exhaust the soft time budget while merely
-      // scanning settled/hidden sources. Always permit one bounded copy so a
-      // source at the end of that list cannot starve the entry gate forever.
-      if (copied >= budgetFaces || (copied > 0 && performance.now() - started >= budgetMs)) { pending++; continue; }
-      entry ??= this.allocate(mesh) ?? undefined;
-      if (!entry) continue;
-      const [offset, span, direction, emission, colors] = entry.attributes!;
-      const out = entry.page.data.array as Uint32Array, from = entry.copied;
-      const until = Math.min(entry.count, from + Math.min(4096, budgetFaces - copied));
-      for (let i = from; i < until; i++) {
-        const at = (entry.start + i) * 4, c = i * colors.itemSize;
-        out[at] = offset.getX(i) | (offset.getY(i) << 16);
-        out[at + 1] = offset.getZ(i) | (span.getX(i) << 16);
-        out[at + 2] = span.getY(i) | (direction.getX(i) << 16) | (emission.getX(i) << 24);
-        out[at + 3] = colors.array[c] | (colors.array[c + 1] << 8) | (colors.array[c + 2] << 16) | 0xff000000;
+      for (const entry of this.entries.values()) {
+        const mesh = entry.mesh;
+        const replaced = entry.attributes ? names.some((name, i) => mesh.geometry.getAttribute(name) !== entry.attributes![i]
+          || entry.attributes![i].version !== entry.versions[i]) : names.some(name => !!mesh.geometry.getAttribute(name));
+        if (!sourceSet.has(mesh) || entry.invalid || replaced || !this.eligible(mesh)
+          || entry.count !== mesh.geometry.instanceCount || !entry.origin.equals(mesh.userData.voxelOrigin)) {
+          this.remove(entry, sourceSet.has(mesh) && !replaced && entry.count === mesh.geometry.instanceCount);
+        }
       }
-      entry.copied = until; copied += until - from;
-      entry.page.data.addUpdateRange((entry.start + from) * 4, (until - from) * 4); entry.page.data.needsUpdate = true;
-      if (until === entry.count) {
-        // Notify Three before deleting attributes so every renderer releases its
-        // buffers and invalidates cached bindings. No second terrain copy stays.
-        entry.releasing = true; mesh.geometry.dispose(); entry.releasing = false;
-        names.forEach(name => mesh.geometry.deleteAttribute(name)); entry.attributes = undefined;
-        // The renderer adapter drops cached CPU arrays after geometry disposal.
-        (mesh.geometry as any).dispatchEvent({ type: 'voxelarenaretire' });
-        this.root.needsUpdate = true;
-      } else pending++;
-    }
-    Object.assign(this.stats, { copyFaces: copied, copyMs: performance.now() - started, pendingSources: pending,
-      residentFaces: 0, bytes: 0, mapUploadBytes: 0, releasedSourceBytes: 0 });
-    this.stats.maxCopyMs = Math.max(this.stats.maxCopyMs, this.stats.copyMs);
-    for(const page of [...this.pages]) {
-      if(!page.entries.size) {this.disposePage(page);continue;}
-      this.stats.bytes += page.data.array.byteLength + page.map.array.byteLength + (page.mesh.geometry.index?.array.byteLength ?? 0);
-      for(const entry of page.entries) if(!entry.attributes) {
-        this.stats.residentFaces += entry.count; this.stats.releasedSourceBytes += entry.count * 32;
+      const started = performance.now(); let copied = 0, pending = 0;
+      for (const mesh of sources) {
+        if (!this.eligible(mesh)) continue;
+        let entry = this.entries.get(mesh);
+        if (entry && !entry.attributes) continue;
+        // Firefox's coarse clock can exhaust the soft time budget while merely
+        // scanning settled/hidden sources. Always permit one bounded copy so a
+        // source at the end of that list cannot starve the entry gate forever.
+        if (copied >= budgetFaces || (copied > 0 && performance.now() - started >= budgetMs)) { pending++; continue; }
+        entry ??= this.allocate(mesh) ?? undefined;
+        if (!entry) continue;
+        const [offset, span, direction, emission, colors] = entry.attributes!;
+        const out = entry.page.data.array as Uint32Array, from = entry.copied;
+        const until = Math.min(entry.count, from + Math.min(4096, budgetFaces - copied));
+        for (let i = from; i < until; i++) {
+          const at = (entry.start + i) * 4, c = i * colors.itemSize;
+          out[at] = offset.getX(i) | (offset.getY(i) << 16);
+          out[at + 1] = offset.getZ(i) | (span.getX(i) << 16);
+          out[at + 2] = span.getY(i) | (direction.getX(i) << 16) | (emission.getX(i) << 24);
+          out[at + 3] = colors.array[c] | (colors.array[c + 1] << 8) | (colors.array[c + 2] << 16) | 0xff000000;
+        }
+        entry.copied = until; copied += until - from;
+        entry.page.data.addUpdateRange((entry.start + from) * 4, (until - from) * 4); entry.page.data.needsUpdate = true;
+        if (until === entry.count) {
+          // Notify Three before deleting attributes so every renderer releases its
+          // buffers and invalidates cached bindings. No second terrain copy stays.
+          entry.releasing = true; mesh.geometry.dispose(); entry.releasing = false;
+          names.forEach(name => mesh.geometry.deleteAttribute(name)); entry.attributes = undefined;
+          // The renderer adapter drops cached CPU arrays after geometry disposal.
+          (mesh.geometry as any).dispatchEvent({ type: 'voxelarenaretire' });
+          this.root.needsUpdate = true;
+        } else pending++;
       }
-    }
-    this.stats.pages = this.pages.length;
-    const drawing = sources.filter(mesh=>mesh.visible).map(mesh=>{
-      const entry=this.entries.get(mesh);return entry && !entry.attributes ? entry : mesh;
+      Object.assign(this.stats, { copyFaces: copied, copyMs: performance.now() - started, pendingSources: pending,
+        residentFaces: 0, bytes: 0, mapUploadBytes: 0, releasedSourceBytes: 0 });
+      this.stats.maxCopyMs = Math.max(this.stats.maxCopyMs, this.stats.copyMs);
+      for(const page of [...this.pages]) {
+        if(!page.entries.size) {this.disposePage(page);continue;}
+        this.stats.bytes += page.data.array.byteLength + page.map.array.byteLength + (page.mesh.geometry.index?.array.byteLength ?? 0);
+        for(const entry of page.entries) if(!entry.attributes) {
+          this.stats.residentFaces += entry.count; this.stats.releasedSourceBytes += entry.count * 32;
+        }
+      }
+      this.stats.pages = this.pages.length;
+    } else this.idle();
+    const drawing = this.incrementalMaintenance ? this.nextDrawing : sources.filter(mesh => mesh.visible).map(mesh => {
+      const entry = this.entries.get(mesh); return entry && !entry.attributes ? entry : mesh;
     });
-    const materials = drawing.map(item => 'page' in item ? item.mesh.material : item.material);
+    const materials = this.incrementalMaintenance ? this.nextMaterials
+      : drawing.map(item => 'page' in item ? item.mesh.material : item.material);
+    if (this.incrementalMaintenance) {
+      drawing.length = materials.length = 0;
+      for (const mesh of sources) if (mesh.visible) {
+        const entry = this.entries.get(mesh);
+        drawing.push(entry && !entry.attributes ? entry : mesh); materials.push(mesh.material);
+      }
+    }
     const unchanged=!this.visibilityDirty && this.previousGrouping === this.groupPageDraws && drawing.length===this.drawing.length
       && drawing.every((item,i)=>item===this.drawing[i] && materials[i] === this.drawingMaterials[i]);
-    this.drawing=drawing;
-    this.drawingMaterials=materials;
+    this.nextDrawing = this.drawing; this.nextMaterials = this.drawingMaterials;
+    this.drawing=drawing; this.drawingMaterials=materials;
     this.previousGrouping = this.groupPageDraws;
     if(unchanged) {
       for(const item of drawing) if('page' in item) {item.mesh.visible=false;this.hidden.push(item.mesh);}
@@ -377,10 +411,13 @@ export class VoxelFaceArena {
     this.stats.pages = this.pages.length;
   }
   dispose(restore = true) {
+    this.root.removeEventListener('childadded', this.sourceMembershipChanged);
+    this.root.removeEventListener('childremoved', this.sourceMembershipChanged);
     this.restoreSources();
     for (const entry of this.entries.values()) this.remove(entry, restore && entry.mesh.parent === this.root);
     for (const page of [...this.pages]) this.disposePage(page);
     for (const [mesh, order] of this.orders) mesh.renderOrder = order;
     this.orders.clear(); this.root.needsUpdate = true;
+    this.sources = []; this.sourceSet.clear(); this.sourcesDirty = this.maintenanceDirty = true;
   }
 }

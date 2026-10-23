@@ -1,6 +1,6 @@
-export const MIN_RESOLUTION_SCALE = 0.5;
+export const MIN_RESOLUTION_SCALE = 0.25;
 export const MAX_RESOLUTION_SCALE = 1;
-export const RESOLUTION_SCALE_PRESETS = [1, 0.8, 0.67, 0.5] as const;
+export const RESOLUTION_SCALE_PRESETS = [1, 0.5, 0.25] as const;
 
 const ADAPTIVE_SCALE_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1] as const;
 const TARGET_FRAME_MS = 1000 / 120;
@@ -38,7 +38,7 @@ function lowerAdaptiveStep(current: number, recommended: number): number {
     const step = ADAPTIVE_SCALE_STEPS[index];
     if (step <= ceiling) return step;
   }
-  return MIN_RESOLUTION_SCALE;
+  return ADAPTIVE_SCALE_STEPS[0];
 }
 
 function higherAdaptiveStep(current: number): number {
@@ -54,7 +54,7 @@ function higherAdaptiveStep(current: number): number {
  * independently testable without WebGL.
  */
 export class AdaptiveResolutionController {
-  private mode: ResolutionScaleMode = 'auto';
+  private mode: ResolutionScaleMode = 'fixed';
   private scale = MAX_RESOLUTION_SCALE;
   private fixedScale = MAX_RESOLUTION_SCALE;
   private lastFrameAt: number | null = null;
@@ -88,6 +88,7 @@ export class AdaptiveResolutionController {
   setSetting(setting: 'auto' | number): number {
     if (setting === 'auto') {
       this.mode = 'auto';
+      this.scale = Math.max(ADAPTIVE_SCALE_STEPS[0], this.scale);
     } else {
       this.mode = 'fixed';
       this.fixedScale = clampScale(Number(setting));
@@ -133,7 +134,7 @@ export class AdaptiveResolutionController {
     this.sampledDurationMs += sampledFrameMs;
 
     if (
-      this.scale > MIN_RESOLUTION_SCALE
+      this.scale > ADAPTIVE_SCALE_STEPS[0]
       && this.validSamples >= DOWNSCALE_SAMPLE_COUNT
       && this.sampledDurationMs >= DOWNSCALE_OBSERVATION_MS
       && now - this.lastAdjustmentAt >= DOWNSCALE_COOLDOWN_MS

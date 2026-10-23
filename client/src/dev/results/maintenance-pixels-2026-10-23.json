@@ -1,0 +1,235 @@
+{
+  "status": "done",
+  "warmup": [
+    {
+      "name": "near",
+      "quality": "medium",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 1254,
+          "maxChannelDelta": 1
+        },
+        {
+          "changedPixels": 1254,
+          "maxChannelDelta": 1
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "across",
+      "quality": "medium",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "turned",
+      "quality": "medium",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "near",
+      "quality": "ultra",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 862,
+          "maxChannelDelta": 8
+        },
+        {
+          "changedPixels": 862,
+          "maxChannelDelta": 8
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "across",
+      "quality": "ultra",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "turned",
+      "quality": "ultra",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    }
+  ],
+  "rows": [
+    {
+      "name": "near",
+      "quality": "medium",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "across",
+      "quality": "medium",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "turned",
+      "quality": "medium",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "near",
+      "quality": "ultra",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "across",
+      "quality": "ultra",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    },
+    {
+      "name": "turned",
+      "quality": "ultra",
+      "width": 2560,
+      "height": 1440,
+      "differences": [
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        },
+        {
+          "changedPixels": 0,
+          "maxChannelDelta": 0
+        }
+      ],
+      "nonempty": true,
+      "identicalPicking": true,
+      "residentFaces": 2089207
+    }
+  ]
+}

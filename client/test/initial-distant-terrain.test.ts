@@ -22,6 +22,7 @@ function fixture(t: any) {
   });
   const world: any = {
     distantSurface: {
+      isEnabled: () => true,
       hasPendingWork: true, preparationError: null,
       getZoneDemand: () => ({ sampleSize: 2, priority: 0 }),
     },
@@ -36,6 +37,17 @@ function fixture(t: any) {
     await yieldTask();
   } };
 }
+
+test('disabled distant terrain skips downloads and entry preparation', async t => {
+  const { world } = fixture(t);
+  world.distantSurface.isEnabled = () => false;
+  await preloadInitialDistantTerrain({
+    remote: { async loadAll() { assert.fail('disabled terrain must not download'); } }, world,
+    drawFrame() { assert.fail('disabled terrain must not draw loading frames'); },
+    async preparePipelines() { assert.fail('disabled terrain must not compile pipelines'); },
+    async waitForGpu() { assert.fail('disabled terrain must not wait for the GPU'); },
+  });
+});
 
 test('entry limits refinement but waits for overview coverage, publication and completed GPU work', async t => {
   const { world, frame } = fixture(t);

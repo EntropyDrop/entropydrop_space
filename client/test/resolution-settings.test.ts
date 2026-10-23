@@ -7,6 +7,7 @@ import {
   normalizeDistantSurfaceSettings,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
+import { AdaptiveResolutionController } from '../src/engine/render/AdaptiveResolution.ts';
 
 test('restoring Ultra publishes the final 60 FPS target after initial resolution setup', t => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
@@ -49,17 +50,17 @@ test('resolution setting is applied to the renderer and follows automatic update
   const store = new SpaceUiStore();
 
   store.setSceneRenderer(uiStub('sceneRenderer', renderer));
-  store.setResolutionScale('0.67', false);
+  store.setResolutionScale('0.25', false);
 
-  assert.deepEqual(applied, ['auto', 0.67]);
-  assert.equal(store.getSnapshot().resolutionScaleMode, '0.67');
-  assert.equal(store.getSnapshot().resolutionScale, 0.67);
-  assert.equal(store.getSnapshot().resolutionPixelRatio, 1.34);
+  assert.deepEqual(applied, [1, 0.25]);
+  assert.equal(store.getSnapshot().resolutionScaleMode, '0.25');
+  assert.equal(store.getSnapshot().resolutionScale, 0.25);
+  assert.equal(store.getSnapshot().resolutionPixelRatio, 0.5);
 
   renderer.onResolutionScaleChange({
     mode: 'auto',
     scale: 0.8,
-    fixedScale: 0.67,
+    fixedScale: 0.25,
     averageFrameMs: 16.5,
     nativePixelRatio: 2,
     effectivePixelRatio: 1.6,
@@ -67,6 +68,77 @@ test('resolution setting is applied to the renderer and follows automatic update
   assert.equal(store.getSnapshot().resolutionScaleMode, 'auto');
   assert.equal(store.getSnapshot().resolutionScale, 0.8);
   assert.equal(store.getSnapshot().resolutionPixelRatio, 1.6);
+});
+
+test('resolution preferences restore supported scales and migrate legacy values', t => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const values = new Map<string, string>();
+  const key = 'space_setting_resolution_scale';
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (name: string) => values.get(name) ?? null,
+    setItem: (name: string, value: string) => values.set(name, value),
+  } });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete (globalThis as any).localStorage;
+  });
+  const controller = new AdaptiveResolutionController();
+  const renderer = uiStub('sceneRenderer', {
+    setResolutionScale(setting: 'auto' | number) {
+      controller.setSetting(setting);
+      return controller.getState();
+    },
+    getResolutionScaleState: () => controller.getState(),
+  });
+  const store = new SpaceUiStore();
+  assert.equal(store.getSnapshot().resolutionScaleMode, '1');
+  store.setSceneRenderer(renderer);
+  assert.equal(controller.getState().mode, 'fixed');
+  assert.equal(controller.currentScale, 1);
+  for (const scale of [0.5, 0.25, 1]) {
+    store.setResolutionScale(scale);
+    assert.equal(values.get(key), String(scale));
+    const restored = new SpaceUiStore();
+    restored.setSceneRenderer(renderer);
+    assert.equal(restored.getSnapshot().resolutionScaleMode, String(scale));
+    assert.equal(controller.currentScale, scale);
+  }
+  for (const [saved, expected] of [['auto', 1], ['', 1], ['invalid', 1], ['0.8', 1], ['0.67', 0.5]] as const) {
+    values.set(key, saved);
+    store.setSceneRenderer(renderer);
+    assert.equal(controller.getState().mode, 'fixed');
+    assert.equal(controller.currentScale, expected);
+    assert.equal(store.getSnapshot().resolutionScaleMode, String(expected));
+  }
+});
+
+test('renderer applies all resolution scales to the drawing buffer and preserves them on resize', t => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const viewport = { innerWidth: 1200, innerHeight: 800, devicePixelRatio: 1 };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: viewport });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'window', original);
+    else delete (globalThis as any).window;
+  });
+  const renderer = Object.create(SceneRenderer.prototype) as SceneRenderer;
+  renderer.adaptiveResolution = new AdaptiveResolutionController();
+  renderer.camera = { aspect: 1, updateProjectionMatrix() {} } as any;
+  let pixelRatio = 1;
+  renderer.renderer = {
+    getPixelRatio: () => pixelRatio,
+    setPixelRatio: (value: number) => { pixelRatio = value; },
+    setSize() {},
+  } as any;
+  for (const scale of [1, 0.5, 0.25]) {
+    viewport.devicePixelRatio = 1;
+    renderer.setResolutionScale(scale);
+    assert.equal(renderer.renderer.getPixelRatio(), scale);
+    viewport.devicePixelRatio = 2;
+    renderer.onWindowResize();
+    assert.equal(renderer.renderer.getPixelRatio(), 2 * scale);
+    assert.equal(renderer.resolutionScale, scale);
+    assert.equal(renderer.getResolutionScaleState().fixedScale, scale);
+  }
 });
 
 test('shadow preference is applied to the renderer independently of resolution', () => {
@@ -224,14 +296,14 @@ test('subdivision size and geometry budget persist independently of near detail 
     setDistantSurfaceSettings(value: any) { return applied = normalizeDistantSurfaceSettings(value); } };
   const store = new SpaceUiStore();
   store.setWorld(uiStub('world', world));
-  store.setResolutionScale('0.8', false);
+  store.setResolutionScale('0.5', false);
   store.setDistantSurfaceSetting('geometryBudgetMiB', 512);
   assert.equal(applied.subdivisionSizePx2, 64);
   for (const area of [256, 64, 16, 4, 1, 63]) {
     store.setDistantSurfaceSetting('subdivisionSizePx2', area);
     assert.equal(applied.subdivisionSizePx2, area);
     assert.equal(store.getSnapshot().renderDistance, 8);
-    assert.equal(store.getSnapshot().resolutionScaleMode, '0.8');
+    assert.equal(store.getSnapshot().resolutionScaleMode, '0.5');
     const restored = new SpaceUiStore(); restored.setWorld(uiStub('world', world));
     assert.equal(restored.getSnapshot().distantSurfaceSettings.subdivisionSizePx2, area);
     assert.equal(restored.getSnapshot().distantSurfaceSettings.geometryBudgetMiB, 512);

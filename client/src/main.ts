@@ -40,6 +40,7 @@ import { LinkedWorldSnapshots } from './bootstrap/LinkedWorldSnapshots.ts';
 import { SPACE_OFFLINE_BUILD, SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from './bootstrap/SpaceFeatures.ts';
 import { onlinePanelSettingsTab } from './bootstrap/SpaceSiteLinks.ts';
 import { captureTutorialLevel, tutorialDestination, type TutorialLevel } from './bootstrap/TutorialLevel.ts';
+import { rememberSpacePlayerName } from './bootstrap/SpacePlayerName.ts';
 import { configureTutorialTerrain } from './bootstrap/TutorialTerrain.ts';
 
 installNetworkTrafficMonitor();
@@ -151,6 +152,7 @@ class Game {
 
     this.playerPhysics = new PlayerPhysics(this.world, this.contraptionManager);
     this.uiStore = spaceUiStore;
+    if (session.token) rememberSpacePlayerName(session.player, session.token);
     this.linkedWorldSnapshots = new LinkedWorldSnapshots({
       scene: this.sceneRenderer.scene,
       apiOrigin: session.api_origin,
@@ -442,6 +444,8 @@ class Game {
   private async syncSurfaceSnapshots() {
     if (!this.surfaceSnapshotRemote) return;
     try {
+      // Keep the retry timer alive so manually re-enabling resumes streaming.
+      if (!this.world.distantSurface.isEnabled()) return;
       await this.surfaceSnapshotRemote.loadAll(
         zone => this.world.installSurfaceZone(zone),
         (x, z) => this.world.removeSurfaceZone(x, z),
@@ -519,6 +523,8 @@ class Game {
     window.addEventListener('pagehide', persistBeforeSuspension);
     window.addEventListener('beforeunload', persistBeforeSuspension);
     document.addEventListener('visibilitychange', () => {
+      // RAF may stop completely in the background; discard that entire gap.
+      this.uiStore.sampleDistantTerrainFrame(performance.now(), false);
       if (document.visibilityState === 'hidden') persistBeforeSuspension();
     });
   }
@@ -584,6 +590,7 @@ class Game {
     // Track FPS
     this.frameCount++;
     const now = performance.now();
+    this.uiStore.sampleDistantTerrainFrame(now, document.visibilityState !== 'hidden');
     if (now - this.lastFpsTime >= 500) {
       this.currentFps = (this.frameCount * 1000) / (now - this.lastFpsTime);
       this.frameCount = 0;

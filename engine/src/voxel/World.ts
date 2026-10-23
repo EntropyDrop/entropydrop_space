@@ -2,6 +2,7 @@ import type { PackedStandardEdit, GenerateRequest, TerrainWorkerRequest, Terrain
 import { captureDistantChunk } from '../render/DistantChunkLayer.ts';
 import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
 import { getGeometryKernels } from '../wasm/GeometryKernels.ts';
+import { BentRayCache } from './BentRayCache.ts';
 import * as THREE from 'three';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from './Chunk.ts';
 import { BlockTypes, DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
@@ -31,7 +32,7 @@ import {
   wrapX, wrapZ, wrapChunkX, wrapChunkZ, wrapMicroX, wrapMicroZ,
   bendPoint, unbendPoint, bendPointForView, unbendPointForView,
   computeChunkBentSphere, hookSceneMaterials,
-  getWorldProjectionRevision, TORUS_SIZE_X, TORUS_SIZE_Z
+  getWorldProjectionRevision, getTorusViewCorrectionRevision, TORUS_SIZE_X, TORUS_SIZE_Z
 } from '../torus/TorusWorld.ts';
 
 // Leave most of a 120 Hz frame's 8.33 ms budget for simulation, culling and
@@ -229,6 +230,11 @@ export class World {
   private crossLayerPublishedStandardCells: Map<string, Map<number, PublishedStandardCell>>;
   private remoteChunkRevisions: Map<string, number>;
   private rayBentPoint: THREE.Vector3;
+  /** Reference switch for development comparisons; entity queries stay fresh. */
+  aimRaycastCachingEnabled = true;
+  private readonly standardAimCache = new BentRayCache<number, BentRayHit<number> | null>();
+  private readonly microAimCache = new BentRayCache<number | null, BentRayHit<number | null> | null>();
+  getAimRaycastCacheStats() { return { standard: { ...this.standardAimCache.stats }, micro: { ...this.microAimCache.stats } }; }
   private rayFlatPoint: THREE.Vector3;
   /** Bumped on any block/micro-voxel mutation — lets caches (e.g. minimap) know terrain changed. */
   terrainVersion: number;
@@ -1267,7 +1273,8 @@ export class World {
       (x: number, y: number, z: number) => usePublishedCollision
         ? (this.getPublishedStandardCell(x, y, z)?.block ?? this.getBlock(x, y, z))
         : this.getBlock(x, y, z),
-      value => value !== BlockTypes.AIR
+      value => value !== BlockTypes.AIR,
+      this.standardAimCache, usePublishedCollision ? 1 : 0,
     );
     if (!result) return { hit: false as const };
 
@@ -1307,7 +1314,8 @@ export class World {
       (mx: number, my: number, mz: number) => usePublishedCollision
         ? this.microVoxels.getPublishedCollisionColor(mx, my, mz)
         : this.microVoxels.get(mx, my, mz),
-      value => value !== null && value !== undefined
+      value => value !== null && value !== undefined,
+      this.microAimCache, usePublishedCollision ? 1 : 0,
     );
     if (!result) return { hit: false as const };
 
@@ -1342,6 +1350,21 @@ export class World {
    * grazing hits independent of the discovery step size.
    */
   raycastBentVoxelFaces<T>(
+    originBent: THREE.Vector3, dirBent: THREE.Vector3, maxDistance: number, divisions: number,
+    getValue: (x: number, y: number, z: number) => T, isOccupied: (value: T) => boolean,
+    cache?: BentRayCache<T, BentRayHit<T> | null>, policy = 0,
+  ): BentRayHit<T> | null {
+    if (!cache || !this.aimRaycastCachingEnabled) {
+      return this.computeBentVoxelFaces(originBent, dirBent, maxDistance, divisions, getValue, isOccupied);
+    }
+    return cache.run([originBent.x, originBent.y, originBent.z, dirBent.x, dirBent.y, dirBent.z,
+      maxDistance, divisions, getWorldProjectionRevision(), getTorusViewCorrectionRevision(),
+      getGeometryKernels() ? 1 : 0, policy], getValue,
+    read => this.computeBentVoxelFaces(originBent, dirBent, maxDistance, divisions, read, isOccupied),
+    hit => hit ? { ...hit, cell: { ...hit.cell }, normal: { ...hit.normal }, entry: { ...hit.entry } } : null);
+  }
+
+  private computeBentVoxelFaces<T>(
     originBent: THREE.Vector3, dirBent: THREE.Vector3, maxDistance: number, divisions: number,
     getValue: (x: number, y: number, z: number) => T, isOccupied: (value: T) => boolean,
   ): BentRayHit<T> | null {

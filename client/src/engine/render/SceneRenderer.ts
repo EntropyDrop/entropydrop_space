@@ -34,7 +34,7 @@ import {
   remoteMotionFreshness,
   wrappedAxisDelta,
 } from './RemotePlayerMotion.ts';
-import { AdaptiveResolutionController } from './AdaptiveResolution.ts';
+import { AdaptiveResolutionController, MIN_RESOLUTION_SCALE, MAX_RESOLUTION_SCALE } from './AdaptiveResolution.ts';
 import { CinematicEffects } from './CinematicEffects.ts';
 import { createSkyMaterial } from './CinematicSky.ts';
 import {
@@ -1746,7 +1746,7 @@ export class SceneRenderer {
   }
 
   private applyResolutionScale(scale: number, notify = false) {
-    const nextScale = Math.max(0.5, Math.min(1, Number(scale) || 1));
+    const nextScale = Math.max(MIN_RESOLUTION_SCALE, Math.min(MAX_RESOLUTION_SCALE, Number(scale) || 1));
     const effectivePixelRatio = this.cappedDevicePixelRatio() * nextScale;
     const changed = Math.abs(this.renderer.getPixelRatio() - effectivePixelRatio) > 0.001;
     this.resolutionScale = nextScale;

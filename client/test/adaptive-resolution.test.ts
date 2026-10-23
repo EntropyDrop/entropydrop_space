@@ -20,6 +20,7 @@ function sampleFrames(
 
 test('auto resolution quickly reduces drawing-buffer scale under sustained slow frames', () => {
   const controller = new AdaptiveResolutionController();
+  controller.setSetting('auto');
   sampleFrames(controller, 0, 8, 125);
 
   assert.equal(controller.currentScale, 0.5);
@@ -28,6 +29,7 @@ test('auto resolution quickly reduces drawing-buffer scale under sustained slow 
 
 test('auto resolution ignores isolated long frames and time spent in a hidden tab', () => {
   const controller = new AdaptiveResolutionController();
+  controller.setSetting('auto');
   let now = sampleFrames(controller, 0, 30, 8.2);
   now = sampleFrames(controller, now, 1, 250);
   now = sampleFrames(controller, now, 60, 8.2);
@@ -39,20 +41,25 @@ test('auto resolution ignores isolated long frames and time spent in a hidden ta
 
 test('fixed resolution never changes in response to frame cadence', () => {
   const controller = new AdaptiveResolutionController();
-  controller.setSetting(0.67);
+  assert.equal(controller.getState().mode, 'fixed');
   sampleFrames(controller, 0, 60, 100);
-
-  assert.deepEqual(controller.getState(), {
-    targetFps: 120,
-    mode: 'fixed',
-    scale: 0.67,
-    fixedScale: 0.67,
-    averageFrameMs: 1000 / 120,
-  });
+  assert.equal(controller.currentScale, 1, 'default stays at full resolution under load');
+  for (const scale of [0.5, 0.25, 1]) {
+    controller.setSetting(scale);
+    sampleFrames(controller, 0, 60, 100);
+    assert.deepEqual(controller.getState(), {
+      targetFps: 120,
+      mode: 'fixed',
+      scale,
+      fixedScale: scale,
+      averageFrameMs: 1000 / 120,
+    });
+  }
 });
 
 test('cinematic resolution targets a healthy 60 FPS and still adapts below target', () => {
   const controller = new AdaptiveResolutionController();
+  controller.setSetting('auto');
   controller.setTargetFps(60);
   let now = sampleFrames(controller, 0, 600, 1000 / 60);
   assert.equal(controller.currentScale, 1);
@@ -65,6 +72,7 @@ test('cinematic resolution targets a healthy 60 FPS and still adapts below targe
 
 test('auto resolution treats a stable sub-120 cadence as too slow', () => {
   const controller = new AdaptiveResolutionController();
+  controller.setSetting('auto');
   sampleFrames(controller, 0, 100, 12);
 
   assert.equal(controller.currentScale, 0.8);
@@ -72,6 +80,7 @@ test('auto resolution treats a stable sub-120 cadence as too slow', () => {
 
 test('auto resolution cautiously probes one step upward after a long healthy interval', () => {
   const controller = new AdaptiveResolutionController();
+  controller.setSetting('auto');
   let now = sampleFrames(controller, 0, 60, 16.5);
   const reducedScale = controller.currentScale;
   now = sampleFrames(controller, now, 1_470, 8.2);
@@ -83,6 +92,7 @@ test('auto resolution cautiously probes one step upward after a long healthy int
 
 test('auto resolution stays at its floor under prolonged load and recovers directly by increasing scale', () => {
   const controller = new AdaptiveResolutionController();
+  controller.setSetting('auto');
   let now = sampleFrames(controller, 0, 500, 12);
 
   assert.equal(controller.currentScale, 0.5);

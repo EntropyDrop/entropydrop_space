@@ -43,7 +43,7 @@ try {
       ? getGeometryKernels()!.obbContacts(a, b) : a.map((box, i) => physics.orientedBoxPairContact(box, b[i])), count < 100 ? 100 : 5);
   }
 
-  const rayHost = { rayBentPoint: new THREE.Vector3(), rayFlatPoint: new THREE.Vector3() };
+  const rayHost = Object.assign(Object.create(World.prototype), { rayBentPoint: new THREE.Vector3(), rayFlatPoint: new THREE.Vector3() });
   for (const grazing of [false, true]) {
     const origin = bendPointForView(100.05, grazing ? 35.09 : 45, 100.05);
     const direction = bendPointForView(grazing ? 114 : 100.05, 35.01, 100.05).sub(origin).normalize();

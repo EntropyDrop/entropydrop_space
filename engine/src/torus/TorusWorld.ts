@@ -123,6 +123,10 @@ const _viewOrigin = new THREE.Vector3();
 const _viewMatrix = new THREE.Matrix3();
 const _viewInverse = new THREE.Matrix3();
 const _viewEnabled = { value: 0 };
+const _viewCamera = new THREE.Vector3();
+let viewCorrectionRevision = 0;
+/** Changes when the camera-local deformation changes, including preview views. */
+export function getTorusViewCorrectionRevision() { return viewCorrectionRevision; }
 const VIEW_FLAT_RADIUS = 96;
 const VIEW_TORUS_RADIUS = 256;
 const _viewJacobian = new THREE.Matrix3();
@@ -281,9 +285,12 @@ export function bendFrameQuaternion(x: number, y: number, z: number, out = _quat
  * smoothly rejoins the closed torus outside the interaction distance. */
 export function setTorusViewCorrection(flatCamera: THREE.Vector3 | null) {
   if (!flatCamera) {
+    if (_viewEnabled.value) viewCorrectionRevision++;
     _viewEnabled.value = 0;
     return;
   }
+  if (!_viewEnabled.value || !_viewCamera.equals(flatCamera)) viewCorrectionRevision++;
+  _viewCamera.copy(flatCamera);
   const { x, y, z } = flatCamera;
   bendPoint(x, y, z, _viewOrigin);
   const epsilon = 0.01;

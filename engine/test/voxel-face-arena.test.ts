@@ -25,6 +25,31 @@ function settle(arena: VoxelFaceArena) {
 const snapshot = (mesh: VoxelFaceMesh) => Object.fromEntries(Object.entries(mesh.geometry.attributes)
   .map(([name, attribute]) => [name, Array.from(attribute.array)]));
 
+test('visibility-only updates reuse membership and residency while additions and disposal force maintenance', () => {
+  const group = new THREE.BundleGroup(), a = source(65, 0), b = source(64, 512);
+  group.add(a, b); const arena = new VoxelFaceArena(group, make);
+  try {
+    settle(arena);
+    const passes = arena.stats.maintenancePasses, lists = arena.stats.sourceListBuilds;
+    const resident = arena.stats.residentFaces, bytes = arena.stats.bytes;
+    for (let i = 0; i < 10; i++) {
+      arena.restoreSources(); const visible = i % 2 === 0; b.visible = visible; arena.sync(Infinity, undefined, true);
+      assert.equal(arena.stats.visibleFaces, visible ? 129 : 65);
+    }
+    assert.equal(arena.stats.maintenancePasses, passes); assert.equal(arena.stats.sourceListBuilds, lists);
+    assert.equal(arena.stats.residentFaces, resident); assert.equal(arena.stats.bytes, bytes);
+    arena.restoreSources(); b.visible = true;
+    const c = source(32, 1024); group.add(c); arena.sync(Infinity, undefined, true);
+    assert.equal(arena.stats.residentFaces, 161); assert.equal(arena.stats.sourceListBuilds, lists + 1);
+    arena.restoreSources(); a.geometry.dispose(); a.geometry = source(17, 0).geometry;
+    arena.sync(Infinity, undefined, true); assert.equal(arena.stats.residentFaces, 113);
+    arena.restoreSources(); arena.incrementalMaintenance = false; arena.sync(Infinity, undefined, true);
+    const reference = arena.pages.map(page => Array.from(page.map.array));
+    arena.restoreSources(); arena.incrementalMaintenance = true; arena.sync(Infinity, undefined, true);
+    assert.deepEqual(arena.pages.map(page => Array.from(page.map.array)), reference);
+  } finally { arena.dispose(); }
+});
+
 test('bounded publication releases duplicate attributes and reconstructs all face data exactly', () => {
   const group = new THREE.BundleGroup(), a = source(10000, 16384), b = source(63, -512);
   group.add(b,a); const before = snapshot(a), arena = new VoxelFaceArena(group, make);

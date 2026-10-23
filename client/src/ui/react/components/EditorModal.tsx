@@ -253,7 +253,7 @@ function OnlineAgentChat() {
 
 export function CodeEditorModal() {
   const state = useSpaceUiFields('sceneRenderer', 'activeModal', 'editingContraption', 'editorDefinitionVersion',
-    'inventoryRevision', 'entityLabels', 'globalPlaybackState', 'selectedComponentNodeId', 'scriptDraft', 'telemetry');
+    'inventoryRevision', 'entityLabels', 'globalPlaybackState', 'selectedComponentNodeId', 'scriptDraft', 'telemetry', 'currentUserName');
   const attachPreviewCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     if (canvas) state.sceneRenderer?.setEntityPreviewCanvas?.(canvas);
   }, [state.sceneRenderer]);
@@ -281,7 +281,7 @@ export function CodeEditorModal() {
       : contraption.serverCanControl === true ? 'control only' : 'read only'
     : 'local entity';
   const executorLabel = !backendManaged
-    ? 'this browser'
+    ? state.currentUserName || 'Local player'
     : contraption.serverExecutionMode === 'hosted'
       ? SPACE_HOSTING_UI_ENABLED
         ? contraption.serverHostingEnabled ? 'server hosting · 1 credit/hour' : 'server hosting · disabled'
@@ -289,7 +289,7 @@ export function CodeEditorModal() {
     : contraption.serverDesiredRunState === 'stopped'
       ? 'stopped'
       : contraption.serverExecutesLocally === true
-        ? 'this browser (lease)'
+        ? contraption.serverExecutorName || state.currentUserName || 'Local player'
         : contraption.serverExecutorName || 'waiting for an execution endpoint';
   return (
     <div id="code-editor-modal" className="custom-modal open" onMouseDown={event => { if (event.target === event.currentTarget) spaceUiStore.toggleCodeEditorModal(false); }}>

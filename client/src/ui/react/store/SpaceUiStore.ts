@@ -53,14 +53,16 @@ import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTra
 import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
 import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
 import { SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from '../../../bootstrap/SpaceFeatures.ts';
+import { RESOLUTION_SCALE_PRESETS } from '../../../engine/render/AdaptiveResolution.ts';
+import { DistantTerrainFpsGuard } from '../../../engine/render/DistantTerrainFpsGuard.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | 'help' | null;
-export type ResolutionScaleSetting = 'auto' | '1' | '0.8' | '0.67' | '0.5';
+export type ResolutionScaleSetting = `${typeof RESOLUTION_SCALE_PRESETS[number]}`;
 
-const RESOLUTION_SCALE_PRESETS = [1, 0.8, 0.67, 0.5] as const;
 const MUSIC_ENABLED_SETTING_KEY = 'space_setting_music_enabled';
 const EFFECTS_ENABLED_SETTING_KEY = 'space_setting_effects_enabled';
 const LEGACY_MUTED_SETTING_KEY = 'space_setting_muted';
+const DISTANT_SURFACE_ENABLED_SETTING_KEY = 'space_setting_distant_surface_enabled';
 
 function storedBoolean(value: string | null, fallback: boolean): boolean {
   if (value === 'true') return true;
@@ -69,9 +71,9 @@ function storedBoolean(value: string | null, fallback: boolean): boolean {
 }
 
 function normalizeResolutionScaleSetting(value: unknown): ResolutionScaleSetting {
-  if (value === 'auto' || value === null || value === undefined || value === '') return 'auto';
+  if (value === null || value === undefined || value === '') return '1';
   const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 'auto';
+  if (!Number.isFinite(numeric)) return '1';
   const nearest = RESOLUTION_SCALE_PRESETS.reduce((best, candidate) => (
     Math.abs(candidate - numeric) < Math.abs(best - numeric) ? candidate : best
   ));
@@ -83,9 +85,9 @@ function resolutionSnapshot(state: any): Pick<
   'resolutionScaleMode' | 'resolutionScale' | 'resolutionPixelRatio' | 'resolutionTargetFps'
 > {
   return {
-    resolutionScaleMode: state?.mode === 'fixed'
-      ? normalizeResolutionScaleSetting(state.fixedScale)
-      : 'auto' as ResolutionScaleSetting,
+    resolutionScaleMode: state?.mode === 'auto'
+      ? 'auto'
+      : normalizeResolutionScaleSetting(state?.fixedScale),
     resolutionScale: Number(state?.scale) || 1,
     resolutionPixelRatio: Number(state?.effectivePixelRatio) || 1,
     resolutionTargetFps: state?.targetFps === 60 ? 60 : 120
@@ -271,8 +273,9 @@ export interface SpaceUiSnapshot {
   renderDistance: number;
   minimapEnabled: boolean;
   particlesEnabled: boolean;
+  distantSurfaceEnabled: boolean;
   distantSurfaceSettings: DistantSurfaceSettings;
-  resolutionScaleMode: ResolutionScaleSetting;
+  resolutionScaleMode: ResolutionScaleSetting | 'auto';
   resolutionScale: number;
   resolutionPixelRatio: number;
   resolutionTargetFps: number;
@@ -382,6 +385,7 @@ export class SpaceUiStore {
   private codeEditorIsStoppedForEdits = false;
   private codeEditorSession = 0;
   private lastHudPublishAt = 0;
+  private readonly distantTerrainFpsGuard = new DistantTerrainFpsGuard();
   private toastSequence = 0;
   private remotePlayers: any[] = [];
   private particleSystem: any = null;
@@ -464,8 +468,9 @@ export class SpaceUiStore {
     minimapEnabled: false,
     linkedWorlds: { ...LINKED_WORLDS_OFF },
     particlesEnabled: true,
+    distantSurfaceEnabled: !SPACE_TUTORIAL,
     distantSurfaceSettings: { ...DEFAULT_DISTANT_SURFACE_SETTINGS },
-    resolutionScaleMode: 'auto',
+    resolutionScaleMode: '1',
     resolutionScale: 1,
     resolutionPixelRatio: 1,
     resolutionTargetFps: 120,
@@ -683,7 +688,7 @@ export class SpaceUiStore {
     if (SPACE_LOCAL_SESSION || !token) {
       this.marketClient = null;
       this.apiKeyClient = null;
-      this.patch({ isAdmin: false, apiWorldId: null, currentUserName: null });
+      this.patch({ isAdmin: false, apiWorldId: null, currentUserName });
       return;
     }
     this.marketClient = new SpaceMarketClient(apiOrigin, token);
@@ -726,6 +731,11 @@ export class SpaceUiStore {
   }
 
   setWorld(world: UiWorld | null): void {
+    let distantSurfaceEnabled = !SPACE_TUTORIAL;
+    try {
+      distantSurfaceEnabled = !SPACE_TUTORIAL
+        && storedBoolean(localStorage.getItem(DISTANT_SURFACE_ENABLED_SETTING_KEY), true);
+    } catch { }
     let distantSurfaceSettings = normalizeDistantSurfaceSettings(
       world?.getDistantSurfaceSettings?.() || DEFAULT_DISTANT_SURFACE_SETTINGS,
     );
@@ -742,7 +752,7 @@ export class SpaceUiStore {
       renderDistance: Number(world?.renderDistance || 12),
       distantSurfaceSettings,
     });
-    world?.setDistantSurfaceEnabled?.(!SPACE_TUTORIAL);
+    this.setDistantSurfaceEnabled(distantSurfaceEnabled, false);
     try {
       const saved = localStorage.getItem('space_setting_render_dist');
       if (!SPACE_TUTORIAL && saved) this.setRenderDistance(Number(saved), false);
@@ -760,7 +770,7 @@ export class SpaceUiStore {
         this.patch(resolutionSnapshot(state));
       };
     }
-    let setting: ResolutionScaleSetting = 'auto';
+    let setting: ResolutionScaleSetting = '1';
     let shadowsEnabled = false;
     let lightingQuality = DEFAULT_LIGHTING_QUALITY;
     try {
@@ -769,10 +779,9 @@ export class SpaceUiStore {
       shadowsEnabled = localStorage.getItem('space_setting_shadows') === 'true';
       lightingQuality = normalizeLightingQuality(localStorage.getItem(LIGHTING_QUALITY_SETTING_KEY));
     } catch { }
-    this.snapshot.world?.setDistantSurfaceEnabled?.(!SPACE_TUTORIAL);
-    const state = sceneRenderer?.setResolutionScale?.(
-      setting === 'auto' ? 'auto' : Number(setting)
-    ) || sceneRenderer?.getResolutionScaleState?.();
+    this.setDistantSurfaceEnabled(this.snapshot.distantSurfaceEnabled, false);
+    const state = sceneRenderer?.setResolutionScale?.(Number(setting))
+      || sceneRenderer?.getResolutionScaleState?.();
     shadowsEnabled = sceneRenderer?.setShadowsEnabled?.(shadowsEnabled) ?? shadowsEnabled;
     lightingQuality = sceneRenderer?.setLightingQuality?.(lightingQuality) ?? lightingQuality;
     this.patch({
@@ -2030,6 +2039,7 @@ export class SpaceUiStore {
       perspective: controller.perspective || 'first_person',
       cameraDistance: Number(controller.thirdPersonDistance || 4),
       renderDistance: Number(world?.renderDistance || this.snapshot.renderDistance),
+      distantSurfaceEnabled: world?.distantSurface?.isEnabled() ?? this.snapshot.distantSurfaceEnabled,
       distantSurfaceSettings: normalizeDistantSurfaceSettings(
         world?.getDistantSurfaceSettings?.() || this.snapshot.distantSurfaceSettings,
       ),
@@ -2159,6 +2169,27 @@ export class SpaceUiStore {
     }
   }
 
+  setDistantSurfaceEnabled(enabled: boolean, persist = true): void {
+    const requested = Boolean(enabled) && !SPACE_TUTORIAL;
+    const value = this.snapshot.world?.setDistantSurfaceEnabled?.(requested) ?? requested;
+    this.distantTerrainFpsGuard.reset();
+    this.patch({ distantSurfaceEnabled: value });
+    if (persist && !SPACE_TUTORIAL) {
+      try { localStorage.setItem(DISTANT_SURFACE_ENABLED_SETTING_KEY, String(value)); } catch { }
+    }
+  }
+
+  sampleDistantTerrainFrame(now: number, visible = true): void {
+    if (!this.snapshot.world || !this.snapshot.distantSurfaceEnabled) {
+      this.distantTerrainFpsGuard.reset();
+      return;
+    }
+    if (this.distantTerrainFpsGuard.sampleFrame(now, visible)) {
+      this.setDistantSurfaceEnabled(false);
+      this.showToast('Distant terrain and LOD disabled: FPS stayed below 60 for 3 consecutive 2-second samples. Re-enable in Graphics settings.');
+    }
+  }
+
   setDistantSurfaceSetting(
     key: DistantSurfaceSettingKey,
     setting: number | boolean,
@@ -2176,6 +2207,7 @@ export class SpaceUiStore {
 
   resetDistantSurfaceSettings(): void {
     if (SPACE_TUTORIAL) return;
+    this.setDistantSurfaceEnabled(true);
     const value = this.snapshot.world?.setDistantSurfaceSettings?.(
       DEFAULT_DISTANT_SURFACE_SETTINGS,
     ) || normalizeDistantSurfaceSettings(DEFAULT_DISTANT_SURFACE_SETTINGS);
@@ -2186,14 +2218,12 @@ export class SpaceUiStore {
 
   setResolutionScale(setting: ResolutionScaleSetting | number, persist = true): void {
     const mode = normalizeResolutionScaleSetting(setting);
-    const state = this.snapshot.sceneRenderer?.setResolutionScale?.(
-      mode === 'auto' ? 'auto' : Number(mode)
-    );
+    const state = this.snapshot.sceneRenderer?.setResolutionScale?.(Number(mode));
     this.patch(state
       ? resolutionSnapshot(state)
       : {
         resolutionScaleMode: mode,
-        resolutionScale: mode === 'auto' ? this.snapshot.resolutionScale : Number(mode),
+        resolutionScale: Number(mode),
         resolutionPixelRatio: this.snapshot.resolutionPixelRatio
       });
     if (persist) {

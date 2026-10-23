@@ -2,6 +2,7 @@ import { DEFAULT_PLAYER_SKIN_URL, type ReadySpaceSession, type SpaceEntryProgres
 import { createSpacePersistentStorage, type SpaceStorage } from '../engine/storage/BrowserStorage.ts';
 import { TUTORIAL_WORLD_ID, createTutorialStorage, parseTutorialLevel, type TutorialLevel } from './TutorialLevel.ts';
 import levelSource from '../tutorial/tutorial-level.json' with { type: 'json' };
+import { readCachedSpacePlayerName } from './SpacePlayerName.ts';
 
 export function createTutorialSession(level: TutorialLevel): ReadySpaceSession {
   return {
@@ -13,7 +14,7 @@ export function createTutorialSession(level: TutorialLevel): ReadySpaceSession {
       terrain_revision: 0, surface_snapshot_url: '',
     },
     player: {
-      user_id: 'tutorial-local-player', username: 'Local player', player_entity_id: 'tutorial-player',
+      user_id: 'tutorial-local-player', username: readCachedSpacePlayerName() || 'Local player', player_entity_id: 'tutorial-player',
       skin_url: DEFAULT_PLAYER_SKIN_URL, skin_type: 'strong', is_admin: false,
       start_x_cm: level.spawn.x_cm, start_y_cm: level.spawn.y_cm,
       start_z_cm: level.spawn.z_cm, start_yaw_q15: level.spawn.yaw_q15, resumed: true,

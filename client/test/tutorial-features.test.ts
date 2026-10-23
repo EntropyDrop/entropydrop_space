@@ -50,10 +50,11 @@ test('tutorial denies all network capabilities even in an online build with cred
   globalThis.fetch = () => { assert.fail('tutorial must not send API requests'); };
   t.after(() => { globalThis.fetch = original; });
   const store = new SpaceUiStore();
-  store.setAuthenticatedSession('https://example.com', 'test-token', true, 'test-world');
+  store.setAuthenticatedSession('https://example.com', 'test-token', true, 'test-world', 'https://example.com', 'Tutorial Player');
   assert.equal(store.getMarketClient(), null);
   assert.equal(store.getApiKeyClient(), null);
   assert.equal(store.getSnapshot().isAdmin, false);
+  assert.equal(store.getSnapshot().currentUserName, 'Tutorial Player');
   const forbidden = async (): Promise<never> => assert.fail('tutorial network adapter must not run');
   store.setEntityHostingHandlers({ host: forbidden, stop: forbidden, get: forbidden, refresh: forbidden });
   assert.equal(await store.hostEntity({ publicId: 'local' }, 1), false);
@@ -65,6 +66,18 @@ test('tutorial denies all network capabilities even in an online build with cred
   assert.equal(store.getSnapshot().linkedWorlds.enabled, false);
   assert.equal(store.getSnapshot().agentBusy, false);
   assert.notEqual(store.getSnapshot().activeModal, 'monitoring');
+});
+
+test('tutorial entity editor and menu display the current player without browser labels', () => {
+  const entity = { id: 1, publicId: 'tutorial-test', blocks: [], entityNodes: new Map(),
+    bodyType: 'dynamic', scriptStatus: 'running', isPhysicsSimulationEnabled: () => true };
+  const state = { currentUserName: 'Alice <Engineer>', contraptions: { contraptions: [entity] } };
+  const editor = render(CodeEditorModal, { ...state, activeModal: 'code', editingContraption: entity });
+  const menu = render(EntityContextMenu, { ...state, entityContextMenu: { contraption: entity, x: 100, y: 100 } });
+  assert.match(editor, /Alice &lt;Engineer&gt;/);
+  assert.match(menu, /Running · Alice &lt;Engineer&gt;/);
+  assert.doesNotMatch(editor, /this browser/);
+  assert.doesNotMatch(menu, /this browser/);
 });
 
 test('published tutorial keeps controls and feature notices but has no save button', () => {
