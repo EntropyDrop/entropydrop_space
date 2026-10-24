@@ -4,6 +4,22 @@ import * as THREE from 'three';
 import { voxelFaceVisibility, voxelBlockBackFacing, VOXEL_FACE_BLOCK } from '../src/render/VoxelFaceVisibility.ts';
 import { bendPoint } from '../src/torus/TorusWorld.ts';
 
+test('flat projection comparisons use flat bounds and normals for culling', () => {
+  const faces = { count: 1, offset: new Uint16Array([0, 128, 0]),
+    span: new Uint16Array([64, 128]), direction: new Uint8Array([3]) };
+  const generator = voxelFaceVisibility(faces, 8192, 1024,
+    (x, y, z, out = new THREE.Vector3()) => out.set(x, y, z));
+  let step = generator.next(); while (!step.done) step = generator.next();
+  const data = step.value;
+  assert.deepEqual([...data.slice(0, 3)], [8200, 16, 1028]);
+  assert.deepEqual([...data.slice(4, 7)], [0, 1, 0]);
+  for (const x of [8192, 8208]) for (const z of [1024, 1032]) {
+    assert.ok(Math.hypot(x - data[0], 16 - data[1], z - data[2]) <= data[3]);
+  }
+  assert.equal(voxelBlockBackFacing(data, 0, 8200, 1016, 1028), false);
+  assert.equal(voxelBlockBackFacing(data, 0, 8200, -984, 1028), true);
+});
+
 test('normal cones never reject a front-facing bent triangle, including coarse faces at seams', () => {
   let rejected = 0;
   for (const origin of [[0, 0], [15872, 1536], [7168, 512]]) for (let dir = 0; dir < 6; dir++) {

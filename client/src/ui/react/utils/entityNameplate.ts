@@ -58,51 +58,20 @@ export class EntityNameplateAimHighlighter {
   }
 }
 
-/** Cache authored per-component extents, then transform only eight corners per
- * component each frame. Disabled collision still has visible blocks and a label. */
+/** Use the entity's precomputed authored height, so animated components never
+ * move the anchor. The label stays half that height above the root pivot. */
 export class EntityNameplateProjector {
-  private shapes = new WeakMap<object, { shape: any; blocks: any; bounds: Map<string, THREE.Box3> }>();
-  private bounds = new THREE.Box3();
-  private partBounds = new THREE.Box3();
   private point = new THREE.Vector3();
-  private rootInverse = new THREE.Matrix4();
-  private relativeMatrix = new THREE.Matrix4();
 
   project(entity: any, camera: THREE.Camera, viewport: { width: number; height: number }) {
-    let cached = this.shapes.get(entity);
-    const shape = entity.collisionEntries;
-    if (!cached || cached.shape !== shape || cached.blocks !== entity.blocks) {
-      const bounds = new Map<string, THREE.Box3>();
-      for (const block of entity.blocks || []) {
-        const id = block.entityId || entity.rootComponentId;
-        let part = bounds.get(id);
-        if (!part) bounds.set(id, part = new THREE.Box3());
-        const size = block.size || 1;
-        part.expandByPoint(this.point.set(block.localX, block.localY, block.localZ));
-        part.expandByPoint(this.point.set(block.localX + size, block.localY + size, block.localZ + size));
-      }
-      cached = { shape, blocks: entity.blocks, bounds };
-      this.shapes.set(entity, cached);
-    }
     const rootGroup = entity.rootGroup;
-    if (!rootGroup) return null;
-    rootGroup.updateWorldMatrix(true, true);
-    this.rootInverse.copy(rootGroup.matrixWorld).invert();
-    this.bounds.makeEmpty();
-    for (const [id, local] of cached.bounds) {
-      const node = entity.entityNodes?.get(id);
-      if (!node) continue;
-      this.partBounds.copy(local);
-      this.partBounds.min.sub(node.pivotLocal);
-      this.partBounds.max.sub(node.pivotLocal);
-      this.relativeMatrix.multiplyMatrices(this.rootInverse, node.group.matrixWorld);
-      this.partBounds.applyMatrix4(this.relativeMatrix);
-      this.bounds.union(this.partBounds);
-    }
-    if (this.bounds.isEmpty() || viewport.width <= 0 || viewport.height <= 0) return null;
-    this.bounds.getCenter(this.point);
-    this.point.y = this.bounds.max.y + 0.3;
-    this.point.applyMatrix4(rootGroup.matrixWorld);
+    // size is maintained by construction/voxel edits, independent of runtime poses.
+    const height = entity.size?.y;
+    if (!rootGroup || !entity.blocks?.length || !Number.isFinite(height)
+      || viewport.width <= 0 || viewport.height <= 0) return null;
+    rootGroup.updateWorldMatrix(true, false);
+    this.point.setFromMatrixPosition(rootGroup.matrixWorld);
+    this.point.y += height / 2;
     bendPoint(this.point.x, this.point.y, this.point.z, this.point);
     this.point.project(camera);
     if (![this.point.x, this.point.y, this.point.z].every(Number.isFinite)

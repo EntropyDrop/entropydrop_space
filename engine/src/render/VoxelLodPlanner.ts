@@ -1,17 +1,17 @@
 import * as THREE from 'three';
-import { computeBentBoundsSphere } from '../torus/TorusWorld.ts';
+import { bendTorusPoint, computeBentBoundsSphere, type WorldProjection } from '../torus/TorusWorld.ts';
 import { surfaceSubdivisionWorldArea, SURFACE_AREA_HYSTERESIS } from './SurfaceSubdivision.ts';
 import type { VoxelSurfaceMip } from '../voxel/SurfaceZoneSnapshot.ts';
 import { voxelFaceVisibility } from './VoxelFaceVisibility.ts';
 
 export type VoxelLodSource = { key: string; x: number; z: number; token: number; mips: VoxelSurfaceMip[] };
 export type VoxelLodView = { camera: [number, number, number]; focal: number; area: number;
-  distance: number; faceBudget: number; hasView: boolean };
+  distance: number; faceBudget: number; hasView: boolean; projection?: WorldProjection };
 export type VoxelLodStats = { faces: number; budget: number; requestedAreaPx2: number; effectiveAreaPx2: number };
 export type VoxelLodTile = { key: string; token: number; tile: number; count: number;
   bounds: [number, number, number, number]; offset: Uint16Array; span: Uint16Array;
   flatBounds: [number, number, number, number];
-  color: Uint8Array; direction: Uint8Array; emission: Uint8Array; visibility?: Float32Array };
+  color: Uint8Array; direction: Uint8Array; emission: Uint8Array; visibility?: Float32Array; projection?: WorldProjection };
 type Range = { start: number; end: number };
 type Brick = { x: number; y: number; z: number; size: number; bounds: THREE.Sphere };
 type Zone = { source: VoxelLodSource; mips: Map<number, { faces: Uint8Array; ranges: Map<number, Range> }>;
@@ -26,6 +26,7 @@ export const voxelTileTransfers = (tile: VoxelLodTile) =>
 /** No scene objects or GPU resources. Yield boundaries also serve the cooperative
  * fallback when workers are unavailable. Sources remain immutable after install. */
 export class VoxelLodPlanner {
+  private projection: WorldProjection = 'torus';
   private readonly zones = new Map<string, Zone>();
   private readonly indices = new WeakMap<VoxelSurfaceMip[], { mips: Zone['mips'];
     bricks: { id: number; x: number; y: number; z: number }[] }>();
@@ -37,7 +38,7 @@ export class VoxelLodPlanner {
       for (const { id, x, y, z } of cached.bricks) {
         bricks.set(id, { x, y, z, size: previous?.bricks.get(id)?.size ?? 64,
           bounds: computeBentBoundsSphere({ minX: source.x * 512 + x * 64, maxX: source.x * 512 + (x + 1) * 64,
-            minY: y * 64, maxY: (y + 1) * 64, minZ: source.z * 512 + z * 64, maxZ: source.z * 512 + (z + 1) * 64 }) });
+            minY: y * 64, maxY: (y + 1) * 64, minZ: source.z * 512 + z * 64, maxZ: source.z * 512 + (z + 1) * 64 }, undefined, this.projection) });
         if (bricks.size % 64 === 0) yield;
       }
       this.zones.set(source.key, { source, mips: cached.mips, sizes: [...cached.mips.keys()].sort((a, b) => b - a),
@@ -56,7 +57,7 @@ export class VoxelLodPlanner {
         if (range) range.end = at + 16; else ranges.set(id, { start: at, end: at + 16 });
         if (!bricks.has(id)) bricks.set(id, { x, y, z, size: previous?.bricks.get(id)?.size ?? 64,
           bounds: computeBentBoundsSphere({ minX: source.x * 512 + x * 64, maxX: source.x * 512 + (x + 1) * 64,
-            minY: y * 64, maxY: (y + 1) * 64, minZ: source.z * 512 + z * 64, maxZ: source.z * 512 + (z + 1) * 64 }) });
+            minY: y * 64, maxY: (y + 1) * 64, minZ: source.z * 512 + z * 64, maxZ: source.z * 512 + (z + 1) * 64 }, undefined, this.projection) });
         if ((at & 16383) === 16368) yield;
       }
       mips.set(mip.cellSize, { faces: mip.faces, ranges });
@@ -98,6 +99,22 @@ export class VoxelLodPlanner {
   }
 
   *build(view: VoxelLodView): Generator<VoxelLodTile | void, VoxelLodStats> {
+    // Workers own their projection; never mutate the main thread's global mode
+    // from the cooperative backend. Recompute cached bounds before selection.
+    const projection = view.projection ?? 'torus';
+    if (this.projection !== projection) {
+      this.projection = projection;
+      for (const zone of this.zones.values()) {
+        zone.signatures.clear();
+        for (const brick of zone.bricks.values()) {
+          const { x, y, z } = brick;
+          computeBentBoundsSphere({ minX: zone.source.x * 512 + x * 64, maxX: zone.source.x * 512 + (x + 1) * 64,
+            minY: y * 64, maxY: (y + 1) * 64, minZ: zone.source.z * 512 + z * 64,
+            maxZ: zone.source.z * 512 + (z + 1) * 64 }, brick.bounds, projection);
+        }
+        yield;
+      }
+    }
     // Budget probes must never mutate the hysteresis history.
     let scale = 1, lower = 1, faces = yield* this.measure(view, scale);
     while (faces > view.faceBudget && scale < 65536) {
@@ -155,12 +172,13 @@ export class VoxelLodPlanner {
         if (!count) { minX = maxX = tx * 128; minY = maxY = 0; minZ = maxZ = tz * 128; }
         minX += zone.source.x * 512; maxX += zone.source.x * 512;
         minZ += zone.source.z * 512; maxZ += zone.source.z * 512;
-        const bounds = computeBentBoundsSphere({ minX, maxX, minY, maxY, minZ, maxZ });
-        const visibility = yield* voxelFaceVisibility({ count, offset, span, direction }, zone.source.x * 512, zone.source.z * 512);
+        const bounds = computeBentBoundsSphere({ minX, maxX, minY, maxY, minZ, maxZ }, undefined, projection);
+        const project = projection === 'torus' ? bendTorusPoint : (x: number, y: number, z: number, out = new THREE.Vector3()) => out.set(x, y, z);
+        const visibility = yield* voxelFaceVisibility({ count, offset, span, direction }, zone.source.x * 512, zone.source.z * 512, project);
         zone.signatures.set(tile, signature);
         yield { key: zone.source.key, token: zone.source.token, tile, count,
           bounds: [bounds.center.x, bounds.center.y, bounds.center.z, bounds.radius],
-          flatBounds: [minX, maxX, minZ, maxZ], offset, span, color, direction, emission, visibility };
+          flatBounds: [minX, maxX, minZ, maxZ], offset, span, color, direction, emission, visibility, projection };
       }
       yield;
     }

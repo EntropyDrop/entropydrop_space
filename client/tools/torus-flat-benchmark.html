@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Terrain projection A/B</title>
+<style>
+body{margin:0;padding:20px;background:#14212c;color:#e5edf4;font:14px system-ui}h1{font-size:22px}button{padding:8px 14px;margin:6px}canvas{display:block;width:min(100%,1280px);height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}#status{padding:12px 0}.captures{display:flex;flex-wrap:wrap;gap:8px}.captures img{width:360px}table{border-collapse:collapse}td,th{padding:8px;text-align:right;border-bottom:1px solid #456}
+</style>
+<h1>Terrain projection A/B</h1>
+<p>Production terrain, near meshes, packed far Arena and torus shader. Fixed 1024 × 1024 m footprint, AOI 17 × 9 chunks, 1 m outside AOI, Medium materials, 4× MSAA, 2560 × 1440. Terrain rendering only; no entities, simulation, HUD, shadows or post effects.</p>
+<button id="run">Run all three worlds</button><button id="save" disabled>Download results</button>
+<div id="status" role="status">Ready</div><div id="view"></div>
+<table><thead><tr><th>World / view / culling</th><th>Flat GPU ms</th><th>Torus GPU ms</th><th>Torus overhead</th><th>A/A drift</th></tr></thead><tbody id="rows"></tbody></table>
+<div id="captures" class="captures"></div><details><summary>Raw results</summary><pre id="results"></pre></details>
+<script type="module" src="../src/dev/TorusFlatBenchmark.ts"></script>
+</html>

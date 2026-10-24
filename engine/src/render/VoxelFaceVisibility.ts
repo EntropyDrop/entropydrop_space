@@ -8,7 +8,8 @@ type Faces = { count: number; offset: Uint16Array; span: Uint16Array; direction:
 /** Immutable bounds and normal cones for consecutive face blocks. Bounds cover
  * both triangles after bending; the cone encloses both geometric normals of
  * every quad, including coarse quads spanning a curved part of the ring. */
-export function* voxelFaceVisibility(faces: Faces, originX: number, originZ: number): Generator<void, Float32Array> {
+export function* voxelFaceVisibility(faces: Faces, originX: number, originZ: number,
+  project: typeof bendPoint = bendPoint): Generator<void, Float32Array> {
   const result = new Float32Array(Math.ceil(faces.count / VOXEL_FACE_BLOCK) * VOXEL_VISIBILITY_STRIDE);
   const corners = Array.from({ length: 4 }, () => new THREE.Vector3());
   const edge = new THREE.Vector3(), normal = new THREE.Vector3(), reference = new THREE.Vector3();
@@ -26,7 +27,7 @@ export function* voxelFaceVisibility(faces: Faces, originX: number, originZ: num
         const px = x + (axis === 0 ? 0 : axis === 1 ? v * h : u * w);
         const py = y + (axis === 1 ? 0 : axis === 0 ? u * w : v * h);
         const pz = z + (axis === 2 ? 0 : axis === 0 ? v * h : u * w);
-        const p = bendPoint(px, py, pz, corners[c]);
+        const p = project(px, py, pz, corners[c]);
         minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
         minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
         minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);

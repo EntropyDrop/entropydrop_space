@@ -37,7 +37,6 @@ export async function sampleTurn(game: any, label: string, options: TurnProbeOpt
   try {
     undo.push(guardTimestampWrites(backend));
     panels.forEach(p => p.style.setProperty('display', 'none', 'important'));
-    undo.push(interceptMethod(game.uiStore, 'sampleDistantTerrainFrame', () => {}));
     game.uiStore.setDistantSurfaceEnabled(true, false);
     scene.setResolutionScale(options.scale ?? 1); renderer.info.autoReset = false; backend.trackTimestamp = false;
     for (const [target, method, name] of [

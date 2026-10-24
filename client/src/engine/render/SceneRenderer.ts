@@ -22,7 +22,7 @@ import * as THREE from 'three/webgpu';
 import {
   applyCameraBend, hookSceneMaterials, cullChunks,
   bendPoint, bendPointForView, bendDirection, unbendPoint, unbendDirection,
-  setTorusViewCorrection,
+  setTorusViewCorrection, getWorldProjection,
   TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear, wrapX, wrapZ,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { CuteCharacter, loadCuteCharacter, type SkinModel } from './CuteCharacter.ts';
@@ -452,7 +452,9 @@ export class SceneRenderer {
     // major circle). This is the void you look up into.
     const hole = this.skyDomeUniforms.uHoleDir.value;
     const len = cameraBentPosition.length();
-    if (len > 1e-6) {
+    if (getWorldProjection() === 'flat') {
+      hole.set(0, 1, 0);
+    } else if (len > 1e-6) {
       hole.set(-cameraBentPosition.x / len, -cameraBentPosition.y / len, -cameraBentPosition.z / len);
     } else {
       hole.set(1, 0, 0);

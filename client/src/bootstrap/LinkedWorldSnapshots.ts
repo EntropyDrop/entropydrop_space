@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { getWorldProjection } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { readJsonResponse, resolveSafeHttpUrl } from './NetworkSafety.ts';
 import { createSpaceSurfaceSnapshotRemote, type SpaceSurfaceSnapshotRemote } from './SpaceSurfaceSnapshot.ts';
 import { buildLinkedWorldZone, LINKED_WORLD_ROTATION_CYCLE_SECONDS } from '../engine/render/LinkedWorldGeometry.ts';
@@ -69,6 +70,9 @@ export class LinkedWorldSnapshots {
    * Game supplies its bounded render delta so background tabs cannot jump ahead.
    */
   update(dt: number): void {
+    // The linked-ring composition belongs to torus presentation. Retain its
+    // snapshots and preference so manually returning to torus restores it.
+    if (this.group) this.group.visible = getWorldProjection() === 'torus';
     if (this.state.status !== 'ready' || !Number.isFinite(dt) || dt <= 0) return;
     this.rotationSeconds = (this.rotationSeconds + dt) % LINKED_WORLD_ROTATION_CYCLE_SECONDS;
     this.rig?.update(this.rotationSeconds);

@@ -7,7 +7,7 @@ const assets = process.argv[2]
 for (const file of await readdir(assets)) {
   if (!file.endsWith('.js')) continue;
   const source = await readFile(new URL(file, assets), 'utf8');
-  if (/dev_offline|dev-offline-copper|dev-render-diagnostics|dev-frame-profiler|FrameDiagnostics|offline-frame-timeline|offline-scene-replay|GpuBenchmarkEnvironment|GpuAttachmentExperiment|GpuTurnReplay|GpuTrialOrder|Interleaved variants require independent GPU timestamps|OfflineEntry|OfflineSurface|__space_offline_surface__|WebGPUMigrationSmoke|dev-webgpu-migration|VoxelBackendBenchmark|VoxelBackendFixtureWorker|Settled Aether terrain only|TutorialLevelWriter|__dev\/tutorial-level/.test(source)
+  if (/dev_offline|dev-offline-copper|dev-render-diagnostics|dev-frame-profiler|FrameDiagnostics|offline-frame-timeline|offline-scene-replay|GpuBenchmarkEnvironment|GpuAttachmentExperiment|GpuTurnReplay|GpuTrialOrder|Interleaved variants require independent GPU timestamps|OfflineEntry|OfflineSurface|__space_offline_surface__|WebGPUMigrationSmoke|dev-webgpu-migration|VoxelBackendBenchmark|TorusFlatBenchmark|surface-camera-block-culling-aoi-clipped|VoxelBackendFixtureWorker|Settled Aether terrain only|TutorialLevelWriter|__dev\/tutorial-level/.test(source)
     || (!process.argv.includes('--offline') && /OfflineSpace-|offline-local-player/.test(source))) {
     throw new Error(`Development-only offline entry leaked into production asset: ${file}`);
   }

@@ -3,6 +3,7 @@ import { storage, vertexIndex, instanceIndex, uint, float, vec2, vec3, varying, 
 import { VOXEL_FACE_BLOCK, VOXEL_VISIBILITY_STRIDE, voxelBlockBackFacing } from './VoxelFaceVisibility.ts';
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { orderVoxelPages } from './VoxelDrawOrder.ts';
+import { getWorldProjection, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
 
 export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
@@ -60,6 +61,7 @@ type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; f
  * Page grouping preserves neighboring tile order and unmerged draw barriers,
  * so coplanar boundary faces retain their reference depth-test ordering. */
 export class VoxelFaceArena {
+  private projectionRevision = getWorldProjectionRevision();
   groupPageDraws = true;
   incrementalMaintenance = true;
   private sources: VoxelFaceMesh[] = [];
@@ -179,6 +181,11 @@ export class VoxelFaceArena {
   }
 
   setView(camera: THREE.Vector3, frustum: THREE.Frustum, coverage: THREE.DataTexture, enabled: boolean) {
+    if (this.projectionRevision !== getWorldProjectionRevision()) {
+      this.projectionRevision = getWorldProjectionRevision();
+      this.resetView = true;
+      this.positionEpoch++;
+    }
     // Retain a conservative guard around the last visibility query. Ordinary
     // motion then reuses GPU maps and command bundles instead of rebuilding
     // every face-block list each frame. The padding below bounds all accepted
@@ -202,8 +209,13 @@ export class VoxelFaceArena {
     }
   }
 
+  private visibilityData(entry: Entry): Float32Array | undefined {
+    const mode = entry.geometry.userData.voxelProjection ?? 'torus';
+    return mode === getWorldProjection() ? entry.geometry.userData.voxelVisibility : undefined;
+  }
+
   private culled(entry: Entry, block: number, masked: boolean) {
-    const data = entry.geometry.userData.voxelVisibility as Float32Array | undefined;
+    const data = this.visibilityData(entry);
     if (!this.visibilityEnabled || !data) return 0;
     if (this.emptyFrustum) return 2;
     const at = block * VOXEL_VISIBILITY_STRIDE;
@@ -224,7 +236,7 @@ export class VoxelFaceArena {
   /** Rotation cannot change distance, normal-cone facing, or flat ownership.
    * Keep those exact tests until their position/coverage inputs change. */
   private prepareBlockTests(entry: Entry, masked: boolean): BlockTests | undefined {
-    const data = entry.geometry.userData.voxelVisibility as Float32Array | undefined;
+    const data = this.visibilityData(entry);
     if (!this.cachedBlockTests || !this.visibilityEnabled || !data) return;
     let cache = entry.blockTests;
     if (!cache || cache.data !== data) {

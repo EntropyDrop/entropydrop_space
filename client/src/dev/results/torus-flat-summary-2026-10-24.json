@@ -1,0 +1,954 @@
+{
+  "hardware": {
+    "cpu": "Apple M1 Pro",
+    "memoryGiB": 32,
+    "os": "macOS 26.5.1",
+    "rendererAdapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "device": "",
+      "description": ""
+    }
+  },
+  "settings": {
+    "width": 2560,
+    "height": 1440,
+    "samples": 4,
+    "lighting": "medium",
+    "exposure": 1.15,
+    "footprint": [
+      7680,
+      512,
+      8704,
+      1536
+    ],
+    "aoiChunks": [
+      504,
+      60,
+      520,
+      68
+    ],
+    "nearMicroSize": 0.125,
+    "coarseCulling": "tight face AABB per 64 m brick",
+    "blockCulling": "production 16-face sphere and normal cone in matching projection",
+    "cameraHeight": "local surface + 1.7 m; elevated max(160, surface+60)",
+    "outsideAoiCellSize": 1,
+    "fov": 75,
+    "far": 2000,
+    "replayFrames": 8,
+    "measuredQuartets": 24,
+    "warmupQuartets": 4
+  },
+  "scope": "Terrain render only. No simulation, entities, networking, HUD, picking, shadows, postprocessing or streaming. Fixed mesh topology in both projections; no flat-only greedy remeshing. Not full-world game FPS.",
+  "fixtures": [
+    {
+      "name": "Nature",
+      "version": 1,
+      "seed": 20260827,
+      "surfaceY": 17,
+      "columns": 256,
+      "nearChunks": 153,
+      "farFaces": 330980,
+      "nearTriangles": 174506,
+      "totalTriangles": 836466,
+      "farRecordChecksum": 2704265716,
+      "arena": {
+        "residentFaces": 330980,
+        "bytes": 9438720,
+        "visibleFaces": 330980,
+        "paddedFaces": 332912,
+        "draws": 2,
+        "sourceDraws": 248,
+        "mapUploadBytes": 665824,
+        "copyFaces": 69234,
+        "copyMs": 6.200000286102295,
+        "maxCopyMs": 68.40000009536743,
+        "pendingSources": 0,
+        "releasedSourceBytes": 10591360,
+        "pages": 2,
+        "backFaces": 0,
+        "outsideFaces": 0,
+        "coveredFaces": 0,
+        "maintenancePasses": 3,
+        "sourceListBuilds": 1,
+        "blockCacheBytes": 0,
+        "positionBlockTests": 0,
+        "coverageBlockTests": 0,
+        "drawnFaces": 332928,
+        "instancePaddingFaces": 16
+      }
+    },
+    {
+      "name": "Copper Metropolis",
+      "version": 2,
+      "seed": 20260922,
+      "surfaceY": 1,
+      "columns": 256,
+      "nearChunks": 153,
+      "farFaces": 1540362,
+      "nearTriangles": 701002,
+      "totalTriangles": 3781726,
+      "farRecordChecksum": 1236300850,
+      "arena": {
+        "residentFaces": 1540362,
+        "bytes": 28316160,
+        "visibleFaces": 1540362,
+        "paddedFaces": 1542512,
+        "draws": 37,
+        "sourceDraws": 292,
+        "mapUploadBytes": 3085024,
+        "copyFaces": 5680,
+        "copyMs": 0.19999980926513672,
+        "maxCopyMs": 80.40000009536743,
+        "pendingSources": 0,
+        "releasedSourceBytes": 49291584,
+        "pages": 6,
+        "backFaces": 0,
+        "outsideFaces": 0,
+        "coveredFaces": 0,
+        "maintenancePasses": 9,
+        "sourceListBuilds": 1,
+        "blockCacheBytes": 0,
+        "positionBlockTests": 0,
+        "coverageBlockTests": 0,
+        "drawnFaces": 1542816,
+        "instancePaddingFaces": 304
+      }
+    },
+    {
+      "name": "Aether Archipelago",
+      "version": 3,
+      "seed": 42,
+      "surfaceY": 120,
+      "columns": 256,
+      "nearChunks": 153,
+      "farFaces": 1757657,
+      "nearTriangles": 323640,
+      "totalTriangles": 3838954,
+      "farRecordChecksum": 3100287508,
+      "arena": {
+        "residentFaces": 1757657,
+        "bytes": 33035520,
+        "visibleFaces": 1757657,
+        "paddedFaces": 1761232,
+        "draws": 55,
+        "sourceDraws": 466,
+        "mapUploadBytes": 3522464,
+        "copyFaces": 4751,
+        "copyMs": 0.09999990463256836,
+        "maxCopyMs": 74,
+        "pendingSources": 0,
+        "releasedSourceBytes": 56245024,
+        "pages": 7,
+        "backFaces": 0,
+        "outsideFaces": 0,
+        "coveredFaces": 0,
+        "maintenancePasses": 12,
+        "sourceListBuilds": 1,
+        "blockCacheBytes": 0,
+        "positionBlockTests": 0,
+        "coverageBlockTests": 0,
+        "drawnFaces": 1761664,
+        "instancePaddingFaces": 432
+      }
+    }
+  ],
+  "rows": [
+    {
+      "world": "Nature",
+      "pose": {
+        "name": "ground-near",
+        "y": 18.7,
+        "yaw": 1.5707963267948966,
+        "pitch": -0.65
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 0.8319146666666662,
+      "flatTriangles": [
+        840362
+      ],
+      "torusGpuMs": 0.9132373333333331,
+      "torusTriangles": [
+        840362
+      ],
+      "overheadPercent": 9.775361575546238,
+      "repeatOverheadPercent": [
+        11.378136962994478,
+        8.282147810580609
+      ],
+      "shamMeanPercent": [
+        2.9280766877491025,
+        1.107081923381939
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.09885416279236475,
+          "renderMs": 0.3887500032782555
+        },
+        "torus": {
+          "prepareMs": 0.10812499225139618,
+          "renderMs": 0.5398958429694176
+        }
+      }
+    },
+    {
+      "world": "Nature",
+      "pose": {
+        "name": "ground-near",
+        "y": 18.7,
+        "yaw": 1.5707963267948966,
+        "pitch": -0.65
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 0.6492160000000002,
+      "flatTriangles": [
+        259290
+      ],
+      "torusGpuMs": 0.642901333333333,
+      "torusTriangles": [
+        309362
+      ],
+      "overheadPercent": -0.9726603575184956,
+      "repeatOverheadPercent": [
+        -1.408450704225439,
+        -0.4387247733256272
+      ],
+      "shamMeanPercent": [
+        -0.6771935571698653,
+        -2.9236867706321816
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.08510417143503825,
+          "renderMs": 0.2417708267768224
+        },
+        "torus": {
+          "prepareMs": 0.12322915742794674,
+          "renderMs": 0.33041667491197585
+        }
+      }
+    },
+    {
+      "world": "Nature",
+      "pose": {
+        "name": "ground-forward",
+        "y": 18.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 0.7712426666666665,
+      "flatTriangles": [
+        840362
+      ],
+      "torusGpuMs": 0.8304640000000001,
+      "torusTriangles": [
+        840362
+      ],
+      "overheadPercent": 7.67868997565837,
+      "repeatOverheadPercent": [
+        4.692919812283214,
+        11.215856901136135
+      ],
+      "shamMeanPercent": [
+        2.103605775412068,
+        0.08779818813745577
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.09489583770434062,
+          "renderMs": 0.376354160408179
+        },
+        "torus": {
+          "prepareMs": 0.10135416636864344,
+          "renderMs": 0.5169791668653488
+        }
+      }
+    },
+    {
+      "world": "Nature",
+      "pose": {
+        "name": "ground-forward",
+        "y": 18.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 0.572416,
+      "flatTriangles": [
+        271540
+      ],
+      "torusGpuMs": 0.5869226666666667,
+      "torusTriangles": [
+        275482
+      ],
+      "overheadPercent": 2.534287418008341,
+      "repeatOverheadPercent": [
+        4.162561576354684,
+        0.03776435045319548
+      ],
+      "shamMeanPercent": [
+        -0.006288894195538575,
+        4.421678886462358
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.06895833164453506,
+          "renderMs": 0.21614583432674409
+        },
+        "torus": {
+          "prepareMs": 0.10437500874201457,
+          "renderMs": 0.2994791567325592
+        }
+      }
+    },
+    {
+      "world": "Nature",
+      "pose": {
+        "name": "elevated-tube",
+        "y": 160,
+        "yaw": 3.141592653589793,
+        "pitch": -0.35
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 1.0628266666666668,
+      "flatTriangles": [
+        840362
+      ],
+      "torusGpuMs": 0.7154346666666667,
+      "torusTriangles": [
+        840362
+      ],
+      "overheadPercent": -32.68566840626256,
+      "repeatOverheadPercent": [
+        -32.43076923076925,
+        -32.96389588581026
+      ],
+      "shamMeanPercent": [
+        0.6746660410327647,
+        -0.3619328944157896
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.09614583601554236,
+          "renderMs": 0.3939583306511243
+        },
+        "torus": {
+          "prepareMs": 0.10770832598209382,
+          "renderMs": 0.5387500072518985
+        }
+      }
+    },
+    {
+      "world": "Nature",
+      "pose": {
+        "name": "elevated-tube",
+        "y": 160,
+        "yaw": 3.141592653589793,
+        "pitch": -0.35
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 0.7914666666666665,
+      "flatTriangles": [
+        195200
+      ],
+      "torusGpuMs": 0.38698666666666665,
+      "torusTriangles": [
+        196862
+      ],
+      "overheadPercent": -51.105121293800536,
+      "repeatOverheadPercent": [
+        -50.67099567099566,
+        -51.535982814178304
+      ],
+      "shamMeanPercent": [
+        4.076175671368953,
+        -2.649949027221661
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.08479167471329371,
+          "renderMs": 0.15041665931542714
+        },
+        "torus": {
+          "prepareMs": 0.11895832916100821,
+          "renderMs": 0.17854166974623997
+        }
+      }
+    },
+    {
+      "world": "Nature",
+      "pose": {
+        "name": "ground-forward",
+        "y": 18.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "fixed-submission",
+      "scissor": true,
+      "flatGpuMs": 0.7771306666666667,
+      "flatTriangles": [
+        840362
+      ],
+      "torusGpuMs": 0.8520533333333336,
+      "torusTriangles": [
+        840362
+      ],
+      "overheadPercent": 9.640935544086982,
+      "repeatOverheadPercent": [
+        6.413109447703902,
+        13.472622478386121
+      ],
+      "shamMeanPercent": [
+        1.5028388166503899,
+        -0.3096411288090143
+      ],
+      "cpu": null
+    },
+    {
+      "world": "Copper Metropolis",
+      "pose": {
+        "name": "ground-near",
+        "y": 2.7,
+        "yaw": 1.5707963267948966,
+        "pitch": -0.65
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 2.0860586666666667,
+      "flatTriangles": [
+        3786634
+      ],
+      "torusGpuMs": 2.4401919999999997,
+      "torusTriangles": [
+        3786634
+      ],
+      "overheadPercent": 16.97619242411845,
+      "repeatOverheadPercent": [
+        16.21533442088088,
+        17.741670769735762
+      ],
+      "shamMeanPercent": [
+        0.639601070208319,
+        -5.023027113059721
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.37989583661158877,
+          "renderMs": 1.0615624954303104
+        },
+        "torus": {
+          "prepareMs": 0.3895833427707354,
+          "renderMs": 1.36041665772597
+        }
+      }
+    },
+    {
+      "world": "Copper Metropolis",
+      "pose": {
+        "name": "ground-near",
+        "y": 2.7,
+        "yaw": 1.5707963267948966,
+        "pitch": -0.65
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 0.7866026666666666,
+      "flatTriangles": [
+        1020828
+      ],
+      "torusGpuMs": 1.412864,
+      "torusTriangles": [
+        1595750
+      ],
+      "overheadPercent": 79.61596875678023,
+      "repeatOverheadPercent": [
+        77.62406675450157,
+        81.56089193825042
+      ],
+      "shamMeanPercent": [
+        0.020385558629504086,
+        -0.06882374718633055
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.25104167113701503,
+          "renderMs": 0.5907291616002719
+        },
+        "torus": {
+          "prepareMs": 0.3985416625936826,
+          "renderMs": 1.1030208374063175
+        }
+      }
+    },
+    {
+      "world": "Copper Metropolis",
+      "pose": {
+        "name": "ground-forward",
+        "y": 2.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 2.340010666666667,
+      "flatTriangles": [
+        3786634
+      ],
+      "torusGpuMs": 2.538666666666667,
+      "torusTriangles": [
+        3786634
+      ],
+      "overheadPercent": 8.489533950842375,
+      "repeatOverheadPercent": [
+        8.928441170034285,
+        8.050754758258583
+      ],
+      "shamMeanPercent": [
+        -1.7876719056149877,
+        -0.047570578991525114
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.38031249592701594,
+          "renderMs": 1.0634375035762786
+        },
+        "torus": {
+          "prepareMs": 0.39166666368643444,
+          "renderMs": 1.4134375030795732
+        }
+      }
+    },
+    {
+      "world": "Copper Metropolis",
+      "pose": {
+        "name": "ground-forward",
+        "y": 2.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 1.012224,
+      "flatTriangles": [
+        1156318
+      ],
+      "torusGpuMs": 1.3481813333333337,
+      "torusTriangles": [
+        1489854
+      ],
+      "overheadPercent": 33.19001854661949,
+      "repeatOverheadPercent": [
+        33.10710147326601,
+        33.276069403882545
+      ],
+      "shamMeanPercent": [
+        -0.47913938273742585,
+        -2.5883490206161524
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.26260416309038803,
+          "renderMs": 0.6863541692495346
+        },
+        "torus": {
+          "prepareMs": 0.33500000536441804,
+          "renderMs": 1.025833327571551
+        }
+      }
+    },
+    {
+      "world": "Copper Metropolis",
+      "pose": {
+        "name": "elevated-tube",
+        "y": 160,
+        "yaw": 3.141592653589793,
+        "pitch": -0.35
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 2.500693333333333,
+      "flatTriangles": [
+        3786634
+      ],
+      "torusGpuMs": 2.526378666666666,
+      "torusTriangles": [
+        3786634
+      ],
+      "overheadPercent": 1.0271284763692101,
+      "repeatOverheadPercent": [
+        0.5435521130588317,
+        1.515047645163503
+      ],
+      "shamMeanPercent": [
+        1.3915600167083764,
+        3.3028506059985725
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.3801041717330615,
+          "renderMs": 1.0774999931454659
+        },
+        "torus": {
+          "prepareMs": 0.3965624983112017,
+          "renderMs": 1.38406250278155
+        }
+      }
+    },
+    {
+      "world": "Copper Metropolis",
+      "pose": {
+        "name": "elevated-tube",
+        "y": 160,
+        "yaw": 3.141592653589793,
+        "pitch": -0.35
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 1.0007893333333329,
+      "flatTriangles": [
+        1046458
+      ],
+      "torusGpuMs": 1.2850346666666665,
+      "torusTriangles": [
+        1506394
+      ],
+      "overheadPercent": 28.402114597544383,
+      "repeatOverheadPercent": [
+        32.408062234795,
+        24.670619235836643
+      ],
+      "shamMeanPercent": [
+        -2.747218997689582,
+        -1.0665942597596842
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.2778125092387199,
+          "renderMs": 0.5931249941388765
+        },
+        "torus": {
+          "prepareMs": 0.4160416677594185,
+          "renderMs": 1.07114583303531
+        }
+      }
+    },
+    {
+      "world": "Copper Metropolis",
+      "pose": {
+        "name": "ground-forward",
+        "y": 2.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "fixed-submission",
+      "scissor": true,
+      "flatGpuMs": 2.0741119999999995,
+      "flatTriangles": [
+        3786634
+      ],
+      "torusGpuMs": 2.2740479999999996,
+      "torusTriangles": [
+        3786634
+      ],
+      "overheadPercent": 9.639595161688487,
+      "repeatOverheadPercent": [
+        9.499958945726261,
+        9.779830131112387
+      ],
+      "shamMeanPercent": [
+        1.1725703760814374,
+        0.03559056267293942
+      ],
+      "cpu": null
+    },
+    {
+      "world": "Aether Archipelago",
+      "pose": {
+        "name": "ground-near",
+        "y": 121.7,
+        "yaw": 1.5707963267948966,
+        "pitch": -0.65
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 2.3724373333333335,
+      "flatTriangles": [
+        3846968
+      ],
+      "torusGpuMs": 2.6622293333333342,
+      "torusTriangles": [
+        3846968
+      ],
+      "overheadPercent": 12.214948564851479,
+      "repeatOverheadPercent": [
+        12.0713207275865,
+        12.358741812423535
+      ],
+      "shamMeanPercent": [
+        0.06233179516597487,
+        -0.4119988421129512
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.45760416785875957,
+          "renderMs": 1.2481249983112017
+        },
+        "torus": {
+          "prepareMs": 0.4747916743159294,
+          "renderMs": 1.5543749913573266
+        }
+      }
+    },
+    {
+      "world": "Aether Archipelago",
+      "pose": {
+        "name": "ground-near",
+        "y": 121.7,
+        "yaw": 1.5707963267948966,
+        "pitch": -0.65
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 0.9369600000000002,
+      "flatTriangles": [
+        945860
+      ],
+      "torusGpuMs": 1.3994666666666666,
+      "torusTriangles": [
+        1450906
+      ],
+      "overheadPercent": 49.36247723132965,
+      "repeatOverheadPercent": [
+        46.494188226471664,
+        52.07226354941543
+      ],
+      "shamMeanPercent": [
+        -11.108451118844963,
+        1.8695286021944768
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.3796875034769376,
+          "renderMs": 1.0366666654745738
+        },
+        "torus": {
+          "prepareMs": 0.5402083297570547,
+          "renderMs": 1.5029166708389918
+        }
+      }
+    },
+    {
+      "world": "Aether Archipelago",
+      "pose": {
+        "name": "ground-forward",
+        "y": 121.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 2.340010666666667,
+      "flatTriangles": [
+        3846968
+      ],
+      "torusGpuMs": 2.4923306666666667,
+      "torusTriangles": [
+        3846968
+      ],
+      "overheadPercent": 6.5093720370505315,
+      "repeatOverheadPercent": [
+        7.183613752743234,
+        5.839150668993542
+      ],
+      "shamMeanPercent": [
+        0.5021878170782784,
+        0.38561041494927645
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.45562500655651095,
+          "renderMs": 1.2408333281675974
+        },
+        "torus": {
+          "prepareMs": 0.46760415881872175,
+          "renderMs": 1.5821875045696894
+        }
+      }
+    },
+    {
+      "world": "Aether Archipelago",
+      "pose": {
+        "name": "ground-forward",
+        "y": 121.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 0.9407146666666668,
+      "flatTriangles": [
+        881162
+      ],
+      "torusGpuMs": 1.1660799999999996,
+      "torusTriangles": [
+        1115690
+      ],
+      "overheadPercent": 23.95682148040632,
+      "repeatOverheadPercent": [
+        24.36917866215065,
+        23.48114866184796
+      ],
+      "shamMeanPercent": [
+        3.4436167735684005,
+        3.997410505425968
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.30083333800236384,
+          "renderMs": 0.8451041614015897
+        },
+        "torus": {
+          "prepareMs": 0.41052085161209106,
+          "renderMs": 1.2342708165446918
+        }
+      }
+    },
+    {
+      "world": "Aether Archipelago",
+      "pose": {
+        "name": "elevated-tube",
+        "y": 180,
+        "yaw": 3.141592653589793,
+        "pitch": -0.35
+      },
+      "culling": "fixed-submission",
+      "scissor": false,
+      "flatGpuMs": 2.437376,
+      "flatTriangles": [
+        3846968
+      ],
+      "torusGpuMs": 2.568021333333334,
+      "torusTriangles": [
+        3846968
+      ],
+      "overheadPercent": 5.3600812239610995,
+      "repeatOverheadPercent": [
+        4.869251577998179,
+        5.860313869645206
+      ],
+      "shamMeanPercent": [
+        1.7006803920042197,
+        -0.5015021929078517
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.4564583366115888,
+          "renderMs": 1.3031249975164731
+        },
+        "torus": {
+          "prepareMs": 0.4758333300550779,
+          "renderMs": 1.6094791710376741
+        }
+      }
+    },
+    {
+      "world": "Aether Archipelago",
+      "pose": {
+        "name": "elevated-tube",
+        "y": 180,
+        "yaw": 3.141592653589793,
+        "pitch": -0.35
+      },
+      "culling": "frustum",
+      "scissor": false,
+      "flatGpuMs": 0.9141760000000002,
+      "flatTriangles": [
+        867476
+      ],
+      "torusGpuMs": 0.9966933333333333,
+      "torusTriangles": [
+        1158296
+      ],
+      "overheadPercent": 9.026416503313705,
+      "repeatOverheadPercent": [
+        10.401074649779263,
+        7.72446383133405
+      ],
+      "shamMeanPercent": [
+        0.7732321963397099,
+        1.1324568408115132
+      ],
+      "cpu": {
+        "flat": {
+          "prepareMs": 0.2901041651765506,
+          "renderMs": 0.4634375015894572
+        },
+        "torus": {
+          "prepareMs": 0.42333333690961206,
+          "renderMs": 0.7104166631897291
+        }
+      }
+    },
+    {
+      "world": "Aether Archipelago",
+      "pose": {
+        "name": "ground-forward",
+        "y": 121.7,
+        "yaw": 1.5707963267948966,
+        "pitch": 0.05
+      },
+      "culling": "fixed-submission",
+      "scissor": true,
+      "flatGpuMs": 2.124885333333333,
+      "flatTriangles": [
+        3846968
+      ],
+      "torusGpuMs": 2.2650879999999995,
+      "torusTriangles": [
+        3846968
+      ],
+      "overheadPercent": 6.598128589213292,
+      "repeatOverheadPercent": [
+        6.073943661971826,
+        7.126158806932703
+      ],
+      "shamMeanPercent": [
+        1.8648745883533282,
+        1.2525454224483201
+      ],
+      "cpu": null
+    }
+  ],
+  "audits": {
+    "pixelComparisons": 168,
+    "newPipelines": 0,
+    "validationErrors": [],
+    "matchedFixedSubmissionDrawCounts": true,
+    "aoiOverlapCheck": "Every final far face passed the empty-AOI ownership assertion."
+  },
+  "sourceHashes": {
+    "client/src/dev/TorusFlatBenchmark.ts": "788805d35e854def516764bb52f3e66c6e3a17b8a2813e69bca6c5bf3a82b9da",
+    "client/tools/torus-flat-benchmark.html": "b90c50b8897aa2d52493c036867179545422e532276ccff208ee1da68d711011",
+    "engine/src/render/DistantVoxelLayer.ts": "c0228e9ccbb8cbd6b29434af7c31988cef306f9ed5b06e0c9fea6f6fd7f4d153",
+    "engine/src/render/VoxelFaceVisibility.ts": "cbb8328b1d89f3af9049131823d2dd52eeabe64a30a3d210684ff75d6a5d51e2",
+    "engine/src/torus/TorusWorld.ts": "93894fc155587e32ea1d7ba6675126395e9310bd9a3b5f3e24f11f1775a6d9b9",
+    "engine/src/render/VoxelFaceArena.ts": "873e4edc0b54091d21abcbfefb280d9e4a8e872c87a61feac99e24226de7e1e7"
+  },
+  "validation": {
+    "focusedEngineTests": {
+      "passed": 54,
+      "failed": 0
+    },
+    "engineTypecheck": "passed",
+    "clientTypecheck": "passed",
+    "inventoryTypecheck": "passed",
+    "productionBuild": "passed"
+  }
+}

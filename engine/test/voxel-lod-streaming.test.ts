@@ -6,7 +6,7 @@ import * as THREE from 'three/webgpu';
 import { DistantVoxelLayer, VOXEL_PUBLICATION_BUDGET_BYTES } from '../src/render/DistantVoxelLayer.ts';
 import { TerrainHandoff, TERRAIN_FADE_MS } from '../src/render/TerrainHandoff.ts';
 import { SurfaceBatch } from '../src/render/SurfaceBatch.ts';
-import { bendPoint } from '../src/torus/TorusWorld.ts';
+import { bendPoint, setWorldProjection } from '../src/torus/TorusWorld.ts';
 import type { SurfaceZoneSnapshot } from '../src/voxel/SurfaceZoneSnapshot.ts';
 import { createCooperativeVoxelLodPort, createWorkerVoxelLodPort, type VoxelLodPort, type VoxelLodCommand, type VoxelLodResponse } from '../src/render/VoxelLodService.ts';
 import { NodeVoxelLodWorker } from './helpers/voxel-lod-worker.ts';
@@ -29,6 +29,55 @@ function source(revision = 1, tint = 128, count = 128): SurfaceZoneSnapshot {
     }) };
 }
 const camera = bendPoint(8200, 120, 1032), frustum = new THREE.Frustum();
+for (const backend of ['worker', 'cooperative'] as const) test(`${backend} switches projection with resident terrain and fresh culling metadata`, async t => {
+  t.after(() => setWorldProjection('torus'));
+  const handoff = new TerrainHandoff();
+  const layer = new DistantVoxelLayer(handoff.texture, { workerFactory: () => backend === 'worker'
+    ? new NodeVoxelLodWorker() : createCooperativeVoxelLodPort() });
+  const visible = new THREE.Frustum();
+  for (const plane of visible.planes) plane.set(new THREE.Vector3(), 1);
+  const update = () => layer.updateView(visible, bendPoint(8200, 120, 1032), 720, 1, 32768, 100000);
+  async function settleProjection() {
+    const deadline = performance.now() + 10000;
+    do {
+      update();
+      assert.ok(performance.now() < deadline, 'the new projection must finish without camera motion');
+      await delay(4);
+    } while (layer.hasPendingWork || layer.hasPendingTransitions);
+  }
+  try {
+    layer.setMergedBuffersEnabled(true); layer.install(source());
+    await settleProjection();
+    for (const mode of ['flat', 'torus', 'flat'] as const) {
+      const old = [...layer.group.children];
+      setWorldProjection(mode); update();
+      assert.ok(old.every(mesh => layer.group.children.includes(mesh)), 'switching must retain published geometry');
+      assert.ok(layer.group.userData.voxelArenaStats.visibleFaces > 0, 'stale cones must not hide the world during preparation');
+      await settleProjection();
+      const sources = layer.group.children.filter(mesh => mesh.userData.voxelArenaCompatible) as THREE.Mesh[];
+      assert.ok(sources.length > 0);
+      for (const mesh of sources) {
+        assert.equal(mesh.geometry.userData.voxelProjection, mode);
+        const data = mesh.geometry.userData.voxelVisibility as Float32Array;
+        if (mode === 'flat') {
+          assert.ok(data[0] >= 8192);
+          assert.ok(Math.abs(data[5] - 1) < .001, 'flat top faces have a positive Y normal');
+        } else assert.ok(data[0] < 0);
+      }
+      assert.equal(layer.hasZone(16, 2), true);
+      assert.ok(layer.group.userData.voxelArenaStats.visibleFaces > 0);
+    }
+    // Switch again before the worker can publish its previous request.
+    setWorldProjection('torus'); update();
+    setWorldProjection('flat'); update();
+    await settleProjection();
+    for (const mesh of layer.group.children as THREE.Mesh[]) if (mesh.userData.voxelArenaCompatible) {
+      assert.equal(mesh.geometry.userData.voxelProjection, 'flat');
+    }
+    assert.equal(layer.preparationError, null);
+  } finally { layer.dispose(); handoff.texture.dispose(); }
+});
+
 function tick(layer: DistantVoxelLayer, area = 1, budget = 100000) {
   layer.updateView(frustum, camera, 720, area, 32768, budget);
 }

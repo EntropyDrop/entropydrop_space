@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { bendPoint, TORUS_GREF, TORUS_R, TORUS_RHO } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { bendTorusPoint, TORUS_GREF, TORUS_R, TORUS_RHO } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import type { SurfaceZoneSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 
@@ -67,7 +67,7 @@ export function buildLinkedWorldZone(zone: SurfaceZoneSnapshot, transform: THREE
       const bent = corners.map(([a, b]) => {
         const p = [...origin];
         p[u] += a * width / nu; p[v] += b * height / nv;
-        bendPoint(originX + p[0], p[1], originZ + p[2], point).applyMatrix4(transform);
+        bendTorusPoint(originX + p[0], p[1], originZ + p[2], point).applyMatrix4(transform);
         return point.toArray();
       });
       for (const corner of order) {

@@ -33,7 +33,6 @@ export async function sampleMaintenance(game: any, label: string, motion = false
     pickingCache: game.world.getAimRaycastCacheStats?.() });
   try {
     panels.forEach(panel => { panel.hidden = true; });
-    undo.push(interceptMethod(game.uiStore, 'sampleDistantTerrainFrame', () => {}));
     game.uiStore.setDistantSurfaceEnabled(true, false);
     scene.setResolutionScale(1); renderer.backend.trackTimestamp = false; renderer.info.autoReset = false;
     for (const [target, method, name] of [

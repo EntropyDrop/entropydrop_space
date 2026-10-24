@@ -179,7 +179,7 @@ m.setMaintenanceVariant(game, true);
 
 Use `sampleMaintenance(game, label, true)` for the eight-second sinusoidal yaw
 sweep; 32 seconds samples four periods. The sampler fixes far terrain and
-resolution, temporarily disables FPS-guard sampling, checks tab visibility and
+resolution, checks tab visibility and
 workload, then restores its instrumentation and settings in `finally`. If far
 terrain was already disabled at startup, re-enable it and wait for the full
 fixture before the first sample. Run `checkMaintenancePixels(game)` twice after

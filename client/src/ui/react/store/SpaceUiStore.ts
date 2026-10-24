@@ -23,6 +23,9 @@ import {
   TORUS_SIZE_Z,
   wrapX,
   wrapZ,
+  getWorldProjection,
+  setWorldProjection,
+  type WorldProjection,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import {
   DEFAULT_DISTANT_SURFACE_SETTINGS,
@@ -55,7 +58,7 @@ import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/Wor
 import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
 import { SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from '../../../bootstrap/SpaceFeatures.ts';
 import { RESOLUTION_SCALE_PRESETS } from '../../../engine/render/AdaptiveResolution.ts';
-import { DistantTerrainFpsGuard } from '../../../engine/render/DistantTerrainFpsGuard.ts';
+import { WorldProjectionFallback, WORLD_PROJECTION_SETTING_KEY, WORLD_PROJECTION_AUTO_SETTING_KEY } from '../../../engine/render/WorldProjectionFallback.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | 'help' | null;
 export type ResolutionScaleSetting = `${typeof RESOLUTION_SCALE_PRESETS[number]}`;
@@ -279,6 +282,8 @@ export interface SpaceUiSnapshot {
   particlesEnabled: boolean;
   distantSurfaceEnabled: boolean;
   distantSurfaceSettings: DistantSurfaceSettings;
+  worldProjection: WorldProjection;
+  worldProjectionAuto: boolean;
   resolutionScaleMode: ResolutionScaleSetting | 'auto';
   resolutionScale: number;
   resolutionPixelRatio: number;
@@ -383,6 +388,7 @@ function entityRootId(contraption: any): string {
  * React components from immutable snapshots.
  */
 export class SpaceUiStore {
+  private readonly worldProjectionFallback = new WorldProjectionFallback();
   private listeners = new Set<Listener>();
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private bulkEditClearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -390,7 +396,6 @@ export class SpaceUiStore {
   private codeEditorIsStoppedForEdits = false;
   private codeEditorSession = 0;
   private lastHudPublishAt = 0;
-  private readonly distantTerrainFpsGuard = new DistantTerrainFpsGuard();
   private toastSequence = 0;
   private remotePlayers: any[] = [];
   private entityOutputCollector = new EntityOutputCollector();
@@ -478,6 +483,8 @@ export class SpaceUiStore {
     particlesEnabled: true,
     distantSurfaceEnabled: !SPACE_TUTORIAL,
     distantSurfaceSettings: { ...DEFAULT_DISTANT_SURFACE_SETTINGS },
+    worldProjection: 'torus',
+    worldProjectionAuto: true,
     resolutionScaleMode: '1',
     resolutionScale: 1,
     resolutionPixelRatio: 1,
@@ -787,12 +794,17 @@ export class SpaceUiStore {
     let setting: ResolutionScaleSetting = '1';
     let shadowsEnabled = false;
     let lightingQuality = DEFAULT_LIGHTING_QUALITY;
+    let worldProjection: WorldProjection = 'torus';
+    let worldProjectionAuto = true;
     try {
       setting = normalizeResolutionScaleSetting(localStorage.getItem('space_setting_resolution_scale'));
-      (localStorage as any).removeItem?.('space_setting_world_shape');
+      worldProjection = localStorage.getItem(WORLD_PROJECTION_SETTING_KEY) === 'flat' ? 'flat' : 'torus';
+      worldProjectionAuto = storedBoolean(localStorage.getItem(WORLD_PROJECTION_AUTO_SETTING_KEY), true);
       shadowsEnabled = localStorage.getItem('space_setting_shadows') === 'true';
       lightingQuality = normalizeLightingQuality(localStorage.getItem(LIGHTING_QUALITY_SETTING_KEY));
     } catch { }
+    this.setWorldProjection(worldProjection, false);
+    this.setWorldProjectionAuto(worldProjectionAuto, false);
     this.setDistantSurfaceEnabled(this.snapshot.distantSurfaceEnabled, false);
     const state = sceneRenderer?.setResolutionScale?.(Number(setting))
       || sceneRenderer?.getResolutionScaleState?.();
@@ -2051,6 +2063,7 @@ export class SpaceUiStore {
       minimapEnabled: minimap?.isEnabled?.() ?? this.snapshot.minimapEnabled,
       shadowsEnabled: sceneRenderer?.getShadowsEnabled?.() ?? this.snapshot.shadowsEnabled,
       lightingQuality: sceneRenderer?.getLightingQuality?.() ?? this.snapshot.lightingQuality,
+      worldProjection: getWorldProjection(),
       ...resolution,
       musicEnabled,
       effectsEnabled
@@ -2177,22 +2190,32 @@ export class SpaceUiStore {
   setDistantSurfaceEnabled(enabled: boolean, persist = true): void {
     const requested = Boolean(enabled) && !SPACE_TUTORIAL;
     const value = this.snapshot.world?.setDistantSurfaceEnabled?.(requested) ?? requested;
-    this.distantTerrainFpsGuard.reset();
     this.patch({ distantSurfaceEnabled: value });
     if (persist && !SPACE_TUTORIAL) {
       try { localStorage.setItem(DISTANT_SURFACE_ENABLED_SETTING_KEY, String(value)); } catch { }
     }
   }
 
-  sampleDistantTerrainFrame(now: number, visible = true): void {
-    if (!this.snapshot.world || !this.snapshot.distantSurfaceEnabled) {
-      this.distantTerrainFpsGuard.reset();
-      return;
-    }
-    if (this.distantTerrainFpsGuard.sampleFrame(now, visible)) {
-      this.setDistantSurfaceEnabled(false);
-      this.showToast('Distant terrain and LOD disabled: FPS stayed below 60 for 3 consecutive 2-second samples. Re-enable in Graphics settings.');
-    }
+  setWorldProjection(mode: WorldProjection, persist = true): void {
+    const value = setWorldProjection(mode);
+    this.worldProjectionFallback.reset();
+    this.patch({ worldProjection: value });
+    if (persist) try { localStorage.setItem(WORLD_PROJECTION_SETTING_KEY, value); } catch { }
+  }
+
+  setWorldProjectionAuto(enabled: boolean, persist = true): void {
+    const value = Boolean(enabled);
+    this.worldProjectionFallback.reset();
+    this.patch({ worldProjectionAuto: value });
+    if (persist) try { localStorage.setItem(WORLD_PROJECTION_AUTO_SETTING_KEY, String(value)); } catch { }
+  }
+
+  sampleWorldProjectionFrame(now: number, foreground: boolean): void {
+    const active = foreground && this.snapshot.hasStarted && this.snapshot.worldProjectionAuto
+      && this.snapshot.worldProjection === 'torus';
+    if (!this.worldProjectionFallback.sampleFrame(now, active)) return;
+    this.setWorldProjection('flat');
+    this.showToast('Switched to Flat terrain after two 5-second samples below 60 FPS. You can change this in Graphics settings.');
   }
 
   setDistantSurfaceSetting(

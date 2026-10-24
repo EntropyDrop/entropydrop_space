@@ -42,9 +42,6 @@ function install() {
     scene.cappedDevicePixelRatio=()=>1;
     scene.setLightingQuality('medium');scene.setResolutionScale(1);scene.setShadowsEnabled(false);
     renderer.setPixelRatio(1);renderer.setSize(1280,720,false);
-    // Freeze the production auto-disable guard, as the client's own GPU benchmarks do.
-    // Otherwise startup streaming below 60 FPS silently removes all far geometry.
-    game.uiStore.sampleDistantTerrainFrame=()=>{};
     game.uiStore.setDistantSurfaceEnabled(true,false);
     game.world.setDistantSurfaceSettings(profile === "fine"
       ? {subdivisionSizePx2:1, geometryBudgetMiB:512, dataBudgetMiB:1024, renderDistanceChunks:2048}
@@ -88,7 +85,7 @@ function install() {
       cpuMs:summary(cpu),maxDrawCalls:maxCalls,maxPrimitives:maxTriangles,unfocusedFrames:unfocused,documentHidden:hidden,
       surface:{...(window as any).copperSurfaceStatus},near:game.world.getTerrainAoiLoadProgress(),
       distantSettings:game.world.getDistantSurfaceSettings(),arena:{...layer.arena.stats},lod:layer.group.userData.voxelLodStats,
-      hudVisible:true,distantTerrainFpsGuardDisabled:true,farEnabled:game.world.distantSurface.isEnabled(),frameMetric:'Monotonic wall-clock animation callback intervals; not compositor presentation',rawFrameMs:raw};
+      hudVisible:true,farEnabled:game.world.distantSurface.isEnabled(),frameMetric:'Monotonic wall-clock animation callback intervals; not compositor presentation',rawFrameMs:raw};
     try {
       const response=await fetch('/__torus_comparison__/result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
       if(!response.ok)throw new Error(await response.text());

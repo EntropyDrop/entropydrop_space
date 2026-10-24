@@ -204,8 +204,8 @@ Use `motion: 'sweep'` for the yaw trace and `motion: 'rapid', gpu: false,
 durationMs: 32000` for CPU turning. `sampleFarBundle(game)` runs the saturated
 reference / optimized / reference-repeat / optimized-repeat diagnostic.
 `checkGpuDrawingPixels(game)` is separate from all timing; warm it, then repeat.
-Temporarily hold far terrain on during a series so the low-FPS guard cannot
-change the workload between calls, and restore that guard in `finally`.
+Keep far terrain enabled throughout a series so the workload stays consistent
+between calls, and restore the original setting in `finally`.
 
 The benchmark modules are explicit development imports, absent from the
 production application graph. The retained runtime path changes only drawing

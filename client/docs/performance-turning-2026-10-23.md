@@ -238,7 +238,7 @@ makes a complete turn every four seconds and varies pitch every three seconds.
 Use `gpu: true, durationMs: 24000` for the separate GPU sweeps, and set the
 lighting quality explicitly. Diagnostic `hide: 'far'`, `hide: 'near'`, and
 `scale: 0.5` apply only within the sampler and are restored in `finally`.
-The sampler fixes far terrain and resolution, pauses FPS-guard sampling, waits
+The sampler fixes far terrain and resolution, waits
 for settled terrain, checks page visibility/workload, and restores its hooks
 and settings. Preserve and restore manual caller-level graphics choices too.
 

@@ -122,7 +122,7 @@ test('nameplates follow the bent torus camera and presentation transforms, not c
     const projector = new EntityNameplateProjector();
     const viewport = { width: 800, height: 600 };
     const before = projector.project(entity, camera, viewport)!;
-    const expected = bendPoint(10.5, 17.3, 10.5, new THREE.Vector3()).project(camera);
+    const expected = bendPoint(10.5, 17, 10.5, new THREE.Vector3()).project(camera);
     assert.ok(before && Math.abs(before.x - (expected.x + 1) * 400) < 1e-7
       && Math.abs(before.y - (1 - expected.y) * 300) < 1e-7);
     const originalPosition = camera.position.clone();
@@ -135,7 +135,7 @@ test('nameplates follow the bent torus camera and presentation transforms, not c
     entity.dispose();
 });
 
-test('projector hides behind-camera/offscreen/empty entities and invalidates authored geometry bounds', () => {
+test('projector hides behind-camera/offscreen/empty entities and uses updated authored height after edits', () => {
   const { entity, camera } = entityAndCamera();
   const projector = new EntityNameplateProjector();
   const viewport = { width: 800, height: 600 };
@@ -144,6 +144,10 @@ test('projector hides behind-camera/offscreen/empty entities and invalidates aut
   entity.rebuildAfterBlockChange();
   const after = projector.project(entity, camera, viewport)!;
   assert.ok(after.y < before.y - 20, 'new geometry raises the overhead anchor');
+  const expected = bendPoint(10.5, 17.5, 10.5, new THREE.Vector3()).project(camera);
+  assert.ok(Math.abs(after.x - (expected.x + 1) * 400) < 1e-7
+    && Math.abs(after.y - (1 - expected.y) * 300) < 1e-7, 'height changes keep the original pivot anchor');
+  assert.equal(projector.project(entity, camera, { width: 0, height: 600 }), null);
   entity.rootGroup.position.z += 20;
   assert.equal(projector.project(entity, camera, viewport), null);
   entity.rootGroup.position.z -= 20;
@@ -164,7 +168,7 @@ test('labels project consistently across the periodic world seam', () => {
   entity.dispose();
 });
 
-test('moving nested components update the overhead bounds without rescanning every authored voxel', () => {
+test('moving nested components keep the HUD fixed without scanning voxels or updating child matrices', () => {
   const entity = new Contraption('arm', [0, 3].map(y => ({ localX: 0, localY: y, localZ: 0, size: 1, color: 0xf2a93b })),
     new THREE.Vector3(10, 16, 10), new THREE.Scene(), {
       childEntities: [{ id: 'arm', parentId: 'root', kind: 'child', pivot: [0, 3, 0], blockKeys: [['0', '3', '0']] }]
@@ -180,11 +184,42 @@ test('moving nested components update the overhead bounds without rescanning eve
   const projector = new EntityNameplateProjector();
   const viewport = { width: 800, height: 600 };
   const before = projector.project(entity, camera, viewport)!;
+  let childMatrixUpdates = 0;
+  const updateWorldMatrix = entity.meshGroup.updateWorldMatrix.bind(entity.meshGroup);
+  entity.meshGroup.updateWorldMatrix = (parents, children) => {
+    childMatrixUpdates++;
+    updateWorldMatrix(parents, children);
+  };
   for (let i = 0; i < 10; i++) assert.ok(projector.project(entity, camera, viewport));
   const arm = entity.entityNodes.get('arm')!;
+  arm.group.position.x += 4;
   arm.group.position.y += 2;
+  arm.group.rotation.z += Math.PI / 2;
   const after = projector.project(entity, camera, viewport)!;
-  assert.ok(after.y < before.y - 20);
-  assert.equal(scans, 1, 'authored bounds are scanned once and transformed per component thereafter');
+  assert.deepEqual(after, before, 'component motion must not shift the HUD');
+  assert.deepEqual(new EntityNameplateProjector().project(entity, camera, viewport), before,
+    'remounting the HUD during animation must keep the same height');
+  assert.equal(scans, 0, 'the HUD reuses the height already computed by voxel edits');
+  assert.equal(childMatrixUpdates, 0, 'projection only needs the root presentation transform');
+  entity.meshGroup.updateWorldMatrix = updateWorldMatrix;
+  entity.dispose();
+});
+
+test('rotating an entity keeps the HUD vertically above its custom root pivot', () => {
+  const { entity, camera } = entityAndCamera();
+  const projector = new EntityNameplateProjector();
+  const viewport = { width: 800, height: 600 };
+  assert.ok(entity.setComponentPivot(entity.rootComponentId, [0.2, 0.1, 0.3], {
+    requireStopped: false, allowDynamic: true,
+  }).ok);
+  const before = projector.project(entity, camera, viewport)!;
+  const expected = bendPoint(10.2, 16.6, 10.3, new THREE.Vector3()).project(camera);
+  assert.ok(before && Math.abs(before.x - (expected.x + 1) * 400) < 1e-7
+    && Math.abs(before.y - (1 - expected.y) * 300) < 1e-7);
+  for (const angle of [Math.PI / 4, Math.PI / 2, Math.PI]) {
+    entity.rootGroup.rotation.set(angle, angle / 2, angle);
+    assert.deepEqual(projector.project(entity, camera, viewport), before,
+      'the vertical offset must not rotate with the entity');
+  }
   entity.dispose();
 });

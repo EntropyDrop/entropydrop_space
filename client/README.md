@@ -26,8 +26,9 @@ stop icons matching the code editor to the right of the entity name.
 The browser executor name appears as a smaller second line below the entity name;
 the playback icon remains on the right and hosting retains its purple badge.
 The delete confirmation retains its explicit irreversible-action warning.
-Nameplates share the world render pass's bent camera and interpolated component
-transforms, caching authored extents rather than transforming every voxel per frame.
+Nameplates share the world render pass's bent camera and interpolated root pivot.
+They sit vertically above that pivot by half the entity's precomputed authored
+height; runtime rotation and child-component motion do not recalculate the offset.
 Selection bounding boxes respond to scene lighting, cast and receive shadows,
 and show occluded edges at 30% of the visible opacity. This applies to both live
 previews and confirmed selections.
@@ -227,11 +228,8 @@ snapshot terrain is emitted, and setting connections to 0 disables them.
 Settings → Graphics → Distant Terrain LOD also has a **Distant Terrain & LOD**
 master switch, enabled by default and saved locally. It disables the far terrain,
 authored distant structures and their LOD work together, preserving nearby terrain.
-During gameplay, average frame cadence is sampled in two-second windows; three
-consecutive samples below 60 FPS turn the switch off and display a notification.
-A sample at or above 60 FPS or a visibility change resets the streak. Background
-time and entry loading are excluded. The disabled preference survives reloads;
-use Enabled or Reset Recommended to restore it and start a fresh observation.
+Frame rate does not change this switch. The preference survives reloads;
+use Enabled or Reset Recommended to restore distant terrain when it is off.
 While off, initial distant preparation and subsequent snapshot polls are skipped.
 Recommended defaults keep every tier enabled, cover the full world, use
 400/600/800/1000/1600m transitions, and connect through 4000m.
@@ -240,15 +238,27 @@ An AI-native programmable voxel physics prototype:
 
 > Build anything. Tell it what to do.
 
-The renderer always uses the seamless torus donut terrain. World shape is not a
-per-player setting, so rendering, picking, distant LOD and physics all share the
-same wrapped topology.
+Settings → Graphics → Performance → **Terrain Shape** selects **Ring** (default)
+or **Flat**. Both use the same terrain, materials, resolution and distance
+preferences. Flat displays the finite world in its original X/Z coordinates;
+physics, storage and coordinate wrapping remain unchanged. Camera transforms,
+picking, normals and near/far culling follow the selected projection.
+
+**Auto-switch to Flat** is enabled by default. After entering the world, it
+measures foreground frame rate over each five-second window and switches to
+Flat after two consecutive samples strictly below 60 FPS. A sample at or above
+60 FPS clears the streak. Hiding the page, manually selecting a shape, or
+changing the automatic switch resets sampling. It does not automatically return
+to Ring. Both settings, including an automatic Flat choice, are saved locally.
+Returning to Ring manually starts a fresh observation window.
 
 Settings → Graphics → Camera & View includes an experimental **Chain-Linked
 Worlds** checkbox, off by default and saved locally. The current world stays live
 as the fixed middle link of a three-ring chain. Two other worlds (preferring
 Nature, Copper Metropolis and Aether Archipelago) are loaded once from
 authenticated distant terrain snapshots, at the same size as the live world.
+This linked-ring composition is hidden in Flat mode; its snapshots and preference
+are retained for returning to Ring.
 The live ring lies in XZ; the two snapshot rings lie in XY, centered at x=-4R/3
 and x=+4R/3. Each end ring links the middle once. The two ends are separate and
 do not link each other. There are no connecting shafts or bearings.

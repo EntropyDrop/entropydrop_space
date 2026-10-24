@@ -18,7 +18,7 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 // the CPU bends one camera, frustum-culls chunk spheres, and unbends ray samples.
 // =============================================================================
 import * as THREE from 'three/webgpu';
-import { Fn, uniform, reference, vec3, vec4, mat3, sin, cos, float, int, uint, storage, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty } from 'three/tsl';
+import { Fn, If, uniform, reference, vec3, vec4, mat3, sin, cos, float, int, uint, storage, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty } from 'three/tsl';
 import { asNodeMaterial } from '../render/NodeMaterials.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
 import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
@@ -58,11 +58,26 @@ export const TORUS_MAX_RHO = TORUS_R - 1;             // Keep ρ ≤ R−1 so th
 export const TORUS_K_THETA = (Math.PI * 2) / TORUS_SIZE_X;
 export const TORUS_K_PHI = (Math.PI * 2) / TORUS_SIZE_Z;
 
-const WORLD_PROJECTION_REVISION = 1;
+export type WorldProjection = 'torus' | 'flat';
+const projectionState = { torus: true };
+let worldProjectionRevision = 1;
 
-/** The torus projection is immutable, so cached bent-space bounds never need a mode revision. */
+export function getWorldProjection(): WorldProjection { return projectionState.torus ? 'torus' : 'flat'; }
+
+/** Changes presentation only; simulation, storage and coordinate wrapping stay unchanged. */
+export function setWorldProjection(mode: WorldProjection): WorldProjection {
+  const torus = mode !== 'flat';
+  if (projectionState.torus !== torus) {
+    projectionState.torus = torus;
+    worldProjectionRevision++;
+    setTorusViewCorrection(null);
+  }
+  return getWorldProjection();
+}
+
+/** Invalidates cached bounds and picking after a presentation-mode change. */
 export function getWorldProjectionRevision(): number {
-  return WORLD_PROJECTION_REVISION;
+  return worldProjectionRevision;
 }
 
 // -----------------------------------------------------------------------------
@@ -178,7 +193,7 @@ export function torusTubeTrig(z: number, out: THREE.Vector2) {
   );
 }
 
-function bendTorusPoint(x: number, y: number, z: number, out: THREE.Vector3) {
+export function bendTorusPoint(x: number, y: number, z: number, out = new THREE.Vector3()) {
   const theta = x * TORUS_K_THETA;
   torusTubeTrig(z, _tubeTrig);
   const cp = _tubeTrig.x;
@@ -194,13 +209,18 @@ function bendTorusPoint(x: number, y: number, z: number, out: THREE.Vector3) {
 
 /** Map flat (x,y,z) to bent (bx,by,bz). Reuse out for zero-allocation hot paths. */
 export function bendPoint(x: number, y: number, z: number, out = new THREE.Vector3()) {
-  return bendTorusPoint(x, y, z, out);
+  return projectionState.torus ? bendTorusPoint(x, y, z, out) : out.set(x, y, z);
 }
 
 /** Conservative sphere for every bent vertex/triangle in a flat AABB. The
  * maximum projection derivative bounds curvature between sampled vertices. */
-export function computeBentBoundsSphere(bounds: CollisionBounds, out = new THREE.Sphere()) {
-  bendPoint((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2,
+export function computeBentBoundsSphere(bounds: CollisionBounds, out = new THREE.Sphere(), mode = getWorldProjection()) {
+  if (mode === 'flat') {
+    out.center.set((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2, (bounds.minZ + bounds.maxZ) / 2);
+    out.radius = Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ) / 2 + 1e-6;
+    return out;
+  }
+  bendTorusPoint((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2,
     (bounds.minZ + bounds.maxZ) / 2, out.center);
   const maxHeightOffset = Math.max(
     Math.abs(bounds.minY - TORUS_GREF),
@@ -220,6 +240,7 @@ export function computeBentBoundsSphere(bounds: CollisionBounds, out = new THREE
 
 /** Map bent coordinates back to flat space. The outer solution is unique for ρ ≤ R−1. */
 export function unbendPoint(bx: number, by: number, bz: number, out = new THREE.Vector3()) {
+  if (!projectionState.torus) return out.set(bx, by, bz);
   const rxy = Math.hypot(bx, bz);
   let u = rxy - TORUS_R; // Outer solution for ρ·cosφ = ±rxy − R.
   if (u < -TORUS_MAX_RHO) u = -rxy - TORUS_R; // Hole fallback, outside the world and treated as air.
@@ -255,6 +276,7 @@ function torusFrameAxes(x: number, y: number, z: number) {
 
 /** Map a flat direction to a bent direction using local linearization. */
 export function bendDirection(x: number, y: number, z: number, dir: THREE.Vector3Like, out = new THREE.Vector3()) {
+  if (!projectionState.torus) return out.copy(dir);
   torusFrameAxes(x, y, z);
   const ex = _vA, ey = _vB, ez = _vC;
   return out.set(
@@ -266,6 +288,7 @@ export function bendDirection(x: number, y: number, z: number, dir: THREE.Vector
 
 /** Map a bent direction to flat space for picking flat meshes. */
 export function unbendDirection(x: number, y: number, z: number, dir: THREE.Vector3Like, out = new THREE.Vector3()) {
+  if (!projectionState.torus) return out.copy(dir);
   torusFrameAxes(x, y, z);
   return out.set(
     dir.x * _vA.x + dir.y * _vA.y + dir.z * _vA.z,
@@ -276,6 +299,7 @@ export function unbendDirection(x: number, y: number, z: number, dir: THREE.Vect
 
 /** Quaternion mapping the flat basis to the bent basis at a flat-space position. */
 export function bendFrameQuaternion(x: number, y: number, z: number, out = _quatA) {
+  if (!projectionState.torus) return out.identity();
   torusFrameAxes(x, y, z);
   _basis.makeBasis(_vA, _vB, _vC);
   return out.setFromRotationMatrix(_basis);
@@ -284,7 +308,7 @@ export function bendFrameQuaternion(x: number, y: number, z: number, out = _quat
 /** Keep the player's nearby cubic geometry in a flat tangent chart. The chart
  * smoothly rejoins the closed torus outside the interaction distance. */
 export function setTorusViewCorrection(flatCamera: THREE.Vector3 | null) {
-  if (!flatCamera) {
+  if (!flatCamera || !projectionState.torus) {
     if (_viewEnabled.value) viewCorrectionRevision++;
     _viewEnabled.value = 0;
     return;
@@ -387,6 +411,7 @@ export function projectBentSphereForView(sphere: THREE.Sphere, out = new THREE.S
 
 /** Bend a flat-space camera position and orientation onto the torus. */
 export function applyCameraBend(camera: THREE.Camera) {
+  if (!projectionState.torus) { camera.updateMatrixWorld(true); return; }
   const px = camera.position.x;
   const py = camera.position.y;
   const pz = camera.position.z;
@@ -458,6 +483,7 @@ export function computeChunkBentSphere(
 // GPU bending: inject the torus transform into every material vertex shader.
 // -----------------------------------------------------------------------------
 const hookedMaterials = new WeakSet<THREE.NodeMaterial>();
+const torusEnabledNode = reference('torus', 'bool', projectionState);
 const viewEnabledNode = reference('value', 'float', _viewEnabled);
 const viewOriginNode = uniform(_viewOrigin), viewMatrixNode = uniform(_viewMatrix);
 
@@ -514,12 +540,20 @@ function hookMaterialForTorus(source: THREE.Material) {
     // transforms can be emitted after this position node by the shader builder.
     const naturalVoxel = material.userData.voxelIntegerCoordinates === true;
     const world = (naturalVoxel ? vec3(flatPosition) : modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz).toVar();
-    const torus = naturalVoxel ? voxelTorusBendNode(world) : torusBendNode(world);
-    if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(torus.frame.mul(naturalVoxel ? flatNormal : modelWorldMatrix.mul(vec4(flatNormal, 0)).xyz.normalize()), 0)).xyz.normalize());
-    const delta = torus.position.sub(viewOriginNode);
-    const blend = smoothstep(VIEW_FLAT_RADIUS, VIEW_TORUS_RADIUS, delta.length()).oneMinus().mul(viewEnabledNode);
-    const corrected = torus.position.add(viewMatrixNode.mul(delta).sub(delta).mul(blend));
-    return naturalVoxel ? corrected : modelWorldMatrixInverse.mul(vec4(corrected, 1)).xyz;
+    const projected = world.toVar();
+    const worldNormal = naturalVoxel ? flatNormal : modelWorldMatrix.mul(vec4(flatNormal, 0)).xyz.normalize();
+    // A uniform branch skips torus lookup/trigonometry and view deformation in
+    // flat mode. It also reaches existing clones and cached command bundles.
+    If(torusEnabledNode, () => {
+      const torus = naturalVoxel ? voxelTorusBendNode(world) : torusBendNode(world);
+      if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(torus.frame.mul(worldNormal), 0)).xyz.normalize());
+      const delta = torus.position.sub(viewOriginNode);
+      const blend = smoothstep(VIEW_FLAT_RADIUS, VIEW_TORUS_RADIUS, delta.length()).oneMinus().mul(viewEnabledNode);
+      projected.assign(torus.position.add(viewMatrixNode.mul(delta).sub(delta).mul(blend)));
+    }).Else(() => {
+      if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(worldNormal, 0)).xyz.normalize());
+    });
+    return naturalVoxel ? projected : modelWorldMatrixInverse.mul(vec4(projected, 1)).xyz;
   })();
   if (usesNormal) material.normalNode = bentNormal.normalize();
   material.userData.torusNode = true;
@@ -606,7 +640,7 @@ export function cullChunks(camera: THREE.Camera, world: CullingWorld | null | un
     }
     world.distantSurface?.handoff.hook(mesh);
     let bs = mesh.userData && mesh.userData.bentSphere;
-    if (!bs || mesh.userData.bentSphereRevision !== WORLD_PROJECTION_REVISION) {
+    if (!bs || mesh.userData.bentSphereRevision !== worldProjectionRevision) {
       const occupiedRange = chunk.getOccupiedYRange?.();
       const minY = Number.isFinite(mesh.userData?.occupiedMinY)
         ? mesh.userData.occupiedMinY
@@ -616,7 +650,7 @@ export function cullChunks(camera: THREE.Camera, world: CullingWorld | null | un
         : occupiedRange ? occupiedRange.max + 1 : CHUNK_SIZE_Y;
       bs = computeChunkBentSphere(chunk.cx, chunk.cz, bs, minY, maxY);
       mesh.userData.bentSphere = bs;
-      mesh.userData.bentSphereRevision = WORLD_PROJECTION_REVISION;
+      mesh.userData.bentSphereRevision = worldProjectionRevision;
     }
 
     mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs), retainLocalShadowCasters);
@@ -641,7 +675,7 @@ export function cullChunks(camera: THREE.Camera, world: CullingWorld | null | un
     }
     world.distantSurface?.handoff.hook(mesh);
     let bs = mesh.userData?.bentSphere;
-    if (!bs || mesh.userData.bentSphereRevision !== WORLD_PROJECTION_REVISION) {
+    if (!bs || mesh.userData.bentSphereRevision !== worldProjectionRevision) {
       let cx = Number(mesh.userData?.projectionChunkCx);
       let cz = Number(mesh.userData?.projectionChunkCz);
       if (!Number.isFinite(cx) || !Number.isFinite(cz)) {
@@ -656,7 +690,7 @@ export function cullChunks(camera: THREE.Camera, world: CullingWorld | null | un
       const span = Number.isFinite(mesh.userData?.bentSpan) ? mesh.userData.bentSpan : 16;
       bs = computeChunkBentSphere(cx, cz, bs, minY, maxY, span);
       mesh.userData.bentSphere = bs;
-      mesh.userData.bentSphereRevision = WORLD_PROJECTION_REVISION;
+      mesh.userData.bentSphereRevision = worldProjectionRevision;
     }
     mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs), retainLocalShadowCasters);
     mesh.castShadow = mesh.visible && isLocalShadowCaster(camera, bs);

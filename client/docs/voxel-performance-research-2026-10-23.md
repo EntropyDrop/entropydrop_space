@@ -262,12 +262,10 @@ GPU timestamps asynchronously where supported. CPU time and GPU pass sums overla
 and must not be added into a claimed displayed-frame duration. Browser callback
 cadence is not direct proof of presentation timing.
 
-The automatic [distant-terrain FPS guard](../src/engine/render/DistantTerrainFpsGuard.ts)
-can switch the workload off after three low two-second windows. Benchmark mode
-must explicitly freeze that guard and adaptive quality, preserve/restore user
+The automatic distant-terrain FPS guard was removed on 2026-10-24. Benchmark mode
+must still fix graphics quality, preserve/restore user
 preferences, and verify distant terrain stayed enabled throughout a comparison.
 Otherwise a faster later sample might simply be rendering less of the world.
-This diagnostic isolation must not change the user's production rule.
 
 For equivalent-output optimizations, compare fixed images plus moving views and
 interaction/collision regressions. For LOD or new representations, define the

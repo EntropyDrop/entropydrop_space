@@ -12,7 +12,7 @@ import { prepareSurfaceSelection, surfaceNodeIndex } from '../wasm/SurfaceSelect
 import { surfaceSubdivisionWorldArea, surfaceSubdivisionDistance, SURFACE_AREA_HYSTERESIS } from './SurfaceSubdivision.ts';
 import {
   TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_RHO, TORUS_GREF,
-  computeBentBoundsSphere, hookSceneMaterials,
+  computeBentBoundsSphere, getWorldProjection, getWorldProjectionRevision, hookSceneMaterials,
 } from '../torus/TorusWorld.ts';
 
 const CHUNK_SIZE = 16;
@@ -372,6 +372,7 @@ export class DistantSurfaceLayer {
   private connectionsReady = false;
   private connectionsDirty = true;
   private connectionBuildGeneration = 0;
+  private projectionRevision = getWorldProjectionRevision();
   private connectionBuildPending = false;
   private enabled = true;
   private centerChunkX = 0;
@@ -486,6 +487,17 @@ export class DistantSurfaceLayer {
   updateView(camera: THREE.PerspectiveCamera, viewportHeight: number) {
     this.updateHandoffs();
     if (!this.enabled) return;
+    if (this.projectionRevision !== getWorldProjectionRevision()) {
+      this.projectionRevision = getWorldProjectionRevision();
+      this.hasView = false;
+      this.lodViewKey = '';
+      this.rootCache.clear();
+      this.rootSplits.clear();
+      this.zoneDemandSizes.clear();
+      this.connectionBuildGeneration++;
+      this.connectionBuildPending = false;
+      this.rebuildQueued = false;
+    }
     if (!this.hasView) {
       // Snapshots can arrive before the far layer has received its first view.
       for (const [key, zone] of this.zones) {
@@ -920,7 +932,9 @@ export class DistantSurfaceLayer {
     }
     const start = this.connectedCells.length;
     this.rootMotionTolerance = Infinity;
-    const kernel = getTerrainKernels();
+    // The legacy heightfield WASM selector embeds torus distances. The shared
+    // JS selector computes the active projection and retains identical SSE.
+    const kernel = getWorldProjection() === 'torus' ? getTerrainKernels() : null;
     const work = kernel ? [] : [localX, localZ, 64];
     const selection = kernel ? this.beginWasmSelection(zone, localX, localZ) : null;
     let sliceStarted = performance.now();
@@ -954,7 +968,7 @@ export class DistantSurfaceLayer {
   private appendZone(zone: StoredSurfaceZone) {
     if (zone.volumetric) return;
     for (const [localX, localZ] of SURFACE_ROOT_ORIGINS) {
-      const kernel = this.hasView ? getTerrainKernels() : null;
+      const kernel = this.hasView && getWorldProjection() === 'torus' ? getTerrainKernels() : null;
       if (!kernel) { this.visitCell(zone, localX, localZ, 64); continue; }
       const selection = this.beginWasmSelection(zone, localX, localZ);
       if (!selection) continue;
