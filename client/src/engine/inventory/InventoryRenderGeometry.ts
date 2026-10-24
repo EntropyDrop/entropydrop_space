@@ -7,9 +7,12 @@ import { getInventoryPreviewBlocks, STOPPED_GRID_EPSILON, type InventoryPreviewB
 export const INVENTORY_PREVIEW_DETAIL_LIMIT = 200;
 
 /** Display geometry only. Placement and construction keep their exact voxels. */
-export function getInventoryRenderPreviewBlocks(slot: InventoryInput | null | undefined): InventoryPreviewBlock[] {
+export function getInventoryRenderPreviewBlocks(
+  slot: InventoryInput | null | undefined,
+  detailLimit = INVENTORY_PREVIEW_DETAIL_LIMIT
+): InventoryPreviewBlock[] {
   const entries = getInventoryPreviewBlocks(slot, true);
-  if (entries.length <= INVENTORY_PREVIEW_DETAIL_LIMIT) return entries;
+  if (entries.length <= detailLimit) return entries;
 
   const cells = new Map<string, {
     center: THREE.Vector3;

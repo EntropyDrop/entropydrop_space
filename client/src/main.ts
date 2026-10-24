@@ -523,9 +523,6 @@ class Game {
     window.addEventListener('pagehide', persistBeforeSuspension);
     window.addEventListener('beforeunload', persistBeforeSuspension);
     document.addEventListener('visibilitychange', () => {
-      // A hidden tab may receive no animation frames at all. Reset at the
-      // visibility event so time spent suspended cannot become a slow sample.
-      this.uiStore.sampleWorldProjectionFrame(performance.now(), false);
       if (document.visibilityState === 'hidden') persistBeforeSuspension();
     });
   }
@@ -591,7 +588,6 @@ class Game {
     // Track FPS
     this.frameCount++;
     const now = performance.now();
-    this.uiStore.sampleWorldProjectionFrame(now, document.visibilityState === 'visible');
     if (now - this.lastFpsTime >= 500) {
       this.currentFps = (this.frameCount * 1000) / (now - this.lastFpsTime);
       this.frameCount = 0;

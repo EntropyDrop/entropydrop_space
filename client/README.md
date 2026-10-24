@@ -244,13 +244,8 @@ preferences. Flat displays the finite world in its original X/Z coordinates;
 physics, storage and coordinate wrapping remain unchanged. Camera transforms,
 picking, normals and near/far culling follow the selected projection.
 
-**Auto-switch to Flat** is enabled by default. After entering the world, it
-measures foreground frame rate over each five-second window and switches to
-Flat after two consecutive samples strictly below 60 FPS. A sample at or above
-60 FPS clears the streak. Hiding the page, manually selecting a shape, or
-changing the automatic switch resets sampling. It does not automatically return
-to Ring. Both settings, including an automatic Flat choice, are saved locally.
-Returning to Ring manually starts a fresh observation window.
+The selected terrain shape is saved locally and restored on reload. Frame rate
+does not change the terrain shape.
 
 Settings → Graphics → Camera & View includes an experimental **Chain-Linked
 Worlds** checkbox, off by default and saved locally. The current world stays live

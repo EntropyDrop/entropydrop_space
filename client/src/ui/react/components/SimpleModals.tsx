@@ -256,7 +256,7 @@ function OnlineSpaceApiKeysSettings() {
 
 export function GlobalSettingsModal() {
   const state = useSpaceUiFields(
-    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceEnabled', 'distantSurfaceSettings', 'worldProjection', 'worldProjectionAuto', 'world', 'musicEnabled', 'effectsEnabled'
+    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceEnabled', 'distantSurfaceSettings', 'worldProjection', 'world', 'musicEnabled', 'effectsEnabled'
   );
   const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>(() =>
     onlinePanelSettingsTab(typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('panel')) || 'character');
@@ -432,18 +432,6 @@ export function GlobalSettingsModal() {
                   {([['torus', 'Ring'], ['flat', 'Flat']] as const).map(([value, label]) => (
                     <button key={value} className={`segment-btn ${state.worldProjection === value ? 'active' : ''}`}
                       aria-pressed={state.worldProjection === value} onClick={() => spaceUiStore.setWorldProjection(value)}>{label}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <span className="settings-label" id="setting-world-projection-auto-label">Auto-switch to Flat</span>
-                  <span className="settings-desc">Switch to Flat after two consecutive 5-second samples below 60 FPS. Return to Ring manually.</span>
-                </div>
-                <div className="settings-segmented-control" id="setting-world-projection-auto-group" role="group" aria-labelledby="setting-world-projection-auto-label">
-                  {([[true, 'Enabled'], [false, 'Disabled']] as const).map(([value, label]) => (
-                    <button key={String(value)} className={`segment-btn ${state.worldProjectionAuto === value ? 'active' : ''}`}
-                      aria-pressed={state.worldProjectionAuto === value} onClick={() => spaceUiStore.setWorldProjectionAuto(value)}>{label}</button>
                   ))}
                 </div>
               </div>

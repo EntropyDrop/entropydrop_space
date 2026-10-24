@@ -105,7 +105,7 @@ test('Hammer builds its ghost from standard summary cells without changing the p
   assert.equal(slot.blocks.length, 201);
 });
 
-test('thumbnail rendering switches from micro cubes to standard summary cubes above 200', async t => {
+test('backpack, market and hotbar thumbnails retain micro cubes below 10,000 blocks', async t => {
   const thumbnails: any = new InventoryThumbnailRenderer();
   await thumbnails.ready;
   const previousDocument = globalThis.document, previousImageData = globalThis.ImageData;
@@ -117,14 +117,39 @@ test('thumbnail rendering switches from micro cubes to standard summary cubes ab
   t.after(() => { globalThis.document = previousDocument; globalThis.ImageData = previousImageData; });
   const rendered: Array<{ count: number; size: number }> = [];
   Object.assign(thumbnails, {
-    webgpuAvailable: true, canvas: { width: 16, height: 16 }, scene: new THREE.Scene(),
+    webgpuAvailable: true, canvas: { width: 96, height: 96 }, scene: new THREE.Scene(),
     camera: new THREE.PerspectiveCamera(38, 1, 0.1, 500),
-    renderer: { setRenderTarget() {}, render(scene: THREE.Scene) {
+    renderer: { setSize() {}, setRenderTarget() {}, render(scene: THREE.Scene) {
       scene.traverse((object: any) => { if (object.isInstancedMesh) rendered.push({ count: object.count, size: object.geometry.parameters.width }); });
-    }, async readRenderTargetPixelsAsync() { return new Uint8Array(16 * 16 * 4); } }
+    }, async readRenderTargetPixelsAsync(_target: unknown, _x: number, _y: number, width: number, height: number) {
+      return new Uint8Array(width * height * 4);
+    } }
   });
-  for (const count of [200, 201]) {
-    assert.equal(await thumbnails.generateThumbnail({ kind: 'blockset', blocks: microBlocks(count) }, 16, `test-${count}`), encoded);
+  for (const size of [64, 96, 144]) {
+    for (const count of [200, 201, 9_999, 10_000, 10_001]) {
+      rendered.length = 0;
+      const slot = { kind: 'blockset', blocks: microBlocks(count) };
+      assert.equal(await thumbnails.generateThumbnail(slot, size, `test-${count}-${size}`), encoded);
+      assert.deepEqual(rendered, [count < 10_000
+        ? { count, size: 0.125 }
+        : { count: Math.ceil(count / 512), size: 1 }]);
+      assert.equal(slot.blocks.length, count);
+    }
   }
-  assert.deepEqual(rendered, [{ count: 200, size: 0.125 }, { count: 1, size: 1 }]);
+
+  const blocks = microBlocks(4_999);
+  const entity = entityWithMicros(5_000);
+  const item = { kind: 'item', blocks: [], blockSet: { kind: 'blockset', blocks }, entityList: [entity] };
+  rendered.length = 0;
+  assert.equal(await thumbnails.generateThumbnail(item, 96, 'mixed-item-detailed'), encoded);
+  assert.deepEqual(rendered, [{ count: 9_999, size: 0.125 }], 'mixed items retain all static and entity blocks');
+  const detailedKey = thumbnails.computeItemCacheKey(item, 96);
+  blocks[4_998] = { ...blocks[4_998], color: 0x00ff00 };
+  assert.notEqual(thumbnails.computeItemCacheKey(item, 96), detailedKey, 'thumbnail keys retain individual voxel colors');
+
+  entity.blocks.push({ ...entity.blocks[4_999], localZ: entity.blocks[4_999].localZ + 0.125 });
+  rendered.length = 0;
+  assert.equal(await thumbnails.generateThumbnail(item, 144, 'mixed-item-summary'), encoded);
+  assert.deepEqual(rendered.map(mesh => mesh.size), [1], 'the threshold counts all blocks across the whole item');
+  assert.ok(rendered[0].count < 10_000);
 });

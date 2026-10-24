@@ -4,6 +4,9 @@ import { normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import { getInventoryRenderPreviewBlocks } from '../inventory/InventoryRenderGeometry.ts';
 
+// Backpack, market and hotbar thumbnails retain exact geometry below 10,000 blocks.
+const THUMBNAIL_DETAIL_LIMIT = 9_999;
+
 export class InventoryThumbnailRenderer {
   private static instance: InventoryThumbnailRenderer | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -99,7 +102,7 @@ export class InventoryThumbnailRenderer {
 
   private computeItemCacheKey(item: any, size: number): string {
     if (item.kind === 'item') {
-      const geometry = getInventoryRenderPreviewBlocks(item).map(entry => (
+      const geometry = getInventoryRenderPreviewBlocks(item, THUMBNAIL_DETAIL_LIMIT).map(entry => (
         `${entry.center.toArray()}:${entry.size}:${entry.color}:${normalizeVoxelMaterialId(entry.materialId)}:${entry.scale?.toArray()}:${entry.quaternion?.toArray()}`
       )).join(';');
       return `item:${geometry}:${size}`;
@@ -156,7 +159,7 @@ export class InventoryThumbnailRenderer {
     const createdMeshes: THREE.InstancedMesh[] = [];
     try {
       // 1. Convert inventory item into resting / stopped state voxel instances
-      const previewBlocks = getInventoryRenderPreviewBlocks(item);
+      const previewBlocks = getInventoryRenderPreviewBlocks(item, THUMBNAIL_DETAIL_LIMIT);
       if (!previewBlocks || previewBlocks.length === 0) return null;
 
       // 2. Compute bounding box
