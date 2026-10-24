@@ -5,8 +5,8 @@ import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.t
 import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 
-for (const tool of [SpecialTool.SELECTOR, SpecialTool.WRENCH]) {
-  test(`${tool} focus uses the tool's link style and follows rendered parent and child pivots`, () => {
+for (const tool of [SpecialTool.SELECTOR, SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.WRENCH]) {
+  test(`${tool} focus animates parent and child waves at the rendered component pivots`, () => {
     const scene = new THREE.Scene();
     const entity = new Contraption(1, [
       { localX: 0, localY: 0, localZ: 0, size: 1, block: 1, entityId: 'root' },
@@ -26,7 +26,7 @@ for (const tool of [SpecialTool.SELECTOR, SpecialTool.WRENCH]) {
       clearHammerRotation() {}, clearSelection() {}, releaseWrenchGizmoDrag() {},
       releaseWrenchGrab() {}, clearWrenchPivotDisplay() {},
     });
-    controller._activeTool = SpecialTool.SELECTOR;
+    controller._activeTool = tool;
     const focus = (entityId?: string) => {
       controller.hoveredContraptionHit = { contraption: entity, entityId };
       controller.updateComponentHierarchyLinks();
@@ -35,16 +35,12 @@ for (const tool of [SpecialTool.SELECTOR, SpecialTool.WRENCH]) {
     try {
       entity.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7);
       entity.updateTransform();
-      focus('root');
+      // Seed the renderer's straight-line fallback to verify focus replaces it.
+      renderer.setComponentHierarchyLinks(entity, 'root');
       const lines = renderer.componentHierarchyLinks.lines as THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
-      const positions = lines.geometry.getAttribute('position');
-      const verticesPerLink = lines.geometry.drawRange.count / 2;
-      controller.activeTool = tool;
       focus('root');
-      const animatedChildren = tool === SpecialTool.WRENCH;
       const childLinks = () => (renderer.componentChildLinks || []).filter((link: { group: THREE.Group }) => link.group.visible);
-      const childLinkCount = () => animatedChildren ? childLinks().length
-        : lines.visible ? lines.geometry.drawRange.count / verticesPerLink : 0;
+      const childLinkCount = () => childLinks().length;
       const assertWaveLink = (group: THREE.Group, child: string, parent: string) => {
         assert.equal(group.visible, true);
         const wave = group.getObjectByName('OwnershipWave') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicNodeMaterial>;
@@ -60,46 +56,34 @@ for (const tool of [SpecialTool.SELECTOR, SpecialTool.WRENCH]) {
         assert.ok(group.getObjectByName('OwnerPivot')!.getWorldPosition(new THREE.Vector3()).distanceTo(pivot(parent)) < 1e-6);
       };
       const assertLink = (index: number, child: string, parent: string) => {
-        if (animatedChildren) {
-          assertWaveLink(childLinks()[index].group, child, parent);
-          return;
-        }
-        const start = pivot(child), end = pivot(parent);
-        for (let vertex = 0; vertex < verticesPerLink; vertex++) {
-          const fraction = (Math.floor(vertex / 2) + vertex % 2) / (verticesPerLink / 2);
-          const expected = start.clone().lerp(end, fraction);
-          const actual = new THREE.Vector3().fromBufferAttribute(positions, index * verticesPerLink + vertex);
-          assert.ok(actual.distanceTo(expected) < 1e-5, 'every vertex lies on the child-to-parent straight line');
-        }
+        assertWaveLink(childLinks()[index].group, child, parent);
       };
-      assert.equal(lines.visible, !animatedChildren, 'Wrench replaces every white line with a wave');
+      assert.equal(lines.visible, false, 'every white child line is replaced with a wave');
       assert.equal(childLinkCount(), 2, 'focus works without clicking or locking the pointer');
       assert.equal(lines.material.color.getHex(), 0xffffff);
       assert.equal(lines.material.depthTest, false);
       assertLink(0, 'arm', 'root');
       assertLink(1, 'wing', 'root');
-      if (animatedChildren) {
-        renderer.setComponentHierarchyLinks(entity, 'root', { animateChildren: true, seconds: 0 });
-        const buffers = childLinks().map((link: { group: THREE.Group }) =>
-          (link.group.getObjectByName('OwnershipWave') as THREE.Mesh).geometry.getAttribute('position'));
-        const firstFrames = buffers.map((buffer: THREE.BufferAttribute) => Array.from(buffer.array));
-        renderer.setComponentHierarchyLinks(entity, 'root', { animateChildren: true, seconds: 0.2 });
-        for (let index = 0; index < buffers.length; index++) {
-          assert.equal((childLinks()[index].group.getObjectByName('OwnershipWave') as THREE.Mesh).geometry.getAttribute('position'), buffers[index]);
-          assert.notDeepEqual(Array.from(buffers[index].array), firstFrames[index], 'each child wave animates in its reused buffer');
-        }
-        controller.activeTool = SpecialTool.SELECTOR;
-        controller.updateComponentHierarchyLinks();
-        assert.equal(lines.visible, true, 'returning to Selector restores straight child lines');
-        assert.equal(childLinks().length, 0, 'returning to Selector hides every child wave');
-        controller.activeTool = tool;
-        controller.updateComponentHierarchyLinks();
-        assert.equal(childLinks().length, 2);
+      renderer.setComponentHierarchyLinks(entity, 'root', { animateChildren: true, seconds: 0 });
+      const buffers = childLinks().map((link: { group: THREE.Group }) =>
+        (link.group.getObjectByName('OwnershipWave') as THREE.Mesh).geometry.getAttribute('position'));
+      const firstFrames = buffers.map((buffer: THREE.BufferAttribute) => Array.from(buffer.array));
+      renderer.setComponentHierarchyLinks(entity, 'root', { animateChildren: true, seconds: 0.2 });
+      for (let index = 0; index < buffers.length; index++) {
+        assert.equal((childLinks()[index].group.getObjectByName('OwnershipWave') as THREE.Mesh).geometry.getAttribute('position'), buffers[index]);
+        assert.notDeepEqual(Array.from(buffers[index].array), firstFrames[index], 'each child wave animates in its reused buffer');
       }
+      controller.activeTool = tool === SpecialTool.SELECTOR ? SpecialTool.WRENCH : SpecialTool.SELECTOR;
+      controller.updateComponentHierarchyLinks();
+      assert.equal(lines.visible, false, 'switching between inspection tools keeps the same wave style');
+      assert.equal(childLinks().length, 2);
+      controller.activeTool = tool;
+      controller.updateComponentHierarchyLinks();
       entity.getEntityNode('root')!.group.position.add(new THREE.Vector3(1, 2, 3));
       entity.getEntityNode('arm')!.group.position.add(new THREE.Vector3(0, 1, 0));
       controller.updateComponentHierarchyLinks();
-      assert.equal(lines.geometry.getAttribute('position'), positions, 'moving components reuse the buffer');
+      assert.equal((childLinks()[0].group.getObjectByName('OwnershipWave') as THREE.Mesh).geometry.getAttribute('position'), buffers[0],
+        'moving components and switching tools reuse the wave buffer');
       assertLink(0, 'arm', 'root');
       assertLink(1, 'wing', 'root');
       focus('arm');
@@ -112,9 +96,9 @@ for (const tool of [SpecialTool.SELECTOR, SpecialTool.WRENCH]) {
         assertWaveLink(parentLink, child, parent);
       };
       assert.equal(wave.material.color.getHex(), 0xffdc73);
-      renderer.setComponentHierarchyLinks(entity, 'arm', { animateChildren: animatedChildren, seconds: 0 });
+      renderer.setComponentHierarchyLinks(entity, 'arm', { animateChildren: true, seconds: 0 });
       const firstFrame = Array.from(wavePositions.array);
-      renderer.setComponentHierarchyLinks(entity, 'arm', { animateChildren: animatedChildren, seconds: 0.2 });
+      renderer.setComponentHierarchyLinks(entity, 'arm', { animateChildren: true, seconds: 0.2 });
       assert.equal(wave.geometry.getAttribute('position'), wavePositions, 'animation reuses the wave buffer');
       assert.notDeepEqual(Array.from(wavePositions.array), firstFrame, 'the parent wave animates between frames');
       assertParentLink('arm', 'root');

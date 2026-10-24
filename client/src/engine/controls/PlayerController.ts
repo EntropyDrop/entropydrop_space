@@ -5096,6 +5096,29 @@ export class PlayerController {
       this.ui?.showToast?.('This entity is occupied by another endpoint', { tone: 'warning' });
       return false;
     }
+    if (action === 'set-kinematic' || action === 'set-dynamic') {
+      if (contraption.serverManaged === true && contraption.serverCanEdit !== true) {
+        this.ui?.showToast?.('This entity is read-only', { tone: 'warning' });
+        return false;
+      }
+      if (contraption.serverExecutionMode === 'hosted') {
+        this.ui?.showToast?.('Hosted entity body types cannot be changed from this client', { tone: 'warning' });
+        return false;
+      }
+      if (this.wrenchGrab?.contraption === contraption) this.releaseWrenchGrab();
+      const bodyType = action === 'set-kinematic' ? 'kinematic' : 'dynamic';
+      const result = this.performBasicAction({
+        domain: ActionDomain.PHYSICS,
+        action: 'set-body-type',
+        target: { contraption },
+        nodeId: contraptionRootId(contraption),
+        bodyType
+      });
+      if (result.ok) this.contraptions.saveEntitiesToStorage();
+      this.ui?.refresh?.();
+      this.ui?.showToast?.(result.ok ? `Rigid body: ${bodyType}` : 'Unable to change rigid body type');
+      return result.ok;
+    }
     if (action === 'program') return this.openCodeEditorForTarget(contraption);
     if (action === 'copy') {
       const slot = contraption.serializeSubtree(contraptionRootId(contraption));
@@ -6666,10 +6689,11 @@ export class PlayerController {
   updateComponentHierarchyLinks() {
     const hit = this.hoveredContraptionHit;
     const entity = hit?.contraption;
-    const enabled = (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.WRENCH)
+    const enabled = (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.WRENCH
+      || this.activeTool === SpecialTool.SHOVEL || this.activeTool === SpecialTool.SPOON)
       && !this.worldPickingSuspended && entity && this.contraptions?.contraptions?.includes(entity);
     this.sceneRenderer?.setComponentHierarchyLinks?.(enabled ? entity : null, hit?.entityId,
-      { animateChildren: this.activeTool === SpecialTool.WRENCH });
+      { animateChildren: true });
   }
 
   /** Resolve a fresh click against visible geometry before any tool edits. */

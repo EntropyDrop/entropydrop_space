@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { nearestGridAlignedQuaternion, PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
@@ -111,6 +113,62 @@ test('menu commands always use clicked entity instead of current hover and rejec
   assert.equal(calls.some(call => call[0] === 'remove'), false);
 });
 
+test('menu body type changes save the clicked root default, preserve child types and survive Stop', async () => {
+  const { controller, other } = harness();
+  const target = new Contraption(1, [0, 1].map(localX => ({
+    localX, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK
+  })), new THREE.Vector3(), new THREE.Scene());
+  target.createChildEntity(target.rootComponentId, new Set(['1,0,0']), 'arm');
+  const childType = target.getNodeBodyType('arm');
+  const savedTypes: string[] = [];
+  controller.contraptions.contraptions = [target, other];
+  controller.contraptions.saveEntitiesToStorage = () => {
+    const slot = target.serializeSubtree(target.rootComponentId);
+    assert.ok(slot);
+    savedTypes.push(slot.bodyType);
+  };
+  controller.performBasicAction = PlayerController.prototype.performBasicAction;
+  controller.selectedBlockSelection = { contraption: other, nodeId: 'unrelated-child' };
+
+  const scriptApi = target.scriptApi;
+  assert.ok(scriptApi);
+  for (const bodyType of ['kinematic', 'dynamic']) {
+    assert.equal(await controller.performEntityMenuAction(target, `set-${bodyType}`), true);
+    assert.equal(target.bodyType, bodyType);
+    assert.equal(target.getNodeBodyType('arm'), childType);
+    assert.equal(savedTypes.at(-1), bodyType);
+    scriptApi.body.setType(bodyType === 'kinematic' ? 'dynamic' : 'kinematic');
+    target.stopAllNodeScripts();
+    assert.equal(target.bodyType, bodyType, 'Stop restores the chosen default after a script override');
+  }
+  assert.deepEqual(savedTypes, ['kinematic', 'dynamic']);
+  assert.equal(other.bodyType, undefined, 'hovered and selected entities remain unchanged');
+});
+
+test('menu body type changes recheck editing, execution and target availability before mutating or saving', async () => {
+  for (const properties of [
+    { serverManaged: true, serverCanControl: true, serverCanEdit: false },
+    { serverManaged: true, serverCanControl: false, serverCanEdit: true },
+    { serverManaged: true, serverCanControl: true, serverCanEdit: true, serverExecutionMode: 'hosted' }
+  ]) {
+    const { controller, target, calls } = harness();
+    Object.assign(target, properties);
+    controller.contraptions.saveEntitiesToStorage = () => assert.fail('rejected changes must not save');
+    for (const action of ['set-kinematic', 'set-dynamic']) {
+      assert.equal(await controller.performEntityMenuAction(target, action), false);
+    }
+    assert.equal(calls.some(call => call[0] === 'action'), false);
+  }
+  const { controller, target, calls } = harness();
+  controller.contraptions.saveEntitiesToStorage = () => assert.fail('failed changes must not save');
+  controller.performBasicAction = () => ({ ok: false });
+  assert.equal(await controller.performEntityMenuAction(target, 'set-kinematic'), false);
+  assert.ok(calls.some(call => call[0] === 'toast' && call[1] === 'Unable to change rigid body type'));
+  controller.contraptions.contraptions = [];
+  controller.performBasicAction = () => assert.fail('departed targets must not be mutated');
+  assert.equal(await controller.performEntityMenuAction(target, 'set-dynamic'), false);
+});
+
 test('whole entity copy needs no Selector A/B and includes the complete root definition without altering running source', async () => {
   const { controller, target, calls } = harness();
   controller.requireConfirmedSelection = () => { throw new Error('whole entity copy must not require A/B'); };
@@ -159,7 +217,7 @@ test('remote delete waits for acknowledgement and keeps entity after failure or 
 test('opening a menu during bulk editing is allowed but commands cannot race its captured entity', async () => {
   const { controller, target, calls } = harness();
   controller.bulkEditJob = { label: 'Filling selection' };
-  for (const action of ['start', 'stop', 'copy', 'delete', 'disassemble', 'program', 'select-all']) {
+  for (const action of ['start', 'stop', 'copy', 'delete', 'disassemble', 'program', 'select-all', 'set-kinematic', 'set-dynamic']) {
     assert.equal(await controller.performEntityMenuAction(target, action), false);
   }
   assert.equal(calls.every(call => call[0] === 'toast'), true);

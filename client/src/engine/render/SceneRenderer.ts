@@ -2314,7 +2314,7 @@ export class SceneRenderer {
     }
   }
 
-  /** Animate the parent link; Wrench also animates the direct child links. */
+  /** Animate the parent link and optionally the direct child links. */
   setComponentHierarchyLinks(entity: Contraption | null, nodeId?: string,
     { animateChildren = false, seconds = performance.now() / 1000 }: { animateChildren?: boolean; seconds?: number } = {}) {
     for (const link of this.componentChildLinks || []) link.group.visible = false;

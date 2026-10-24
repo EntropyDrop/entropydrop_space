@@ -7,11 +7,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 import { spaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
-// Node's built-in type stripping does not handle JSX. Compile only this UI
-// module in memory so these assertions cover rendered React, not source strings.
+// Node's built-in type stripping does not handle JSX. Compile the UI modules
+// in memory so these assertions cover rendered React, not source strings.
 const componentUrl = new URL('../src/ui/react/components/EntityMenus.tsx', import.meta.url).href;
+const componentsUrl = new URL('../src/ui/react/components/', import.meta.url).href;
 const hook = registerHooks({ load(url, context, nextLoad) {
-  if (url !== componentUrl) return nextLoad(url, context);
+  if (!url.startsWith(componentsUrl) || !url.endsWith('.tsx')) return nextLoad(url, context);
   return { format: 'module', shortCircuit: true, source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
     compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
   }).outputText };
@@ -67,6 +68,31 @@ test('iconifying actions preserves remote occupancy and server-hosting availabil
   assert.match(markup, /class="entity-run-status hosted"/);
   assert.match(markup, /aria-label="Server hosting · running"/);
   assert.match(button(markup, 'Stop hosting').attributes, /disabled=/);
+});
+
+test('entity menu shows the current body type, accessible help and edit restrictions', () => {
+  for (const bodyType of ['kinematic', 'dynamic']) {
+    const markup = render({ id: 'one', bodyType, scriptStatus: 'stopped' }, EntityContextMenu);
+    for (const option of ['kinematic', 'dynamic']) {
+      const action = button(markup, `Set entity type to ${option}`);
+      assert.match(action.attributes, /role="menuitemradio"/);
+      assert.ok(action.attributes.includes(`aria-checked="${option === bodyType}"`));
+      assert.doesNotMatch(action.attributes, /disabled=/);
+    }
+    assert.match(button(markup, 'About entity body types').attributes, /aria-describedby="entity-body-type-tooltip"/);
+    assert.match(markup, /id="entity-body-type-tooltip"[^>]*role="tooltip"/);
+    assert.match(markup, /<b>kinematic<\/b>: Moved by scripts/);
+    assert.match(markup, /<b>dynamic<\/b>: Simulated by physics/);
+  }
+  for (const properties of [
+    { serverManaged: true, serverCanEdit: false, serverCanControl: true },
+    { serverManaged: true, serverCanEdit: true, serverCanControl: false, serverDesiredRunState: 'running' },
+    { serverManaged: true, serverCanEdit: true, serverCanControl: true, serverExecutionMode: 'hosted' }
+  ]) {
+    const markup = render({ id: 'one', bodyType: 'dynamic', scriptStatus: 'stopped', ...properties }, EntityContextMenu);
+    for (const option of ['kinematic', 'dynamic']) assert.match(button(markup, `Set entity type to ${option}`).attributes, /disabled=/);
+    assert.doesNotMatch(button(markup, 'About entity body types').attributes, /disabled=/);
+  }
 });
 
 test('hosting initiator gets an English early Stop control with an icon, independently of author permissions', () => {

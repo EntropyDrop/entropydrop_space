@@ -159,6 +159,7 @@ export function EntityContextMenu() {
   const hostingBusy = busy || hostingBusyIds.includes(String(entity.publicId));
   const isHosted = entity.serverExecutionMode === 'hosted';
   const canResetRotation = canEdit && !isHosted && (!status.running || canControl);
+  const canChangeBodyType = canEdit && !isHosted && (!status.running || canControl);
   const canDisassemble = canEdit && canControl && !isHosted;
   const hostingAction = async (enabled: boolean) => {
     if (hostingBusy) return;
@@ -177,7 +178,7 @@ export function EntityContextMenu() {
     try {
       const success = await controller?.performEntityMenuAction?.(entity, action);
       spaceUiStore.refresh();
-      if (success && !['start', 'stop'].includes(action)) {
+      if (success && !['start', 'stop', 'set-kinematic', 'set-dynamic'].includes(action)) {
         spaceUiStore.closeEntityContextMenu(action !== 'program');
       }
     } finally { setBusy(false); }
@@ -195,6 +196,26 @@ export function EntityContextMenu() {
       <EntityStatusBadge status={status} compact={false} />
       <div className="selector-context-details">ID: {entity.publicId || entity.id}{!canControl ? ' · read only' : ''}</div>
       {entity.serverHostingCoreId != null && <div className="selector-context-details">Dedicated core {entity.serverHostingCoreId + 1}</div>}
+      <div className="entity-body-type-row">
+        <span id="entity-body-type-label">Type</span>
+        <div className="entity-body-type-options" role="group" aria-labelledby="entity-body-type-label">
+          {(['kinematic', 'dynamic'] as const).map(bodyType => <button key={bodyType} type="button" role="menuitemradio"
+            aria-label={`Set entity type to ${bodyType}`} aria-checked={entity.bodyType === bodyType}
+            className={entity.bodyType === bodyType ? 'active' : undefined} disabled={busy || !canChangeBodyType}
+            title={isHosted ? 'Hosted entity body types cannot be changed from this client'
+              : !canChangeBodyType ? 'This entity is read-only or occupied by another endpoint' : `Set root body to ${bodyType}`}
+            onClick={() => void run(`set-${bodyType}`)}>{bodyType}</button>)}
+        </div>
+        <div className="entity-body-type-help">
+          <button type="button" className="entity-body-type-help-trigger" aria-label="About entity body types"
+            aria-describedby="entity-body-type-tooltip">?</button>
+          <div id="entity-body-type-tooltip" className="entity-body-type-tooltip" role="tooltip">
+            <p><b>kinematic</b>: Moved by scripts; unaffected by gravity and forces. Collision-enabled movement is clipped against other entities.</p>
+            <p><b>dynamic</b>: Simulated by physics; responds to forces, and to gravity and collisions when enabled.</p>
+            <p>Applies to the entity's root body. Child bodies keep their own types.</p>
+          </div>
+        </div>
+      </div>
       <div className="entity-context-actions">
         <EntityActionButton label="Start entity" caption="Start" icon={FaPlay} className="entity-action-start" disabled={busy || !canControl || status.running
           || (entity.serverExecutionMode === 'hosted' && !SPACE_HOSTING_UI_ENABLED)}
