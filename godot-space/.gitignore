@@ -1,0 +1,7 @@
+.godot/
+data/
+baked/
+world-data/
+build/
+results/
+*.log

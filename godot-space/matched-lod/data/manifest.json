@@ -1,0 +1,1008 @@
+{
+  "schema": 1,
+  "world": "copper-metropolis",
+  "seed": 20260922,
+  "view": "fixed Web LOD draw snapshot",
+  "flatCamera": [
+    8402,
+    240,
+    1264
+  ],
+  "cameraPosition": [
+    -2182.226053217313,
+    -321.8329999348679,
+    -176.1243033881128
+  ],
+  "cameraQuaternion": [
+    0.7547927747532955,
+    0.46636509435721474,
+    -0.22933960287664748,
+    0.4002434415425052
+  ],
+  "fov": 70,
+  "near": 0.1,
+  "far": 10000,
+  "resolution": [
+    1280,
+    720
+  ],
+  "background": [
+    0.07058823529411765,
+    0.09411764705882353,
+    0.12549019607843137
+  ],
+  "msaa": 4,
+  "draws": [
+    {
+      "file": "mesh-0.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 75904,
+      "triangles": 37952,
+      "masked": false,
+      "side": 0,
+      "sha256": "b63f69c45636b6af10bd9d544dea882579b40ba3dccc890f23921ac97e03a651"
+    },
+    {
+      "file": "mesh-1.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 216576,
+      "triangles": 108288,
+      "masked": true,
+      "side": 0,
+      "sha256": "7d5aea921d3bba3caeaf70a59c29581d71d807edc8cf8d734afb0267f6519b1b"
+    },
+    {
+      "file": "mesh-2.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 94592,
+      "triangles": 47296,
+      "masked": false,
+      "side": 0,
+      "sha256": "75cdcd4752dbd9bf9dca22fe1f1b2ae55254112c6741e419a091c4a1f565eec6"
+    },
+    {
+      "file": "mesh-3.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 15872,
+      "triangles": 7936,
+      "masked": true,
+      "side": 0,
+      "sha256": "aac5295ad60b8c0b59963d82f15f4553d59ed52ffa0d681788ecd7db096f1be3"
+    },
+    {
+      "file": "mesh-4.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 37248,
+      "triangles": 18624,
+      "masked": false,
+      "side": 0,
+      "sha256": "aed237935f6204328832ccc2dfdd074d69e5658969766b2451e9b77012c503cc"
+    },
+    {
+      "file": "mesh-5.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 7680,
+      "triangles": 3840,
+      "masked": false,
+      "side": 0,
+      "sha256": "d2ce4f4df31da6914b2aeec5285f96da92c3d0228b5b8b8278c91a34a78361c1"
+    },
+    {
+      "file": "mesh-6.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 6528,
+      "triangles": 3264,
+      "masked": false,
+      "side": 0,
+      "sha256": "97a78b850cb95f31206c240ae86a56f7a665a75ddd21a8293a8923e2ec65a6d4"
+    },
+    {
+      "file": "mesh-7.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 4096,
+      "triangles": 2048,
+      "masked": false,
+      "side": 0,
+      "sha256": "bd66beae9ec98618bf021d0fd17aa08882be274e10e67ee746544f721c4a73ba"
+    },
+    {
+      "file": "mesh-8.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 3712,
+      "triangles": 1856,
+      "masked": false,
+      "side": 0,
+      "sha256": "570af68267a577c763f9f7e29e1a05bdf9f05e33755baffd962f2263f594611b"
+    },
+    {
+      "file": "mesh-9.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 6912,
+      "triangles": 3456,
+      "masked": false,
+      "side": 0,
+      "sha256": "4e7bf0b1059f9a5d85048512c6abc24e723b5793dd7cbc0bf90fee61f06df0ac"
+    },
+    {
+      "file": "mesh-10.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 8064,
+      "triangles": 4032,
+      "masked": false,
+      "side": 0,
+      "sha256": "2bbd2f848b2afe7a67176580bd0a355d40f34b1fb669c77cbb38512892e70613"
+    },
+    {
+      "file": "mesh-11.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 8704,
+      "triangles": 4352,
+      "masked": false,
+      "side": 0,
+      "sha256": "30bade6e2b54142b9e8b112a966d1b45f0e786321e60566f3498d9d19cb44a77"
+    },
+    {
+      "file": "mesh-12.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 81408,
+      "triangles": 40704,
+      "masked": true,
+      "side": 0,
+      "sha256": "d802c115ad0bcfbcb174aa33ea7c59ec88628d7bb58b6c6d874331b3eddc3760"
+    },
+    {
+      "file": "mesh-13.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 63232,
+      "triangles": 31616,
+      "masked": false,
+      "side": 0,
+      "sha256": "96b327019177041716a175d1698763005239533bf3d5dbb9b42eb8d7852a8b5f"
+    },
+    {
+      "file": "mesh-14.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 79872,
+      "triangles": 39936,
+      "masked": true,
+      "side": 0,
+      "sha256": "d4b8a518bc2dd8bb2c5ae1d59ca3b67026805c2f70a6ead766f35f4be68a095d"
+    },
+    {
+      "file": "mesh-15.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 46208,
+      "triangles": 23104,
+      "masked": false,
+      "side": 0,
+      "sha256": "f4c645a71ba8ee793f805260fbd22bceea9fe21f5a49fea7b47f37811a3f7358"
+    },
+    {
+      "file": "mesh-16.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 88448,
+      "triangles": 44224,
+      "masked": true,
+      "side": 0,
+      "sha256": "1192e31a1466bf0aa6b935f6f60a9c74d83e0a4cea31c5677a638c056ebfcd3d"
+    },
+    {
+      "file": "mesh-17.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 114816,
+      "triangles": 57408,
+      "masked": false,
+      "side": 0,
+      "sha256": "763e51f1d084ab0385e9235d53f1d973c26b79c0e4534c753726438a6506035b"
+    },
+    {
+      "file": "mesh-18.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 27392,
+      "triangles": 13696,
+      "masked": false,
+      "side": 0,
+      "sha256": "1873abc2bad09ae669178361efb0cdf361417f82b11de8189247a322573cb5af"
+    },
+    {
+      "file": "mesh-19.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 1152,
+      "triangles": 576,
+      "masked": false,
+      "side": 0,
+      "sha256": "b70b000cd9f2592d0541bec61d952d81d889676649750753fb963afbe4ac048a"
+    },
+    {
+      "file": "mesh-20.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 400000,
+      "triangles": 200000,
+      "masked": false,
+      "side": 0,
+      "sha256": "3b18dfd1d69bb0ddcc00be113519806e6b16002b28e7e92f41bd57d9f3437bf6"
+    },
+    {
+      "file": "mesh-21.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 94208,
+      "triangles": 47104,
+      "masked": false,
+      "side": 0,
+      "sha256": "9c62afeee40a973dacd0f9ad1c3c6a66d8c1d593a30fbb46d9670a41ee095f8c"
+    },
+    {
+      "file": "mesh-22.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 88704,
+      "triangles": 44352,
+      "masked": false,
+      "side": 0,
+      "sha256": "e8787e57b412a0740e3eb0bc398c2d482c1acfaa181a16a86db1b335cd2307e2"
+    },
+    {
+      "file": "mesh-23.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 37888,
+      "triangles": 18944,
+      "masked": false,
+      "side": 0,
+      "sha256": "e4449bc11a483f69c50b9affe23f0100f90063e13214d7a843875bd9bf20b3d7"
+    },
+    {
+      "file": "mesh-24.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 189056,
+      "triangles": 94528,
+      "masked": false,
+      "side": 0,
+      "sha256": "ea9f38bfc065001d28113671b84c76b592a5a05184253948fd7e30c5412fbb57"
+    },
+    {
+      "file": "mesh-25.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 3328,
+      "triangles": 1664,
+      "masked": false,
+      "side": 0,
+      "sha256": "0d65e43e29b9272405d3cdd69591d7327396ee137fedaf114949de3307998fe6"
+    },
+    {
+      "file": "mesh-26.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 1920,
+      "triangles": 960,
+      "masked": false,
+      "side": 0,
+      "sha256": "7185381152a90ebd50b09a186aa48a05c3ee2b8e1d790246bf164ffc0b66b604"
+    },
+    {
+      "file": "mesh-27.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 37888,
+      "triangles": 18944,
+      "masked": false,
+      "side": 0,
+      "sha256": "c1d7976fa2f96b065963af1bd58cc4ef30818451ea7ae1a1b5134f9bf7df3a24"
+    },
+    {
+      "file": "mesh-28.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 1920,
+      "triangles": 960,
+      "masked": false,
+      "side": 0,
+      "sha256": "e8e6eed6c4c77ffc1724e5351faee35a3789b67277acbf13a95a3d1ae5329e3c"
+    },
+    {
+      "file": "mesh-29.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 296960,
+      "triangles": 148480,
+      "masked": false,
+      "side": 0,
+      "sha256": "8a938f0c38783d9bf150effd4476a4a407a6ce0cc6a90fcf002a842e1722a7a0"
+    },
+    {
+      "file": "mesh-30.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 1280,
+      "triangles": 640,
+      "masked": false,
+      "side": 0,
+      "sha256": "e7e37f24e80b6bc98d4e01396b0d36f67558435b575bc8b33f7853404ec30a31"
+    },
+    {
+      "file": "mesh-31.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 209536,
+      "triangles": 104768,
+      "masked": false,
+      "side": 0,
+      "sha256": "ae32ae561cb2eda4243cbcc2a8a2e13e92ad491f30f31bc0e84924356c84ec98"
+    },
+    {
+      "file": "mesh-32.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 123392,
+      "triangles": 61696,
+      "masked": false,
+      "side": 0,
+      "sha256": "bbbb521409cef170df49a8ec3b488f0d151c3d08bd081856e27c4bf995fa5f82"
+    },
+    {
+      "file": "mesh-33.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 3968,
+      "triangles": 1984,
+      "masked": false,
+      "side": 0,
+      "sha256": "7bb29fc0707949c1866296c0f3d71f66a8514f623d5d4475e8535210503111fe"
+    },
+    {
+      "file": "mesh-34.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 1536,
+      "triangles": 768,
+      "masked": false,
+      "side": 0,
+      "sha256": "56835f3c346bb973b9ac72429ac919776e3a7eef84e7fb8ad79187e51c8d4d89"
+    },
+    {
+      "file": "mesh-35.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 73344,
+      "triangles": 36672,
+      "masked": false,
+      "side": 0,
+      "sha256": "7b8adec57b223a5e387caacdee19c658ebdc5bca930883c3467ae60bf182267b"
+    },
+    {
+      "file": "mesh-36.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 94976,
+      "triangles": 47488,
+      "masked": false,
+      "side": 0,
+      "sha256": "6f5243cc54accabc0806293fd6348a5c77466c61f2404499b6fc8959cbde34b9"
+    },
+    {
+      "file": "mesh-37.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 19072,
+      "triangles": 9536,
+      "masked": false,
+      "side": 0,
+      "sha256": "0fc0e28890fb63d7a4c144c7888b0ea717daf07b090c3e70f897151188fe41da"
+    },
+    {
+      "file": "mesh-38.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 22016,
+      "triangles": 11008,
+      "masked": false,
+      "side": 0,
+      "sha256": "f8c31e850e0b2df27aec19f8654c7cfc052c674314d9fdf648cdcfd6c08f9cc1"
+    },
+    {
+      "file": "mesh-39.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 68864,
+      "triangles": 34432,
+      "masked": false,
+      "side": 0,
+      "sha256": "c910e22661a887eebe5bf9e017fdffd701956779005372d609a37873be4f70d2"
+    },
+    {
+      "file": "mesh-40.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 34688,
+      "triangles": 17344,
+      "masked": false,
+      "side": 0,
+      "sha256": "a320e571556d5a794e1cc591dc9f6ef7e3fa1cfc5c25685133aeddb5cd02d5c9"
+    },
+    {
+      "file": "mesh-41.bin",
+      "name": "DistantVoxelArena",
+      "kind": "far-arena",
+      "vertices": 27392,
+      "triangles": 13696,
+      "masked": false,
+      "side": 0,
+      "sha256": "83aa18888292242a9eae8e7a2d64d959ae80efd3123517e2ddc1852630575828"
+    },
+    {
+      "file": "mesh-42.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 10672,
+      "triangles": 5336,
+      "masked": false,
+      "side": 0,
+      "sha256": "c0bc86609bd5a5f97785a7b31f77061785ae75af17affda14486884e72b891c7"
+    },
+    {
+      "file": "mesh-43.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 8220,
+      "triangles": 4110,
+      "masked": false,
+      "side": 0,
+      "sha256": "63108dc26820538be47e354b16f4d2fe0c7bc4f5c0cd81f58166cad3ec4cbdb4"
+    },
+    {
+      "file": "mesh-44.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 6068,
+      "triangles": 3034,
+      "masked": false,
+      "side": 0,
+      "sha256": "afd13a1beeb90bbd8ac8d930a5c87dd86cf623128f08f72d0ed9801f9ef5631e"
+    },
+    {
+      "file": "mesh-45.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 14312,
+      "triangles": 7156,
+      "masked": false,
+      "side": 0,
+      "sha256": "b47431353b5d489ec622298d2c9900aa75c1b47d2ede6a938d2557cf0b16d552"
+    },
+    {
+      "file": "mesh-46.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 5040,
+      "triangles": 2520,
+      "masked": false,
+      "side": 0,
+      "sha256": "79179cf8dfefb8c9374fbadb54ff3d538ad35391f8bb4f76c8c59cc43aa14685"
+    },
+    {
+      "file": "mesh-47.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 11520,
+      "triangles": 5760,
+      "masked": false,
+      "side": 0,
+      "sha256": "f6d1f8784610181181ba9d60276ab1e0303ee9894871fd208b94409ba29d6d40"
+    },
+    {
+      "file": "mesh-48.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 13524,
+      "triangles": 6762,
+      "masked": false,
+      "side": 0,
+      "sha256": "813a6d776e3dfed6de707cbdad0a586ed11313e62e8ac3f4cd8d6887f5a6a6e2"
+    },
+    {
+      "file": "mesh-49.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 7564,
+      "triangles": 3782,
+      "masked": false,
+      "side": 0,
+      "sha256": "1c3ec6a6df9b155aa829bca570c3832f57f0ad7a30ff3c427d1082235b0495fe"
+    },
+    {
+      "file": "mesh-50.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 10500,
+      "triangles": 5250,
+      "masked": false,
+      "side": 0,
+      "sha256": "801511ac3a85d7ee33f8f40669ab27a81edeb5a4afb6ca1b173fbd01b0b07c32"
+    },
+    {
+      "file": "mesh-51.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 9816,
+      "triangles": 4908,
+      "masked": false,
+      "side": 0,
+      "sha256": "e5ba666ca594b77b84561007f8cb47a94179dc936f3cc72268005135ba660c74"
+    },
+    {
+      "file": "mesh-52.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 9888,
+      "triangles": 4944,
+      "masked": false,
+      "side": 0,
+      "sha256": "9ee745c5f8cba8857146e49e9d08988dbd86140190a587bc1236a2fb7a3903fe"
+    },
+    {
+      "file": "mesh-53.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 7800,
+      "triangles": 3900,
+      "masked": false,
+      "side": 0,
+      "sha256": "bcbd4a37435d0559c7abdfc5452b89103853bd4c6363bf44b13a1ccdcef4823e"
+    },
+    {
+      "file": "mesh-54.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 3780,
+      "triangles": 1890,
+      "masked": false,
+      "side": 0,
+      "sha256": "f13e6ab2c441ae7b3b9519aa505d282b79153bde67870f8bc79adf29279c8a68"
+    },
+    {
+      "file": "mesh-55.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 3196,
+      "triangles": 1598,
+      "masked": false,
+      "side": 0,
+      "sha256": "edaf39b4902a4913a426b0a064a44eae92acc025a150601eb30143ad4b6e0494"
+    },
+    {
+      "file": "mesh-56.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 12216,
+      "triangles": 6108,
+      "masked": false,
+      "side": 0,
+      "sha256": "4ca375432c3919041a2f7b77453b557d0211b23bd182b785ac34bc561b192258"
+    },
+    {
+      "file": "mesh-57.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 12556,
+      "triangles": 6278,
+      "masked": false,
+      "side": 0,
+      "sha256": "8ad017a6fa59c37de51bfb0363814f014627e68219f3e405e7574c2f4d7434ea"
+    },
+    {
+      "file": "mesh-58.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 13232,
+      "triangles": 6616,
+      "masked": false,
+      "side": 0,
+      "sha256": "71a50ef28e592fe178aa6a992d2db71e5918554196db746afb0d7f926f7c8f8a"
+    },
+    {
+      "file": "mesh-59.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 3900,
+      "triangles": 1950,
+      "masked": false,
+      "side": 0,
+      "sha256": "f8ef189fc2a2a222e3b231cecbde82e03ae06b142512c56d70d320d1d9014386"
+    },
+    {
+      "file": "mesh-60.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 10304,
+      "triangles": 5152,
+      "masked": false,
+      "side": 0,
+      "sha256": "d5a5e87649515ef6148f559ebd591ab22b5e67ffde0c55fb6804046e2295be84"
+    },
+    {
+      "file": "mesh-61.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 10552,
+      "triangles": 5276,
+      "masked": false,
+      "side": 0,
+      "sha256": "a333256f97ef64867ce6a100d3f17506393a83775e624d4f04a98a4e0d2336fb"
+    },
+    {
+      "file": "mesh-62.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 8192,
+      "triangles": 4096,
+      "masked": false,
+      "side": 0,
+      "sha256": "661d79e257d495ff20d2da8d12e8678ab0d33a641c8cf7de9dc958312fa1056c"
+    },
+    {
+      "file": "mesh-63.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 13536,
+      "triangles": 6768,
+      "masked": false,
+      "side": 0,
+      "sha256": "a5b46c93f1565e38c1315a0eae38345b899dbbdac3338f32c0d23ce113fb7f83"
+    },
+    {
+      "file": "mesh-64.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 6656,
+      "triangles": 3328,
+      "masked": false,
+      "side": 0,
+      "sha256": "21a8647822e4c6f1807db5cb812b5f2f4d4a8f2c09c1976c426bbebd4fadb6b1"
+    },
+    {
+      "file": "mesh-65.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 6656,
+      "triangles": 3328,
+      "masked": false,
+      "side": 0,
+      "sha256": "ff84c41080d8953e230f7709dc0655190e9e2b43453cb61b669595a0f67dd34e"
+    },
+    {
+      "file": "mesh-66.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 9564,
+      "triangles": 4782,
+      "masked": false,
+      "side": 0,
+      "sha256": "15c28aba2e1ea37031d3f366b696c7696e072d9e80684de833dc87afcb8216e2"
+    },
+    {
+      "file": "mesh-67.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 8220,
+      "triangles": 4110,
+      "masked": false,
+      "side": 0,
+      "sha256": "596979eec6ca8a0434bd346477824296f6fd8a0ccbd598d7ad046db340a3ae47"
+    },
+    {
+      "file": "mesh-68.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 13684,
+      "triangles": 6842,
+      "masked": false,
+      "side": 0,
+      "sha256": "0c5b50add0f1eded7d025bc7e36b0b454b80d10a071f304b2896dbc211c0ae61"
+    },
+    {
+      "file": "mesh-69.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 8736,
+      "triangles": 4368,
+      "masked": false,
+      "side": 0,
+      "sha256": "790bdac483f158dfa6e911e3e1aafb1a71a5c2937a59b19b43eab6ea8599c79a"
+    },
+    {
+      "file": "mesh-70.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 13384,
+      "triangles": 6692,
+      "masked": false,
+      "side": 0,
+      "sha256": "e8bb4b712a94cac7a0b17e5f21e83226e72f9f95455b815c88614fd75e3de90c"
+    },
+    {
+      "file": "mesh-71.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 13144,
+      "triangles": 6572,
+      "masked": false,
+      "side": 0,
+      "sha256": "3d1ffaf44f73f8b08b3644d88728405aac328095db4315edd51dd09090647400"
+    },
+    {
+      "file": "mesh-72.bin",
+      "name": "StandardTerrain",
+      "kind": "standard",
+      "vertices": 13272,
+      "triangles": 6636,
+      "masked": false,
+      "side": 0,
+      "sha256": "da1eac6c3c59ac31c570719874b884e47fd588a66fdf23705603038f51f708ae"
+    },
+    {
+      "file": "mesh-73.bin",
+      "name": "MicroVoxelBatch:521,77",
+      "kind": "micro",
+      "vertices": 408,
+      "triangles": 204,
+      "masked": false,
+      "side": 0,
+      "sha256": "f1cb135494cc8ead2b0f3adf1a01919b8b9762793b493b2144aa0cd37f765316"
+    },
+    {
+      "file": "mesh-74.bin",
+      "name": "MicroVoxelBatch:520,79",
+      "kind": "micro",
+      "vertices": 1680,
+      "triangles": 840,
+      "masked": false,
+      "side": 0,
+      "sha256": "2126cb9234862463e49d336875d20abe96f555394821d876633061b37588c321"
+    },
+    {
+      "file": "mesh-75.bin",
+      "name": "MicroVoxelBatch:520,78",
+      "kind": "micro",
+      "vertices": 1136,
+      "triangles": 568,
+      "masked": false,
+      "side": 0,
+      "sha256": "4dad91fdde03e4b4dbe1b1f86755412cc87808485f1ed72f3305a6eff062d43f"
+    },
+    {
+      "file": "mesh-76.bin",
+      "name": "MicroVoxelBatch:520,77",
+      "kind": "micro",
+      "vertices": 704,
+      "triangles": 352,
+      "masked": false,
+      "side": 0,
+      "sha256": "461f836398bfb347c6461209f26c730d79ed465b668322369ce3513424c09757"
+    },
+    {
+      "file": "mesh-77.bin",
+      "name": "MicroVoxelBatch:519,79",
+      "kind": "micro",
+      "vertices": 1764,
+      "triangles": 882,
+      "masked": false,
+      "side": 0,
+      "sha256": "40b221097aef57da49b32f82a619327eae72d3cba92b0656128fa76c6fc8e79b"
+    },
+    {
+      "file": "mesh-78.bin",
+      "name": "MicroVoxelBatch:519,78",
+      "kind": "micro",
+      "vertices": 596,
+      "triangles": 298,
+      "masked": false,
+      "side": 0,
+      "sha256": "c86fd80104264f9a047c3e974b006118ce9d7af1ee6b386b2d52b98b9ac51efc"
+    },
+    {
+      "file": "mesh-79.bin",
+      "name": "MicroVoxelBatch:519,77",
+      "kind": "micro",
+      "vertices": 804,
+      "triangles": 402,
+      "masked": false,
+      "side": 0,
+      "sha256": "7a1f5b2ca7b456a3b3dbf8cbad4a9e2e014e72e179bbd1d903fb35c39065859e"
+    },
+    {
+      "file": "mesh-80.bin",
+      "name": "MicroVoxelBatch:520,75",
+      "kind": "micro",
+      "vertices": 80,
+      "triangles": 40,
+      "masked": false,
+      "side": 0,
+      "sha256": "6a606e80fb363d8e3595a37c32f4b62cbbc7fbb21e68c560596de701f02f57dc"
+    },
+    {
+      "file": "mesh-81.bin",
+      "name": "MicroVoxelBatch:518,79",
+      "kind": "micro",
+      "vertices": 1696,
+      "triangles": 848,
+      "masked": false,
+      "side": 0,
+      "sha256": "dd9850e750f1a8a47cb52b67d8f567ba92580d3d4d968b839ed7874ad28df950"
+    },
+    {
+      "file": "mesh-82.bin",
+      "name": "MicroVoxelBatch:518,78",
+      "kind": "micro",
+      "vertices": 1476,
+      "triangles": 738,
+      "masked": false,
+      "side": 0,
+      "sha256": "6b3ebae3a73698501e116ef9d0e71d448eb8204677506df7473494a087363e51"
+    },
+    {
+      "file": "mesh-83.bin",
+      "name": "MicroVoxelBatch:518,80",
+      "kind": "micro",
+      "vertices": 1392,
+      "triangles": 696,
+      "masked": false,
+      "side": 0,
+      "sha256": "7c72a14c9ec78cfbba0a576234b1a676b94914ac237087b76c03e3df7ee5276b"
+    },
+    {
+      "file": "mesh-84.bin",
+      "name": "MicroVoxelBatch:518,81",
+      "kind": "micro",
+      "vertices": 1368,
+      "triangles": 684,
+      "masked": false,
+      "side": 0,
+      "sha256": "294ec737f6511d03a58e385eb2f2c11b58721c601d8b603d5f5d19d41496d900"
+    },
+    {
+      "file": "mesh-85.bin",
+      "name": "MicroVoxelBatch:518,77",
+      "kind": "micro",
+      "vertices": 1320,
+      "triangles": 660,
+      "masked": false,
+      "side": 0,
+      "sha256": "098ae4f4acdeb541d98a5f5ba853d82faef24da74b66e1485b85acad8a2c481b"
+    },
+    {
+      "file": "mesh-86.bin",
+      "name": "MicroVoxelBatch:518,76",
+      "kind": "micro",
+      "vertices": 1072,
+      "triangles": 536,
+      "masked": false,
+      "side": 0,
+      "sha256": "2fe2049fd878c95f7a5696b139c64d8ff773e1b2c16e4fe37149f1d0704203b3"
+    },
+    {
+      "file": "mesh-87.bin",
+      "name": "MicroVoxelBatch:518,75",
+      "kind": "micro",
+      "vertices": 1008,
+      "triangles": 504,
+      "masked": false,
+      "side": 0,
+      "sha256": "3c76364f319baa92cade2bc155981c41426c17e7a46e0b0fb226ef3b002505a4"
+    },
+    {
+      "file": "mesh-88.bin",
+      "name": "MicroVoxelBatch:517,80",
+      "kind": "micro",
+      "vertices": 1124,
+      "triangles": 562,
+      "masked": false,
+      "side": 0,
+      "sha256": "61d28852b4c9f9559270d4bf09a1d707da978cabe43ad219aa0047d773800dd8"
+    },
+    {
+      "file": "mesh-89.bin",
+      "name": "MicroVoxelBatch:517,81",
+      "kind": "micro",
+      "vertices": 896,
+      "triangles": 448,
+      "masked": false,
+      "side": 0,
+      "sha256": "496da30530cfa2e23a5d1412cbe7902e321905bd04984daf946f1f215e1ce3d1"
+    },
+    {
+      "file": "mesh-90.bin",
+      "name": "MicroVoxelBatch:517,77",
+      "kind": "micro",
+      "vertices": 1888,
+      "triangles": 944,
+      "masked": false,
+      "side": 0,
+      "sha256": "930b6cd3c8a0f4fa2feb4d0548ee05351aeb9abb47b4f7ffce5ad9a3bc085ba6"
+    },
+    {
+      "file": "mesh-91.bin",
+      "name": "MicroVoxelBatch:517,76",
+      "kind": "micro",
+      "vertices": 1688,
+      "triangles": 844,
+      "masked": false,
+      "side": 0,
+      "sha256": "ef3562d94fc80dbccad2447af824efb06c5c5e1a322cb4417ab9413a8773cebb"
+    },
+    {
+      "file": "mesh-92.bin",
+      "name": "MicroVoxelBatch:517,75",
+      "kind": "micro",
+      "vertices": 1608,
+      "triangles": 804,
+      "masked": false,
+      "side": 0,
+      "sha256": "177470edc6ab42bfef8b0cbe2b961cfd4d84cb7cece331cf43b39dc69810fc06"
+    }
+  ],
+  "totalVertices": 3143764,
+  "totalTriangles": 1571882,
+  "lod": {
+    "faces": 2668593,
+    "budget": 3495253,
+    "requestedAreaPx2": 64,
+    "effectiveAreaPx2": 64
+  },
+  "arena": {
+    "residentFaces": 2668593,
+    "bytes": 51912960,
+    "visibleFaces": 703327,
+    "paddedFaces": 704752,
+    "draws": 42,
+    "sourceDraws": 2048,
+    "mapUploadBytes": 0,
+    "copyFaces": 0,
+    "copyMs": 0,
+    "maxCopyMs": 1.9000000953674316,
+    "pendingSources": 0,
+    "releasedSourceBytes": 85394976,
+    "pages": 11,
+    "backFaces": 834987,
+    "outsideFaces": 1078454,
+    "coveredFaces": 51825,
+    "maintenancePasses": 451,
+    "sourceListBuilds": 329,
+    "blockCacheBytes": 1675640,
+    "positionBlockTests": 172175,
+    "coverageBlockTests": 422110,
+    "drawnFaces": 705088,
+    "instancePaddingFaces": 336
+  },
+  "nearProgress": {
+    "readyChunks": 153,
+    "totalChunks": 153,
+    "ready": true
+  },
+  "projection": "Web original camera-local torus correction, captured at fixed position",
+  "lighting": "unlit source vertex color, no fog, no tone mapping",
+  "created": "2026-10-24T01:14:03.648Z"
+}

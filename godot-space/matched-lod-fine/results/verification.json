@@ -1,0 +1,96 @@
+{
+  "manifestSha256": "711f98de39986f36c473abed67ad1713d5caa588cce95a6cdd124370cfc109bd",
+  "terrainTriangles": 4206058,
+  "terrainDraws": 245,
+  "distantSettings": {
+    "subdivisionSizePx2": 1,
+    "renderDistanceChunks": 2048,
+    "dataBudgetMiB": 1024,
+    "geometryBudgetMiB": 512
+  },
+  "detail": {
+    "requestedAreaPx2": 1,
+    "effectiveAreaPx2": 9.75,
+    "geometryLimited": true,
+    "sourceLimitedZones": 2,
+    "volumetric": true
+  },
+  "trials": [
+    {
+      "label": "720p",
+      "webFile": "results/copper-web-1792805628399.json",
+      "godotFile": "matched-lod-fine/results/godot-720p.json",
+      "webFps": 120.04081887664785,
+      "godotFps": 102.104557315323,
+      "webP95Ms": 9.099999999976717,
+      "godotP95Ms": 12.332
+    },
+    {
+      "label": "1440p",
+      "webFile": "results/copper-web-1792805669243.json",
+      "godotFile": "matched-lod-fine/results/godot-1440p.json",
+      "webFps": 119.85324432487818,
+      "godotFps": 84.8969280927184,
+      "webP95Ms": 9.10000000000582,
+      "godotP95Ms": 16.929
+    },
+    {
+      "label": "4K run 1",
+      "webFile": "results/copper-web-1792805716615.json",
+      "godotFile": "matched-lod-fine/results/godot-4k-run1.json",
+      "webFps": 120.02266307834583,
+      "godotFps": 71.6142569662769,
+      "webP95Ms": 9.10000000000582,
+      "godotP95Ms": 20.161
+    },
+    {
+      "label": "4K run 2",
+      "webFile": "results/copper-web-1792805878875.json",
+      "godotFile": "matched-lod-fine/results/godot-4k-run2.json",
+      "webFps": 120.04431892968097,
+      "godotFps": 71.5056129407418,
+      "webP95Ms": 9.899999999965075,
+      "godotP95Ms": 20.25
+    },
+    {
+      "label": "5K run 1",
+      "webFile": "results/copper-web-1792805765484.json",
+      "godotFile": "matched-lod-fine/results/godot-5k-run1.json",
+      "webFps": 119.87520982326953,
+      "godotFps": 59.2270967921846,
+      "webP95Ms": 9.799999999988358,
+      "godotP95Ms": 23.192
+    },
+    {
+      "label": "5K run 2",
+      "webFile": "results/copper-web-1792805836006.json",
+      "godotFile": "matched-lod-fine/results/godot-5k-run2.json",
+      "webFps": 119.99866714427341,
+      "godotFps": 59.5511335391692,
+      "webP95Ms": 9.700000000011642,
+      "godotP95Ms": 22.858
+    }
+  ],
+  "images": [
+    {
+      "resolution": "720p",
+      "imageSize": [
+        1280,
+        720
+      ],
+      "meanAbsoluteRgbError255": 0.01689380787037037,
+      "pixelsWithin8PerChannel": 0.9992513020833333,
+      "foregroundPixelsWithin8PerChannel": 0.998469655938733
+    },
+    {
+      "resolution": "5K",
+      "imageSize": [
+        5120,
+        2880
+      ],
+      "meanAbsoluteRgbError255": 0.016586281105324074,
+      "pixelsWithin8PerChannel": 0.99931396484375,
+      "foregroundPixelsWithin8PerChannel": 0.9985962105734096
+    }
+  ]
+}

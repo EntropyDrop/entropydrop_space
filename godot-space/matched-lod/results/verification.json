@@ -1,0 +1,9 @@
+{
+  "manifestSha256": "f3d2d2b1bdddde8d9681189f3e5886158dd62f09158c7422061b6d4de26b1feb",
+  "terrainTriangles": 1571882,
+  "terrainDraws": 93,
+  "wholeImageMeanAbsoluteRgbError255": 0.009948278356481481,
+  "wholeImagePixelsWithin8PerChannel": 0.9995073784722223,
+  "foregroundMeanAbsoluteRgbError255": 0.02025998783148522,
+  "foregroundPixelsWithin8PerChannel": 0.9989967604644071
+}
