@@ -441,6 +441,11 @@ remote LLM without changing the controller runtime.
 Detailed component script and controller API documentation is available directly in-game via the Code Editor terminal (press `C` → entityAPI Docs) and in the generated [entityAPI V3 AssemblyScript reference](../engine/docs/generated/api-v2.md). The [entityAPI code-generation reference](../engine/docs/generated/agent-api-v2.md), in-game reference, and runtime Agent prompt are all rendered from `entropydrop_space/engine/src/contraption/ScriptApiContract.ts`; edit that contract instead of these generated views.
 
 Component code is an AssemblyScript controller body with implicit `self` and `ctx`.
+For single-axis motors, `self.setSpinXAxisRPM(rpm)`,
+`self.setSpinYAxisRPM(rpm)` and `self.setSpinZAxisRPM(rpm)` select the
+local rotation axis and take revolutions per minute directly. They retain the
+kinematic-only behavior of `self.setLocalSpin(axis, rpm)`; the last spin command
+in a tick wins.
 Empty components show editor guidance as placeholder text; it is never stored
 or compiled as script source. Exact legacy generated help templates become
 empty drafts; existing player code and comments are preserved.

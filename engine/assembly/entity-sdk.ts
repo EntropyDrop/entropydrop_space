@@ -126,6 +126,9 @@ export class Component extends Value {
   setSeats(seats: Value): void { this.call("setSeats", args1(seats)); }
   getSeats(): Value { return this.call("getSeats"); }
   setLocalSpin(axis: f64[], rpm: f64): void { this.call("setLocalSpin", args2(Value.vector(axis), Value.number(rpm))); }
+  setSpinXAxisRPM(rpm: f64): void { this.call("setSpinXAxisRPM", args1(Value.number(rpm))); }
+  setSpinYAxisRPM(rpm: f64): void { this.call("setSpinYAxisRPM", args1(Value.number(rpm))); }
+  setSpinZAxisRPM(rpm: f64): void { this.call("setSpinZAxisRPM", args1(Value.number(rpm))); }
   applyForceAt(force: f64[], point: f64[]): void { this.call("applyForceAt", args2(Value.vector(force), Value.vector(point))); }
   localToWorldDirection(v: f64[]): f64[] { return this.call("localToWorldDirection", args1(Value.vector(v))).asVector(); }
   getWorldPosition(): f64[] { return this.call("getWorldPosition").asVector(); }

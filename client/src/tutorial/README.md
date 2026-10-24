@@ -14,20 +14,20 @@ window does not follow the player, and distant terrain is always disabled.
 Terrain-distance settings from other worlds do not change the tutorial window.
 
 Chapter signs follow roughly 20 m intervals along the initial heading. Chapter 11
-has extra space on each side for `self.setLocalSpin([0, 1, 0], 30);` to appear on
+has extra space on each side for `self.setSpinYAxisRPM(30)` to appear on
 one line: its sign and practice stand move about 5 m farther along the course,
 and chapters 12–13, their guides, the driving lane and finish move about 10 m.
 Run `node client/tools/refresh-tutorial-signs.mjs`
-from the repository root to rebuild the clear pixel lettering and wheel face paint. The wheel,
+from the repository root to rebuild the clear pixel lettering and spoked wheel. The wheel,
 motor stand, chassis guides, and driving lane continue beyond chapter 09.
 The micro-voxel wheel lies flat on the ground and is selected with the default
-Y-axis cylinder. Its front (+Y) has a gold hub and an asymmetric spoke to show
-rotation; its back (-Y) has a dark hub. Its script spins around local Y: viewed
-from the gold front, 30 rpm is counterclockwise and -30 rpm is clockwise.
-Press Up once with the Hammer to turn the module upright before installing it.
-Keep both gold faces outward: flip the opposite-side wheels with Right twice,
-then select their component tabs in the editor and use -30 instead of 30 so
-both sides drive in the same direction.
+Y-axis cylinder. It has an unbroken tire, eight open spokes and identical faces.
+Its script uses `self.setSpinYAxisRPM(30)` to spin around local Y. Press Up
+once with the Hammer to turn it upright, and keep the same mounting rotation
+for all four wheels. No side needs to be flipped or given a different RPM.
+From chapter 09 onward, Stop is taught as Wrench (`3`) plus double left-click.
+Chapter 11 returns from the editor with Escape before stopping the wheel;
+chapter 13 also starts the car with a Wrench double-click.
 Chapter 11 and the tutorial editor's Agent panel explain that the code teaches
 how entities work. In the full game, players can usually describe their intent
 to the Agent in natural language instead of writing code manually. Agent

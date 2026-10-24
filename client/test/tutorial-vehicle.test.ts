@@ -10,8 +10,7 @@ import { tutorialWheelBounds } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
 
 // Code typed by the player from the lesson 11 world sign.
-const wheelCode = 'self.setLocalSpin([0, 1, 0], 30);';
-const mirroredWheelCode = 'self.setLocalSpin([0, 1, 0], -30);';
+const wheelCode = 'self.setSpinYAxisRPM(30)';
 const wheelBounds = tutorialWheelBounds();
 const wheelCells = computeSelectionCells('cylinder',
   { x: wheelBounds.minX * 8, y: wheelBounds.maxY * 8 - 1, z: wheelBounds.maxZ * 8 - 1 },
@@ -20,18 +19,27 @@ const wheelCells = computeSelectionCells('cylinder',
 test('the default cylinder selects the entire flat tutorial wheel while leaving its corner markers', () => {
   const micro = new Map(level.terrain.micro.map(c => [c.slice(0, 3).join(','), c]));
   const selected = wheelCells.map(p => micro.get(`${p.x},${p.y},${p.z}`));
+  const blocks = selected.filter((cell): cell is NonNullable<typeof cell> => !!cell);
   assert.equal(wheelCells.length, 752);
-  assert.ok(selected.every(Boolean), 'the complete flat wheel fits the default Y-axis cylinder');
-  assert.equal(selected.filter(c => c![3] === 0x3bc1f2 || c![3] === 0x5af23b).length, 0);
+  assert.ok(blocks.length > 400 && blocks.length < wheelCells.length, 'the cylinder contains a wheel with open spoke windows');
+  assert.equal(blocks.filter(c => c[3] === 0x3bc1f2 || c[3] === 0x5af23b).length, 0);
   assert.equal(wheelBounds.maxY - wheelBounds.minY, .5, 'the wheel lies flat on the ground');
-  const gold = selected.filter(c => c![3] === 0xf2a93b);
-  const darkHub = selected.filter(c => c![3] === 0x303846);
-  assert.ok(gold.length > 0 && gold.every(c => c![1] === wheelBounds.maxY * 8 - 1),
-    'only the front (+Y) face has a gold hub and spoke');
-  assert.ok(darkHub.length > 0 && darkHub.every(c => c![1] === wheelBounds.minY * 8),
-    'the back (-Y) face has a dark hub');
-  assert.ok(gold.some(c => c![0] > (wheelBounds.minX + wheelBounds.maxX) * 4 + 4),
-    'an asymmetric spoke makes spin direction visible');
+  const face = (y: number) => blocks.filter(c => c[1] === y).map(([x, , z, color]) => [x, z, color]);
+  const bottom = face(wheelBounds.minY * 8);
+  for (let y = wheelBounds.minY * 8 + 1; y < wheelBounds.maxY * 8; y++) {
+    assert.deepEqual(face(y), bottom, 'both faces and every layer have the same spokes and through-holes');
+  }
+  assert.ok(bottom.some(c => c[2] === 0xe4e8ed), 'light spokes stand out from the tire');
+  const connected = new Set<string>();
+  const keys = new Set(blocks.map(c => c.slice(0, 3).join(',')));
+  const queue = [blocks[0].slice(0, 3)];
+  while (queue.length) {
+    const [x, y, z] = queue.pop()!, key = `${x},${y},${z}`;
+    if (!keys.has(key) || connected.has(key)) continue;
+    connected.add(key);
+    for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) queue.push([x+dx,y+dy,z+dz]);
+  }
+  assert.equal(connected.size, blocks.length, 'the hub, spokes and tire form a connected wheel');
   const center = getTutorialTerrainCenter(level.spawn);
   const minX = (Math.floor(center.x / 16) - TUTORIAL_CHUNK_RADIUS) * 16;
   const minZ = (Math.floor(center.z / 16) - TUTORIAL_CHUNK_RADIUS) * 16;
@@ -45,7 +53,7 @@ test('the default cylinder selects the entire flat tutorial wheel while leaving 
   assert.equal(level.entities.entities.length, 0, 'the player supplies the chassis from lesson 09');
 });
 
-test('outward-facing wheels with opposite spin signs drive the actual lesson 09 chassis', async t => {
+test('four identical spoked wheels at the same RPM drive the actual lesson 09 chassis', async t => {
   const scene = new THREE.Scene();
   const selected = new Set(wheelCells.map(p => `${p.x},${p.y},${p.z}`));
   const wheelBlocks = level.terrain.micro
@@ -74,19 +82,10 @@ test('outward-facing wheels with opposite spin signs drive the actual lesson 09 
   t.after(() => chassis.dispose());
   chassis.stopAllNodeScripts();
   const upright = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
-  const flipped = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI).multiply(upright);
-  const expectedScripts = new Map<string, string>();
   for (const x of [0.5, 3.5]) for (const z of [-0.5, 2]) {
-    const rotation = z < 0 ? flipped : upright;
-    const code = z < 0 ? mirroredWheelCode : wheelCode;
-    const item = { ...slot, scripts: slot.scripts.map(script => ({ ...script, code })) };
-    const front = new THREE.Vector3(0, 1, 0).applyQuaternion(rotation);
-    assert.ok(front.dot(new THREE.Vector3(0, 0, Math.sign(z))) > .999, 'both gold faces point outward');
-    const installed = chassis.installEntitySlot(item, chassis.rootComponentId, new THREE.Vector3(x, 3, z), null, rotation);
+    const installed = chassis.installEntitySlot(slot, chassis.rootComponentId, new THREE.Vector3(x, 3, z), null, upright);
     assert.equal(installed.ok, true);
-    expectedScripts.set(installed.rootId!, code);
   }
-  assert.equal([...expectedScripts.values()].filter(code => code === mirroredWheelCode).length, 2);
   // The wrench aligns the car with the lane. Its chassis has no drive script.
   chassis.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(27, 158));
   chassis.updateTransform();
@@ -107,7 +106,7 @@ test('outward-facing wheels with opposite spin signs drive the actual lesson 09 
   assert.equal(chassis.nodeScriptErrors.size, 0);
   assert.equal(chassis.getNodeScript(chassis.rootComponentId).trim(), '');
   for (const node of chassis.entityNodes.values()) if (node.parentId !== null) {
-    assert.equal(chassis.getNodeScript(node.id), expectedScripts.get(node.id));
+    assert.equal(chassis.getNodeScript(node.id), wheelCode);
     assert.ok(node.localAngularVelocity.length() > 3);
   }
   assert.ok(chassis.position.x < start.x - 5, 'the assembled vehicle continues forward along the tutorial');

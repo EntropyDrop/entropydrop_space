@@ -34,6 +34,17 @@ function createComponentScriptApiSurface(entity: Contraption, node: EntityNode) 
   const id = node.id;
   const isRoot = node.parentId === null;
   const noop = () => { };
+  const setLocalSpin = (axis: unknown, rpm: unknown) => {
+    if ((isRoot ? entity.bodyType : node.bodyType) !== BodyType.KINEMATIC) return;
+    const safeRpm = Number(rpm);
+    const spinAxis = asVector3(axis, new THREE.Vector3(0, 1, 0));
+    node.commandedThisFrame = true;
+    if (!Number.isFinite(safeRpm) || spinAxis.lengthSq() < 1e-9) {
+      node.localAngularVelocity.set(0, 0, 0);
+      return;
+    }
+    node.localAngularVelocity.copy(spinAxis.normalize()).multiplyScalar(safeRpm * Math.PI * 2 / 60);
+  };
 
   const api = {
     apiVersion: 3,
@@ -133,27 +144,10 @@ function createComponentScriptApiSurface(entity: Contraption, node: EntityNode) 
       ));
       node.group.quaternion.copy(node.localQuaternion);
     },
-    setLocalSpin: isRoot ? (axis: unknown, rpm: unknown) => {
-      if (entity.bodyType !== BodyType.KINEMATIC) return;
-      const safeRpm = Number(rpm);
-      const spinAxis = asVector3(axis, new THREE.Vector3(0, 1, 0));
-      node.commandedThisFrame = true;
-      if (!Number.isFinite(safeRpm) || spinAxis.lengthSq() < 1e-9) {
-        node.localAngularVelocity.set(0, 0, 0);
-        return;
-      }
-      node.localAngularVelocity.copy(spinAxis.normalize()).multiplyScalar(safeRpm * Math.PI * 2 / 60);
-    } : (axis: unknown, rpm: unknown) => {
-      if (node.bodyType !== BodyType.KINEMATIC) return;
-      const safeRpm = Number(rpm);
-      const spinAxis = asVector3(axis, new THREE.Vector3(0, 1, 0));
-      node.commandedThisFrame = true;
-      if (!Number.isFinite(safeRpm) || spinAxis.lengthSq() < 1e-9) {
-        node.localAngularVelocity.set(0, 0, 0);
-        return;
-      }
-      node.localAngularVelocity.copy(spinAxis.normalize()).multiplyScalar(safeRpm * Math.PI * 2 / 60);
-    },
+    setLocalSpin,
+    setSpinXAxisRPM: (rpm: unknown) => setLocalSpin([1, 0, 0], rpm),
+    setSpinYAxisRPM: (rpm: unknown) => setLocalSpin([0, 1, 0], rpm),
+    setSpinZAxisRPM: (rpm: unknown) => setLocalSpin([0, 0, 1], rpm),
     getLocalPosition: () => Object.freeze(isRoot ? [0, 0, 0] : node.localPosition.toArray()),
     getLocalRotation: () => Object.freeze(isRoot ? entity.quaternion.toArray() : node.localQuaternion.toArray()),
     /**

@@ -101,6 +101,9 @@ const kinematicEntries: ApiEntry[] = [
   { signature: 'self.setLocalEuler([x,y,z])', description: 'Set kinematic orientation in radians using YXZ Euler order.' },
   { signature: 'self.setLocalRotation([x,y,z,w])', description: 'Set kinematic orientation as a quaternion.' },
   { signature: 'self.setLocalSpin([ax,ay,az], rpm)', description: 'Command continuous local-axis spin; call each entity tick to sustain it.' },
+  { signature: 'self.setSpinXAxisRPM(rpm)', description: 'Spin around local X in revolutions per minute. Equivalent to self.setLocalSpin([1,0,0], rpm). Kinematic bodies only; call each entity tick. Each spin call replaces the previous spin command for that tick.' },
+  { signature: 'self.setSpinYAxisRPM(rpm)', description: 'Spin around local Y in revolutions per minute. Equivalent to self.setLocalSpin([0,1,0], rpm). Kinematic bodies only; call each entity tick. Each spin call replaces the previous spin command for that tick.' },
+  { signature: 'self.setSpinZAxisRPM(rpm)', description: 'Spin around local Z in revolutions per minute. Equivalent to self.setLocalSpin([0,0,1], rpm). Kinematic bodies only; call each entity tick. Each spin call replaces the previous spin command for that tick.' },
   { signature: 'self.getLocalPosition()', description: 'Return current local position as `[x,y,z]`; root returns `[0,0,0]`.' },
   { signature: 'self.getLocalRotation()', description: 'Return current local quaternion `[x,y,z,w]`.' },
   { signature: 'self.setPivot([x,y,z])', description: 'Set a kinematic pivot in entity-local coordinates while preserving block world positions. Dynamic bodies use their physical center of mass.' }
@@ -340,7 +343,8 @@ self.decorations.upsert("panel", panel);` }]
     self: [
       'apiVersion', 'id', 'parentId', 'applyThrust', 'applyLocalThrust', 'getWorldPosition', 'getWorldRotation', 'getPivot',
       'localToWorldDirection', 'getBounds', 'setLocalPosition', 'setLocalRotation', 'setLocalEuler',
-      'setLocalSpin', 'getLocalPosition', 'getLocalRotation', 'setPivot', 'applyForce', 'applyLocalForce',
+      'setLocalSpin', 'setSpinXAxisRPM', 'setSpinYAxisRPM', 'setSpinZAxisRPM',
+      'getLocalPosition', 'getLocalRotation', 'setPivot', 'applyForce', 'applyLocalForce',
       'applyForceAt', 'applyTorque', 'setSeats', 'stop', 'getSeats', 'child', 'state', 'children',
       'body', 'constraints', 'voxels', 'microVoxels', 'decorations'
     ],

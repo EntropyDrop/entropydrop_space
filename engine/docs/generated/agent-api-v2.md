@@ -201,6 +201,9 @@ Extends Value; inherited typed data accessors are available.
 - `setSeats(seats: Value): void` — Callable SDK signature.
 - `getSeats(): Value` — Callable SDK signature.
 - `setLocalSpin(axis: f64[], rpm: f64): void` — Callable SDK signature.
+- `setSpinXAxisRPM(rpm: f64): void` — Callable SDK signature.
+- `setSpinYAxisRPM(rpm: f64): void` — Callable SDK signature.
+- `setSpinZAxisRPM(rpm: f64): void` — Callable SDK signature.
 - `applyForceAt(force: f64[], point: f64[]): void` — Callable SDK signature.
 - `localToWorldDirection(v: f64[]): f64[]` — Callable SDK signature.
 - `getWorldPosition(): f64[]` — Callable SDK signature.
@@ -355,6 +358,9 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 - `self.setLocalEuler([x,y,z])` — Set kinematic orientation in radians using YXZ Euler order.
 - `self.setLocalRotation([x,y,z,w])` — Set kinematic orientation as a quaternion.
 - `self.setLocalSpin([ax,ay,az], rpm)` — Command continuous local-axis spin; call each entity tick to sustain it.
+- `self.setSpinXAxisRPM(rpm)` — Spin around local X in revolutions per minute. Equivalent to self.setLocalSpin([1,0,0], rpm). Kinematic bodies only; call each entity tick. Each spin call replaces the previous spin command for that tick.
+- `self.setSpinYAxisRPM(rpm)` — Spin around local Y in revolutions per minute. Equivalent to self.setLocalSpin([0,1,0], rpm). Kinematic bodies only; call each entity tick. Each spin call replaces the previous spin command for that tick.
+- `self.setSpinZAxisRPM(rpm)` — Spin around local Z in revolutions per minute. Equivalent to self.setLocalSpin([0,0,1], rpm). Kinematic bodies only; call each entity tick. Each spin call replaces the previous spin command for that tick.
 - `self.getLocalPosition()` — Return current local position as `[x,y,z]`; root returns `[0,0,0]`.
 - `self.getLocalRotation()` — Return current local quaternion `[x,y,z,w]`.
 - `self.setPivot([x,y,z])` — Set a kinematic pivot in entity-local coordinates while preserving block world positions. Dynamic bodies use their physical center of mass.

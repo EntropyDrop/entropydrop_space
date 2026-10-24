@@ -1,10 +1,11 @@
 // Rebuild the floating course signs with an integer 5 x 7 font. Rendering a
 // 12px browser font at 8px and thresholding its alpha joins unrelated strokes.
-// Rebuild lettering and wheel face paint without changing practice geometry.
+// Rebuild lettering and the spoked wheel while preserving other practice geometry.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tutorialLessonHint, tutorialVehicleStation, tutorialWheelBounds, TUTORIAL_LESSON_STEP } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
+import { computeSelectionCells } from '../src/engine/controls/SelectorShapes.ts';
 
 const rows = {
   A: ['01110','10001','10001','11111','10001','10001','10001'],
@@ -58,6 +59,7 @@ const rows = {
   s: ['00000','00000','01111','10000','01110','00001','11110'],
   t: ['01000','01000','11100','01000','01000','01001','00110'],
   u: ['00000','00000','10001','10001','10001','10011','01101'],
+  x: ['00000','00000','10001','01010','00100','01010','10001'],
   y: ['00000','10001','10001','01111','00001','10001','01110'],
   '.': ['00000','00000','00000','00000','00000','00100','00100'],
   ',': ['00000','00000','00000','00000','00110','00100','01000'],
@@ -141,23 +143,22 @@ const lessons = [
   ['07 CARVE', [instruction('TAB', 'MICRO'), instruction('ALT+2', 'CYLINDER'), corners(RED), instruction('DEL', 'CUT OUT')]],
   ['08 ROTATE', [instruction('TAB', 'STANDARD'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('↑', 'ROTATE'), instruction('F', 'FILL')]],
   ['09 ENTITY', [instruction('ALT+1', 'BOX'), corners(), instruction('G', 'ASSEMBLE'), text('RUN WITH GRAVITY'),
-    instruction('RMB', 'STOP'), instruction('3', 'WRENCH'), instruction('HOLD LMB', 'CARRY CHASSIS')]],
+    instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP'), instruction('HOLD LMB', 'CARRY CHASSIS')]],
   ['10 WHEEL', [instruction('1', 'SELECTOR'), instruction('TAB', 'MICRO'), instruction('ALT+2', 'CYLINDER'),
-    corners(), text('GOLD HUB: FRONT'), text('DARK HUB: BACK'), instruction('G', 'ASSEMBLE WHEEL'), instruction('RMB', 'STOP')]],
-  ['11 MOTOR', [instruction('RMB', 'KINEMATIC'), text('VIEW GOLD FRONT'),
-    text('30: COUNTERCLOCKWISE'), text('-30: CLOCKWISE'),
+    corners(), instruction('G', 'ASSEMBLE WHEEL'), instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP')]],
+  ['11 MOTOR', [instruction('RMB', 'KINEMATIC'),
     ...['CODE HERE SHOWS HOW IT WORKS', 'FULL GAME: ASK AGENT', 'IN NATURAL LANGUAGE', 'USUALLY NO MANUAL CODING']
       .map(line => text(line, { color: WHITE })),
     instruction('C', 'ENTER CODE'),
-    text('self.setLocalSpin([0, 1, 0], 30);', { color: WHITE }),
-    instruction('▶', 'START'), instruction('RMB', 'STOP'), instruction('RMB', 'COPY TO BACKPACK')]],
+    text('self.setSpinYAxisRPM(30)', { color: WHITE }),
+    instruction('▶', 'START'), instruction('ESC', 'BACK TO WORLD'), instruction('3', 'WRENCH'),
+    instruction('LMB X2', 'STOP'), instruction('RMB', 'COPY TO BACKPACK')]],
   ['12 MODULE', [text('PLACE 09 CHASSIS'), instruction('RMB', 'RESET ROTATION'), instruction('2', 'HAMMER'), instruction('↑', 'TURN WHEEL UPRIGHT'),
-    instruction('RIGHT X2', 'OTHER SIDE'), text('GOLD HUB OUTWARD'),
+    text('USE SAME ROTATION'),
     instruction('TAB', 'MICRO'), instruction('LMB', 'AIM AT CHASSIS'), text('DRAG XYZ TO ALIGN'),
     instruction('ENTER', 'ATTACH'), text('ADD FOUR WHEELS')]],
   ['13 DRIVE', [instruction('3', 'WRENCH'), text('CAR TO START LINE'), text('ALIGN WITH THE LANE'),
-    instruction('C', 'SELECT WHEEL TAB'), text('FLIPPED SIDE: -30'), text('MATCH DRIVE DIRECTION'),
-    instruction('RMB', 'START'), text('WATCH THE WHEELS DRIVE'), instruction('RMB', 'STOP')]],
+    instruction('LMB X2', 'START'), text('WATCH THE WHEELS DRIVE'), instruction('LMB X2', 'STOP')]],
 ].map(([title, content], index) => ({
   title,
   rows: [text(title, { scale: 2 }), ...content],
@@ -189,22 +190,27 @@ const isSignCell = ([x, y, z]) => lessons.some(sign =>
   z === sign.plane && Math.abs(x - sign.center) <= Math.max(100, sign.maxWidth / 2 + 4) && y >= 17 * 8)
   || x === finish.plane && Math.abs(z - finish.center) <= 100 && y >= 17 * 8;
 const wheel = tutorialWheelBounds();
-function paintWheelFace(cell) {
-  const [x, y, z, color] = cell;
-  if (color === BLUE || color === GREEN || x < wheel.minX * 8 || x >= wheel.maxX * 8
-    || y < wheel.minY * 8 || y >= wheel.maxY * 8 || z < wheel.minZ * 8 || z >= wheel.maxZ * 8) return cell;
+const wheelSelection = computeSelectionCells('cylinder',
+  { x: wheel.minX * 8, y: wheel.maxY * 8 - 1, z: wheel.maxZ * 8 - 1 },
+  { x: wheel.maxX * 8 - 1, y: wheel.minY * 8, z: wheel.minZ * 8 }, true);
+const wheelKeys = new Set(wheelSelection.map(({ x, y, z }) => `${x},${y},${z}`));
+const isWheelCell = cell => wheelKeys.has(cell.slice(0, 3).join(','));
+const micro = new Map(level.terrain.micro.filter(cell => !isSignCell(cell) && !isWheelCell(cell))
+  .map(cell => [cell.slice(0, 3).join(','), cell]));
+let wheelMicroCells = 0;
+for (const { x, y, z } of wheelSelection) {
   const dx = x + .5 - (wheel.minX + wheel.maxX) * 4;
   const dz = z + .5 - (wheel.minZ + wheel.maxZ) * 4;
-  const radiusSquared = dx * dx + dz * dz;
-  // A gold hub and one spoke make front-facing rotation visible. Back is dark.
-  if (y === wheel.maxY * 8 - 1 && (radiusSquared <= 8 || (dx >= 0 && Math.abs(dz) < 1 && radiusSquared < 42))) {
-    return [x, y, z, GOLD, ...cell.slice(4)];
-  }
-  if (y === wheel.minY * 8 && radiusSquared <= 8) return [x, y, z, 0x303846, ...cell.slice(4)];
-  return cell;
+  const radius = Math.hypot(dx, dz);
+  const rim = radius >= 6;
+  const hub = radius <= 1.8;
+  const spoke = Math.abs(dx) < .75 || Math.abs(dz) < .75 || Math.abs(Math.abs(dx) - Math.abs(dz)) <= 1;
+  if (!rim && !hub && !spoke) continue;
+  // Identical faces, an unbroken tire and eight open spokes show the rotation.
+  const color = rim ? 0x303846 : hub ? 0xb0b8c1 : 0xe4e8ed;
+  micro.set(`${x},${y},${z}`, [x, y, z, color]);
+  wheelMicroCells++;
 }
-const micro = new Map(level.terrain.micro.filter(cell => !isSignCell(cell))
-  .map(paintWheelFace).map(cell => [cell.slice(0, 3).join(','), cell]));
 const occupied = new Set(level.terrain.standard.filter(cell => cell[3]).map(cell => cell.slice(0, 3).join(',')));
 const signBounds = [];
 
@@ -236,7 +242,7 @@ level.terrain.micro = [...micro.values()].sort((a, b) => a[0] - b[0] || a[1] - b
 assert.deepEqual(level.terrain.standard, old.terrain.standard);
 assert.deepEqual(level.spawn, old.spawn);
 assert.deepEqual(level.entities, old.entities);
-assert.deepEqual(level.terrain.micro.filter(cell => !isSignCell(cell)),
-  old.terrain.micro.filter(cell => !isSignCell(cell)).map(paintWheelFace));
+assert.deepEqual(level.terrain.micro.filter(cell => !isSignCell(cell) && !isWheelCell(cell)),
+  old.terrain.micro.filter(cell => !isSignCell(cell) && !isWheelCell(cell)));
 writeFileSync(file, JSON.stringify(level, null, 2) + '\n');
-console.log(JSON.stringify({ signBounds, microCells: micro.size, practiceGeometryPreserved: true }, null, 2));
+console.log(JSON.stringify({ signBounds, microCells: micro.size, wheelMicroCells, otherPracticeGeometryPreserved: true }, null, 2));

@@ -20,12 +20,11 @@ function codePlaceholder(nodeId: string) {
   return `Write AssemblyScript for component ${nodeId || 'self'}.
 
 Use self to control this component and ctx for runtime input.
-Kinematics: self.setLocalPosition([x, y, z]), self.setLocalSpin(axis, rpm)
-Forces: self.applyForce([fx, fy, fz]), self.applyTorque([...])
-Children: self.child('child_name')
-Input: ctx.input.down('KeyW'), ctx.input.pressed('Space')
+Spin: self.setSpinXAxisRPM(rpm), self.setSpinYAxisRPM(rpm), self.setSpinZAxisRPM(rpm)
+Position: self.setLocalPosition([x, y, z])
+Forces: self.applyForce([fx, fy, fz]), self.applyTorque([tx, ty, tz])
 
-Press Start to compile and run your code.`;
+For more information, see the entityAPI Docs.`;
 }
 
 function HierarchyNode({ node, depth, selected }: { node: any; depth: number; selected: string }) {

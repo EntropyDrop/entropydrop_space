@@ -38,6 +38,14 @@ test('filtered candidates include typed signatures and canonical API description
   assert.equal(item.hasParameters, true);
   assert.deepEqual(labels('ctx.input.pre'), ['pressed']);
   assert.deepEqual(labels('self.SETLOCALs'), ['setLocalSpin']);
+  const spinMethods = ['setSpinXAxisRPM', 'setSpinYAxisRPM', 'setSpinZAxisRPM'];
+  assert.deepEqual(labels('self.setSpin'), spinMethods);
+  assert.deepEqual(labels('self.SETsPiN'), spinMethods);
+  const axis = query('self.setSpinY')!;
+  assert.equal(axis.items[0].signature, 'setSpinYAxisRPM(rpm: f64): void');
+  assert.match(axis.items[0].description, /revolutions per minute/);
+  const edit = applyCodeCompletion('self.setSpinY', axis, axis.items[0]);
+  assert.equal(edit.source.slice(0, edit.selection), 'self.setSpinYAxisRPM(');
 });
 
 test('nested properties and calls resolve return types without offering unrelated namespaces', () => {

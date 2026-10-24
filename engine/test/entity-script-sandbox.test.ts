@@ -179,6 +179,33 @@ test('host/browser globals, dynamic JS, npm imports and unregistered imports fai
   }
 });
 
+test('axis RPM helpers compile on root and child and emit existing bounded spin commands', async () => {
+  const f = fixture();
+  assert.equal((await f.set(`
+    self.setSpinXAxisRPM(15);
+    self.setSpinYAxisRPM(0);
+    self.setSpinZAxisRPM(-30);
+    const wheel = self.child("arm");
+    if (wheel) {
+      wheel.setSpinXAxisRPM(60);
+      wheel.setSpinYAxisRPM(45.5);
+      wheel.setSpinZAxisRPM(120);
+    }
+  `)).ok, true);
+  const result = f.tick();
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(result.commands.map((command: any) => [command.nodeId, command.path, command.args]), [
+    ['root', 'setLocalSpin', [[1, 0, 0], 15]],
+    ['root', 'setLocalSpin', [[0, 1, 0], 0]],
+    ['root', 'setLocalSpin', [[0, 0, 1], -30]],
+    ['arm', 'setLocalSpin', [[1, 0, 0], 60]],
+    ['arm', 'setLocalSpin', [[0, 1, 0], 45.5]],
+    ['arm', 'setLocalSpin', [[0, 0, 1], 120]],
+  ]);
+  assert.equal((await f.set('for (let i = 0; i < 300; i++) self.setSpinYAxisRPM(30);')).ok, true);
+  assert.equal(f.tick().commands.length, 256, 'the helpers do not bypass command limits');
+});
+
 test('entityAPI reads frozen world identity through the typed WASM SDK', async () => {
   const f = fixture();
   assert.equal((await f.set(`
