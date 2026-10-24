@@ -358,6 +358,46 @@ test('a non-author may edit a stopped entity and Start claims its own endpoint a
   assert.equal(target.isPhysicsSimulationEnabled(), true);
 });
 
+test('Start waits for the latest source save and uses its updated revision', async t => {
+  const { sync, created } = harness('owner-1', { desired_run_state: 'stopped', can_edit: true });
+  t.after(() => sync.stop());
+  await sync.poll();
+  const target = created[0];
+  const internal = sync as any;
+  let finishSave!: () => void;
+  const saved = new Promise<void>(resolve => { finishSave = resolve; });
+  internal.persistRecord = async () => { await saved; target.serverRevision = 2; };
+  let starts = 0;
+  internal.client.setRunState = async (_id: string, state: string, revision: number) => {
+    starts++;
+    assert.equal(state, 'running');
+    assert.equal(revision, 2);
+    return { ...record(), revision: 3, execution_epoch: 2,
+      execution_lease_expires_at: new Date(Date.now() + 8_000).toISOString() };
+  };
+  const save = internal.queueSave({ publicId: target.publicId, serverManaged: true, serverCanEdit: true, slot: {} });
+  const start = internal.setRunState(target, 'running');
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(starts, 0, 'the run request cannot overtake its source upload');
+  finishSave();
+  await save;
+  await start;
+  assert.equal(starts, 1);
+});
+
+test('Start rejects while the latest source is waiting for a rate-limited save retry', async t => {
+  const { sync, created } = harness('owner-1', { desired_run_state: 'stopped', can_edit: true });
+  t.after(() => sync.stop());
+  await sync.poll();
+  const target = created[0];
+  const internal = sync as any;
+  internal.persistRecord = async () => { throw new SpaceEntityApiError(429, 'HTTP_429', 'limited', null, 30_000); };
+  internal.client.setRunState = async () => { assert.fail('must not start an outdated definition'); };
+  await internal.queueSave({ publicId: target.publicId, serverManaged: true, serverCanEdit: true, slot: {} });
+  await assert.rejects(internal.setRunState(target, 'running'), /code is still saving/);
+  assert.equal(target.isPhysicsSimulationEnabled(), false);
+});
+
 test('executor identity and lease expiry reach active mirrors and are excluded from authored snapshot uploads', async () => {
   const expiry = new Date(Date.now() + 12_000).toISOString();
   const { sync, created } = harness('other', { owner_name: 'Alice', executor_name: 'Alice', execution_lease_expires_at: expiry });

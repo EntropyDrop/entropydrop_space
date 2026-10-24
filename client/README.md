@@ -424,8 +424,16 @@ remote LLM without changing the controller runtime.
 Detailed component script and controller API documentation is available directly in-game via the Code Editor terminal (press `C` → entityAPI Docs) and in the generated [entityAPI V3 AssemblyScript reference](../engine/docs/generated/api-v2.md). The [entityAPI code-generation reference](../engine/docs/generated/agent-api-v2.md), in-game reference, and runtime Agent prompt are all rendered from `entropydrop_space/engine/src/contraption/ScriptApiContract.ts`; edit that contract instead of these generated views.
 
 Component code is an AssemblyScript controller body with implicit `self` and `ctx`.
-Saving compiles it in a browser worker; the editor shows compilation progress and type
-errors. State uses typed getters/setters such as `self.state.getNumber("ticks")` and
+Editing, switching components, closing the editor, and applying Agent code only save
+the source. Start compiles the latest changed component code in a browser worker;
+the editor shows compilation progress and type errors. Unchanged code reuses its
+compiled program. `SpaceUiStore` exposes this client's visible output from nearby
+loaded entities through `entityOutput`: console lines, send/receive messages,
+warnings, errors, and system events. The buffer retains up to 500 entries for a
+custom UI; `filterEntityOutput` filters by source entity, output category, or message
+type (such as `chat`), and `clearEntityOutput()` clears the collected view.
+Remote output that this client never receives is not included.
+State uses typed getters/setters such as `self.state.getNumber("ticks")` and
 `self.state.setNumber("ticks", value)`. Read record fields through the `Value` SDK.
 Only the AssemblyScript standard library is exposed; the former JavaScript guest
 packages and helper namespaces are removed. Historical scripts without the

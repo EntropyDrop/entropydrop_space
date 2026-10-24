@@ -1,4 +1,5 @@
 import { normalizeColor } from '../voxel/BlockTypes.ts';
+import { EntityOutputBuffer, entityMessageText, type EntityOutputKind } from './EntityOutput.ts';
 import type { ScriptInputState, ScriptRuntimeContext, ScriptRuntimeResult, ScriptCommand, ScriptContact, EntityMessage, ScriptClickedBlock } from '../scripting/ScriptProtocol.ts';
 import { normalizeClickedBlock } from '../scripting/ClickedBlock.ts';
 import type { InventoryInput } from '../storage/InventoryTypes.ts';
@@ -535,6 +536,7 @@ export class Contraption {
   scriptError: string | null;
   scriptStatus: string;
   nodeScripts: Map<string, string>;
+  private readonly pendingScriptCompilation = new Set<string>();
   compiledNodeScripts: Map<string, Function>;
   nodeScriptErrors: Map<string, string>;
   nodeScriptEnabled: Map<string, boolean>;
@@ -551,6 +553,7 @@ export class Contraption {
     fixedOrientation: boolean;
   }>;
   scriptLogs: string[];
+  readonly output = new EntityOutputBuffer();
   lastExecutionTimeMs: number;
   lastInitializationTimeMs: number;
   lastScriptTickTimeMs: number;
@@ -1236,9 +1239,40 @@ export class Contraption {
   // SCRIPT COMPILATION & EXECUTION (programmable script engine - each component runs its own code)
   // =========================================================================
 
+  /** Save editor source without compiling or starting it. Start compiles the latest draft. */
+  setNodeScriptDraft(nodeId: string, code: string) {
+    const id = String(nodeId || this.rootComponentId);
+    if (!this.entityNodes.has(id)) return false;
+    const source = code || '';
+    if (this.getNodeScript(id) === source) return true;
+    this.markDefinitionChanged();
+    this.nodeScripts.set(id, source);
+    this.nodeScriptErrors.delete(id);
+    this.slowScriptFrames.delete(id);
+    this.compiledNodeScripts.delete(id);
+    this.scriptRuntimeClient.setScript(id, '');
+    this.latchedScriptCommands = [];
+    if (source.trim()) this.pendingScriptCompilation.add(id);
+    else this.pendingScriptCompilation.delete(id);
+    if (id === this.rootComponentId) {
+      this.scriptCode = source;
+      this.compiledScript = null;
+      this.scriptError = null;
+    }
+    if (!this.compiledNodeScripts.size) this.scriptStatus = 'stopped';
+    return true;
+  }
+
+  private compilePendingNodeScripts() {
+    for (const id of [...this.pendingScriptCompilation]) {
+      if (this.entityNodes.has(id) && this.isNodeScriptEnabled(id)) this.setNodeScript(id, this.getNodeScript(id));
+    }
+  }
+
   setNodeScript(nodeId: string, code: string) {
     this.markDefinitionChanged();
     const id = String(nodeId || this.rootComponentId);
+    this.pendingScriptCompilation.delete(id);
     this.latchedScriptCommands = [];
     this.nodeScripts.set(id, code || '');
     this.nodeScriptErrors.delete(id);
@@ -1341,6 +1375,7 @@ export class Contraption {
     const id = String(nodeId || this.rootComponentId);
     const state = !!enabled;
     this.nodeScriptEnabled.set(id, state);
+    if (state && this.pendingScriptCompilation.has(id)) this.setNodeScript(id, this.getNodeScript(id));
     this.latchedScriptCommands = [];
 
     if (!state) {
@@ -1365,6 +1400,7 @@ export class Contraption {
     for (const id of this.entityNodes.keys()) {
       this.nodeScriptEnabled.set(id, true);
     }
+    this.compilePendingNodeScripts();
     this.latchedScriptCommands = [];
     this.setPhysicsSimulationEnabled(true);
     if (this.compiledScript || this.compiledNodeScripts.size > 0) {
@@ -2143,6 +2179,7 @@ export class Contraption {
       this.scriptRuntimeClient.setScript(id, '');
       this.childDefinitions.delete(id);
       this.nodeScripts.delete(id);
+      this.pendingScriptCompilation.delete(id);
       this.compiledNodeScripts.delete(id);
       this.nodeScriptErrors.delete(id);
       this.nodeScriptEnabled.delete(id);
@@ -2305,7 +2342,8 @@ export class Contraption {
       this.nodeScripts.delete(oldId);
       this.nodeScripts.set(cleanNewId, s);
       this.scriptRuntimeClient.setScript(oldId, '');
-      this.scriptRuntimeClient.setScript(cleanNewId, s || '');
+      if (this.pendingScriptCompilation.delete(oldId)) this.pendingScriptCompilation.add(cleanNewId);
+      else this.scriptRuntimeClient.setScript(cleanNewId, s || '');
     }
     if (this.compiledNodeScripts.has(oldId)) {
       const c = this.compiledNodeScripts.get(oldId)!;
@@ -2355,7 +2393,9 @@ export class Contraption {
     }
   }
 
-  log(message: unknown) {
+  log(message: unknown, kind?: EntityOutputKind, nodeId?: string) {
+    const text = String(message);
+    this.output.append({ kind: kind ?? (text.startsWith('[ERR]') ? 'error' : text.startsWith('[WARN]') ? 'warning' : 'system'), text, nodeId });
     const timeStr = (this.scriptRuntime || 0).toFixed(2);
     this.scriptLogs.push(`[${timeStr}s] ${message}`);
     if (this.scriptLogs.length > 40) {
@@ -4819,6 +4859,14 @@ export class Contraption {
     receipt.commandId = String(command.commandId);
     this.pendingScriptCommandResults.push(Object.freeze(receipt));
     if (this.pendingScriptCommandResults.length > 256) this.pendingScriptCommandResults.shift();
+    if (command.scope === 'messages' && command.path === 'send') {
+      const args = command.args || [];
+      this.output.append({ kind: 'message', direction: 'outgoing', sourceId: this.publicId,
+        targetId: String(args[0] || ''), messageType: String(args[1] || ''), text: entityMessageText(args[2]),
+        messageId: typeof receipt.messageId === 'string' ? receipt.messageId : undefined,
+        nodeId: String(command.nodeId || this.rootComponentId),
+        status: String(receipt.deliveryStatus || receipt.reason || receipt.status) });
+    }
   }
 
   /** Queue one validated, ephemeral message for the next submitted root-script tick. */
@@ -4863,6 +4911,8 @@ export class Contraption {
     }
     this.pendingEntityMessages.push(entry);
     this.pendingEntityMessageBytes += payloadBytes;
+    this.output.append({ kind: 'message', direction: 'incoming', sourceId, targetId, messageId,
+      messageType: type, text: entityMessageText(payload), status: 'received' });
     return true;
   }
 
@@ -4987,7 +5037,7 @@ export class Contraption {
         }
       };
       if (command?.scope === 'log') {
-        this.log(String(args[0] ?? '').slice(0, 1000));
+        this.log(String(args[0] ?? '').slice(0, 1000), 'console', String(command.nodeId || this.rootComponentId));
         continue;
       }
       if (command?.scope === 'control' && command.path === 'stop') {

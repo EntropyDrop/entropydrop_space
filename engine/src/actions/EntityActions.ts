@@ -621,7 +621,7 @@ export function executeEntityAction(context: BasicActionContext, command: any): 
       if (contraption.isWrenchGrabbed || context?.manager?.controller?.wrenchGrab?.contraption === contraption) {
         return actionResult(command.action, 0, 'wrench_grabbed', { status: 'stopped', physicsEnabled: false });
       }
-      const hasRunnableCode = !!contraption.compiledScript || (contraption.compiledNodeScripts?.size || 0) > 0;
+      const hasRunnableCode = [...contraption.nodeScripts.values()].some(code => code.trim());
       if (!hasRunnableCode) {
         if (contraption.isPhysicsSimulationEnabled?.() === false) {
           contraption.enableAllNodeScripts?.();

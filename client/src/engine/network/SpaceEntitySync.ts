@@ -1216,6 +1216,11 @@ export class SpaceEntitySync {
   }
 
   private async setRunState(contraption: any, desiredState: SpaceEntityRunState) {
+    if (desiredState === 'running') {
+      const key = this.queueKey(String(contraption.publicId));
+      await this.saveChains.get(key);
+      if (this.pendingSaves.has(key)) throw new Error('Entity code is still saving; try Start again shortly');
+    }
     const requestedAt = Date.now();
     const updated = await this.client.setRunState(
       String(contraption.publicId),

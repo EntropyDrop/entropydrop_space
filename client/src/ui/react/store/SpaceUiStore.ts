@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { componentOutlineColor } from '@entropydrop/space-engine/render/ComponentOutlineColors.ts';
 import { retainView, EMPTY_MODELING_VIEW, type EntityLabelView, type ModelingView } from './SimulationViews.ts';
+import { EntityOutputCollector, type EntityOutputView } from '../utils/entityOutput.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
 import {
   loadAgentConfig,
@@ -254,6 +255,7 @@ export interface SpaceUiSnapshot {
   terrainLoadProgress: TerrainAoiLoadProgress;
   networkRates: NetworkRates;
   nearbyEntities: NearbyEntityItem[];
+  entityOutput: EntityOutputView[];
   hosting: SpaceHostingList;
   hostingBusyIds: string[];
   hostingError: string | null;
@@ -381,7 +383,6 @@ export class SpaceUiStore {
   private listeners = new Set<Listener>();
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private bulkEditClearTimer: ReturnType<typeof setTimeout> | null = null;
-  private scriptCompileTimer: ReturnType<typeof setTimeout> | null = null;
   private codeEditorStopPromise: Promise<void> = Promise.resolve();
   private codeEditorIsStoppedForEdits = false;
   private codeEditorSession = 0;
@@ -389,6 +390,7 @@ export class SpaceUiStore {
   private readonly distantTerrainFpsGuard = new DistantTerrainFpsGuard();
   private toastSequence = 0;
   private remotePlayers: any[] = [];
+  private entityOutputCollector = new EntityOutputCollector();
   private particleSystem: any = null;
   private marketClient: SpaceMarketClient | null = null;
   private tutorialActions: {
@@ -449,6 +451,7 @@ export class SpaceUiStore {
     pingClass: 'hud-ping ping-unknown',
     positionText: 'X: -- | Y: -- | Z: --',
     nearbyEntities: [],
+    entityOutput: [],
     hosting: EMPTY_HOSTING,
     hostingBusyIds: [],
     hostingError: null,
@@ -763,7 +766,12 @@ export class SpaceUiStore {
   }
 
   setContraptions(contraptions: UiContraptionManager | null): void {
-    this.patch({ contraptions });
+    this.entityOutputCollector = new EntityOutputCollector();
+    this.patch({ contraptions, entityOutput: [] });
+  }
+
+  clearEntityOutput(): void {
+    this.patch({ entityOutput: this.entityOutputCollector.clear(this.snapshot.contraptions?.contraptions || []) });
   }
 
   setSceneRenderer(sceneRenderer: UiSceneRenderer | null): void {
@@ -846,49 +854,21 @@ export class SpaceUiStore {
 
   private saveCurrentDraft(): void {
     const { editingContraption, selectedComponentNodeId, scriptDraft } = this.snapshot;
-    if (editingContraption && selectedComponentNodeId) {
-      editingContraption.setNodeScript(selectedComponentNodeId, scriptDraft);
+    if (editingContraption && selectedComponentNodeId && (!editingContraption.serverManaged || editingContraption.serverCanEdit)) {
+      editingContraption.setNodeScriptDraft(selectedComponentNodeId, scriptDraft);
+      this.snapshot.contraptions?.saveEntitiesToStorage?.();
     }
   }
 
-  private cancelPendingScriptCompile(): void {
-    if (this.scriptCompileTimer) clearTimeout(this.scriptCompileTimer);
-    this.scriptCompileTimer = null;
+  private resetCodeEditorSession(): void {
     this.codeEditorSession++;
     this.codeEditorStopPromise = Promise.resolve();
     this.codeEditorIsStoppedForEdits = false;
   }
 
-  private scheduleScriptCompile(contraption: any, nodeId: string): void {
-    if (this.scriptCompileTimer) clearTimeout(this.scriptCompileTimer);
-    const session = this.codeEditorSession;
-    const stopPromise = this.codeEditorStopPromise;
-    this.scriptCompileTimer = setTimeout(async () => {
-      this.scriptCompileTimer = null;
-      await stopPromise;
-      const state = this.snapshot;
-      if (session !== this.codeEditorSession
-        || state.activeModal !== 'code'
-        || state.editingContraption !== contraption
-        || state.selectedComponentNodeId !== nodeId) return;
-
-      const source = state.scriptDraft;
-      const success = contraption.setNodeScript(nodeId, source);
-      this.refresh();
-      await contraption.scriptRuntimeClient?.ready?.();
-      if (session !== this.codeEditorSession || contraption.getNodeScript?.(nodeId) !== source) return;
-      if (!success || contraption.nodeScriptErrors?.has?.(nodeId)) {
-        const error = contraption.nodeScriptErrors?.get?.(nodeId) || contraption.scriptError;
-        this.showToast(`Compile error: ${error}`);
-      }
-      this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
-      this.refresh();
-    }, 350);
-  }
-
   closeAllModals(resumePointerLock = false): void {
     this.saveCurrentDraft();
-    if (this.snapshot.activeModal === 'code') this.cancelPendingScriptCompile();
+    if (this.snapshot.activeModal === 'code') this.resetCodeEditorSession();
     const { editingContraption, sceneRenderer, controller } = this.snapshot;
     controller?.closeTextCreation?.(false);
     sceneRenderer?.setEntityPreviewTarget?.(null);
@@ -929,7 +909,7 @@ export class SpaceUiStore {
     } else {
       if (modal === 'code') {
         this.saveCurrentDraft();
-        this.cancelPendingScriptCompile();
+        this.resetCodeEditorSession();
       }
       this.patch({
         activeModal: null,
@@ -1668,7 +1648,8 @@ export class SpaceUiStore {
 
   openCodeEditor(contraption: any): void {
     if (!contraption) return;
-    this.cancelPendingScriptCompile();
+    if (this.snapshot.activeModal === 'code') this.saveCurrentDraft();
+    this.resetCodeEditorSession();
     const selectedComponentNodeId = entityRootId(contraption);
     const rootNode = contraption.getEntityNode?.(selectedComponentNodeId);
     const existing = contraption.getNodeScript?.(selectedComponentNodeId);
@@ -1690,16 +1671,13 @@ export class SpaceUiStore {
 
   setScriptDraft(scriptDraft: string): void {
     const { editingContraption, selectedComponentNodeId } = this.snapshot;
-    if (editingContraption) {
-      editingContraption.nodeScripts?.set?.(selectedComponentNodeId, scriptDraft);
-      if (selectedComponentNodeId === entityRootId(editingContraption)) editingContraption.scriptCode = scriptDraft;
-    }
-    this.patch({ scriptDraft });
+    if (editingContraption?.serverManaged && !editingContraption.serverCanEdit) return;
     if (!this.codeEditorIsStoppedForEdits) {
       this.codeEditorIsStoppedForEdits = true;
       this.codeEditorStopPromise = this.setGlobalPlayback('stop', true);
     }
-    if (editingContraption) this.scheduleScriptCompile(editingContraption, selectedComponentNodeId);
+    editingContraption?.setNodeScriptDraft(selectedComponentNodeId, scriptDraft);
+    this.patch({ scriptDraft });
   }
 
   selectComponentTreeNode(nodeId: string): void {
@@ -1717,6 +1695,12 @@ export class SpaceUiStore {
   async setGlobalPlayback(value: 'play' | 'stop', silent = false): Promise<void> {
     const contraption = this.snapshot.editingContraption;
     if (!contraption) return;
+    if (value === 'play') {
+      const session = this.codeEditorSession;
+      await this.codeEditorStopPromise;
+      if (session !== this.codeEditorSession || this.snapshot.editingContraption !== contraption) return;
+      this.saveCurrentDraft();
+    }
     this.codeEditorIsStoppedForEdits = value === 'stop';
     if (contraption.serverManaged === true) {
       const success = await this.snapshot.controller?.requestServerEntityRunState?.(
@@ -1743,6 +1727,13 @@ export class SpaceUiStore {
         ? 'STARTED: entity physics active; component scripts running'
         : 'STOPPED: physics disabled; PB defaults and construction pose restored';
       this.showToast(message);
+    }
+    if (value === 'play') {
+      await contraption.scriptRuntimeClient?.ready?.();
+      this.refresh();
+      if (contraption.nodeScriptErrors?.size) {
+        this.showToast(`Compile error: ${contraption.nodeScriptErrors.values().next().value}`, { tone: 'warning' });
+      }
     }
   }
 
@@ -1916,7 +1907,7 @@ export class SpaceUiStore {
   notifyContraptionRemoved(contraption: any): void {
     if (this.snapshot.entityContextMenu?.contraption === contraption) this.closeEntityContextMenu();
     if (!contraption || this.snapshot.editingContraption !== contraption) return;
-    this.cancelPendingScriptCompile();
+    this.resetCodeEditorSession();
     this.snapshot.sceneRenderer?.setEntityPreviewTarget?.(null);
     this.patch({ editingContraption: null, selectedComponentNodeId: '', scriptDraft: '', activeModal: null });
   }
@@ -2015,19 +2006,21 @@ export class SpaceUiStore {
     if (!contraption) return;
     this.saveCurrentDraft();
     const targetId = String(targetNodeId || entityRootId(contraption));
+    if (contraption.serverManaged && !contraption.serverCanEdit) return;
     contraption.mode = ContraptionMode.PROGRAMMABLE;
-    const success = contraption.setNodeScript(targetId, code);
+    const session = this.codeEditorSession;
+    await this.setGlobalPlayback('stop', true);
+    if (session !== this.codeEditorSession || this.snapshot.editingContraption !== contraption) return;
+    const success = contraption.setNodeScriptDraft(targetId, code);
     contraption.setHighlightedNode?.(targetId);
     this.patch({ selectedComponentNodeId: targetId, scriptDraft: code });
     this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
-    await contraption.scriptRuntimeClient?.ready?.();
-    if (contraption.getNodeScript?.(targetId) !== code) return;
+    this.snapshot.contraptions?.saveEntitiesToStorage?.();
     this.refresh();
-    if (success && !contraption.nodeScriptErrors?.has?.(targetId)) {
-      if (!silent) this.showToast(`AI code applied to [${targetId}]`);
+    if (success) {
+      if (!silent) this.showToast(`AI code saved to [${targetId}] · press Start to compile and run`);
     } else {
-      const error = contraption.nodeScriptErrors?.get?.(targetId) || contraption.scriptError;
-      this.showToast(`Code compile failed: ${error}`);
+      this.showToast('Unable to save code');
     }
   }
 
@@ -2449,6 +2442,7 @@ export class SpaceUiStore {
       pingClass: roundedPing === null ? 'hud-ping ping-unknown' : `hud-ping ${roundedPing < 80 ? 'ping-good' : roundedPing < 180 ? 'ping-medium' : 'ping-poor'}`,
       positionText: `X: ${playerPos.x.toFixed(1)} | Y: ${playerPos.y.toFixed(1)} | Z: ${playerPos.z.toFixed(1)}`,
       nearbyEntities: entities,
+      entityOutput: this.entityOutputCollector.collect(contraptions?.contraptions || []),
       entityContextMenu: this.snapshot.entityContextMenu
         && contraptions?.contraptions?.includes(this.snapshot.entityContextMenu.contraption)
         ? this.snapshot.entityContextMenu : null,
