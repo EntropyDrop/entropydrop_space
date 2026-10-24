@@ -33,6 +33,9 @@ export function SpaceRoot() {
   useEffect(() => {
     const handleGlobalKey = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
+      // The first Escape dismisses code suggestions, leaving the editor open.
+      if (event.key === 'Escape' && event.target instanceof HTMLElement
+        && event.target.dataset.codeCompletionsOpen === 'true') return;
       if (event.key === 'Escape' && spaceUiStore.handleEscape()) {
         event.preventDefault();
         event.stopPropagation();

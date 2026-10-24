@@ -14,6 +14,19 @@ import { useSpaceUi, useSpaceUiFields } from '../store/useSpaceUi.ts';
 import { AgentApiKeySecurityNotice } from './AgentApiKeySecurityNotice.tsx';
 import { AgentModelField } from './AgentModelField.tsx';
 import { ThoughtBox } from './ThoughtBox.tsx';
+import { CodeInput } from './CodeInput.tsx';
+
+function codePlaceholder(nodeId: string) {
+  return `Write AssemblyScript for component ${nodeId || 'self'}.
+
+Use self to control this component and ctx for runtime input.
+Kinematics: self.setLocalPosition([x, y, z]), self.setLocalSpin(axis, rpm)
+Forces: self.applyForce([fx, fy, fz]), self.applyTorque([...])
+Children: self.child('child_name')
+Input: ctx.input.down('KeyW'), ctx.input.pressed('Space')
+
+Press Start to compile and run your code.`;
+}
 
 function HierarchyNode({ node, depth, selected }: { node: any; depth: number; selected: string }) {
   const isChild = node.parentId !== null;
@@ -317,8 +330,10 @@ export function CodeEditorModal() {
               const enabled = contraption.isNodeScriptEnabled(node.id);
               return <button type="button" tabIndex={-1} key={node.id} className={`code-tab ${state.selectedComponentNodeId === node.id ? 'active' : ''} ${code?.trim?.() ? 'has-script' : ''} ${enabled ? 'enabled' : 'disabled'}`} onClick={() => spaceUiStore.selectComponentTreeNode(node.id)}><span>{node.id}</span></button>;
             })}</div>
-            <div className="code-editor-main"><div className="code-gutter" id="code-gutter" /><textarea id="script-textarea" className="code-textarea" spellCheck={false} placeholder="// AssemblyScript controller body (self: Component, ctx: Context)" value={state.scriptDraft} onChange={event => spaceUiStore.setScriptDraft(event.target.value)} /></div>
-            <div className="code-footer-hint" id="code-footer-hint"><span id="code-target-hint">Editing: {state.selectedComponentNodeId}{contraption.getEntityNode?.(state.selectedComponentNodeId)?.parentId === null ? ' (body)' : ''}</span><span className="code-api-hint">Code compiles when you press Start</span><span id="code-api-hint" className="code-api-hint">entityAPI: self · ctx</span></div>
+            <CodeInput key={`${contraption.publicId ?? contraption.id}:${state.selectedComponentNodeId}`}
+              placeholder={codePlaceholder(state.selectedComponentNodeId)} value={state.scriptDraft}
+              onChange={value => spaceUiStore.setScriptDraft(value)} />
+            <div className="code-footer-hint" id="code-footer-hint"><span id="code-target-hint">Editing: {state.selectedComponentNodeId}{contraption.getEntityNode?.(state.selectedComponentNodeId)?.parentId === null ? ' (body)' : ''}</span><span className="code-api-hint">Ctrl+Space: complete · Start: compile</span><span id="code-api-hint" className="code-api-hint">entityAPI: self · ctx</span></div>
           </div>
           <div className="telemetry-panel">
             <div className="telemetry-section-title">3D VIEW</div><div className="entity-preview-frame"><canvas id="entity-preview-canvas" aria-label="Interactive preview of the entity in the current world" ref={attachPreviewCanvas} /></div>

@@ -5698,6 +5698,7 @@ button.palette-title:hover {
 
 .code-textarea {
   flex: 1;
+  min-width: 0;
   background: transparent;
   color: #e4e4e7;
   border: none;
@@ -5715,6 +5716,94 @@ button.palette-title:hover {
 
 .code-textarea::selection {
   background: rgba(60, 133, 39, 0.4);
+}
+
+.code-completion-popup {
+  position: absolute;
+  z-index: 10;
+  width: 400px;
+  max-width: calc(100% - 16px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--accent-active);
+  background: #171a16;
+  box-shadow: 0 6px 20px #0009;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.code-completion-list {
+  max-height: 192px;
+  min-height: 28px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.code-completion-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #e4e4e7;
+  text-align: left;
+  cursor: pointer;
+}
+
+.code-completion-option.active, .code-completion-option:hover {
+  background: #38592b;
+}
+
+.code-completion-kind {
+  color: var(--accent-light);
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.code-completion-name, .code-completion-details code {
+  font-family: inherit;
+}
+
+.code-completion-type {
+  margin-left: auto;
+  color: #aaa;
+  font-size: 10px;
+}
+
+.code-completion-details {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-subtle);
+  overflow-y: auto;
+  flex: 0 1 auto;
+}
+
+.code-completion-details code {
+  color: var(--accent-light);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.code-completion-details p {
+  color: #c0c0c0;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 5px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.code-completion-keys {
+  padding: 4px 10px;
+  border-top: 1px solid var(--border-subtle);
+  color: #aaa;
+  font-size: 10px;
+  flex-shrink: 0;
 }
 
 .code-footer-hint {

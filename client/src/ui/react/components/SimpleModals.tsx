@@ -648,7 +648,7 @@ export function PauseScreen() {
           <span><kbd className="key-badge">B</kbd> Backpack / Color sets</span>
           <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy · X cut</span>
           <span><kbd className="key-badge">2</kbd> Hammer: LMB preview · Drag XYZ on the current STD/MICRO grid · Enter build / attach · RMB cancel · Arrows rotate · T text · Tab standard/micro positioning</span>
-          <span><kbd className="key-badge">3</kbd> Wrench: drag COM axes to move · drag arrows to rotate · hold entity to lift · RMB to start</span>
+          <span><kbd className="key-badge">3</kbd> Wrench: drag pivot axes to move · drag arrows to rotate · hold to lift the entity · double LMB start/stop · RMB menu</span>
           <span><kbd className="key-badge">4</kbd> Shovel: remove / place 1m blocks</span>
           <span><kbd className="key-badge">5</kbd> Spoon: micro-carve 8x8x8</span>
           <span><kbd className="key-badge">6</kbd> Brush: paint / right-click 2-point dye · Tab micro/standard</span>

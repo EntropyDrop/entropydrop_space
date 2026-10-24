@@ -56,6 +56,10 @@ interface BodyObb extends PhysicsObb, CollisionBounds { coversSamples?: boolean;
 type LocalTerrainShape = CollisionBounds & { cell: CollisionEntry | CollisionBox; center: THREE.Vector3; halfExtents: number[] };
 type LocalTerrainNode = { shapes: LocalTerrainShape[]; bounds: THREE.Box3; index?: CollisionBoxIndex<LocalTerrainShape> };
 type EntityFrame = NonNullable<ReturnType<ContraptionPhysics['prepareContraptionFrame']>>;
+type TerrainContactOwners = Map<string, { position: THREE.Vector3; count: number }>;
+type TerrainContactMotion = { velocity: THREE.Vector3; friction: number };
+type TerrainContactGroup = { normal: THREE.Vector3; penetration: number;
+  hitPosition: THREE.Vector3; points: THREE.Vector3[]; count: number; owners: TerrainContactOwners };
 interface PairFrame { colliders: Contraption[]; collisionCandidates?: [number, number][]; dynamicCandidates?: [number, number][] }
 
 type RestingTerrainSupport = {
@@ -66,6 +70,7 @@ type RestingTerrainSupport = {
   points: THREE.Vector3[];
   manifold: THREE.Vector3[];
   cells: (CollisionBounds | null)[];
+  owners: TerrainContactOwners;
   parts: Array<{ node: EntityNode; matrix: THREE.Matrix4 | null; enabled: boolean }>;
 };
 
@@ -277,6 +282,7 @@ export class ContraptionPhysics {
       );
     }
     contraption.syncAllBodyTransforms?.();
+    contraption.syncKinematicBodies?.(sdt, true);
   }
 
   /** Close one contraption's physics frame after all substeps (and any
@@ -358,7 +364,8 @@ export class ContraptionPhysics {
     }
     const relativeVelocity = body.velocity.clone();
     const impulse = this.solveTerrainContact(body, support.normal, support.manifold[0], 0,
-      support.points, dt, support.manifold, false, RESTING_TERRAIN_CONTACT_ITERATIONS);
+      support.points, dt, support.manifold, false, RESTING_TERRAIN_CONTACT_ITERATIONS,
+      this.terrainContactMotion(contraption, body, support.owners));
     contraption.recordScriptContact?.({
       kind: 'terrain', selfNodeId: body.id, otherEntityId: null, otherNodeId: null,
       playerId: null, position: support.manifold[0].toArray(), normal: support.normal.toArray(),
@@ -1628,7 +1635,7 @@ export class ContraptionPhysics {
             }
           }
           if (!exposed) continue;
-          contacts.push(contact);
+          contacts.push({ ...contact, ownerId: obb.cell?.entityId || body.id });
         }
       }
     }
@@ -2033,11 +2040,34 @@ export class ContraptionPhysics {
     }
   }
 
-  solveTerrainContact(body: EntityRigidBody, normal: THREE.Vector3, hitPosition: THREE.Vector3, penetration: number, contactPoints: THREE.Vector3[], dt: number, manifold = [hitPosition], allowRestitution = true, contactIterations = TERRAIN_CONTACT_ITERATIONS) {
+  /** Blend contacting components, rather than letting voxel tessellation weight
+   * a finely modelled wheel more heavily than another supporting component. */
+  private terrainContactMotion(contraption: Contraption, body: EntityRigidBody, owners: TerrainContactOwners): TerrainContactMotion | undefined {
+    if (owners.size === 1 && owners.has(body.id)) return;
+    const velocity = new THREE.Vector3();
+    let friction = 0;
+    for (const [id, contact] of owners) {
+      const owner = contraption.getRigidBody(id) || body;
+      const coefficient = Math.max(0, owner.friction);
+      friction += coefficient;
+      if (owner !== body && coefficient > 0) {
+        const point = contact.position.clone().divideScalar(contact.count);
+        velocity.addScaledVector(contraption.getKinematicPointVelocityOffset(id, point), coefficient);
+      }
+    }
+    if (friction > 0) velocity.divideScalar(friction);
+    return { velocity, friction: owners.size ? friction / owners.size : body.friction };
+  }
+
+  solveTerrainContact(body: EntityRigidBody, normal: THREE.Vector3, hitPosition: THREE.Vector3, penetration: number, contactPoints: THREE.Vector3[], dt: number, manifold = [hitPosition], allowRestitution = true, contactIterations = TERRAIN_CONTACT_ITERATIONS, motion?: TerrainContactMotion) {
+    // The shape's normal motion is handled by penetration/CCD. Friction must
+    // additionally see its scripted tangential velocity relative to the carrier.
+    const surface = motion && { friction: motion.friction,
+      velocity: motion.velocity.clone().addScaledVector(normal, -motion.velocity.dot(normal)) };
     const solver = getPhysicsSolverKernels();
     if (solver) {
       const impulse = solver.solveTerrainImpulse(body, normal, hitPosition, penetration, contactPoints,
-        dt, manifold, allowRestitution, contactIterations, this.gravity.length(), RESTING_CONTACT_VELOCITY, SUPPORT_WIDTH_NARROW);
+        dt, manifold, allowRestitution, contactIterations, this.gravity.length(), RESTING_CONTACT_VELOCITY, SUPPORT_WIDTH_NARROW, surface);
       if (impulse !== null) return impulse;
     }
     body.position.addScaledVector(normal, Math.max(0, penetration - 0.001));
@@ -2077,6 +2107,7 @@ export class ContraptionPhysics {
     // Solve Coulomb friction after the support impulse. Its effective mass
     // includes the same contact lever arm, and the impulse is capped by μN.
     const postNormalVelocity = body.velocity.clone().add(body.angularVelocity.clone().cross(r));
+    if (surface) postNormalVelocity.add(surface.velocity);
     const tangentVelocity = postNormalVelocity
       .clone()
       .addScaledVector(normal, -postNormalVelocity.dot(normal));
@@ -2087,7 +2118,7 @@ export class ContraptionPhysics {
       const tangentDenominator = inverseMass + tangentLever.lengthSq() * body.inverseInertia;
       if (tangentDenominator > 1e-9) {
         const frictionImpulseMagnitude = Math.max(
-          -normalImpulseMagnitude * body.friction,
+          -normalImpulseMagnitude * (surface?.friction ?? body.friction),
           -tangentSpeed / tangentDenominator
         );
         body.velocity.addScaledVector(tangent, frictionImpulseMagnitude * inverseMass);
@@ -2112,7 +2143,12 @@ export class ContraptionPhysics {
     if (Math.abs(residualNormalVelocity) < RESTING_CONTACT_VELOCITY) {
       body.velocity.addScaledVector(normal, -residualNormalVelocity);
     }
-    if (body.velocity.lengthSq() < 0.01) body.velocity.set(0, 0, 0);
+    const restingVelocity = body.velocity.clone();
+    if (surface) restingVelocity.add(surface.velocity);
+    if (restingVelocity.lengthSq() < 0.01) {
+      if (surface) body.velocity.copy(surface.velocity).negate();
+      else body.velocity.set(0, 0, 0);
+    }
     return normalImpulseMagnitude;
   }
 
@@ -2185,23 +2221,27 @@ export class ContraptionPhysics {
     } : undefined, terrainQuery ? terrainCells : undefined);
     if (!bodyObbs.length && !samplePoints.length) return 0;
 
-    const contacts = new Map<string, { normal: THREE.Vector3; penetration: number;
-      hitPosition: THREE.Vector3; points: THREE.Vector3[]; count: number }>();
-    const addContact = (resolvedContact: { normal: THREE.Vector3; penetration: number }, point: THREE.Vector3) => {
+    const contacts = new Map<string, TerrainContactGroup>();
+    const addContact = (resolvedContact: { normal: THREE.Vector3; penetration: number }, point: THREE.Vector3, ownerId = body.id) => {
       const key = [resolvedContact.normal.x, resolvedContact.normal.y, resolvedContact.normal.z]
         .map(value => value.toFixed(5))
         .join(',');
-      const group = contacts.get(key) || {
+      const group: TerrainContactGroup = contacts.get(key) || {
         normal: resolvedContact.normal,
         penetration: 0,
         hitPosition: new THREE.Vector3(),
         points: [],
-        count: 0
+        count: 0,
+        owners: new Map()
       };
       group.penetration = Math.max(group.penetration, resolvedContact.penetration);
       group.hitPosition.add(point);
       group.points.push(point);
       group.count++;
+      const owner = group.owners.get(ownerId) || { position: new THREE.Vector3(), count: 0 };
+      owner.position.add(point);
+      owner.count++;
+      group.owners.set(ownerId, owner);
       contacts.set(key, group);
     };
 
@@ -2238,7 +2278,7 @@ export class ContraptionPhysics {
       // face and must win whenever the point travelled far enough to need CCD.
       const resolvedContact = sweptContact || contact;
       if (!resolvedContact) continue;
-      addContact(resolvedContact, sweptContact?.hitPosition || pt);
+      addContact(resolvedContact, sweptContact?.hitPosition || pt, pt.entityId);
     }
 
     // Sampling one body's surface cannot see the dual face-edge topology: a
@@ -2261,7 +2301,7 @@ export class ContraptionPhysics {
         normal.dot(exactContact.normal) > 0.999
       ));
       if (constrainedBySamples && terrainFeatureDimensions < 2) continue;
-      addContact(exactContact, exactContact.hitPosition);
+      addContact(exactContact, exactContact.hitPosition, exactContact.ownerId);
     }
 
     // Resolve independent exposed faces in one substep (for example floor +
@@ -2283,7 +2323,10 @@ export class ContraptionPhysics {
         group.penetration,
         group.points,
         dt,
-        manifold
+        manifold,
+        true,
+        TERRAIN_CONTACT_ITERATIONS,
+        this.terrainContactMotion(contraption, body, group.owners)
       );
       const localNormal = group.normal.clone().applyQuaternion(body.quaternion.clone().invert());
       const faceAlignment = Math.max(Math.abs(localNormal.x), Math.abs(localNormal.y), Math.abs(localNormal.z));
@@ -2293,6 +2336,7 @@ export class ContraptionPhysics {
           position: body.position.clone(), quaternion: body.quaternion.clone(),
           normal: group.normal, points: group.points, manifold,
           cells: manifold.map(point => this.terrainCellAtPoint(point.clone().addScaledVector(group.normal, -0.002))),
+          owners: group.owners,
           parts: [...contraption.entityNodes.values()]
             .filter(node => this.contactBodyFor(contraption, contraption.getRigidBody(node.id)) === body)
             .map(node => ({ node, matrix: node.id === body.id ? null : node.group.matrix.clone(),

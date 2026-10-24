@@ -7,6 +7,7 @@ import { ContraptionManager } from '@entropydrop/space-engine/contraption/Contra
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { bendPointForView, setTorusViewCorrection } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { transformAxis, transformScreenPoint, transformViewCamera } from '../src/engine/render/TransformGizmo.ts';
+import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 
 const blockSet = () => ({ kind: 'blockset', name: 'Cube', blockCount: 1,
   blocks: [{ dx: 0, dy: 0, dz: 0, size: 1, color: 0x48dbfb, materialId: 1 }] });
@@ -140,6 +141,103 @@ test('installation adjusts in the rotated component grid and preserves the chose
   assert.equal(manager.contraptions.length, 1); assert.equal(target.blocks.length, 2);
   assert.ok(target.getBlockWorldCenter(target.blocks[1]).distanceTo(expected) < 1e-8);
   assert.equal(commands.length, 0, 'component installation does not start scripts');
+});
+
+for (const asItem of [false, true]) test(`pending ${asItem ? 'Item module' : 'entity'} links its future pivot to the actual parent until confirmation`, t => {
+  const source = { ...entitySlot(), blocks: [entitySlot().blocks[0],
+    { ...entitySlot().blocks[0], localX: 3, entityId: 'tip' }],
+    childEntities: [{ id: 'tip', parentId: 'root', pivot: [3.5, .5, .5], localPosition: [5, 0, 0] }] };
+  const itemEntity = { ...source, itemPosition: [1, .5, -1],
+    itemRotation: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2).toArray() };
+  const slot = asItem ? { kind: 'item', name: 'Offset module', blocks: source.blocks, entityList: [itemEntity] } : source;
+  const { c, commands } = harness(slot);
+  const scene = new THREE.Scene();
+  const manager = new ContraptionManager(scene, null, null, null);
+  const targetSlot = asItem ? { ...entitySlot(), blocks: [entitySlot().blocks[0],
+    { ...entitySlot().blocks[0], localX: 2, entityId: 'mount' }],
+    childEntities: [{ id: 'mount', parentId: 'root', pivot: [2.5, .5, .5],
+      localRotation: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), .3).toArray() }] } : entitySlot();
+  const target = manager.buildFromSlot(targetSlot, new THREE.Vector3(4, 19, 6), null, false)!;
+  target.stopAllNodeScripts();
+  target.quaternion.setFromEuler(new THREE.Euler(.1, .4, -.2)); target.updateTransform();
+  c.contraptions = manager;
+  c.camera = new THREE.PerspectiveCamera(60, 1, .1, 1000);
+  c.camera.position.set(10, 25, 14); c.camera.lookAt(target.position); c.camera.updateMatrixWorld(true);
+  const renderer: any = c.sceneRenderer = Object.assign(Object.create(SceneRenderer.prototype), { scene, camera: c.camera });
+  const parentId = asItem ? 'mount' : 'root';
+  const parent = target.getEntityNode(parentId)!;
+  c.hoveredContraptionHit = { contraption: target, entityId: parentId,
+    point: target.entityLocalToWorld(parentId, new THREE.Vector3(asItem ? 2.5 : .5, .5, 1)),
+    normal: new THREE.Vector3(0, 0, 1),
+    worldNormal: new THREE.Vector3(0, 0, 1).applyQuaternion(target.getEntityNodeWorldQuaternion(parentId)) };
+  t.after(() => { c.cancelHammerPlacement(false); renderer.componentParentLink?.dispose();
+    renderer.componentHierarchyLinks?.dispose(); target.dispose(); });
+  assert.equal(c.beginHammerPlacement(), true);
+  c.updateComponentHierarchyLinks();
+  const link = renderer.componentParentLink.group as THREE.Group;
+  const marker = link.getObjectByName('OwnerPivot')!;
+  const expectedPivot = () => {
+    const center = new THREE.Vector3(2, .5, .5);
+    if (asItem) center.applyQuaternion(new THREE.Quaternion().fromArray(itemEntity.itemRotation))
+      .add(new THREE.Vector3().fromArray(itemEntity.itemPosition));
+    return center.applyQuaternion(c.inventoryPlacementPreview.quaternion).add(c.inventoryPlacementPreview.position);
+  };
+  const assertEndpoints = () => {
+    assert.equal(link.visible, true);
+    assert.ok(link.position.distanceTo(expectedPivot()) < 1e-8, 'start is the installed pivot, not the ghost geometry center');
+    assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(target.getEntityNodeWorldPosition(parentId)) < 1e-8);
+  };
+  assertEndpoints();
+  assert.equal(manager.contraptions.length, 1); assert.equal(target.entityNodes.size, asItem ? 2 : 1);
+  const wave = link.getObjectByName('OwnershipWave') as THREE.Mesh;
+  const buffer = wave.geometry.getAttribute('position');
+  const initialWave = Array.from(buffer.array);
+  c.hammerPlacement.moveAlongAxis('x', 2);
+  c.hammerPlacement.moveAlongAxis('z', 3);
+  c.hoveredContraptionHit = null; c.currentRaycast = { hit: false };
+  c.updateComponentHierarchyLinks(); assertEndpoints();
+  assert.equal(wave.geometry.getAttribute('position'), buffer, 'dragging reuses the wave geometry');
+  assert.notDeepEqual(Array.from(buffer.array), initialWave);
+  const localPosition = parent.group.position.clone();
+  parent.group.position.add(new THREE.Vector3(.2, .3, .1));
+  c.updateComponentHierarchyLinks(); assertEndpoints();
+  parent.group.position.copy(localPosition); target.updateTransform();
+  const pivotBeforeBuild = expectedPivot();
+  assert.equal(c.hammerPlacement.confirm(), true);
+  const installed = [...target.entityNodes.values()].find(node => node.parentId === parentId && node.id !== 'mount')!;
+  assert.ok(target.getEntityNodeWorldPosition(installed.id).distanceTo(pivotBeforeBuild) < 1e-7,
+    'the preview endpoint exactly matches the confirmed component pivot');
+  assert.equal(link.visible, false, 'confirmation removes the pending installation wave');
+  assert.equal(commands.length, 0);
+});
+
+test('pending installation hides its parent wave when cancelled or the target becomes unavailable', t => {
+  const { c } = harness(entitySlot());
+  const scene = new THREE.Scene();
+  const manager = new ContraptionManager(scene, null, null, null);
+  const target = manager.buildFromSlot(entitySlot(), new THREE.Vector3(4, 19, 6), null, false)!;
+  target.stopAllNodeScripts(); c.contraptions = manager;
+  c.camera = new THREE.PerspectiveCamera(); c.camera.position.set(10, 25, 14);
+  const renderer: any = c.sceneRenderer = Object.assign(Object.create(SceneRenderer.prototype), { scene, camera: c.camera });
+  c.hoveredContraptionHit = { contraption: target, entityId: 'root',
+    point: target.entityLocalToWorld('root', new THREE.Vector3(.5, .5, 1)), normal: new THREE.Vector3(0, 0, 1) };
+  t.after(() => { c.cancelHammerPlacement(false); renderer.componentParentLink?.dispose(); target.dispose(); });
+  c.beginHammerPlacement(); c.updateComponentHierarchyLinks();
+  const link = renderer.componentParentLink.group;
+  assert.equal(link.visible, true);
+  manager.contraptions = []; c.updateComponentHierarchyLinks();
+  assert.equal(link.visible, false, 'removed target leaves no stale wave');
+  manager.contraptions = [target]; c.updateComponentHierarchyLinks(); assert.equal(link.visible, true);
+  c.hammerPlacement.pose.targetNodeId = 'missing'; c.updateComponentHierarchyLinks();
+  assert.equal(link.visible, false, 'removed parent component leaves no stale wave');
+  c.hammerPlacement.pose.targetNodeId = 'root'; c.updateComponentHierarchyLinks();
+  target.scriptStatus = 'running'; c.updateComponentHierarchyLinks(); assert.equal(link.visible, false);
+  target.stopAllNodeScripts(); c.updateComponentHierarchyLinks(); assert.equal(link.visible, true);
+  c.cancelHammerPlacement(false);
+  assert.equal(link.visible, false, 'cancellation clears the wave immediately');
+  c.hoveredContraptionHit = null;
+  c.beginHammerPlacement(); c.updateComponentHierarchyLinks();
+  assert.equal(link.visible, false, 'standalone terrain placement has no parent wave');
 });
 
 test('MICRO placement of a mixed Item keeps static voxels and entities in the same frame', () => {

@@ -99,6 +99,7 @@ const WRENCH_GRAB_RESPONSE = 8;
 const WRENCH_GRAB_MAX_ACCELERATION = 36;
 const WRENCH_GRAB_MAX_TARGET_SPEED = 10;
 const WRENCH_GRAB_MAX_SPEED = 14;
+const WRENCH_GRAB_MAX_ANGULAR_SPEED = 8;
 
 /** Yaw of a rotation whose forward axis is -Z, using the camera's YXZ order. */
 function quaternionForwardYaw(quaternion: any, fallback = 0): number {
@@ -190,6 +191,7 @@ export class PlayerController {
       set focusBlockPreview(value) { host.focusBlockPreview = value; },
       get handleBrushRightClick() { return host.handleBrushRightClick.bind(host); },
       get handleRunningEntityInteraction() { return host.handleRunningEntityInteraction.bind(host); },
+      get handleWrenchEntityClick() { return host.handleWrenchEntityClick.bind(host); },
       get tryClickRunningEntity() { return host.tryClickRunningEntity.bind(host); },
       get hoveredContraption() { return host.hoveredContraption; },
       set hoveredContraption(value) { host.hoveredContraption = value; },
@@ -218,6 +220,7 @@ export class PlayerController {
       get releaseGizmoDrag() { return host.releaseGizmoDrag.bind(host); },
       get releaseWrenchGizmoDrag() { return host.releaseWrenchGizmoDrag.bind(host); },
       get releaseWrenchGrab() { return host.releaseWrenchGrab.bind(host); },
+      get resetWrenchClickGesture() { return host.resetWrenchClickGesture.bind(host); },
       get rotateActiveInventoryItem() { return host.rotateActiveInventoryItem.bind(host); },
       get sampleTargetedColor() { return host.sampleTargetedColor.bind(host); },
       get sceneRenderer() { return host.sceneRenderer; },
@@ -624,6 +627,7 @@ export class PlayerController {
     return this.toolSession.activeTool;
   }
   set activeTool(tool: string) {
+    if (this.activeTool !== tool) this.resetWrenchClickGesture();
     this.toolSession.activeTool = tool;
   }
   selectedBlock: number | null;
@@ -634,6 +638,9 @@ export class PlayerController {
   hoveredContraption: Contraption | null;
   hoveredContraptionHit: any;
   wrenchGrab: any;
+  private wrenchPointerDown: { entity: Contraption; time: number; movement: number } | null = null;
+  private lastWrenchClick: { entity: Contraption; time: number } | null = null;
+  private wrenchPlaybackPending = false;
   private wrenchScrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
   wrenchPivotTarget: any;
   hoveredWrenchGizmoHandle: any;
@@ -874,6 +881,7 @@ export class PlayerController {
         return;
       }
       if (this.worldPickingSuspended) return;
+      if (this.wrenchPointerDown) this.wrenchPointerDown.movement += Math.hypot(e.movementX || 0, e.movementY || 0);
       if (this.hammerPlacementActive && (!this.isLocked || this.hammerPlacement.isDragging)) {
         this.hammerPlacement.pointerMove(e);
         return;
@@ -925,6 +933,7 @@ export class PlayerController {
     document.addEventListener('mouseup', (e) => {
       if (e.button === 2) this.modeling?.endCreation();
       if (e.button !== 0) return;
+      this.finishWrenchEntityClick(e);
       this._textCreationGizmo?.endDrag();
       this._hammerPlacement?.endDrag();
       this.modeling?.endDrag();
@@ -1455,6 +1464,7 @@ export class PlayerController {
   }
 
   resetEntityInputState() {
+    this.resetWrenchClickGesture();
     if (this.keys) {
       this.keys.jump = false;
       this.keys.jumpPressed = false;
@@ -4349,11 +4359,17 @@ export class PlayerController {
     if (this.contraptions?.contraptions
       && !this.contraptions.contraptions.includes(contraption)) return null;
     const rootId = contraptionRootId(contraption);
-    const rootBody = contraption.getRigidBody?.(rootId);
-    target.nodeId = rootId;
-    target.bodyId = rootId;
-    target.position = (rootBody?.position || contraption.position)?.clone?.();
-    target.quaternion = (rootBody?.quaternion || contraption.quaternion)?.clone?.();
+    const nodeId = target.nodeId || rootId;
+    if (nodeId !== rootId && !contraption.getEntityNode?.(nodeId)) return null;
+    const body = contraption.getRigidBody?.(nodeId);
+    target.nodeId = nodeId;
+    target.bodyId = nodeId;
+    target.position = nodeId === rootId
+      ? (body?.position || contraption.position)?.clone?.()
+      : contraption.getEntityNodeWorldPosition(nodeId);
+    target.quaternion = nodeId === rootId
+      ? (body?.quaternion || contraption.quaternion)?.clone?.()
+      : contraption.getEntityNodeWorldQuaternion(nodeId);
     if (!target.position?.isVector3 || !target.quaternion?.isQuaternion) return null;
     const eye = this.physics?.getEyePosition?.() || this.camera?.position || new THREE.Vector3();
     const eyeBent = bendPointForView(eye.x, eye.y, eye.z, new THREE.Vector3());
@@ -4468,12 +4484,13 @@ export class PlayerController {
       this.clearWrenchPivotDisplay();
       return null;
     }
-    const rootId = contraptionRootId(entityHit.contraption);
-    if (this.wrenchPivotTarget?.contraption !== entityHit.contraption) {
+    const nodeId = entityHit.entityId || entityHit.entityNode?.id || contraptionRootId(entityHit.contraption);
+    if (this.wrenchPivotTarget?.contraption !== entityHit.contraption
+      || this.wrenchPivotTarget?.nodeId !== nodeId) {
       this.wrenchPivotTarget = {
         contraption: entityHit.contraption,
-        nodeId: rootId,
-        bodyId: rootId
+        nodeId,
+        bodyId: nodeId
       };
     }
     const current = this.refreshWrenchPivotTargetPose();
@@ -4540,18 +4557,20 @@ export class PlayerController {
     const contraption = target.contraption;
     if (this.handleRunningEntityInteraction(contraption)) return false;
     const bodyId = target.bodyId || contraptionRootId(contraption);
+    const isChild = bodyId !== contraptionRootId(contraption);
+    if (isChild && !this.canEditEntityInternals(contraption)) return false;
     const axis = String(hit.axis) as 'x' | 'y' | 'z';
     if (!['x', 'y', 'z'].includes(axis)) return false;
     if (!contraption.getRigidBody?.(bodyId)) return false;
     const wasRunning = this.beginWrenchManipulation(contraption, false);
-    const rootBody = contraption.getRigidBody(bodyId);
+    const body = contraption.getRigidBody(bodyId);
     const localAxis = new THREE.Vector3(
       axis === 'x' ? 1 : 0,
       axis === 'y' ? 1 : 0,
       axis === 'z' ? 1 : 0
     );
-    const startPosition = rootBody.position.clone();
-    const startQuaternion = rootBody.quaternion.clone();
+    const startPosition = isChild ? contraption.getEntityNodeWorldPosition(bodyId) : body.position.clone();
+    const startQuaternion = isChild ? contraption.getEntityNodeWorldQuaternion(bodyId) : body.quaternion.clone();
     const worldAxis = localAxis.clone().applyQuaternion(startQuaternion).normalize();
     const hitPoint = hit.worldPoint?.isVector3 ? hit.worldPoint.clone() : startPosition.clone();
     let radialWorld = hitPoint.sub(startPosition)
@@ -4563,11 +4582,14 @@ export class PlayerController {
     radialWorld.normalize().multiplyScalar((target.axisLength || 1) * WRENCH_GIZMO_ROTATION_RADIUS);
 
     const inverseStart = startQuaternion.clone().invert();
-    const bodyFrames = [...(contraption.rigidBodies?.values?.() || [])].map((body: any) => ({
-      body,
-      localPosition: body.position.clone().sub(startPosition).applyQuaternion(inverseStart),
-      localQuaternion: inverseStart.clone().multiply(body.quaternion).normalize()
-    }));
+    const subtreeIds = isChild ? contraption.collectSubtreeNodeIds(bodyId) : null;
+    const bodyFrames = [...(contraption.rigidBodies?.values?.() || [])]
+      .filter((body: any) => !subtreeIds || subtreeIds.has(body.id))
+      .map((body: any) => ({
+        body,
+        localPosition: body.position.clone().sub(startPosition).applyQuaternion(inverseStart),
+        localQuaternion: inverseStart.clone().multiply(body.quaternion).normalize()
+      }));
     this.wrenchGrab = { contraption, bodyId, active: false, mode: 'gizmo' };
     this.activeWrenchGizmoDrag = {
       handleKey: hit.handleKey,
@@ -4575,6 +4597,8 @@ export class PlayerController {
       axis,
       contraption,
       bodyId,
+      isChild,
+      changed: false,
       startPosition,
       startQuaternion,
       localAxis,
@@ -4589,7 +4613,8 @@ export class PlayerController {
     this.sound?.playWrenchClick?.();
     const operation = hit.kind === 'move' ? 'move' : 'rotate';
     const prefix = wasRunning ? 'stopped · ' : '';
-    this.ui?.showToast?.(`Wrench: ${prefix}drag ${axis.toUpperCase()} to ${operation} Entity #${contraption.id}`);
+    const subject = isChild ? `component ${bodyId}` : `Entity #${contraption.id}`;
+    this.ui?.showToast?.(`Wrench: ${prefix}drag ${axis.toUpperCase()} to ${operation} ${subject}`);
     this.renderWrenchPivotTarget();
     return true;
   }
@@ -4655,8 +4680,28 @@ export class PlayerController {
       frame.body.previousKinematicPosition?.copy?.(frame.body.position);
       frame.body.previousKinematicQuaternion?.copy?.(frame.body.quaternion);
     }
-    drag.contraption.position.copy(nextPosition);
-    drag.contraption.quaternion.copy(nextQuaternion);
+    if (drag.isChild) {
+      const node = drag.contraption.getEntityNode(drag.bodyId);
+      const parent = node && drag.contraption.getEntityNode(node.parentId);
+      const definition = drag.contraption.childDefinitions.get(drag.bodyId);
+      if (!node || !parent || !definition) return false;
+      parent.group.updateWorldMatrix(true, false);
+      node.localPosition.copy(parent.group.worldToLocal(nextPosition.clone()));
+      node.localQuaternion.copy(parent.group.getWorldQuaternion(new THREE.Quaternion())
+        .invert().multiply(nextQuaternion).normalize());
+      node.group.position.copy(node.localPosition);
+      node.group.quaternion.copy(node.localQuaternion);
+      // This is an authored placement edit, so Stop and hierarchy rebuilds
+      // must retain it rather than restore the pose from before the drag.
+      definition.localPosition = node.localPosition.toArray();
+      definition.localRotation = node.localQuaternion.toArray();
+      node.initialLocalPosition.copy(node.localPosition);
+      node.initialLocalQuaternion.copy(node.localQuaternion);
+    } else {
+      drag.contraption.position.copy(nextPosition);
+      drag.contraption.quaternion.copy(nextQuaternion);
+    }
+    drag.changed = drag.totalDistance !== 0 || drag.totalAngle !== 0;
     drag.contraption.syncAllBodyTransforms?.();
     drag.contraption.updateTransform?.();
     // Gizmo input directly sets the pose between fixed ticks. Interpolating
@@ -4668,24 +4713,61 @@ export class PlayerController {
   }
 
   releaseWrenchGizmoDrag() {
-    if (!this.activeWrenchGizmoDrag) return false;
+    const drag = this.activeWrenchGizmoDrag;
+    if (!drag) return false;
     this.activeWrenchGizmoDrag = null;
     this.hoveredWrenchGizmoHandle = null;
     this.releaseWrenchGrab();
+    if (drag.changed && drag.isChild) {
+      drag.contraption.markDefinitionChanged?.();
+      this.contraptions?.saveEntitiesToStorage?.();
+    }
     if (this.refreshWrenchPivotTargetPose()) this.renderWrenchPivotTarget();
     return true;
   }
 
-  getWrenchGrabBodyId(contraption: Contraption, nodeId = contraptionRootId(contraption)) {
-    let currentId = String(nodeId ?? contraptionRootId(contraption));
-    let kinematicId = null;
-    while (currentId) {
-      const body = contraption.getRigidBody?.(currentId);
-      if (body?.type === BodyType.DYNAMIC) return currentId;
-      if (body?.type === BodyType.KINEMATIC && kinematicId === null) kinematicId = currentId;
-      currentId = contraption.getEntityNode?.(currentId)?.parentId || '';
+  resetWrenchClickGesture() {
+    this.wrenchPointerDown = null;
+    this.lastWrenchClick = null;
+  }
+
+  /** Recognize a second body tap before it can start another grab or script click. */
+  handleWrenchEntityClick(e: MouseEvent | null) {
+    const previous = this.lastWrenchClick;
+    this.resetWrenchClickGesture();
+    if (!e || this.activeTool !== SpecialTool.WRENCH || this.worldPickingSuspended
+      || this.hoveredWrenchGizmoHandle || this.bulkEditJob || this.ui?.hasAnyModalOpen?.()) return false;
+    const entity = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
+    if (!entity || !this.contraptions?.contraptions?.includes(entity)) return false;
+    if (this.wrenchPlaybackPending) return true;
+    const time = Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
+    if (previous && previous.entity === entity && time >= previous.time && time - previous.time <= 350) {
+      this.releaseWrenchGrab();
+      this.clearWrenchPivotDisplay();
+      this.wrenchPlaybackPending = true;
+      void this.performEntityMenuAction(entity, this.isEntityRunning(entity) ? 'stop' : 'start')
+        .catch(() => this.ui?.showToast?.('Entity could not be updated', { tone: 'warning' }))
+        .finally(() => { this.wrenchPlaybackPending = false; this.ui?.refresh?.(); });
+      return true;
     }
-    return kinematicId;
+    this.wrenchPointerDown = { entity, time, movement: 0 };
+    return false;
+  }
+
+  private finishWrenchEntityClick(e: MouseEvent) {
+    const press = this.wrenchPointerDown;
+    this.wrenchPointerDown = null;
+    if (!press) return;
+    const time = Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
+    this.lastWrenchClick = this.activeTool === SpecialTool.WRENCH && !this.worldPickingSuspended
+      && press.movement <= 6 && time >= press.time && time - press.time <= 250
+      ? { entity: press.entity, time } : null;
+  }
+
+  getWrenchGrabBodyId(contraption: Contraption, _nodeId = contraptionRootId(contraption)) {
+    const rootId = contraptionRootId(contraption);
+    const body = contraption.getRigidBody?.(rootId);
+    return body?.type === BodyType.DYNAMIC || body?.type === BodyType.KINEMATIC ? rootId : null;
   }
 
   getWrenchTargetPosition(eyePos: THREE.Vector3, targetDistance: number, anchorPos = eyePos, targetSpace = 'flat') {
@@ -4705,6 +4787,11 @@ export class PlayerController {
     target.x = unwrapPeriodicNear(target.x, anchorPos.x, TORUS_SIZE_X);
     target.z = unwrapPeriodicNear(target.z, anchorPos.z, TORUS_SIZE_Z);
     return target;
+  }
+
+  private getWrenchBodyRotation() {
+    return this.bodyQuaternion?.clone() || new THREE.Quaternion()
+      .setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.viewYaw);
   }
 
   startWrenchGrab() {
@@ -4733,12 +4820,22 @@ export class PlayerController {
       this.ui?.showToast?.('Wrench: this kinematic body cannot be moved');
       return false;
     }
-    // Point-grabbing uses the existing velocity servo, unlike the COM gizmo's
+    // Point-grabbing uses the existing velocity servo, unlike the pivot gizmo's
     // direct stopped transform. Kinematic bodies temporarily become dynamic
     // while held so the same collision-aware servo can move them.
     this.beginWrenchManipulation(contraption, true);
-    if (originalBodyType === BodyType.KINEMATIC
-      && !contraption.setNodeBodyType(bodyId, BodyType.DYNAMIC, { runtimeOnly: true, captureDefault: false })) {
+    let movable = originalBodyType !== BodyType.KINEMATIC
+      || contraption.setNodeBodyType(bodyId, BodyType.DYNAMIC, { runtimeOnly: true });
+    // Hold the hierarchy as one object, including independently dynamic
+    // children. Stop restores every temporary type from its captured default.
+    for (const childBody of contraption.rigidBodies?.values?.() || []) {
+      if (!movable) break;
+      if (childBody.id !== bodyId && childBody.type === BodyType.DYNAMIC) {
+        movable = contraption.setNodeBodyType(childBody.id, BodyType.KINEMATIC, { runtimeOnly: true });
+      }
+    }
+    if (!movable) {
+      contraption.stopAllNodeScripts?.();
       contraption.isWrenchGrabbed = false;
       contraption.setPhysicsSimulationEnabled?.(false);
       contraption.setCollisionSimulationEnabled?.(true);
@@ -4776,6 +4873,8 @@ export class PlayerController {
       targetDistance: initialDistance,
       targetSpace,
       lastTargetPosition: initialTargetPosition,
+      bodyRotationOffset: this.getWrenchBodyRotation().invert().multiply(body.quaternion).normalize(),
+      lastAnchorPosition: hitPoint.clone(),
       active: true
     };
     this.sound?.playWrenchClick?.();
@@ -5081,9 +5180,9 @@ export class PlayerController {
     return true;
   }
 
-  /** Whole-entity menu commands deliberately do not depend on hover, active
-   * tool, or a Selector A/B range. Geometry selection retains its own gate. */
-  async performEntityMenuAction(contraption: Contraption, action: string): Promise<boolean> {
+  /** Menu commands use their captured entity and optional component rather
+   * than current hover or a Selector A/B range. */
+  async performEntityMenuAction(contraption: Contraption, action: string, componentId?: string): Promise<boolean> {
     if (!this.contraptions?.contraptions?.includes(contraption)) {
       this.ui?.showToast?.('This entity is no longer available', { tone: 'warning' });
       return false;
@@ -5095,6 +5194,62 @@ export class PlayerController {
     if (contraption.serverManaged === true && contraption.serverCanControl !== true && this.isEntityRunning(contraption)) {
       this.ui?.showToast?.('This entity is occupied by another endpoint', { tone: 'warning' });
       return false;
+    }
+    if (action === 'delete-component') {
+      const nodeId = String(componentId || '');
+      const node = contraption.getEntityNode?.(nodeId);
+      if (!nodeId || !node || node.parentId === null || nodeId === contraptionRootId(contraption)) {
+        this.ui?.showToast?.('The selected component is no longer available', { tone: 'warning' });
+        return false;
+      }
+      const canDeleteComponent = () => contraption.serverExecutionMode !== 'hosted'
+        && (contraption.serverManaged !== true || contraption.serverCanEdit === true);
+      if (!canDeleteComponent()) {
+        this.ui?.showToast?.('This component cannot be deleted from this client', { tone: 'warning' });
+        return false;
+      }
+      if (this.activeWrenchGizmoDrag?.contraption === contraption) this.releaseWrenchGizmoDrag();
+      if (this.wrenchGrab?.contraption === contraption) this.releaseWrenchGrab();
+      if (this.isEntityRunning(contraption)) {
+        const stopped = contraption.serverManaged === true
+          ? await this.requestServerEntityRunState(contraption, 'stopped', { silent: true })
+          : this.performBasicAction({ domain: ActionDomain.ENTITY, action: 'stop-scripts', target: { contraption } }).ok;
+        if (!stopped) {
+          this.ui?.showToast?.('Entity could not be stopped; the component was not deleted', { tone: 'warning' });
+          return false;
+        }
+      }
+      // The menu captures its component before unlocking; never retarget a
+      // confirmation after hover changes or an asynchronous server Stop.
+      if (!this.contraptions.contraptions.includes(contraption) || !contraption.getEntityNode(nodeId)
+        || !this.canEditEntityInternals(contraption) || !canDeleteComponent()) {
+        this.ui?.showToast?.('The selected component is unavailable or cannot be edited', { tone: 'warning' });
+        return false;
+      }
+      const removedIds = contraption.collectSubtreeNodeIds(nodeId);
+      if (this.isDriving && this.drivenContraption === contraption && this.drivenSeat?.componentId
+        && removedIds.has(this.drivenSeat.componentId)) {
+        this.toggleDriveVehicle();
+      }
+      const result = contraption.removeComponentSubtree(nodeId);
+      if (!result) {
+        this.ui?.showToast?.('Component could not be deleted', { tone: 'warning' });
+        return false;
+      }
+      if ([this.selectedBlockSelection, this.selectedSubtree, this.selectorLevel, this.selectorRange]
+        .some(selection => selection?.contraption === contraption)) this.clearSelection();
+      if (this.wrenchPivotTarget?.contraption === contraption && removedIds.has(this.wrenchPivotTarget.nodeId)) {
+        this.clearWrenchPivotDisplay();
+      }
+      if (this.hoveredContraptionHit?.contraption === contraption && removedIds.has(this.hoveredContraptionHit.entityId)) {
+        this.hoveredContraptionHit = null;
+      }
+      this.contraptions.saveEntitiesToStorage?.();
+      this.ui?.notifyContraptionStructureChanged?.(contraption);
+      this.ui?.refresh?.();
+      this.ui?.showToast?.(`Component [${nodeId}]${result.components > 1
+        ? ` and ${result.components - 1} ${result.components === 2 ? 'subcomponent' : 'subcomponents'}` : ''} deleted`);
+      return true;
     }
     if (action === 'set-kinematic' || action === 'set-dynamic') {
       if (contraption.serverManaged === true && contraption.serverCanEdit !== true) {
@@ -6550,8 +6705,28 @@ export class PlayerController {
           }
 
           const anchorLever = anchorPos.clone().sub(body.position);
-          const anchorVelocity = body.velocity.clone()
-            .add(body.angularVelocity.clone().cross(anchorLever));
+          const angularVelocity = new THREE.Vector3();
+          if (grab.bodyRotationOffset?.isQuaternion) {
+            const difference = this.getWrenchBodyRotation().multiply(grab.bodyRotationOffset)
+              .multiply(body.quaternion.clone().invert()).normalize();
+            // q and -q describe the same pose; always follow the shortest turn.
+            if (difference.w < 0) difference.set(-difference.x, -difference.y, -difference.z, -difference.w);
+            angularVelocity.set(difference.x, difference.y, difference.z);
+            const sine = angularVelocity.length();
+            if (sine > 1e-8) angularVelocity.multiplyScalar(Math.min(WRENCH_GRAB_MAX_ANGULAR_SPEED,
+              2 * Math.atan2(sine, difference.w) * Math.min(WRENCH_GRAB_RESPONSE, .4 / safeDt)) / sine);
+          }
+          const rotating = angularVelocity.lengthSq() > 1e-8 || body.angularVelocity.lengthSq() > 1e-8;
+          const anchorVelocity = rotating && grab.lastAnchorPosition?.isVector3
+            ? anchorPos.clone().sub(grab.lastAnchorPosition).divideScalar(safeDt)
+            : body.velocity.clone().add(body.angularVelocity.clone().cross(anchorLever));
+          grab.lastAnchorPosition?.copy(anchorPos);
+          const spin = angularVelocity.length();
+          const rotatedLever = anchorLever.clone();
+          // Compensate the finite arc, including midpoint angular damping,
+          // rather than a tangent that lets off-center grips drift outward.
+          if (spin > 1e-8) rotatedLever.applyAxisAngle(angularVelocity.clone().divideScalar(spin),
+            spin * safeDt * Math.pow(body.angularDamping, safeDt * 30));
           // Keep response*dt <= 0.4 even for a clamped/stalled frame so the
           // discrete critical-damping update remains non-oscillatory.
           const response = Math.min(WRENCH_GRAB_RESPONSE, 0.4 / safeDt);
@@ -6563,8 +6738,11 @@ export class PlayerController {
             servoAcceleration.setLength(WRENCH_GRAB_MAX_ACCELERATION);
           }
 
-          const desiredVelocity = body.velocity.clone()
-            .addScaledVector(servoAcceleration, safeDt);
+          // Drive the grabbed point, compensating the COM velocity for the
+          // commanded spin so an off-center grip does not orbit away from aim.
+          const desiredVelocity = anchorVelocity.clone()
+            .addScaledVector(servoAcceleration, safeDt)
+            .sub(rotatedLever.sub(anchorLever).divideScalar(safeDt));
           // Gravity is applied after the controller during the three physics
           // substeps. Pre-compensating its expected velocity change prevents a
           // held body from repeatedly sagging and being snapped upward.
@@ -6594,7 +6772,7 @@ export class PlayerController {
             const inwardSpeed = body.velocity.dot(normal);
             if (inwardSpeed < 0) body.velocity.addScaledVector(normal, -inwardSpeed);
           }
-          body.angularVelocity.multiplyScalar(Math.exp(-32 * safeDt));
+          body.angularVelocity.copy(angularVelocity);
           grab.lastTargetPosition.copy(targetPos);
         }
       }
@@ -6687,6 +6865,14 @@ export class PlayerController {
 
   /** Refreshed after render interpolation so parent/child links track visible pivots. */
   updateComponentHierarchyLinks() {
+    if (this.activeTool === SpecialTool.HAMMER && !this.worldPickingSuspended) {
+      const placement = this._hammerPlacement?.getInstallationLink();
+      if (placement) {
+        this.sceneRenderer?.setComponentHierarchyLinks?.(placement.entity, placement.nodeId,
+          { previewPivot: placement.pivot });
+        return;
+      }
+    }
     const hit = this.hoveredContraptionHit;
     const entity = hit?.contraption;
     const enabled = (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.WRENCH

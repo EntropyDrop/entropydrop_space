@@ -78,6 +78,7 @@ test('tutorial entity editor and menu display the current player without browser
   assert.match(menu, /Running · Alice &lt;Engineer&gt;/);
   assert.doesNotMatch(editor, /this browser/);
   assert.doesNotMatch(menu, /this browser/);
+  assert.doesNotMatch(menu, /Server Hosting|Server hosting|Host on server|Hosting credit budget|Leave tutorial/);
 });
 
 test('published tutorial keeps controls and feature notices but has no save button', () => {
@@ -92,9 +93,6 @@ test('published tutorial keeps controls and feature notices but has no save butt
     [InventoryModal, { activeModal: 'inventory' }],
     [CodeEditorModal, { activeModal: 'code', editingContraption: {
       id: 1, publicId: 'tutorial-test', blocks: [], entityNodes: new Map(), bodyType: 'dynamic',
-    } }],
-    [EntityContextMenu, { entityContextMenu: {
-      contraption: { id: 1, publicId: 'tutorial-test', blocks: [], mode: 'building' }, x: 100, y: 100,
     } }],
   ] as const) {
     const markup = render(component, state);

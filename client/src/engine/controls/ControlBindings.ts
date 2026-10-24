@@ -20,7 +20,7 @@ export const THIRD_PERSON_DISTANCE_LIMITS = { min: 1.5, max: 12, default: 4 } as
 export const SpecialTool = {
   SELECTOR: 'selector',     // 1. Selector (world/component selection and copy)
   HAMMER: 'hammer',         // 2. Hammer (preview/place inventory items)
-  WRENCH: 'wrench',         // 3. Wrench (show pivot XYZ, hold to grab, right start/stop)
+  WRENCH: 'wrench',         // 3. Wrench (pivot XYZ, hold to grab, double-click start/stop, right-click menu)
   SHOVEL: 'shovel',         // 4. Shovel (remove / place 1x1x1 standard blocks)
   SPOON: 'spoon',           // 5. Spoon (carve 8x8x8 micro voxels)
   BRUSH: 'brush',           // 6. Brush (repaint block colors)

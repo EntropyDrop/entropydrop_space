@@ -170,6 +170,7 @@ export interface SelectorContextMenuView {
 
 export interface EntityContextMenuView extends SelectorContextMenuView {
   contraption: any;
+  componentId?: string;
 }
 
 export interface BulkEditView {
@@ -301,7 +302,7 @@ type Listener = () => void;
 const HOTBAR_SLOTS = [
   { type: 'tool', value: SpecialTool.SELECTOR, name: 'Selector', icon: '', desc: `Select and copy world/entity regions (max ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}); no build action` },
   { type: 'tool', value: SpecialTool.HAMMER, name: 'Hammer', icon: '', desc: 'LMB preview · Drag XYZ · Enter build / attach · RMB cancel · Arrows rotate · T text · Tab micro/std' },
-  { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag COM XYZ axes to move · drag arrows to rotate · hold entity to lift · right-click to start' },
+  { type: 'tool', value: SpecialTool.WRENCH, name: 'Wrench', icon: '', desc: 'Drag pivot XYZ axes to move · drag arrows to rotate · hold to lift the entity · double-click start/stop · right-click menu' },
   { type: 'tool', value: SpecialTool.SHOVEL, name: 'Shovel', icon: '', desc: 'Remove / place 1x1x1 standard blocks' },
   { type: 'tool', value: SpecialTool.SPOON, name: 'Spoon', icon: '', desc: 'Carve 8x8x8 micro voxels cell by cell' },
   { type: 'tool', value: SpecialTool.BRUSH, name: 'Brush', icon: '', desc: 'LMB paint · RMB 2-point dye · Tab micro/std' },
@@ -345,9 +346,11 @@ const EMPTY_WORLD_EDIT_SYNC: WorldEditSyncView = {
   blockedCode: null
 };
 
-function defaultCode(nodeId: string, node: any): string {
-  if (node?.parentId === null) {
-    return `// [root component controller]
+function editorScriptDraft(contraption: any, nodeId: string): string {
+  const source = contraption.getNodeScript?.(nodeId) ?? '';
+  // Older editors saved these generated notes as code. Only migrate exact
+  // templates; player-authored comments and scripts must remain untouched.
+  const legacyRootHelp = `// [root component controller]
 // Unified API: self (every component has the same surface)
 // Rigid body: self.applyForce([fx, fy, fz]), self.applyTorque([...])
 // Drive children: self.child('child_name')
@@ -355,13 +358,13 @@ function defaultCode(nodeId: string, node: any): string {
 // Edge: ctx.input.pressed('Space'), ctx.input.released('KeyW')
 
 `;
-  }
-  return `// [${nodeId} child component controller]
+  const legacyChildHelp = `// [${nodeId} child component controller]
 // Unified API: self (every component has the same surface)
 // Kinematics: self.setLocalPosition([x, y, z]), self.setLocalSpin(axis, rpm)
 // Thrust: self.applyThrust([fx, fy, fz]) — direction decoupled from spin
 // self.setLocalPosition([0, Math.sin(ctx.time * 2) * 0.5, 0]);
 `;
+  return source === legacyRootHelp || source === legacyChildHelp ? '' : source;
 }
 
 function entityRootId(contraption: any): string {
@@ -1056,7 +1059,17 @@ export class SpaceUiStore {
       || (typeof document !== 'undefined' && document.pointerLockElement);
     const x = !locked && Number.isFinite(position.x) ? position.x! : width / 2;
     const y = !locked && Number.isFinite(position.y) ? position.y! : height / 2;
-    this.patch({ entityContextMenu: { contraption, x, y }, selectorContextMenu: null });
+    const controller = this.snapshot.controller;
+    const wrenchTarget = controller?.wrenchPivotTarget;
+    const hit = controller?.hoveredContraptionHit;
+    const candidate = controller?.activeTool === SpecialTool.WRENCH
+      ? wrenchTarget?.contraption === contraption ? wrenchTarget.nodeId
+        : hit?.contraption === contraption ? hit.entityId : undefined
+      : undefined;
+    const component = candidate ? contraption.getEntityNode?.(candidate) : null;
+    const componentId = component && component.parentId !== null && candidate !== entityRootId(contraption)
+      ? String(candidate) : undefined;
+    this.patch({ entityContextMenu: { contraption, x, y, ...(componentId ? { componentId } : {}) }, selectorContextMenu: null });
     this.snapshot.controller?.unlock?.();
     return true;
   }
@@ -1651,9 +1664,7 @@ export class SpaceUiStore {
     if (this.snapshot.activeModal === 'code') this.saveCurrentDraft();
     this.resetCodeEditorSession();
     const selectedComponentNodeId = entityRootId(contraption);
-    const rootNode = contraption.getEntityNode?.(selectedComponentNodeId);
-    const existing = contraption.getNodeScript?.(selectedComponentNodeId);
-    const scriptDraft = existing || defaultCode(selectedComponentNodeId, rootNode);
+    const scriptDraft = editorScriptDraft(contraption, selectedComponentNodeId);
     contraption.setHighlightedNode?.(selectedComponentNodeId);
     this.snapshot.sceneRenderer?.setEntityPreviewTarget?.(contraption);
     this.patch({
@@ -1686,8 +1697,7 @@ export class SpaceUiStore {
     const targetId = String(nodeId || entityRootId(contraption));
     this.saveCurrentDraft();
     contraption.setHighlightedNode?.(targetId);
-    const existing = contraption.getNodeScript?.(targetId);
-    const scriptDraft = existing || defaultCode(targetId, contraption.getEntityNode?.(targetId));
+    const scriptDraft = editorScriptDraft(contraption, targetId);
     this.patch({ selectedComponentNodeId: targetId, scriptDraft });
     this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
   }
@@ -1898,8 +1908,7 @@ export class SpaceUiStore {
     if (!contraption || this.snapshot.editingContraption !== contraption) return;
     let selectedComponentNodeId = this.snapshot.selectedComponentNodeId;
     if (!contraption.entityNodes?.has?.(selectedComponentNodeId)) selectedComponentNodeId = entityRootId(contraption);
-    const scriptDraft = contraption.getNodeScript?.(selectedComponentNodeId)
-      || defaultCode(selectedComponentNodeId, contraption.getEntityNode?.(selectedComponentNodeId));
+    const scriptDraft = editorScriptDraft(contraption, selectedComponentNodeId);
     this.patch({ selectedComponentNodeId, scriptDraft });
     this.snapshot.sceneRenderer?.renderEntityPreview?.(contraption);
   }

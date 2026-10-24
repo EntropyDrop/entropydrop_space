@@ -5,7 +5,7 @@ import { normalizeClickedBlock } from '../scripting/ClickedBlock.ts';
 import type { InventoryInput } from '../storage/InventoryTypes.ts';
 import { createComponentScriptApi, type ComponentScriptApi } from './ComponentScriptApi.ts';
 import { asVector3, asQuaternion, isFiniteVector3Array, isMicroOffset, normalizeSeats, readRecord } from './EntityInput.ts';
-import type { RuntimeChild, RuntimeConstraint, ChildDefinitionInput, ConstraintInput, ContraptionOptions, ContraptionScene, VoxelEditOptions, RuntimeVoxel, CollisionEntry, EntityNode, EntityRigidBody } from './EntityTypes.ts';
+import type { RuntimeChild, RuntimeConstraint, ChildDefinitionInput, ConstraintInput, ContraptionOptions, ContraptionScene, VoxelEditOptions, RuntimeVoxel, CollisionEntry, CollisionSamplePoint, EntityNode, EntityRigidBody } from './EntityTypes.ts';
 export type { EntityNode, EntityRigidBody } from './EntityTypes.ts';
 import { createVoxelMesh, buildNodeChunkMeshes, updateNodeChunkMeshes, visibleVoxelFaceQuads } from './EntityVoxelMeshes.ts';
 import { isValidComponentId, isValidConstraintId } from './PortableIds.ts';
@@ -385,6 +385,9 @@ export class Contraption {
   entityNodes: Map<string, EntityNode>;
   childDefinitions: Map<string, RuntimeChild>;
   rigidBodies: Map<string, EntityRigidBody>;
+  private kinematicCarrierMotion = new WeakMap<EntityRigidBody, {
+    carrierId: string; velocity: THREE.Vector3; angularVelocity: THREE.Vector3;
+  }>();
   constraintDefinitions: Map<string, RuntimeConstraint>;
   childScriptApis: Map<string, ComponentScriptApi>;
   nextChildId: number;
@@ -516,7 +519,7 @@ export class Contraption {
   private pickingVoxelIndexes: VoxelIndexCache<RuntimeVoxel> | null = null;
   collisionWorldAabbCache: { version: number; all?: EntityCollisionBounds[]; surface?: EntityCollisionBounds[]; merged?: EntityCollisionBounds[] } | null;
   private collisionQueryAabbCache: { version: number; boxes: Map<CollisionEntry | CollisionBox, EntityCollisionBounds> } | null = null;
-  collisionSamplePointCache: Map<string, { version: number; points: THREE.Vector3[] }>;
+  collisionSamplePointCache: Map<string, { version: number; points: CollisionSamplePoint[] }>;
   private collisionSampleTemplate: { surface: CollisionEntry[]; terrain: CollisionBox[]; data: CollisionSampleTemplate | null } | null = null;
 
   // --- Applied forces ---
@@ -3504,28 +3507,52 @@ export class Contraption {
       if (body.type !== BodyType.KINEMATIC) continue;
       const node = this.entityNodes.get(body.nodeId);
       if (!node) continue;
-      if (dynamicParentsOnly) {
-        let parentId = node.parentId;
-        let hasDynamicParent = false;
-        while (parentId) {
-          if (this.getRigidBody(parentId)?.type === BodyType.DYNAMIC) {
-            hasDynamicParent = true;
-            break;
-          }
-          parentId = this.entityNodes.get(parentId)?.parentId || null;
-        }
-        if (!hasDynamicParent) continue;
+      let parentId = node.parentId;
+      let carrier: EntityRigidBody | null = null;
+      while (parentId) {
+        const parent = this.getRigidBody(parentId);
+        if (parent?.type === BodyType.DYNAMIC) { carrier = parent; break; }
+        parentId = this.entityNodes.get(parentId)?.parentId || null;
       }
+      if (dynamicParentsOnly && !carrier) continue;
       const position = body.id === this.rootComponentId
         ? this.position.clone()
         : node.group.localToWorld(body.centerOfMassLocal.clone());
       const quaternion = body.id === this.rootComponentId
         ? this.quaternion.clone()
         : node.group.getWorldQuaternion(new THREE.Quaternion());
-      if (dt > 0) {
+      if (dt > 0 && carrier) {
+        // Sample authored motion once per script tick, relative to the dynamic
+        // carrier. Substeps refresh only its world frame; they must not replace
+        // a spinning wheel's angular velocity with the chassis' velocity.
+        if (!dynamicParentsOnly) {
+          const parentNode = this.entityNodes.get(carrier.nodeId)!;
+          const relative = parentNode.group.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
+          const previous = parentNode.previousWorldMatrix && node.previousWorldMatrix
+            ? parentNode.previousWorldMatrix.clone().invert().multiply(node.previousWorldMatrix)
+            : relative;
+          const currentPosition = body.centerOfMassLocal.clone().applyMatrix4(relative);
+          const previousPosition = body.centerOfMassLocal.clone().applyMatrix4(previous);
+          this.kinematicCarrierMotion.set(body, {
+            carrierId: carrier.id,
+            velocity: currentPosition.sub(previousPosition).divideScalar(dt),
+            angularVelocity: angularVelocityBetween(
+              new THREE.Quaternion().setFromRotationMatrix(previous),
+              new THREE.Quaternion().setFromRotationMatrix(relative), dt),
+          });
+        }
+        body.velocity.copy(carrier.velocity).add(carrier.angularVelocity.clone().cross(position.clone().sub(carrier.position)));
+        body.angularVelocity.copy(carrier.angularVelocity);
+        const motion = this.kinematicCarrierMotion.get(body);
+        if (motion?.carrierId === carrier.id) {
+          body.velocity.add(motion.velocity.clone().applyQuaternion(carrier.quaternion));
+          body.angularVelocity.add(motion.angularVelocity.clone().applyQuaternion(carrier.quaternion));
+        }
+      } else if (dt > 0) {
         body.velocity.copy(position).sub(body.previousKinematicPosition).divideScalar(dt);
         body.angularVelocity.copy(angularVelocityBetween(body.previousKinematicQuaternion, quaternion, dt));
       } else {
+        this.kinematicCarrierMotion.delete(body);
         body.velocity.set(0, 0, 0);
         body.angularVelocity.set(0, 0, 0);
       }
@@ -3538,6 +3565,16 @@ export class Contraption {
       body.appliedForces.set(0, 0, 0);
       body.appliedTorques.set(0, 0, 0);
     }
+  }
+
+  /** Scripted surface motion relative to its reacting dynamic ancestor. */
+  getKinematicPointVelocityOffset(nodeId: string, point: THREE.Vector3) {
+    const body = this.getRigidBody(nodeId);
+    const motion = body && this.kinematicCarrierMotion.get(body);
+    const carrier = motion && this.getRigidBody(motion.carrierId);
+    if (!body || body.type !== BodyType.KINEMATIC || !motion || carrier?.type !== BodyType.DYNAMIC) return new THREE.Vector3();
+    return motion.velocity.clone().applyQuaternion(carrier.quaternion).add(
+      motion.angularVelocity.clone().applyQuaternion(carrier.quaternion).cross(point.clone().sub(body.position)));
   }
 
   syncBodyToNode(body: EntityRigidBody | null | undefined) {
@@ -5203,7 +5240,7 @@ export class Contraption {
   }
 
   getCollisionSamplePoints(bodyId: string | null = null, includeAttached = false,
-    heightRange?: { min: number; max: number }, terrainCells?: ReadonlySet<CollisionEntry | CollisionBox>) {
+    heightRange?: { min: number; max: number }, terrainCells?: ReadonlySet<CollisionEntry | CollisionBox>): CollisionSamplePoint[] {
     const cacheKey = `${bodyId || '*'}:${includeAttached ? 1 : 0}`;
     const cached = this.collisionSamplePointCache.get(cacheKey);
     if (!terrainCells && cached?.version === this.collisionPoseVersion) return heightRange
@@ -5213,7 +5250,7 @@ export class Contraption {
       if (!heightRange) this.collisionSamplePointCache.set(cacheKey, { version: this.collisionPoseVersion, points: packed });
       return packed;
     }
-    const points = [];
+    const points: CollisionSamplePoint[] = [];
     const low = 0.001;
     const high = 0.999;
     const attached = bodyId && includeAttached ? this.getAttachedNodeIds(bodyId) : null;
@@ -5262,7 +5299,7 @@ export class Contraption {
             );
             if (transform) point.sub(transform.pivot).applyMatrix4(transform.matrix);
             else point.copy(this.localToWorld(point));
-            points.push(point);
+            points.push(Object.assign(point, { entityId: cell.entityId }));
           }
         }
       }
@@ -5285,7 +5322,7 @@ export class Contraption {
               );
               if (transform) point.sub(transform.pivot).applyMatrix4(transform.matrix);
               else point.copy(this.localToWorld(point));
-              points.push(point);
+              points.push(Object.assign(point, { entityId: cell.entityId }));
             }
           }
         }
@@ -5302,7 +5339,7 @@ export class Contraption {
                 );
                 if (transform) point.sub(transform.pivot).applyMatrix4(transform.matrix);
                 else point.copy(this.localToWorld(point));
-                points.push(point);
+                points.push(Object.assign(point, { entityId: cell.entityId }));
               }
             }
           }
@@ -5319,7 +5356,7 @@ export class Contraption {
           );
           if (transform) faceCenter.sub(transform.pivot).applyMatrix4(transform.matrix);
           else faceCenter.copy(this.localToWorld(faceCenter));
-          points.push(faceCenter);
+          points.push(Object.assign(faceCenter, { entityId: cell.entityId }));
         }
       }
     }
@@ -5332,7 +5369,7 @@ export class Contraption {
   }
 
   private getPackedCollisionSamplePoints(bodyId: string | null, includeAttached: boolean,
-    heightRange?: { min: number; max: number }, terrainCells?: ReadonlySet<CollisionEntry | CollisionBox>): THREE.Vector3[] | null {
+    heightRange?: { min: number; max: number }, terrainCells?: ReadonlySet<CollisionEntry | CollisionBox>): CollisionSamplePoint[] | null {
     const kernels = getTerrainKernels();
     if (!kernels && !heightRange) return null;
     const surface = this.collisionSurfaceEntries || this.collisionEntries;
@@ -5360,7 +5397,7 @@ export class Contraption {
       matrices[i * 20 + 18] = node.pivotLocal.z;
       matrices[i * 20 + 19] = 1;
     }
-    const points: THREE.Vector3[] = [];
+    const points: CollisionSamplePoint[] = [];
     if (heightRange) {
       // Cull using the same swept height interval as the terrain solver before
       // allocating/translating tens of thousands of airborne wing samples.
@@ -5378,15 +5415,22 @@ export class Contraption {
           const z = positions[i * 3 + 2] - matrices[m + 18];
           const worldY = matrices[m + 1] * x + matrices[m + 5] * y + matrices[m + 9] * z + matrices[m + 13];
           if (worldY < heightRange.min || worldY > heightRange.max) continue;
-          points.push(new THREE.Vector3(
+          points.push(Object.assign(new THREE.Vector3(
             matrices[m] * x + matrices[m + 4] * y + matrices[m + 8] * z + matrices[m + 12], worldY,
-            matrices[m + 2] * x + matrices[m + 6] * y + matrices[m + 10] * z + matrices[m + 14]));
+            matrices[m + 2] * x + matrices[m + 6] * y + matrices[m + 10] * z + matrices[m + 14]),
+          { entityId: template.entityIds[owners[i]] }));
         }
       }
       return points;
     }
     const coordinates = kernels!.transformCollisionSamples(template.positions, template.owners, matrices);
-    for (let i = 0; i < coordinates.length; i += 3) points.push(new THREE.Vector3(coordinates[i], coordinates[i + 1], coordinates[i + 2]));
+    let output = 0;
+    for (const owner of template.owners) {
+      if (!matrices[owner * 20 + 19]) continue;
+      points.push(Object.assign(new THREE.Vector3(coordinates[output], coordinates[output + 1], coordinates[output + 2]),
+        { entityId: template.entityIds[owner] }));
+      output += 3;
+    }
     return points;
   }
 

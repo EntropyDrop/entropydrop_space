@@ -7,10 +7,34 @@ without account admission or server APIs.
 The base world is a torus with a constant ground height (top surface at Y=17),
 generated in the browser by terrain generator version 9. Gray and off-white
 blocks alternate in a one-block checkerboard across the ground. No terrain decorations
-or hills are generated. Only the fixed 25 by 25 chunk square centered on the
-saved spawn's chunk is rendered (12 chunks in each direction, 625 total). The
+or hills are generated. The fixed 25 by 25 chunk square is centered 112 m ahead
+of the saved spawn, along its heading (12 chunks in each direction, 625 total).
+This covers the entire straight course and the final driving lane. The
 window does not follow the player, and distant terrain is always disabled.
 Terrain-distance settings from other worlds do not change the tutorial window.
+
+Chapter signs follow roughly 20 m intervals along the initial heading. Chapter 11
+has extra space on each side for `self.setLocalSpin([0, 1, 0], 30);` to appear on
+one line: its sign and practice stand move about 5 m farther along the course,
+and chapters 12–13, their guides, the driving lane and finish move about 10 m.
+Run `node client/tools/refresh-tutorial-signs.mjs`
+from the repository root to rebuild the clear pixel lettering and wheel face paint. The wheel,
+motor stand, chassis guides, and driving lane continue beyond chapter 09.
+The micro-voxel wheel lies flat on the ground and is selected with the default
+Y-axis cylinder. Its front (+Y) has a gold hub and an asymmetric spoke to show
+rotation; its back (-Y) has a dark hub. Its script spins around local Y: viewed
+from the gold front, 30 rpm is counterclockwise and -30 rpm is clockwise.
+Press Up once with the Hammer to turn the module upright before installing it.
+Keep both gold faces outward: flip the opposite-side wheels with Right twice,
+then select their component tabs in the editor and use -30 instead of 30 so
+both sides drive in the same direction.
+Chapter 11 and the tutorial editor's Agent panel explain that the code teaches
+how entities work. In the full game, players can usually describe their intent
+to the Agent in natural language instead of writing code manually. Agent
+requests remain unavailable inside the tutorial.
+Kinematic wheel scripts drive the dynamic chassis through terrain contact
+friction; the chassis needs no thrust script. Keep wheel collision enabled,
+use a nonzero wheel friction, and point the car along the lane before starting.
 
 Run `npm run dev` and open the tutorial on `localhost`, `127.0.0.1` or `[::1]`.
 Build the lesson with the normal tools, then click **Save Level** at the top

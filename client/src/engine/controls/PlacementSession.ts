@@ -20,6 +20,7 @@ interface PlacementHit {
 type PlacementSlot = InventoryInput & { placementRotation?: number[]; itemName?: string };
 const ENTITY_PLACEMENT_MAX_DROP = 48;
 const ENTITY_TARGET_PLACEMENT_BUCKET_SIZE = 2;
+const HAMMER_PREVIEW_DETAIL_LIMIT = 2000;
 const entityPlacementTargetObbCache = new WeakMap<object, {
   poseSignature: string;
   entriesRef: Contraption['collisionEntries'] | Contraption['blocks'];
@@ -58,6 +59,20 @@ export class PlacementSession {
   inventoryPlacementPreview: ReturnType<PlacementSession['getInventoryPlacementPose']> = null;
   inventoryPlacementError: string | null = null;
   private microPlacementItems = new WeakMap<InventoryInput, PlacementSlot | Error>();
+  private previewSourceBlockCounts = new WeakMap<InventoryInput, number>();
+
+  private sourceBlockCount(slot: InventoryInput): number {
+    const cached = this.previewSourceBlockCounts.get(slot);
+    if (cached !== undefined) return cached;
+    // Count authored voxels across the whole Item, before micro subdivision;
+    // blockCount can be stale and Item.blocks may duplicate its nested contents.
+    const count = slot.kind === 'item'
+      ? (slot.blockSet ? this.sourceBlockCount(slot.blockSet) : 0)
+        + (slot.entityList || []).reduce((total, entity) => total + this.sourceBlockCount(entity), 0)
+      : slot.blocks?.length || 0;
+    this.previewSourceBlockCounts.set(slot, count);
+    return count;
+  }
 
   ensureHammerInventoryCategory() {
     if (this.host.activeTool === SpecialTool.HAMMER && this.host.activeInventoryCategory === 'colorset') {
@@ -68,6 +83,7 @@ export class PlacementSession {
   preparePlacementItem(slot: PlacementSlot): PlacementSlot | null {
     this.inventoryPlacementError = null;
     if (!this.hammerMicroMode || this.host.activeTool !== SpecialTool.HAMMER) return slot;
+    const sourceBlockCount = this.sourceBlockCount(slot);
     let prepared = this.microPlacementItems.get(slot);
     if (!prepared) {
       try {
@@ -86,6 +102,7 @@ export class PlacementSession {
       prepared.name = slot.name;
       prepared.id = slot.id;
     }
+    this.previewSourceBlockCounts.set(prepared, sourceBlockCount);
     return prepared;
   }
 
@@ -108,6 +125,7 @@ export class PlacementSession {
     this.hammerRotatedSlotTurnsKey = null;
     this.hammerRotatedSlotCache = null;
     this.microPlacementItems = new WeakMap();
+    this.previewSourceBlockCounts = new WeakMap();
     this.inventoryPlacementError = null;
     this.inventoryPlacementPreview = null;
     if (this.host.sceneRenderer) this.host.sceneRenderer.inventoryPlacementSlot = null;
@@ -143,6 +161,8 @@ export class PlacementSession {
       return this.hammerRotatedSlotCache;
     }
     const slot = this.itemPlacementSlot(prepared)!;
+    const sourceBlockCount = this.sourceBlockCount(prepared);
+    this.previewSourceBlockCounts.set(slot, sourceBlockCount);
     if (turnsY === 0 && turnsX === 0) {
       this.hammerRotatedSlotSource = prepared;
       this.hammerRotatedSlotTurnsKey = cacheKey;
@@ -199,6 +219,7 @@ export class PlacementSession {
     this.hammerRotatedSlotSource = prepared;
     this.hammerRotatedSlotTurnsKey = cacheKey;
     this.hammerRotatedSlotCache = rotatedSlot;
+    this.previewSourceBlockCounts.set(rotatedSlot, sourceBlockCount);
     return rotatedSlot;
   }
 
@@ -620,6 +641,7 @@ export class PlacementSession {
     const prepared = slot && this.preparePlacementItem(slot);
     if (!prepared || !Array.isArray(prepared.blocks) || prepared.blocks.length === 0) return null;
     slot = prepared;
+    const exactVoxels = this.sourceBlockCount(prepared) < HAMMER_PREVIEW_DETAIL_LIMIT;
 
     const placementHit = this.getInventoryPlacementHit();
     if (!placementHit) return null;
@@ -627,7 +649,7 @@ export class PlacementSession {
     if (this.usesMicroBlockSetPlacement(slot)) {
       const position = this.getMicroBlockSetPlacementPosition(placementHit);
       if (!position) return null;
-      return { slot, kind: 'blockset', position };
+      return { slot, kind: 'blockset', position, exactVoxels };
     }
 
     const hp = placementHit.hitPos;
@@ -688,6 +710,7 @@ export class PlacementSession {
 
     return {
       slot,
+      exactVoxels,
       kind: slot.kind === 'blockset' ? 'blockset' : 'entity',
       position: slot.kind === 'item' && slot.blockSet
         ? this.snapItemTerrainOrigin(slot, position)

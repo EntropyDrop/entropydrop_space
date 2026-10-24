@@ -671,7 +671,7 @@ test('Wrench picks each visible arrow and rotation arc at different orientations
   } finally { renderer.wrenchTransformGizmo.dispose(); setTorusViewCorrection(null); }
 });
 
-test('Wrench displays the entity COM even when pointing at a child, while body clicks still point-grab', async () => {
+test('Wrench displays the selected component pivot while body clicks still point-grab the entity', async () => {
   const entity = await makeContraptionWithChildren();
   entity.stopAllNodeScripts();
   entity.setComponentPivot('arm', [1.8, 0.2, -0.6], {
@@ -698,8 +698,9 @@ test('Wrench displays the entity COM even when pointing at a child, while body c
   });
 
   const displayed = controller.updateWrenchPivotGizmo({ contraption: entity, entityId: 'arm' });
-  assert.equal(displayed.nodeId, 'root');
-  assert.ok(displayed.position.distanceTo(entity.position) < 1e-9);
+  assert.equal(displayed.nodeId, 'arm');
+  assert.ok(displayed.position.distanceTo(pivotWorld) < 1e-9);
+  assert.ok((gizmoCalls[0][0] as THREE.Vector3).distanceTo(pivotWorld) < 1e-9);
   assert.equal(gizmoCalls.length, 1);
   assert.equal(gizmoCalls[0].length, 5, 'display carries hover and active handle state');
   controller.handleLeftClick();
@@ -924,6 +925,103 @@ test('Wrench COM rotation arrow rotates the whole stopped entity around its loca
   assert.equal(controller.releaseWrenchGizmoDrag(), true);
   assert.equal(entity.isCollisionSimulationEnabled(), true);
   assert.equal(entity.scriptStatus, 'stopped');
+});
+
+for (const type of ['kinematic', 'dynamic']) for (const kind of ['move', 'rotate']) {
+  test(`Wrench ${kind} edits only the selected ${type} component subtree around its authored pivot`, async t => {
+    const entity = await makeContraptionWithChildren();
+    t.after(() => entity.dispose());
+    entity.stopAllNodeScripts();
+    entity.quaternion.setFromEuler(new THREE.Euler(.1, .4, .2));
+    entity.updateTransform();
+    entity.syncKinematicBodies(0);
+    assert.equal(entity.installEntitySlot(entity.serializeSubtree('hand'), 'root',
+      entity.position.clone().add(new THREE.Vector3(4, 0, 0))).ok, true);
+    const siblingId = [...entity.entityNodes.keys()].find(id => !['root', 'arm', 'hand'].includes(id))!;
+    entity.setNodeBodyType('arm', type);
+    if (type === 'dynamic') entity.setNodeBodyType('hand', 'dynamic');
+    entity.setComponentPivot('arm', [1.8, .2, -.6], { allowDynamic: true });
+    const startPivot = entity.getEntityNodeWorldPosition('arm');
+    const startRotation = entity.getEntityNodeWorldQuaternion('arm');
+    const rootStart = entity.rootGroup.matrixWorld.clone();
+    const siblingStart = requireValue(entity.getEntityNode(siblingId)).group.matrixWorld.clone();
+    const starts = entity.blocks.map(block => entity.getBlockWorldCenter(block));
+    const camera = new THREE.PerspectiveCamera(60, 1, .1, 1000);
+    camera.position.copy(startPivot).add(new THREE.Vector3(0, 0, 5));
+    camera.lookAt(startPivot);
+    camera.updateMatrixWorld(true);
+    let saves = 0;
+    const controller = makeWrenchGizmoController(entity, {
+      contraptions: [entity], saveEntitiesToStorage() { saves++; }
+    } as any, camera);
+    controller.updateWrenchPivotGizmo({ contraption: entity, entityId: 'arm' });
+    controller.wrenchScreenVector = () => new THREE.Vector2(100, 0);
+    const axis = kind === 'move' ? 'x' : 'z';
+    assert.equal(controller.startWrenchGizmoDrag({ handleKey: `${kind}-${axis}`, kind, axis,
+      worldPoint: startPivot.clone().add(new THREE.Vector3(1, 0, 0)) }, { clientX: 200, clientY: 200 }), true);
+    controller.updateWrenchGizmoDrag({ clientX: 280, clientY: 200 });
+    const pivot = entity.getEntityNodeWorldPosition('arm');
+    const rotation = entity.getEntityNodeWorldQuaternion('arm');
+    const deltaRotation = rotation.clone().multiply(startRotation.clone().invert());
+    if (kind === 'move') {
+      const expected = new THREE.Vector3(.8, 0, 0).applyQuaternion(startRotation);
+      assert.ok(pivot.clone().sub(startPivot).distanceTo(expected) < 1e-7);
+      assert.ok(rotation.angleTo(startRotation) < 1e-7);
+    } else {
+      assert.ok(pivot.distanceTo(startPivot) < 1e-7, 'rotation fixes the component pivot, not its COM');
+      assert.ok(rotation.angleTo(startRotation) > .1);
+    }
+    assert.deepEqual(entity.rootGroup.matrixWorld.elements, rootStart.elements, 'the parent does not move');
+    assert.deepEqual(requireValue(entity.getEntityNode(siblingId)).group.matrixWorld.elements, siblingStart.elements,
+      'the sibling does not move');
+    entity.blocks.forEach((block, index) => {
+      const selected = ['arm', 'hand'].includes(block.entityId || 'root');
+      const expected = selected ? starts[index].clone().sub(startPivot).applyQuaternion(deltaRotation).add(pivot) : starts[index];
+      assert.ok(entity.getBlockWorldCenter(block).distanceTo(expected) < 1e-7);
+    });
+    controller.releaseWrenchGizmoDrag();
+    entity.rebuildEntityHierarchy();
+    entity.stopAllNodeScripts();
+    assert.ok(entity.getEntityNodeWorldPosition('arm').distanceTo(pivot) < 1e-7, 'Stop/rebuild retains the edited placement');
+    assert.ok(entity.getEntityNodeWorldQuaternion('arm').angleTo(rotation) < 1e-7);
+    assert.equal(saves, 1, 'a completed component edit is saved once');
+  });
+}
+
+for (const rootType of ['dynamic', 'kinematic']) test(`grabbing a dynamic child lifts the entire ${rootType} entity and restores body types`, async t => {
+  const entity = await makeContraptionWithChildren();
+  t.after(() => entity.dispose());
+  entity.stopAllNodeScripts();
+  entity.setNodeBodyType('root', rootType);
+  entity.setNodeBodyType('arm', 'dynamic');
+  const camera = new THREE.PerspectiveCamera(60, 1, .1, 1000);
+  const pivot = entity.getEntityNodeWorldPosition('hand');
+  camera.position.copy(pivot).add(new THREE.Vector3(0, 0, 5));
+  camera.lookAt(pivot);
+  camera.updateMatrixWorld(true);
+  const controller = makeWrenchGizmoController(entity, { contraptions: [entity] }, camera);
+  controller.hoveredContraptionHit = { contraption: entity, entityId: 'hand', point: pivot };
+  const starts = entity.blocks.map(block => entity.getBlockWorldCenter(block));
+  assert.equal(controller.startWrenchGrab(), true);
+  assert.equal(controller.wrenchGrab.bodyId, 'root');
+  assert.equal(entity.getNodeBodyType('root'), 'dynamic');
+  assert.equal(entity.getNodeDefaultBodyConfig('root')!.bodyType, rootType);
+  assert.equal(entity.getNodeBodyType('arm'), 'kinematic', 'the child follows the held root instead of simulating separately');
+  assert.equal(entity.getNodeDefaultBodyConfig('arm')!.bodyType, 'dynamic', 'temporary grab types do not become authored defaults');
+  const delta = new THREE.Vector3(1, 2, -1);
+  entity.position.add(delta);
+  entity.syncAllBodyTransforms();
+  entity.syncKinematicBodies(0);
+  entity.blocks.forEach((block, index) => {
+    assert.ok(entity.getBlockWorldCenter(block).distanceTo(starts[index].clone().add(delta)) < 1e-7);
+  });
+  controller.releaseWrenchGrab();
+  assert.equal(entity.getNodeBodyType('root'), rootType);
+  assert.equal(entity.getNodeBodyType('arm'), 'dynamic');
+  assert.equal(entity.getNodeBodyType('hand'), 'kinematic');
+  entity.blocks.forEach((block, index) => {
+    assert.ok(entity.getBlockWorldCenter(block).distanceTo(starts[index].clone().add(delta)) < 1e-7);
+  });
 });
 
 test('Wrench grab does not push a target that is closer than 1.5 metres', async () => {
@@ -1496,14 +1594,16 @@ test('Wrench can pull apart rotated entity boxes whose broadphase bounds overlap
   );
 });
 
-test('Wrench resolves a grabbed kinematic child to its nearest dynamic body', async () => {
+test('Wrench always resolves a component grab to the entity root', async () => {
   const entity = await makeContraptionWithChildren();
   const controller = Object.create(PlayerController.prototype);
 
   assert.equal(controller.getWrenchGrabBodyId(entity, 'hand'), 'root');
   entity.setNodeBodyType('arm', 'dynamic');
-  assert.equal(controller.getWrenchGrabBodyId(entity, 'hand'), 'arm');
-  assert.equal(controller.getWrenchGrabBodyId(entity, 'arm'), 'arm');
+  assert.equal(controller.getWrenchGrabBodyId(entity, 'hand'), 'root');
+  assert.equal(controller.getWrenchGrabBodyId(entity, 'arm'), 'root');
+  entity.setNodeBodyType('root', 'kinematic');
+  assert.equal(controller.getWrenchGrabBodyId(entity, 'hand'), 'root');
 });
 
 test('cycling inventory slots wraps around both directions', () => {

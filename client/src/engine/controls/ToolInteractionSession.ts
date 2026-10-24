@@ -27,6 +27,7 @@ export interface ToolInteractionSessionPort {
   focusBlockPreview: PlayerController['focusBlockPreview'];
   handleBrushRightClick: PlayerController['handleBrushRightClick'];
   handleRunningEntityInteraction: PlayerController['handleRunningEntityInteraction'];
+  handleWrenchEntityClick: PlayerController['handleWrenchEntityClick'];
   tryClickRunningEntity: PlayerController['tryClickRunningEntity'];
   hoveredContraption: PlayerController['hoveredContraption'];
   hoveredContraptionHit: PlayerController['hoveredContraptionHit'];
@@ -45,6 +46,7 @@ export interface ToolInteractionSessionPort {
   releaseGizmoDrag: PlayerController['releaseGizmoDrag'];
   releaseWrenchGizmoDrag: PlayerController['releaseWrenchGizmoDrag'];
   releaseWrenchGrab: PlayerController['releaseWrenchGrab'];
+  resetWrenchClickGesture: PlayerController['resetWrenchClickGesture'];
   rotateActiveInventoryItem: PlayerController['rotateActiveInventoryItem'];
   sampleTargetedColor: PlayerController['sampleTargetedColor'];
   sceneRenderer: PlayerController['sceneRenderer'];
@@ -115,6 +117,7 @@ export class ToolInteractionSession {
     if (this.worldPickingSuspended === next) return;
     this.worldPickingSuspended = next;
     if (!next) return;
+    this.host.resetWrenchClickGesture();
 
     this.host.cancelHammerPlacement(false);
 
@@ -195,8 +198,11 @@ export class ToolInteractionSession {
   handleLeftClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
     if (this.host.hammerPlacementActive) return true;
-    if (this.host.ui?.tryToggleEntityPlaybackAtPointer?.(e)) return true;
-    if (this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) return true;
+    if (this.host.ui?.tryToggleEntityPlaybackAtPointer?.(e) || this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) {
+      this.host.resetWrenchClickGesture();
+      return true;
+    }
+    if (this.activeTool === SpecialTool.WRENCH && this.host.handleWrenchEntityClick(e)) return true;
     if (this.host.tryClickRunningEntity()) return false;
     if (this.activeTool === SpecialTool.MODELING) return this.host.modeling.leftDown(e);
     if (this.host.bulkEditJob) {

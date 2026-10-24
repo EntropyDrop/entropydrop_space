@@ -8,7 +8,7 @@ const tutorialDescriptions: Record<OnlineSpaceFeature, string> = {
   publish: 'Leave the tutorial to publish items from your backpack.',
   'agent-build': 'External agents are unavailable in the tutorial.',
   'api-keys': 'Account services are unavailable in the tutorial.',
-  'ai-assistant': 'AI assistance is unavailable in the tutorial. You can still edit and run scripts.',
+  'ai-assistant': 'The code in this tutorial explains how entities work. In the full game, you can usually describe what you want to the Agent in natural language instead of writing code yourself. AI assistance is unavailable in the tutorial.',
   hosting: 'Server hosting is unavailable in the tutorial. Entities can run locally.',
   character: 'Leave the tutorial to customize your character.',
   worlds: 'Multiplayer and linked worlds are unavailable in the tutorial.',

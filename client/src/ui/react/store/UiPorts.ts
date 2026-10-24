@@ -39,6 +39,7 @@ export type UiPlayerController = Pick<PlayerController,
   | 'paintSelectionBlocks'
   | 'parseInventoryImport'
   | 'performEntityMenuAction'
+  | 'wrenchPivotTarget'
   | 'perspective'
   | 'physics'
   | 'releaseWrenchGrab'

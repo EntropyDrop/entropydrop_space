@@ -82,7 +82,10 @@ test('WASM terrain manifolds preserve accumulated impulses, friction and narrow 
       const hit = b.position.clone().addScaledVector(normal, -.5);
       const points = Array.from({ length: seed % 7 }, () => hit.clone().add(new THREE.Vector3(r() - .5, 0, r() - .5)));
       const manifold = seed % 2 ? [hit, ...points] : [hit];
-      const impulse = physics.solveTerrainContact(b, normal, hit, r() * .1, points, 1 / 60, manifold, seed % 3 !== 0, seed % 2 ? 32 : 10);
+      const surface = seed % 4 ? undefined : {
+        velocity: new THREE.Vector3(r() - .5, r() - .5, r() - .5).multiplyScalar(8), friction: r(),
+      };
+      const impulse = physics.solveTerrainContact(b, normal, hit, r() * .1, points, 1 / 60, manifold, seed % 3 !== 0, seed % 2 ? 32 : 10, surface);
       return [impulse, ...state(b)];
     };
     near(run('auto'), run('js'), `terrain ${seed}`);

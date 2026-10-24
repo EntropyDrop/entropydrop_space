@@ -135,6 +135,30 @@ test('Hammer micro mode converts mixed standard and micro block sets onto the mi
   assert.equal(slot.blocks[1].size, 1, 'conversion leaves the backpack copy intact');
 });
 
+for (const count of [1999, 2000]) test(`Hammer ${count < 2000 ? 'keeps' : 'simplifies'} ${count}-block preview details using the source count before micro subdivision`, () => {
+  const slot = { kind: 'blockset', blockCount: 999, blocks: [
+    ...Array.from({ length: count - 1 }, (_, i) => ({ dx: (i % 16) / 8, dy: (Math.floor(i / 16) % 16) / 8,
+      dz: Math.floor(i / 256) / 8, size: .125, color: 0x48dbfb })),
+    { dx: 3, dy: 0, dz: 0, size: 1, color: 0xf2a93b },
+  ] };
+  const before = JSON.stringify(slot);
+  const controller = makeController(slot, true);
+  controller.currentRaycast = { hit: true, kind: 'micro', placeMicroPos: { x: 24, y: 8, z: 16 },
+    hitPos: { x: 3, y: .875, z: 2 }, normal: { x: 0, y: 1, z: 0 } };
+  controller.updateInventoryPlacementPreview();
+  const pose = controller.inventoryPlacementPreview!;
+  assert.equal(pose.slot.blocks.length, count + 511, 'construction still uses exact micro voxels');
+  const renderer = Object.create(SceneRenderer.prototype);
+  renderer.scene = new THREE.Scene();
+  renderer.setupInventoryPlacementPreview();
+  renderer.setInventoryPlacementPreview(pose);
+  const positions = renderer.inventoryPlacementFill!.geometry.getAttribute('position').array as ArrayLike<number>;
+  assert.equal(Array.from(positions).some(value => Math.abs(value - Math.round(value)) > 1e-6), count < 2000,
+    'the Hammer ghost retains micro-voxel surfaces below 2000 source blocks and uses standard cubes from 2000');
+  assert.deepEqual(renderer.inventoryPlacementGroup.position.toArray(), pose.position.toArray());
+  assert.equal(JSON.stringify(slot), before);
+});
+
 test('Hammer centres entity geometry on the hit and settles its bottom onto terrain', () => {
   const slot = {
     kind: 'entity',

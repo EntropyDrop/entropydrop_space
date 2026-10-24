@@ -24,6 +24,141 @@ function harness() {
   return { calls, target, other, controller };
 }
 
+function componentHarness(t: test.TestContext, emptyRoot = false) {
+  const f = harness();
+  const target = new Contraption(3, [
+    ...(!emptyRoot ? [{ localX: 0, localY: 0, localZ: 0, block: 1, entityId: 'root' }] : []),
+    { localX: 1, localY: 0, localZ: 0, block: 1, entityId: 'arm' },
+    { localX: 2, localY: 0, localZ: 0, block: 1, entityId: 'hand' },
+    ...(!emptyRoot ? [{ localX: 3, localY: 0, localZ: 0, block: 1, entityId: 'wing' }] : []),
+  ], new THREE.Vector3(1, 2, 3), new THREE.Scene(), { rootComponentId: 'root', childEntities: [
+    { id: 'arm', parentId: 'root', name: 'Arm' }, { id: 'hand', parentId: 'arm' },
+    ...(!emptyRoot ? [{ id: 'wing', parentId: 'root' }] : []),
+  ], constraints: [{ id: 'arm-joint', type: 'point', bodyA: 'root', bodyB: 'arm' },
+    { id: 'hand-joint', type: 'point', bodyA: 'arm', bodyB: 'hand' }] });
+  target.stopAllNodeScripts();
+  f.controller.contraptions.contraptions = [target, f.other];
+  f.controller.contraptions.saveEntitiesToStorage = () => f.calls.push(['save']);
+  f.controller.ui.notifyContraptionStructureChanged = (entity: unknown) => f.calls.push(['structure', entity]);
+  f.controller.performBasicAction = PlayerController.prototype.performBasicAction.bind(f.controller);
+  t.after(() => target.dispose());
+  return { ...f, target };
+}
+
+test('Wrench menu captures the selected child before unlocking and retains it as hover changes', t => {
+  const { controller, target, other } = componentHarness(t);
+  const store = new SpaceUiStore();
+  controller._activeTool = SpecialTool.WRENCH;
+  controller.wrenchPivotTarget = { contraption: target, nodeId: 'arm' };
+  controller.hoveredContraptionHit = { contraption: target, entityId: 'hand' };
+  controller.unlock = () => { controller.wrenchPivotTarget = null; controller.hoveredContraptionHit = null; };
+  (store as any).patch({ controller, contraptions: controller.contraptions });
+  assert.equal(store.showEntityContextMenu(target), true);
+  assert.equal(store.getSnapshot().entityContextMenu?.componentId, 'arm');
+  controller.hoveredContraptionHit = { contraption: other, entityId: 'other' };
+  store.refresh();
+  assert.equal(store.getSnapshot().entityContextMenu?.componentId, 'arm');
+  store.closeEntityContextMenu();
+  controller.hoveredContraptionHit = { contraption: target, entityId: 'hand' };
+  assert.equal(store.showEntityContextMenu(target), true);
+  assert.equal(store.getSnapshot().entityContextMenu?.componentId, 'hand');
+  store.closeEntityContextMenu();
+  controller.hoveredContraptionHit = { contraption: target, entityId: 'root' };
+  assert.equal(store.showEntityContextMenu(target), true);
+  assert.equal(store.getSnapshot().entityContextMenu?.componentId, undefined);
+});
+
+test('component deletion removes only the captured subtree and its constraints, preserving root and siblings', async t => {
+  const { controller, target, calls } = componentHarness(t);
+  const rootPosition = target.getBlockWorldCenter(target.blocks[0]);
+  controller.wrenchPivotTarget = { contraption: target, nodeId: 'hand' };
+  controller.serverEntityDeleteHandler = async () => assert.fail('component removal must not delete the whole remote entity');
+  assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), true);
+  assert.deepEqual([...target.entityNodes.keys()].sort(), ['root', 'wing']);
+  assert.deepEqual(target.blocks.map(block => block.entityId).sort(), ['root', 'wing']);
+  assert.ok(target.getBlockWorldCenter(target.blocks[0]).distanceTo(rootPosition) < 1e-7);
+  assert.equal(target.constraintDefinitions.size, 0);
+  assert.equal(controller.wrenchPivotTarget, null);
+  assert.equal(calls.filter(call => call[0] === 'save').length, 1);
+  assert.equal(calls.some(call => call[0] === 'remove'), false);
+  assert.ok(calls.some(call => call[0] === 'structure' && call[1] === target));
+});
+
+test('component deletion never promotes removal to the whole entity even if that subtree owns every voxel', async t => {
+  const { controller, target, calls } = componentHarness(t, true);
+  assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), true);
+  assert.deepEqual([...target.entityNodes.keys()], ['root']);
+  assert.equal(target.blocks.length, 0);
+  assert.equal(calls.some(call => call[0] === 'remove'), false);
+});
+
+test('whole-entity deletion remains explicit when the menu captured a child', async t => {
+  const { controller, target, calls } = componentHarness(t);
+  assert.equal(await controller.performEntityMenuAction(target, 'delete', 'arm'), true);
+  assert.ok(calls.some(call => call[0] === 'remove' && call[1] === target));
+  assert.equal(calls.some(call => call[0] === 'structure'), false);
+});
+
+test('local running component deletion stops execution before removing its subtree', async t => {
+  const { controller, target } = componentHarness(t);
+  target.setPhysicsSimulationEnabled(true);
+  assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), true);
+  assert.equal(target.isPhysicsSimulationEnabled(), false);
+  assert.equal(target.getEntityNode('arm'), null);
+});
+
+test('component deletion rejects roots, missing nodes, read-only and hosted entities without falling back to whole deletion', async t => {
+  const { controller, target, calls } = componentHarness(t);
+  for (const id of [undefined, 'root', 'missing']) {
+    assert.equal(await controller.performEntityMenuAction(target, 'delete-component', id), false);
+  }
+  Object.assign(target, { serverManaged: true, serverCanControl: true, serverCanEdit: false });
+  assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), false);
+  Object.assign(target, { serverCanEdit: true, serverExecutionMode: 'hosted' });
+  assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), false);
+  assert.equal(target.blocks.length, 4);
+  assert.equal(calls.some(call => ['save', 'remove', 'structure'].includes(call[0])), false);
+});
+
+test('remote component deletion stops through the backend then saves the remaining entity definition', async t => {
+  const { controller, target, calls } = componentHarness(t);
+  Object.assign(target, { serverManaged: true, serverCanControl: true, serverCanEdit: true, serverDesiredRunState: 'running' });
+  controller.serverEntityRunStateHandler = async (entity: unknown, state: string) => {
+    assert.equal(entity, target); assert.equal(state, 'stopped');
+    calls.push(['remote-stop']); target.serverDesiredRunState = 'stopped'; target.stopAllNodeScripts();
+  };
+  controller.serverEntityDeleteHandler = async () => assert.fail('must not delete the server entity');
+  assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), true);
+  assert.ok(calls.findIndex(call => call[0] === 'remote-stop') < calls.findIndex(call => call[0] === 'save'));
+  assert.deepEqual([...target.entityNodes.keys()].sort(), ['root', 'wing']);
+  assert.equal(calls.some(call => call[0] === 'remove'), false);
+});
+
+test('a failed remote Stop preserves the component and explains why deletion failed', async t => {
+  const { controller, target, calls } = componentHarness(t);
+  Object.assign(target, { serverManaged: true, serverCanControl: true, serverCanEdit: true, serverDesiredRunState: 'running' });
+  controller.serverEntityRunStateHandler = async () => { throw new Error('offline'); };
+  assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), false);
+  assert.equal(target.blocks.length, 4);
+  assert.ok(calls.some(call => call[0] === 'toast' && /component was not deleted/.test(call[1])));
+  assert.equal(calls.some(call => ['save', 'remove', 'structure'].includes(call[0])), false);
+});
+
+for (const change of ['component removed', 'permission revoked', 'entity replaced'] as const) {
+  test(`remote component deletion rechecks its captured target after Stop: ${change}`, async t => {
+    const { controller, target, calls } = componentHarness(t);
+    Object.assign(target, { serverManaged: true, serverCanControl: true, serverCanEdit: true, serverDesiredRunState: 'running' });
+    controller.serverEntityRunStateHandler = async () => {
+      target.serverDesiredRunState = 'stopped'; target.stopAllNodeScripts();
+      if (change === 'component removed') target.removeComponentSubtree('arm');
+      if (change === 'permission revoked') target.serverCanEdit = false;
+      if (change === 'entity replaced') controller.contraptions.contraptions = [];
+    };
+    assert.equal(await controller.performEntityMenuAction(target, 'delete-component', 'arm'), false);
+    assert.equal(calls.some(call => ['save', 'remove', 'structure'].includes(call[0])), false);
+  });
+}
+
 for (const tool of [SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.SELECTOR, SpecialTool.HAMMER, SpecialTool.WRENCH, SpecialTool.BRUSH]) {
   test(`${tool}: overhead menu wins both click buttons before tools, stopping, selection, bulk edit or placement`, () => {
     const controller: any = Object.create(PlayerController.prototype);

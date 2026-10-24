@@ -20,12 +20,12 @@ const hook = registerHooks({ load(url, context, nextLoad) {
 const { EntityContextMenu, EntityNameplates } = await import(componentUrl);
 hook.deregister();
 
-function render(entity: any, component: any) {
+function render(entity: any, component: any, componentId?: string) {
   const original = spaceUiStore.getSnapshot();
   try {
     (spaceUiStore as any).patch({ hasStarted: true, activeModal: null, apiDocsOpen: false,
       currentUserName: 'Alice <Engineer>', contraptions: { contraptions: [entity] },
-      entityContextMenu: { contraption: entity, x: 1, y: 2 } });
+      entityContextMenu: { contraption: entity, x: 1, y: 2, ...(componentId ? { componentId } : {}) } });
     return renderToStaticMarkup(React.createElement(component));
   } finally { (spaceUiStore as any).patch(original); }
 }
@@ -36,6 +36,16 @@ function button(markup: string, label: string) {
   assert.ok(result, `button must retain the accessible name: ${label}`);
   return { attributes: result[1], content: result[2] };
 }
+
+test('a captured child is identified in the menu and Delete opens a component-or-entity choice', () => {
+  const markup = render({ id: 'car', rootComponentId: 'root', scriptStatus: 'stopped',
+    getEntityNode: (id: string) => id === 'wheel' ? { id, parentId: 'root' } : null,
+    getComponentName: (id: string) => id === 'wheel' ? 'Front wheel' : 'Car',
+  }, EntityContextMenu, 'wheel');
+  assert.match(markup, /Selected component: Front wheel/);
+  assert.doesNotMatch(button(markup, 'Delete component or entity…').attributes, /disabled=/);
+  assert.doesNotMatch(markup, /aria-label="Delete entity…"/);
+});
 
 test('every entity action retains a shortened visible caption alongside its icon and descriptive hover title', () => {
   const markup = render({ id: 'one', rootComponentName: 'Walker', scriptStatus: 'stopped' }, EntityContextMenu);

@@ -134,7 +134,8 @@ export class PhysicsSolverKernels {
 
   solveTerrainImpulse(body: MovingSolverBody, normal: THREE.Vector3, point: THREE.Vector3, penetration: number,
     points: THREE.Vector3[], dt: number, manifold: THREE.Vector3[], restitution: boolean,
-    iterations: number, gravity: number, restingVelocity: number, narrowWidth: number): number | null {
+    iterations: number, gravity: number, restingVelocity: number, narrowWidth: number,
+    surface?: { velocity: THREE.Vector3; friction: number }): number | null {
     if (!Number.isFinite(iterations) || iterations > 0x7fffffff) return null;
     const pointCount = points?.length ?? 0, count = manifold.length;
     const pointOffset = BODY + 6, manifoldOffset = pointOffset + pointCount * 3;
@@ -142,6 +143,10 @@ export class PhysicsSolverKernels {
     const data = this.reserve(rowOffset + count * 6);
     if (!data) return null;
     packBody(data, 0, body);
+    if (surface) {
+      data[7] += surface.velocity.x; data[8] += surface.velocity.y; data[9] += surface.velocity.z;
+      data[17] = surface.friction;
+    }
     writeVector(data, BODY, normal); writeVector(data, BODY + 3, point);
     for (let i = 0; i < pointCount; i++) writeVector(data, pointOffset + i * 3, points[i]);
     for (let i = 0; i < count; i++) writeVector(data, manifoldOffset + i * 3, manifold[i]);
@@ -149,6 +154,7 @@ export class PhysicsSolverKernels {
       BASE + pointOffset * 8, pointCount, BASE + manifoldOffset * 8, count, BASE + rowOffset * 8,
       penetration, dt, restitution ? 1 : 0, Math.max(0, Math.ceil(iterations)), gravity, restingVelocity, narrowWidth);
     readVector(data, 0, body.position); unpackVelocity(data, 0, body);
+    if (surface) body.velocity.sub(surface.velocity);
     if (normal.y > 0.5) body.isOnGround = true;
     return magnitude;
   }

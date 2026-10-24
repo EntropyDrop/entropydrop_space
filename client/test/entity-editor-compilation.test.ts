@@ -25,6 +25,84 @@ function fixture() {
   return { entity, store, compiled, saves: () => saves };
 }
 
+test('empty component scripts stay empty through editor navigation, structure refresh and Start', async () => {
+  const { entity, store, compiled } = fixture();
+  try {
+    store.openCodeEditor(entity);
+    assert.equal(store.getSnapshot().scriptDraft, '');
+    store.selectComponentTreeNode('arm');
+    assert.equal(store.getSnapshot().scriptDraft, '');
+    store.notifyContraptionStructureChanged(entity);
+    assert.equal(store.getSnapshot().scriptDraft, '');
+    store.closeAllModals();
+    store.openCodeEditor(entity);
+    assert.equal(store.getSnapshot().scriptDraft, '');
+    await store.setGlobalPlayback('play');
+    assert.deepEqual(compiled, [], 'placeholder instructions never become compiled source');
+    assert.equal(entity.getNodeScript('root'), '');
+    assert.equal(entity.getNodeScript('arm'), '');
+    assert.ok(entity.serializeSubtree()!.scripts.every(script => script.code === ''),
+      'portable entities contain no placeholder instructions');
+  } finally { entity.dispose(); }
+});
+
+test('existing player code and comments remain intact when opening and switching editor tabs', () => {
+  const { entity, store } = fixture();
+  const rootCode = '// My chassis\nctx.log("drive");';
+  const armCode = '// My wheel\nself.setLocalSpin([0, 1, 0], -30);';
+  try {
+    entity.setNodeScriptDraft('root', rootCode);
+    entity.setNodeScriptDraft('arm', armCode);
+    store.openCodeEditor(entity);
+    assert.equal(store.getSnapshot().scriptDraft, rootCode);
+    store.selectComponentTreeNode('arm');
+    assert.equal(store.getSnapshot().scriptDraft, armCode);
+    store.notifyContraptionStructureChanged(entity);
+    assert.equal(store.getSnapshot().scriptDraft, armCode);
+    store.closeAllModals();
+    assert.equal(entity.getNodeScript('root'), rootCode);
+    assert.equal(entity.getNodeScript('arm'), armCode);
+  } finally { entity.dispose(); }
+});
+
+test('legacy generated help becomes empty without stripping help that players extended', () => {
+  const { entity, store } = fixture();
+  const rootHelp = `// [root component controller]
+// Unified API: self (every component has the same surface)
+// Rigid body: self.applyForce([fx, fy, fz]), self.applyTorque([...])
+// Drive children: self.child('child_name')
+// Held key: ctx.input.down('KeyW')
+// Edge: ctx.input.pressed('Space'), ctx.input.released('KeyW')
+
+`;
+  const childHelp = `// [arm child component controller]
+// Unified API: self (every component has the same surface)
+// Kinematics: self.setLocalPosition([x, y, z]), self.setLocalSpin(axis, rpm)
+// Thrust: self.applyThrust([fx, fy, fz]) — direction decoupled from spin
+// self.setLocalPosition([0, Math.sin(ctx.time * 2) * 0.5, 0]);
+`;
+  try {
+    entity.setNodeScriptDraft('root', rootHelp);
+    entity.setNodeScriptDraft('arm', childHelp);
+    store.openCodeEditor(entity);
+    assert.equal(store.getSnapshot().scriptDraft, '');
+    store.selectComponentTreeNode('arm');
+    assert.equal(store.getSnapshot().scriptDraft, '');
+    store.notifyContraptionStructureChanged(entity);
+    assert.equal(store.getSnapshot().scriptDraft, '');
+    store.closeAllModals();
+    assert.equal(entity.getNodeScript('root'), '');
+    assert.equal(entity.getNodeScript('arm'), '');
+    const extended = childHelp + 'self.setLocalSpin([0, 1, 0], 30);';
+    entity.setNodeScriptDraft('arm', extended);
+    store.openCodeEditor(entity);
+    store.selectComponentTreeNode('arm');
+    assert.equal(store.getSnapshot().scriptDraft, extended);
+    store.closeAllModals();
+    assert.equal(entity.getNodeScript('arm'), extended);
+  } finally { entity.dispose(); }
+});
+
 test('editing, switching components and closing only save; Start compiles the newest drafts', async () => {
   const { entity, store, compiled, saves } = fixture();
   try {

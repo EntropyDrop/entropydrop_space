@@ -15,6 +15,9 @@ does not require a Selector A/B range and does not change the source's playback;
 block selection actions still require confirmed A/B. Online deletion waits for
 the backend acknowledgement and leaves the entity intact on failure. Existing
 execution-occupancy restrictions and the paid-hosting availability switch remain enforced.
+With a child targeted by the Wrench, Delete asks whether to remove that component
+and its descendants or the entire entity. The menu captures the component before
+unlocking; child deletion stops execution when needed and saves the remaining tree.
 Right-clicking a running entity with any tool opens the same entity action menu
 as Wrench. Stopped entities retain each tool's usual right-click behavior.
 Menu actions retain text rows with leading icons and shortened captions, descriptive
@@ -40,6 +43,10 @@ Selector (`1`) shows white straight links from the focused component's direct
 children to its pivot. Its link to the immediate parent uses the same animated
 yellow wave as a selected decoration. Wrench (`3`) uses this wave for all displayed
 parent and child links. Grandparents and grandchildren are not included.
+
+During Hammer (`2`) component installation, the pending preview shows an animated
+yellow wave from the future component pivot to its parent pivot. It follows XYZ
+adjustments and the parent's rendered pose, and clears on confirmation or cancellation.
 
 Modeling (`7`) edits visual decoration cubes owned by an entity component.
 Focusing an entity shows white links from all its decorations to their owning
@@ -67,9 +74,19 @@ authored data or physics.
 
 Wrench (`3`) shares Modeling's colored XYZ arrows, curved rotation arrows, and
 camera-distance scaling so both tools have matching stroke widths,
-with scaling disabled. These handles move or rotate the whole entity around its
-root body's center of mass. The current handles stay visible while aiming
-between the body and an arrow, until another entity is targeted or it is out of range.
+with scaling disabled. Targeting a child component places the handles at its
+authored pivot; moving or rotating it affects that component and its descendants,
+preserving the parent and siblings. Completed edits retain their placement after
+Stop and hierarchy rebuilds. Root handles move or rotate the whole entity around
+the root body's center of mass. Holding any component lifts the entire entity;
+independently dynamic children follow the root while held, and all authored body
+types are restored on release. The current handles stay visible while aiming
+between the body and an arrow, until another component is targeted or it is out of range.
+While held, the entity follows the character's body rotation, preserving its
+initial relative orientation and compensating motion around the grabbed point.
+Camera pitch and perspective changes do not change that relative orientation.
+Double-click any component with the Wrench to start or stop its entire entity.
+Long holds, mouse movement during a grab, and gizmo drags do not count as double-clicks.
 
 Driver seats with `fixedOrientation:true` keep the rider's body aligned to the
 seat's solved world rotation, including articulated components. Camera mouse
@@ -424,6 +441,16 @@ remote LLM without changing the controller runtime.
 Detailed component script and controller API documentation is available directly in-game via the Code Editor terminal (press `C` → entityAPI Docs) and in the generated [entityAPI V3 AssemblyScript reference](../engine/docs/generated/api-v2.md). The [entityAPI code-generation reference](../engine/docs/generated/agent-api-v2.md), in-game reference, and runtime Agent prompt are all rendered from `entropydrop_space/engine/src/contraption/ScriptApiContract.ts`; edit that contract instead of these generated views.
 
 Component code is an AssemblyScript controller body with implicit `self` and `ctx`.
+Empty components show editor guidance as placeholder text; it is never stored
+or compiled as script source. Exact legacy generated help templates become
+empty drafts; existing player code and comments are preserved.
+The editor suggests members after `self.`, `ctx.` and nested API objects, with
+typed signatures and descriptions from the compiler SDK and API contract.
+It also completes Math/Mathf, keywords and local variables (including component
+and Value handles). Use Ctrl+Space to request suggestions, Up/Down to choose,
+Tab or Enter to insert, and Escape to dismiss them before closing the editor.
+Method completion inserts parentheses and positions the caret for arguments.
+Suggestions run locally and do not compile or start the entity.
 Editing, switching components, closing the editor, and applying Agent code only save
 the source. Start compiles the latest changed component code in a browser worker;
 the editor shows compilation progress and type errors. Unchanged code reuses its

@@ -6,7 +6,7 @@ import {
   LiaHourglassHalfSolid, LiaIdCardSolid, LiaObjectUngroupSolid, LiaPauseSolid,
   LiaServerSolid, LiaTimesSolid, LiaTrashAltSolid, LiaVectorSquareSolid
 } from 'react-icons/lia';
-import { SPACE_HOSTING_UI_ENABLED, SPACE_LOCAL_SESSION } from '../../../bootstrap/SpaceFeatures.ts';
+import { SPACE_HOSTING_UI_ENABLED, SPACE_LOCAL_SESSION, SPACE_TUTORIAL } from '../../../bootstrap/SpaceFeatures.ts';
 import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import { spaceUiStore, hostingAvailabilityMessage } from '../store/SpaceUiStore.ts';
 import { useSpaceUiFields } from '../store/useSpaceUi.ts';
@@ -139,7 +139,7 @@ export function EntityContextMenu() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmHosting, setConfirmHosting] = useState(false);
   const [hostingBudget, setHostingBudget] = useState('1');
-  useEffect(() => { setConfirmDelete(false); setConfirmHosting(false); setHostingBudget('1'); }, [entityContextMenu?.contraption]);
+  useEffect(() => { setConfirmDelete(false); setConfirmHosting(false); setHostingBudget('1'); }, [entityContextMenu?.contraption, entityContextMenu?.componentId]);
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu || !entityContextMenu) return;
@@ -161,6 +161,10 @@ export function EntityContextMenu() {
   const canResetRotation = canEdit && !isHosted && (!status.running || canControl);
   const canChangeBodyType = canEdit && !isHosted && (!status.running || canControl);
   const canDisassemble = canEdit && canControl && !isHosted;
+  const componentId = entityContextMenu.componentId;
+  const component = componentId ? entity.getEntityNode?.(componentId) : null;
+  const componentName = componentId ? entity.getComponentName?.(componentId) || componentId : '';
+  const canDeleteComponent = !!component && component.parentId !== null && canEdit && !isHosted && (!status.running || canControl);
   const hostingAction = async (enabled: boolean) => {
     if (hostingBusy) return;
     setBusy(true);
@@ -176,7 +180,7 @@ export function EntityContextMenu() {
     if (busy) return;
     setBusy(true);
     try {
-      const success = await controller?.performEntityMenuAction?.(entity, action);
+      const success = await controller?.performEntityMenuAction?.(entity, action, componentId);
       spaceUiStore.refresh();
       if (success && !['start', 'stop', 'set-kinematic', 'set-dynamic'].includes(action)) {
         spaceUiStore.closeEntityContextMenu(action !== 'program');
@@ -195,6 +199,7 @@ export function EntityContextMenu() {
       </div>
       <EntityStatusBadge status={status} compact={false} />
       <div className="selector-context-details">ID: {entity.publicId || entity.id}{!canControl ? ' · read only' : ''}</div>
+      {componentId && <div className="selector-context-details">Selected component: {componentName}</div>}
       {entity.serverHostingCoreId != null && <div className="selector-context-details">Dedicated core {entity.serverHostingCoreId + 1}</div>}
       <div className="entity-body-type-row">
         <span id="entity-body-type-label">Type</span>
@@ -230,11 +235,11 @@ export function EntityContextMenu() {
         <EntityActionButton label="Disassemble entity" caption="Disassemble" icon={LiaObjectUngroupSolid} disabled={busy || !canDisassemble}
           title={isHosted ? 'Hosted entities cannot be disassembled from this client' : 'Align to the nearest grid orientation, then convert the entity to terrain voxels'}
           onClick={() => void run('disassemble')} />
-        {SPACE_LOCAL_SESSION ? <OnlineSpaceNotice feature="hosting" compact /> : isHosted && entity.serverHostingEnabled ?
+        {!SPACE_TUTORIAL && (SPACE_LOCAL_SESSION ? <OnlineSpaceNotice feature="hosting" compact /> : isHosted && entity.serverHostingEnabled ?
           <EntityActionButton label="Stop hosting" icon={FaStop} className="entity-action-stop" disabled={hostingBusy || entity.serverCanManageHosting !== true}
             title="Stop server execution early · preserve unused prepaid time" onClick={() => void hostingAction(false)} />
           : <EntityActionButton label="Host on server" caption="Host…" icon={LiaServerSolid} disabled={hostingBusy}
-            title="One dedicated core · 1 credit/hour" onClick={() => { setConfirmHosting(value => !value); void spaceUiStore.refreshHosting(); }} />}
+            title="One dedicated core · 1 credit/hour" onClick={() => { setConfirmHosting(value => !value); void spaceUiStore.refreshHosting(); }} />)}
         {!SPACE_LOCAL_SESSION && confirmHosting && <div className="entity-hosting-confirm">
           <div>Server hosting · 1 dedicated core · 1 credit/hour</div>
           <div className="selector-context-details">{hostingAvailabilityMessage(hosting)}. Unused prepaid time is preserved.</div>
@@ -253,10 +258,15 @@ export function EntityContextMenu() {
           catch { spaceUiStore.showToast('Unable to copy entity ID', { tone: 'warning' }); }
         }} />
         {confirmDelete ? <div className="entity-delete-confirm" role="alert">
-          <span>Delete this entire entity? This cannot be undone.</span>
-          <EntityActionButton label={busy ? 'Deleting…' : 'Confirm delete'} icon={LiaCheckSolid} className="danger" disabled={busy} onClick={() => void run('delete')} />
+          <span>{componentId ? `Delete selected component [${componentName}] and its children, or the entire entity?` : 'Delete this entire entity?'} This cannot be undone.</span>
+          {componentId && <EntityActionButton label="Delete selected component" caption="Selected component" icon={LiaTrashAltSolid}
+            className="danger" disabled={busy || !canDeleteComponent} onClick={() => void run('delete-component')} />}
+          <EntityActionButton label={busy ? 'Deleting…' : componentId ? 'Delete entire entity' : 'Confirm delete'}
+            caption={componentId ? 'Entire entity' : busy ? 'Deleting…' : 'Confirm delete'} icon={LiaCheckSolid}
+            className="danger" disabled={busy || !canControl} onClick={() => void run('delete')} />
           <EntityActionButton label="Cancel deletion" caption="Cancel" icon={LiaTimesSolid} disabled={busy} onClick={() => setConfirmDelete(false)} />
-        </div> : <EntityActionButton label="Delete entity…" caption="Delete…" icon={LiaTrashAltSolid} className="danger" disabled={busy || !canControl} onClick={() => setConfirmDelete(true)} />}
+        </div> : <EntityActionButton label={componentId ? 'Delete component or entity…' : 'Delete entity…'} caption="Delete…"
+          icon={LiaTrashAltSolid} className="danger" disabled={busy || (!canControl && !canDeleteComponent)} onClick={() => setConfirmDelete(true)} />}
       </div>
     </div>
   </div>;

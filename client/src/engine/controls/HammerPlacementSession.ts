@@ -16,6 +16,7 @@ export class HammerPlacementSession {
   private gizmo: TransformGizmo | null = null;
   private hovered: TransformHandle | null = null;
   private center = new THREE.Vector3();
+  private installationPivot: THREE.Vector3 | null = null;
   private axesRotation = new THREE.Quaternion();
   private drag: { start: THREE.Vector2; position: THREE.Vector3; axis: TransformAxis;
     delta: THREE.Vector2; screenVector: THREE.Vector2; size: number } | null = null;
@@ -29,6 +30,19 @@ export class HammerPlacementSession {
     const slot = this.pose?.slot;
     if (!slot || slot.kind === 'blockset' || (slot.kind === 'item' && (slot.blockSet || slot.entityList?.length !== 1))) return null;
     return this.pose?.targetContraption ?? null;
+  }
+
+  /** Use the same source bounds and Item frame as component installation. */
+  getInstallationLink() {
+    const target = this.installationTarget;
+    const pose = this.pose;
+    if (!target || !pose || !this.installationPivot
+      || !this.controller.contraptions?.contraptions.includes(target)
+      || !target.canEditInternalSelection()) return null;
+    const nodeId = pose.targetNodeId ?? target.rootComponentId;
+    if (!target.getEntityNode(nodeId)) return null;
+    return { entity: target, nodeId, pivot: this.installationPivot.clone()
+      .applyQuaternion(pose.quaternion || new THREE.Quaternion()).add(pose.position) };
   }
 
   begin(installAsComponent = false) {
@@ -45,6 +59,23 @@ export class HammerPlacementSession {
       ? this.installationTarget.getEntityNodeWorldQuaternion(pose.targetNodeId)
       : new THREE.Quaternion());
     this.installAsComponent = installAsComponent;
+    this.installationPivot = null;
+    if (this.installationTarget) {
+      const source = pose.slot.kind === 'item' ? pose.slot.entityList![0] : pose.slot;
+      const bounds = new THREE.Box3();
+      const point = new THREE.Vector3();
+      for (const block of source.blocks || []) {
+        point.set(Number(block.localX), Number(block.localY), Number(block.localZ));
+        bounds.expandByPoint(point);
+        bounds.expandByPoint(point.addScalar(Number(block.size) || 1));
+      }
+      if (!bounds.isEmpty()) {
+        this.installationPivot = bounds.getCenter(new THREE.Vector3());
+        if (pose.slot.kind === 'item') this.installationPivot
+          .applyQuaternion(new THREE.Quaternion().fromArray(source.itemRotation || [0, 0, 0, 1]))
+          .add(new THREE.Vector3().fromArray(source.itemPosition || [0, 0, 0]));
+      }
+    }
     const shape = getEntityPlacementShape(pose.slot);
     this.center.set(shape?.centerX || 0, shape ? (shape.minY + shape.maxY) / 2 : 0, shape?.centerZ || 0);
     c.updateInventoryPlacementPreview();
@@ -56,12 +87,14 @@ export class HammerPlacementSession {
   cancel(resume = true) {
     if (!this.pose) return false;
     this.pose = null;
+    this.installationPivot = null;
     this.endDrag();
     this.gizmo?.dispose();
     this.gizmo = null;
     if (this.controller.sceneRenderer) this.controller.sceneRenderer.hammerPlacementGizmo = undefined;
     this.controller.inventoryPlacementPreview = null;
     this.controller.sceneRenderer?.setInventoryPlacementPreview?.(null);
+    this.controller.sceneRenderer?.setComponentHierarchyLinks?.(null);
     this.controller.ui?.refresh?.();
     if (resume) void this.controller.requestLock();
     return true;

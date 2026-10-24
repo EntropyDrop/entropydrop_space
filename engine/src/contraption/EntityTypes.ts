@@ -13,6 +13,8 @@ export interface RuntimeVoxel {
   part?: string | null;
 }
 export interface CollisionEntry { x: number; y: number; z: number; span: number; entityId: string }
+/** Probes retain the component that owns the contacting surface. */
+export type CollisionSamplePoint = THREE.Vector3 & { entityId?: string };
 
 /**
  * A node in the entity hierarchy. The tree describes ownership and authored

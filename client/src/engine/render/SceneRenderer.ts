@@ -2314,19 +2314,20 @@ export class SceneRenderer {
     }
   }
 
-  /** Animate the parent link and optionally the direct child links. */
+  /** Animate hierarchy links, or connect a pending component pivot to its future parent. */
   setComponentHierarchyLinks(entity: Contraption | null, nodeId?: string,
-    { animateChildren = false, seconds = performance.now() / 1000 }: { animateChildren?: boolean; seconds?: number } = {}) {
+    { animateChildren = false, previewPivot, seconds = performance.now() / 1000 }:
+    { animateChildren?: boolean; previewPivot?: THREE.Vector3; seconds?: number } = {}) {
     for (const link of this.componentChildLinks || []) link.group.visible = false;
     const focused = entity?.getEntityNode(nodeId ?? entity.rootComponentId);
-    if (!entity || !focused || (!focused.parentId && !focused.children.size)) {
+    if (!entity || !focused || (!previewPivot && !focused.parentId && !focused.children.size)) {
       if (this.componentHierarchyLinks) this.componentHierarchyLinks.lines.visible = false;
       if (this.componentParentLink) this.componentParentLink.group.visible = false;
       return;
     }
-    const pivot = focused.group.getWorldPosition(new THREE.Vector3());
+    const pivot = previewPivot || focused.group.getWorldPosition(new THREE.Vector3());
     const entries: PivotLinkEndpoints[] = [];
-    const parent = focused.parentId ? entity.getEntityNode(focused.parentId) : null;
+    const parent = previewPivot ? focused : focused.parentId ? entity.getEntityNode(focused.parentId) : null;
     if (parent && this.camera) {
       if (!this.componentParentLink) {
         this.componentParentLink = new DecorationOwnershipLink();
@@ -2336,7 +2337,7 @@ export class SceneRenderer {
       this.componentParentLink.setEndpoints(pivot, parent.group.getWorldPosition(new THREE.Vector3()),
         this.camera, transformGizmoSize(pivot, this.camera.position), seconds);
     } else if (this.componentParentLink) this.componentParentLink.group.visible = false;
-    for (const childId of focused.children) {
+    for (const childId of previewPivot ? [] : focused.children) {
       const child = entity.getEntityNode(childId);
       if (child) entries.push({ start: child.group.getWorldPosition(new THREE.Vector3()), end: pivot });
     }
