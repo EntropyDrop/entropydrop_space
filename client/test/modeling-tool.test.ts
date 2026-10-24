@@ -92,6 +92,7 @@ test('selected decoration links to its component pivot, follows render poses, an
     const node = f.entity.getEntityNode('arm')!;
     const mesh = f.entity.decorationGroups.get('arm')!.children[0];
     const marker = link.getObjectByName('OwnerPivot')!;
+    const selectedLink = link.getObjectByName('SelectedDecorationOwnershipLink')!;
     assert.equal(link.visible, true);
     assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(node.group.getWorldPosition(new THREE.Vector3())) < 1e-8);
     assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(f.entity.getEntityNodeWorldPosition('base')) > 0.1);
@@ -99,7 +100,7 @@ test('selected decoration links to its component pivot, follows render poses, an
     node.group.position.add(new THREE.Vector3(2, 3, 1));
     node.group.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 4);
     f.tool.updateOwnershipLink(0.5);
-    assert.ok(link.position.distanceTo(mesh.getWorldPosition(new THREE.Vector3())) < 1e-8);
+    assert.ok(selectedLink.getWorldPosition(new THREE.Vector3()).distanceTo(mesh.getWorldPosition(new THREE.Vector3())) < 1e-8);
     assert.ok(marker.getWorldPosition(new THREE.Vector3()).distanceTo(node.group.getWorldPosition(new THREE.Vector3())) < 1e-8);
     f.entity.serverCanEdit = false;
     f.tool.updateOwnershipLink(0.6);
@@ -115,6 +116,113 @@ test('selected decoration links to its component pivot, follows render poses, an
     f.tool.deactivate();
     assert.equal(link.parent, null);
     assert.equal(f.controller.sceneRenderer.modelingOwnershipLink, undefined);
+  } finally { f.tool.deactivate(); f.entity.dispose(); }
+});
+
+test('focusing an entity shows all ownership links in white and highlights only the selected decoration', () => {
+  const f = fixture({ childEntities: [{ id: 'arm', parentId: 'base', kind: 'child', pivot: [2, 1, 0], blockKeys: [] }] });
+  f.controller.activeTool = 'modeling';
+  f.controller.isLocked = false;
+  f.controller.camera = new THREE.PerspectiveCamera();
+  f.controller.camera.position.set(0, 0, 10);
+  f.controller.sceneRenderer = {};
+  f.entity.setComponentDecorations('base', [{ id: 'body', color: 1, position: [1, 2, 0] }]);
+  f.entity.setComponentDecorations('arm', [{ id: 'trim', color: 1, position: [4, 2, 0] }]);
+  f.entity.getEntityNode('arm')!.group.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 4);
+  f.entity.raycastDecorations = () => null;
+  const other = fixture();
+  other.entity.setComponentDecorations('base', [{ id: 'other', color: 1, position: [3, 0, 0] }]);
+  other.entity.raycastDecorations = () => null;
+  f.controller.contraptions.contraptions.push(other.entity);
+  const focus = (entity = f.entity) => f.tool.update({ kind: 'entity', entityHit: { contraption: entity, distance: 0 } });
+  try {
+    focus();
+    const overlay = f.controller.sceneRenderer.modelingOwnershipLink as THREE.Group;
+    const lines = overlay.getObjectByName('UnselectedOwnershipLinks') as THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
+    const selected = overlay.getObjectByName('SelectedDecorationOwnershipLink')!;
+    const segmentVertices = lines.geometry.drawRange.count / 2;
+    const positions = lines.geometry.getAttribute('position');
+    const assertEndpoints = (index: number, componentId: string, decorationId: string) => {
+      const mesh = f.entity.decorationGroups.get(componentId)!.children.find(object => object.userData.decorationId === decorationId)!;
+      const pivot = f.entity.getEntityNode(componentId)!.group;
+      assert.ok(new THREE.Vector3().fromBufferAttribute(positions, index * segmentVertices)
+        .distanceTo(mesh.getWorldPosition(new THREE.Vector3())) < 1e-6);
+      assert.ok(new THREE.Vector3().fromBufferAttribute(positions, (index + 1) * segmentVertices - 1)
+        .distanceTo(pivot.getWorldPosition(new THREE.Vector3())) < 1e-6);
+    };
+    assert.equal(overlay.visible, true);
+    assert.equal(f.controller.isLocked, false, 'focusing after a toolbar switch does not require pointer lock');
+    assert.equal(lines.material.color.getHex(), 0xffffff);
+    assert.equal(selected.visible, false);
+    assert.ok(segmentVertices >= 2);
+    assertEndpoints(0, 'base', 'body');
+    assertEndpoints(1, 'arm', 'trim');
+    f.tool.hovered = { contraption: f.entity, componentId: 'arm', decorationId: 'trim' };
+    f.tool.selectHovered();
+    assert.equal(selected.visible, true);
+    assert.equal(lines.geometry.drawRange.count, segmentVertices, 'only the unselected link remains white');
+    assert.equal(((selected.getObjectByName('OwnershipWave') as THREE.Mesh).material as THREE.MeshBasicNodeMaterial).color.getHex(), 0xffdc73);
+    assertEndpoints(0, 'base', 'body');
+    f.tool.clearSelection();
+    assert.equal(selected.visible, false);
+    assert.equal(overlay.visible, true, 'deselection keeps the focused entity links visible');
+    assert.equal(lines.geometry.drawRange.count, segmentVertices * 2);
+    assertEndpoints(1, 'arm', 'trim');
+    f.entity.serverCanEdit = false;
+    f.tool.updateOwnershipLink();
+    assert.equal(overlay.visible, true, 'read-only entities can be inspected');
+    f.controller.worldPickingSuspended = true;
+    f.tool.updateOwnershipLink();
+    assert.equal(overlay.visible, false);
+    f.controller.worldPickingSuspended = false;
+    focus(other.entity);
+    assert.equal(overlay.parent, other.entity.scene);
+    assert.equal(lines.geometry.drawRange.count, segmentVertices, 'focus switches to the other entity');
+    f.tool.update({ kind: null });
+    assert.equal(overlay.visible, false);
+    focus();
+    f.controller.contraptions.contraptions = [];
+    f.tool.updateOwnershipLink();
+    assert.equal(overlay.visible, false, 'removed entities leave no stale links');
+    assert.equal(f.saves(), 0);
+    f.tool.deactivate();
+    assert.equal(overlay.parent, null);
+    assert.equal(f.controller.sceneRenderer.modelingOwnershipLink, undefined);
+  } finally { f.tool.deactivate(); f.entity.dispose(); other.tool.deactivate(); other.entity.dispose(); }
+});
+
+test('decoration focus shows batched decoration links, follows render poses and reuses its buffer', () => {
+  const f = fixture();
+  f.controller.activeTool = 'modeling';
+  f.controller.isLocked = true;
+  f.controller.camera = new THREE.PerspectiveCamera();
+  f.controller.camera.position.set(0, 0, 10);
+  f.controller.sceneRenderer = {};
+  f.entity.setComponentDecorations('base', Array.from({ length: 12 }, (_, i) => ({ id: `trim-${i}`, color: 1, position: [i, 2, 0] })));
+  f.entity.raycastDecorations = () => ({ contraption: f.entity, componentId: 'base', decorationId: 'trim-0',
+    distance: 1, point: new THREE.Vector3(), worldNormal: new THREE.Vector3(0, 1, 0) });
+  try {
+    f.tool.update({ kind: null });
+    const overlay = f.controller.sceneRenderer.modelingOwnershipLink as THREE.Group;
+    const lines = overlay.getObjectByName('UnselectedOwnershipLinks') as THREE.LineSegments;
+    const group = f.entity.decorationGroups.get('base')!;
+    assert.ok(group.children.some(object => object instanceof DecorationBatchMesh));
+    const count = lines.geometry.drawRange.count;
+    const positions = lines.geometry.getAttribute('position');
+    const endpoints = () => Array.from({ length: 12 }, (_, i) => new THREE.Vector3().fromBufferAttribute(positions, i * count / 12))
+      .sort((a, b) => a.x - b.x);
+    assert.deepEqual(endpoints().map(point => point.toArray()), Array.from({ length: 12 }, (_, i) => [i, 2, 0]));
+    f.entity.getEntityNode('base')!.group.position.add(new THREE.Vector3(2, 3, 4));
+    f.tool.updateOwnershipLink();
+    assert.equal(lines.geometry.getAttribute('position'), positions);
+    assert.deepEqual(endpoints().map(point => point.toArray()), Array.from({ length: 12 }, (_, i) => [i + 2, 5, 4]));
+    f.tool.selectHovered();
+    assert.equal(lines.geometry.drawRange.count, count / 12 * 11, 'batch meshes and selection outlines do not add links');
+    assert.equal(lines.geometry.getAttribute('position'), positions);
+    f.entity.setComponentDecorations('base', []);
+    f.tool.updateOwnershipLink();
+    assert.equal(overlay.visible, false);
+    assert.equal(f.saves(), 0);
   } finally { f.tool.deactivate(); f.entity.dispose(); }
 });
 

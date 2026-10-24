@@ -106,6 +106,7 @@ export class ToolInteractionSession {
       this.host.clearWrenchPivotDisplay();
     }
     if (prev === SpecialTool.MODELING && tool !== SpecialTool.MODELING) this.host.modeling.deactivate();
+    this.host.sceneRenderer?.setComponentHierarchyLinks?.(null);
     this._activeTool = tool;
   }
 
@@ -118,6 +119,7 @@ export class ToolInteractionSession {
     this.host.cancelHammerPlacement(false);
 
     this.host.modeling?.deactivate();
+    this.host.sceneRenderer?.setComponentHierarchyLinks?.(null);
     this.host.releaseWrenchGizmoDrag();
     this.host.releaseGizmoDrag();
     this.host.releaseWrenchGrab();

@@ -1,5 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { hookSceneMaterials } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { transformGizmoSize } from './TransformGizmo.ts';
+import { PivotLinks, type PivotLinkEndpoints } from './PivotLinks.ts';
 
 const SEGMENTS = 64;
 const SIDES = 6;
@@ -98,5 +100,46 @@ export class DecorationOwnershipLink {
     this.arrow.geometry.dispose();
     this.pivot.geometry.dispose();
     this.material.dispose();
+  }
+}
+
+export interface DecorationOwnershipEndpoints {
+  center: THREE.Vector3;
+  pivot: THREE.Vector3;
+  selected: boolean;
+}
+
+/** One white line batch for the focused entity, with the selected ownership wave on top. */
+export class DecorationOwnershipLinks {
+  readonly group = new THREE.Group();
+  private readonly selectedLink = new DecorationOwnershipLink();
+  private readonly links = new PivotLinks('UnselectedOwnershipLinks');
+
+  constructor() {
+    this.group.name = 'DecorationOwnershipLinks';
+    this.group.visible = false;
+    this.selectedLink.group.name = 'SelectedDecorationOwnershipLink';
+    this.group.add(this.links.lines, this.selectedLink.group);
+  }
+
+  setLinks(entries: DecorationOwnershipEndpoints[], camera: THREE.Camera, seconds: number) {
+    const whiteLinks: PivotLinkEndpoints[] = [];
+    this.selectedLink.group.visible = false;
+    for (const entry of entries) {
+      if (entry.selected) {
+        this.selectedLink.setEndpoints(entry.center, entry.pivot, camera,
+          transformGizmoSize(entry.center, camera.position), seconds);
+        continue;
+      }
+      whiteLinks.push({ start: entry.center, end: entry.pivot });
+    }
+    this.links.setLinks(whiteLinks);
+    this.group.visible = entries.length > 0;
+  }
+
+  dispose() {
+    this.group.removeFromParent();
+    this.links.dispose();
+    this.selectedLink.dispose();
   }
 }

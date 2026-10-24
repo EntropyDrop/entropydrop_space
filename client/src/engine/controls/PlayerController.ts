@@ -6662,6 +6662,16 @@ export class PlayerController {
     this.updateSelectionAxisGizmo();
   }
 
+  /** Refreshed after render interpolation so parent/child links track visible pivots. */
+  updateComponentHierarchyLinks() {
+    const hit = this.hoveredContraptionHit;
+    const entity = hit?.contraption;
+    const enabled = (this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.WRENCH)
+      && !this.worldPickingSuspended && entity && this.contraptions?.contraptions?.includes(entity);
+    this.sceneRenderer?.setComponentHierarchyLinks?.(enabled ? entity : null, hit?.entityId,
+      { animateChildren: this.activeTool === SpecialTool.WRENCH });
+  }
+
   /** Resolve a fresh click against visible geometry before any tool edits. */
   tryClickRunningEntity() {
     if (!this.camera || !this.contraptions) return false;

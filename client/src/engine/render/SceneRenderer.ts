@@ -13,7 +13,9 @@ export { getInventoryPreviewBlocks } from '../inventory/InventoryGeometry.ts';
 import { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
 export { calculatePreviewDragForce, ENTITY_PREVIEW_FORCE_LIMIT_RATIO } from '../controls/PreviewDragForce.ts';
 import { SpaceRenderer } from './SpaceRenderer.ts';
-import { TransformGizmo, TRANSFORM_GIZMO_ROTATION_RADIUS } from './TransformGizmo.ts';
+import { TransformGizmo, TRANSFORM_GIZMO_ROTATION_RADIUS, transformGizmoSize } from './TransformGizmo.ts';
+import { DecorationOwnershipLink } from './DecorationOwnershipLink.ts';
+import { PivotLinks, type PivotLinkEndpoints } from './PivotLinks.ts';
 import { warmTerrainPipelines } from './TerrainPipelineWarmup.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import * as THREE from 'three/webgpu';
@@ -223,6 +225,9 @@ export class SceneRenderer {
   declare textCreationGizmo: THREE.Group | undefined;
   declare hammerPlacementGizmo: THREE.Group | undefined;
   declare modelingOwnershipLink: THREE.Group | undefined;
+  private declare componentHierarchyLinks: PivotLinks | undefined;
+  private declare componentParentLink: DecorationOwnershipLink | undefined;
+  private declare componentChildLinks: DecorationOwnershipLink[] | undefined;
   declare modelingPreview: THREE.Group | undefined;
   private declare wrenchTransformGizmo: TransformGizmo;
   declare selectionAxisGizmo: THREE.Group;
@@ -2309,6 +2314,55 @@ export class SceneRenderer {
     }
   }
 
+  /** Animate the parent link; Wrench also animates the direct child links. */
+  setComponentHierarchyLinks(entity: Contraption | null, nodeId?: string,
+    { animateChildren = false, seconds = performance.now() / 1000 }: { animateChildren?: boolean; seconds?: number } = {}) {
+    for (const link of this.componentChildLinks || []) link.group.visible = false;
+    const focused = entity?.getEntityNode(nodeId ?? entity.rootComponentId);
+    if (!entity || !focused || (!focused.parentId && !focused.children.size)) {
+      if (this.componentHierarchyLinks) this.componentHierarchyLinks.lines.visible = false;
+      if (this.componentParentLink) this.componentParentLink.group.visible = false;
+      return;
+    }
+    const pivot = focused.group.getWorldPosition(new THREE.Vector3());
+    const entries: PivotLinkEndpoints[] = [];
+    const parent = focused.parentId ? entity.getEntityNode(focused.parentId) : null;
+    if (parent && this.camera) {
+      if (!this.componentParentLink) {
+        this.componentParentLink = new DecorationOwnershipLink();
+        this.componentParentLink.group.name = 'ComponentParentLink';
+        this.scene.add(this.componentParentLink.group);
+      }
+      this.componentParentLink.setEndpoints(pivot, parent.group.getWorldPosition(new THREE.Vector3()),
+        this.camera, transformGizmoSize(pivot, this.camera.position), seconds);
+    } else if (this.componentParentLink) this.componentParentLink.group.visible = false;
+    for (const childId of focused.children) {
+      const child = entity.getEntityNode(childId);
+      if (child) entries.push({ start: child.group.getWorldPosition(new THREE.Vector3()), end: pivot });
+    }
+    if (animateChildren && this.camera) {
+      this.componentHierarchyLinks?.setLinks([]);
+      const childLinks = this.componentChildLinks ||= [];
+      entries.forEach((entry, index) => {
+        let link = childLinks[index];
+        if (!link) {
+          link = new DecorationOwnershipLink();
+          link.group.name = 'ComponentChildLink';
+          childLinks.push(link);
+          this.scene.add(link.group);
+        }
+        link.setEndpoints(entry.start, entry.end, this.camera,
+          transformGizmoSize(entry.start, this.camera.position), seconds);
+      });
+    } else {
+      if (!this.componentHierarchyLinks && entries.length) {
+        this.componentHierarchyLinks = new PivotLinks('ComponentHierarchyLinks');
+        this.scene.add(this.componentHierarchyLinks.lines);
+      }
+      this.componentHierarchyLinks?.setLinks(entries);
+    }
+  }
+
   private renderWorldForScreenshot() {
     const overlays: Array<THREE.Object3D | null | undefined> = [
       this.playerAvatar,
@@ -2324,6 +2378,9 @@ export class SceneRenderer {
       this.textCreationGizmo,
       this.hammerPlacementGizmo,
       this.modelingOwnershipLink,
+      this.componentHierarchyLinks?.lines,
+      this.componentParentLink?.group,
+      ...(this.componentChildLinks || []).map(link => link.group),
       this.modelingPreview,
       this.selectionAxisGizmo,
       this.inventoryPlacementGroup,

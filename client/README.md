@@ -36,7 +36,14 @@ Box-selecting a focused micro voxel automatically enables MICRO mode on terrain
 or an editable Entity. If point A is already set, it is preserved and converted
 to the micro grid before confirming point B; the toolbar mode updates immediately.
 
+Selector (`1`) shows white straight links from the focused component's direct
+children to its pivot. Its link to the immediate parent uses the same animated
+yellow wave as a selected decoration. Wrench (`3`) uses this wave for all displayed
+parent and child links. Grandparents and grandchildren are not included.
+
 Modeling (`7`) edits visual decoration cubes owned by an entity component.
+Focusing an entity shows white links from all its decorations to their owning
+component pivots. Selecting a decoration highlights its link with a yellow wave.
 Aim and left-click a decoration to select it while keeping pointer lock. Hold
 LMB on the decoration to move it in the camera plane, or aim at and drag its
 local X/Y/Z arrows, curved arrows, or outer cubes to move, rotate, or resize.
