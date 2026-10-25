@@ -27,7 +27,7 @@ export interface ToolInteractionSessionPort {
   focusBlockPreview: PlayerController['focusBlockPreview'];
   handleBrushRightClick: PlayerController['handleBrushRightClick'];
   handleRunningEntityInteraction: PlayerController['handleRunningEntityInteraction'];
-  handleWrenchEntityClick: PlayerController['handleWrenchEntityClick'];
+  handleEntityPlaybackClick: PlayerController['handleEntityPlaybackClick'];
   tryClickRunningEntity: PlayerController['tryClickRunningEntity'];
   hoveredContraption: PlayerController['hoveredContraption'];
   hoveredContraptionHit: PlayerController['hoveredContraptionHit'];
@@ -46,7 +46,7 @@ export interface ToolInteractionSessionPort {
   releaseGizmoDrag: PlayerController['releaseGizmoDrag'];
   releaseWrenchGizmoDrag: PlayerController['releaseWrenchGizmoDrag'];
   releaseWrenchGrab: PlayerController['releaseWrenchGrab'];
-  resetWrenchClickGesture: PlayerController['resetWrenchClickGesture'];
+  resetEntityPlaybackClickGesture: PlayerController['resetEntityPlaybackClickGesture'];
   rotateActiveInventoryItem: PlayerController['rotateActiveInventoryItem'];
   sampleTargetedColor: PlayerController['sampleTargetedColor'];
   sceneRenderer: PlayerController['sceneRenderer'];
@@ -117,7 +117,7 @@ export class ToolInteractionSession {
     if (this.worldPickingSuspended === next) return;
     this.worldPickingSuspended = next;
     if (!next) return;
-    this.host.resetWrenchClickGesture();
+    this.host.resetEntityPlaybackClickGesture();
 
     this.host.cancelHammerPlacement(false);
 
@@ -199,10 +199,11 @@ export class ToolInteractionSession {
     if (this.worldPickingSuspended) return false;
     if (this.host.hammerPlacementActive) return true;
     if (this.host.ui?.tryToggleEntityPlaybackAtPointer?.(e) || this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) {
-      this.host.resetWrenchClickGesture();
+      this.host.resetEntityPlaybackClickGesture();
       return true;
     }
-    if (this.activeTool === SpecialTool.WRENCH && this.host.handleWrenchEntityClick(e)) return true;
+    if ((this.activeTool === SpecialTool.WRENCH || this.activeTool === SpecialTool.SELECTOR)
+      && this.host.handleEntityPlaybackClick(e)) return true;
     if (this.host.tryClickRunningEntity()) return false;
     if (this.activeTool === SpecialTool.MODELING) return this.host.modeling.leftDown(e);
     if (this.host.bulkEditJob) {
@@ -484,7 +485,7 @@ export class ToolInteractionSession {
         : null;
 
       // When in preselected state (completed selection without an in-progress 2-point drag),
-      // a plain left click on any block (entity or world) dismisses the selection and returns to unselected.
+      // a plain left click on a block starts the next selection at that same click.
       // A subtree-only selection created by Shift+click on an editable level also
       // counts as preselected. Running interactions are consumed before this branch.
       const isEntityBoxInProgress = !!(this.host.selectorRange && this.host.selectorRange.pointA && !this.host.selectorRange.pointB);
@@ -502,7 +503,6 @@ export class ToolInteractionSession {
       const clickedAnyBlock = !!(this.host.hoveredContraptionHit || worldPoint);
       if (!isMultiSelect && !isEntityBoxInProgress && !isWorldBoxInProgress && isPreselected && clickedAnyBlock) {
         this.host.clearSelection();
-        return;
       }
 
       if (this.host.hoveredContraptionHit) {
@@ -604,10 +604,11 @@ export class ToolInteractionSession {
         } else {
           // 2-point world box: cornerA then cornerB define the diagonal AABB.
           // In micro mode the confirmed box materializes into the existing
-          // micro voxels it contains; a plain click on the completed set clears it.
+          // micro voxels it contains; the next click starts a new box immediately.
           if (this.host.selectorMicroMode && Array.isArray(this.host.contraptions?.microSelection)) {
             this.host.clearSelection();
-          } else if (this.host.contraptions.selectionCornerA === null) {
+          }
+          if (this.host.contraptions.selectionCornerA === null) {
             this.host.performBasicAction({
               domain: ActionDomain.SELECTION,
               action: 'corner-a',
@@ -619,6 +620,7 @@ export class ToolInteractionSession {
               cornerB: null,
               micro: this.host.selectorMicroMode === true
             };
+            this.host.ui?.showToast?.('Point A selected · Click the opposite corner for B');
           } else if (this.host.contraptions.selectionCornerB === null) {
             const cornerResult = this.host.performBasicAction({
               domain: ActionDomain.SELECTION,
@@ -641,6 +643,8 @@ export class ToolInteractionSession {
             }
             if (cornerResult?.clamped && this.host.ui) {
               this.host.ui.showToast(`Selection exceeds ${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS}×${MAX_SELECTION_BOUNDS} limit · clamped to bounds`, { tone: 'warning' });
+            } else {
+              this.host.ui?.showToast?.('Point B selected · Selection ready');
             }
           } else {
             // Box already complete — next plain click clears it and resets to idle.

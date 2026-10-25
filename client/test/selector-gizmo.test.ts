@@ -219,10 +219,10 @@ test('handleLeftClick on gizmo handle starts drag without clearing selection', (
   // Release drag
   controller.releaseGizmoDrag();
 
-  // Clicking without hovering gizmo handle clears the selection
+  // A block click away from the gizmo starts the next selection
   controller.hoveredGizmoHandle = null;
   controller.handleLeftClick();
-  assert.equal(manager.selectionCornerA, null);
+  assert.deepEqual(manager.selectionCornerA, { x: 10, y: 10, z: 10 });
   assert.equal(manager.selectionCornerB, null);
 });
 

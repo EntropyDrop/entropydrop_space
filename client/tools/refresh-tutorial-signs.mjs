@@ -139,24 +139,21 @@ const lessons = [
   ['03 AIR DASH', [text('LOOK UP, THEN'), instruction('SPACE', 'JUMP'), instruction('SPACE', 'DASH IN AIR')]],
   ['04 FLY', [instruction('F', 'FLY MODE'), instruction('SPACE', 'RISE'), text('FLY OVER THE WALL')]],
   ['05 SELECTOR', [instruction('1', 'SELECTOR'), corners(), instruction('F', 'FILL')]],
-  ['06 CYLINDER', [instruction('TAB', 'STANDARD'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('F', 'FILL')]],
-  ['07 CARVE', [instruction('TAB', 'MICRO'), instruction('ALT+2', 'CYLINDER'), corners(RED), instruction('DEL', 'CUT OUT')]],
-  ['08 ROTATE', [instruction('TAB', 'STANDARD'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('↑', 'ROTATE'), instruction('F', 'FILL')]],
-  ['09 ENTITY', [instruction('ALT+1', 'BOX'), corners(), instruction('G', 'ASSEMBLE'), text('RUN WITH GRAVITY'),
+  ['06 CYLINDER', [text('CHECK: STANDARD'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('F', 'FILL')]],
+  ['07 CARVE', [text('CHECK: MICRO'), instruction('TAB', 'IF NEEDED'), instruction('ALT+2', 'CYLINDER'), corners(RED), instruction('DEL', 'CUT OUT')]],
+  ['08 ROTATE', [text('CHECK: MICRO'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('↑', 'ROTATE'), instruction('F', 'FILL')]],
+  ['09 ENTITY', [text('CHECK: MICRO'), instruction('ALT+1', 'BOX'), corners(), instruction('G', 'ASSEMBLE'), text('RUN WITH GRAVITY'),
     instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP'), instruction('HOLD LMB', 'CARRY CHASSIS')]],
-  ['10 WHEEL', [instruction('1', 'SELECTOR'), instruction('TAB', 'MICRO'), instruction('ALT+2', 'CYLINDER'),
+  ['10 WHEEL', [instruction('1', 'SELECTOR'), text('CHECK: MICRO'), instruction('ALT+2', 'CYLINDER'),
     corners(), instruction('G', 'ASSEMBLE WHEEL'), instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP')]],
-  ['11 MOTOR', [instruction('RMB', 'KINEMATIC'),
-    ...['CODE HERE SHOWS HOW IT WORKS', 'FULL GAME: ASK AGENT', 'IN NATURAL LANGUAGE', 'USUALLY NO MANUAL CODING']
-      .map(line => text(line, { color: WHITE })),
-    instruction('C', 'ENTER CODE'),
+  ['11 MOTOR', [instruction('RMB', 'KINEMATIC'), instruction('C', 'ENTER CODE'),
     text('self.setSpinYAxisRPM(30)', { color: WHITE }),
-    instruction('▶', 'START'), instruction('ESC', 'BACK TO WORLD'), instruction('3', 'WRENCH'),
+    join([instruction('▶', 'RUN'), instruction('ESC', 'EXIT')]),
     instruction('LMB X2', 'STOP'), instruction('RMB', 'COPY TO BACKPACK')]],
-  ['12 MODULE', [text('PLACE 09 CHASSIS'), instruction('RMB', 'RESET ROTATION'), instruction('2', 'HAMMER'), instruction('↑', 'TURN WHEEL UPRIGHT'),
-    text('USE SAME ROTATION'),
-    instruction('TAB', 'MICRO'), instruction('LMB', 'AIM AT CHASSIS'), text('DRAG XYZ TO ALIGN'),
-    instruction('ENTER', 'ATTACH'), text('ADD FOUR WHEELS')]],
+  ['12 MODULE', [text('PLACE 09 CHASSIS'), instruction('RMB', 'RESET ROTATION'), instruction('2', 'HAMMER: MICRO'),
+    text('AXLE: AUTO ALIGN'), instruction('↑ X2', 'HOLLOW SIDE IN'),
+    join([instruction('LMB', 'SET'), instruction('ENTER', 'ADD')]),
+    text('FIRST ONE, THEN THREE'), text('OPPOSITE: REVERSE RPM')]],
   ['13 DRIVE', [instruction('3', 'WRENCH'), text('CAR TO START LINE'), text('ALIGN WITH THE LANE'),
     instruction('LMB X2', 'START'), text('WATCH THE WHEELS DRIVE'), instruction('LMB X2', 'STOP')]],
 ].map(([title, content], index) => ({
@@ -167,6 +164,8 @@ const lessons = [
   center: Math.round(tutorialLessonHint(index + 1).x * 8),
   direction: -1,
   maxWidth: index === 10 ? 224 : MAX_WIDTH,
+  gap: index === 10 || index === 11 ? 3 : GAP,
+  bottom: index === 10 || index === 11 ? 19 * 8 : 17 * 8 + 6,
 }));
 
 for (let i = 1; i < lessons.length; i++) {
@@ -203,11 +202,13 @@ for (const { x, y, z } of wheelSelection) {
   const dz = z + .5 - (wheel.minZ + wheel.maxZ) * 4;
   const radius = Math.hypot(dx, dz);
   const rim = radius >= 6;
+  const barrel = radius >= 5.25;
   const hub = radius <= 1.8;
   const spoke = Math.abs(dx) < .75 || Math.abs(dz) < .75 || Math.abs(Math.abs(dx) - Math.abs(dz)) <= 1;
-  if (!rim && !hub && !spoke) continue;
-  // Identical faces, an unbroken tire and eight open spokes show the rotation.
-  const color = rim ? 0x303846 : hub ? 0xb0b8c1 : 0xe4e8ed;
+  const outerFace = y < wheel.minY * 8 + 2;
+  if (!barrel && !(outerFace && (hub || spoke))) continue;
+  // Spokes occupy the lower face; the upper half is a recessed inner barrel.
+  const color = rim ? 0x303846 : barrel ? 0x69727c : hub ? 0xb0b8c1 : 0xe4e8ed;
   micro.set(`${x},${y},${z}`, [x, y, z, color]);
   wheelMicroCells++;
 }
@@ -230,12 +231,14 @@ function place(sign, shape, bottom) {
 }
 
 for (const sign of lessons) {
-  let bottom = 17 * 8 + 6;
+  let bottom = sign.bottom;
   for (const shape of [...sign.rows].reverse()) {
     place(sign, shape, bottom);
-    bottom += shape.height + GAP;
+    bottom += shape.height + sign.gap;
   }
-  signBounds.push({ chapter: sign.title, width: Math.max(...sign.rows.map(row => row.width)) / 8, top: (bottom - GAP) / 8 });
+  const top = (bottom - sign.gap) / 8;
+  if (sign.title.startsWith('11 ') || sign.title.startsWith('12 ')) assert.ok(top <= 33, `${sign.title} is too tall to read from the practice area`);
+  signBounds.push({ chapter: sign.title, width: Math.max(...sign.rows.map(row => row.width)) / 8, top });
 }
 place(finish, text('NICE WORK!', { scale: 2 }), 20 * 8);
 level.terrain.micro = [...micro.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);

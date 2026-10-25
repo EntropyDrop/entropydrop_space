@@ -735,6 +735,12 @@ export class SceneRenderer {
       this.previewCanvas.removeEventListener('contextmenu', this.onPreviewContextMenu);
     }
     if (this.previewRenderer) this.previewRenderer.dispose();
+    if (this.previewForceArrow) {
+      this.previewForceArrow.removeFromParent();
+      for (const material of [this.previewForceArrow.line.material, this.previewForceArrow.cone.material].flat()) {
+        material.dispose();
+      }
+    }
     this.previewCanvas = canvas;
     this.previewCamera = createEntityPreviewCamera();
 

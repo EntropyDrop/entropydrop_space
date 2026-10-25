@@ -1,5 +1,23 @@
 # Local rendering fixture
 
+The [2026-10-25 full-scene low-poly trial](../../docs/performance-far-lowpoly-full-scene-2026-10-25.md)
+tests actual game frames with PBR/emission, near terrain, HUD and moving LOD
+publication in all three worlds. The current integration fails acceptance:
+Aether and Copper lose FPS, while Nature has no clear improvement. Additional
+CPU work and coarser visibility selection outweigh isolated GPU savings.
+
+The [2026-10-25 far low-poly experiment](../../docs/performance-far-lowpoly-2026-10-25.md)
+compares packed greedy quads, indexed/prepared controls and three simplification
+targets in Aether, Nature and Copper. Isolated terrain-heavy GPU medians improve,
+but buffer memory and construction cost increase. The offline lab remains
+experimental; production rendering is unchanged.
+
+The [2026-10-25 software ray experiments](../../docs/performance-software-rays-2026-10-25.md)
+compare a software SAH BVH, sparse curved brick traversal and nonlinear distance
+bounds against a matched raster control. All three regress in the tested far-only
+visibility workload. The explicit offline lab is not imported by production;
+the report includes correctness limits, memory/build costs and reproduction steps.
+
 The [2026-10-23 current-environment rebaseline](../../docs/performance-gpu-rebaseline-2026-10-23.md)
 adds ordinary-frame ABBA/BAAB variants, seeded order randomization, failure cleanup
 and complete Chromium GPU/Viz traces. The color-only attachment candidate showed

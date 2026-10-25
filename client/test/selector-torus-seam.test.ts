@@ -157,3 +157,17 @@ test('micro extraction returns continuous coordinates for a region crossing the 
   ]);
   assert.equal(layer.cells.size, 0);
 });
+
+test('single microcell extraction uses direct lookup and preserves seam coordinates', () => {
+  const layer = new MicroVoxelLayer();
+  const periodMx = TORUS_SIZE_X * MICRO_DIVISIONS, periodMz = TORUS_SIZE_Z * MICRO_DIVISIONS;
+  layer.set(0, 40, periodMz - 1, 0x000000);
+  layer.set(10, 40, 10, 0xff0000);
+  layer.cells[Symbol.iterator] = () => { throw new Error('A single-cell extraction must not scan the world'); };
+  const cells = layer.extractCellsInBox(periodMx, 40, -1, periodMx, 40, -1);
+  assert.deepEqual(cells.map(({ mx, my, mz, color }) => [mx, my, mz, color]), [[periodMx, 40, -1, 0]]);
+  assert.equal(layer.get(0, 40, periodMz - 1), null);
+  assert.equal(layer.get(10, 40, 10), 0xff0000);
+  assert.deepEqual(layer.extractCellsInBox(periodMx, 40, -1, periodMx, 40, -1), []);
+  assert.deepEqual(layer.extractCellsInBox(.5, 40, .5, .5, 40, .5), []);
+});

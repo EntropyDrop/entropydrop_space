@@ -1,7 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ts from 'typescript';
 import { compareComponentIds } from '@entropydrop/space-engine/contraption/Contraption.ts';
+
+const inputUrl = new URL('../src/ui/react/components/CodeInput.tsx', import.meta.url).href;
+const inputHook = registerHooks({ load(url, context, nextLoad) {
+  if (url !== inputUrl) return nextLoad(url, context);
+  return { format: 'module', shortCircuit: true, source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText };
+} });
+const { CodeInput } = await import(inputUrl);
+inputHook.deregister();
 
 const COMPONENT_FILES = [
   '../src/ui/react/SpaceRoot.tsx',
@@ -31,8 +45,13 @@ const REQUIRED_UI_IDS = [
 ];
 
 test('React components own every stable game UI contract', () => {
+  // The extracted input owns its textarea. Check its rendered contract without
+  // mistaking the temporary caret-measurement mirror for imperative UI ownership.
+  const inputMarkup = renderToStaticMarkup(createElement(CodeInput, {
+    value: '', placeholder: 'Write code', onChange() {},
+  }));
   for (const id of REQUIRED_UI_IDS) {
-    assert.match(componentSource, new RegExp(`id=[{]?['\"]${id}['\"]`), `missing React UI contract #${id}`);
+    assert.match(`${componentSource}\n${inputMarkup}`, new RegExp(`id=[{]?['\"]${id}['\"]`), `missing React UI contract #${id}`);
   }
   assert.doesNotMatch(componentSource, /getElementById|querySelector|\.innerHTML\s*=|createElement\(/);
 });

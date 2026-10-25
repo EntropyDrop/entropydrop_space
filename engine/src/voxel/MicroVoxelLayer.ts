@@ -668,7 +668,15 @@ export class MicroVoxelLayer {
       || !Number.isFinite(maxMx) || !Number.isFinite(maxMy) || !Number.isFinite(maxMz)) {
       return extracted;
     }
-    for (const [cellKey, color] of this.cells) {
+    // Sparse selections extract one cell at a time. Resolve those cells directly
+    // so assembling a detailed model does not rescan the whole world's microvoxels.
+    let candidates: Iterable<[string, number]> = this.cells;
+    if (minMx === maxMx && minMy === maxMy && minMz === maxMz) {
+      if (![minMx, minMy, minMz].every(Number.isSafeInteger)) return extracted;
+      const cellKey = key(minMx, minMy, minMz), color = this.cells.get(cellKey);
+      candidates = color === undefined ? [] : [[cellKey, color]];
+    }
+    for (const [cellKey, color] of candidates) {
       const [mx, my, mz] = cellKey.split(',').map(Number);
       const extractedMx = unwrapPeriodicNear(mx, minMx, TORUS_SIZE_X * MICRO_DIVISIONS);
       const extractedMz = unwrapPeriodicNear(mz, minMz, TORUS_SIZE_Z * MICRO_DIVISIONS);

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 
-function fixture(t: test.TestContext) {
+function fixture(t: test.TestContext, tool = SpecialTool.WRENCH) {
   const scene = new THREE.Scene();
   const entity = new Contraption(1, [
     { localX: 0, localY: 0, localZ: 0, size: 1, block: 1, entityId: 'base' },
@@ -18,7 +18,7 @@ function fixture(t: test.TestContext) {
   const camera = new THREE.PerspectiveCamera(60, 1, .1, 1000);
   camera.position.set(1, 4, 7); camera.lookAt(entity.position); camera.updateMatrixWorld(true);
   const controller: any = Object.assign(Object.create(PlayerController.prototype), {
-    _activeTool: SpecialTool.WRENCH, isLocked: true, pointerLockDesired: true,
+    _activeTool: tool, isLocked: true, pointerLockDesired: true,
     contraptions: { contraptions: [entity, other] }, camera, keys: {}, yaw: 0, pitch: 0, mouseSensitivity: .002,
     physics: { getEyePosition: () => camera.position.clone() },
     sceneRenderer: { setWrenchPivotGizmo() {}, clearWrenchPivotGizmo() {}, setWrenchTether() {} },
@@ -26,7 +26,10 @@ function fixture(t: test.TestContext) {
     updateAimRaycast() {}, refreshAimAfterPointerAction() {}, updateCameraRotation() {},
   });
   let scriptClicks = 0;
-  controller.tryClickRunningEntity = () => { scriptClicks++; return false; };
+  controller.tryClickRunningEntity = () => {
+    scriptClicks++;
+    return tool === SpecialTool.SELECTOR && controller.isEntityRunning(controller.hoveredContraption);
+  };
   const actions: string[] = [];
   controller.performBasicAction = (command: any) => {
     actions.push(command.action);
@@ -74,52 +77,91 @@ test('two quick component taps start and stop the whole entity, and second mouse
   assert.deepEqual(f.actions, ['start-scripts', 'stop-scripts']);
 });
 
-for (const gesture of ['drag', 'hold', 'timeout', 'different entity', 'gizmo', 'blur', 'UI', 'suspend'] as const) {
-  test(`${gesture} is excluded from Wrench double-click playback`, async t => {
-    const f = fixture(t);
-    if (gesture === 'gizmo') {
-      f.controller.updateWrenchPivotGizmo({ contraption: f.entity, entityId: 'base' });
-      f.controller.hoveredWrenchGizmoHandle = { handleKey: 'move-x', kind: 'move', axis: 'x' };
-    }
-    f.down(1000);
-    if (gesture === 'drag') f.listeners.get('mousemove')!({ movementX: 12, movementY: 0 });
-    f.up(gesture === 'hold' ? 1400 : 1050);
-    if (gesture === 'blur') f.listeners.get('blur')!({});
-    if (gesture === 'UI') {
-      f.controller.ui.tryOpenEntityContextMenuAtPointer = () => true;
-      f.down(1100); f.up(1120);
-      f.controller.ui.tryOpenEntityContextMenuAtPointer = () => false;
-    }
-    if (gesture === 'suspend') {
-      f.controller.setWorldPickingSuspended(true); f.controller.setWorldPickingSuspended(false);
-    }
-    f.down(gesture === 'timeout' ? 1500 : gesture === 'hold' ? 1500 : 1200,
-      gesture === 'different entity' ? f.other : f.entity);
-    f.up(1550); await settle();
-    assert.equal(f.actions.includes('start-scripts'), false);
-    assert.equal(f.entity.isPhysicsSimulationEnabled(), false);
+test('Selector double-click stops the whole running entity without consuming selection clicks afterward', async t => {
+  const f = fixture(t, SpecialTool.SELECTOR);
+  f.entity.setPhysicsSimulationEnabled(true);
+  let selections = 0;
+  f.controller.selectorOnEntityClick = () => { selections++; };
+  f.down(1000, f.entity, 'wheel'); f.up(1050);
+  assert.equal(f.controller.isEntityRunning(f.entity), true, 'one tap keeps running');
+  assert.equal(selections, 0, 'running geometry is not selected');
+  f.down(1150, f.entity, 'base'); f.up(1200); await settle();
+  assert.equal(f.controller.isEntityRunning(f.entity), false);
+  assert.equal(f.entity.isPhysicsSimulationEnabled(), false);
+  assert.deepEqual(f.actions, ['stop-scripts']);
+  assert.equal(f.scriptClicks(), 1, 'the second tap is consumed before script-click dispatch');
+  f.down(2000, f.entity, 'wheel'); f.up(2050);
+  f.down(2150, f.entity, 'wheel'); f.up(2200); await settle();
+  assert.equal(selections, 2, 'stopped entities retain both A/B clicks');
+  assert.deepEqual(f.actions, ['stop-scripts'], 'Selector cannot start an entity');
+});
+
+test('switching tools cannot combine two unrelated clicks into a playback gesture', async t => {
+  const f = fixture(t, SpecialTool.SELECTOR);
+  f.entity.setPhysicsSimulationEnabled(true);
+  f.down(1000); f.up(1050);
+  f.controller.clearSelection = () => {};
+  f.controller.activeTool = SpecialTool.WRENCH;
+  f.down(1150); f.up(1200); await settle();
+  assert.deepEqual(f.actions, []);
+  assert.equal(f.controller.isEntityRunning(f.entity), true);
+});
+
+for (const tool of [SpecialTool.WRENCH, SpecialTool.SELECTOR]) {
+  for (const gesture of ['drag', 'hold', 'timeout', 'different entity', 'gizmo', 'blur', 'UI', 'suspend'] as const) {
+    test(`${gesture} is excluded from ${tool} double-click playback`, async t => {
+      const f = fixture(t, tool);
+      const running = tool === SpecialTool.SELECTOR;
+      f.entity.setPhysicsSimulationEnabled(running);
+      f.other.setPhysicsSimulationEnabled(running);
+      if (gesture === 'gizmo') {
+        if (tool === SpecialTool.WRENCH) {
+          f.controller.updateWrenchPivotGizmo({ contraption: f.entity, entityId: 'base' });
+          f.controller.hoveredWrenchGizmoHandle = { handleKey: 'move-x', kind: 'move', axis: 'x' };
+        } else {
+          f.controller.hoveredGizmoHandle = { handleKey: 'move-x', kind: 'move', axis: 'x' };
+        }
+      }
+      f.down(1000);
+      if (gesture === 'drag') f.listeners.get('mousemove')!({ movementX: 12, movementY: 0 });
+      f.up(gesture === 'hold' ? 1400 : 1050);
+      if (gesture === 'blur') f.listeners.get('blur')!({});
+      if (gesture === 'UI') {
+        f.controller.ui.tryOpenEntityContextMenuAtPointer = () => true;
+        f.down(1100); f.up(1120);
+        f.controller.ui.tryOpenEntityContextMenuAtPointer = () => false;
+      }
+      if (gesture === 'suspend') {
+        f.controller.setWorldPickingSuspended(true); f.controller.setWorldPickingSuspended(false);
+      }
+      f.down(gesture === 'timeout' ? 1500 : gesture === 'hold' ? 1500 : 1200,
+        gesture === 'different entity' ? f.other : f.entity);
+      f.up(1550); await settle();
+      assert.deepEqual(f.actions, []);
+      assert.equal(f.entity.isPhysicsSimulationEnabled(), running);
+    });
+  }
+
+  test(`${tool} double-click playback respects server control permissions`, async t => {
+    const f = fixture(t, tool);
+    Object.assign(f.entity, { serverManaged: true, serverCanControl: false, serverDesiredRunState: 'running' });
+    f.controller.serverEntityRunStateHandler = async () => assert.fail('occupied entity must not receive a request');
+    f.down(1000); f.up(1050); f.down(1150); f.up(1200); await settle();
+    assert.equal(f.entity.serverDesiredRunState, 'running');
+    assert.deepEqual(f.actions, []);
+  });
+
+  test(`${tool} pending server toggle blocks repeated grabs and playback requests`, async t => {
+    const f = fixture(t, tool);
+    Object.assign(f.entity, { serverManaged: true, serverCanControl: true, serverDesiredRunState: 'running' });
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const requests: string[] = [];
+    f.controller.serverEntityRunStateHandler = async (_: unknown, state: string) => { requests.push(state); await pending; };
+    f.down(1000); f.up(1050); f.down(1150); f.up(1200);
+    f.down(1300); f.up(1350); f.down(1400); f.up(1450);
+    assert.deepEqual(requests, ['stopped']);
+    assert.equal(f.controller.wrenchGrab == null, true);
+    finish(); await settle();
   });
 }
-
-test('double-click playback respects server control permissions', async t => {
-  const f = fixture(t);
-  Object.assign(f.entity, { serverManaged: true, serverCanControl: false, serverDesiredRunState: 'running' });
-  f.controller.serverEntityRunStateHandler = async () => assert.fail('occupied entity must not receive a request');
-  f.down(1000); f.up(1050); f.down(1150); f.up(1200); await settle();
-  assert.equal(f.entity.serverDesiredRunState, 'running');
-  assert.deepEqual(f.actions, []);
-});
-
-test('a pending server toggle blocks repeated grabs and playback requests', async t => {
-  const f = fixture(t);
-  Object.assign(f.entity, { serverManaged: true, serverCanControl: true, serverDesiredRunState: 'running' });
-  let finish!: () => void;
-  const pending = new Promise<void>(resolve => { finish = resolve; });
-  const requests: string[] = [];
-  f.controller.serverEntityRunStateHandler = async (_: unknown, state: string) => { requests.push(state); await pending; };
-  f.down(1000); f.up(1050); f.down(1150); f.up(1200);
-  f.down(1300); f.up(1350); f.down(1400); f.up(1450);
-  assert.deepEqual(requests, ['stopped']);
-  assert.equal(f.controller.wrenchGrab == null, true);
-  finish(); await settle();
-});

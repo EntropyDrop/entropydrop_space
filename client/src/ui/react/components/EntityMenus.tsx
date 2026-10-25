@@ -182,7 +182,7 @@ export function EntityContextMenu() {
     try {
       const success = await controller?.performEntityMenuAction?.(entity, action, componentId);
       spaceUiStore.refresh();
-      if (success && !['start', 'stop', 'set-kinematic', 'set-dynamic'].includes(action)) {
+      if (success && !['start', 'stop'].includes(action)) {
         spaceUiStore.closeEntityContextMenu(action !== 'program');
       }
     } finally { setBusy(false); }

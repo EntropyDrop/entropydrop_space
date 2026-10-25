@@ -80,6 +80,7 @@ export type UiPlayerController = Pick<PlayerController,
 
 export type UiWorld = Pick<World,
   'distantSurface'
+  | 'microVoxels'
   | 'getDistantSurfaceSettings'
   | 'getTerrainAoiLoadProgress'
   | 'preloadTerrainAoi'

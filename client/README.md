@@ -87,7 +87,9 @@ While held, the entity follows the character's body rotation, preserving its
 initial relative orientation and compensating motion around the grabbed point.
 Camera pitch and perspective changes do not change that relative orientation.
 Double-click any component with the Wrench to start or stop its entire entity.
-Long holds, mouse movement during a grab, and gizmo drags do not count as double-clicks.
+The Selector also stops a running entity when double-clicking any component;
+stopped entities keep normal selection clicks and are never started by the Selector.
+Long holds, mouse movement, and gizmo drags do not count as double-clicks.
 
 Driver seats with `fixedOrientation:true` keep the rider's body aligned to the
 seat's solved world rotation, including articulated components. Camera mouse

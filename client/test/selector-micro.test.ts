@@ -269,10 +269,10 @@ test('selector click flow: two plain clicks build a materialized micro box, thir
   assert.equal(manager.selectionCornerB, null);
   assert.deepEqual(manager.microSelection, [{ x: 19, y: 47, z: 20 }, { x: 20, y: 47, z: 20 }]);
 
-  // Third plain click clears the completed micro selection.
+  // Third plain click replaces the completed set and records the next point A.
   controller.handleLeftClick();
   assert.equal(manager.microSelection, null);
-  assert.equal(manager.selectionCornerA, null);
+  assert.deepEqual(manager.selectionCornerA, { x: 20, y: 47, z: 20, micro: true });
 });
 
 test('selector Shift+click toggles micro cells while in micro mode', () => {

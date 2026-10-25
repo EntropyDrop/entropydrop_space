@@ -300,6 +300,41 @@ test('entity anchor frame and Hammer roll compose into the installed localRotati
     'copying the installed module must retain its authored anchor frame');
 });
 
+test('tutorial wheel auto-aligns upright to either axle and two Up turns face its hollow side inward', () => {
+  const manager = new ContraptionManager(new THREE.Scene(), null, null, null);
+  const target = manager.buildFromSlot(targetSlot(), new THREE.Vector3(), null, false)!;
+  target.stopAllNodeScripts();
+  const controller = Object.create(PlayerController.prototype) as any;
+  controller.activeTool = SpecialTool.HAMMER;
+  controller.inventories = controller.createEmptyInventories();
+  controller.activeInventoryCategory = 'entity';
+  controller.inventories.entity.items[0] = {
+    kind: 'entity', rootComponentId: 'wheel', name: 'Flat wheel',
+    blocks: [{ ...block(0, 'wheel'), size: .125 }], blockCount: 1,
+  };
+  controller.inventories.entity.selected = 0;
+  controller.hammerMicroMode = true;
+  controller.contraptions = manager;
+  controller.currentRaycast = { hit: false };
+  controller.physics = { getEyePosition: () => new THREE.Vector3() };
+  for (const side of [-1, 1]) {
+    const normal = new THREE.Vector3(0, 0, side);
+    controller.hoveredContraptionHit = {
+      point: new THREE.Vector3(.5, .5, side < 0 ? 0 : 1),
+      normal, worldNormal: normal, contraption: target, entityId: 'root',
+    };
+    for (const turns of [0, 2]) {
+      controller.hammerRotationTurnsX = turns;
+      const pose = controller.getInventoryPlacementPose(controller.getActiveHammerInventoryItem());
+      assert.ok(pose);
+      const hollowFace = new THREE.Vector3(0, 1, 0).applyQuaternion(pose.quaternion);
+      assert.ok(hollowFace.distanceTo(normal.clone().multiplyScalar(turns === 0 ? 1 : -1)) < 1e-8,
+        'surface alignment stands the wheel upright; Up twice only reverses the face');
+    }
+  }
+  target.dispose();
+});
+
 function getExpectedPlacedCenter(blockValue: any, pose: any) {
   const size = Number(blockValue.size) || 1;
   return new THREE.Vector3(

@@ -1,11 +1,13 @@
 import { WebGPURenderer } from 'three/webgpu';
 import { installOpaqueTerrainBundles } from './OpaqueTerrainBundles.ts';
 import { installVoxelArenaSupport } from './VoxelArenaRenderer.ts';
+import { trackRenderObjectLifetime } from './RenderObjectLifetime.ts';
 
 /** WebGPU only: never silently render the production game with WebGL. */
 export class SpaceRenderer extends WebGPURenderer {
   readonly terrainCommandCaching: boolean;
   terrainMergedBuffers = false;
+  private retireRenderObjects: (() => void) | null = null;
   constructor(options: ConstructorParameters<typeof WebGPURenderer>[0] = {}) {
     super(options);
     // r183 installs its fallback unconditionally in WebGPURenderer. Disable
@@ -20,7 +22,13 @@ export class SpaceRenderer extends WebGPURenderer {
     try { await this.init(); }
     catch (cause) { throw new Error('Unable to initialize WebGPU. Check browser GPU acceleration and reload Space.', { cause }); }
     if (!(this.backend as any).isWebGPUBackend) throw new Error('Space requires the WebGPU backend.');
+    this.retireRenderObjects ??= trackRenderObjectLifetime((this as any)._objects);
     if (!this.terrainMergedBuffers) this.terrainMergedBuffers = installVoxelArenaSupport(this);
+  }
+  override dispose() {
+    this.retireRenderObjects?.();
+    this.retireRenderObjects = null;
+    super.dispose();
   }
   get maxTextureSize() { return (this.backend as any).device?.limits.maxTextureDimension2D ?? 8192; }
 }

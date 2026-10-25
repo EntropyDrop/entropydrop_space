@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Far terrain low-poly results</title>
+<style>
+body{margin:24px auto;padding:0 20px;max-width:1200px;background:#111a23;color:#e6edf4;font:15px system-ui;line-height:1.5}h1{font-size:26px}h2{font-size:20px}button{padding:8px 12px;margin:6px 8px 6px 0}table{border-collapse:collapse;width:100%;margin:16px 0}td,th{padding:8px;text-align:right;border-bottom:1px solid #344454}th:first-child,td:first-child{text-align:left}.note{color:#aebfcf}pre{white-space:pre-wrap;overflow-wrap:anywhere}section{margin-bottom:40px}
+</style>
+<h1>Far terrain low-poly results</h1>
+<p>Measured offline terrain. These are isolated GPU render times, not game FPS. Pixel targets are simplifier settings, not guaranteed image-error limits.</p>
+<p class="note">This page reads completed captures from this tab's session storage and uses no WebGPU device. Reloading retains the records; closing the tab may discard them. Export is a manual action.</p>
+<main id="results">Loading retained captures…</main>
+<script type="module">
+const root=document.getElementById('results');root.textContent='';
+const table=(heads,rows)=>{const t=document.createElement('table');for(const [i,row] of [heads,...rows].entries()){const tr=t.insertRow();for(const value of row){const cell=document.createElement(i?'td':'th');cell.textContent=String(value);tr.append(cell);}}return t;};
+for(const key of Object.keys(sessionStorage).filter(k=>k.startsWith('far-lowpoly-')&&k.endsWith('-gzip'))){
+  const section=document.createElement('section');root.append(section);
+  try{
+    const bytes=Uint8Array.from(atob(sessionStorage.getItem(key)),c=>c.charCodeAt(0));
+    const raw=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text(),r=JSON.parse(raw);
+    const h=document.createElement('h2');h.textContent=r.world;section.append(h);
+    const info=document.createElement('p');info.textContent=`${r.selectedFaces.toLocaleString()} source quads · ${r.bricks.toLocaleString()} bricks · ${r.rows.length} measured cases · ${r.errors.length} GPU validation errors`;section.append(info);
+    const download=document.createElement('button');download.textContent='Export complete JSON';download.onclick=()=>{const a=document.createElement('a');a.download=`far-lowpoly-${r.world}.json`;a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'}));a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};section.append(download);
+    section.append(table(['Representation','Triangles','Geometry + index MiB'],Object.entries(r.structures.modes).map(([name,m])=>[name,m.triangles.toLocaleString(),(m.bytes/1048576).toFixed(2)])));
+    section.append(table(['View / size','Paired packed ms','1 px mesh ms','Median change','Silhouette differences'],r.rows.map(row=>{const t=row.timings.find(t=>t.reference==='packed'&&t.candidate==='1px');return [`${row.view} / ${row.width}×${row.height}`,t.referenceMs.p50.toFixed(3),t.candidateMs.p50.toFixed(3),`${((t.candidateMs.p50/t.referenceMs.p50-1)*100).toFixed(1)}%`,row.checks['1px'].packed.coverageMismatch];})));
+    const details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');summary.textContent='All timing and image-check summaries';pre.textContent=JSON.stringify({...r,perBrick:`${r.perBrick.length} records in complete JSON`,pilotRows:undefined,rows:r.rows.map(row=>({...row,timings:row.timings.map(({samples,...timing})=>timing)}))},null,2);details.append(summary,pre);section.append(details);
+  }catch(error){section.textContent=`Could not read ${key}: ${error}`;}
+}
+if(!root.childElementCount)root.textContent='No retained captures in this tab. Run FarLowPolyLab in the offline fixture first, then navigate this same tab here.';
+</script>
+</html>

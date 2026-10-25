@@ -20,15 +20,39 @@ and chapters 12–13, their guides, the driving lane and finish move about 10 m.
 Run `node client/tools/refresh-tutorial-signs.mjs`
 from the repository root to rebuild the clear pixel lettering and spoked wheel. The wheel,
 motor stand, chassis guides, and driving lane continue beyond chapter 09.
+Signs ask players to check STANDARD/MICRO instead of blindly toggling Tab at
+every chapter. Tab switches modes when the displayed mode is different.
+From chapter 08 onward, selection exercises use MICRO mode. Nearby A/B labels
+point to the actual corner microcells and disappear when those cells are assembled.
+A new click after a completed selection immediately starts the next selection. The horizontal
+rotation cylinder and its two corner markers use individual microcells. Run
+`node client/tools/refresh-tutorial-micro-practice.mjs` to rebuild it and the
+vehicle-sized module assembly guide.
+Chapter 09's airborne subject is a double-cab off-road pickup without wheels:
+it has a low hood, four doors, large tinted windows, an open ribbed cargo bed,
+sport bar, lights, recovery bumpers, running boards and interior seats. Four
+flared wheel arches and recessed axle mounting pads remain for the chapter 10
+wheels. A single blue microcell in the front bumper and a single green microcell
+at the rear radio antenna tip belong to the body. Chapter 09
+uses a micro-grid box between these opposite corners to select every vehicle
+voxel; no separate helper blocks are assembled.
+The body is 9 m long, 4.25 m wide and 3.125 m high, proportioned around the
+2 m diameter lesson wheel; the wheelbase is 6 m. Tires sit beneath the flared
+arches, with their complete rotating envelope clear of the bodywork.
+Run `node client/tools/refresh-tutorial-chassis.mjs` from the repository root
+to rebuild this subject without changing the obstacle underneath or other lessons.
 The micro-voxel wheel lies flat on the ground and is selected with the default
-Y-axis cylinder. It has an unbroken tire, eight open spokes and identical faces.
-Its script uses `self.setSpinYAxisRPM(30)` to spin around local Y. Press Up
-once with the Hammer to turn it upright, and keep the same mounting rotation
-for all four wheels. No side needs to be flipped or given a different RPM.
+Y-axis cylinder. It has an unbroken tire and eight spokes on its lower face;
+the upper half has an open recessed barrel, so the two faces are distinguishable.
+Its script uses `self.setSpinYAxisRPM(30)` to spin around local Y. Aim the
+Hammer at an axle face: surface alignment already turns the wheel upright.
+From the default Hammer pose, press Up twice to put the hollow face toward the
+body. Repeat this alignment when attaching the first wheel and then the other three.
+Reverse RPM on the opposite side in the editor so all four drive forward.
 From chapter 09 onward, Stop is taught as Wrench (`3`) plus double left-click.
 Chapter 11 returns from the editor with Escape before stopping the wheel;
 chapter 13 also starts the car with a Wrench double-click.
-Chapter 11 and the tutorial editor's Agent panel explain that the code teaches
+The tutorial editor's Agent panel explains that the code teaches
 how entities work. In the full game, players can usually describe their intent
 to the Agent in natural language instead of writing code manually. Agent
 requests remain unavailable inside the tutorial.

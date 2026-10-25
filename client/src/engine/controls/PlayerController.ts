@@ -191,7 +191,7 @@ export class PlayerController {
       set focusBlockPreview(value) { host.focusBlockPreview = value; },
       get handleBrushRightClick() { return host.handleBrushRightClick.bind(host); },
       get handleRunningEntityInteraction() { return host.handleRunningEntityInteraction.bind(host); },
-      get handleWrenchEntityClick() { return host.handleWrenchEntityClick.bind(host); },
+      get handleEntityPlaybackClick() { return host.handleEntityPlaybackClick.bind(host); },
       get tryClickRunningEntity() { return host.tryClickRunningEntity.bind(host); },
       get hoveredContraption() { return host.hoveredContraption; },
       set hoveredContraption(value) { host.hoveredContraption = value; },
@@ -220,7 +220,7 @@ export class PlayerController {
       get releaseGizmoDrag() { return host.releaseGizmoDrag.bind(host); },
       get releaseWrenchGizmoDrag() { return host.releaseWrenchGizmoDrag.bind(host); },
       get releaseWrenchGrab() { return host.releaseWrenchGrab.bind(host); },
-      get resetWrenchClickGesture() { return host.resetWrenchClickGesture.bind(host); },
+      get resetEntityPlaybackClickGesture() { return host.resetEntityPlaybackClickGesture.bind(host); },
       get rotateActiveInventoryItem() { return host.rotateActiveInventoryItem.bind(host); },
       get sampleTargetedColor() { return host.sampleTargetedColor.bind(host); },
       get sceneRenderer() { return host.sceneRenderer; },
@@ -627,7 +627,7 @@ export class PlayerController {
     return this.toolSession.activeTool;
   }
   set activeTool(tool: string) {
-    if (this.activeTool !== tool) this.resetWrenchClickGesture();
+    if (this.activeTool !== tool) this.resetEntityPlaybackClickGesture();
     this.toolSession.activeTool = tool;
   }
   selectedBlock: number | null;
@@ -638,9 +638,9 @@ export class PlayerController {
   hoveredContraption: Contraption | null;
   hoveredContraptionHit: any;
   wrenchGrab: any;
-  private wrenchPointerDown: { entity: Contraption; time: number; movement: number } | null = null;
-  private lastWrenchClick: { entity: Contraption; time: number } | null = null;
-  private wrenchPlaybackPending = false;
+  private entityPlaybackPointerDown: { entity: Contraption; time: number; movement: number } | null = null;
+  private lastEntityPlaybackClick: { entity: Contraption; time: number } | null = null;
+  private entityPlaybackPending = false;
   private wrenchScrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
   wrenchPivotTarget: any;
   hoveredWrenchGizmoHandle: any;
@@ -881,7 +881,7 @@ export class PlayerController {
         return;
       }
       if (this.worldPickingSuspended) return;
-      if (this.wrenchPointerDown) this.wrenchPointerDown.movement += Math.hypot(e.movementX || 0, e.movementY || 0);
+      if (this.entityPlaybackPointerDown) this.entityPlaybackPointerDown.movement += Math.hypot(e.movementX || 0, e.movementY || 0);
       if (this.hammerPlacementActive && (!this.isLocked || this.hammerPlacement.isDragging)) {
         this.hammerPlacement.pointerMove(e);
         return;
@@ -933,7 +933,7 @@ export class PlayerController {
     document.addEventListener('mouseup', (e) => {
       if (e.button === 2) this.modeling?.endCreation();
       if (e.button !== 0) return;
-      this.finishWrenchEntityClick(e);
+      this.finishEntityPlaybackClick(e);
       this._textCreationGizmo?.endDrag();
       this._hammerPlacement?.endDrag();
       this.modeling?.endDrag();
@@ -1464,7 +1464,7 @@ export class PlayerController {
   }
 
   resetEntityInputState() {
-    this.resetWrenchClickGesture();
+    this.resetEntityPlaybackClickGesture();
     if (this.keys) {
       this.keys.jump = false;
       this.keys.jumpPressed = false;
@@ -4726,40 +4726,46 @@ export class PlayerController {
     return true;
   }
 
-  resetWrenchClickGesture() {
-    this.wrenchPointerDown = null;
-    this.lastWrenchClick = null;
+  resetEntityPlaybackClickGesture() {
+    this.entityPlaybackPointerDown = null;
+    this.lastEntityPlaybackClick = null;
   }
 
   /** Recognize a second body tap before it can start another grab or script click. */
-  handleWrenchEntityClick(e: MouseEvent | null) {
-    const previous = this.lastWrenchClick;
-    this.resetWrenchClickGesture();
-    if (!e || this.activeTool !== SpecialTool.WRENCH || this.worldPickingSuspended
-      || this.hoveredWrenchGizmoHandle || this.bulkEditJob || this.ui?.hasAnyModalOpen?.()) return false;
+  handleEntityPlaybackClick(e: MouseEvent | null) {
+    const previous = this.lastEntityPlaybackClick;
+    this.resetEntityPlaybackClickGesture();
+    const isWrench = this.activeTool === SpecialTool.WRENCH;
+    const isSelector = this.activeTool === SpecialTool.SELECTOR;
+    if (!e || (!isWrench && !isSelector) || this.worldPickingSuspended
+      || (isWrench ? this.hoveredWrenchGizmoHandle : this.hoveredGizmoHandle)
+      || this.bulkEditJob || this.ui?.hasAnyModalOpen?.()) return false;
     const entity = this.hoveredContraptionHit?.contraption || this.hoveredContraption;
     if (!entity || !this.contraptions?.contraptions?.includes(entity)) return false;
-    if (this.wrenchPlaybackPending) return true;
+    if (this.entityPlaybackPending) return true;
+    // Stopped entities keep ordinary Selector A/B clicks; only Wrench can start them.
+    if (isSelector && !this.isEntityRunning(entity)) return false;
     const time = Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
     if (previous && previous.entity === entity && time >= previous.time && time - previous.time <= 350) {
       this.releaseWrenchGrab();
       this.clearWrenchPivotDisplay();
-      this.wrenchPlaybackPending = true;
+      this.entityPlaybackPending = true;
       void this.performEntityMenuAction(entity, this.isEntityRunning(entity) ? 'stop' : 'start')
         .catch(() => this.ui?.showToast?.('Entity could not be updated', { tone: 'warning' }))
-        .finally(() => { this.wrenchPlaybackPending = false; this.ui?.refresh?.(); });
+        .finally(() => { this.entityPlaybackPending = false; this.ui?.refresh?.(); });
       return true;
     }
-    this.wrenchPointerDown = { entity, time, movement: 0 };
+    this.entityPlaybackPointerDown = { entity, time, movement: 0 };
     return false;
   }
 
-  private finishWrenchEntityClick(e: MouseEvent) {
-    const press = this.wrenchPointerDown;
-    this.wrenchPointerDown = null;
+  private finishEntityPlaybackClick(e: MouseEvent) {
+    const press = this.entityPlaybackPointerDown;
+    this.entityPlaybackPointerDown = null;
     if (!press) return;
     const time = Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
-    this.lastWrenchClick = this.activeTool === SpecialTool.WRENCH && !this.worldPickingSuspended
+    this.lastEntityPlaybackClick = (this.activeTool === SpecialTool.WRENCH || this.activeTool === SpecialTool.SELECTOR)
+      && !this.worldPickingSuspended
       && press.movement <= 6 && time >= press.time && time - press.time <= 250
       ? { entity: press.entity, time } : null;
   }

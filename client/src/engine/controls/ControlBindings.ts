@@ -18,7 +18,7 @@ export type PlayerPerspective = 'first_person' | 'third_person' | 'third_person_
 export const THIRD_PERSON_DISTANCE_LIMITS = { min: 1.5, max: 12, default: 4 } as const;
 
 export const SpecialTool = {
-  SELECTOR: 'selector',     // 1. Selector (world/component selection and copy)
+  SELECTOR: 'selector',     // 1. Selector (world/component selection and copy, double-click to stop)
   HAMMER: 'hammer',         // 2. Hammer (preview/place inventory items)
   WRENCH: 'wrench',         // 3. Wrench (pivot XYZ, hold to grab, double-click start/stop, right-click menu)
   SHOVEL: 'shovel',         // 4. Shovel (remove / place 1x1x1 standard blocks)

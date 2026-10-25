@@ -85,8 +85,8 @@ test('a pointer action immediately re-picks and publishes the updated micro curs
   ]);
 });
 
-test('focusing on a block of a large entity displays small wireframe on the pointed block', () => {
-  const controller = makeController(SpecialTool.HAMMER);
+test('shovel focus on a large entity outlines only the pointed block', () => {
+  const controller = makeController(SpecialTool.SHOVEL);
   const dummyContraption = {
     rootComponentId: 'root',
     scriptStatus: 'stopped',
@@ -156,8 +156,8 @@ test('other tools on an entity microblock display 0.125 outline', () => {
   assert.deepEqual(cursor.center, new THREE.Vector3(2.3125, 0.4375, 1.1875));
 });
 
-test('entity focus wireframe inherits entity rotation quaternion', () => {
-  const controller = makeController(SpecialTool.HAMMER);
+test('shovel entity focus wireframe inherits entity rotation quaternion', () => {
+  const controller = makeController(SpecialTool.SHOVEL);
   const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4);
   const dummyContraption = {
     rootComponentId: 'root',
@@ -176,6 +176,19 @@ test('entity focus wireframe inherits entity rotation quaternion', () => {
   const cursor = controller.getCursorHighlight();
   assert.ok(cursor);
   assert.deepEqual(cursor.quaternion, q);
+});
+
+test('Hammer leaves block outlines hidden so they do not overlap its placement preview', () => {
+  const controller = makeController(SpecialTool.HAMMER);
+  controller.currentRaycast = { hit: true, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 }, size: 1 };
+  assert.equal(controller.getCursorHighlight(), null, 'terrain has no extra block outline');
+  controller.hoveredContraptionHit = {
+    contraption: { rootComponentId: 'root', scriptStatus: 'stopped' },
+    entityId: 'root', kind: 'standard',
+    block: { localX: 3, localY: 4, localZ: 5, size: 1 },
+    point: new THREE.Vector3(3.5, 4.5, 5.5),
+  };
+  assert.equal(controller.getCursorHighlight(), null, 'a component installation target has no extra block outline');
 });
 
 test('SceneRenderer setCursor positions and rotates cursorMesh', () => {
