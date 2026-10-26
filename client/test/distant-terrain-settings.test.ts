@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 import { uiStub } from './fixtures.ts';
+import { DistantSurfaceLayer, normalizeDistantSurfaceSettings } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 
 function settingsFixture(t: test.TestContext) {
   const values = new Map<string, string>();
@@ -74,4 +75,33 @@ test('resetting recommended settings restores the master switch', t => {
   store.resetDistantSurfaceSettings();
   assert.equal(store.getSnapshot().distantSurfaceEnabled, true);
   assert.equal(values.get('space_setting_distant_surface_enabled'), 'true');
+});
+
+test('torus backface filtering defaults off, applies to the far layer, persists and resets off', t => {
+  const { store, values } = settingsFixture(t);
+  const layer = new DistantSurfaceLayer();
+  t.after(() => layer.voxels.dispose());
+  const world = uiStub('world', { renderDistance: 8, distantSurface: layer,
+    getDistantSurfaceSettings: () => layer.getSettings(),
+    setDistantSurfaceSettings: value => layer.setSettings(value),
+    setDistantSurfaceEnabled: value => layer.setEnabled(value),
+  });
+  store.setWorld(world);
+  assert.equal(store.getSnapshot().distantSurfaceSettings.torusBackfaceCulling, false);
+  assert.equal(layer.voxels.getTorusBackfaceCullingEnabled(), false);
+  store.setDistantSurfaceSetting('torusBackfaceCulling', true);
+  assert.equal(layer.voxels.getTorusBackfaceCullingEnabled(), true);
+  assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).torusBackfaceCulling, true);
+  const restored = new SpaceUiStore(); restored.setWorld(world);
+  restored.setSceneRenderer(uiStub('sceneRenderer', {}));
+  assert.equal(restored.getSnapshot().distantSurfaceSettings.torusBackfaceCulling, true);
+  assert.equal(layer.voxels.getTorusBackfaceCullingEnabled(), true);
+  restored.setDistantSurfaceEnabled(false);
+  restored.setDistantSurfaceEnabled(true);
+  assert.equal(layer.voxels.getTorusBackfaceCullingEnabled(), true);
+  restored.resetDistantSurfaceSettings();
+  assert.equal(layer.voxels.getTorusBackfaceCullingEnabled(), false);
+  assert.equal(JSON.parse(values.get('space_setting_distant_surface')!).torusBackfaceCulling, false);
+  for (const value of [undefined, 'true', 'false', 1, null])
+    assert.equal(normalizeDistantSurfaceSettings({ torusBackfaceCulling: value } as any).torusBackfaceCulling, false);
 });

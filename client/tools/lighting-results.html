@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Far lighting: three-world experiment</title>
+<style>
+body{font:15px system-ui;background:#111923;color:#e4edf7;margin:32px;max-width:1600px}h1{font-size:26px}p{line-height:1.6;color:#bac9d9}button,select,a.download{font:inherit;padding:8px 14px;background:#23364d;color:#fff;border:1px solid #506883;border-radius:6px;margin:4px}a{color:#9dc7ff}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;margin:22px 0}th,td{text-align:right;padding:9px;border-bottom:1px solid #304155}th:first-child,td:first-child{text-align:left}.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.gallery img{width:100%;display:block}.gallery figure{margin:0}.gallery figcaption{padding:10px}#status{color:#8fdaae}.row{margin:24px 0}details pre{white-space:pre-wrap;max-height:400px;overflow:auto}
+</style>
+<h1>Far lighting: PBR / Lambert / face brightness</h1>
+<p>Full game frames; same packed geometry, culling, camera and near terrain. 2560 x 1440, Medium, 100% resolution, shadows off. Offline repeated-district fixture; these are not live-server or cross-device results.</p>
+<div><button id="refresh">Refresh results</button><button id="export">Prepare complete ZIP</button><span id="downloads"></span></div>
+<p id="status">Loading locally saved results…</p><div id="tables"></div>
+<div class="row"><label>World <select id="world"><option>aether-archipelago</option><option>nature</option><option>copper-metropolis</option></select></label>
+<label>View <select id="view"><option>terrain</option><option>across</option><option>reverse</option></select></label></div>
+<p>Click an image for the full-resolution PNG. Near terrain and emissive surfaces retain the production material. Face brightness uses a fixed artistic direction in the unbent terrain frame.</p>
+<div id="gallery" class="gallery"></div><details><summary>Image and workload checks</summary><pre id="checks"></pre></details>
+<script type="module">
+import {zipSync} from '../../node_modules/fflate/esm/browser.js';
+const files=new Map(), urls=[];
+const $=id=>document.getElementById(id), modes=['pbr','lambert','face'];
+const worlds=['aether-archipelago','nature','copper-metropolis'];
+async function readFiles(){
+ const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('space-lighting-experiment-v1',1);r.onupgradeneeded=()=>r.result.createObjectStore('files');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
+ const rows=await new Promise((resolve,reject)=>{const s=db.transaction('files').objectStore('files'),r=s.openCursor(),out=[];r.onsuccess=()=>{const c=r.result;if(c){out.push([c.key,c.value]);c.continue()}else resolve(out)};r.onerror=()=>reject(r.error)});db.close();files.clear();for(const [k,v]of rows)files.set(k,v);
+}
+const stats=values=>{const s=[...values].sort((a,b)=>a-b);return{mean:s.reduce((a,b)=>a+b,0)/s.length,p50:s[Math.floor(s.length*.5)],p95:s[Math.floor(s.length*.95)]}};
+const f=x=>Number.isFinite(x)?x.toFixed(2):'—';
+async function refresh(){
+ await readFiles();$('status').textContent=`${files.size} saved files. Captures live in this browser origin until exported.`;$('tables').replaceChildren();
+ for(const world of worlds){const blob=files.get(`${world}/comparison.json`);if(!blob)continue;const result=JSON.parse(await blob.text());
+ const section=document.createElement('section'),heading=document.createElement('h2');heading.textContent=world;section.append(heading);
+ const table=document.createElement('table');table.innerHTML='<tr><th>Motion / material</th><th>FPS</th><th>Frame p95 ms</th><th>CPU p50 ms</th><th>GPU span p50 ms</th><th>Draw calls p50</th><th>Triangles p50</th></tr>';
+ for(const motion of ['fixed','sweep','move'])for(const mode of modes){const rows=result.rows.filter(r=>r.motion===motion&&r.role===mode),raw=rows.flatMap(r=>r.raw),gpu=rows.flatMap(r=>r.gpu);if(!raw.length)continue;
+ const frame=stats(raw.map(r=>r.frame)),tr=document.createElement('tr');tr.innerHTML=`<td>${motion} / ${mode}</td><td>${f(1000/frame.mean)}</td><td>${f(frame.p95)}</td><td>${f(stats(raw.map(r=>r.cpu)).p50)}</td><td>${f(stats(gpu.map(r=>r.spanMs)).p50)}</td><td>${stats(raw.map(r=>r.calls)).p50}</td><td>${stats(raw.map(r=>r.triangles)).p50}</td>`;table.append(tr)}section.append(table);$('tables').append(section)}
+ await gallery();
+}
+async function gallery(){
+ for(const url of urls)URL.revokeObjectURL(url);urls.length=0;$('gallery').replaceChildren();const world=$('world').value,view=$('view').value;
+ for(const mode of modes){const blob=files.get(`${world}/${view}-${mode}.png`);if(!blob)continue;const url=URL.createObjectURL(blob);urls.push(url);const figure=document.createElement('figure');figure.innerHTML=`<a href="${url}" target="_blank"><img src="${url}" alt="${world} ${view} ${mode}"></a><figcaption>${mode}</figcaption>`;$('gallery').append(figure)}
+ $('checks').textContent=files.has(`${world}/images.json`)?await files.get(`${world}/images.json`).text():'No image checks yet.';
+}
+$('refresh').onclick=refresh;$('world').onchange=gallery;$('view').onchange=gallery;
+$('export').onclick=async()=>{const data={};for(const [key,blob]of files)data[key]=new Uint8Array(await blob.arrayBuffer());const zip=zipSync(data,{level:6}),url=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));const a=document.createElement('a');a.href=url;a.download='far-lighting-three-worlds-2026-10-26.zip';a.textContent='Download all raw results and PNGs';a.className='download';$('downloads').replaceChildren(a);$('status').textContent=`ZIP ready: ${(zip.length/1048576).toFixed(1)} MiB, ${files.size} files.`};
+refresh().catch(error=>$('status').textContent=String(error));
+</script></html>

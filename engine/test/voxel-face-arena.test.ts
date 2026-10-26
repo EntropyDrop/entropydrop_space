@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
 import { VoxelFaceArena, type VoxelFaceMesh } from '../src/render/VoxelFaceArena.ts';
+import { bendTorusPoint, setWorldProjection } from '../src/torus/TorusWorld.ts';
 
 function source(count: number, x: number): VoxelFaceMesh {
   const geometry = new THREE.InstancedBufferGeometry();
@@ -24,6 +25,46 @@ function settle(arena: VoxelFaceArena) {
 }
 const snapshot = (mesh: VoxelFaceMesh) => Object.fromEntries(Object.entries(mesh.geometry.attributes)
   .map(([name, attribute]) => [name, Array.from(attribute.array)]));
+
+for (const cached of [true, false]) test(`optional torus backfaces restore stationary maps and survive projection/fade changes (cached=${cached})`, () => {
+  const group = new THREE.BundleGroup(), mesh = source(32, 0), bounds = new Float32Array(24);
+  for (const [block, z] of [0, 1024].entries()) {
+    const p = bendTorusPoint(0, 16, z);
+    bounds.set([p.x, p.y, p.z, 20, 0, 0, 0, 2, -8, 8, z - 8, z + 8], block * 12);
+  }
+  mesh.geometry.userData.voxelVisibility = bounds; group.add(mesh);
+  const arena = new VoxelFaceArena(group, make), camera = bendTorusPoint(8192, 180, 1024);
+  arena.setViewOptimizationsEnabled(cached);
+  const frustum = new THREE.Frustum(); frustum.planes.forEach(p => p.setComponents(0, 0, 0, 1));
+  const coverage = new THREE.DataTexture(new Uint8Array(1024 * 128 * 2), 1024, 128, THREE.RGFormat);
+  const tick = () => { arena.setView(camera, frustum, coverage, true); arena.restoreSources(); arena.sync(Infinity); };
+  try {
+    setWorldProjection('torus'); tick();
+    assert.equal(arena.stats.visibleFaces, 32, 'default is unchanged');
+    const original = Array.from(arena.pages[0].map.array), resident = arena.stats.residentFaces;
+    assert.equal((arena as any).surfaceProxies.has(bounds), false, 'off creates no coefficients');
+    arena.setTorusBackfaceCullingEnabled(true); tick();
+    assert.equal(arena.stats.visibleFaces, 16);
+    assert.equal(arena.pages[0].map.array[0], 16, 'the opposite inner wall remains');
+    assert.equal(arena.stats.residentFaces, resident);
+    const version = arena.pages[0].map.version;
+    arena.setTorusBackfaceCullingEnabled(true); tick();
+    assert.equal(arena.pages[0].map.version, version, 'same choice keeps the draw map');
+    setWorldProjection('flat'); tick(); assert.equal(arena.stats.visibleFaces, 32);
+    setWorldProjection('torus'); tick(); assert.equal(arena.stats.visibleFaces, 16);
+    camera.copy(bendTorusPoint(0, 180, 0)); tick();
+    assert.equal(arena.pages[0].map.array[0], 0, 'classification follows the camera');
+    mesh.userData.terrainCoverage = new THREE.Vector2(.2, 1); tick();
+    assert.equal(mesh.visible, true, 'fading sources retain the ordinary path');
+    assert.ok(mesh.geometry.getAttribute('voxelOffset'));
+    mesh.userData.terrainCoverage.set(0, 1); camera.copy(bendTorusPoint(8192, 180, 1024)); tick();
+    assert.equal(arena.stats.visibleFaces, 16);
+    arena.setTorusBackfaceCullingEnabled(false); tick();
+    assert.equal(arena.stats.visibleFaces, 32);
+    assert.deepEqual(Array.from(arena.pages[0].map.array), original, 'off restores the full map without moving');
+    assert.equal((arena as any).surfaceProxies.has(bounds), false, 'off releases coefficients');
+  } finally { arena.dispose(); coverage.dispose(); setWorldProjection('torus'); }
+});
 
 test('visibility-only updates reuse membership and residency while additions and disposal force maintenance', () => {
   const group = new THREE.BundleGroup(), a = source(65, 0), b = source(64, 512);

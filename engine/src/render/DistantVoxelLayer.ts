@@ -102,6 +102,7 @@ export class DistantVoxelLayer {
   private opaqueFastPath = true;
   private arena: VoxelFaceArena | null = null;
   private arenaDirty = true;
+  private torusBackfaceCulling = false;
   private maskVersion = -1;
   private cullDirty = true;
   private readonly view: VoxelLodView = { camera: [0, 0, 0], focal: 720, area: 16,
@@ -201,11 +202,21 @@ export class DistantVoxelLayer {
         mesh.material = mesh.userData.opaqueMaterial;
         return mesh;
       });
+      this.arena.setTorusBackfaceCullingEnabled(this.torusBackfaceCulling);
       this.group.userData.voxelArenaStats = this.arena.stats; this.arena.sync();
     }
     this.group.needsUpdate = true;
   }
   getMergedBuffersEnabled() { return !!this.arena; }
+
+  setTorusBackfaceCullingEnabled(enabled: boolean) {
+    if (this.torusBackfaceCulling === enabled) return;
+    this.torusBackfaceCulling = enabled;
+    this.arena?.setTorusBackfaceCullingEnabled(enabled);
+    this.cullDirty = this.arenaDirty = true;
+    this.group.needsUpdate = true;
+  }
+  getTorusBackfaceCullingEnabled() { return this.torusBackfaceCulling; }
 
   setCompactMapsEnabled(enabled: boolean) {
     this.arena?.setCompactMapsEnabled(enabled); this.arenaDirty = true;

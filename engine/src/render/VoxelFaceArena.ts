@@ -4,6 +4,7 @@ import { VOXEL_FACE_BLOCK, VOXEL_VISIBILITY_STRIDE, voxelBlockBackFacing } from 
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { orderVoxelPages } from './VoxelDrawOrder.ts';
 import { getWorldProjection, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
+import { BACKFACE_PROXY_STRIDE, surfaceFacingProxy, surfaceBlockBackFacing } from './TorusBackfaceMath.ts';
 
 export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
@@ -94,6 +95,8 @@ export class VoxelFaceArena {
   private positionEpoch = 0;
   private resetView = true;
   private cachedBlockTests = true;
+  private torusBackfaceCulling = false;
+  private surfaceProxies = new WeakMap<Float32Array, Float64Array>();
   private blockInstancing = true;
   private instanceFaces = 32;
   // Experimental: far replay improves, but ordinary turning GPU spans regress.
@@ -120,6 +123,31 @@ export class VoxelFaceArena {
     this.cachedBlockTests = cached; this.resetView = true;
   }
   getViewOptimizations() { return { cached: this.cachedBlockTests }; }
+
+  /** Optional lossy far-terrain filter. Never allocates proxies while off. */
+  setTorusBackfaceCullingEnabled(enabled: boolean) {
+    if (enabled === this.torusBackfaceCulling) return;
+    this.torusBackfaceCulling = enabled;
+    if (!enabled) this.surfaceProxies = new WeakMap();
+    // Restore original facing flags and maps even when the camera is stationary.
+    this.positionEpoch++; this.viewEpoch++; this.resetView = this.visibilityDirty = true;
+    this.root.needsUpdate = true;
+  }
+
+  private surfaceProxy(data: Float32Array) {
+    let proxy = this.surfaceProxies.get(data);
+    if (!proxy) {
+      const blocks = Math.floor(data.length / VOXEL_VISIBILITY_STRIDE);
+      proxy = new Float64Array(blocks * BACKFACE_PROXY_STRIDE);
+      for (let block = 0; block < blocks; block++) {
+        const at = block * VOXEL_VISIBILITY_STRIDE;
+        surfaceFacingProxy(data[at + 8], data[at + 9], data[at + 10], data[at + 11],
+          data[at], data[at + 1], data[at + 2], proxy, block * BACKFACE_PROXY_STRIDE);
+      }
+      this.surfaceProxies.set(data, proxy);
+    }
+    return proxy;
+  }
 
   /** Reuse one indexed group across visibility blocks; the reference retains a
    * page-wide index list. Real triangles keep their order; tail padding collapses. */
@@ -226,6 +254,9 @@ export class VoxelFaceArena {
     // Nearby vertices receive view-local flattening, so their bent-space sphere
     // cannot reject them. The source draw retains its conservative view bounds.
     const distance = Math.hypot(x - data[at], y - data[at + 1], z - data[at + 2]);
+    if (this.torusBackfaceCulling && getWorldProjection() === 'torus'
+      && surfaceBlockBackFacing(this.surfaceProxy(data), block * BACKFACE_PROXY_STRIDE,
+        x, y, z, distance, data[at + 3])) return 1;
     if (distance - data[at + 3] > 274) {
       for (const p of this.frustum.planes) if (p.normal.x * data[at] + p.normal.y * data[at + 1]
         + p.normal.z * data[at + 2] + p.constant < -data[at + 3] - 18 - distance * .061) return 2;
@@ -259,12 +290,16 @@ export class VoxelFaceArena {
     const count = Math.min(cache.distance.length, Math.floor(data.length / VOXEL_VISIBILITY_STRIDE));
     if (cache.position !== this.positionEpoch) {
       const { x, y, z } = this.camera;
+      const surface = this.torusBackfaceCulling && getWorldProjection() === 'torus'
+        ? this.surfaceProxy(data) : undefined;
       for (let block = 0; block < count; block++) {
         const at = block * VOXEL_VISIBILITY_STRIDE;
         const distance = Math.hypot(x - data[at], y - data[at + 1], z - data[at + 2]);
         cache.distance[block] = distance;
         cache.facing[block] = voxelBlockBackFacing(data, at, x, y, z, 18) ? 1
           : distance - data[at + 3] > 274 ? 0 : 2;
+        if (surface && cache.facing[block] !== 1 && surfaceBlockBackFacing(surface,
+          block * BACKFACE_PROXY_STRIDE, x, y, z, distance, data[at + 3])) cache.facing[block] = 1;
       }
       cache.position = this.positionEpoch; this.stats.positionBlockTests += count;
     }
@@ -638,5 +673,6 @@ export class VoxelFaceArena {
     for (const [mesh, order] of this.orders) mesh.renderOrder = order;
     this.orders.clear(); this.root.needsUpdate = true;
     this.sources = []; this.sourceSet.clear(); this.sourcesDirty = this.maintenanceDirty = true;
+    this.surfaceProxies = new WeakMap();
   }
 }

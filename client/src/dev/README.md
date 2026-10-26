@@ -1,5 +1,24 @@
 # Local rendering fixture
 
+Settings now exposes **Graphics > Distant Terrain LOD > Torus Backface Culling**.
+It defaults off, persists locally and resets off with Reset Recommended. The
+engine uses the experiment's surface-facing rule only in Ring mode; near terrain
+and transition fallbacks remain intact. Switching off restores visibility and
+releases the optional coefficient cache. The benchmark records below predate
+this native integration; turn the setting off before running the dev A/B hooks.
+
+The [2026-10-26 torus surface backface experiment](../../docs/performance-torus-backface-2026-10-26.md)
+tests camera-relative surface filtering in all three terrains. Moving Aether and
+Copper gain about 4.2% and 3.2% FPS in this run; Nature has no demonstrated gain.
+The picture loses background islands and some exposed edges. The dev-only trial
+remains off by default; exported raw results and an interactive comparison are retained.
+
+The [2026-10-26 three-world far-lighting experiment](../../docs/performance-far-lighting-2026-10-26.md)
+compares production PBR, Lambert and unlit face brightness on unchanged packed
+geometry. Across 162 full-frame comparison blocks, cheaper shading lowers some
+GPU spans but gives no convincing FPS gain. Keep PBR as the default. Exported
+raw captures, 27 full-resolution PNGs and an interactive comparison are retained.
+
 The [2026-10-25 full-scene low-poly trial](../../docs/performance-far-lowpoly-full-scene-2026-10-25.md)
 tests actual game frames with PBR/emission, near terrain, HUD and moving LOD
 publication in all three worlds. The current integration fails acceptance:

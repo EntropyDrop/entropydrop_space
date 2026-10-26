@@ -44,10 +44,12 @@ export interface DistantSurfaceSettings {
   renderDistanceChunks: number;
   dataBudgetMiB: number;
   geometryBudgetMiB: number;
+  torusBackfaceCulling: boolean;
 }
 export type DistantSurfaceSettingKey = keyof DistantSurfaceSettings;
 export const DEFAULT_DISTANT_SURFACE_SETTINGS: Readonly<DistantSurfaceSettings> = Object.freeze({
   subdivisionSizePx2: 64, renderDistanceChunks: 2048, dataBudgetMiB: 512, geometryBudgetMiB: 160,
+  torusBackfaceCulling: false,
 });
 export const DISTANT_SURFACE_SETTING_LIMITS = Object.freeze({
   subdivisionSizePx2: Object.freeze({ min: 1, max: 256, step: 1 }),
@@ -61,7 +63,8 @@ export function normalizeDistantSurfaceSettings(
   value: Partial<DistantSurfaceSettings> | null | undefined,
 ): DistantSurfaceSettings {
   const normalized = { ...DEFAULT_DISTANT_SURFACE_SETTINGS };
-  for (const key of Object.keys(normalized) as DistantSurfaceSettingKey[]) {
+  normalized.torusBackfaceCulling = value?.torusBackfaceCulling === true;
+  for (const key of Object.keys(DISTANT_SURFACE_SETTING_LIMITS) as (keyof typeof DISTANT_SURFACE_SETTING_LIMITS)[]) {
     const limits = DISTANT_SURFACE_SETTING_LIMITS[key];
     const candidate = value?.[key];
     if (typeof candidate !== 'number' || !Number.isFinite(candidate)) continue;
@@ -1551,6 +1554,7 @@ export class DistantSurfaceLayer {
     const geometryChanged = next.subdivisionSizePx2 !== this.settings.subdivisionSizePx2
       || next.renderDistanceChunks !== this.settings.renderDistanceChunks;
     this.settings = next;
+    this.voxels.setTorusBackfaceCullingEnabled(next.torusBackfaceCulling);
     if (geometryChanged) { this.geometryAreaScale = 1; this.rootCache.clear(); }
     if (geometryChanged && this.enabled && this.zones.size > 0) {
       if (this.connectionsReady) this.requestRebuild();

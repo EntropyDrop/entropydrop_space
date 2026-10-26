@@ -10,7 +10,6 @@ import type { SpaceApiKeyRecord, SpaceApiUsage } from '../../../bootstrap/SpaceA
 import {
   DISTANT_SURFACE_SETTING_LIMITS,
   type DistantSurfaceLayer,
-  type DistantSurfaceSettingKey,
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { spaceUiStore } from '../store/SpaceUiStore.ts';
 import { useSpaceUi, useSpaceUiFields } from '../store/useSpaceUi.ts';
@@ -18,10 +17,10 @@ import { getAltKeyLabel } from '../../../bootstrap/SpaceBootstrap.ts';
 import { THIRD_PERSON_DISTANCE_LIMITS } from '../../../engine/controls/ControlBindings.ts';
 
 const DISTANT_LOD_CONTROLS: ReadonlyArray<{
-  key: DistantSurfaceSettingKey; label: string; description: string; unit: string;
+  key: keyof typeof DISTANT_SURFACE_SETTING_LIMITS; label: string; description: string; unit: string;
 }> = [
   { key: 'subdivisionSizePx2', label: 'Subdivision Size', unit: 'px^2',
-    description: 'Target projected cell area, not a full-detail switch. Geometry and source budgets can limit the result.' },
+    description: 'Move right for finer detail (smaller projected cell area). Geometry and source budgets can limit the result.' },
   { key: 'renderDistanceChunks', label: 'Render Distance', unit: 'Chunks',
     description: 'Far LOD distance, separate from the near AOI. 2048 chunks = 32768 m; the finite torus is not repeated.' },
   { key: 'dataBudgetMiB', label: 'Terrain Detail Cache', unit: 'MiB',
@@ -373,8 +372,8 @@ export function GlobalSettingsModal() {
                 <div className="settings-label-group"><span className="settings-label">Minimap</span><span className="settings-desc">Continuously updates nearby terrain and entities · may reduce performance while moving</span></div>
                 <div className="settings-segmented-control" id="setting-minimap-group">
                   {([
-                    [true, 'Enabled'],
-                    [false, 'Disabled']
+                    [false, 'Disabled'],
+                    [true, 'Enabled']
                   ] as const).map(([value, label]) => (
                     <button
                       key={String(value)}
@@ -397,6 +396,7 @@ export function GlobalSettingsModal() {
             </div>
             <div className="settings-section">
               <div className="settings-section-title">PERFORMANCE</div>
+              <div className="settings-desc">Quality settings: left for better performance, right for more detail and effects.</div>
               {import.meta.env.DEV && <div className="settings-row">
                 <div className="settings-label-group"><span className="settings-label">Frame Diagnostics</span><span className="settings-desc">Temporary render isolation switches, CPU/GPU timing and whole-frame draw counts. Does not edit the world or save preferences.</span></div>
                 <button className="segment-btn" onClick={async () => {
@@ -409,8 +409,8 @@ export function GlobalSettingsModal() {
                 <div className="settings-label-group"><span className="settings-label">Particle Effects</span><span className="settings-desc">Block-break debris and assembly steam effects</span></div>
                 <div className="settings-segmented-control" id="setting-particles-group">
                   {([
-                    [true, 'Enabled'],
-                    [false, 'Disabled']
+                    [false, 'Disabled'],
+                    [true, 'Enabled']
                   ] as const).map(([value, label]) => (
                     <button
                       key={String(value)}
@@ -429,7 +429,7 @@ export function GlobalSettingsModal() {
                   <span className="settings-desc">Render the same terrain as a ring or a flat plane.</span>
                 </div>
                 <div className="settings-segmented-control" id="setting-world-projection-group" role="group" aria-labelledby="setting-world-projection-label">
-                  {([['torus', 'Ring'], ['flat', 'Flat']] as const).map(([value, label]) => (
+                  {([['flat', 'Flat'], ['torus', 'Ring']] as const).map(([value, label]) => (
                     <button key={value} className={`segment-btn ${state.worldProjection === value ? 'active' : ''}`}
                       aria-pressed={state.worldProjection === value} onClick={() => spaceUiStore.setWorldProjection(value)}>{label}</button>
                   ))}
@@ -471,8 +471,8 @@ export function GlobalSettingsModal() {
                 </div>
                 <div className="settings-segmented-control" id="setting-shadows-group">
                   {([
-                    [true, 'Enabled'],
-                    [false, 'Disabled']
+                    [false, 'Disabled'],
+                    [true, 'Enabled']
                   ] as const).map(([value, label]) => (
                     <button
                       key={String(value)}
@@ -494,9 +494,9 @@ export function GlobalSettingsModal() {
                 </div>
                 <div className="settings-segmented-control settings-resolution-control" id="setting-resolution-group" role="group" aria-labelledby="setting-resolution-label" aria-describedby="setting-resolution-description">
                   {([
-                    ['1', '1×'],
+                    ['0.25', '0.25×'],
                     ['0.5', '0.5×'],
-                    ['0.25', '0.25×']
+                    ['1', '1×']
                   ] as const).map(([value, label]) => (
                     <button
                       key={value}
@@ -525,8 +525,8 @@ export function GlobalSettingsModal() {
                 </div>
                 <div className="settings-segmented-control" id="setting-distant-enabled-group" role="group" aria-labelledby="setting-distant-enabled-label" aria-describedby="setting-distant-enabled-description">
                   {([
-                    [true, 'Enabled'],
-                    [false, 'Disabled']
+                    [false, 'Disabled'],
+                    [true, 'Enabled']
                   ] as const).map(([value, label]) => (
                     <button
                       key={String(value)}
@@ -536,6 +536,21 @@ export function GlobalSettingsModal() {
                     >
                       {label}
                     </button>
+                  ))}
+                </div>
+              </div>
+              <div className="settings-row">
+                <div className="settings-label-group">
+                  <span className="settings-label" id="setting-torus-backface-label">Torus Backface Culling</span>
+                  <span className="settings-desc" id="setting-torus-backface-description">On hides far terrain facing away from the camera in Ring mode and may expose gaps. Off keeps all terrain and is the default.</span>
+                </div>
+                <div className="settings-segmented-control" id="setting-torus-backface-group" role="group" aria-labelledby="setting-torus-backface-label" aria-describedby="setting-torus-backface-description">
+                  {([[true, 'On'], [false, 'Off']] as const).map(([value, label]) => (
+                    <button key={String(value)}
+                      className={`segment-btn ${state.distantSurfaceSettings.torusBackfaceCulling === value ? 'active' : ''}`}
+                      aria-pressed={state.distantSurfaceSettings.torusBackfaceCulling === value}
+                      onClick={() => spaceUiStore.setDistantSurfaceSetting('torusBackfaceCulling', value)}
+                    >{label}</button>
                   ))}
                 </div>
               </div>
@@ -593,8 +608,8 @@ export function GlobalSettingsModal() {
               <div className="settings-label-group"><span className="settings-label">Sound Effects</span><span className="settings-desc">Block, tool, mechanical, and physics sounds</span></div>
               <div className="settings-segmented-control" id="setting-effects-group">
                 {([
-                  [true, 'On'],
-                  [false, 'Off']
+                  [false, 'Off'],
+                  [true, 'On']
                 ] as const).map(([value, label]) => (
                   <button
                     key={String(value)}
