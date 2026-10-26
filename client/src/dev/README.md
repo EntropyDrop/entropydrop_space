@@ -1,5 +1,11 @@
 # Local rendering fixture
 
+The [2026-10-26 character rendering probe](../../docs/performance-character-rendering-2026-10-26.md)
+finds no meaningful first-person FPS gain from removing the local character, but
+third-person moving FPS rises from 84.4 to 96.7 when its draw is hidden. The frozen
+avatar adds 283 draws for 2,052 triangles; merging skin overlay geometry is the
+main candidate. Raw frames are retained; no character optimization is enabled.
+
 Settings now exposes **Graphics > Distant Terrain LOD > Torus Backface Culling**.
 It defaults off, persists locally and resets off with Reset Recommended. The
 engine uses the experiment's surface-facing rule only in Ring mode; near terrain

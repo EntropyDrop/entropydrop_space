@@ -1,0 +1,30 @@
+{
+  "width": 2560,
+  "height": 1440,
+  "rows": [
+    {
+      "hide": false,
+      "calls": 596,
+      "triangles": 1807413,
+      "farTriangles": 1469888,
+      "changed": 0,
+      "max": 0
+    },
+    {
+      "hide": true,
+      "calls": 313,
+      "triangles": 1805361,
+      "farTriangles": 1469888,
+      "changed": 50869,
+      "max": 229
+    },
+    {
+      "hide": false,
+      "calls": 596,
+      "triangles": 1807413,
+      "farTriangles": 1469888,
+      "changed": 0,
+      "max": 0
+    }
+  ]
+}
