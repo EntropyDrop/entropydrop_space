@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Extreme far Gaussian LOD experiment</title>
+<style>
+body{margin:32px auto;padding:0 24px;max-width:1600px;background:#111923;color:#e4edf7;font:15px system-ui;line-height:1.6}h1{font-size:28px}p{max-width:1050px;color:#bdccdb}a{color:#9dc7ff}select{font:inherit;padding:7px 12px;background:#23364d;color:#fff;border:1px solid #506883;border-radius:6px;margin:8px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;margin:24px 0}th,td{text-align:right;padding:9px;border-bottom:1px solid #304155}th:first-child,td:first-child{text-align:left}.images{display:grid;grid-template-columns:1fr 1fr;gap:16px}figure{margin:0}img{width:100%;display:block}figcaption{padding:10px}#details{white-space:pre-wrap;color:#bdccdb}@media(max-width:800px){.images{grid-template-columns:1fr}body{padding:0 12px}th,td{padding:5px;font-size:12px}}
+</style>
+<h1>Extreme far Gaussian LOD</h1>
+<p><strong>Result: keep the current packed renderer.</strong> When distant terrain is visible, this prototype loses 12–13% FPS in Aether and 28–29% in Copper. Nature stays near the 120 Hz limit but more than doubles GPU span. Gaussian silhouettes are softer and small details merge.</p>
+<p>A procedural 3D Gaussian hierarchy replaces eligible terrain at least 768 metres away. Nearby terrain and the original PBR lights remain. Fine and coarse request 160,000 and 80,000 resident Gaussians. These are moment-fitted surface proxies, not a trained photographic 3DGS scene. See the <a href="performance-gaussian-far-2026-10-26.md">full report and limitations</a>.</p>
+<p>2560 × 1440, Medium, shadows off, four samples. Each terrain has 36 interleaved ordinary-frame blocks across turning, moving and turning toward the opposite side of the ring. GPU span measures the first-to-last GPU pass interval; CPU sorting and visibility time are recorded separately. Smaller point counts can still cost more pixels when the splats become larger.</p>
+<div id="tables">Loading measurements…</div>
+<label>Terrain <select id="world"><option value="aether-archipelago">Aether archipelago</option><option value="nature">Nature — elevated view</option><option value="copper-metropolis">Copper metropolis</option></select></label>
+<label>View <select id="view"><option value="across">Across the ring</option><option value="near">Near-facing view</option></select></label>
+<label>Candidate <select id="mode"><option value="fine">Fine Gaussian LOD</option><option value="coarse">Coarse Gaussian LOD</option></select></label>
+<p>Click an image for full resolution. Frozen originals restore exactly. Repeat candidate checks allow at most one RGB byte level of blend rounding; picking remains unchanged. Only the distant replacement uses Gaussians.</p>
+<div class="images"><figure><a id="original-link"><img id="original" alt="Original packed terrain"></a><figcaption>Original</figcaption></figure><figure><a id="variant-link"><img id="variant" alt="Extreme far terrain represented with Gaussian splats"></a><figcaption id="caption"></figcaption></figure></div><p id="details"></p>
+<details><summary>All 108 blocks: aggregate FPS, GPU and CPU by terrain / motion / mode</summary><div id="all-tables"></div></details>
+<script type="module">
+const root='../src/dev/results/gaussian-2026-10-26/',$=id=>document.getElementById(id);
+const data=await(await fetch(root+'summary.json')).json();
+let primary='<table><tr><th>Across-ring turning</th><th>Original FPS</th><th>Fine FPS</th><th>Coarse FPS</th><th>GPU ms: original / fine / coarse</th></tr>';
+for(const w of data.worlds){const e=['original','fine','coarse'].map(m=>w.entries.find(e=>e.motion==='across'&&e.mode===m));primary+=`<tr><td>${w.world}</td>${e.map(e=>`<td>${e.fps.toFixed(1)}</td>`).join('')}<td>${e.map(e=>e.metrics.gpu.mean.toFixed(2)).join(' / ')}</td></tr>`;}
+$('tables').innerHTML=primary+'</table>';
+let html='<table><tr><th>Terrain / motion / mode</th><th>FPS</th><th>GPU span mean ms</th><th>CPU mean ms</th><th>Splat culling ms</th><th>Sorting ms</th></tr>';
+for(const w of data.worlds)for(const e of w.entries)html+=`<tr><td>${w.world} / ${e.motion} / ${e.mode}</td><td>${e.fps.toFixed(1)}</td><td>${e.metrics.gpu.mean.toFixed(3)}</td><td>${e.metrics.cpu.mean.toFixed(2)}</td><td>${e.metrics.cullMs.mean.toFixed(3)}</td><td>${e.metrics.sortMs.mean.toFixed(3)}</td></tr>`;
+$('all-tables').innerHTML=html+'</table>';
+function show(){const world=$('world').value,view=$('view').value,mode=$('mode').value,w=data.worlds.find(w=>w.world===world),env=view==='across'?w.acrossEnvironment:w.environment,b=env.trial.modes[mode];
+for(const [id,m]of [['original','original'],['variant',mode]]){$(id).src=root+world+'/'+view+'-'+m+'.png';$(id+'-link').href=$(id).src;$(id+'-link').target='_blank'}
+$('caption').textContent=mode+' Gaussian LOD';const rows=w.pixels.views.find(v=>v.name===view).rows,a=rows[0],p=rows.find(r=>r.mode===mode);
+$('details').textContent=`${env.trial.selectedFaces.toLocaleString()} eligible resident quad faces → ${b.count.toLocaleString()} resident Gaussians (requested budget ${b.budget.toLocaleString()}; met: ${b.budgetMet}). Candidate record + order buffers: ${(b.bytes/1048576).toFixed(2)} MiB, while original buffers remain allocated for A/B.
+Frozen view: ${p.splats.toLocaleString()} visible Gaussians; ${a.calls} → ${p.calls} whole-scene draw calls; ${a.triangles.toLocaleString()} → ${p.triangles.toLocaleString()} triangles. ${(100*p.changedOver2/(w.pixels.width*w.pixels.height)).toFixed(1)}% of screen pixels change by more than two RGB levels. Omitting this far layer changes ${(100*rows[3].changedOver2/(w.pixels.width*w.pixels.height)).toFixed(2)}% of pixels; this control exposes views where foreground geometry hides most of the replacement.`;}
+$('world').onchange=show;$('view').onchange=show;$('mode').onchange=show;show();
+</script></html>

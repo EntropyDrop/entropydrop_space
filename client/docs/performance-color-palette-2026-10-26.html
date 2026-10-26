@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Color diversity and 8-bit palette experiment</title>
+<style>
+body{margin:32px auto;padding:0 24px;max-width:1600px;background:#111923;color:#e4edf7;font:15px system-ui;line-height:1.6}h1{font-size:28px}p{max-width:1050px;color:#bdccdb}a{color:#9dc7ff}select{font:inherit;padding:7px 12px;background:#23364d;color:#fff;border:1px solid #506883;border-radius:6px;margin:8px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;margin:24px 0}th,td{text-align:right;padding:9px;border-bottom:1px solid #304155}th:first-child,td:first-child{text-align:left}.images{display:grid;grid-template-columns:1fr 1fr;gap:16px}figure{margin:0}img{width:100%;display:block}figcaption{padding:10px}#details{white-space:pre-wrap;color:#bdccdb}@media(max-width:800px){.images{grid-template-columns:1fr}body{padding:0 12px}th,td{padding:5px;font-size:12px}}
+</style>
+<h1>Color diversity and 8-bit palette</h1>
+<p>Three real terrain fixtures. Original PBR lighting, identical geometry and culling, 2560 × 1440, Medium, shadows off. These camera sweeps reach the roughly 120 FPS presentation limit, so GPU timings and memory must be read alongside FPS. See the <a href="performance-color-palette-2026-10-26.md">full methodology and limits</a>.</p>
+<p><b>Palette 256:</b> reduce base colors while retaining the original 16-byte face records. <b>Packed 256:</b> the same colors stored as an 8-bit palette index in a 12-byte record, plus a 1 KB palette. <b>Mono:</b> one far-terrain base color, unchanged record layout. Near terrain, characters and lighting retain their original colors.</p>
+<div id="tables">Loading measurements…</div>
+<label>Terrain <select id="world"><option value="aether-archipelago">Aether archipelago</option><option value="nature">Nature — elevated view</option><option value="copper-metropolis">Copper metropolis</option></select></label>
+<label>Compare <select id="mode"><option value="palette256">256 base colors</option><option value="mono">Single base color</option></select></label>
+<p>Click either image for full resolution. Packed 256 and Palette 256 are pixel-identical in all three frozen checks; restored originals also match exactly. Lighting still produces more than 256 final pixel colors.</p>
+<div class="images"><figure><a id="original-link"><img id="original" alt="Original far terrain colors"></a><figcaption>Original</figcaption></figure><figure><a id="variant-link"><img id="variant" alt="Reduced far terrain colors"></a><figcaption id="caption"></figcaption></figure></div><p id="details"></p>
+<script type="module">
+const root='../src/dev/results/color-2026-10-26/', $=id=>document.getElementById(id);
+const data=await(await fetch(root+'summary.json')).json();
+const names={original:'Original',palette256:'Palette 256',packed256:'Packed 256',mono:'Mono'};
+let html='<table><tr><th>Terrain / mode</th><th>FPS</th><th>CPU p50 ms</th><th>GPU span p50 ms</th><th>GPU span mean ms</th></tr>';
+for(const w of data.worlds)for(const e of w.entries)html+=`<tr><td>${w.world} / ${names[e.mode]}</td><td>${e.fps.toFixed(1)}</td><td>${e.metrics.cpu.p50.toFixed(2)}</td><td>${e.metrics.gpu.p50.toFixed(3)}</td><td>${e.metrics.gpu.mean.toFixed(3)}</td></tr>`;
+for(const e of data.pressure.entries)html+=`<tr><td>Copper 3840 × 2160 / ${names[e.mode]}</td><td>${e.fps.toFixed(1)}</td><td>${e.metrics.cpu.p50.toFixed(2)}</td><td>${e.metrics.gpu.p50.toFixed(3)}</td><td>${e.metrics.gpu.mean.toFixed(3)}</td></tr>`;
+$('tables').innerHTML=html+'</table>';
+function show(){const world=$('world').value, mode=$('mode').value,w=data.worlds.find(w=>w.world===world),p=w.environment.palette;
+for(const [id,value]of [['original','original'],['variant',mode]]){$(id).src=root+world+'/'+value+'.png';$(id+'-link').href=$(id).src;$(id+'-link').target='_blank'}
+$('caption').textContent=names[mode];const pixels=w.pixels.rows.find(r=>r.mode===mode);
+$('details').textContent=`${p.uniqueColors.toLocaleString()} resident base colors → ${p.paletteColors} palette colors. Face-record allocation: ${(p.originalRecordBytes/1048576).toFixed(1)} → ${(p.packedRecordBytes/1048576).toFixed(3)} MiB (not total GPU memory).\n${(100*pixels.changedOver2/(w.pixels.width*w.pixels.height)).toFixed(2)}% of pixels change by more than two RGB levels in this view. Draw calls and triangles are identical.`;}
+$('world').onchange=show;$('mode').onchange=show;show();
+</script></html>

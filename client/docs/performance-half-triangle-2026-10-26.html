@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>One triangle per distant quad experiment</title>
+<style>
+body{margin:32px auto;padding:0 24px;max-width:1600px;background:#111923;color:#e4edf7;font:15px system-ui;line-height:1.6}h1{font-size:28px}p{max-width:1050px;color:#bdccdb}a{color:#9dc7ff}select{font:inherit;padding:7px 12px;background:#23364d;color:#fff;border:1px solid #506883;border-radius:6px;margin:8px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;margin:24px 0}th,td{text-align:right;padding:9px;border-bottom:1px solid #304155}th:first-child,td:first-child{text-align:left}.images{display:grid;grid-template-columns:1fr 1fr;gap:16px}figure{margin:0}img{width:100%;display:block}figcaption{padding:10px}#details{white-space:pre-wrap;color:#bdccdb}@media(max-width:800px){.images{grid-template-columns:1fr}body{padding:0 12px}th,td{padding:5px;font-size:12px}}
+</style>
+<h1>One triangle per distant quad</h1>
+<p>Every packed distant quad keeps one of its two original triangles, chosen by a stable world-coordinate hash. Original PBR lighting, near terrain, characters and culling stay unchanged. This creates real holes, not a lower-detail closed surface. See the <a href="performance-half-triangle-2026-10-26.md">methodology and recommendation</a>.</p>
+<p>2560 × 1440, Medium, shadows off, four samples. Full-game turning and moving workloads use eight interleaved blocks each. GPU span is the first-to-last GPU pass interval. Far replay clears depth and excludes near occlusion, simulation and presentation; its timing is not game FPS.</p>
+<div id="tables">Loading measurements…</div>
+<label>Terrain <select id="world"><option value="aether-archipelago">Aether archipelago</option><option value="nature">Nature — elevated view</option><option value="copper-metropolis">Copper metropolis</option></select></label>
+<p>Click either image for full resolution. Repeat candidates and restored originals match exactly in the frozen checks. Face records retain their original memory size, and draw calls are unchanged.</p>
+<div class="images"><figure><a id="original-link"><img id="original" alt="Original distant terrain with complete quads"></a><figcaption>Original: two triangles per quad</figcaption></figure><figure><a id="half-link"><img id="half" alt="Distant terrain with one randomly retained triangle per quad"></a><figcaption>Candidate: one stable random triangle per quad</figcaption></figure></div><p id="details"></p>
+<script type="module">
+const root='../src/dev/results/half-triangle-2026-10-26/', $=id=>document.getElementById(id);
+const data=await(await fetch(root+'summary.json')).json();
+let html='<table><tr><th>Terrain / motion</th><th>FPS original → half</th><th>GPU span mean ms</th><th>CPU mean ms</th><th>GPU span change</th></tr>';
+for(const w of data.worlds)for(const motion of ['sweep','move']){const a=w.entries.find(e=>e.motion===motion&&e.mode==='original'),b=w.entries.find(e=>e.motion===motion&&e.mode==='half');
+html+=`<tr><td>${w.world} / ${motion}</td><td>${a.fps.toFixed(1)} → ${b.fps.toFixed(1)}</td><td>${a.metrics.gpu.mean.toFixed(3)} → ${b.metrics.gpu.mean.toFixed(3)}</td><td>${a.metrics.cpu.mean.toFixed(2)} → ${b.metrics.cpu.mean.toFixed(2)}</td><td>${(100*(b.metrics.gpu.mean/a.metrics.gpu.mean-1)).toFixed(1)}%</td></tr>`;}
+html+='</table><table><tr><th>Far-only replay</th><th>Original mean ms/pass</th><th>Half mean ms/pass</th><th>Change</th></tr>';
+for(const w of data.worlds){const means=['original','half'].map(mode=>{const a=w.replay.filter(r=>r.label.startsWith(mode)).flatMap(r=>r.samples.map(s=>s.gpuPerPass));return a.reduce((s,v)=>s+v,0)/a.length});html+=`<tr><td>${w.world}</td><td>${means[0].toFixed(3)}</td><td>${means[1].toFixed(3)}</td><td>${(100*(means[1]/means[0]-1)).toFixed(1)}%</td></tr>`;}
+$('tables').innerHTML=html+'</table>';
+function show(){const world=$('world').value,w=data.worlds.find(w=>w.world===world);
+for(const id of ['original','half']){$(id).src=root+world+'/'+id+'.png';$(id+'-link').href=$(id).src;$(id+'-link').target='_blank'}
+const a=w.pixels.rows[0],b=w.pixels.rows[1];$('details').textContent=`Far triangles: ${a.farTriangles.toLocaleString()} → ${b.farTriangles.toLocaleString()}. Whole-scene triangles: ${a.triangles.toLocaleString()} → ${b.triangles.toLocaleString()}. Draw calls: ${a.calls} → ${b.calls}. ${(100*b.changedOver2/(w.pixels.width*w.pixels.height)).toFixed(1)}% of screen pixels change by more than two RGB levels.`;}
+$('world').onchange=show;show();
+</script></html>

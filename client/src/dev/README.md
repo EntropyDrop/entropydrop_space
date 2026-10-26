@@ -1,5 +1,24 @@
 # Local rendering fixture
 
+The [2026-10-26 Gaussian far-LOD experiment](../../docs/performance-gaussian-far-2026-10-26.md)
+tests procedural 160k/80k Gaussian budgets beyond 768 m in all three worlds.
+Across 108 ordinary-frame blocks, visible-far Aether loses 12–13% FPS and Copper
+28–29%, with blurred silhouettes. Nature stays near the refresh cap but uses more
+GPU time. Keep packed geometry; the optional offline harness and
+[image comparison](../../docs/performance-gaussian-far-2026-10-26.html) do not change production.
+
+The [2026-10-26 half-triangle experiment](../../docs/performance-half-triangle-2026-10-26.md)
+keeps one deterministic random triangle per distant quad in three worlds.
+It records turning and moving game frames, isolated far GPU replay, exact
+triangle-count checks and [image comparisons](../../docs/performance-half-triangle-2026-10-26.html).
+The offline trial is optional and does not change production rendering.
+
+The [2026-10-26 color palette experiment](../../docs/performance-color-palette-2026-10-26.md)
+compares original, 256-color, compact 8-bit-index and monochrome far terrain in
+three worlds plus 4K Copper. Compact records save about 25% of face-record bytes,
+without a consistent GPU speedup. Separate greedy-meshing counts and
+[image comparisons](../../docs/performance-color-palette-2026-10-26.html) are retained.
+
 The [2026-10-26 character rendering probe](../../docs/performance-character-rendering-2026-10-26.md)
 finds no meaningful first-person FPS gain from removing the local character, but
 third-person moving FPS rises from 84.4 to 96.7 when its draw is hidden. The frozen

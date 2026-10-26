@@ -1,0 +1,637 @@
+{
+  "revision": "color-meshing-v1",
+  "zone": [
+    16,
+    2
+  ],
+  "columnBricks": [
+    [
+      0,
+      0
+    ],
+    [
+      3,
+      2
+    ],
+    [
+      4,
+      4
+    ],
+    [
+      7,
+      7
+    ]
+  ],
+  "method": "Four 64x256x64 columns per world; original occupancy and emissive flags; quantize each original mip independently before the existing greedy mesher; retain its 8m merge cap.",
+  "worlds": [
+    {
+      "world": "aether-archipelago",
+      "seed": 42,
+      "version": 3,
+      "rows": [
+        {
+          "cellSize": 1,
+          "bricks": 8,
+          "uniqueColors": 109,
+          "paletteColors": 109,
+          "modes": {
+            "original": {
+              "faces": 30633,
+              "area": 55322,
+              "emissionArea": 1538
+            },
+            "linear8": {
+              "faces": 30610,
+              "area": 55322,
+              "emissionArea": 1538
+            },
+            "palette256": {
+              "faces": 30610,
+              "area": 55322,
+              "emissionArea": 1538
+            },
+            "mono": {
+              "faces": 15220,
+              "area": 55322,
+              "emissionArea": 1538
+            }
+          }
+        },
+        {
+          "cellSize": 2,
+          "bricks": 8,
+          "uniqueColors": 707,
+          "paletteColors": 256,
+          "modes": {
+            "original": {
+              "faces": 10253,
+              "area": 53432,
+              "emissionArea": 1848
+            },
+            "linear8": {
+              "faces": 10102,
+              "area": 53432,
+              "emissionArea": 1848
+            },
+            "palette256": {
+              "faces": 9833,
+              "area": 53432,
+              "emissionArea": 1848
+            },
+            "mono": {
+              "faces": 4518,
+              "area": 53432,
+              "emissionArea": 1848
+            }
+          }
+        },
+        {
+          "cellSize": 4,
+          "bricks": 8,
+          "uniqueColors": 605,
+          "paletteColors": 256,
+          "modes": {
+            "original": {
+              "faces": 2886,
+              "area": 51648,
+              "emissionArea": 1648
+            },
+            "linear8": {
+              "faces": 2852,
+              "area": 51648,
+              "emissionArea": 1648
+            },
+            "palette256": {
+              "faces": 2728,
+              "area": 51648,
+              "emissionArea": 1648
+            },
+            "mono": {
+              "faces": 1545,
+              "area": 51648,
+              "emissionArea": 1648
+            }
+          }
+        },
+        {
+          "cellSize": 8,
+          "bricks": 8,
+          "uniqueColors": 292,
+          "paletteColors": 256,
+          "modes": {
+            "original": {
+              "faces": 960,
+              "area": 61440,
+              "emissionArea": 3072
+            },
+            "linear8": {
+              "faces": 960,
+              "area": 61440,
+              "emissionArea": 3072
+            },
+            "palette256": {
+              "faces": 960,
+              "area": 61440,
+              "emissionArea": 3072
+            },
+            "mono": {
+              "faces": 960,
+              "area": 61440,
+              "emissionArea": 3072
+            }
+          }
+        },
+        {
+          "cellSize": 16,
+          "bricks": 8,
+          "uniqueColors": 92,
+          "paletteColors": 92,
+          "modes": {
+            "original": {
+              "faces": 310,
+              "area": 79360,
+              "emissionArea": 6656
+            },
+            "linear8": {
+              "faces": 310,
+              "area": 79360,
+              "emissionArea": 6656
+            },
+            "palette256": {
+              "faces": 310,
+              "area": 79360,
+              "emissionArea": 6656
+            },
+            "mono": {
+              "faces": 310,
+              "area": 79360,
+              "emissionArea": 6656
+            }
+          }
+        },
+        {
+          "cellSize": 32,
+          "bricks": 8,
+          "uniqueColors": 32,
+          "paletteColors": 32,
+          "modes": {
+            "original": {
+              "faces": 126,
+              "area": 129024,
+              "emissionArea": 10240
+            },
+            "linear8": {
+              "faces": 126,
+              "area": 129024,
+              "emissionArea": 10240
+            },
+            "palette256": {
+              "faces": 126,
+              "area": 129024,
+              "emissionArea": 10240
+            },
+            "mono": {
+              "faces": 126,
+              "area": 129024,
+              "emissionArea": 10240
+            }
+          }
+        },
+        {
+          "cellSize": 64,
+          "bricks": 8,
+          "uniqueColors": 8,
+          "paletteColors": 8,
+          "modes": {
+            "original": {
+              "faces": 48,
+              "area": 196608,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 48,
+              "area": 196608,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 48,
+              "area": 196608,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 48,
+              "area": 196608,
+              "emissionArea": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "world": "nature",
+      "seed": 42,
+      "version": 1,
+      "rows": [
+        {
+          "cellSize": 1,
+          "bricks": 4,
+          "uniqueColors": 3,
+          "paletteColors": 3,
+          "modes": {
+            "original": {
+              "faces": 5303,
+              "area": 54426,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 5303,
+              "area": 54426,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 5303,
+              "area": 54426,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 5009,
+              "area": 54426,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 2,
+          "bricks": 4,
+          "uniqueColors": 17,
+          "paletteColors": 17,
+          "modes": {
+            "original": {
+              "faces": 3040,
+              "area": 54680,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 3040,
+              "area": 54680,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 3040,
+              "area": 54680,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 1930,
+              "area": 54680,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 4,
+          "bricks": 4,
+          "uniqueColors": 73,
+          "paletteColors": 73,
+          "modes": {
+            "original": {
+              "faces": 1753,
+              "area": 54944,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 1747,
+              "area": 54944,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 1747,
+              "area": 54944,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 1053,
+              "area": 54944,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 8,
+          "bricks": 4,
+          "uniqueColors": 78,
+          "paletteColors": 78,
+          "modes": {
+            "original": {
+              "faces": 926,
+              "area": 59264,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 926,
+              "area": 59264,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 926,
+              "area": 59264,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 926,
+              "area": 59264,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 16,
+          "bricks": 4,
+          "uniqueColors": 45,
+          "paletteColors": 45,
+          "modes": {
+            "original": {
+              "faces": 260,
+              "area": 66560,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 260,
+              "area": 66560,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 260,
+              "area": 66560,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 260,
+              "area": 66560,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 32,
+          "bricks": 4,
+          "uniqueColors": 9,
+          "paletteColors": 9,
+          "modes": {
+            "original": {
+              "faces": 64,
+              "area": 65536,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 64,
+              "area": 65536,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 64,
+              "area": 65536,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 64,
+              "area": 65536,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 64,
+          "bricks": 4,
+          "uniqueColors": 4,
+          "paletteColors": 4,
+          "modes": {
+            "original": {
+              "faces": 24,
+              "area": 98304,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 24,
+              "area": 98304,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 24,
+              "area": 98304,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 24,
+              "area": 98304,
+              "emissionArea": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "world": "copper-metropolis",
+      "seed": 20260922,
+      "version": 2,
+      "rows": [
+        {
+          "cellSize": 1,
+          "bricks": 5,
+          "uniqueColors": 19,
+          "paletteColors": 19,
+          "modes": {
+            "original": {
+              "faces": 29697,
+              "area": 158246,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 29697,
+              "area": 158246,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 29697,
+              "area": 158246,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 21381,
+              "area": 158246,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 2,
+          "bricks": 5,
+          "uniqueColors": 439,
+          "paletteColors": 256,
+          "modes": {
+            "original": {
+              "faces": 17240,
+              "area": 157672,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 17240,
+              "area": 157672,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 17224,
+              "area": 157672,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 9011,
+              "area": 157672,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 4,
+          "bricks": 5,
+          "uniqueColors": 1417,
+          "paletteColors": 256,
+          "modes": {
+            "original": {
+              "faces": 5568,
+              "area": 138272,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 5565,
+              "area": 138272,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 5413,
+              "area": 138272,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 3246,
+              "area": 138272,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 8,
+          "bricks": 5,
+          "uniqueColors": 635,
+          "paletteColors": 256,
+          "modes": {
+            "original": {
+              "faces": 1762,
+              "area": 112768,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 1762,
+              "area": 112768,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 1762,
+              "area": 112768,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 1762,
+              "area": 112768,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 16,
+          "bricks": 5,
+          "uniqueColors": 173,
+          "paletteColors": 173,
+          "modes": {
+            "original": {
+              "faces": 446,
+              "area": 114176,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 446,
+              "area": 114176,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 446,
+              "area": 114176,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 446,
+              "area": 114176,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 32,
+          "bricks": 5,
+          "uniqueColors": 33,
+          "paletteColors": 33,
+          "modes": {
+            "original": {
+              "faces": 110,
+              "area": 112640,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 110,
+              "area": 112640,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 110,
+              "area": 112640,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 110,
+              "area": 112640,
+              "emissionArea": 0
+            }
+          }
+        },
+        {
+          "cellSize": 64,
+          "bricks": 5,
+          "uniqueColors": 5,
+          "paletteColors": 5,
+          "modes": {
+            "original": {
+              "faces": 30,
+              "area": 122880,
+              "emissionArea": 0
+            },
+            "linear8": {
+              "faces": 30,
+              "area": 122880,
+              "emissionArea": 0
+            },
+            "palette256": {
+              "faces": 30,
+              "area": 122880,
+              "emissionArea": 0
+            },
+            "mono": {
+              "faces": 30,
+              "area": 122880,
+              "emissionArea": 0
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
