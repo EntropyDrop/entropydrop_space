@@ -1,5 +1,14 @@
 # Local rendering fixture
 
+The [2026-10-27 opaque point-cloud experiment](../../docs/performance-point-cloud-2026-10-27.md)
+compares native one-pixel points, opaque surfels and compute point rasterization
+with original PBR and matching simple-light rectangles. Ordinary frames include
+compute depth reduction and composition. Frozen and tiny-turn coverage probes,
+raw captures and an [interactive comparison](../../docs/performance-point-cloud-2026-10-27.html)
+are retained. Across 140 blocks, surfels preserve coverage but do not convincingly
+outperform matching rectangles; native and compute points leave substantial holes.
+Keep packed geometry. The explicit offline harness does not change production rendering.
+
 The [2026-10-26 Gaussian far-LOD experiment](../../docs/performance-gaussian-far-2026-10-26.md)
 tests procedural 160k/80k Gaussian budgets beyond 768 m in all three worlds.
 Across 108 ordinary-frame blocks, visible-far Aether loses 12–13% FPS and Copper
