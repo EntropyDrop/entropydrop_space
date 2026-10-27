@@ -5,7 +5,7 @@ import { TERRAIN_GENERATOR_MATCHED } from '@entropydrop/space-engine/worldgen/Ma
 /** Real volumetric snapshots, real streaming/LOD/disk-cache path, no server calls. */
 export function startOfflineSurface(world: World, repeatWorld = false) {
   const matched = world.terrainGen.version === TERRAIN_GENERATOR_MATCHED;
-  if (matched) repeatWorld = false;
+  if (matched || (world.terrainGen.version >= 11 && world.terrainGen.version <= 13)) repeatWorld = false;
   const status = { generated: 0, total: matched ? 4 : repeatWorld ? 128 : 8, downloads: 0, passes: 0, fineZones: 0, error: '', progress: '' };
   const fineZones = new Set<string>();
   const payloads = new Map<string, Uint8Array>(), zones: any[] = [];

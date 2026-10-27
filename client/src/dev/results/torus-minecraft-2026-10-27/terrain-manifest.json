@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "zones": [
+    [
+      15,
+      1
+    ],
+    [
+      15,
+      2
+    ],
+    [
+      16,
+      1
+    ],
+    [
+      16,
+      2
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      31,
+      1
+    ],
+    [
+      31,
+      2
+    ]
+  ],
+  "extent": [
+    16384,
+    256,
+    2048
+  ],
+  "unit": 1,
+  "details": false,
+  "worlds": [
+    {
+      "name": "nature",
+      "version": 1,
+      "seed": 42,
+      "solidBlocks": 35679671,
+      "sha256": "7beeeaed77a551d219c6acb407da2b5ad5c82d829f95d50dd450e97efe650c22",
+      "chunks": 8192
+    },
+    {
+      "name": "copper-metropolis",
+      "version": 2,
+      "seed": 20260922,
+      "solidBlocks": 41466210,
+      "sha256": "488f57d0fed17cf24ff3a2e201dfa99586200a35e3a6012bc0e6a153654432d9",
+      "chunks": 8192
+    },
+    {
+      "name": "aether-archipelago",
+      "version": 3,
+      "seed": 42,
+      "solidBlocks": 11295636,
+      "sha256": "9786322428159854573cc8a540eb26bbc853e098583b2d01431541f655fbdb41",
+      "chunks": 8192
+    }
+  ],
+  "palette": 218
+}

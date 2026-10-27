@@ -1,0 +1,10 @@
+{
+  "probe-nature": "Functional validation only. Automated tests overlapped the first timing run; all probe timing is excluded.",
+  "native-first-copper-attempt": "JVM SIGBUS in C2 CompilerThread0 before sampling. Retried after confirming no previous benchmark process remained.",
+  "native-initial-shader-launch": "Constructor injection was initially nonstatic and rejected by Mixin. Fixed before any accepted timing.",
+  "native-lock-retry": "Failed crash shutdown temporarily retained the disposable save lock. Only owned benchmark processes were terminated; no user saves modified.",
+  "aether-framebuffer-attempts": "Two reused-save attempts failed before accepted sampling: restored window 894 x 1093 logical / 1788 x 2186 actual. Explicit size limits and position resolved calibration, preserving the 1280 x 720 guard.",
+  "copper-startup-diagnostic": "DH emitted one quadtree detail-level transition error at 18:06:09, during startup. Terrain preparation and the 60-second warmup occurred afterward; no repeat appears during accepted sampling. All original logs are retained.",
+  "cache-audit": "An initial immutable SQLite read omitted the WAL and undercounted Nature by 56 and Aether by 322. Reading main+WAL confirms every source chunk; timestamps precede accepted samples. A redundant Aether reload attempt failed framebuffer calibration before sampling. No accepted performance data is replaced or discarded because of the incorrect initial audit.",
+  "copper-flat-capture": "The block-5 flat screenshot was copied before the asynchronous PNG write finished and is empty. The report uses the valid block-0 flat screenshot from the same accepted run instead. All six blocks of raw frame timings remain unchanged."
+}

@@ -1,0 +1,6 @@
+{
+  "points": 6000,
+  "maxErrorMetres": 3.263980249407751e-09,
+  "toleranceMetres": 1e-06,
+  "implementation": "Actual Space bendPointForView / inverse bent camera frame vs Java TorusMath"
+}

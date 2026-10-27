@@ -1,0 +1,23 @@
+plugins { id 'fabric-loom' version '1.8.13' }
+version = '1.0.0'
+group = 'com.entropydrop'
+repositories { mavenCentral() }
+dependencies {
+    minecraft 'com.mojang:minecraft:1.21.1'
+    mappings 'net.fabricmc:yarn:1.21.1+build.3:v2'
+    modImplementation 'net.fabricmc:fabric-loader:0.18.0'
+    compileOnly fileTree(dir: providers.gradleProperty('benchmarkMods').get(), include: ['sodium-*.jar', 'DistantHorizons-*.jar'])
+    modImplementation 'net.fabricmc.fabric-api:fabric-api:0.116.11+1.21.1'
+}
+java { toolchain.languageVersion = JavaLanguageVersion.of(21); withSourcesJar() }
+tasks.withType(JavaCompile).configureEach { options.release = 21 }
+
+sourceSets.main.resources.srcDir 'build/generated/resources'
+tasks.register('generatePalette', Exec) {
+    commandLine 'python3', 'generate-assets.py'
+    inputs.file 'generate-assets.py'
+    inputs.file 'data/palette.json'
+    outputs.dir 'build/generated/resources'
+}
+processResources.dependsOn tasks.named('generatePalette')
+tasks.named('sourcesJar') { dependsOn tasks.named('generatePalette') }

@@ -1,0 +1,29 @@
+{
+  "method": "SQLite main database plus its WAL, opened on a disposable copy. An immutable main-file-only read is incomplete and was rejected.",
+  "worlds": {
+    "nature": {
+      "sourceChunks": 8192,
+      "confirmedChunks": 8192,
+      "allPresent": true,
+      "latestCacheWriteUnixMs": 1793095249898,
+      "firstCaptureUnixMs": 1793096526206.0925,
+      "cacheWritesPrecedeFirstSample": true
+    },
+    "copper-metropolis": {
+      "sourceChunks": 8192,
+      "confirmedChunks": 8192,
+      "allPresent": true,
+      "latestCacheWriteUnixMs": 1793095673408,
+      "firstCaptureUnixMs": 1793095746146.4314,
+      "cacheWritesPrecedeFirstSample": true
+    },
+    "aether-archipelago": {
+      "sourceChunks": 8192,
+      "confirmedChunks": 8192,
+      "allPresent": true,
+      "latestCacheWriteUnixMs": 1793095942519,
+      "firstCaptureUnixMs": 1793096356887.4705,
+      "cacheWritesPrecedeFirstSample": true
+    }
+  }
+}

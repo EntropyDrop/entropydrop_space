@@ -52,14 +52,17 @@ export class TerrainGenerator {
   private permutation: Uint8Array;
   readonly seed: number;
   readonly version: number;
+  private readonly comparisonGenerator?: TerrainGenerator;
 
   constructor(seed = 42, version = TERRAIN_GENERATOR_NATURE) {
     this.seed = Number.isFinite(Number(seed)) ? Math.floor(Number(seed)) : 42;
     this.version = [TERRAIN_GENERATOR_COPPER_METROPOLIS, TERRAIN_GENERATOR_AETHER_ARCHIPELAGO,
       TERRAIN_GENERATOR_COLOSSUS_HARBOR, TERRAIN_GENERATOR_TITAN_CANYON, TERRAIN_GENERATOR_ASTRAL_FOUNDRY,
-      TERRAIN_GENERATOR_BRUTALIST_DUSK, TERRAIN_GENERATOR_MIXED, TERRAIN_GENERATOR_TUTORIAL, TERRAIN_GENERATOR_MATCHED].includes(version)
+      TERRAIN_GENERATOR_BRUTALIST_DUSK, TERRAIN_GENERATOR_MIXED, TERRAIN_GENERATOR_TUTORIAL, TERRAIN_GENERATOR_MATCHED, 11, 12, 13].includes(version)
       ? version
       : TERRAIN_GENERATOR_NATURE;
+    // Versions 11–13 are bounded standard-cell fixtures for the native torus comparison.
+    if (this.version >= 11 && this.version <= 13) this.comparisonGenerator = new TerrainGenerator(this.seed, this.version - 10);
     let state = this.seed;
     const random = () => {
       state = (state * 9301 + 49297) % 233280;
@@ -114,8 +117,13 @@ export class TerrainGenerator {
     return Math.max(TERRAIN_MIN_HEIGHT, Math.min(TERRAIN_MAX_HEIGHT, height));
   }
 
-  generateChunk(chunk: Chunk, includeDetails = true) {
+  generateChunk(chunk: Chunk, includeDetails = true): Uint32Array {
     chunk.resetForTerrainGeneration();
+    if (this.comparisonGenerator) {
+      const origin = chunk.getWorldOrigin(), zoneX = Math.floor(origin.x / 512), zoneZ = Math.floor(origin.z / 512);
+      if (![0, 15, 16, 31].includes(zoneX) || ![1, 2].includes(zoneZ)) return chunk.terrainDetails;
+      return this.comparisonGenerator.generateChunk(chunk, false);
+    }
     if (this.version === TERRAIN_GENERATOR_MATCHED) return generateMatchedChunk(chunk, this.seed);
     if (this.version === TERRAIN_GENERATOR_TUTORIAL) return generateTutorialChunk(chunk);
     if (this.version === TERRAIN_GENERATOR_MIXED) {

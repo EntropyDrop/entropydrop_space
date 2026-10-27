@@ -61,6 +61,12 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
       seed: MATCHED_SEED, terrain_generator_version: TERRAIN_GENERATOR_MATCHED };
     Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 9600, start_z_cm: 102450 });
   }
+  const comparison = /^torus-compare-(nature|copper-metropolis|aether-archipelago)$/.exec(world);
+  if (comparison) {
+    const name = comparison[1], version = ['nature', 'copper-metropolis', 'aether-archipelago'].indexOf(name) + 11;
+    session.world = { ...session.world, id: `dev-${world}`, slug: world, name: `Torus comparison: ${name}`, seed: version === 12 ? 20260922 : 42, terrain_generator_version: version };
+    Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 18000, start_z_cm: 102450 });
+  }
   return session;
 }
 

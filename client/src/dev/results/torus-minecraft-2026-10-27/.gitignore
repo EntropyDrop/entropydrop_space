@@ -1,0 +1,11 @@
+# Archive accepted compressed samples and one valid image for each view.
+# Scratch captures and unsuccessful probes remain available locally.
+/probe-*/
+/report-preview.png
+/minecraft/*/torus-[012]-*.png
+!/minecraft/copper-metropolis/torus-0-flat.png
+/minecraft/copper-metropolis/torus-5-flat.png
+/minecraft/*/torus-status.json
+/minecraft/*/torus-minecraft.json
+/space/*/status.json
+/space/*/result.json

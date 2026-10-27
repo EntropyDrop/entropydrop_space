@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "space_torus",
+  "version": "1.0.0",
+  "name": "Space Torus Comparison",
+  "description": "Experimental matched three-terrain torus projection for Sodium and Distant Horizons.",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.entropydrop.torus.TorusMod"
+    ],
+    "client": [
+      "com.entropydrop.torus.TorusBenchmark"
+    ]
+  },
+  "mixins": [
+    "space_torus.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "1.21.1",
+    "java": ">=21",
+    "fabric-api": "*",
+    "sodium": "0.6.13+mc1.21.1",
+    "distanthorizons": "3.3.3"
+  }
+}

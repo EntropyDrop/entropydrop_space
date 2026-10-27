@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "com.entropydrop.torus.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "SodiumShaderMixin",
+    "DhShaderMixin",
+    "SodiumProgramMixin",
+    "DhProgramMixin",
+    "SodiumFrustumMixin",
+    "DhFrustumMixin",
+    "MinecraftClientMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

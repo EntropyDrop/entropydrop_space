@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-27",
+  "hardware": "Apple M1 Pro",
+  "width": 1280,
+  "height": 720,
+  "verticalFovDegrees": 70,
+  "cameraEye": [
+    8192.5,
+    180,
+    1024.5
+  ],
+  "nearChunks": 8,
+  "farChunks": 576,
+  "boundedZonesPerTerrain": 8,
+  "fullWorldZones": 128,
+  "standardOnly": true,
+  "sourceSolidCells": 88441517,
+  "validatedCellsIncludingAir": 1610612736,
+  "sodiumOptions": {
+    "quality": {
+      "weather_quality": "DEFAULT",
+      "leaves_quality": "DEFAULT",
+      "enable_vignette": true
+    },
+    "advanced": {
+      "enable_memory_tracing": false,
+      "use_advanced_staging_buffers": true,
+      "cpu_render_ahead_limit": 3
+    },
+    "performance": {
+      "chunk_builder_threads": 0,
+      "always_defer_chunk_updates_v2": true,
+      "animate_only_visible_textures": true,
+      "use_entity_culling": true,
+      "use_fog_occlusion": false,
+      "use_block_face_culling": false,
+      "use_no_error_g_l_context": true
+    },
+    "notifications": {
+      "has_cleared_donation_button": false,
+      "has_seen_donation_prompt": false
+    },
+    "debug": {
+      "terrain_sorting_enabled": true
+    }
+  },
+  "minecraftSectionOcclusion": false,
+  "nativeShaderAdapter": "Original vertex-position injection plus conservative CPU bent bounds; DH flat-distance LOD selection retained.",
+  "nativeGc": "G1, Java 21, -Xmx4G",
+  "spaceSettings": "Medium lighting, shadows off, DPR 1, no MSAA, existing production representation and visibility defaults.",
+  "nativeSampling": "Uncapped; six balanced blocks (two per mode), 5 s warm + 10 s sample; preparation and screenshots excluded.",
+  "isolation": "Native games sequential; native terminated before Space; automated tests completed before accepted native sampling.",
+  "testedJars": {
+    "sodium-fabric-0.6.13+mc1.21.1.jar": "e04599514d88e41765f710eeba59e3814909833396bc11b977f48fc2e7e50353",
+    "DistantHorizons-3.3.3-1.21.1-fabric-neoforge.jar": "864e70def5b0d54d619b940b66bb2784e91d3f3fc253064fdc1b3fc5786cbfab",
+    "space-torus-benchmark-1.0.0.jar": "caa6b7f0daa41eed1a03cafed96f717e42b0d8fda072002e8e8dd11ce7d84363"
+  },
+  "testedAdapterBuilds": {
+    "nature": "12f5c589b3e229fb835066cf4a838d4e15a7b79f4e1bd845fa6f91893f8d58c0",
+    "copper-metropolis": "caa6b7f0daa41eed1a03cafed96f717e42b0d8fda072002e8e8dd11ce7d84363",
+    "aether-archipelago": "12f5c589b3e229fb835066cf4a838d4e15a7b79f4e1bd845fa6f91893f8d58c0"
+  },
+  "buildDifference": "Copper used the same rendering adapter before adding a pre-warmup Retina window calibration retry. Nature and Aether use the final calibration. All accepted samples pass the same 1280 x 720 framebuffer guard.",
+  "finalJarSha256": "12f5c589b3e229fb835066cf4a838d4e15a7b79f4e1bd845fa6f91893f8d58c0"
+}
