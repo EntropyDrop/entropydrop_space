@@ -1,0 +1,70 @@
+{
+  "description": "Accepted captures only. Source session metadata and rejected attempts remain beside this directory.",
+  "captures": [
+    {
+      "world": "aether-archipelago",
+      "capture": "raw",
+      "session": "chromium-1793072814107"
+    },
+    {
+      "world": "aether-archipelago",
+      "capture": "repeat",
+      "session": "chromium-1793072814107"
+    },
+    {
+      "world": "aether-archipelago",
+      "capture": "control",
+      "session": "chromium-1793072814107"
+    },
+    {
+      "world": "nature",
+      "capture": "raw",
+      "session": "chromium-1793072814107"
+    },
+    {
+      "world": "nature",
+      "capture": "repeat",
+      "session": "chromium-1793072814107"
+    },
+    {
+      "world": "nature",
+      "capture": "control",
+      "session": "chromium-1793072814107"
+    },
+    {
+      "world": "copper-metropolis",
+      "capture": "raw",
+      "session": "chromium-1793073920311"
+    },
+    {
+      "world": "copper-metropolis",
+      "capture": "repeat",
+      "session": "chromium-1793073920311"
+    },
+    {
+      "world": "copper-metropolis",
+      "capture": "control",
+      "session": "chromium-1793074338377"
+    }
+  ],
+  "excluded": [
+    {
+      "session": "chromium-1793072670636",
+      "reason": "Initial Aether run: result sink rejected the new upload image filename. Not included."
+    },
+    {
+      "session": "chromium-1793072814107",
+      "world": "copper-metropolis",
+      "reason": "Candidate-image restoration differed by one RGB level before timing. Aether and Nature captures passed and are retained."
+    },
+    {
+      "session": "chromium-1793073541472",
+      "reason": "Copper diagnostic readbacks revealed live LOD publication during frozen captures; no timing accepted."
+    },
+    {
+      "session": "chromium-1793073920311",
+      "capture": "control",
+      "reason": "Candidate-image restoration differed by one RGB level. Main and repeat passed. A separate original-only image/noise control passed without relaxing equality."
+    }
+  ]
+}

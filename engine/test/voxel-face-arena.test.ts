@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
 import { VoxelFaceArena, type VoxelFaceMesh } from '../src/render/VoxelFaceArena.ts';
+import { voxelBlockBackFacing } from '../src/render/VoxelFaceVisibility.ts';
 import { bendTorusPoint, setWorldProjection } from '../src/torus/TorusWorld.ts';
 
 function source(count: number, x: number): VoxelFaceMesh {
@@ -275,6 +276,71 @@ test('cached rotation guards retain every sphere intersecting the current frustu
     }
     assert.ok(rejected > 1000, 'the guard test exercises actual rejection');
   } finally { f.arena.dispose(); f.coverage.dispose(); }
+});
+
+test('wide reuse retains currently visible blocks through guard crossings, FOV, clipping and teleports', () => {
+  const f = cullingFixture(true); f.mesh.material = f.mesh.userData.opaqueMaterial;
+  let rejected = 0, checked = 0;
+  try {
+    for (let frame = 0; frame < 360; frame++) {
+      const edge = [0, 15.9, 31.999, 32, 32.001, 63.999, 64.001, -32.001][frame % 8];
+      f.camera.position.set(edge, Math.sin(frame * .41) * 42, frame % 19 === 0 ? 600 : Math.cos(frame * .17) * 31.9);
+      f.camera.rotation.set(Math.sin(frame * .37) * .3, frame * .0599, 0);
+      f.camera.fov = [35, 75, 120][Math.floor(frame / 17) % 3];
+      f.camera.aspect = [.7, 16 / 9, 2.8][Math.floor(frame / 23) % 3];
+      f.camera.near = frame % 29 === 0 ? 80 : .1;
+      f.camera.far = frame % 31 === 0 ? 650 : 10000;
+      f.tick();
+      const page = f.arena.pages[0], drawn = new Set<number>();
+      for (let i = 0; i < f.arena.stats.paddedFaces / 16; i++) drawn.add(page.map.array[i * 8] / 16);
+      rejected += 96 - drawn.size;
+      for (let block = 0; block < 96; block++) {
+        const at = block * 12, sphere = new THREE.Sphere(new THREE.Vector3(f.bounds[at], f.bounds[at + 1], f.bounds[at + 2]), f.bounds[at + 3]);
+        const near = sphere.center.distanceTo(f.camera.position) - sphere.radius <= 256;
+        const facing = !voxelBlockBackFacing(f.bounds, at, f.camera.position.x, f.camera.position.y, f.camera.position.z);
+        if (near || (facing && f.frustum.intersectsSphere(sphere))) {
+          checked++; assert.ok(drawn.has(block), `required block ${block} at frame ${frame}`);
+        }
+      }
+    }
+    assert.ok(checked > 1000); assert.ok(rejected > 1000);
+  } finally { f.arena.dispose(); f.coverage.dispose(); }
+});
+
+test('translation reuse crosses the old guard and refreshes at the new guard', () => {
+  const f = cullingFixture(true);
+  try {
+    f.tick(); const count = f.arena.stats.positionBlockTests;
+    for (const x of [16, 24, 31.999]) { f.camera.position.x = x; f.tick(); assert.equal(f.arena.stats.positionBlockTests, count); }
+    f.camera.position.x = 32; f.tick(); assert.ok(f.arena.stats.positionBlockTests > count);
+    const after = f.arena.stats.positionBlockTests;
+    f.camera.position.x = -32; f.tick(); assert.ok(f.arena.stats.positionBlockTests > after, 'rapid reversal refreshes');
+  } finally { f.arena.dispose(); f.coverage.dispose(); }
+});
+
+for (const cached of [true, false]) test(`empty-frustum recovery bypasses reuse slack (cached=${cached})`, () => {
+  const f = cullingFixture(cached); f.mesh.material = f.mesh.userData.opaqueMaterial;
+  const tick = () => { f.arena.setView(f.camera.position, f.frustum, f.coverage, true); f.arena.restoreSources(); f.arena.sync(Infinity); };
+  try {
+    for (const p of f.frustum.planes) p.setComponents(0, 0, 0, .2);
+    tick(); const visible = f.arena.stats.visibleFaces; assert.ok(visible > 0);
+    f.frustum.planes[0].constant = -.2; tick(); assert.equal(f.arena.stats.visibleFaces, 0);
+    f.frustum.planes[0].constant = .2; tick(); assert.equal(f.arena.stats.visibleFaces, visible);
+  } finally { f.arena.dispose(); f.coverage.dispose(); }
+});
+
+test('geometry publication and projection changes replace stale visibility under a stationary camera', () => {
+  const f = cullingFixture(true); f.mesh.material = f.mesh.userData.opaqueMaterial;
+  try {
+    f.tick(); setWorldProjection('flat'); f.tick(); assert.equal(f.arena.stats.visibleFaces, 16 * 96);
+    setWorldProjection('torus'); f.tick(); assert.ok(f.arena.stats.visibleFaces < 16 * 96);
+    f.mesh.geometry.dispose(); f.mesh.geometry = source(16, 0).geometry;
+    f.mesh.geometry.userData.voxelVisibility = new Float32Array([0, 0, -1000, 10, 0, 0, 1, 2, 5, 6, 5, 6]);
+    f.tick(); assert.equal(f.arena.stats.residentFaces, 16); assert.equal(f.arena.stats.visibleFaces, 16);
+    f.mesh.geometry.dispose(); f.mesh.geometry = source(16, 0).geometry;
+    f.mesh.geometry.userData.voxelVisibility = new Float32Array([0, 0, 1000, 10, 0, 0, 1, 2, 5, 6, 5, 6]);
+    f.tick(); assert.equal(f.arena.stats.residentFaces, 16); assert.equal(f.arena.stats.visibleFaces, 0);
+  } finally { setWorldProjection('torus'); f.arena.dispose(); f.coverage.dispose(); }
 });
 
 // Decode the actual draw arguments and index buffers into the ordered GPU face

@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Visibility browser cross-check</title>
+<style>body{margin:0;background:#111923;color:#edf3fa;font:14px system-ui}header{padding:12px 16px;width:1248px;height:100px;box-sizing:content-box}h1{font-size:20px;margin:0 0 8px}button,a{margin-right:12px}button{padding:6px 12px}p{margin:7px 0}iframe{display:block;width:1280px;height:720px;border:0}pre{white-space:pre-wrap;max-width:1250px;padding:16px}a{color:#a8d2ff}</style>
+<header><h1>Visibility browser cross-check</h1><button id="probe" accesskey="p" disabled>Probe Aether</button><button id="run" accesskey="b" disabled>Run all three worlds</button><button id="save" accesskey="s" disabled>Download results</button><p id="capability">Checking WebGPU…</p><p id="status" role="status">Preparing</p></header>
+<iframe id="fixture" title="Offline terrain benchmark" aria-hidden="true" src="about:blank"></iframe>
+<pre id="log"></pre>
+<script>window.addEventListener('error',e=>{document.title='Benchmark error: '+(e.message||'module load failed');});window.addEventListener('unhandledrejection',e=>{document.title='Benchmark error: '+String(e.reason);});</script>
+<script type="module" src="../src/dev/VisibilityBrowserHost.ts"></script></html>

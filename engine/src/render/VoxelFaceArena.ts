@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { storage, vertexIndex, instanceIndex, uint, float, vec2, vec3, varying, min, uniform, wgslFn } from 'three/tsl';
-import { VOXEL_FACE_BLOCK, VOXEL_VISIBILITY_STRIDE, voxelBlockBackFacing } from './VoxelFaceVisibility.ts';
+import { VOXEL_FACE_BLOCK, VOXEL_VISIBILITY_STRIDE } from './VoxelFaceVisibility.ts';
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { orderVoxelPages } from './VoxelDrawOrder.ts';
 import { getWorldProjection, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
@@ -10,6 +10,13 @@ export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.Mesh
 export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
 const BLOCK = VOXEL_FACE_BLOCK;
 const PAGE_FACES = 256 * 1024;
+/** World coordinates fit Float64 squared distance. Share one distance between
+ * the normal cone and frustum guards; retain view-local flattened geometry. */
+function blockFacing(data: Float32Array, at: number, dx: number, dy: number, dz: number, distance: number, padding: number) {
+  if (distance - data[at + 3] <= 256 + padding) return 2;
+  return data[at + 4] * dx + data[at + 5] * dy + data[at + 6] * dz
+    + distance * data[at + 7] + data[at + 3] + padding < 0 ? 1 : 0;
+}
 // r183 promotes non-normalized uint16 attributes (including indices) to uint32.
 // Use the backend's actual representation so allocation accounting stays exact.
 const blockIndexTemplates = new Map<number, Uint32Array>();
@@ -94,6 +101,9 @@ export class VoxelFaceArena {
   private viewEpoch = 0;
   private positionEpoch = 0;
   private resetView = true;
+  // Slack covers the accepted translation, clip-plane offset and rounding.
+  // The angular term bounds delta-normal dot (block-center - query-camera).
+  private readonly viewReuse = { translation: 32, normal: .12, padding: 34, angular: .121 };
   private cachedBlockTests = true;
   private torusBackfaceCulling = false;
   private surfaceProxies = new WeakMap<Float32Array, Float64Array>();
@@ -218,16 +228,18 @@ export class VoxelFaceArena {
     // motion then reuses GPU maps and command bundles instead of rebuilding
     // every face-block list each frame. The padding below bounds all accepted
     // camera translations, rotations and clip-plane offset changes.
-    if (this.resetView || !this.coverage || camera.distanceToSquared(this.camera) >= 16 ** 2 || frustum.planes.some((p, i) => {
+    const empty = frustum.planes.some(p => p.normal.x === 0 && p.normal.y === 0 && p.normal.z === 0 && p.constant < 0);
+    if (this.resetView || !this.coverage || empty !== this.emptyFrustum
+      || camera.distanceToSquared(this.camera) >= this.viewReuse.translation ** 2 || frustum.planes.some((p, i) => {
       const old = this.frustum.planes[i];
-      return p.normal.distanceToSquared(old.normal) >= .06 ** 2
+      return p.normal.distanceToSquared(old.normal) >= this.viewReuse.normal ** 2
         || Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(this.camera)) >= 1;
     })
       || enabled !== this.visibilityEnabled) {
       if (!this.camera.equals(camera)) this.positionEpoch++;
       this.resetView = false;
       this.camera.copy(camera); this.frustum.copy(frustum); this.viewEpoch++;
-      this.emptyFrustum = frustum.planes.some(p => p.normal.lengthSq() === 0 && p.constant < 0);
+      this.emptyFrustum = empty;
       this.visibilityEnabled = enabled; this.visibilityDirty = true;
     }
     const version = coverage.userData.voxelVisibilityVersion ?? coverage.version;
@@ -250,16 +262,18 @@ export class VoxelFaceArena {
     if (at + VOXEL_VISIBILITY_STRIDE > data.length) return 0;
     if (masked && this.coverage && voxelHandoffMode(this.coverage.image.data!, data, at + 8) === 2) return 3;
     const x = this.camera.x, y = this.camera.y, z = this.camera.z;
-    if (voxelBlockBackFacing(data, at, x, y, z, 18)) return 1;
+    const dx = x - data[at], dy = y - data[at + 1], dz = z - data[at + 2];
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz), { padding, angular } = this.viewReuse;
+    const facing = blockFacing(data, at, dx, dy, dz, distance, padding);
+    if (facing === 1) return 1;
     // Nearby vertices receive view-local flattening, so their bent-space sphere
     // cannot reject them. The source draw retains its conservative view bounds.
-    const distance = Math.hypot(x - data[at], y - data[at + 1], z - data[at + 2]);
     if (this.torusBackfaceCulling && getWorldProjection() === 'torus'
       && surfaceBlockBackFacing(this.surfaceProxy(data), block * BACKFACE_PROXY_STRIDE,
-        x, y, z, distance, data[at + 3])) return 1;
-    if (distance - data[at + 3] > 274) {
+        x, y, z, distance, data[at + 3], padding)) return 1;
+    if (facing !== 2) {
       for (const p of this.frustum.planes) if (p.normal.x * data[at] + p.normal.y * data[at + 1]
-        + p.normal.z * data[at + 2] + p.constant < -data[at + 3] - 18 - distance * .061) return 2;
+        + p.normal.z * data[at + 2] + p.constant < -data[at + 3] - padding - distance * angular) return 2;
     }
     return 0;
   }
@@ -289,17 +303,17 @@ export class VoxelFaceArena {
     }
     const count = Math.min(cache.distance.length, Math.floor(data.length / VOXEL_VISIBILITY_STRIDE));
     if (cache.position !== this.positionEpoch) {
-      const { x, y, z } = this.camera;
+      const { x, y, z } = this.camera, { padding } = this.viewReuse;
       const surface = this.torusBackfaceCulling && getWorldProjection() === 'torus'
         ? this.surfaceProxy(data) : undefined;
       for (let block = 0; block < count; block++) {
         const at = block * VOXEL_VISIBILITY_STRIDE;
-        const distance = Math.hypot(x - data[at], y - data[at + 1], z - data[at + 2]);
+        const dx = x - data[at], dy = y - data[at + 1], dz = z - data[at + 2];
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         cache.distance[block] = distance;
-        cache.facing[block] = voxelBlockBackFacing(data, at, x, y, z, 18) ? 1
-          : distance - data[at + 3] > 274 ? 0 : 2;
+        cache.facing[block] = blockFacing(data, at, dx, dy, dz, distance, padding);
         if (surface && cache.facing[block] !== 1 && surfaceBlockBackFacing(surface,
-          block * BACKFACE_PROXY_STRIDE, x, y, z, distance, data[at + 3])) cache.facing[block] = 1;
+          block * BACKFACE_PROXY_STRIDE, x, y, z, distance, data[at + 3], padding)) cache.facing[block] = 1;
       }
       cache.position = this.positionEpoch; this.stats.positionBlockTests += count;
     }
@@ -310,7 +324,7 @@ export class VoxelFaceArena {
     }
     if (cache.view !== this.viewEpoch) {
       const { center, radius } = cache.sphere, distance = center.distanceTo(this.camera);
-      const margin = 18 + (distance + radius) * .061;
+      const margin = this.viewReuse.padding + (distance + radius) * this.viewReuse.angular;
       cache.planeMask = 0;
       for (let plane = 0; plane < 6; plane++) {
         const p = this.frustum.planes[plane], value = p.distanceToPoint(center);
@@ -334,9 +348,7 @@ export class VoxelFaceArena {
     if (cache.facing[block] === 2) return 0;
     if (cache.planeMask === -1) return 2;
     if (cache.planeMask === 0) return 0;
-    // 18 bounds accepted translation/plane-offset changes. The angular term
-    // bounds delta-normal dot (block-center - camera), with rounding slack.
-    const margin = -data[at + 3] - 18 - cache.distance[block] * .061;
+    const margin = -data[at + 3] - this.viewReuse.padding - cache.distance[block] * this.viewReuse.angular;
     for (let i = 0; i < 6; i++) if (cache.planeMask & (1 << i)) {
       const p = this.frustum.planes[i];
       if (p.normal.x * data[at] + p.normal.y * data[at + 1] + p.normal.z * data[at + 2] + p.constant < margin) return 2;

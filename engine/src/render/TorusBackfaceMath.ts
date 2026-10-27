@@ -26,8 +26,11 @@ export function surfaceFacingProxy(minX: number, maxX: number, minZ: number, max
 }
 
 export function surfaceBlockBackFacing(proxy: Float64Array, at: number, cameraX: number, cameraY: number, cameraZ: number,
-  distance: number, radius: number) {
-  if (distance - radius <= BACKFACE_NEAR_KEEP + BACKFACE_MOTION_MARGIN) return false;
+  distance: number, radius: number, motionPadding = BACKFACE_MOTION_MARGIN) {
+  if (distance - radius <= BACKFACE_NEAR_KEEP + motionPadding) return false;
+  // Proxies already include the original motion margin. Wider reuse must add
+  // its extra slack without changing the immutable proxy or the default filter.
+  const extra = Math.max(0, motionPadding - BACKFACE_MOTION_MARGIN);
   return proxy[at] * cameraX + proxy[at + 1] * cameraY + proxy[at + 2] * cameraZ - proxy[at + 3]
-    + distance * proxy[at + 4] + proxy[at + 5] < 0;
+    + distance * proxy[at + 4] + proxy[at + 5] + extra < 0;
 }

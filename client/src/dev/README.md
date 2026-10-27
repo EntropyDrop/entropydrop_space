@@ -1,5 +1,39 @@
 # Local rendering fixture
 
+The [production visibility integration](../../docs/performance-visibility-integration-2026-10-27.md)
+now enables Fast CPU plus wider conservative reuse by default. Boundary, camera,
+projection and publication regression tests pass. The follow-up upload trial
+reduces marked update ranges without a repeatable FPS gain and remains DEV-only.
+[The integration report](../../docs/performance-visibility-integration-2026-10-27.html)
+retains 144 accepted moving blocks, repeats, controls and images. Historical
+reports below describe production state at their original capture time.
+
+The [2026-10-27 community and paper follow-up](../../docs/performance-visibility-research-2026-10-27.md)
+keeps packed PBR geometry and compares cheaper CPU distance/cone tests, wider
+conservative visibility reuse, and stable WebGPU compaction with indirect draws.
+Three-world ordinary-frame measurements, independent moving repeats, identical-code
+controls and [image comparisons](../../docs/performance-visibility-research-2026-10-27.html)
+are retained. The optional offline hooks leave production rendering unchanged.
+
+The [native-browser visibility launcher](../../tools/visibility-browser.html)
+uses the same experiment inside a fixed 1280 × 720 CSS iframe at DPR 2. It checks
+WebGPU timestamp support, keeps ordinary game frames, and exports compressed
+captures plus PNGs in one ZIP. Keep the complete fixture visible and select
+**Run all three worlds**. Only `autorun=1` starts automatically; `probe=1` limits
+that run to image/GPU-map checks. Initialization has a separate 300-second guard.
+An optional loopback receiver saves results directly: run
+`node client/tools/visibility-result-receiver.mjs client/src/dev/results/visibility-browser-captures`
+from the repository root before opening the launcher, then stop it after capture.
+Without the receiver, the launcher offers a ZIP download.
+
+The [Firefox follow-up](../../docs/performance-visibility-firefox-2026-10-27.md)
+retains 192 blocks, 39,113 frames, identical-code controls and
+[image comparisons](../../docs/performance-visibility-firefox-2026-10-27.html).
+Copper benefits from the CPU variants; small gains in the other worlds are less
+conclusive. GPU indirect remains slower. Automatic memory budgets differ from
+the preceding Chromium session, so this is not a matched browser-speed ranking.
+The first startup-timeout archive contains no performance frames and is excluded.
+
 The [2026-10-27 opaque point-cloud experiment](../../docs/performance-point-cloud-2026-10-27.md)
 compares native one-pixel points, opaque surfels and compute point rasterization
 with original PBR and matching simple-light rectangles. Ordinary frames include
