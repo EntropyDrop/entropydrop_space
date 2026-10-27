@@ -5,7 +5,7 @@ import { resolve, dirname } from 'node:path';
 const root = resolve(process.argv[2] ?? 'client/src/dev/results/visibility-browser-captures');
 const port = 54379;
 const origins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173']);
-const filePattern = /^(?:browser\.json|status\.json|failure\.txt|(?:aether-archipelago|nature|copper-metropolis)\/(?:diagnostics\.json|(?:raw|repeat|control|probe)\.json\.gz|(?:near|across)-(?:original|fast|wide|gpu|upload)\.png))$/;
+const filePattern = /^(?:browser\.json|status\.json|failure\.txt|(?:aether-archipelago|nature|copper-metropolis)\/(?:diagnostics\.json|(?:raw|repeat|control|probe)\.json\.gz|(?:near|across)-(?:original|fast|wide|gpu|upload|cluster16|cluster32|cluster64)\.png))$/;
 const server = createServer(async (req, res) => {
   if (req.headers.host !== `127.0.0.1:${port}` || !origins.has(req.headers.origin)) { res.writeHead(403); res.end(); return; }
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin);

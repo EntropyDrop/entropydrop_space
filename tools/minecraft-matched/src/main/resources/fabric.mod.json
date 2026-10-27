@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "spacebench",
+  "version": "1.0.0",
+  "name": "Space Matched Terrain Benchmark",
+  "description": "Deterministic unit-block terrain shared with EntropyDrop Space.",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.entropydrop.spacebench.SpaceMatched"
+    ],
+    "client": [
+      "com.entropydrop.spacebench.MatchedBenchmark"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "mixins": [
+    "spacebench.mixins.json"
+  ]
+}

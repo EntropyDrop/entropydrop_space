@@ -359,3 +359,25 @@ test('browser worker port forwards transfers and events and detaches handlers on
   assert.equal(worker.onmessage, null);
   assert.equal(worker.onerror, null);
 });
+
+test('flat culling reference switches rebuild a stationary layer and survive arena recreation', async t => {
+  t.after(() => setWorldProjection('torus'));
+  setWorldProjection('flat');
+  const handoff = new TerrainHandoff(), layer = new DistantVoxelLayer(handoff.texture, {synchronous:true});
+  const viewCamera = new THREE.PerspectiveCamera(70,16/9,.1,1024);
+  viewCamera.position.set(8200,120,900);viewCamera.updateMatrixWorld(true);
+  const view = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(viewCamera.projectionMatrix,viewCamera.matrixWorldInverse));
+  const update = () => layer.updateView(view,viewCamera.position,720,1,1024,100000);
+  try {
+    layer.setMergedBuffersEnabled(true);layer.install(source());update();
+    await delay(TERRAIN_FADE_MS+10);
+    for(let n=0;n<100;n++){update();if(!layer.hasPendingWork&&!layer.hasPendingTransitions)break;}
+    const stats=layer.group.userData.voxelArenaStats;
+    assert.ok(stats.residentFaces>0);assert.equal(stats.visibleFaces,0,'production removes near geometry behind the camera');
+    layer.setFlatBlockCullingEnabled(false);update();assert.ok(stats.visibleFaces>0,'reference switch refreshes stationary commands');
+    layer.setFlatBlockCullingEnabled(true);update();assert.equal(stats.visibleFaces,0);
+    layer.setFlatBlockCullingEnabled(false);layer.setMergedBuffersEnabled(false);layer.setMergedBuffersEnabled(true);
+    for(let n=0;n<100;n++){update();if(!layer.hasPendingWork)break;}
+    assert.ok(layer.group.userData.voxelArenaStats.visibleFaces>0,'recreated arena keeps the reference choice');
+  }finally{layer.dispose();handoff.texture.dispose();}
+});

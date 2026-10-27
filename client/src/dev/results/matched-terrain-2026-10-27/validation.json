@@ -1,0 +1,22 @@
+{
+  "engineTests": {
+    "passed": 666,
+    "failed": 0
+  },
+  "clientTests": {
+    "passed": 1655,
+    "failed": 0
+  },
+  "engineTypecheck": "passed",
+  "clientTypecheck": "passed",
+  "productionBuild": "passed",
+  "productionDevExclusion": "passed",
+  "productionImportOrders": 4,
+  "productionCompilerWorker": "passed",
+  "modGradleBuild": "passed",
+  "generatedApiDocs": "current",
+  "documentationLinks": "passed",
+  "englishOnly": "passed",
+  "pixelChecks": "19 records; all reference/candidate and restored views exact, all compared picks identical",
+  "benchmarkDataValidator": "passed"
+}

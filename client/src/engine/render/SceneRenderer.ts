@@ -307,7 +307,7 @@ export class SceneRenderer {
 
     // 3. Renderer
     this.renderer = new SpaceRenderer({
-      antialias: true,
+      antialias: !(import.meta.env.DEV && new URLSearchParams(location.search).get('dev_msaa') === '0'),
       powerPreference: 'high-performance', trackTimestamp: import.meta.env.DEV
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);

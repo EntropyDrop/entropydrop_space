@@ -13,7 +13,7 @@ let localCapture = false;
 let active = false, resolveWorld: (() => void) | undefined, rejectWorld: ((reason: Error) => void) | undefined;
 let progressTimer = 0;
 const info: any = { userAgent: navigator.userAgent, browser, time: new Date().toISOString(),
-  fixtureCss: [1280, 720], framebuffer: [2560, 1440], harness: 'visibility-browser-v3', requestedWorld: query.get('world'), onlyControl: query.get('run') === 'control', captureId, experiment: query.get('trial') === 'production' ? 'production-wide-upload' : 'visibility' };
+  fixtureCss: [1280, 720], framebuffer: [2560, 1440], harness: 'visibility-browser-v3', requestedWorld: query.get('world'), onlyControl: query.get('run') === 'control', captureId, experiment: query.get('trial') === 'clusters' ? 'visibility-clusters' : query.get('trial') === 'production' ? 'production-wide-upload' : 'visibility' };
 async function saveLocal(name: string, bytes: Uint8Array) {
   if (!localCapture) return;
   const response = await fetch(`${receiver}/${captureId}/${name}`, { method: 'POST', body: bytes as BodyInit });
@@ -39,7 +39,7 @@ function finishWorld() { clearInterval(progressTimer); resolveWorld?.(); }
     }
     const run = result.comparison;
     log.textContent += `${world} / ${name}: ${run?.rows.length ?? 0} blocks; pixel max ${Math.max(...pixels.rows.map((r: any) => r.max))}\n`;
-    if (run) for (const mode of ['original', 'fast', 'wide', 'gpu', 'upload']) {
+    if (run) for (const mode of ['original', 'fast', 'wide', 'gpu', 'upload', 'cluster16', 'cluster32', 'cluster64']) {
       const rows = run.rows.filter((r: any) => r.motion === 'acrossMove' && r.role === mode);
       if (rows.length) {
         const raw = rows.flatMap((r: any) => r.raw), mean = (key: string) => raw.reduce((n: number, r: any) => n + r[key], 0) / raw.length;
@@ -63,7 +63,7 @@ async function load(world: string, probeOnly: boolean) {
       note(`${world}: page loaded; visibility ${win.document.visibilityState}; loading benchmark module`);
       const script = win.document.createElement('script'); script.type = 'module';
       script.src = new URL('../src/dev/VisibilityBrowserChild.ts', location.href).href;
-      win.visibilityBrowserConfig = { world, probeOnly, production: query.get('trial') === 'production', onlyControl: query.get('run') === 'control' };
+      win.visibilityBrowserConfig = { world, probeOnly, production: query.get('trial') === 'production', clusters: query.get('trial') === 'clusters', onlyControl: query.get('run') === 'control' };
       script.onerror = () => reject(new Error('Child module failed to load.'));
       win.document.body.append(script);
       progressTimer = window.setInterval(() => {

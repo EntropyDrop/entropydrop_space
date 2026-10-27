@@ -5,7 +5,7 @@ import { voxelBlockBackFacing } from '@entropydrop/space-engine/render/VoxelFace
 export function installVisibilityCpuTrial(arena: any, getMode: () => string) {
   const undo: (() => void)[] = [];
   const savedReuse = arena.viewReuse && { ...arena.viewReuse };
-  const wide = () => getMode() === 'wide' || getMode() === 'upload';
+  const wide = () => getMode() === 'wide' || getMode() === 'upload' || getMode().startsWith('cluster');
   function configure() {
     if (savedReuse) Object.assign(arena.viewReuse, wide() ? savedReuse : { translation: 16, normal: .06, padding: 18, angular: .061 });
   }

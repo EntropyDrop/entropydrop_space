@@ -14,7 +14,7 @@ function stats(values) {
 function capture(world, file) {
   const data = JSON.parse(gunzipSync(readFileSync(new URL(`${world}/${file}`, root))));
   const { comparison: run, pixels } = data;
-  const modes = ['original', 'fast', 'wide', run.rows.some(r => r.role === 'upload') ? 'upload' : 'gpu'];
+  const modes = run.trial.activeModes ?? ['original', 'fast', 'wide', run.rows.some(r => r.role === 'upload') ? 'upload' : 'gpu'];
   if (run.errors.length || run.width !== 2560 || run.height !== 1440 || run.quality !== 'medium' || run.shadows || run.samples !== 4) throw Error('Invalid environment: ' + world);
   if (!pixels || pixels.width !== 2560 || pixels.height !== 1440 || pixels.rows.length !== 25) throw Error('Incomplete image checks.');
   if (pixels.errors.length || pixels.rows.some(r => r.changedOver2 || !r.identicalPicking || (r.restored && r.max !== 0)
@@ -24,7 +24,7 @@ function capture(world, file) {
   if (run.rows.length !== motions.length * 16) throw Error('Incomplete blocks.');
   const entries = motions.flatMap(motion => modes.map(mode => {
     const blocks = run.rows.filter(r => r.role === mode && r.motion === motion), raw = blocks.flatMap(b => b.raw), gpu = blocks.flatMap(b => b.gpu);
-    if (blocks.length !== 4 || blocks.some(b => b.actual !== (run.control ? 'original' : mode)) || raw.some(f => f.frame <= 0)) throw Error('Invalid candidate frames.');
+    if (blocks.length !== 4 || blocks.some(b => b.actual !== (run.control ? run.reference ?? 'original' : mode)) || raw.some(f => f.frame <= 0)) throw Error('Invalid candidate frames.');
     for (const b of blocks) for (const g of b.gpu) {
       if (g.passes.filter(p => p.label.startsWith('visibility-')).length !== b.raw[g.frame].computePasses) throw Error('GPU timeline does not match visibility work.');
     }

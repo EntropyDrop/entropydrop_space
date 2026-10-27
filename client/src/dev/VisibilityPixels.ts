@@ -38,7 +38,7 @@ export async function captureVisibilityPixels(game: any, trial: VisibilityTrial,
   try {
     // Compile indirect/direct variants outside both capture comparisons and timings.
     for (const mode of modes) { trial.set(mode); scene.render(false, true); scene.render(false, true); await renderer.backend.device.queue.onSubmittedWorkDone(); }
-    for (const [order, mode] of [...modes, 'original' as const].entries()) {
+    for (const [order, mode] of [...modes, modes[0]].entries()) {
       trial.set(mode);
       for (const [index, pose] of poses.entries()) {
         game.playerPhysics.position.copy(saved.position); game.playerPhysics.position.x += pose.x; game.playerPhysics.position.z += pose.z;

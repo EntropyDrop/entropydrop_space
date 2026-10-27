@@ -8,7 +8,7 @@ const VISIBILITY_ORDER: VisibilityMode[] = ['original','fast','wide','gpu','gpu'
 if (import.meta.hot) import.meta.hot.accept();
 type Motion = 'fixed' | 'sweep' | 'move' | 'across' | 'acrossMove';
 export async function runVisibilityFrames(game: any, trial: VisibilityTrial,
-  options: { motions?: Motion[]; order?: VisibilityMode[]; warmMs?: number; sampleMs?: number; control?: boolean; tag?: string } = {}) {
+  options: { motions?: Motion[]; order?: VisibilityMode[]; warmMs?: number; sampleMs?: number; control?: boolean; reference?: VisibilityMode; tag?: string } = {}) {
   if (!import.meta.env.DEV || !game.offline) throw new Error('Offline DEV required.');
   assertGpuBenchmarkEnvironment();
   const scene = game.sceneRenderer, renderer = scene.renderer, layer = game.world.distantSurface.voxels, device = renderer.backend.device;
@@ -24,7 +24,7 @@ export async function runVisibilityFrames(game: any, trial: VisibilityTrial,
   let pending: Promise<void> | null = null, gpuTick = 0;
   const sampleMs = options.sampleMs ?? 2500, warmMs = options.warmMs ?? 1000;
   const result: any = { revision: 'visibility-frames-v1', world: new URL(location.href).searchParams.get('world'), time: new Date().toISOString(),
-    tag: options.tag ?? (options.control ? 'control' : 'comparison'), control: !!options.control, warmMs, sampleMs,
+    tag: options.tag ?? (options.control ? 'control' : 'comparison'), control: !!options.control, reference: options.reference ?? 'original', warmMs, sampleMs,
     width: renderer.domElement.width, height: renderer.domElement.height, cssWidth: innerWidth, cssHeight: innerHeight,
     quality: scene.getLightingQuality(), shadows: scene.getShadowsEnabled(), samples: renderer.samples,
     commandCaching: layer.getCommandCachingEnabled(), distantSettings: game.world.distantSurface.getSettings(),
@@ -43,7 +43,7 @@ export async function runVisibilityFrames(game: any, trial: VisibilityTrial,
   try {
     for (const motion of options.motions ?? ['across', 'acrossMove']) {
       for (const [block, role] of (options.order ?? VISIBILITY_ORDER).entries()) {
-        assertGpuBenchmarkEnvironment(); trial.set(options.control ? 'original' : role);
+        assertGpuBenchmarkEnvironment(); trial.set(options.control ? options.reference ?? 'original' : role);
         (window as any).visibilityProgress = { state: 'running', world: result.world, tag: result.tag, motion, block, role, completed: result.rows.length };
         const raw: any[] = [], gpu: any[] = [];
         const residentStart = layer.arena.stats.residentFaces;

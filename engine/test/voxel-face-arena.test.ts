@@ -255,6 +255,38 @@ test('cached rotation tests preserve exact maps through position, coverage, mate
   }
 });
 
+test('cluster plane masks preserve exact reference maps and reasons across view and coverage changes', () => {
+  for (const size of [4, 16, 32, 64]) {
+    const candidate = cullingFixture(true), reference = cullingFixture(false);
+    (candidate.arena as any).visibilityClusterSize = size;
+    try {
+      for (let frame = 0; frame < 160; frame++) {
+        for (const f of [candidate, reference]) {
+          f.camera.position.set(Math.sin(frame * .29) * 1024, (frame % 13) * 30, Math.cos(frame * .23) * 600);
+          f.camera.rotation.set(Math.sin(frame * .11), frame * .23, 0);
+          f.camera.fov = 30 + frame % 100; f.camera.aspect = .6 + (frame % 5) * .5;
+          f.camera.near = frame % 7 ? .1 : 400; f.camera.far = frame % 11 ? 10000 : 700;
+          f.data[0] = frame % 3 === 0 ? 255 : frame % 3 === 1 ? 128 : 0; f.coverage.needsUpdate = true;
+          f.mesh.material = frame % 5 ? f.mesh.userData.maskedMaterial : f.mesh.userData.opaqueMaterial;
+          if (frame === 80) {
+            const next = f.bounds.slice(); next[0] += 120; f.mesh.geometry.userData.voxelVisibility = next;
+            (f.arena as any).resetView = true;
+          }
+          f.tick();
+        }
+        for (const key of ['visibleFaces', 'backFaces', 'outsideFaces', 'coveredFaces', 'paddedFaces', 'draws'] as const)
+          assert.equal(candidate.arena.stats[key], reference.arena.stats[key], `${size}/${frame}/${key}`);
+        assert.deepEqual(candidate.arena.pages.map(p => p.map.array), reference.arena.pages.map(p => p.map.array));
+      }
+      (candidate.arena as any).visibilityClusterSize = 0;
+      (candidate.arena as any).resetView = true; candidate.tick(); reference.tick();
+      assert.deepEqual(candidate.arena.pages.map(p => p.map.array), reference.arena.pages.map(p => p.map.array));
+    } finally {
+      for (const f of [candidate, reference]) { f.arena.dispose(); f.coverage.dispose(); assert.equal(f.arena.stats.blockCacheBytes, 0); }
+    }
+  }
+});
+
 test('cached rotation guards retain every sphere intersecting the current frustum', () => {
   const f = cullingFixture(true);
   // Wide normal cones disable back-face rejection, isolating frustum guards.
@@ -479,4 +511,25 @@ test('map switches retire GPU storage once per renderer without retaining previo
   arena.setCompactMapsEnabled(true); const compact = page.map;
   arena.dispose(); arena.dispose();
   for (const row of deleted) assert.deepEqual(row, [old, reference, page.data, compact]);
+});
+
+for (const cached of [false, true]) test(`flat blocks outside the camera can cull inside the torus flattening radius (cached=${cached})`, () => {
+  const group = new THREE.BundleGroup(), mesh = source(32, 0), data = new Float32Array(24);
+  data.set([0, 0, -100, 2, 0, 0, 0, 2, 0, 1, 0, 1], 0);
+  data.set([0, 0, 100, 2, 0, 0, 0, 2, 0, 1, 0, 1], 12);
+  mesh.geometry.userData.voxelVisibility = data; mesh.geometry.userData.voxelProjection = 'flat'; group.add(mesh);
+  const arena = new VoxelFaceArena(group, make), camera = new THREE.PerspectiveCamera(70, 16/9, .1, 1024);
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(camera.projectionMatrix);
+  const coverage = new THREE.DataTexture(new Uint8Array(1024*128*2),1024,128,THREE.RGFormat);
+  arena.setViewOptimizationsEnabled(cached);
+  const tick = () => {arena.setView(camera.position, frustum, coverage, true);arena.restoreSources();arena.sync(Infinity);};
+  try {
+    setWorldProjection('flat');arena.setFlatBlockCullingEnabled(false);tick();assert.equal(arena.stats.visibleFaces,32);
+    const original = Array.from(arena.pages[0].map.array);
+    arena.setFlatBlockCullingEnabled(true);tick();assert.equal(arena.stats.visibleFaces,16);assert.equal(arena.stats.outsideFaces,16);
+    assert.equal(arena.pages[0].map.array[0],0,'the visible front block remains');
+    arena.setFlatBlockCullingEnabled(false);tick();assert.deepEqual(Array.from(arena.pages[0].map.array),original);
+    arena.setFlatBlockCullingEnabled(true);setWorldProjection('torus');mesh.geometry.userData.voxelProjection='torus';tick();
+    assert.equal(arena.stats.visibleFaces,32,'torus keeps the flattening exemption');
+  } finally {arena.dispose();coverage.dispose();setWorldProjection('torus');}
 });

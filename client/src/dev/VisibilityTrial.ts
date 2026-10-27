@@ -4,7 +4,7 @@ import { installVisibilityUploadTrial } from './VisibilityUploadTrial.ts';
 import { installVisibilityCpuTrial } from './VisibilityCpuTrial.ts';
 import { installVisibilityGpuTrial } from './VisibilityGpuTrial.ts';
 export const VISIBILITY_MODES = ['original', 'fast', 'wide', 'gpu'] as const;
-export type VisibilityMode = typeof VISIBILITY_MODES[number] | 'upload';
+export type VisibilityMode = typeof VISIBILITY_MODES[number] | 'upload' | 'cluster16' | 'cluster32' | 'cluster64';
 if (import.meta.hot) import.meta.hot.accept();
 export async function createVisibilityTrial(game: any) {
   if (!import.meta.env.DEV || !game.offline) throw Error('Offline DEV required.');
@@ -13,6 +13,8 @@ export async function createVisibilityTrial(game: any) {
     || !arena.getBlockInstancingEnabled() || arena.getInstanceFaces() !== 32 || arena.getCompactMapsEnabled()
     || !arena.getViewOptimizations().cached) throw Error('Default packed torus arena required, surface backface filter off.');
   let mode: VisibilityMode = 'original', closed = false;
+  const savedClusterSize = arena.visibilityClusterSize;
+  arena.visibilityClusterSize = 0;
   const stats = { computePasses: 0, indirectDraws: 0, gpuEncodeMs: 0, newGpuPages: 0, gpuBytes: 0,
     arenaMs: 0, arenaCalls: 0, visibilityQueries: 0 };
   const undoCpu = installVisibilityCpuTrial(arena, () => mode);
@@ -23,10 +25,11 @@ export async function createVisibilityTrial(game: any) {
   interceptMethod(arena, 'setView', (original, args) => { const epoch = arena.viewEpoch; const result = original(...args);
     stats.visibilityQueries += Number(arena.viewEpoch !== epoch); return result; })];
   function set(next: VisibilityMode) {
-    if (closed || ![...VISIBILITY_MODES, 'upload'].includes(next)) throw Error('Invalid visibility mode.');
+    if (closed || ![...VISIBILITY_MODES, 'upload', 'cluster16', 'cluster32', 'cluster64'].includes(next)) throw Error('Invalid visibility mode.');
     if (next === mode) return;
     if (mode === 'gpu') gpu.restoreIndirect();
     mode = next; undoCpu.update(); arena.resetView = arena.visibilityDirty = true; arena.positionEpoch++; arena.viewEpoch++;
+    arena.visibilityClusterSize = next.startsWith('cluster') ? Number(next.slice(7)) : 0;
     for (const page of arena.pages) for (const entry of page.entries) {
       entry.visibility = undefined; if (entry.blockTests) { entry.blockTests.position = -1; entry.blockTests.view = -1; }
     }
@@ -38,9 +41,10 @@ export async function createVisibilityTrial(game: any) {
       wide: 'Fast math plus 32 m / .12 plane-normal reuse guards, 34 m / .121 conservative rejection margins',
       gpu: 'Stable classify / per-run prefix / scatter; existing page order; indirect indexed draws; masked CPU fallback',
       upload: 'Production wide CPU plus exact map comparison and changed-range uploads; DEV only',
+      clusters: 'Production wide CPU plus order-preserving sphere groups of 16/32/64 visibility blocks; exact plane masks',
       originalGuards: { translation: 16, rotation: .06, padding: 18, angularPadding: .061 } },
     beginFrame() { stats.arenaMs = stats.arenaCalls = stats.visibilityQueries = 0; },
-    dispose() { if (closed) return; set('original'); closed = true; undo.reverse().forEach(f => f()); gpu.dispose(); undoCpu.dispose(); }
+    dispose() { if (closed) return; set('original'); closed = true; undo.reverse().forEach(f => f()); gpu.dispose(); undoCpu.dispose(); arena.visibilityClusterSize = savedClusterSize; }
   };
 }
 export type VisibilityTrial = Awaited<ReturnType<typeof createVisibilityTrial>>;

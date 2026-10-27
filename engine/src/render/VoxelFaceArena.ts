@@ -5,6 +5,7 @@ import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { orderVoxelPages } from './VoxelDrawOrder.ts';
 import { getWorldProjection, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
 import { BACKFACE_PROXY_STRIDE, surfaceFacingProxy, surfaceBlockBackFacing } from './TorusBackfaceMath.ts';
+import { buildVoxelVisibilityClusters, updateVoxelVisibilityClusters, type VoxelVisibilityClusters } from './VoxelVisibilityClusters.ts';
 
 export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
@@ -12,8 +13,8 @@ const BLOCK = VOXEL_FACE_BLOCK;
 const PAGE_FACES = 256 * 1024;
 /** World coordinates fit Float64 squared distance. Share one distance between
  * the normal cone and frustum guards; retain view-local flattened geometry. */
-function blockFacing(data: Float32Array, at: number, dx: number, dy: number, dz: number, distance: number, padding: number) {
-  if (distance - data[at + 3] <= 256 + padding) return 2;
+function blockFacing(data: Float32Array, at: number, dx: number, dy: number, dz: number, distance: number, padding: number, viewFlattening: boolean) {
+  if (viewFlattening && distance - data[at + 3] <= 256 + padding) return 2;
   return data[at + 4] * dx + data[at + 5] * dy + data[at + 6] * dz
     + distance * data[at + 7] + data[at + 3] + padding < 0 ? 1 : 0;
 }
@@ -52,7 +53,7 @@ const unpackColor = wgslFn('fn voxelArenaColor(value: u32) -> vec3<f32> { return
 type Range = { start: number; count: number };
 type BlockTests = { data: Float32Array; position: number; coverage: number;
   distance: Float64Array; facing: Uint8Array; covered: Uint8Array;
-  sphere: THREE.Sphere; view: number; planeMask: number };
+  sphere: THREE.Sphere; view: number; planeMask: number; clusters?: VoxelVisibilityClusters };
 type Entry = Range & { mesh: VoxelFaceMesh; geometry: THREE.InstancedBufferGeometry; page: Page; allocated: number; copied: number;
   attributes?: THREE.BufferAttribute[]; versions: number[]; origin: THREE.Vector3;
   visibility?: { map: Float32Array; blocks: number; faces: number; view: number; mask: number; masked: boolean;
@@ -105,6 +106,9 @@ export class VoxelFaceArena {
   // The angular term bounds delta-normal dot (block-center - query-camera).
   private readonly viewReuse = { translation: 32, normal: .12, padding: 34, angular: .121 };
   private cachedBlockTests = true;
+  private flatBlockCulling = true;
+  // DEV candidate until ordinary-frame comparisons establish a benefit.
+  private visibilityClusterSize = 0;
   private torusBackfaceCulling = false;
   private surfaceProxies = new WeakMap<Float32Array, Float64Array>();
   private blockInstancing = true;
@@ -133,6 +137,14 @@ export class VoxelFaceArena {
     this.cachedBlockTests = cached; this.resetView = true;
   }
   getViewOptimizations() { return { cached: this.cachedBlockTests }; }
+
+  /** Flat geometry needs no camera-local bending exemption. Reference switch for benchmarks. */
+  setFlatBlockCullingEnabled(enabled: boolean) {
+    if (enabled === this.flatBlockCulling) return;
+    this.flatBlockCulling = enabled;
+    this.positionEpoch++; this.viewEpoch++; this.resetView = this.visibilityDirty = true;
+    this.root.needsUpdate = true;
+  }
 
   /** Optional lossy far-terrain filter. Never allocates proxies while off. */
   setTorusBackfaceCullingEnabled(enabled: boolean) {
@@ -264,7 +276,7 @@ export class VoxelFaceArena {
     const x = this.camera.x, y = this.camera.y, z = this.camera.z;
     const dx = x - data[at], dy = y - data[at + 1], dz = z - data[at + 2];
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz), { padding, angular } = this.viewReuse;
-    const facing = blockFacing(data, at, dx, dy, dz, distance, padding);
+    const facing = blockFacing(data, at, dx, dy, dz, distance, padding, !this.flatBlockCulling || getWorldProjection() !== 'flat');
     if (facing === 1) return 1;
     // Nearby vertices receive view-local flattening, so their bent-space sphere
     // cannot reject them. The source draw retains its conservative view bounds.
@@ -285,7 +297,7 @@ export class VoxelFaceArena {
     if (!this.cachedBlockTests || !this.visibilityEnabled || !data) return;
     let cache = entry.blockTests;
     if (!cache || cache.data !== data) {
-      if (cache) this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength;
+      if (cache) this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength + (cache.clusters?.bytes ?? 0);
       const blocks = Math.ceil(entry.count / BLOCK);
       cache = entry.blockTests = { data, position: -1, coverage: -1,
         distance: new Float64Array(blocks), facing: new Uint8Array(blocks), covered: new Uint8Array(blocks),
@@ -301,9 +313,16 @@ export class VoxelFaceArena {
       }
       bounds.getBoundingSphere(cache.sphere); cache.sphere.radius += .001;
     }
+    if ((cache.clusters?.size ?? 0) !== this.visibilityClusterSize) {
+      this.stats.blockCacheBytes -= cache.clusters?.bytes ?? 0;
+      cache.clusters = this.visibilityClusterSize ? buildVoxelVisibilityClusters(data, this.visibilityClusterSize) : undefined;
+      this.stats.blockCacheBytes += cache.clusters?.bytes ?? 0;
+      cache.view = -1;
+    }
     const count = Math.min(cache.distance.length, Math.floor(data.length / VOXEL_VISIBILITY_STRIDE));
     if (cache.position !== this.positionEpoch) {
       const { x, y, z } = this.camera, { padding } = this.viewReuse;
+      const viewFlattening = !this.flatBlockCulling || getWorldProjection() !== 'flat';
       const surface = this.torusBackfaceCulling && getWorldProjection() === 'torus'
         ? this.surfaceProxy(data) : undefined;
       for (let block = 0; block < count; block++) {
@@ -311,7 +330,7 @@ export class VoxelFaceArena {
         const dx = x - data[at], dy = y - data[at + 1], dz = z - data[at + 2];
         const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         cache.distance[block] = distance;
-        cache.facing[block] = blockFacing(data, at, dx, dy, dz, distance, padding);
+        cache.facing[block] = blockFacing(data, at, dx, dy, dz, distance, padding, viewFlattening);
         if (surface && cache.facing[block] !== 1 && surfaceBlockBackFacing(surface,
           block * BACKFACE_PROXY_STRIDE, x, y, z, distance, data[at + 3], padding)) cache.facing[block] = 1;
       }
@@ -335,6 +354,8 @@ export class VoxelFaceArena {
         if (!(value - extent >= 0)) cache.planeMask |= 1 << plane;
       }
       cache.view = this.viewEpoch;
+      if (cache.clusters && cache.planeMask > 0) updateVoxelVisibilityClusters(cache.clusters,
+        this.camera, this.frustum, cache.planeMask, this.viewReuse.padding, this.viewReuse.angular);
     }
     return cache;
   }
@@ -346,10 +367,12 @@ export class VoxelFaceArena {
     if (masked && cache.covered[block]) return 3;
     if (cache.facing[block] === 1) return 1;
     if (cache.facing[block] === 2) return 0;
-    if (cache.planeMask === -1) return 2;
-    if (cache.planeMask === 0) return 0;
+    const planeMask = cache.planeMask > 0 && cache.clusters
+      ? cache.clusters.planes[Math.floor(block / cache.clusters.size)] : cache.planeMask;
+    if (planeMask === -1) return 2;
+    if (planeMask === 0) return 0;
     const margin = -data[at + 3] - this.viewReuse.padding - cache.distance[block] * this.viewReuse.angular;
-    for (let i = 0; i < 6; i++) if (cache.planeMask & (1 << i)) {
+    for (let i = 0; i < 6; i++) if (planeMask & (1 << i)) {
       const p = this.frustum.planes[i];
       if (p.normal.x * data[at] + p.normal.y * data[at + 1] + p.normal.z * data[at + 2] + p.constant < margin) return 2;
     }
@@ -490,7 +513,7 @@ export class VoxelFaceArena {
     this.entries.delete(entry.mesh); entry.page.entries.delete(entry);
     if (entry.blockTests) {
       const cache = entry.blockTests;
-      this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength;
+      this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength + (cache.clusters?.bytes ?? 0);
       entry.blockTests = undefined;
     }
     const ranges = entry.page.free;

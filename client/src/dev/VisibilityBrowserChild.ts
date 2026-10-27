@@ -29,11 +29,11 @@ try {
   if (config.world === 'nature') game.playerPhysics.position.y = 180;
   game.playerPhysics.velocity.set(0, 0, 0); game.playerPhysics.resetRenderInterpolation();
   await host.checkpoint?.(config.world, diagnostic('ready'));
-  if (config.probeOnly) await host.accept(config.world, 'probe', await runVisibilityExperiment(game, { probeOnly: true, production: !!config.production }));
+  if (config.probeOnly) await host.accept(config.world, 'probe', await runVisibilityExperiment(game, { probeOnly: true, production: !!config.production, clusters: !!config.clusters }));
   else for (const [name, options] of config.onlyControl ? [['control', { control: true }]] as const
     : [['raw', {}], ['repeat', { repeat: true }], ['control', { control: true }]] as const) {
     await host.checkpoint?.(config.world, diagnostic(`running-${name}`));
-    await host.accept(config.world, name, await runVisibilityExperiment(game, { ...options, production: !!config.production }));
+    await host.accept(config.world, name, await runVisibilityExperiment(game, { ...options, production: !!config.production, clusters: !!config.clusters }));
   }
   host.complete();
 } catch (error) { host.fail(String(error)); }

@@ -1,0 +1,21 @@
+{
+  "baseCommit": "97835fb",
+  "terrainCanonicalCrc32": "bef315c8",
+  "minecraftModJarSha256": "600481d964c122c7967ec107d10ecc7d307a70d286ec99abb05d85727320ee78",
+  "distantHorizonsVersion": "3.3.3-1.21.1",
+  "sodiumVersion": "0.6.13+mc1.21.1",
+  "voxySourceCommit": "5bf33350a1cc7bb7e2b5d947b236c56d878b8a7d",
+  "dhSourceCommit": "65e86b5c02d3c9bf3be807829227023d9a61ed9a",
+  "excluded": [
+    "First native attempt: actual framebuffer 1788x2186; aborted before samples.",
+    "Initial Space flat toggle: no stationary list invalidation; no optimization inference. Valid near/far rows retained.",
+    "Initial moving pixel capture: geometry publication advanced between images. Replaced with frozen-geometry correctness checks; ordinary moving performance remains unfrozen."
+  ],
+  "movingSensitivity": {
+    "reason": "First moving reference block includes 115 pending frames, later blocks have 9-10. Exclude it as a sensitivity check, not from the main balanced result.",
+    "gpuReferenceMsExcludingFirst": 3.7992186845637583,
+    "gpuCandidateMs": 3.149037898989899,
+    "gpuReductionPercentExcludingFirst": 17.113539376281416
+  },
+  "clusterMeasurementCaveat": "Dependency downloads overlapped some initial samples. No build ran during measurement. Repeat and identical-code controls do not establish a stable benefit; candidate remains disabled."
+}

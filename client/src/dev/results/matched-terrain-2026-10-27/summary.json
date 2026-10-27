@@ -1,0 +1,477 @@
+{
+  "native": {
+    "near": {
+      "mean": 1.0790732993202783,
+      "p50": 0.719416,
+      "p95": 2.878875,
+      "n": 37074
+    },
+    "dh": {
+      "mean": 3.709299900268792,
+      "p50": 3.292583,
+      "p95": 7.7555,
+      "n": 10789
+    }
+  },
+  "spaceBaseline": {
+    "near": {
+      "frame": {
+        "mean": 8.333901830104345,
+        "p50": 8.299999713897705,
+        "p95": 10.300000190734863,
+        "n": 4808
+      },
+      "cpu": {
+        "mean": 1.6487312854427267,
+        "p50": 1.5999999046325684,
+        "p95": 1.9000000953674316,
+        "n": 4808
+      },
+      "gpu": {
+        "mean": 1.573682177278402,
+        "p50": 1.31072,
+        "p95": 2.94912,
+        "n": 801
+      },
+      "faces": 1250379,
+      "calls": 114,
+      "triangles": 784273,
+      "pendingFrames": 0,
+      "blockGpuMeans": [
+        1.4761984,
+        1.63577856,
+        1.6203776,
+        1.562430407960199
+      ]
+    },
+    "wide": {
+      "frame": {
+        "mean": 8.332425691164152,
+        "p50": 8.299999713897705,
+        "p95": 10.300000190734863,
+        "n": 4811
+      },
+      "cpu": {
+        "mean": 1.915693206862436,
+        "p50": 1.9000000953674316,
+        "p95": 2.200000286102295,
+        "n": 4811
+      },
+      "gpu": {
+        "mean": 3.6915889476309225,
+        "p50": 3.670016,
+        "p95": 4.521984,
+        "n": 802
+      },
+      "faces": 1250379,
+      "calls": 143.2498441072542,
+      "triangles": 3285905,
+      "pendingFrames": 0,
+      "blockGpuMeans": [
+        3.53763328,
+        3.8447786666666666,
+        3.7407687960199003,
+        3.6421632
+      ]
+    }
+  },
+  "spaceStatic": {
+    "flat": {
+      "frame": {
+        "mean": 8.342286071205496,
+        "p50": 8.299999713897705,
+        "p95": 10.099999904632568,
+        "n": 4803
+      },
+      "cpu": {
+        "mean": 1.7957318384598226,
+        "p50": 1.799999713897705,
+        "p95": 2.0999999046325684,
+        "n": 4803
+      },
+      "gpu": {
+        "mean": 2.74448384,
+        "p50": 2.555904,
+        "p95": 4.194304,
+        "n": 800
+      },
+      "faces": 419659,
+      "calls": 134,
+      "triangles": 1624145,
+      "pendingFrames": 0,
+      "blockGpuMeans": [
+        2.72334848,
+        2.7328512,
+        2.86031872,
+        2.66141696
+      ]
+    },
+    "wide": {
+      "frame": {
+        "mean": 8.33530145534111,
+        "p50": 8.299999713897705,
+        "p95": 10.099999904632568,
+        "n": 4810
+      },
+      "cpu": {
+        "mean": 1.8771933405909866,
+        "p50": 1.8999996185302734,
+        "p95": 2.1999998092651367,
+        "n": 4810
+      },
+      "gpu": {
+        "mean": 3.807788688279302,
+        "p50": 3.801088,
+        "p95": 4.718592,
+        "n": 802
+      },
+      "faces": 1250379,
+      "calls": 145,
+      "triangles": 3285905,
+      "pendingFrames": 0,
+      "blockGpuMeans": [
+        3.79191296,
+        3.647192517412935,
+        3.88857856,
+        3.903793671641791
+      ]
+    }
+  },
+  "spaceMoving": {
+    "flat": {
+      "frame": {
+        "mean": 8.434687434284593,
+        "p50": 8.300000190734863,
+        "p95": 10,
+        "n": 4751
+      },
+      "cpu": {
+        "mean": 3.266449168315061,
+        "p50": 2.3999996185302734,
+        "p95": 8.299999713897705,
+        "n": 4751
+      },
+      "gpu": {
+        "mean": 3.149037898989899,
+        "p50": 3.080192,
+        "p95": 4.325376,
+        "n": 792
+      },
+      "faces": 486293.37760471477,
+      "calls": 141.47084824247526,
+      "triangles": 1781427.550620922,
+      "pendingFrames": 39,
+      "blockGpuMeans": [
+        3.0768652994923857,
+        3.1035977142857143,
+        3.2063241005025125,
+        3.20765952
+      ]
+    },
+    "wide": {
+      "frame": {
+        "mean": 8.431695022094253,
+        "p50": 8.300000190734863,
+        "p95": 10,
+        "n": 4761
+      },
+      "cpu": {
+        "mean": 3.389140936537616,
+        "p50": 2.4000000953674316,
+        "p95": 8.700000286102295,
+        "n": 4761
+      },
+      "gpu": {
+        "mean": 3.801997074401009,
+        "p50": 3.735552,
+        "p95": 4.390912,
+        "n": 793
+      },
+      "faces": 1371965.8813274521,
+      "calls": 153.53602184415038,
+      "triangles": 3555191.418399496,
+      "pendingFrames": 142,
+      "blockGpuMeans": [
+        3.8104027614213196,
+        3.8363259497487436,
+        3.7448197171717172,
+        3.816237025125628
+      ]
+    }
+  },
+  "staticGpuReductionPercent": 27.92447100733938,
+  "movingGpuReductionPercent": 17.17411041180198,
+  "staticFaceReductionPercent": 66.43745616329129,
+  "canonicalVolume": {
+    "validated": "All generated solid blocks and the first air cell above every column match TerrainSpec",
+    "canonicalVolumeCrc32": "bef315c8",
+    "seed": 42,
+    "chunks": 4096,
+    "size": 1024,
+    "traversalCrc32": "8ab50678"
+  },
+  "minecraftMods": [
+    "distanthorizons@3.3.3",
+    "fabric-api-base@0.4.42+6573ed8c19",
+    "fabric-api-lookup-api-v1@1.6.72+7b3d111d19",
+    "fabric-api@0.116.11+1.21.1",
+    "fabric-biome-api-v1@13.0.31+d527f9fd19",
+    "fabric-block-api-v1@1.1.0+0bc3503219",
+    "fabric-block-view-api-v2@1.0.11+ebb2264e19",
+    "fabric-blockrenderlayer-v1@1.1.52+0af3f5a719",
+    "fabric-client-tags-api-v1@1.1.15+6573ed8c19",
+    "fabric-command-api-v1@1.2.49+f71b366f19",
+    "fabric-command-api-v2@2.2.28+6ced4dd919",
+    "fabric-commands-v0@0.2.66+df3654b319",
+    "fabric-content-registries-v0@8.0.19+b559734419",
+    "fabric-convention-tags-v1@2.1.7+7f945d5b19",
+    "fabric-convention-tags-v2@2.12.0+c3656daa19",
+    "fabric-crash-report-info-v1@0.2.29+0af3f5a719",
+    "fabric-data-attachment-api-v1@1.4.6+5b36e0f719",
+    "fabric-data-generation-api-v1@20.2.37+60a6976219",
+    "fabric-dimensions-v1@4.0.1+65213ef819",
+    "fabric-entity-events-v1@1.8.0+2b27e0a419",
+    "fabric-events-interaction-v0@0.7.13+ba9dae0619",
+    "fabric-game-rule-api-v1@1.0.53+6ced4dd919",
+    "fabric-item-api-v1@11.2.0+3b3cb2e819",
+    "fabric-item-group-api-v1@4.1.7+def88e3a19",
+    "fabric-key-binding-api-v1@1.0.47+0af3f5a719",
+    "fabric-keybindings-v0@0.2.45+df3654b319",
+    "fabric-lifecycle-events-v1@2.6.0+0865547519",
+    "fabric-loot-api-v2@3.0.15+3f89f5a519",
+    "fabric-loot-api-v3@1.0.3+3f89f5a519",
+    "fabric-message-api-v1@6.0.14+8aaf3aca19",
+    "fabric-model-loading-api-v1@2.1.0+b4d813fc19",
+    "fabric-networking-api-v1@4.3.0+c7469b2119",
+    "fabric-object-builder-api-v1@15.2.1+40875a9319",
+    "fabric-particles-v1@4.0.2+6573ed8c19",
+    "fabric-recipe-api-v1@5.0.15+2475392c19",
+    "fabric-registry-sync-v0@5.3.1+e3eddc2119",
+    "fabric-renderer-api-v1@3.4.1+b4d813fc19",
+    "fabric-renderer-indigo@1.7.1+c705a49c19",
+    "fabric-renderer-registries-v1@3.2.69+df3654b319",
+    "fabric-rendering-data-attachment-v1@0.3.49+73761d2e19",
+    "fabric-rendering-fluids-v1@3.1.6+1daea21519",
+    "fabric-rendering-v0@1.1.72+df3654b319",
+    "fabric-rendering-v1@5.1.0+ab4c25a019",
+    "fabric-resource-conditions-api-v1@4.3.0+8dc279b119",
+    "fabric-resource-loader-v0@1.3.1+5b5275af19",
+    "fabric-screen-api-v1@2.0.25+8b68f1c719",
+    "fabric-screen-handler-api-v1@1.3.90+b559734419",
+    "fabric-sound-api-v1@1.0.23+6573ed8c19",
+    "fabric-transfer-api-v1@5.4.4+7b3d111d19",
+    "fabric-transitive-access-wideners-v1@6.2.0+45b9699719",
+    "fabricloader@0.18.0",
+    "java@21",
+    "minecraft@1.21.1",
+    "mixinextras@0.5.0",
+    "sodium@0.6.13+mc1.21.1",
+    "spacebench@1.0.0"
+  ],
+  "pixelChecks": [
+    {
+      "mode": "wide",
+      "max": 0,
+      "changedOver2": 0,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "flat",
+      "max": 0,
+      "changedOver2": 0,
+      "visibleFaces": 419659
+    },
+    {
+      "mode": "restored",
+      "max": 0,
+      "changedOver2": 0,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "near",
+      "max": 224,
+      "changedOver2": 204576,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "wide",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 0
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "wide",
+      "view": {
+        "x": 18,
+        "z": 8,
+        "yaw": 0.07
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "wide",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 1.5707963267948966
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1262340
+    },
+    {
+      "mode": "wide",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 3.141592653589793
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1275490
+    },
+    {
+      "mode": "wide",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 0
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "flat",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 0
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 419659
+    },
+    {
+      "mode": "flat",
+      "view": {
+        "x": 18,
+        "z": 8,
+        "yaw": 0.07
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 419659
+    },
+    {
+      "mode": "flat",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 1.5707963267948966
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 440892
+    },
+    {
+      "mode": "flat",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 3.141592653589793
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 455921
+    },
+    {
+      "mode": "flat",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 0
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 419659
+    },
+    {
+      "mode": "restored",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 0
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "restored",
+      "view": {
+        "x": 18,
+        "z": 8,
+        "yaw": 0.07
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1250379
+    },
+    {
+      "mode": "restored",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 1.5707963267948966
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1262340
+    },
+    {
+      "mode": "restored",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 3.141592653589793
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1275490
+    },
+    {
+      "mode": "restored",
+      "view": {
+        "x": 0,
+        "z": 0,
+        "yaw": 0
+      },
+      "max": 0,
+      "changedOver2": 0,
+      "identicalPicking": true,
+      "visibleFaces": 1250379
+    }
+  ]
+}

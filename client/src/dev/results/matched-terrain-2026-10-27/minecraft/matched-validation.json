@@ -1,0 +1,8 @@
+{
+  "validated": "All generated solid blocks and the first air cell above every column match TerrainSpec",
+  "canonicalVolumeCrc32": "bef315c8",
+  "seed": 42,
+  "chunks": 4096,
+  "size": 1024,
+  "traversalCrc32": "8ab50678"
+}

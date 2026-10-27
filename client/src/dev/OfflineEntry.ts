@@ -5,6 +5,7 @@ import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { readResponseBytes } from '../bootstrap/NetworkSafety.ts';
 import { networkTraffic } from '../bootstrap/NetworkTraffic.ts';
 import { installFrameDiagnostics } from './FrameDiagnostics.ts';
+import { MATCHED_SEED, TERRAIN_GENERATOR_MATCHED } from '@entropydrop/space-engine/worldgen/MatchedTerrainSpec.ts';
 
 interface OfflineGame {
   world: World;
@@ -55,6 +56,11 @@ export function offlineSession(world = 'copper-metropolis'): ReadySpaceSession {
       seed: 42, terrain_generator_version: lab.version };
     Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 22000, start_z_cm: 102450 });
   }
+  if (world === 'matched-blocks') {
+    session.world = { ...session.world, id: 'dev-matched-blocks', slug: world, name: 'Matched unit blocks (development only)',
+      seed: MATCHED_SEED, terrain_generator_version: TERRAIN_GENERATOR_MATCHED };
+    Object.assign(session.player, { start_x_cm: 819250, start_y_cm: 9600, start_z_cm: 102450 });
+  }
   return session;
 }
 
@@ -75,6 +81,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   const baseline = parameters.get('dev_baseline') === '1';
   const busyStreaming = parameters.get('dev_stream_busy') === '1';
   const game = create(offlineSession(parameters.get('world') ?? undefined), ephemeralStorage());
+  if (parameters.get('world') === 'matched-blocks') (game as any).uiStore.setWorldProjection('flat', false);
   const fixedDpr = Number(parameters.get('dev_dpr'));
   if (fixedDpr >= .5 && fixedDpr <= 2) game.sceneRenderer.cappedDevicePixelRatio = () => fixedDpr;
   (window as any).game = game;
@@ -107,6 +114,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
     game.start();
     const surface = ['1', 'world'].includes(parameters.get('dev_lod') ?? '')
       ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world, parameters.get('dev_lod') === 'world') : null;
+    (window as any).offlineSurfaceStatus = surface;
     installDiagnostics(game, baseline, surface, busyStreaming);
     if (parameters.get('dev_perf') === '1') installFrameDiagnostics(game);
     if (parameters.get('dev_webgpu') === '1') {

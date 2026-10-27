@@ -1,9 +1,12 @@
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { createSpaceSurfaceSnapshotRemote } from '../bootstrap/SpaceSurfaceSnapshot.ts';
+import { TERRAIN_GENERATOR_MATCHED } from '@entropydrop/space-engine/worldgen/MatchedTerrainSpec.ts';
 
 /** Real volumetric snapshots, real streaming/LOD/disk-cache path, no server calls. */
 export function startOfflineSurface(world: World, repeatWorld = false) {
-  const status = { generated: 0, total: repeatWorld ? 128 : 8, downloads: 0, passes: 0, fineZones: 0, error: '', progress: '' };
+  const matched = world.terrainGen.version === TERRAIN_GENERATOR_MATCHED;
+  if (matched) repeatWorld = false;
+  const status = { generated: 0, total: matched ? 4 : repeatWorld ? 128 : 8, downloads: 0, passes: 0, fineZones: 0, error: '', progress: '' };
   const fineZones = new Set<string>();
   const payloads = new Map<string, Uint8Array>(), zones: any[] = [];
   const templates = new Map<number, Uint8Array>();
@@ -49,7 +52,7 @@ export function startOfflineSurface(world: World, repeatWorld = false) {
   // Four districts around spawn and four across the hole. Intentionally a
   // bounded test fixture, not a full-world generation benchmark.
   worker.postMessage({ seed, version, repeatWorld,
-    zones: repeatWorld ? [[16,2]] : [[15,1],[15,2],[16,1],[16,2],[0,1],[0,2],[31,1],[31,2]] });
+    zones: matched ? [[15,1],[15,2],[16,1],[16,2]] : repeatWorld ? [[16,2]] : [[15,1],[15,2],[16,1],[16,2],[0,1],[0,2],[31,1],[31,2]] });
   const poll = async () => {
     try {
       if (zones.length) {

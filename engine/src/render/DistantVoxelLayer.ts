@@ -103,6 +103,7 @@ export class DistantVoxelLayer {
   private arena: VoxelFaceArena | null = null;
   private arenaDirty = true;
   private torusBackfaceCulling = false;
+  private flatBlockCulling = true;
   private maskVersion = -1;
   private cullDirty = true;
   private readonly view: VoxelLodView = { camera: [0, 0, 0], focal: 720, area: 16,
@@ -203,6 +204,7 @@ export class DistantVoxelLayer {
         return mesh;
       });
       this.arena.setTorusBackfaceCullingEnabled(this.torusBackfaceCulling);
+      this.arena.setFlatBlockCullingEnabled(this.flatBlockCulling);
       this.group.userData.voxelArenaStats = this.arena.stats; this.arena.sync();
     }
     this.group.needsUpdate = true;
@@ -227,6 +229,15 @@ export class DistantVoxelLayer {
   }
   getBlockInstancingEnabled() { return this.arena?.getBlockInstancingEnabled() ?? false; }
   getInstanceFaces() { return this.arena?.getInstanceFaces() ?? 32; }
+
+  /** Reference control; production flat projection does not need a bending exemption. */
+  setFlatBlockCullingEnabled(enabled: boolean) {
+    if (this.flatBlockCulling === enabled) return;
+    this.flatBlockCulling = enabled;
+    this.arena?.setFlatBlockCullingEnabled(enabled);
+    this.cullDirty = this.arenaDirty = true;
+    this.group.needsUpdate = true;
+  }
 
   setTurnOptimizationsEnabled(cached: boolean) {
     this.arena?.setViewOptimizationsEnabled(cached);
