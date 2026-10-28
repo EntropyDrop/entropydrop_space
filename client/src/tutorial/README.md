@@ -7,9 +7,9 @@ without account admission or server APIs.
 The base world is a torus with a constant ground height (top surface at Y=17),
 generated in the browser by terrain generator version 9. Gray and off-white
 blocks alternate in a one-block checkerboard across the ground. No terrain decorations
-or hills are generated. The fixed 25 by 25 chunk square is centered 112 m ahead
+or hills are generated. The fixed 25 by 25 chunk square is centered 128 m ahead
 of the saved spawn, along its heading (12 chunks in each direction, 625 total).
-This covers the entire straight course and the final driving lane. The
+This covers the entire straight course, the driving lane and the Modeling station. The
 window does not follow the player, and distant terrain is always disabled.
 Terrain-distance settings from other worlds do not change the tutorial window.
 
@@ -24,8 +24,8 @@ from the repository root to rebuild the clear pixel lettering and spoked wheel. 
 motor stand, chassis guides, and driving lane continue beyond chapter 09.
 Signs ask players to check STANDARD/MICRO instead of blindly toggling Tab at
 every chapter. Tab switches modes when the displayed mode is different.
-From chapter 08 onward, selection exercises use MICRO mode. Nearby A/B labels
-point to the actual corner microcells and disappear when those cells are assembled.
+From chapter 08 onward, selection exercises use MICRO mode. Colored corner
+microcells identify the selection endpoints without additional HUD labels.
 A new click after a completed selection immediately starts the next selection. The horizontal
 rotation cylinder and its two corner markers use individual microcells. Run
 `node client/tools/refresh-tutorial-micro-practice.mjs` to rebuild it and the
@@ -34,10 +34,10 @@ Chapter 09's airborne subject is a double-cab off-road pickup without wheels:
 it has a low hood, four doors, large tinted windows, an open ribbed cargo bed,
 sport bar, lights, recovery bumpers, running boards and interior seats. Four
 flared wheel arches and recessed axle mounting pads remain for the chapter 10
-wheels. A single blue microcell in the front bumper and a single green microcell
-at the rear radio antenna tip belong to the body. Chapter 09
-uses a micro-grid box between these opposite corners to select every vehicle
-voxel; no separate helper blocks are assembled.
+wheels. A single blue microcell is embedded in the front bumper; a single green
+microcell floats at the opposite upper rear corner without a supporting post.
+Chapter 09 uses a micro-grid box between these opposite corners to select every
+vehicle voxel. The floating green microcell is included in the assembled entity.
 The body is 9 m long, 4.25 m wide and 3.125 m high, proportioned around the
 2 m diameter lesson wheel; the wheelbase is 6 m. Tires sit beneath the flared
 arches, with their complete rotating envelope clear of the bodywork.
@@ -62,6 +62,17 @@ Kinematic wheel scripts drive the dynamic chassis through terrain contact
 friction; the chassis needs no thrust script. Keep wheel collision enabled,
 use a nonzero wheel friction, and point the car along the lane before starting.
 
+Chapter 14 continues straight beyond the driving lane with one stopped, kinematic
+work pad. Its empty half is for practice; the other half shows a finished sloping
+panel. Press `7`, aim at the empty gray pad, then hold and drag RMB and release
+to create a panel. Creation selects it automatically; LMB selects it again later. Escape releases the cursor
+for the right properties panel: set Dimensions X/Y/Z to `4`, `0.25`, `3` and
+Rotation Z to `-30`. Lift it with the Y arrow to clear the base. Modeling produces
+visual decorations without collision; the example is not a drivable ramp.
+Run `node client/tools/refresh-tutorial-modeling.mjs` to rebuild this work pad.
+The finish sign is after this chapter. The fixed terrain window shifts one chunk
+forward to cover it while retaining the same 625 chunks and disabled distant terrain.
+
 Run `npm run dev` and open the tutorial on `localhost`, `127.0.0.1` or `[::1]`.
 Build the lesson with the normal tools, then click **Save Level** at the top
 right. This directly overwrites `client/src/tutorial/tutorial-level.json` through
@@ -81,8 +92,8 @@ loopback checks.
 The file contains generator metadata, spawn, sparse standard/micro voxel edits
 (including AIR tombstones for removed ground), and all active and dormant
 entities, including their scripts and component hierarchy. It excludes generated
-terrain, backpacks, account information and network queues. The checked-in empty
-file provides a blank authoring world.
+terrain, backpacks, account information and network queues. The checked-in file
+contains the authored course and the Modeling work pad.
 
 Every entry creates fresh in-memory terrain/entity storage from the bundled
 file. Edits made while playing are temporary, including entity changes, unless

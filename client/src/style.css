@@ -7675,9 +7675,3 @@ button.palette-title:hover {
 .text-creation-panel .text-creation-submit { background: #a6d9b8; border-color: #a6d9b8; color: #12251d; }
 .text-creation-submit:disabled { opacity: .4; cursor: default; }
 @media (max-height: 600px) { .text-creation-panel { top: 16px; max-height: calc(100dvh - 32px); } }
-/* Micro selection guides remain legible without enlarging the authored blocks. */
-.tutorial-selection-markers { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
-.tutorial-selection-marker { position: absolute; width: 18px; height: 18px; transform: translate(-50%, -50%); border: 2px solid currentColor; border-radius: 50%; box-shadow: 0 0 0 1px #17212bcc; }
-.tutorial-selection-marker[hidden] { display: none; }
-.tutorial-selection-marker span { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); white-space: nowrap; font: 600 14px/1.4 system-ui, sans-serif; text-shadow: 0 1px 3px #000, 0 0 5px #000; }
-.tutorial-selection-marker::before { content: ''; position: absolute; width: 1px; height: 8px; bottom: 18px; left: 8px; background: currentColor; }

@@ -6,9 +6,9 @@ import { ContraptionPhysics } from '@entropydrop/space-engine/physics/Contraptio
 import { computeSelectionCells } from '../src/engine/controls/SelectorShapes.ts';
 import { setScript } from '../../engine/test/script-helpers.ts';
 import level from '../src/tutorial/tutorial-level.json' with { type: 'json' };
-import { tutorialChassisBounds, tutorialChassisWheelMounts, tutorialWheelBounds, tutorialRotationBounds } from '../src/tutorial/TutorialCourse.ts';
+import { tutorialChassisBounds, tutorialChassisWheelMounts, tutorialWheelBounds, tutorialRotationBounds,
+  TUTORIAL_MODELING_ENTITY_ID } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
-import { nearbyTutorialSelectionChapter, tutorialSelectionMarkers } from '../src/tutorial/TutorialSelectionMarkers.ts';
 
 // Code typed by the player from the lesson 11 world sign.
 const wheelCode = 'self.setSpinYAxisRPM(30)';
@@ -23,20 +23,7 @@ const chassisCells = level.terrain.micro.filter(([x, y, z]) =>
   && y >= chassisBounds.minY * 8 && y < chassisBounds.maxY * 8
   && z >= chassisBounds.minZ * 8 && z < chassisBounds.maxZ * 8);
 
-test('tutorial A/B labels point to the authored micro corners and surviving practice geometry', () => {
-  const cells = new Map(level.terrain.micro.map(([x, y, z, color]) => [`${x},${y},${z}`, color]));
-  for (const marker of tutorialSelectionMarkers) {
-    assert.equal(cells.get(`${marker.x * 8},${marker.y * 8},${marker.z * 8}`), marker.color);
-    const { x, y, z } = marker.subject;
-    assert.ok(cells.has(`${x * 8},${y * 8},${z * 8}`), 'labels are gated on actual subject voxels');
-  }
-  assert.equal(nearbyTutorialSelectionChapter({ x: 8018.4375, z: 595 }), 9,
-    'the rear corner of the car must not show markers for the neighboring rotation exercise');
-  assert.equal(nearbyTutorialSelectionChapter({ x: wheelBounds.minX, z: wheelBounds.minZ }), 10);
-  assert.equal(nearbyTutorialSelectionChapter({ x: 8190, z: 561 }), null);
-});
-
-test('the complete off-road body includes both selector corners and four unobstructed wheel mounting faces', () => {
+test('the pickup has a floating green corner, complete box selection and four clear wheel mounts', () => {
   assert.ok(chassisCells.length > 1000, 'the assembly subject is a detailed vehicle body');
   const blue = chassisCells.filter(cell => cell[3] === 0x3bc1f2);
   const green = chassisCells.filter(cell => cell[3] === 0x5af23b);
@@ -48,14 +35,21 @@ test('the complete off-road body includes both selector corners and four unobstr
     'clicking the two microcells encloses every vehicle voxel in micro and standard mode');
   }
   const keys = new Set(chassisCells.map(cell => cell.slice(0, 3).join(',')));
-  const reached = new Set<string>(), queue = [chassisCells[0].slice(0, 3)];
+  for (const [corner, neighborCount] of [[blue[0], 3], [green[0], 0]] as const) {
+    const [x, y, z] = corner;
+    const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+      .filter(([dx, dy, dz]) => keys.has(`${x+dx},${y+dy},${z+dz}`));
+    assert.equal(neighbors.length, neighborCount, 'blue is embedded in the bumper and green floats without a post');
+  }
+  const reached = new Set<string>(), queue = [blue[0].slice(0, 3)];
   while (queue.length) {
     const [x, y, z] = queue.pop()!, key = `${x},${y},${z}`;
     if (!keys.has(key) || reached.has(key)) continue;
     reached.add(key);
     for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) queue.push([x+dx,y+dy,z+dz]);
   }
-  assert.equal(reached.size, chassisCells.length, 'all bodywork and both colored corners are connected to the chassis');
+  assert.equal(reached.size, chassisCells.length - 1, 'all bodywork and the blue corner remain connected');
+  assert.equal(reached.has(green[0].slice(0, 3).join(',')), false, 'only the green helper is detached');
   const mounts = tutorialChassisWheelMounts();
   assert.equal(mounts.length, 4);
   for (const mount of mounts) {
@@ -115,7 +109,8 @@ test('the default cylinder selects the entire flat tutorial wheel while leaving 
       assert.ok(c[2] / divisor >= minZ && c[2] / divisor < minZ + size);
     }
   }
-  assert.equal(level.entities.entities.length, 0, 'the player supplies the chassis from lesson 09');
+  assert.deepEqual(level.entities.entities.map(entity => entity.publicId), [TUTORIAL_MODELING_ENTITY_ID],
+    'only the stopped Modeling work pad is preset; the player still supplies the chassis from lesson 09');
 });
 
 test('micro rotation practice matches the horizontal cylinder after rotating the selector', () => {

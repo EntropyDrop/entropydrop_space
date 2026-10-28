@@ -113,7 +113,7 @@ test('tutorial renders exactly 25 by 25 course chunks regardless of player movem
   world.updateChunksAround(8190, 561, false);
   const expected = new Set<string>();
   // The window extends ahead far enough to include the final driving lane.
-  const centerX = 504, centerZ = 36;
+  const centerX = 503, centerZ = 36;
   for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) {
     expected.add(`${(centerX + dx + 1024) % 1024},${(centerZ + dz + 128) % 128}`);
   }
@@ -135,9 +135,9 @@ test('tutorial renders exactly 25 by 25 course chunks regardless of player movem
   configureTutorialTerrain(world, { ...level.spawn, x_cm: 0, z_cm: 0 });
   world.updateChunksAround(5000, 500, false);
   assert.equal(world.activeChunkKeys.size, 625);
-  assert.ok(world.activeChunkKeys.has('1005,117'));
-  assert.ok(world.activeChunkKeys.has('5,13'));
-  assert.equal(world.activeChunkKeys.has('6,1'), false);
+  assert.ok(world.activeChunkKeys.has('1004,117'));
+  assert.ok(world.activeChunkKeys.has('4,13'));
+  assert.equal(world.activeChunkKeys.has('5,1'), false);
 });
 
 test('tutorial routing preserves the regular world and omits credentials and online panels', () => {

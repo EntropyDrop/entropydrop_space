@@ -165,8 +165,8 @@ for (const mount of tutorialChassisWheelMounts()) {
     dx + .25, .75, mount.side < 0 ? dz + .25 : dz, SILVER);
 }
 
-// Integrated micro selection points: front bumper and the rear radio antenna.
-part(8.875, .375, 4.125, 9, 3.125, 4.25, TRIM);
+// The blue corner is in the front bumper; the opposite green corner floats above the rear.
+// No supporting post is needed for two-point box selection.
 part(0, 0, 0, .125, .125, .125, BLUE);
 part(8.875, 3, 4.125, 9, 3.125, 4.25, GREEN);
 

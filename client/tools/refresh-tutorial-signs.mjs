@@ -3,7 +3,8 @@
 // Rebuild lettering and the spoked wheel while preserving other practice geometry.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { tutorialLessonHint, tutorialVehicleStation, tutorialWheelBounds, TUTORIAL_LESSON_STEP } from '../src/tutorial/TutorialCourse.ts';
+import { tutorialLessonHint, tutorialVehicleStation, tutorialWheelBounds, tutorialFinishPosition,
+  TUTORIAL_LESSON_STEP, TUTORIAL_RAMP_DIMENSIONS, TUTORIAL_RAMP_ROTATION_Z } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
 import { computeSelectionCells } from '../src/engine/controls/SelectorShapes.ts';
 
@@ -156,6 +157,10 @@ const lessons = [
     text('FIRST ONE, THEN THREE'), text('OPPOSITE: REVERSE RPM')]],
   ['13 DRIVE', [instruction('3', 'WRENCH'), text('CAR TO START LINE'), text('ALIGN WITH THE LANE'),
     instruction('LMB X2', 'START'), text('WATCH THE WHEELS DRIVE'), instruction('LMB X2', 'STOP')]],
+  ['14 MODELING', [instruction('7', 'MODELING'), text('AIM AT EMPTY GRAY PAD'),
+    instruction('RMB', 'DRAG + RELEASE'), instruction('LMB', 'SELECT PANEL'),
+    instruction('ESC', 'SIDE PANEL'), text(`DIMENSIONS ${TUTORIAL_RAMP_DIMENSIONS.join(' ')}`),
+    text(`ROTATION Z: ${TUTORIAL_RAMP_ROTATION_Z}`), text('Y ARROW: LIFT PANEL'), text('VISUAL: NO COLLISION')]],
 ].map(([title, content], index) => ({
   title,
   rows: [text(title, { scale: 2 }), ...content],
@@ -183,11 +188,14 @@ const minX = (Math.floor(terrainCenter.x / 16) - TUTORIAL_CHUNK_RADIUS) * 16;
 const minZ = (Math.floor(terrainCenter.z / 16) - TUTORIAL_CHUNK_RADIUS) * 16;
 const terrainSize = (TUTORIAL_CHUNK_RADIUS * 2 + 1) * 16;
 const driveStation = tutorialVehicleStation(13);
-const finish = { title: 'NICE WORK!', axis: 'x', plane: (driveStation.x - 33) * 8,
+const oldFinish = { plane: (driveStation.x - 33) * 8,
   center: Math.round((driveStation.z - 33 * TUTORIAL_LESSON_STEP.z / TUTORIAL_LESSON_STEP.x) * 8), direction: -1 };
+const finishPosition = tutorialFinishPosition();
+const finish = { title: 'NICE WORK!', axis: 'x', plane: Math.round(finishPosition.x * 8),
+  center: Math.round(finishPosition.z * 8), direction: -1 };
 const isSignCell = ([x, y, z]) => lessons.some(sign =>
   z === sign.plane && Math.abs(x - sign.center) <= Math.max(100, sign.maxWidth / 2 + 4) && y >= 17 * 8)
-  || x === finish.plane && Math.abs(z - finish.center) <= 100 && y >= 17 * 8;
+  || [oldFinish, finish].some(sign => x === sign.plane && Math.abs(z - sign.center) <= 100 && y >= 17 * 8);
 const wheel = tutorialWheelBounds();
 const wheelSelection = computeSelectionCells('cylinder',
   { x: wheel.minX * 8, y: wheel.maxY * 8 - 1, z: wheel.maxZ * 8 - 1 },
@@ -238,6 +246,7 @@ for (const sign of lessons) {
   }
   const top = (bottom - sign.gap) / 8;
   if (sign.title.startsWith('11 ') || sign.title.startsWith('12 ')) assert.ok(top <= 33, `${sign.title} is too tall to read from the practice area`);
+  if (sign.title.startsWith('14 ')) assert.ok(top <= 34, `${sign.title} is too tall to read from the work pad`);
   signBounds.push({ chapter: sign.title, width: Math.max(...sign.rows.map(row => row.width)) / 8, top });
 }
 place(finish, text('NICE WORK!', { scale: 2 }), 20 * 8);

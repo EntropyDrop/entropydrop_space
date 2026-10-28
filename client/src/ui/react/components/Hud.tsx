@@ -2,7 +2,6 @@ import { isTranslucentVoxelMaterial, voxelMaterialTransparency } from '@entropyd
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EntityContextMenu, EntityNameplates } from './EntityMenus.tsx';
 import { HostedEntities } from './HostedEntities.tsx';
-import { TutorialMarkers } from './TutorialMarkers.tsx';
 import {
   LiaCubeSolid,
   LiaUtensilSpoonSolid,
@@ -966,7 +965,6 @@ export function Hud() {
       {activeTool === SpecialTool.MODELING && <ModelingPanel />}
       <SelectorContextMenu />
       <EntityNameplates />
-      {SPACE_TUTORIAL && <TutorialMarkers />}
       <EntityContextMenu />
     </>
   );

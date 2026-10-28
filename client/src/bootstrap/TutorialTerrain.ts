@@ -2,7 +2,7 @@ import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import type { TutorialLevel } from '../tutorial/TutorialLevelFormat.ts';
 
 export const TUTORIAL_CHUNK_RADIUS = 12;
-export const TUTORIAL_TERRAIN_FORWARD_OFFSET = 112;
+export const TUTORIAL_TERRAIN_FORWARD_OFFSET = 128;
 
 /** Cover the whole straight course while retaining the fixed 625-chunk budget. */
 export function getTutorialTerrainCenter(spawn: TutorialLevel['spawn']) {
