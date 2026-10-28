@@ -671,7 +671,8 @@ export function PauseScreen() {
         <div className="controls-guide">
           <span><kbd className="key-badge">W</kbd><kbd className="key-badge">A</kbd><kbd className="key-badge">S</kbd><kbd className="key-badge">D</kbd> Move / Drive</span>
           <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
-          <span><kbd className="key-badge">Space</kbd> again in midair: Tap to dash · Hold to keep dashing toward the crosshair</span>
+          <span><kbd className="key-badge">Space ×2</kbd> Toggle flight · Land to stop flying</span>
+          <span><kbd className="key-badge">Shift</kbd> Sneak / Descend · <kbd className="key-badge">Ctrl</kbd> Sprint / Fly faster</span>
           <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
           <span><kbd className="key-badge">B</kbd> Backpack / Color sets</span>
           <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy · X cut</span>
@@ -685,7 +686,7 @@ export function PauseScreen() {
           <span><kbd className="key-badge">C</kbd> Entity editor</span>
           <span><kbd className="key-badge">G</kbd> Assemble contraption / sub-contraption</span>
           <span><kbd className="key-badge">V</kbd> Mount / leave entity seat</span>
-          <span><kbd className="key-badge">F</kbd> Fly mode</span>
+          <span><kbd className="key-badge">F</kbd> Fill selection</span>
           <span><kbd className="key-badge">F3</kbd> Cycle 1st / 3rd Back / 3rd Front</span>
           <span><kbd className="key-badge">ESC</kbd> Settings / release cursor</span>
         </div>

@@ -17,6 +17,8 @@ Chapter signs follow roughly 20 m intervals along the initial heading. Chapter 1
 has extra space on each side for `self.setSpinYAxisRPM(30)` to appear on
 one line: its sign and practice stand move about 5 m farther along the course,
 and chapters 12–13, their guides, the driving lane and finish move about 10 m.
+Chapter 03 teaches double-tapping Space to toggle flight; chapter 04 teaches
+Space to rise and Shift to descend. Landing exits flight.
 Run `node client/tools/refresh-tutorial-signs.mjs`
 from the repository root to rebuild the clear pixel lettering and spoked wheel. The wheel,
 motor stand, chassis guides, and driving lane continue beyond chapter 09.

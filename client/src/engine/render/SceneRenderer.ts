@@ -2232,7 +2232,6 @@ export class SceneRenderer {
         maxSpeed: playerMotion?.maxSpeed,
         grounded: playerMotion?.grounded,
         flying: playerMotion?.flying,
-        dashIntensity: playerMotion?.dashIntensity,
         sprinting: playerMotion?.sprinting,
         seated: playerMotion?.seated,
         lookPitch: playerMotion?.lookPitch,

@@ -594,7 +594,6 @@ export class PlayerController {
   // Reusable temporary vectors for torus-world aiming.
   static _bentEye = new THREE.Vector3();
   static _forwardFlat = new THREE.Vector3();
-  private static _dashDirection = new THREE.Vector3();
   static _forwardBent = new THREE.Vector3();
 
   // --- Injected engine dependencies ---
@@ -623,6 +622,8 @@ export class PlayerController {
     crouch: boolean;
     sprint: boolean;
   };
+  private lastJumpPressTime: number | null = null;
+  private movementModifiers = new Set<string>();
   get activeTool(): string {
     return this.toolSession.activeTool;
   }
@@ -1007,27 +1008,7 @@ export class PlayerController {
     // Keyboard controls
     document.addEventListener('keydown', (e) => this.handleKeyDown(e));
 
-    document.addEventListener('keyup', (e) => {
-      // Always release captured input, even if focus moved into the editor
-      // after the matching keydown.
-      this.recordEntityKeyUp(e.code);
-      switch (e.code) {
-        case 'KeyW': this.keys.forward = false; break;
-        case 'KeyS': this.keys.backward = false; break;
-        case 'KeyA': this.keys.left = false; break;
-        case 'KeyD': this.keys.right = false; break;
-        case 'Space':
-          e.preventDefault();
-          this.keys.jump = false;
-          break;
-        case 'ShiftLeft':
-        case 'ShiftRight':
-          this.keys.crouch = false;
-          this.keys.sprint = false;
-          this.physics.isSprinting = false;
-          break;
-      }
-    });
+    document.addEventListener('keyup', (e) => this.handleKeyUp(e));
 
     window.addEventListener('blur', () => {
       this._textCreationGizmo?.endDrag();
@@ -1156,14 +1137,37 @@ export class PlayerController {
       case 'KeyD': this.keys.right = true; break;
       case 'Space':
         e.preventDefault();
-        if (!e.repeat) this.keys.jumpPressed = true;
+        if (!e.repeat && !this.keys.jump) {
+          if (this.isDriving || this.navigationSystem?.isNavigating) {
+            this.lastJumpPressTime = null;
+          } else {
+            const now = Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
+            const elapsed = this.lastJumpPressTime == null ? Infinity : now - this.lastJumpPressTime;
+            if (elapsed >= 0 && elapsed <= 350) {
+              this.lastJumpPressTime = null;
+              this.keys.jumpPressed = false;
+              this.physics.isFlying = !this.physics.isFlying;
+              this.physics.velocity.set(0, 0, 0);
+              this.physics.isOnGround = false;
+              this.physics.isCrouching = false;
+              this.physics.ridingContraption = null;
+              this.physics.ridingBodyId = null;
+              this.physics.resetJumpState(true);
+              this.ui?.showToast(this.physics.isFlying ? 'FLY MODE ON' : 'FLY MODE OFF');
+            } else {
+              this.lastJumpPressTime = now;
+              this.keys.jumpPressed = true;
+            }
+          }
+        }
         this.keys.jump = true;
         break;
       case 'ShiftLeft':
       case 'ShiftRight':
-        this.keys.crouch = true;
-        this.keys.sprint = true;
-        this.physics.isSprinting = true;
+      case 'ControlLeft':
+      case 'ControlRight':
+        (this.movementModifiers ??= new Set()).add(e.code);
+        this.syncMovementModifiers();
         break;
 
       case 'Escape':
@@ -1214,12 +1218,9 @@ export class PlayerController {
         this.toggleDriveVehicle();
         break;
 
-      case 'KeyF': // F key: Fill selection if selected in selector, otherwise Fly toggle
+      case 'KeyF': // F key: Fill the active selector selection.
         if ((this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE) && this.hasActiveSelection()) {
           this.fillSelectionBlocks();
-        } else {
-          this.physics.isFlying = !this.physics.isFlying;
-          if (this.ui) this.ui.showToast(this.physics.isFlying ? 'FLY MODE ON' : 'FLY MODE OFF');
         }
         break;
 
@@ -1465,11 +1466,47 @@ export class PlayerController {
 
   resetEntityInputState() {
     this.resetEntityPlaybackClickGesture();
+    this.lastJumpPressTime = null;
+    this.movementModifiers?.clear();
     if (this.keys) {
-      this.keys.jump = false;
-      this.keys.jumpPressed = false;
+      for (const key of Object.keys(this.keys) as Array<keyof PlayerController['keys']>) {
+        this.keys[key] = false;
+      }
+    }
+    if (this.physics) {
+      this.physics.isSprinting = false;
+      this.physics.isCrouching = false;
+      this.physics.resetJumpState?.();
     }
     return this.toolSession.resetEntityInputState();
+  }
+
+  private syncMovementModifiers() {
+    this.keys.crouch = this.movementModifiers.has('ShiftLeft') || this.movementModifiers.has('ShiftRight');
+    this.keys.sprint = this.movementModifiers.has('ControlLeft') || this.movementModifiers.has('ControlRight');
+    this.physics.isSprinting = this.keys.sprint && (this.physics.isFlying || !this.keys.crouch);
+  }
+
+  handleKeyUp(e: KeyboardEvent) {
+    // Release input even if focus moved into an editor after keydown.
+    this.recordEntityKeyUp(e.code);
+    switch (e.code) {
+      case 'KeyW': this.keys.forward = false; break;
+      case 'KeyS': this.keys.backward = false; break;
+      case 'KeyA': this.keys.left = false; break;
+      case 'KeyD': this.keys.right = false; break;
+      case 'Space':
+        e.preventDefault();
+        this.keys.jump = false;
+        break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+      case 'ControlLeft':
+      case 'ControlRight':
+        (this.movementModifiers ??= new Set()).delete(e.code);
+        this.syncMovementModifiers();
+        break;
+    }
   }
 
   openCodeEditorForTarget(target = this.hoveredContraption) {
@@ -6654,6 +6691,7 @@ export class PlayerController {
 
   updateSimulation(dt: number) {
     if (this.isDriving || this.navigationSystem?.isNavigating) {
+      this.lastJumpPressTime = null;
       this.physics.resetJumpState?.(this.keys?.jump);
     }
     if (this.isDriving) this.physics.capturePreviousPosition?.();
@@ -6661,13 +6699,10 @@ export class PlayerController {
       if (this.navigationSystem?.isNavigating) {
         this.navigationSystem.update(dt);
       } else {
-        let dashDirection: THREE.Vector3 | undefined;
-        if ((this.keys?.jumpPressed || (this.keys?.jump && this.physics.isDashing)) && this.camera) {
-          // Sample the displayed crosshair, including pitch and front-view orbit.
-          this.updateCameraRotation();
-          dashDirection = PlayerController._dashDirection.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+        if (this.keys) {
+          this.physics.isSprinting = this.keys.sprint && (this.physics.isFlying || !this.keys.crouch);
         }
-        this.physics.update(dt, this.keys, this.viewYaw, dashDirection);
+        this.physics.update(dt, this.keys, this.viewYaw);
       }
     }
     if (this.keys) this.keys.jumpPressed = false;
@@ -6790,7 +6825,6 @@ export class PlayerController {
   updateRender(dt = 0) {
     this.processBulkEditFrame();
     this.getCameraPerspectiveTransition().advance(dt);
-    this.cameraSession.updateMotion(dt);
     this.updateCameraPosition(dt);
   }
 
@@ -6800,7 +6834,6 @@ export class PlayerController {
     this.processBulkEditFrame();
     this.updateSimulation(dt);
     this.getCameraPerspectiveTransition().advance(dt);
-    this.cameraSession.updateMotion(dt);
     this.updateCameraPosition(dt);
   }
 

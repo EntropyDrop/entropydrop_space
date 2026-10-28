@@ -76,23 +76,21 @@ test('hasActiveSelection correctly reports selection status', () => {
   assert.equal(controller.hasActiveSelection(), true);
 });
 
-test('KeyF toggles flight when no selection is active', () => {
+test('KeyF leaves flight unchanged when no selection is active', () => {
   const { controller, toasts } = createTestController();
 
   assert.equal(controller.physics.isFlying, false);
   assert.equal(controller.hasActiveSelection(), false);
 
-  // Press KeyF when nothing selected
-  controller.handleKeyDown({ code: 'KeyF', preventDefault() {} } as any);
-  assert.equal(controller.physics.isFlying, true);
-  assert.ok(toasts.includes('FLY MODE ON'));
-
   controller.handleKeyDown({ code: 'KeyF', preventDefault() {} } as any);
   assert.equal(controller.physics.isFlying, false);
-  assert.ok(toasts.includes('FLY MODE OFF'));
+  controller.physics.isFlying = true;
+  controller.handleKeyDown({ code: 'KeyF', preventDefault() {} } as any);
+  assert.equal(controller.physics.isFlying, true);
+  assert.deepEqual(toasts, []);
 });
 
-test('KeyF in non-selector tool toggles flight even if selection exists in manager', () => {
+test('KeyF in non-selector tool leaves flight unchanged even if selection exists in manager', () => {
   const { controller, manager, toasts } = createTestController();
   controller._activeTool = SpecialTool.SHOVEL;
 
@@ -100,8 +98,8 @@ test('KeyF in non-selector tool toggles flight even if selection exists in manag
   manager.selectionCornerB = { x: 1, y: 1, z: 1 };
 
   controller.handleKeyDown({ code: 'KeyF', preventDefault() {} } as any);
-  assert.equal(controller.physics.isFlying, true);
-  assert.ok(toasts.includes('FLY MODE ON'));
+  assert.equal(controller.physics.isFlying, false);
+  assert.deepEqual(toasts, []);
 });
 
 test('KeyF fills selection with selectedColor when selection is active in selector tool', () => {

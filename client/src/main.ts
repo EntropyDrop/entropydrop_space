@@ -655,7 +655,6 @@ class Game {
       velocity: this.playerPhysics.velocity,
       grounded: this.playerPhysics.isOnGround,
       flying: this.playerPhysics.isFlying,
-      dashIntensity: this.playerPhysics.dashIntensity,
       sprinting: this.playerPhysics.isSprinting,
       seated: this.controller.isDriving,
       maxSpeed: this.playerPhysics.isFlying

@@ -136,8 +136,8 @@ function wasd() {
 const lessons = [
   ['01 MOVE', [wasd(), text('MOVE FORWARD')]],
   ['02 JUMP', [instruction('SPACE', 'JUMP'), text('OVER THE BRICKS')]],
-  ['03 AIR DASH', [text('LOOK UP, THEN'), instruction('SPACE', 'JUMP'), instruction('SPACE', 'DASH IN AIR')]],
-  ['04 FLY', [instruction('F', 'FLY MODE'), instruction('SPACE', 'RISE'), text('FLY OVER THE WALL')]],
+  ['03 FLIGHT', [instruction('SPACE X2', 'FLY'), text('CROSS THE GAP')]],
+  ['04 FLY', [instruction('SPACE X2', 'FLY'), instruction('SPACE', 'RISE'), instruction('SHIFT', 'DESCEND'), text('FLY OVER THE WALL')]],
   ['05 SELECTOR', [instruction('1', 'SELECTOR'), corners(), instruction('F', 'FILL')]],
   ['06 CYLINDER', [text('CHECK: STANDARD'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('F', 'FILL')]],
   ['07 CARVE', [text('CHECK: MICRO'), instruction('TAB', 'IF NEEDED'), instruction('ALT+2', 'CYLINDER'), corners(RED), instruction('DEL', 'CUT OUT')]],

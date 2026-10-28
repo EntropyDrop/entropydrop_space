@@ -21,7 +21,6 @@ export class PlayerCamera {
   private readonly host: PlayerCameraPort;
   private readonly bodyTilt = new THREE.Quaternion();
   private readonly inverseBodyHeading = new THREE.Quaternion();
-  private dashFov = 0;
   private readonly framing = new ThirdPersonFraming();
   private framingVehicle: PlayerController['drivenContraption'] = null;
   private vehicleZoom = 1;
@@ -41,23 +40,12 @@ export class PlayerCamera {
 
   private applyFov() {
     if (this.host.camera) {
-      const fov = Math.min(120, this.fov + this.dashFov);
+      const fov = this.fov;
       if (Math.abs(this.host.camera.fov - fov) > 1e-5) {
         this.host.camera.fov = fov;
         this.host.camera.updateProjectionMatrix();
       }
     }
-  }
-
-  /** Subtle speed feedback, advanced once per render without changing aim. */
-  updateMotion(dt: number) {
-    if (!(dt > 0) || !Number.isFinite(dt)) return;
-    const firstPerson = 1 - this.getCameraPerspectiveTransition().pose.distance;
-    const target = (this.host.physics.dashIntensity || 0) * 4.5 * firstPerson;
-    const response = target > this.dashFov ? 22 : 14;
-    this.dashFov = THREE.MathUtils.damp(this.dashFov, target, response, Math.min(dt, 0.1));
-    if (target === 0 && this.dashFov < 0.001) this.dashFov = 0;
-    this.applyFov();
   }
 
   setPerspective(perspective: PlayerPerspective, animate = true) {

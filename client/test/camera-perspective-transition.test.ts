@@ -183,27 +183,3 @@ test('setting the same perspective again does not restart an in-progress transit
   transition.setPerspective('third_person'); transition.advance(duration / 2);
   assert.deepEqual(transition.pose, { distance: 1, angle: 0 });
 });
-
-test('dash FOV eases and recovers without changing saved FOV, aim or eye position', () => {
-  const { controller, camera, eye } = fixture();
-  controller.setFov(75);
-  const rotation = camera.quaternion.clone();
-  controller.physics.dashIntensity = 1;
-  controller.updateRender(1 / 60);
-  assert.ok(camera.fov > 75 && camera.fov < 77);
-  for (let frame = 0; frame < 20; frame++) controller.updateRender(1 / 60);
-  assert.ok(camera.fov > 79 && camera.fov <= 79.5);
-  assert.equal(controller.fov, 75);
-  assert.ok(camera.quaternion.angleTo(rotation) < 1e-8);
-  assert.ok(camera.position.distanceTo(eye) < 1e-8);
-  const fov = camera.fov;
-  for (let pass = 0; pass < 10; pass++) controller.updateCameraPosition();
-  close(camera.fov, fov);
-  controller.physics.dashIntensity = 0;
-  for (let frame = 0; frame < 60; frame++) controller.updateRender(1 / 60);
-  close(camera.fov, 75);
-  controller.setPerspective('third_person', false);
-  controller.physics.dashIntensity = 1;
-  controller.updateRender(0.1);
-  close(camera.fov, 75);
-});
