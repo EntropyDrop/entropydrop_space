@@ -1,0 +1,8 @@
+{
+  "engine/src/voxel/World.ts": "97159cf719525a78b2efcd84f047bb229a3851e53ccd4f3662e1efd216c53485",
+  "engine/src/render/NearTerrainBatches.ts": "b817284cc4a25cf1c11dd1ab6581f9d2ce3c39d4d6f134abb3d7479471491b49",
+  "engine/src/torus/TorusWorld.ts": "f23d50a23944aac3f83bf29d019b116c90d6962e49c398317ab25f7e48dfa6fc",
+  "client/src/dev/TorusStressChild.ts": "9b297365ab98f365c851d9abcc11c031d357979e26ddf821c55b8ce9e5db40ba",
+  "client/src/dev/TorusStressHost.ts": "2a57e583b909db1dbe525519aa7e7032c67938319cdb96429d4b5b47cb7dc0d2",
+  "engine/test/near-terrain-optimization.test.ts": "342e0a5099e728871a9e0b827b4042a82446a5a8c5af77792e5e962fe32a32b0"
+}

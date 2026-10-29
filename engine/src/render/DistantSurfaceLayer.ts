@@ -539,6 +539,8 @@ export class DistantSurfaceLayer {
 
   getZoneDemand(zoneX: number, zoneZ: number): { sampleSize: number; priority: number } {
     if (!this.enabled || !this.hasView) return { sampleSize: 64, priority: 0 };
+    const fixed = this.voxels.getFixedCellSizeForBenchmark();
+    if (fixed !== undefined) return { sampleSize: fixed, priority: 0 };
     const key = `${zoneX},${zoneZ}`;
     const sphere = this.zones.get(key)?.bounds ?? computeBentBoundsSphere({
       minX: zoneX * 512, maxX: (zoneX + 1) * 512,

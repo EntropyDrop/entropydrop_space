@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "terrain": "same 8 zones and original generator hashes as torus-minecraft-2026-10-27",
+  "fixed": {
+    "horizontalCellMetres": 1,
+    "nativeVerticalQuality": "PIXEL_ART",
+    "nativeSectionsRequired": 512,
+    "spaceFineSourcesRequired": 8,
+    "spaceGeometryBudgetMiB": 512,
+    "spaceDataBudgetMiB": 1024,
+    "nativeOrder": [
+      "torus",
+      "across",
+      "across",
+      "torus"
+    ]
+  },
+  "adaptive": {
+    "subdivisionSizePx2": 64,
+    "geometryBudgetMiB": 160,
+    "dataBudgetMiB": 512
+  },
+  "common": {
+    "pixels": [
+      1280,
+      720
+    ],
+    "fovY": 70,
+    "eye": [
+      8192.5,
+      180,
+      1024.5
+    ],
+    "nearChunks": 8,
+    "farChunks": 576,
+    "fog": false,
+    "torusBackfaceLossyFilter": false,
+    "nativeFovValidation": "Flight FOV scale 0; actual projection-matrix m11 implies 70 degrees within 0.001 degrees"
+  },
+  "spaceVariantOrder": [
+    "reference",
+    "tight",
+    "tight",
+    "reference"
+  ],
+  "secondsPerBlock": {
+    "warm": 5,
+    "measure": 10
+  },
+  "nativePostReadyWarmSeconds": 60,
+  "limits": [
+    "Eight bounded zones, not a full world",
+    "Common one-metre source detail, different lighting and greedy tessellation",
+    "Native uncapped frame time and browser GPU pass span are different metrics",
+    "Static common-detail comparison does not equate adaptive LOD algorithms"
+  ],
+  "maintenance": {
+    "additionalSteadyWarmSeconds": 30,
+    "variants": [
+      "reference",
+      "cpu",
+      "cpu",
+      "reference"
+    ],
+    "views": [
+      "torus",
+      "turn"
+    ],
+    "tightIdleCulling": false
+  }
+}

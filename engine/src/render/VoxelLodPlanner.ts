@@ -6,7 +6,9 @@ import { voxelFaceVisibility } from './VoxelFaceVisibility.ts';
 
 export type VoxelLodSource = { key: string; x: number; z: number; token: number; mips: VoxelSurfaceMip[] };
 export type VoxelLodView = { camera: [number, number, number]; focal: number; area: number;
-  distance: number; faceBudget: number; hasView: boolean; projection?: WorldProjection };
+  distance: number; faceBudget: number; hasView: boolean; projection?: WorldProjection;
+  /** Explicit development reference; never silently relax its quality to fit a budget. */
+  fixedCellSize?: number };
 export type VoxelLodStats = { faces: number; budget: number; requestedAreaPx2: number; effectiveAreaPx2: number };
 export type VoxelLodTile = { key: string; token: number; tile: number; count: number;
   bounds: [number, number, number, number]; offset: Uint16Array; span: Uint16Array;
@@ -72,6 +74,11 @@ export class VoxelLodPlanner {
   private selection(zone: Zone, view: VoxelLodView, scale: number) {
     const selected = new Map<number, number>();
     for (const [id, brick] of zone.bricks) {
+      if (view.fixedCellSize !== undefined) {
+        // Streaming may temporarily publish a coarse source. The benchmark
+        // must wait for all fine sources before accepting samples.
+        selected.set(id, zone.mips.has(view.fixedCellSize) ? view.fixedCellSize : Math.min(...zone.sizes)); continue;
+      }
       const center = brick.bounds.center;
       const distance = Math.max(1, Math.hypot(view.camera[0] - center.x, view.camera[1] - center.y,
         view.camera[2] - center.z) - brick.bounds.radius);
@@ -117,6 +124,7 @@ export class VoxelLodPlanner {
     }
     // Budget probes must never mutate the hysteresis history.
     let scale = 1, lower = 1, faces = yield* this.measure(view, scale);
+    if (view.fixedCellSize !== undefined && faces > view.faceBudget) throw Error(`Fixed LOD reference exceeds face budget: ${faces} > ${view.faceBudget}`);
     while (faces > view.faceBudget && scale < 65536) {
       lower = scale; scale *= 2; faces = yield* this.measure(view, scale);
     }

@@ -1,0 +1,21 @@
+{
+  "baseCommit": "c345f249e601caea45ba41d202eb51ea94eb481d",
+  "note": "Source hashes during the final maintenance profile. Fixed/adaptive profiles preceded maintenance instrumentation. The production default and reference-switch invalidation are finalized after timing; recorded separately in validation.json.",
+  "sourceSha256": {
+    "engine/src/render/DistantVoxelLayer.ts": "a3bf9d0b211c4d6abc9335753676589832bd122ada56aa227553132096a0d46a",
+    "engine/src/render/SurfaceBatch.ts": "77413754cfeb4e16bbfc737e2732178182237f67d94376c1e4ef6eaed12dfcc3",
+    "engine/src/render/VoxelFaceArena.ts": "e5d967b357d9b914ce24282a42de66f067e95f8331204f1509acf9a6e52ab505",
+    "engine/src/render/VoxelLodPlanner.ts": "463e7c6ef079ca16eff67ae67cf3b00b88a06a6d8516a6ae7ffd47c426d97bee",
+    "engine/src/render/DistantSurfaceLayer.ts": "d80a5b758a66f32a0546203cb7f6af1d60ac904ed5a58797d027a143b727eaa3",
+    "client/src/dev/TorusLodAlignmentChild.ts": "0f159147792857781b192c6ed5b10ec2aeb9b96e949b79db39e838a7e73500af",
+    "tools/minecraft-torus/src/main/java/com/entropydrop/torus/TorusBenchmark.java": "7414cfbc4e57900e522fff3c3c4c298f61f66e17c983a8d9d7188a8291da8d7d",
+    "tools/minecraft-torus/src/main/java/com/entropydrop/torus/mixin/DhFixedDetailMixin.java": "3d3ca80597198d2959d1aa736c7d33dec2df5dec0a76cc96a9487ff07d758aab"
+  },
+  "nativeBuildSha256": {
+    "copper-metropolis": "0ff49f7695c788a819ea9ac656474bfdb3f9c5083447aff5a7aa177d8859e871",
+    "nature": "0ff49f7695c788a819ea9ac656474bfdb3f9c5083447aff5a7aa177d8859e871",
+    "aether-archipelago": "0ff49f7695c788a819ea9ac656474bfdb3f9c5083447aff5a7aa177d8859e871"
+  },
+  "platform": "Apple M1 Pro; macOS; Java 21 / Minecraft 1.21.1 / Sodium 0.6.13 / Distant Horizons 3.3.3; browser WebGPU",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+}

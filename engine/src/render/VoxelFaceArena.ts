@@ -57,7 +57,8 @@ type BlockTests = { data: Float32Array; position: number; coverage: number;
 type Entry = Range & { mesh: VoxelFaceMesh; geometry: THREE.InstancedBufferGeometry; page: Page; allocated: number; copied: number;
   attributes?: THREE.BufferAttribute[]; versions: number[]; origin: THREE.Vector3;
   visibility?: { map: Float32Array; blocks: number; faces: number; view: number; mask: number; masked: boolean;
-    back: number; outside: number; covered: number };
+    back: number; outside: number; covered: number; revision: number };
+  uploaded?: { map: THREE.StorageBufferAttribute; start: number; revision: number; pass: number };
   blockTests?: BlockTests; invalid: boolean; releasing: boolean; onDispose: () => void };
 type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; free: Range[];
   map: THREE.StorageBufferAttribute; data: THREE.StorageBufferAttribute; release: Set<() => void>;
@@ -73,6 +74,9 @@ export class VoxelFaceArena {
   private projectionRevision = getWorldProjectionRevision();
   groupPageDraws = true;
   incrementalMaintenance = true;
+  /** Reference switch for same-scene development comparisons. */
+  incrementalMapUploads = true;
+  private mapPass = 0;
   private sources: VoxelFaceMesh[] = [];
   private sourceSet = new Set<VoxelFaceMesh>();
   private sourcesDirty = true;
@@ -105,6 +109,11 @@ export class VoxelFaceArena {
   // Slack covers the accepted translation, clip-plane offset and rounding.
   // The angular term bounds delta-normal dot (block-center - query-camera).
   private readonly viewReuse = { translation: 32, normal: .12, padding: 34, angular: .121 };
+  private tightIdleCulling = false;
+  private idleFrames = 0;
+  private idleTight = false;
+  private readonly lastViewCamera = new THREE.Vector3(Infinity, Infinity, Infinity);
+  private readonly lastViewFrustum = new THREE.Frustum();
   private cachedBlockTests = true;
   private flatBlockCulling = true;
   // DEV candidate until ordinary-frame comparisons establish a benefit.
@@ -121,7 +130,7 @@ export class VoxelFaceArena {
     sourceDraws: 0, mapUploadBytes: 0, copyFaces: 0, copyMs: 0, maxCopyMs: 0, pendingSources: 0,
     releasedSourceBytes: 0, pages: 0, backFaces: 0, outsideFaces: 0, coveredFaces: 0,
     maintenancePasses: 0, sourceListBuilds: 0, blockCacheBytes: 0,
-    positionBlockTests: 0, coverageBlockTests: 0, drawnFaces: 0, instancePaddingFaces: 0 };
+    positionBlockTests: 0, coverageBlockTests: 0, drawnFaces: 0, instancePaddingFaces: 0, tightIdle: false };
   private readonly root: THREE.BundleGroup;
   private readonly make: (inputs: ArenaInputs) => VoxelFaceMesh;
   constructor(root: THREE.BundleGroup, make: (inputs: ArenaInputs) => VoxelFaceMesh) {
@@ -137,6 +146,22 @@ export class VoxelFaceArena {
     this.cachedBlockTests = cached; this.resetView = true;
   }
   getViewOptimizations() { return { cached: this.cachedBlockTests }; }
+
+  /** Tighten only a stationary view; movement restores the conservative reuse guard immediately. */
+  setTightIdleCullingEnabled(enabled: boolean) {
+    if (enabled === this.tightIdleCulling) return;
+    this.tightIdleCulling = enabled; this.idleFrames = 0;
+    this.setIdleTight(false); this.resetView = true;
+  }
+  getTightIdleCullingEnabled() { return this.tightIdleCulling; }
+  private setIdleTight(tight: boolean) {
+    if (tight === this.idleTight) return;
+    this.idleTight = tight;
+    this.stats.tightIdle = tight;
+    Object.assign(this.viewReuse, tight ? { translation: .001, normal: .000001, padding: .01, angular: .000002 }
+      : { translation: 32, normal: .12, padding: 34, angular: .121 });
+    this.positionEpoch++; this.resetView = true;
+  }
 
   /** Flat geometry needs no camera-local bending exemption. Reference switch for benchmarks. */
   setFlatBlockCullingEnabled(enabled: boolean) {
@@ -231,6 +256,14 @@ export class VoxelFaceArena {
   }
 
   setView(camera: THREE.Vector3, frustum: THREE.Frustum, coverage: THREE.DataTexture, enabled: boolean) {
+    const oldEpoch = this.viewEpoch;
+    if (this.tightIdleCulling) {
+      const stationary = camera.equals(this.lastViewCamera)
+        && frustum.planes.every((plane, i) => plane.equals(this.lastViewFrustum.planes[i]));
+      this.idleFrames = stationary ? this.idleFrames + 1 : 0;
+      this.setIdleTight(this.idleFrames >= 6);
+      this.lastViewCamera.copy(camera); this.lastViewFrustum.copy(frustum);
+    }
     if (this.projectionRevision !== getWorldProjectionRevision()) {
       this.projectionRevision = getWorldProjectionRevision();
       this.resetView = true;
@@ -245,7 +278,7 @@ export class VoxelFaceArena {
       || camera.distanceToSquared(this.camera) >= this.viewReuse.translation ** 2 || frustum.planes.some((p, i) => {
       const old = this.frustum.planes[i];
       return p.normal.distanceToSquared(old.normal) >= this.viewReuse.normal ** 2
-        || Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(this.camera)) >= 1;
+        || Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(this.camera)) >= (this.idleTight ? .0001 : 1);
     })
       || enabled !== this.visibilityEnabled) {
       if (!this.camera.equals(camera)) this.positionEpoch++;
@@ -259,6 +292,7 @@ export class VoxelFaceArena {
       this.coverage = coverage; this.coverageVersion = version; this.visibilityDirty = true;
       this.coverageEpoch++;
     }
+    return oldEpoch !== this.viewEpoch;
   }
 
   private visibilityData(entry: Entry): Float32Array | undefined {
@@ -384,7 +418,9 @@ export class VoxelFaceArena {
     if (cached && cached.view === this.viewEpoch && cached.masked === masked
       && (!masked || cached.mask === this.coverageEpoch)) return cached;
     const result = cached ?? { map: new Float32Array(Math.ceil(entry.count / BLOCK) * this.mapStride),
-      blocks: 0, faces: 0, view: 0, mask: -1, masked, back: 0, outside: 0, covered: 0 };
+      blocks: 0, faces: 0, view: 0, mask: -1, masked, back: 0, outside: 0, covered: 0, revision: 0 };
+    const previousBlocks = result.blocks;
+    let changed = !cached;
     result.blocks = result.faces = result.back = result.outside = result.covered = 0;
     result.view = this.viewEpoch; result.mask = this.coverageEpoch; result.masked = masked;
     const tests = this.prepareBlockTests(entry, masked);
@@ -398,6 +434,10 @@ export class VoxelFaceArena {
         continue;
       }
       const dst = result.blocks++ * this.mapStride, map = result.map;
+      // A new view/mask epoch often produces the same visible block list.
+      // Compare record identities while visiting them, without a second scan.
+      changed ||= this.compactMaps ? map[dst] !== (entry.start + offset) * 32 + count
+        : map[dst] !== entry.start + offset || map[dst + 1] !== count;
       if (this.compactMaps) {
         // A page has 2^18 faces. Five low bits hold the 1..16 face count;
         // the combined integer stays below 2^23 and is exact in Float32.
@@ -409,6 +449,7 @@ export class VoxelFaceArena {
       }
       result.faces += count;
     }
+    if (changed || previousBlocks !== result.blocks) result.revision++;
     entry.visibility = result; return result;
   }
 
@@ -537,6 +578,7 @@ export class VoxelFaceArena {
   /** visibilityOnly is used by the owner only when no geometry, origin, material
    * eligibility or transition changed. Public/default calls validate everything. */
   sync(budgetMs = ARENA_COPY_MS, budgetFaces = ARENA_COPY_FACES, visibilityOnly = false) {
+    this.stats.mapUploadBytes = 0;
     if (this.sourcesDirty || !this.incrementalMaintenance) {
       this.sources = (this.root.children as VoxelFaceMesh[]).filter(mesh => !mesh.userData.voxelArena).sort((a, b) => a.id - b.id);
       this.sourceSet = new Set(this.sources); this.sourcesDirty = false;
@@ -626,7 +668,8 @@ export class VoxelFaceArena {
     }
     this.visibilityDirty = false;
     Object.assign(this.stats,{visibleFaces:0,paddedFaces:0,drawnFaces:0,instancePaddingFaces:0,draws:0,sourceDraws:0,backFaces:0,outsideFaces:0,coveredFaces:0});
-    const blocks = new Map<Page, number>(), runs = new Map<Page, number>(), changed = new Set<Page>();
+    const previousPass = this.mapPass++;
+    const blocks = new Map<Page, number>(), runs = new Map<Page, number>(), changed = new Map<Page, Range>();
     let lastPage: Page | null = null, run: VoxelFaceMesh | null = null;
     let lastMaterial: THREE.Material | null = null;
     const active = new Set<VoxelFaceMesh>();
@@ -676,7 +719,20 @@ export class VoxelFaceArena {
         lastMaterial = drawMaterial;
       }
       const n = at + visible.blocks;
-      if (visible.blocks) { page.map.array.set(visible.map.subarray(0, visible.blocks * this.mapStride), at * this.mapStride); changed.add(page); }
+      const uploaded = entry.uploaded;
+      // Only consecutive assemblies may reuse a span: while an entry was
+      // hidden, another entry could have overwritten its old page location.
+      if (!this.incrementalMapUploads || !uploaded || uploaded.map !== page.map
+        || uploaded.start !== at || uploaded.revision !== visible.revision || uploaded.pass !== previousPass) {
+        const start = at * this.mapStride, count = visible.blocks * this.mapStride;
+        page.map.array.set(visible.map.subarray(0, count), start);
+        const range = changed.get(page);
+        if (range) {
+          const end = Math.max(range.start + range.count, start + count);
+          range.start = Math.min(range.start, start); range.count = end - range.start;
+        } else changed.set(page, { start, count });
+      }
+      entry.uploaded = { map: page.map, start: at, revision: visible.revision, pass: this.mapPass };
       run!.userData.voxelArenaFaces += (n - at) * BLOCK; blocks.set(page, n);
     }
     for (const page of [...this.pages]) {
@@ -688,10 +744,11 @@ export class VoxelFaceArena {
         if (active.has(mesh)) this.stats.drawnFaces += this.blockInstancing
           ? mesh.geometry.instanceCount * this.instanceFaces : mesh.userData.voxelArenaFaces;
       }
-      if (changed.has(page)) {
-        const length = (blocks.get(page) ?? 0) * this.mapStride;
-        page.map.clearUpdateRanges(); page.map.addUpdateRange(0, length); page.map.needsUpdate = true;
-        this.stats.mapUploadBytes += length * 4;
+      const range = changed.get(page);
+      if (range) {
+        // Preserve ranges queued by another sync before the renderer uploads.
+        page.map.addUpdateRange(range.start, range.count); page.map.needsUpdate = true;
+        this.stats.mapUploadBytes += range.count * 4;
       }
       this.stats.paddedFaces += (blocks.get(page) ?? 0) * BLOCK;
       this.stats.draws += runs.get(page) ?? 0;

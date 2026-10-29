@@ -27,6 +27,7 @@ export interface BentSphereBounds { cx: number; cy: number; cz: number; radius: 
 
 /** Rendering consumes a view of terrain residency, not a World instance. */
 interface CullingWorld {
+  nearTerrainBatches?: { sync(): void };
   chunks: ReadonlyMap<string, {
     cx: number;
     cz: number;
@@ -659,6 +660,8 @@ export function cullChunks(camera: THREE.Camera, world: CullingWorld | null | un
       if (child instanceof THREE.Mesh) child.castShadow = castShadow;
     });
   }
+
+  world.nearTerrainBatches?.sync();
 
   // Micro voxels use independent horizontal meshes and bypass Three's native
   // flat-space frustum test. Apply the same coarse culling here so a large

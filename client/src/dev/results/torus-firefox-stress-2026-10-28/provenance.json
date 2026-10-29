@@ -1,0 +1,16 @@
+{
+  "sourceSha256": {
+    "client/src/dev/TorusStressHost.ts": "2cca4aa091b08c6eb4706b764532572dde07ccd0ebe3009c5ad83338d68ad5b6",
+    "client/src/dev/TorusStressChild.ts": "ddaa3c6e401a6b4c2edc47ce4a307c794da0bc0a6c0c9a5cb7b98079b085472a",
+    "tools/minecraft-torus/src/main/java/com/entropydrop/torus/TorusStressBenchmark.java": "45941a89a0817c5bb2cac36d91c072a769c84ffb582878acd17d24d61590085e",
+    "tools/minecraft-torus/src/main/java/com/entropydrop/torus/TorusBenchmark.java": "6e6fc3ca775d2f64ef2c2fdfa826d9a7a72ffd3609faf9f91ab6c5bb92013b6a",
+    "engine/src/render/DistantVoxelLayer.ts": "3e530179211a9d67b2ce508e1de49c1ee8c0dc3e609cbd2efb20411a4897192a",
+    "engine/src/render/DistantSurfaceLayer.ts": "d80a5b758a66f32a0546203cb7f6af1d60ac904ed5a58797d027a143b727eaa3",
+    "engine/src/render/NodeMaterials.ts": "ae2b5acba4da0f99d0b54887762d207f5230b8a43461e847e4fbb74490d8cf55",
+    "engine/src/render/SurfaceBatch.ts": "77413754cfeb4e16bbfc737e2732178182237f67d94376c1e4ef6eaed12dfcc3",
+    "engine/src/render/VoxelFaceArena.ts": "e5d967b357d9b914ce24282a42de66f067e95f8331204f1509acf9a6e52ab505",
+    "engine/src/render/VoxelLodPlanner.ts": "463e7c6ef079ca16eff67ae67cf3b00b88a06a6d8516a6ae7ffd47c426d97bee"
+  },
+  "note": "Prior LOD alignment changes remain uncommitted; this records the actual stress harness sources.",
+  "nativeJava": "Temurin 21, G1, Xmx4G; same isolated runtime as previous common-detail benchmark."
+}

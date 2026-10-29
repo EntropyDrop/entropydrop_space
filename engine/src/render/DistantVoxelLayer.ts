@@ -105,6 +105,9 @@ export class DistantVoxelLayer {
   private torusBackfaceCulling = false;
   private flatBlockCulling = true;
   private maskVersion = -1;
+  private idleMaintenanceEnabled = true;
+  private nextBatchUpdate = 0;
+  private allBatchesUseArena = false;
   private cullDirty = true;
   private readonly view: VoxelLodView = { camera: [0, 0, 0], focal: 720, area: 16,
     distance: 32768, faceBudget: MAX_VOXEL_LOD_FACES, hasView: false, projection: getWorldProjection() };
@@ -154,6 +157,8 @@ export class DistantVoxelLayer {
     if (this.drawOptimizations.value === enabled && this.drawCullingEnabled === culling) return;
     this.drawOptimizations.value = enabled; this.drawCullingEnabled = culling; this.cullDirty = true;
     this.refreshMaterials();
+    // A reference switch must also restore sources hidden by ownership culling.
+    this.arenaDirty = true;
   }
   getDrawOptimizationsEnabled() { return this.drawOptimizations.value; }
 
@@ -210,6 +215,21 @@ export class DistantVoxelLayer {
     this.group.needsUpdate = true;
   }
   getMergedBuffersEnabled() { return !!this.arena; }
+
+  /** Development A/B control for scheduled settled-batch maintenance. */
+  setIdleMaintenanceEnabled(enabled: boolean) {
+    if (enabled === this.idleMaintenanceEnabled) return;
+    this.idleMaintenanceEnabled = enabled; this.nextBatchUpdate = 0; this.arenaDirty = true;
+  }
+  getIdleMaintenanceEnabled() { return this.idleMaintenanceEnabled; }
+
+  /** Benchmark only. Restore adaptive selection with undefined. */
+  setFixedCellSizeForBenchmark(size: number | undefined) {
+    if (size !== undefined && ![1, 2, 4, 8, 16, 32, 64].includes(size)) throw Error('Invalid fixed LOD size.');
+    if (this.view.fixedCellSize === size) return;
+    this.view.fixedCellSize = size; this.dirty = true;
+  }
+  getFixedCellSizeForBenchmark() { return this.view.fixedCellSize; }
 
   setTorusBackfaceCullingEnabled(enabled: boolean) {
     if (this.torusBackfaceCulling === enabled) return;
@@ -382,6 +402,8 @@ export class DistantVoxelLayer {
       this.cullBatch(batch, true);
     }
     zone.readyMask |= 1 << tile.tile;
+    // Publication runs after this frame's batch scan and can start a new fade.
+    this.nextBatchUpdate = 0;
     this.group.userData.voxelLodWorkStats.publications++;
     return true;
   }
@@ -420,6 +442,11 @@ export class DistantVoxelLayer {
    * frame alone rather than starving. Counters expose that exception explicitly. */
   private processPending() {
     if (this.synchronous || !this.active || this.halted || !this.zones.size) return;
+    if (this.idleMaintenanceEnabled && !this.packet && !this.uploads.size
+      && (this.busy || !this.dirty || !this.hasWorkerSources)) {
+      Object.assign(this.group.userData.voxelLodWorkStats, { workMs: 0, publicationBytes: 0, sourceBytes: 0, queuedSources: 0, pendingTiles: 0 });
+      return;
+    }
     this.ensurePort();
     const port = this.port!;
     const start = performance.now(), deadline = start + VOXEL_PUBLICATION_BUDGET_MS;
@@ -507,20 +534,28 @@ export class DistantVoxelLayer {
     }
     if (this.planner && this.dirty) this.buildSynchronously();
     const now = performance.now();
-    this.arena?.setView(camera, frustum, this.mask, this.drawCullingEnabled);
+    const visibilityChanged = this.arena?.setView(camera, frustum, this.mask, this.drawCullingEnabled);
     const maskVersion = this.mask.userData.voxelVisibilityVersion ?? this.mask.version;
     const maskChanged = this.maskVersion !== maskVersion;
     this.maskVersion = maskVersion;
+    const maintenanceDue = !this.idleMaintenanceEnabled || now >= this.nextBatchUpdate;
     const maintenanceWork = maskChanged || this.arenaDirty || this.arena?.hasPendingWork || !!this.packet
-      || [...this.zones.values()].some(zone => [...zone.batches.values()].some(batch => batch.transitioning));
-    const arenaWork = cullChanged || maintenanceWork;
+      || (this.idleMaintenanceEnabled ? maintenanceDue
+        : [...this.zones.values()].some(zone => [...zone.batches.values()].some(batch => batch.transitioning)));
+    const visitBatches = !this.idleMaintenanceEnabled || maintenanceWork || (cullChanged && !this.allBatchesUseArena);
+    const arenaWork = visibilityChanged || maintenanceWork || (cullChanged && (!this.idleMaintenanceEnabled || !this.allBatchesUseArena));
     if (arenaWork) this.arena?.restoreSources();
-    for (const zone of this.zones.values()) for (const batch of zone.batches.values()) {
-      const transitioning = batch.transitioning;
-      batch.advance(now);
-      const blockVisibility = this.drawStates.get(batch)!.projection === projection
-        && !!this.arena && !batch.transitioning && !!batch.top.geometry.userData.voxelVisibility;
-      if ((!blockVisibility && cullChanged) || maskChanged || transitioning || this.arenaDirty) this.cullBatch(batch, cullChanged, frustum);
+    if (visitBatches) {
+      this.nextBatchUpdate = Infinity; this.allBatchesUseArena = true;
+      for (const zone of this.zones.values()) for (const batch of zone.batches.values()) {
+        const transitioning = batch.transitioning;
+        batch.advance(now);
+        this.nextBatchUpdate = Math.min(this.nextBatchUpdate, batch.nextUpdateTime);
+        const blockVisibility = this.drawStates.get(batch)!.projection === projection
+          && !!this.arena && !batch.transitioning && !!batch.top.geometry.userData.voxelVisibility;
+        this.allBatchesUseArena &&= blockVisibility || (!batch.top.geometry.instanceCount && !batch.transitioning);
+        if ((!blockVisibility && cullChanged) || maskChanged || transitioning || this.arenaDirty) this.cullBatch(batch, cullChanged, frustum);
+      }
     }
     try { this.processPending(); }
     catch (error) { this.fail(String(error)); }

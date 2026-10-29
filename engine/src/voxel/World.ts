@@ -1,3 +1,4 @@
+import { NearTerrainBatches } from '../render/NearTerrainBatches.ts';
 import type { PackedStandardEdit, GenerateRequest, TerrainWorkerRequest, TerrainWorkerResult, TerrainWorkerSuccess } from './TerrainStreamProtocol.ts';
 import { captureDistantChunk } from '../render/DistantChunkLayer.ts';
 import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
@@ -201,6 +202,7 @@ export class World {
     return this.renderDistanceZOverride ?? terrainRenderDistanceZ(this.renderDistance);
   }
   worldGroup: THREE.Group;
+  readonly nearTerrainBatches: NearTerrainBatches;
   distantSurface: DistantSurfaceLayer;
   microVoxels: MicroVoxelLayer;
   /** Browser-local sparse overlay that survives a page refresh for this world. */
@@ -218,6 +220,16 @@ export class World {
   private requireOffThreadTerrainStreaming: boolean;
   private terrainWorker: Worker | null;
   private terrainWorkerJob: TerrainWorkerJob | null;
+  private readonly extraTerrainWorkers: { worker: Worker; job: TerrainWorkerJob | null }[] = [];
+  private terrainWorkerLimit = typeof window === 'undefined' ? 1 : 2;
+  private terrainWorkerWarmed = false;
+  private parallelTerrainPrefetch = false;
+  private nearCacheEnabled = true;
+  private readonly nearCachedChunks = new Map<string, number>();
+  private nearCacheBytes = 0;
+  private nearCacheLimitBytes = 64 * 1024 * 1024;
+  private readonly streamCandidateKeys = new Set<string>();
+  private readonly nearStreamStats = { generated: 0, prefetched: 0, cacheHits: 0, evicted: 0, dispatched: 0 };
   private completedTerrainWorkerJobs: CompletedTerrainWorkerJob[];
   private nextTerrainWorkerRequestId: number;
   private pendingTerrainSnapshots: Map<string, PendingTerrainSnapshot>;
@@ -270,6 +282,7 @@ export class World {
     this.terrainVersion = 0;
     this.worldGroup = new THREE.Group();
     this.worldGroup.name = 'VoxelWorld';
+    this.nearTerrainBatches = new NearTerrainBatches(this.worldGroup);
     this.scene.add(this.worldGroup);
     this.distantSurface = new DistantSurfaceLayer();
     this.worldGroup.add(this.distantSurface.mesh);
@@ -343,33 +356,41 @@ export class World {
     // path. Production browsers never generate or scan a streamed chunk on the
     // animation thread.
     if (typeof window === 'undefined' || typeof Worker === 'undefined') return;
+    // Warm the module graph once before creating another worker. A Firefox DEV
+    // capture stalled with an empty-worker warning during concurrent startup.
+    if (this.terrainWorker && !this.terrainWorkerWarmed) return;
     try {
-      const worker = new Worker(new URL('./TerrainStreamWorker.ts', import.meta.url), {
-        type: 'module',
-        name: 'space-terrain-stream',
-      });
-      worker.onmessage = (event: MessageEvent<TerrainWorkerResult>) => {
-        const job = this.terrainWorkerJob;
-        const result = event.data;
-        if (!job || result.requestId !== job.requestId) return;
-        this.terrainWorkerJob = null;
-        if (!result.ok) {
-          this.disableTerrainWorker(result.error || 'Terrain worker job failed.', job);
-          return;
-        }
-        this.completedTerrainWorkerJobs.push({ job, result });
-        this.dispatchTerrainWorkerJob();
-      };
-      worker.onerror = event => {
-        this.disableTerrainWorker(event.message || 'Terrain worker stopped unexpectedly.');
-      };
-      this.terrainWorker = worker;
+      for (let index = this.terrainWorker ? 1 + this.extraTerrainWorkers.length : 0; index < this.terrainWorkerLimit; index++) {
+        const worker = new Worker(new URL('./TerrainStreamWorker.ts', import.meta.url), {
+          type: 'module',
+          name: 'space-terrain-stream',
+        });
+        worker.onmessage = (event: MessageEvent<TerrainWorkerResult>) => {
+          const job = this.getTerrainWorkerJob(worker);
+          const result = event.data;
+          if (!job || result.requestId !== job.requestId) return;
+          this.setTerrainWorkerJob(worker, null);
+          if (!result.ok) {
+            this.disableTerrainWorker(result.error || 'Terrain worker job failed.', job, worker);
+            return;
+          }
+          this.terrainWorkerWarmed = true;
+          this.completedTerrainWorkerJobs.push({ job, result });
+          this.initializeTerrainWorker();
+          this.dispatchTerrainWorkerJob();
+        };
+        worker.onerror = event => {
+          this.disableTerrainWorker(event.message || 'Terrain worker stopped unexpectedly.', this.getTerrainWorkerJob(worker), worker);
+        };
+        if (!this.terrainWorker) { this.terrainWorker = worker; break; }
+        this.extraTerrainWorkers.push({ worker, job: null });
+      }
     } catch (error) {
       console.warn('Space terrain worker is unavailable; detailed chunks will remain unloaded.', error);
     }
   }
 
-  private disableTerrainWorker(message: string, failedJob = this.terrainWorkerJob) {
+  private disableTerrainWorker(message: string, failedJob = this.terrainWorkerJob, worker = this.terrainWorker) {
     if (failedJob?.snapshot) {
       this.requeueTerrainSnapshot(failedJob.snapshot);
     } else if (failedJob?.type === 'generate' && this.activeChunkKeys.has(failedJob.key)) {
@@ -379,10 +400,60 @@ export class World {
         distanceSq: 0,
       });
     }
-    this.terrainWorkerJob = null;
-    this.terrainWorker?.terminate();
-    this.terrainWorker = null;
+    worker?.terminate();
+    if (worker === this.terrainWorker) {
+      const replacement = this.extraTerrainWorkers.shift();
+      this.terrainWorker = replacement?.worker ?? null;
+      this.terrainWorkerJob = replacement?.job ?? null;
+    } else {
+      const index = this.extraTerrainWorkers.findIndex(slot => slot.worker === worker);
+      if (index >= 0) this.extraTerrainWorkers.splice(index, 1);
+    }
     console.warn(`Space terrain worker disabled: ${message}`);
+  }
+
+  private getTerrainWorkerJob(worker: Worker) {
+    return worker === this.terrainWorker ? this.terrainWorkerJob
+      : this.extraTerrainWorkers.find(slot => slot.worker === worker)?.job ?? null;
+  }
+
+  private setTerrainWorkerJob(worker: Worker, job: TerrainWorkerJob | null) {
+    if (worker === this.terrainWorker) this.terrainWorkerJob = job;
+    else {
+      const slot = this.extraTerrainWorkers.find(slot => slot.worker === worker);
+      if (slot) slot.job = job;
+    }
+    if (job) this.nearStreamStats.dispatched++;
+  }
+
+  private get inFlightTerrainJobs(): TerrainWorkerJob[] {
+    return [this.terrainWorkerJob, ...this.extraTerrainWorkers.map(slot => slot.job)]
+      .filter((job): job is TerrainWorkerJob => job !== null);
+  }
+
+  /** Bounded production streaming controls; also used by matched DEV captures. */
+  setNearTerrainStreamingOptions(options: { cache?: boolean; workers?: number; cacheMiB?: number; parallelPrefetch?: boolean }) {
+    if (options.cache !== undefined) this.nearCacheEnabled = options.cache;
+    if (options.cacheMiB !== undefined && Number.isFinite(options.cacheMiB)) this.nearCacheLimitBytes = Math.max(0, Math.min(128, options.cacheMiB)) * 1024 * 1024;
+    if (options.parallelPrefetch !== undefined) this.parallelTerrainPrefetch = options.parallelPrefetch;
+    if (options.workers !== undefined) {
+      this.terrainWorkerLimit = options.workers >= 2 ? 2 : 1;
+      this.initializeTerrainWorker();
+    }
+    this.lastStreamCenterKey = '';
+  }
+
+  getNearTerrainStreamingStats() {
+    return { ...this.nearStreamStats, cachedChunks: this.nearCachedChunks.size, cacheBytes: this.nearCacheBytes,
+      cacheBudgetBytes: this.nearCacheLimitBytes, cacheEnabled: this.nearCacheEnabled,
+      parallelPrefetch: this.parallelTerrainPrefetch,
+      workers: Math.min(this.terrainWorkerLimit, (this.terrainWorker ? 1 : 0) + this.extraTerrainWorkers.length),
+      inFlight: this.inFlightTerrainJobs.length, completed: this.completedTerrainWorkerJobs.length };
+  }
+
+  private releaseNearCacheKey(key: string) {
+    const bytes = this.nearCachedChunks.get(key);
+    if (bytes !== undefined) { this.nearCacheBytes -= bytes; this.nearCachedChunks.delete(key); }
   }
 
   private requeueTerrainSnapshot(snapshot: PendingTerrainSnapshot) {
@@ -941,7 +1012,7 @@ export class World {
     const pending = this.pendingTerrainSnapshots.get(key);
     if (pending) pending.standardEdits.push(edit);
 
-    const inFlight = this.terrainWorkerJob?.snapshot;
+    const inFlight = this.inFlightTerrainJobs.find(job => job.key === key)?.snapshot;
     if (inFlight?.key === key && inFlight !== pending) inFlight.standardEdits.push(edit);
 
     // onmessage moves a finished worker job into this queue before the next
@@ -1577,6 +1648,7 @@ export class World {
       );
       const hadPreviousStreamCenter = Boolean(this.lastStreamCenterKey);
       const nextActive = new Set<string>();
+      this.streamCandidateKeys.clear();
       const pending: { cx: number; cz: number; distanceSq: number }[] = [];
       for (let dx = -r; dx <= r; dx++) {
         for (let dz = -rz; dz <= rz; dz++) {
@@ -1590,6 +1662,8 @@ export class World {
           }
           const key = World.getChunkKey(cx, cz);
           nextActive.add(key);
+          this.streamCandidateKeys.add(key);
+          if (this.nearCachedChunks.has(key)) { this.nearStreamStats.cacheHits++; this.releaseNearCacheKey(key); }
           this.pendingChunkEvictions.delete(key);
           if (this.suspendedCrossLayerPublicationChunks.delete(key)) {
             this.crossLayerPublicationChunks.add(key);
@@ -1613,6 +1687,19 @@ export class World {
               this.dirtyChunks.add(chunk);
             }
           }
+        }
+      }
+
+      if (this.nearCacheEnabled && !this.fixedTerrainCenter) {
+        for (let dx = -r - 1; dx <= r + 1; dx++) for (let dz = -rz - 1; dz <= rz + 1; dz++) {
+          const cx = wrapChunkX(centerCx + dx), cz = wrapChunkZ(centerCz + dz);
+          const key = World.getChunkKey(cx, cz);
+          if (nextActive.has(key)) continue;
+          const area = this.terrainDataWindow;
+          if (area && (Math.abs(World._wrappedDelta(area.centerChunkX, cx, TORUS_SIZE_X / CHUNK_SIZE_X)) > area.radiusChunks
+            || Math.abs(World._wrappedDelta(area.centerChunkZ, cz, TORUS_SIZE_Z / CHUNK_SIZE_Z)) > area.radiusChunksZ)) continue;
+          this.streamCandidateKeys.add(key);
+          if (!this.chunks.has(key)) pending.push({ cx, cz, distanceSq: 1e6 + dx * dx + dz * dz });
         }
       }
 
@@ -1823,15 +1910,26 @@ export class World {
     // Publish first, then retire the previous mesh. The far-surface ownership
     // mask remains set throughout an edit, so rendering and collision never
     // observe an empty transition state.
-    this.worldGroup.add(nextMesh);
+    this.nearTerrainBatches.add(nextMesh);
     chunk.mesh = nextMesh;
     chunk.publishedDataVersion = dataVersion;
-    this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, true);
+    const active = this.activeChunkKeys.has(World.getChunkKey(chunk.cx, chunk.cz));
+    nextMesh.visible = active;
+    let geometryBytes = 0;
+    nextMesh.traverse(child => {
+      const geometry = (child as THREE.Mesh).geometry;
+      if (!geometry) return;
+      for (const attr of Object.values(geometry.attributes)) geometryBytes += attr.array.byteLength;
+      geometryBytes += geometry.index?.array.byteLength ?? 0;
+    });
+    nextMesh.userData.terrainResidentBytes = chunk.blocks.byteLength + chunk.colors.byteLength
+      + chunk.materials.byteLength + chunk.terrainDetails.byteLength + 2 * geometryBytes;
+    this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, active);
     if (previousMesh) this.disposeDetachedChunkMesh(previousMesh);
   }
 
   private disposeDetachedChunkMesh(mesh: THREE.Object3D) {
-    this.worldGroup.remove(mesh);
+    this.nearTerrainBatches.remove(mesh);
     mesh.traverse((child) => {
       if (child instanceof THREE.Mesh) child.geometry.dispose();
     });
@@ -2017,7 +2115,7 @@ export class World {
       || this.pendingRemoteChunkApply?.key === job.key
       || this.pendingTerrainSnapshots.has(job.key);
     if (
-      !this.activeChunkKeys.has(job.key)
+      !this.streamCandidateKeys.has(job.key)
       || this.chunks.has(job.key)
       || blockedByRemoteSnapshot
       || !result.blocks
@@ -2044,8 +2142,15 @@ export class World {
       result.terrainDetails ?? new Uint32Array(0),
     );
     this.chunks.set(job.key, chunk);
-    this.rebuildMicroChunk(chunk);
+    const active = this.activeChunkKeys.has(job.key);
+    if (active) this.rebuildMicroChunk(chunk);
     this.publishChunkMesh(chunk, result.mesh, chunk.dataVersion);
+    chunk.isDirty = false;
+    this.nearStreamStats.generated++;
+    if (!active) {
+      this.nearStreamStats.prefetched++;
+      this.pendingChunkEvictions.set(job.key, chunk);
+    }
     this.commitCrossLayerPublication(job.key);
     return true;
   }
@@ -2063,10 +2168,20 @@ export class World {
   }
 
   private dispatchTerrainWorkerJob() {
-    const worker = this.terrainWorker;
-    if (!worker || this.terrainWorkerJob) return false;
-    if (this.completedTerrainWorkerJobs.length >= MAX_COMPLETED_TERRAIN_JOBS) return false;
-    const awaitingPublication = new Set(this.completedTerrainWorkerJobs.map(({ job }) => job.key));
+    let dispatched = false;
+    const workers = [this.terrainWorker, ...this.extraTerrainWorkers.map(slot => slot.worker)].slice(0, this.terrainWorkerLimit);
+    for (const worker of workers) {
+      if (!worker || this.getTerrainWorkerJob(worker)) continue;
+      if (this.completedTerrainWorkerJobs.length + this.inFlightTerrainJobs.length >= MAX_COMPLETED_TERRAIN_JOBS) break;
+      dispatched = this.dispatchTerrainWorkerSlot(worker) || dispatched;
+    }
+    return dispatched;
+  }
+
+  private dispatchTerrainWorkerSlot(worker: Worker) {
+    const awaitingPublication = new Set([
+      ...this.completedTerrainWorkerJobs.map(({ job }) => job.key), ...this.inFlightTerrainJobs.map(job => job.key),
+    ]);
 
     // A distant snapshot backlog must not postpone a direct edit. A same-chunk
     // authoritative replacement still takes precedence over its local remesh.
@@ -2137,7 +2252,7 @@ export class World {
         );
       }
       this.pendingTerrainSnapshots.delete(key);
-      this.terrainWorkerJob = job;
+      this.setTerrainWorkerJob(worker, job);
       worker.postMessage(request, transfer);
       return true;
     }
@@ -2154,11 +2269,15 @@ export class World {
 
     let candidates = this.pendingStreamChunks.length;
     while (candidates-- > 0 && this.pendingStreamChunks.length > 0) {
+      // Reserve the second core for visible demand and edits. Speculative
+      // generation must not keep both cores busy once the near window is ready.
+      if (worker !== this.terrainWorker && !this.parallelTerrainPrefetch
+        && this.pendingStreamChunks[0].distanceSq >= 1e6) return false;
       const next = this.pendingStreamChunks.shift();
       if (!next) break;
       const key = World.getChunkKey(next.cx, next.cz);
       if (awaitingPublication.has(key)) continue;
-      if (!this.activeChunkKeys.has(key) || this.chunks.has(key)) continue;
+      if (!this.streamCandidateKeys.has(key) || this.chunks.has(key)) continue;
       if (
         this.pendingRemoteChunkUpdates.has(key)
         || this.pendingRemoteChunkApply?.key === key
@@ -2210,7 +2329,7 @@ export class World {
           recycledChunk.materials.buffer,
         );
       }
-      this.terrainWorkerJob = job;
+      this.setTerrainWorkerJob(worker, job);
       worker.postMessage(request, transfer);
       return true;
     }
@@ -2232,7 +2351,7 @@ export class World {
       dataVersion: remeshChunk.dataVersion,
       remeshChunk,
     };
-    this.terrainWorkerJob = job;
+    this.setTerrainWorkerJob(worker, job);
     worker.postMessage({
       type: 'remesh',
       requestId: job.requestId,
@@ -2400,6 +2519,7 @@ export class World {
 
   disposeChunkMesh(chunk: Chunk | null | undefined) {
     if (!chunk?.mesh) return;
+    this.releaseNearCacheKey(World.getChunkKey(chunk.cx, chunk.cz));
     this.captureDistantChunk(chunk);
     this.distantSurface.setDetailChunkReady(chunk.cx, chunk.cz, false, true);
     this.disposeDetachedChunkMesh(chunk.mesh);
@@ -2408,12 +2528,31 @@ export class World {
 
   private processPendingChunkEvictions(frameWorkStartedAt: number, workBudgetMs: number) {
     let processed = 0;
+    const [cx, cz] = (this.lastStreamCenterKey || '0,0').split(',').map(Number);
     for (const [key, chunk] of this.pendingChunkEvictions) {
       if (processed >= MAX_CHUNK_EVICTIONS_PER_FRAME) break;
       if (performance.now() - frameWorkStartedAt >= workBudgetMs) break;
       if (this.distantSurface.retainsDetailChunk(chunk.cx, chunk.cz)) continue;
+      if (this.activeChunkKeys.has(key)) { this.pendingChunkEvictions.delete(key); this.releaseNearCacheKey(key); continue; }
+      const nearby = Math.abs(World._wrappedDelta(cx, chunk.cx, TORUS_SIZE_X / CHUNK_SIZE_X)) <= this.renderDistance + 2
+        && Math.abs(World._wrappedDelta(cz, chunk.cz, TORUS_SIZE_Z / CHUNK_SIZE_Z)) <= this.renderDistanceZ + 2;
+      const bytes = Number(chunk.mesh?.userData.terrainResidentBytes ?? Infinity);
+      const cacheable = this.nearCacheEnabled && nearby && !this.fixedTerrainCenter && chunk.mesh
+        && !chunk.isDirty && !chunk.hasUserEdits && !this.pendingRemoteChunkUpdates.has(key)
+        && !this.pendingTerrainSnapshots.has(key) && this.pendingRemoteChunkApply?.key !== key
+        && !this.suspendedCrossLayerPublicationChunks.has(key);
+      if (cacheable && ((this.nearCachedChunks.has(key) && this.nearCacheBytes <= this.nearCacheLimitBytes)
+        || (this.nearCachedChunks.size < 96 && this.nearCacheBytes + bytes <= this.nearCacheLimitBytes))) {
+        chunk.mesh!.visible = false;
+        if (!this.nearCachedChunks.has(key)) {
+          this.nearCachedChunks.set(key, bytes); this.nearCacheBytes += bytes;
+          this.unloadProceduralMicroChunk(chunk);
+        }
+        continue;
+      }
       this.pendingChunkEvictions.delete(key);
-      if (this.activeChunkKeys.has(key)) continue;
+      this.releaseNearCacheKey(key);
+      this.nearStreamStats.evicted++;
       if (chunk.mesh) this.disposeChunkMesh(chunk);
       this.unloadProceduralMicroChunk(chunk);
       this.dirtyChunks.delete(chunk);
@@ -2696,7 +2835,7 @@ export class World {
       if (previous === undefined || revision !== previous + 1) continue;
       if (this.pendingRemoteChunkApply?.key === key
         || this.pendingTerrainSnapshots.has(key)
-        || (this.terrainWorkerJob?.key === key && this.terrainWorkerJob.snapshot)
+        || this.inFlightTerrainJobs.some(job => job.key === key && job.snapshot)
         || this.completedTerrainWorkerJobs.some(({ job }) => job.key === key && job.snapshot)
         || this.suspendedCrossLayerPublicationChunks.has(key)) continue;
       this.remoteChunkRevisions.set(key, revision);
@@ -2817,7 +2956,7 @@ export class World {
     return Boolean(job.previousChunk?.mesh)
       && this.chunks.get(job.key) === job.previousChunk
       && !this.pendingTerrainSnapshots.has(job.key)
-      && !(this.terrainWorkerJob?.key === job.key && this.terrainWorkerJob.snapshot)
+      && !this.inFlightTerrainJobs.some(pending => pending.key === job.key && pending.snapshot)
       && !this.completedTerrainWorkerJobs.some(({ job: pending }) => pending.key === job.key && pending.snapshot)
       && !this.suspendedCrossLayerPublicationChunks.has(job.key);
   }

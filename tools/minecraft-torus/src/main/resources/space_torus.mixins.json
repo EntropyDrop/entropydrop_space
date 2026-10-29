@@ -9,6 +9,7 @@
     "DhProgramMixin",
     "SodiumFrustumMixin",
     "DhFrustumMixin",
+    "DhFixedDetailMixin",
     "MinecraftClientMixin"
   ],
   "injectors": {

@@ -27,7 +27,10 @@ export const terrainDither = (pixel = screenCoordinate.xy) =>
   fract(fract(dot(floor(pixel), vec2(.06711056, .00583715))).mul(52.9829189));
 
 export function terrainCoverage(mask: THREE.DataTexture, flat: ReturnType<typeof vec2>) {
-  const chunk = varying(floor(flat.mod(vec2(16384, 2048)).add(vec2(16384, 2048)).mod(vec2(16384, 2048)).div(16)));
+  // Interpolate continuous coordinates. Quantizing at vertices shifts ownership
+  // into the adjacent chunk halfway across a face, and wrapping at vertices
+  // interpolates through the whole world when a face crosses a periodic seam.
+  const chunk = floor(varying(flat).mod(vec2(16384, 2048)).add(vec2(16384, 2048)).mod(vec2(16384, 2048)).div(16));
   return texture(mask, chunk.add(.5).div(vec2(1024, 128))).rg;
 }
 

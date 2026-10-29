@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-29",
+  "terrain": "aether-archipelago",
+  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:153.0) Gecko/20100101 Firefox/153.0",
+  "adapter": {
+    "vendor": "",
+    "architecture": "",
+    "device": "",
+    "description": ""
+  },
+  "framebuffer": [
+    2560,
+    1440
+  ],
+  "acceptedPairedBlocks": 8,
+  "gpuErrors": [],
+  "mapUploadPixelCheck": {
+    "changedPixels": 0,
+    "pixels": 3686400,
+    "pose": "settled dense phase 0"
+  },
+  "nearBatchPixelCheck": {
+    "changedPixels": 0,
+    "pixels": 3686400,
+    "changedSamples": []
+  },
+  "engineTests": {
+    "passed": 665,
+    "failed": 0,
+    "log": "final-engine-isolated.log.gz"
+  },
+  "clientTests": {
+    "passed": 1662,
+    "failed": 0,
+    "log": "final-client-tests.log.gz"
+  },
+  "engineAndClientTypechecks": "passed",
+  "finalDevHarnessTypecheck": "passed",
+  "productionBuild": "passed, including DEV exclusion and module/worker checks",
+  "englishAndDocLinks": "passed",
+  "apiDocs": "passed",
+  "reportImageVerification": "all accepted PNGs valid; final ordinary and bundled images RGBA-identical",
+  "notes": [
+    "An earlier parallel test run failed one wall-clock threshold; the isolated whole-engine rerun passed every test.",
+    "Only the primary terrain worker speculates; the second handles active demand and edits.",
+    "Cache memory is estimated and excludes active chunks, worker runtimes, driver memory and reusable arrays.",
+    "One accepted ABBA session; no cross-device performance claim."
+  ]
+}

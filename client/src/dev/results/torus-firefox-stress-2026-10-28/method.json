@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "baseCommit": "c345f249e601caea45ba41d202eb51ea94eb481d",
+  "width": 2560,
+  "height": 1440,
+  "msaa": 0,
+  "fixedCellMetres": 1,
+  "nearChunks": 8,
+  "farChunks": 576,
+  "fixtureZones": 8,
+  "totalWorldZones": 128,
+  "nativeFixedSectionsRequired": 512,
+  "nativeVerticalQuality": "PIXEL_ART",
+  "spaceFineSourcesRequired": 8,
+  "spaceGeometryBudgetMiB": 512,
+  "spaceDataBudgetMiB": 1024,
+  "fog": false,
+  "shadows": false,
+  "spaceLighting": "medium",
+  "spaceProductionCpuMaintenance": true,
+  "tightIdleCulling": false,
+  "torusBackfaceFilter": false,
+  "eye": [
+    8192.5,
+    180,
+    1024.5
+  ],
+  "cases": {
+    "control": {
+      "fovY": 70,
+      "pitchDown": 18
+    },
+    "dense": {
+      "fovY": 100,
+      "pitchDown": 55
+    },
+    "turn": {
+      "fovY": 100,
+      "pitchDown": 55,
+      "yawSpaceRadians": "pi/2 * sin(t*pi/3)",
+      "yawMinecraftDegrees": "180 - 90*sin(t*pi/3)"
+    },
+    "move": {
+      "fovY": 100,
+      "pitchDown": 55,
+      "x": "8192.5 + 64*sin(t*pi/3)",
+      "z": "1024.5 + 32*sin(t*2*pi/3)"
+    }
+  },
+  "order": [
+    "control",
+    "dense",
+    "turn",
+    "move",
+    "move",
+    "turn",
+    "dense",
+    "control"
+  ],
+  "steadyWarmSeconds": 60,
+  "blockWarmSeconds": 6,
+  "blockMeasureSeconds": 12,
+  "screenshots": "Freeze at phase 0 outside timing; four frames before capture.",
+  "limits": [
+    "Same original eight-zone fixture, not the full world.",
+    "Native and Firefox run sequentially; no builds or other benchmarks during sampling.",
+    "Moving case includes near-terrain streaming; browser records near readiness and far pending state.",
+    "Different lighting, reconstruction and runtime overhead remain.",
+    "Native uncapped application frames and refresh-limited browser frames are not isolated algorithm timings.",
+    "Browser GPU values are pass envelopes; native GPU time is not instrumented."
+  ]
+}

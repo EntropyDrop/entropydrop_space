@@ -1,0 +1,5 @@
+**/status.json
+**/result.json
+**/excluded-*.log.gz
+/report-preview.png
+**/excluded-*/

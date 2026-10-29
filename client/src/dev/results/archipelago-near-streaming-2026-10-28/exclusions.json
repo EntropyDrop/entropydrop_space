@@ -1,0 +1,33 @@
+{
+  "regionalBundlePixelChecks": {
+    "baseline": 7,
+    "cache": 7,
+    "workers": 4,
+    "note": "Rejected regional command-bundle candidates. All timed blocks in these runs had near command reuse disabled. Their timing is exploratory, not acceptance of those candidates."
+  },
+  "initializationFailures": [
+    {
+      "run": "workers first attempt",
+      "outcome": "Scene initialization timeout before any samples"
+    },
+    {
+      "run": "paired first attempt",
+      "outcome": "152/153 near chunks ready; one remesh worker did not return; Firefox console reported an empty worker source. Exact root cause unproven."
+    }
+  ],
+  "visibilityInterruption": {
+    "run": "paired retry",
+    "outcome": "Page became hidden before valid blocks were saved. Rejected by visibility/size/FOV guard."
+  },
+  "unsettledPixelReference": {
+    "folder": "firefox/aether-archipelago/paired-unsettled",
+    "changedPixels": 3013,
+    "outcome": "Eight timing blocks completed, then post-run map comparison failed. Excluded from primary conclusions. Final rerun waits until streaming and ownership fades settle and passes both comparisons."
+  },
+  "testConcurrency": {
+    "test": "castle structure with ~10000 blocks performs single-block edits in < 5ms without tearing down nodes",
+    "observedMaxMs": 19.302,
+    "thresholdMs": 15,
+    "conditions": "Full engine tests ran alongside client tests and production build. Isolated test passed; final whole-engine isolated rerun is recorded separately."
+  }
+}

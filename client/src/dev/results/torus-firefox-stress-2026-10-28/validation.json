@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "captureChecks": "passed",
+  "finalImageQualityMatched": false,
+  "runs": 6,
+  "measurementBlocks": 48,
+  "screenshots": 48,
+  "measurementExclusions": [],
+  "checks": [
+    "All 48 PNGs decode and verify at 2560 x 1440.",
+    "All runs use no MSAA and one-metre fixed terrain detail.",
+    "Native: 512 unique uploaded detail-0 sections, zero pending; PIXEL_ART vertical quality.",
+    "Firefox: exact eight fixture zones have finest mip size 1 in every block; no recorded GPU errors.",
+    "Native source hashes match the existing complete-cell validation records.",
+    "Both actual projection matrices match 70 or 100 degree FOV for the corresponding case.",
+    "Two forward/reverse repetitions of all four cases exist for each renderer and terrain.",
+    "All Firefox measured phases begin after 6 seconds and extend through 18 seconds."
+  ],
+  "qualityFindings": [
+    "Space Nature dense view has visible near/far boundary gaps after settling; native counterpart does not show equivalent gaps.",
+    "Lighting and fine edge reconstruction remain different.",
+    "Matched source-cell detail is not proof of identical final image quality."
+  ],
+  "movingReadiness": "Near-not-ready and far-pending frames remain in results. These state fractions do not measure missing screen pixels.",
+  "limits": [
+    "Only the eight-zone fixture was loaded (6.25% of the full world).",
+    "Native FPS is uncapped; browser presentation is refresh-limited.",
+    "Browser GPU timing is a pass envelope; native GPU timing was not measured.",
+    "Two repetitions are not a confidence interval."
+  ],
+  "setupNotes": [
+    "Initial sandboxed Gradle native-library and loopback-listen failures were resolved before sampling.",
+    "An incorrectly typed Firefox URL was corrected before any Firefox capture began."
+  ],
+  "checksAfterCapture": {
+    "clientTypecheck": "passed",
+    "clientProductionBuild": "passed, including production import-order and compiler-worker checks",
+    "englishOnly": "passed",
+    "minecraftGradleBuild": "passed, seven existing mixin target warnings",
+    "pythonSummary": "passed; source hashes, zones, dimensions, FOV, samples and images checked"
+  },
+  "productionRendererChangesInThisFollowUp": false
+}

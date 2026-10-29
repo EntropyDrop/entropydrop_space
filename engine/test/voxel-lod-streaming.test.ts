@@ -34,6 +34,7 @@ for (const backend of ['worker', 'cooperative'] as const) test(`${backend} switc
   const handoff = new TerrainHandoff();
   const layer = new DistantVoxelLayer(handoff.texture, { workerFactory: () => backend === 'worker'
     ? new NodeVoxelLodWorker() : createCooperativeVoxelLodPort() });
+  layer.setIdleMaintenanceEnabled(true);
   const visible = new THREE.Frustum();
   for (const plane of visible.planes) plane.set(new THREE.Vector3(), 1);
   const update = () => layer.updateView(visible, bendPoint(8200, 120, 1032), 720, 1, 32768, 100000);
@@ -380,4 +381,70 @@ test('flat culling reference switches rebuild a stationary layer and survive are
     for(let n=0;n<100;n++){update();if(!layer.hasPendingWork)break;}
     assert.ok(layer.group.userData.voxelArenaStats.visibleFaces>0,'recreated arena keeps the reference choice');
   }finally{layer.dispose();handoff.texture.dispose();}
+});
+
+test('fixed-cell benchmark preserves detail and rejects insufficient budget', () => {
+  const handoff = new TerrainHandoff(), layer = new DistantVoxelLayer(handoff.texture);
+  try {
+    layer.install(source()); layer.setFixedCellSizeForBenchmark(1); tick(layer, 256);
+    assert.equal(layer.group.userData.voxelLodStats.faces, 128);
+    assert.equal(layer.getFixedCellSizeForBenchmark(), 1);
+    assert.throws(() => layer.setFixedCellSizeForBenchmark(3), /Invalid/);
+    layer.setFixedCellSizeForBenchmark(undefined); tick(layer, 256, 10);
+    assert.ok(layer.group.userData.voxelLodStats.faces < 128);
+    layer.setFixedCellSizeForBenchmark(1);
+    assert.throws(() => tick(layer, 256, 10), /exceeds face budget/);
+  } finally { layer.dispose(); handoff.texture.dispose(); }
+});
+
+test('scheduled batch maintenance preserves publication, fades, cleanup, projection and eviction', t => {
+  let now = 10000; t.mock.method(performance, 'now', () => now);
+  const masks = [new TerrainHandoff(), new TerrainHandoff()];
+  const layers = masks.map(mask => new DistantVoxelLayer(mask.texture));
+  layers[0].setIdleMaintenanceEnabled(false);
+  layers[1].setIdleMaintenanceEnabled(true);
+  const step = () => {
+    for (const layer of layers) tick(layer);
+    assert.deepEqual(layers[1].group.userData.voxelLodStats, layers[0].group.userData.voxelLodStats);
+    assert.equal(layers[1].hasPendingTransitions, layers[0].hasPendingTransitions);
+    for (const key of ['residentFaces', 'visibleFaces', 'drawnFaces', 'coveredFaces'] as const)
+      assert.equal(layers[1].group.userData.voxelArenaStats[key], layers[0].group.userData.voxelArenaStats[key], key);
+  };
+  try {
+    for (const layer of layers) { layer.setMergedBuffersEnabled(true); layer.install(source()); }
+    for (let i = 0; i < 8; i++) step();
+    now += 6000; for (let i = 0; i < 4; i++) step();
+    let visits = 0;
+    for (const zone of (layers[1] as any).zones.values()) for (const batch of zone.batches.values()) {
+      const advance = batch.advance.bind(batch); batch.advance = (time: number) => { visits++; return advance(time); };
+    }
+    for (let i = 0; i < 20; i++) step();
+    assert.equal(visits, 0, 'settled arena batches require no repeated traversal');
+    for (const mask of masks) {
+      mask.data.fill(255); mask.texture.userData.voxelVisibilityVersion++;
+    }
+    step();
+    assert.equal(layers[1].group.userData.voxelArenaStats.visibleFaces, 0, 'near ownership hides settled far batches');
+    for (const layer of layers) layer.setDrawOptimizationsEnabled(false);
+    step();
+    assert.ok(layers[1].group.userData.voxelArenaStats.visibleFaces > 0, 'reference culling switch restores hidden sources');
+    for (const mask of masks) {
+      mask.data.fill(0); mask.texture.userData.voxelVisibilityVersion++;
+    }
+    for (const layer of layers) layer.setDrawOptimizationsEnabled(true);
+    step();
+    for (const layer of layers) layer.install(source(2, 230, 256));
+    step(); now += 500; step(); now += 6000; step();
+    assert.ok(visits > 0, 'replacement, fade and deferred cleanup resume maintenance');
+    for (const mode of ['flat', 'torus'] as const) {
+      setWorldProjection(mode); step(); now += 500; step();
+    }
+    for (const layer of layers) layer.setMergedBuffersEnabled(false);
+    for (const layer of layers) tick(layer);
+    for (const layer of layers) layer.setMergedBuffersEnabled(true);
+    step();
+    for (const layer of layers) layer.removeZone(16, 2);
+    step();
+    assert.equal(layers[1].hasPendingWork, false);
+  } finally { for (const layer of layers) layer.dispose(); for (const mask of masks) mask.texture.dispose(); setWorldProjection('torus'); }
 });

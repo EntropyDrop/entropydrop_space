@@ -1,0 +1,43 @@
+{
+  "status": "passed",
+  "production": {
+    "scheduledMaintenance": true,
+    "tightIdleCulling": false,
+    "fixedOneMetreLod": "benchmark only"
+  },
+  "postMeasurementChanges": [
+    "Enable scheduled maintenance by default; benchmark variants already explicitly selected this behavior.",
+    "Invalidate resident source visibility when toggling the development culling reference; regression verified."
+  ],
+  "checks": {
+    "engineTests": 658,
+    "clientTests": 1662,
+    "engineTypecheck": "passed",
+    "clientTypecheck": "passed",
+    "productionBuild": "passed including dev-entry exclusion, module import ordering and compiler worker",
+    "nativeGradleBuild": "passed",
+    "documentationLinks": "passed",
+    "englishOnly": "passed",
+    "reportLocalAssets": "all referenced files exist",
+    "pythonSyntax": "passed",
+    "gitDiffWhitespace": "passed"
+  },
+  "imageChecks": {
+    "staticPairs": 15,
+    "changedPixels": 0,
+    "movingViews": "Not compared pixel-wise because capture phases differ; culling conservativeness and schedule invalidations covered by engine tests."
+  },
+  "acceptedSamples": {
+    "nativeBlocks": 12,
+    "nativeFrames": 22074,
+    "spaceBlocks": 84,
+    "spaceFrames": 100958,
+    "gpuSamples": 16823
+  },
+  "finalSourceSha256": {
+    "engine/src/render/DistantVoxelLayer.ts": "3e530179211a9d67b2ce508e1de49c1ee8c0dc3e609cbd2efb20411a4897192a",
+    "engine/src/render/SurfaceBatch.ts": "77413754cfeb4e16bbfc737e2732178182237f67d94376c1e4ef6eaed12dfcc3",
+    "engine/src/render/VoxelFaceArena.ts": "e5d967b357d9b914ce24282a42de66f067e95f8331204f1509acf9a6e52ab505",
+    "engine/test/voxel-lod-streaming.test.ts": "308874690ce562dcc2eecaf5451b024b7531824e931eafc207e879080fdd8e0d"
+  }
+}

@@ -40,7 +40,7 @@ Repeat for `copper-metropolis` and `aether-archipelago`. This copies only modifi
 -Dspace_torus.warmSeconds=60
 ```
 
-Use Minecraft's `--quickPlaySingleplayer` for the new save. Set Sodium `performance.use_fog_occlusion=false` and `performance.use_block_face_culling=false` in this isolated instance. The benchmark disables Minecraft's section occlusion traversal, fixes the camera and disables VSync. Physical framebuffer size must be exactly 1280 × 720. On the tested Retina Mac this requires a 640 × 360 logical window. A size mismatch or pause aborts sampling. The harness retries size calibration after loading, resetting only this test window's size limits and position.
+Use Minecraft's `--quickPlaySingleplayer` for the new save. Set Sodium `performance.use_fog_occlusion=false` and `performance.use_block_face_culling=false` in this isolated instance. The benchmark disables Minecraft's section occlusion traversal, fixes the camera and disables VSync. Physical framebuffer size must be exactly 1280 × 720. On the tested Retina Mac this requires a 640 × 360 logical window. A size mismatch or pause aborts sampling. The harness retries size calibration after loading, constraining only this test window to 640 by 360 logical pixels and resetting its position. It disables Minecraft flight FOV effects and view bobbing, then validates the actual projection matrix at 70 degrees before accepting samples.
 
 ## Projection and measurements
 
@@ -66,3 +66,59 @@ For a timing rerun of the same unchanged disposable save, `-Dspace_torus.reuseVa
 ## Archived evidence
 
 `client/src/dev/results/torus-minecraft-2026-10-27/` retains accepted compressed frame samples, one valid screenshot per view, validation records, configuration and binary hashes, and compressed native launch logs. `exclusions.json` explains unsuccessful attempts and capture substitutions. Duplicate screenshots, live status files, probe captures and the report preview remain local. The mod's generated terrain, Gradle cache, JARs and distribution archives are reproducible build outputs and are not tracked. Minecraft writes screenshots asynchronously; wait for complete PNG files before archiving them.
+
+## Common one-metre detail reference
+
+The follow-up LOD alignment benchmark uses `-Dspace_torus.fixedDetail=true`. It refines all eight fixture zones to DH horizontal detail 0 (one metre), sets vertical quality to `PIXEL_ART`, disables cave culling, distant fog, SSAO and LOD noise, and waits until all 512 target 64 m sections report completed GPU uploads. A graded empty halo preserves DH's quadtree parent/child invariant; an abrupt change to its ordinary distance policy is invalid. This is a common source-detail reference, not the stock adaptive DH preset. Lighting, color transfer, greedy tessellation and near/far blending still differ.
+
+`run-lod-benchmark.py` reuses only the validated disposable saves, runs the three terrains sequentially, checks complete PNG chunks before copying screenshots, and stops each owned Java process in `finally`. It refuses to overwrite accepted compressed samples. Fixed views use `torus, across, across, torus`, with the same 60 s warmup and 5 + 10 s blocks.
+
+Space uses `client/tools/torus-browser.html?terrain=nature&profile=fixed&autorun=1`. Start the loopback receiver on port 54387. The fixed profile requires all eight finest sources, pins voxel mip selection to 1 m and fails if its explicit geometry budget is insufficient. The `adaptive` profile retains production LOD settings. Both run reference/tight/tight/reference for each view, keeping the terrain and lighting unchanged between variants. Do not run native and browser benchmarks together.
+
+The `maintenance` Space profile tests a separate CPU-only candidate with the original visibility guards, 30 seconds of additional steady warmup, and reference/CPU/CPU/reference blocks for stationary and turning views. It records both complete CPU submission time and time spent in the distant voxel update. Changing residency, masks, projection, or publishing a fade invalidates the idle schedule; retired buffers still receive their timed cleanup. This profile does not enable tighter idle culling.
+
+The 2026-10-27 report used a nominal Minecraft FOV of 70 without disabling flight FOV effects. Do not treat its camera framing as verified equal to Space. The 2026-10-28 common-detail comparison explicitly validates the actual matrix; the first nominal-FOV reruns are excluded as well.
+
+## Native Firefox stress comparison
+
+The opt-in `-Dspace_torus.stress=true` path adds a separate 2560 x 1440 experiment. Both renderers retain the common one-metre detail reference, disable MSAA and fog, and use the same eight original terrain zones. This is a high-detail bounded fixture, not a claim to render the complete world at one metre.
+
+Four cases run in forward/reverse order: ordinary view (70-degree vertical FOV, 18 degrees down), dense view (100 degrees, 55 degrees down), a 6-second yaw sweep of plus/minus 90 degrees, and a 6-second translating route with x/z amplitudes 64/32 metres. Eye height is 180 m. Each block warms for 6 seconds and samples for 12 seconds, after 60 seconds of steady initial warmup. Minecraft's yaw is `180 - SpaceYawDegrees`; the signs are required to match the same flat-coordinate direction. Moving cases retain near-terrain streaming work. Screenshots reset to phase zero outside timing.
+
+After building the mod, reuse the existing disposable fixture with:
+
+```sh
+python3 tools/minecraft-torus/run-stress-benchmark.py
+```
+
+The runner archives complete PNGs and compressed frame records, refuses to overwrite accepted native data, and terminates each owned Java process before the next terrain. After all native processes have stopped, start the local-only receiver:
+
+```sh
+node client/tools/torus-stress-receiver.mjs \
+  client/src/dev/results/torus-firefox-stress-2026-10-28
+```
+
+In native Firefox open `client/tools/torus-stress.html?autorun=1` through the Vite server. The page requires a visible 1280 x 720 CSS iframe, fixes render DPR to 2, and rejects another browser. The archived comparison above included all three terrains. Current follow-up work intentionally runs only Aether Archipelago in native Firefox; the stress host now defaults to that terrain and rejects other world names. Archive any previous run before rerunning the same browser terrain. Do not build or run other benchmarks during sampling.
+
+Run `python3 tools/minecraft-torus/summarize-stress.py` and `python3 tools/minecraft-torus/make-stress-report.py` after all six renderer/terrain captures complete. The summary checks dimensions, source detail, section coverage, actual FOV, all eight blocks, GPU errors and PNG integrity. It reports mean FPS, P95/P99, slowest-one-percent mean FPS, slow-frame fractions, Firefox CPU/GPU subspans and near/far pending-work fractions. Browser presentation limits and different runtime/lighting overhead remain explicit comparison limits.
+
+
+## Current follow-up: Firefox / Aether Archipelago only
+
+The 2026-10-28 seam and map-upload follow-up uses `focus=1` for dense/move/move/dense, with the same camera, source cells, display settings and 60-second warmup as the stress comparison. Run the receiver against a fresh output folder, then open `client/tools/torus-stress.html?autorun=1&focus=1&run=optimized` in native Firefox. `run=baseline`, `run=seam`, `run=optimized` and `run=repeat` select separate output folders. `maps=full` enables the full-upload reference while retaining the corrected coverage shader. Do not overwrite accepted results.
+
+The host records CPU subspans, per-frame scheduled map bytes, residency and near readiness. Instrumentation is identical across timed variants; spans can be nested and must not be added. After timing, the map-upload reference and optimized path render the settled dense pose and require byte-identical RGBA pixels. That check is independent of moving performance samples.
+
+### Near-terrain cache, workers and command reuse
+
+The 2026-10-28/29 follow-up retains the same Firefox/Aether fixture. Start the stress receiver with a fresh output folder, then open the absolute Vite `/@fs/.../client/tools/torus-stress.html` URL. Use `autorun=1&focus=1&run=baseline&near=baseline`, then `run=cache&near=cache`, `run=workers&near=workers`, `run=batch&near=batch`, `run=optimized&near=scheduled`, and `run=repeat&near=baseline`. Keep the test tab visible; hidden pages abort rather than accepting throttled frames.
+
+`near=cache` retains up to 96 clean standard chunks within a 64 MiB estimated budget and preloads one extra ring. `near=workers` adds a second worker, including speculative work. `near=batch` also reuses opaque near commands. The production `near=scheduled` variant reserves the second worker for active demand and edits; only the primary preloads. Both workers share a four-job in-flight/completed limit. The second module worker starts after the first successful response. None of these modes reduce source detail or shading quality. Command reuse does not merge geometry or reduce GPU draw calls.
+
+For the same-page follow-up, use `autorun=1&focus=1&run=paired&near=scheduled&paired=1`. It runs reference/production/production/reference for dense and moving cases, with the same 6-second settling and 12-second timing windows. Allow approximately four uninterrupted minutes after page load, longer if source preparation is slow. This controls some reload drift but is not a statistical confidence interval. Do not run builds or tests concurrently.
+
+All captures include ready/required near-chunk counts, cache estimates, worker queue depth and bundle counters. After timing, the harness renders ordinary and bundled near geometry at one frozen pose and saves both PNGs plus a strict RGBA equality result. The report generator independently compares these images. Early regional bundle attempts failed this check and are documented separately; they are not the production implementation.
+
+Run `python3 tools/minecraft-torus/make-near-streaming-report.py` to validate accepted samples, update the summary and generate `client/docs/performance-archipelago-near-streaming-2026-10-29.html`. The archived results are under `client/src/dev/results/archipelago-near-streaming-2026-10-28/`. Separate reference runs varied substantially, so report readiness and CPU changes independently of any FPS claim. Cache estimates exclude active terrain, worker/runtime memory, reusable arrays and driver overhead.
+
+`client/tools/terrain-coverage-probe.html` is a native Firefox GPU regression check for the production coverage shader. It renders known ownership masks and compares every pixel against independent flat-coordinate chunk ownership, including both periodic seams and side-face offsets. The legacy shader is kept only inside this DEV probe to reproduce the failure. It must fail at least one case while the production shader must pass all cases. The output is `firefox/aether-archipelago/coverage-probe.json` under the active receiver root.

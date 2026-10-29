@@ -88,6 +88,8 @@ export class SurfaceBatch {
   get top() { return this.current.top; }
   get side() { return this.current.side; }
   get transitioning() { return this.previous !== null; }
+  /** Idle owners can skip scans until a fade or delayed buffer cleanup is due. */
+  get nextUpdateTime() { return this.previous ? 0 : this.nextCleanupAt; }
 
   /** Includes the outgoing generation while its coverage is fading. */
   forEachActiveMesh(visit: (mesh: Mesh) => void) {

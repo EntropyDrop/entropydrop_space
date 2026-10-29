@@ -1,0 +1,1955 @@
+{
+  "schema": 1,
+  "worlds": [
+    {
+      "terrain": "nature",
+      "native": {
+        "torus": {
+          "frame": {
+            "mean": 3.3690151094276093,
+            "p95": 5.226708,
+            "count": 5940
+          },
+          "fps": 296.82265217560825,
+          "blockFps": [
+            298.05263744285446,
+            295.5920953175319
+          ]
+        },
+        "across": {
+          "frame": {
+            "mean": 5.944829335115864,
+            "p95": 8.302834,
+            "count": 3366
+          },
+          "fps": 168.21340758985977,
+          "blockFps": [
+            168.3573571858918,
+            168.06953321807825
+          ]
+        }
+      },
+      "space": {
+        "fixed": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.335081148484921,
+                "p95": 9.900000095367432,
+                "count": 2403
+              },
+              "fps": 119.9748367395045,
+              "cpu": {
+                "mean": 1.1805659763226646,
+                "p95": 1.4000000953674316,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 1.07282432,
+                "p95": 1.835008,
+                "count": 400
+              },
+              "faces": 139078,
+              "drawnFaces": 139456,
+              "residentFaces": 692905,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.06627072,
+                1.07937792
+              ],
+              "blockCpu": [
+                1.191340566376266,
+                1.169800350154299
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.334304746044962,
+                "p95": 10.099999904632568,
+                "count": 2402
+              },
+              "fps": 119.98601328737699,
+              "cpu": {
+                "mean": 1.1733971725991128,
+                "p95": 1.4000000953674316,
+                "count": 2402
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2402
+              },
+              "gpu": {
+                "mean": 1.12623616,
+                "p95": 2.62144,
+                "count": 400
+              },
+              "faces": 102914,
+              "drawnFaces": 103200,
+              "residentFaces": 692905,
+              "tightFraction": 1,
+              "blockGpu": [
+                1.10362624,
+                1.14884608
+              ],
+              "blockCpu": [
+                1.1671940083309176,
+                1.1796003368673078
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": 4.978619425778863,
+            "cpuChangePercent": -0.6072344847580458,
+            "faceChangePercent": -26.002674758049437,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "across": {
+            "reference": {
+              "frame": {
+                "mean": 8.3367041198105,
+                "p95": 10.099999904632568,
+                "count": 2403
+              },
+              "fps": 119.95148030067436,
+              "cpu": {
+                "mean": 1.0832293042529388,
+                "p95": 1.3000001907348633,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 1.4064156019900498,
+                "p95": 2.555904,
+                "count": 402
+              },
+              "faces": 322669,
+              "drawnFaces": 323136,
+              "residentFaces": 692905,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.3967971343283583,
+                1.4160340696517413
+              ],
+              "blockCpu": [
+                1.0857737195273605,
+                1.0806827703979391
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.357297748202976,
+                "p95": 10,
+                "count": 2398
+              },
+              "fps": 119.65590195886278,
+              "cpu": {
+                "mean": 1.082068390802506,
+                "p95": 1.3000001907348633,
+                "count": 2398
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2398
+              },
+              "gpu": {
+                "mean": 1.3780627568922306,
+                "p95": 2.94912,
+                "count": 399
+              },
+              "faces": 296392,
+              "drawnFaces": 296800,
+              "residentFaces": 692905,
+              "tightFraction": 1,
+              "blockGpu": [
+                1.45260544,
+                1.303145487437186
+              ],
+              "blockCpu": [
+                1.0701082441630114,
+                1.0940685045151484
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -2.0159649151858416,
+            "cpuChangePercent": -0.10717153292243431,
+            "faceChangePercent": -8.143639457152684,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          }
+        },
+        "adaptive": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.335955056060715,
+                "p95": 10.200000286102295,
+                "count": 2403
+              },
+              "fps": 119.96225906627734,
+              "cpu": {
+                "mean": 1.211235951444679,
+                "p95": 1.5,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 1.47963904,
+                "p95": 3.538944,
+                "count": 400
+              },
+              "faces": 109996,
+              "drawnFaces": 110400,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.29204224,
+                1.66723584
+              ],
+              "blockCpu": [
+                1.2125728533329514,
+                1.2099001617875949
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.358639399077935,
+                "p95": 10.400000095367432,
+                "count": 2396
+              },
+              "fps": 119.63669590894335,
+              "cpu": {
+                "mean": 1.2199916489335252,
+                "p95": 1.5,
+                "count": 2396
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2396
+              },
+              "gpu": {
+                "mean": 1.2394352280701755,
+                "p95": 2.686976,
+                "count": 399
+              },
+              "faces": 82371,
+              "drawnFaces": 82784,
+              "residentFaces": 232718,
+              "tightFraction": 1,
+              "blockGpu": [
+                1.21110528,
+                1.267907537688442
+              ],
+              "blockCpu": [
+                1.189009157048971,
+                1.2511297014467886
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -16.233946620509855,
+            "cpuChangePercent": 0.7228729859283689,
+            "faceChangePercent": -25.11454961998618,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "across": {
+            "reference": {
+              "frame": {
+                "mean": 8.334108849308725,
+                "p95": 10.300000190734863,
+                "count": 2407
+              },
+              "fps": 119.98883360912009,
+              "cpu": {
+                "mean": 1.0963024480936188,
+                "p95": 1.3000001907348633,
+                "count": 2407
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2407
+              },
+              "gpu": {
+                "mean": 0.9933361795511222,
+                "p95": 1.507328,
+                "count": 401
+              },
+              "faces": 74012,
+              "drawnFaces": 74208,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.0241222686567164,
+                0.96239616
+              ],
+              "blockCpu": [
+                1.105149496829391,
+                1.0874480452026214
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.33991683991684,
+                "p95": 10.099999904632568,
+                "count": 2405
+              },
+              "fps": 119.90527234201669,
+              "cpu": {
+                "mean": 1.0777962583514114,
+                "p95": 1.3000001907348633,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 0.9720900947630923,
+                "p95": 1.507328,
+                "count": 401
+              },
+              "faces": 51314,
+              "drawnFaces": 51488,
+              "residentFaces": 232718,
+              "tightFraction": 1,
+              "blockGpu": [
+                0.94273536,
+                1.0012987860696518
+              ],
+              "blockCpu": [
+                1.071713805793724,
+                1.0838736548388093
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -2.138861467588027,
+            "cpuChangePercent": -1.688055132448918,
+            "faceChangePercent": -30.667999783818843,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "turn": {
+            "reference": {
+              "frame": {
+                "mean": 8.339492301170994,
+                "p95": 9.900000095367432,
+                "count": 2403
+              },
+              "fps": 119.91137636275346,
+              "cpu": {
+                "mean": 1.569371625080339,
+                "p95": 1.9000000953674316,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 1.4782372069825436,
+                "p95": 3.538944,
+                "count": 401
+              },
+              "faces": 109184.9671244278,
+              "drawnFaces": 109591.33083645444,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.444726447761194,
+                1.51191552
+              ],
+              "blockCpu": [
+                1.5748961005524011,
+                1.5638333384195964
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.381169102137173,
+                "p95": 10.199999809265137,
+                "count": 2395
+              },
+              "fps": 119.31509647562211,
+              "cpu": {
+                "mean": 1.6213361120920837,
+                "p95": 2,
+                "count": 2395
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2395
+              },
+              "gpu": {
+                "mean": 1.5460911478696742,
+                "p95": 3.60448,
+                "count": 399
+              },
+              "faces": 109177.35198329853,
+              "drawnFaces": 109582.34989561587,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.63151872,
+                1.4602342914572863
+              ],
+              "blockCpu": [
+                1.5896752660816456,
+                1.653182574452667
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": 4.590193006008669,
+            "cpuChangePercent": 3.3111651938453113,
+            "faceChangePercent": -0.006974532602632699
+          }
+        },
+        "maintenance": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.333901830401873,
+                "p95": 10.300000190734863,
+                "count": 2404
+              },
+              "fps": 119.9918142006454,
+              "cpu": {
+                "mean": 1.1749999957552766,
+                "p95": 1.4000000953674316,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0.03935107573891638,
+                "p95": 0.10000038146972656,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 1.4917632,
+                "p95": 3.60448,
+                "count": 400
+              },
+              "faces": 109996,
+              "drawnFaces": 110400,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.50011904,
+                1.48340736
+              ],
+              "blockCpu": [
+                1.177287845960671,
+                1.1727121455498821
+              ],
+              "blockTerrainCpu": [
+                0.04059899111159034,
+                0.03810316036624242
+              ]
+            },
+            "cpu": {
+              "frame": {
+                "mean": 8.335634095554788,
+                "p95": 10.299999713897705,
+                "count": 2405
+              },
+              "fps": 119.96687816866604,
+              "cpu": {
+                "mean": 1.1560083121618956,
+                "p95": 1.4000000953674316,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0.007525988477679151,
+                "p95": 0.09999990463256836,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 1.7577049376558604,
+                "p95": 3.60448,
+                "count": 401
+              },
+              "faces": 109996,
+              "drawnFaces": 110400,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.54894336,
+                1.9654279004975124
+              ],
+              "blockCpu": [
+                1.1638935068482765,
+                1.1481296720845642
+              ],
+              "blockTerrainCpu": [
+                0.0076539127679910515,
+                0.007398170525098184
+              ]
+            },
+            "gpuChangePercent": 17.827342681188306,
+            "cpuChangePercent": -1.6163135031480036,
+            "terrainCpuChangePercent": -80.87475796694346,
+            "faceChangePercent": 0.0,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "turn": {
+            "reference": {
+              "frame": {
+                "mean": 8.334151414388824,
+                "p95": 10.299999713897705,
+                "count": 2404
+              },
+              "fps": 119.98822078916284,
+              "cpu": {
+                "mean": 1.6091514137540999,
+                "p95": 1.9000000953674316,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0.05985856433081349,
+                "p95": 0.10000038146972656,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 1.6344874029850747,
+                "p95": 3.60448,
+                "count": 402
+              },
+              "faces": 109168.45590682197,
+              "drawnFaces": 109578.5690515807,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.46852807960199,
+                1.8004467263681592
+              ],
+              "blockCpu": [
+                1.5857024058043114,
+                1.6326394708428553
+              ],
+              "blockTerrainCpu": [
+                0.06209475857361296,
+                0.05761864620084866
+              ]
+            },
+            "cpu": {
+              "frame": {
+                "mean": 8.339501039699309,
+                "p95": 10.300000190734863,
+                "count": 2405
+              },
+              "fps": 119.9112507138744,
+              "cpu": {
+                "mean": 1.5434927192894188,
+                "p95": 1.8999996185302734,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0.01671517524798546,
+                "p95": 0.09999990463256836,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 1.69263104,
+                "p95": 3.60448,
+                "count": 400
+              },
+              "faces": 109170.59875259876,
+              "drawnFaces": 109574.4266112266,
+              "residentFaces": 232718,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.44703488,
+                1.9382272
+              ],
+              "blockCpu": [
+                1.5423940149625934,
+                1.544592337679744
+              ],
+              "blockTerrainCpu": [
+                0.015627595849167973,
+                0.01780365945495504
+              ]
+            },
+            "gpuChangePercent": 3.5573010173548747,
+            "cpuChangePercent": -4.080330409150335,
+            "terrainCpuChangePercent": -72.07554936398472,
+            "faceChangePercent": 0.0019628799903692595
+          }
+        }
+      }
+    },
+    {
+      "terrain": "copper-metropolis",
+      "native": {
+        "torus": {
+          "frame": {
+            "mean": 4.540366774449739,
+            "p95": 6.452584,
+            "count": 4407
+          },
+          "fps": 220.2465240533774,
+          "blockFps": [
+            221.7027722492301,
+            218.790366882035
+          ]
+        },
+        "across": {
+          "frame": {
+            "mean": 8.57810441688089,
+            "p95": 11.501125,
+            "count": 2334
+          },
+          "fps": 116.57587170798428,
+          "blockFps": [
+            118.26340576633989,
+            114.88803346582598
+          ]
+        }
+      },
+      "space": {
+        "fixed": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.33318087345845,
+                "p95": 10.400000095367432,
+                "count": 2405
+              },
+              "fps": 120.00219546236472,
+              "cpu": {
+                "mean": 1.4025363834880742,
+                "p95": 1.6999998092651367,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 2.1512192,
+                "p95": 3.211264,
+                "count": 400
+              },
+              "faces": 380232,
+              "drawnFaces": 380640,
+              "residentFaces": 2050391,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.08994304,
+                2.21249536
+              ],
+              "blockCpu": [
+                1.4102329489792047,
+                1.3948462158069943
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.30796019888636,
+                "p95": 10.300000190734863,
+                "count": 2412
+              },
+              "fps": 120.36648901303656,
+              "cpu": {
+                "mean": 1.4057628564771332,
+                "p95": 1.6999998092651367,
+                "count": 2412
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2412
+              },
+              "gpu": {
+                "mean": 1.9597220298507463,
+                "p95": 2.883584,
+                "count": 402
+              },
+              "faces": 283964,
+              "drawnFaces": 284320,
+              "residentFaces": 2050391,
+              "tightFraction": 1,
+              "blockGpu": [
+                2.03784192,
+                1.882375603960396
+              ],
+              "blockCpu": [
+                1.4350833400090535,
+                1.3767326747623607
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -8.90179718316263,
+            "cpuChangePercent": 0.23004558220691695,
+            "faceChangePercent": -25.318226766816053,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "across": {
+            "reference": {
+              "frame": {
+                "mean": 8.337396006615904,
+                "p95": 10.200000286102295,
+                "count": 2404
+              },
+              "fps": 119.94152601201603,
+              "cpu": {
+                "mean": 1.1674708859892733,
+                "p95": 1.4000000953674316,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.290327940149626,
+                "p95": 3.60448,
+                "count": 401
+              },
+              "faces": 760342,
+              "drawnFaces": 760864,
+              "residentFaces": 2050391,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.1992055721393036,
+                2.38190592
+              ],
+              "blockCpu": [
+                1.17487521576207,
+                1.1600665562164765
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.336881496802189,
+                "p95": 10.299999713897705,
+                "count": 2405
+              },
+              "fps": 119.94892819138356,
+              "cpu": {
+                "mean": 1.1514345103638584,
+                "p95": 1.4000000953674316,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 2.252902144638404,
+                "p95": 3.60448,
+                "count": 401
+              },
+              "faces": 683855,
+              "drawnFaces": 684224,
+              "residentFaces": 2050391,
+              "tightFraction": 1,
+              "blockGpu": [
+                2.20102656,
+                2.3045196417910447
+              ],
+              "blockCpu": [
+                1.14563591601149,
+                1.1572379288379842
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -1.634080205508781,
+            "cpuChangePercent": -1.3735996175892828,
+            "faceChangePercent": -10.059552148901417,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          }
+        },
+        "adaptive": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.332321131288905,
+                "p95": 10,
+                "count": 2404
+              },
+              "fps": 120.01457748008238,
+              "cpu": {
+                "mean": 1.3658069826402204,
+                "p95": 1.5999999046325684,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.93240832,
+                "p95": 4.521984,
+                "count": 400
+              },
+              "faces": 316046,
+              "drawnFaces": 316448,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.9540352,
+                2.91078144
+              ],
+              "blockCpu": [
+                1.3729841897414312,
+                1.3586178234872175
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.335648918310536,
+                "p95": 9.900000095367432,
+                "count": 2404
+              },
+              "fps": 119.96666483917599,
+              "cpu": {
+                "mean": 1.347504155806416,
+                "p95": 1.5999999046325684,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.4097963092269326,
+                "p95": 4.063232,
+                "count": 401
+              },
+              "faces": 236816,
+              "drawnFaces": 237248,
+              "residentFaces": 795719,
+              "tightFraction": 1,
+              "blockGpu": [
+                2.37961216,
+                2.439830288557214
+              ],
+              "blockCpu": [
+                1.3455074801421205,
+                1.3495008314707118
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -17.82193861641572,
+            "cpuChangePercent": -1.3400741881128386,
+            "faceChangePercent": -25.069135505590957,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "across": {
+            "reference": {
+              "frame": {
+                "mean": 8.338186356073212,
+                "p95": 9.900000095367432,
+                "count": 2404
+              },
+              "fps": 119.93015714642054,
+              "cpu": {
+                "mean": 1.1145174626304386,
+                "p95": 1.3000001907348633,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 1.32399104,
+                "p95": 1.703936,
+                "count": 400
+              },
+              "faces": 207242,
+              "drawnFaces": 207680,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.302528,
+                1.3454540799999999
+              ],
+              "blockCpu": [
+                1.1168885159611504,
+                1.1121464092997266
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.341098169717139,
+                "p95": 10,
+                "count": 2404
+              },
+              "fps": 119.88829044484339,
+              "cpu": {
+                "mean": 1.1124792031559492,
+                "p95": 1.3000001907348633,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 1.1595459351620947,
+                "p95": 1.572864,
+                "count": 401
+              },
+              "faces": 146482,
+              "drawnFaces": 146816,
+              "residentFaces": 795719,
+              "tightFraction": 1,
+              "blockGpu": [
+                1.1600850149253732,
+                1.15900416
+              ],
+              "blockCpu": [
+                1.1066555790417205,
+                1.1183028272701778
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -12.420409192339033,
+            "cpuChangePercent": -0.1828826862594668,
+            "faceChangePercent": -29.31838140917382,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "turn": {
+            "reference": {
+              "frame": {
+                "mean": 8.310406301942828,
+                "p95": 9.900000095367432,
+                "count": 2412
+              },
+              "fps": 120.33106007900209,
+              "cpu": {
+                "mean": 1.8343698092756382,
+                "p95": 2.1999998092651367,
+                "count": 2412
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2412
+              },
+              "gpu": {
+                "mean": 2.870215960199005,
+                "p95": 4.390912,
+                "count": 402
+              },
+              "faces": 312926.0825041459,
+              "drawnFaces": 313365.4129353234,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.92238392039801,
+                2.818048
+              ],
+              "blockCpu": [
+                1.8398171148989861,
+                1.828949537427096
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.344638404108936,
+                "p95": 9.799999713897705,
+                "count": 2406
+              },
+              "fps": 119.83742752802753,
+              "cpu": {
+                "mean": 1.8437240218878388,
+                "p95": 2.200000286102295,
+                "count": 2406
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2406
+              },
+              "gpu": {
+                "mean": 2.4318595511221943,
+                "p95": 3.93216,
+                "count": 401
+              },
+              "faces": 312909.8216957606,
+              "drawnFaces": 313340.0498753117,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.54246912,
+                2.321800278606965
+              ],
+              "blockCpu": [
+                1.8570241028333048,
+                1.8304239409423726
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -15.27259325275362,
+            "cpuChangePercent": 0.5099414831676974,
+            "faceChangePercent": -0.005196373614879679
+          }
+        },
+        "maintenance": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.334927234927235,
+                "p95": 10.200000286102295,
+                "count": 2405
+              },
+              "fps": 119.97705220623082,
+              "cpu": {
+                "mean": 1.2826611284902338,
+                "p95": 1.5,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0.0415800378129289,
+                "p95": 0.10000038146972656,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 2.7590656,
+                "p95": 4.521984,
+                "count": 400
+              },
+              "faces": 316046,
+              "drawnFaces": 316448,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.613248,
+                2.9048832
+              ],
+              "blockCpu": [
+                1.3019950154019908,
+                1.2633111568139912
+              ],
+              "blockTerrainCpu": [
+                0.04497090559251489,
+                0.03818634901189566
+              ]
+            },
+            "cpu": {
+              "frame": {
+                "mean": 8.333402662229616,
+                "p95": 10.300000190734863,
+                "count": 2404
+              },
+              "fps": 119.99900167219909,
+              "cpu": {
+                "mean": 1.2508735428633984,
+                "p95": 1.5,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0.008069883567124556,
+                "p95": 0.09999990463256836,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.611143820448878,
+                "p95": 4.390912,
+                "count": 401
+              },
+              "faces": 316046,
+              "drawnFaces": 316448,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.53820928,
+                2.683715502487562
+              ],
+              "blockCpu": [
+                1.2544925181123858,
+                1.247254567614411
+              ],
+              "blockTerrainCpu": [
+                0.008236273751282653,
+                0.007903493382966458
+              ]
+            },
+            "gpuChangePercent": -5.361299838290257,
+            "cpuChangePercent": -2.4782528230391843,
+            "terrainCpuChangePercent": -80.59192826271239,
+            "faceChangePercent": 0.0,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "turn": {
+            "reference": {
+              "frame": {
+                "mean": 8.343398583923365,
+                "p95": 10.200000286102295,
+                "count": 2401
+              },
+              "fps": 119.85523524273056,
+              "cpu": {
+                "mean": 1.7415660171397573,
+                "p95": 2.0999999046325684,
+                "count": 2401
+              },
+              "terrainCpu": {
+                "mean": 0.0728862961844969,
+                "p95": 0.19999980926513672,
+                "count": 2401
+              },
+              "gpu": {
+                "mean": 2.49823232,
+                "p95": 4.325376,
+                "count": 400
+              },
+              "faces": 312943.8708871304,
+              "drawnFaces": 313374.254060808,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.54214144,
+                2.4543232
+              ],
+              "blockCpu": [
+                1.7448333307107289,
+                1.7383014240630164
+              ],
+              "blockTerrainCpu": [
+                0.07774999777475992,
+                0.06802664430413417
+              ]
+            },
+            "cpu": {
+              "frame": {
+                "mean": 8.342637271333654,
+                "p95": 10.300000190734863,
+                "count": 2404
+              },
+              "fps": 119.86617270729548,
+              "cpu": {
+                "mean": 1.678660563343575,
+                "p95": 2,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0.03082362744653483,
+                "p95": 0.09999990463256836,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.751531411471322,
+                "p95": 4.456448,
+                "count": 401
+              },
+              "faces": 312977.0299500832,
+              "drawnFaces": 313407.1081530782,
+              "residentFaces": 795719,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.53820928,
+                2.9637922388059703
+              ],
+              "blockCpu": [
+                1.691846920130852,
+                1.665474206556298
+              ],
+              "blockTerrainCpu": [
+                0.03153078250599384,
+                0.03011647238707582
+              ]
+            },
+            "gpuChangePercent": 10.139132755728731,
+            "cpuChangePercent": -3.612005125105422,
+            "terrainCpuChangePercent": -57.7099824519673,
+            "faceChangePercent": 0.010595849939099011
+          }
+        }
+      }
+    },
+    {
+      "terrain": "aether-archipelago",
+      "native": {
+        "torus": {
+          "frame": {
+            "mean": 5.006196251188391,
+            "p95": 7.555334,
+            "count": 3997
+          },
+          "fps": 199.75245672053228,
+          "blockFps": [
+            201.62485359040497,
+            197.88049255003057
+          ]
+        },
+        "across": {
+          "frame": {
+            "mean": 9.860382368965517,
+            "p95": 12.740166,
+            "count": 2030
+          },
+          "fps": 101.41594540465199,
+          "blockFps": [
+            100.91815200805519,
+            101.91372111762333
+          ]
+        }
+      },
+      "space": {
+        "fixed": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.33257071547421,
+                "p95": 10.200000286102295,
+                "count": 2404
+              },
+              "fps": 120.01098270224396,
+              "cpu": {
+                "mean": 1.2532445856814773,
+                "p95": 1.5,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.36355584,
+                "p95": 3.538944,
+                "count": 400
+              },
+              "faces": 617598,
+              "drawnFaces": 617952,
+              "residentFaces": 3456137,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.3724032,
+                2.3547084799999998
+              ],
+              "blockCpu": [
+                1.2546588938168797,
+                1.251830277546075
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.333832086371265,
+                "p95": 10.200000286102295,
+                "count": 2406
+              },
+              "fps": 119.992818386076,
+              "cpu": {
+                "mean": 1.2597256806723198,
+                "p95": 1.5,
+                "count": 2406
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2406
+              },
+              "gpu": {
+                "mean": 2.6258526483790523,
+                "p95": 3.735552,
+                "count": 401
+              },
+              "faces": 468596,
+              "drawnFaces": 468928,
+              "residentFaces": 3456137,
+              "tightFraction": 1,
+              "blockGpu": [
+                2.63847936,
+                2.6132887562189056
+              ],
+              "blockCpu": [
+                1.2555278411827182,
+                1.2639235201619212
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": 11.09755073013432,
+            "cpuChangePercent": 0.5171452615786221,
+            "faceChangePercent": -24.126049630989744,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "across": {
+            "reference": {
+              "frame": {
+                "mean": 8.335081148484921,
+                "p95": 10.199999809265137,
+                "count": 2403
+              },
+              "fps": 119.9748367395045,
+              "cpu": {
+                "mean": 1.158426971570482,
+                "p95": 1.4000000953674316,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 3.067934643391521,
+                "p95": 4.128768,
+                "count": 401
+              },
+              "faces": 1235947,
+              "drawnFaces": 1236672,
+              "residentFaces": 3456137,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.830437890547264,
+                3.30661888
+              ],
+              "blockCpu": [
+                1.154908492045474,
+                1.161948380720407
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.33914309472292,
+                "p95": 10.200000286102295,
+                "count": 2404
+              },
+              "fps": 119.916397721105,
+              "cpu": {
+                "mean": 1.15765390757118,
+                "p95": 1.4000000953674316,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 3.03464448,
+                "p95": 4.456448,
+                "count": 400
+              },
+              "faces": 1122801,
+              "drawnFaces": 1123392,
+              "residentFaces": 3456137,
+              "tightFraction": 1,
+              "blockGpu": [
+                2.74366464,
+                3.32562432
+              ],
+              "blockCpu": [
+                1.1609816995515998,
+                1.1543261155907605
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -1.0851001491583245,
+            "cpuChangePercent": -0.06673394337961547,
+            "faceChangePercent": -9.154599671345132,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          }
+        },
+        "adaptive": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.334650582362729,
+                "p95": 9.900000095367432,
+                "count": 2404
+              },
+              "fps": 119.98103461183341,
+              "cpu": {
+                "mean": 1.2074875240516345,
+                "p95": 1.4000000953674316,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.842624,
+                "p95": 4.25984,
+                "count": 400
+              },
+              "faces": 420930,
+              "drawnFaces": 421312,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                3.22469888,
+                2.46054912
+              ],
+              "blockCpu": [
+                1.214143099285005,
+                1.200831948818264
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.333388773468082,
+                "p95": 10,
+                "count": 2405
+              },
+              "fps": 119.99920166737078,
+              "cpu": {
+                "mean": 1.2172557237985973,
+                "p95": 1.5,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 2.3042196109725688,
+                "p95": 3.735552,
+                "count": 401
+              },
+              "faces": 318303,
+              "drawnFaces": 318656,
+              "residentFaces": 846927,
+              "tightFraction": 1,
+              "blockGpu": [
+                2.42122752,
+                2.187793830845771
+              ],
+              "blockCpu": [
+                1.215973395476127,
+                1.2185369861789872
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -18.940401158487052,
+            "cpuChangePercent": 0.8089689998772132,
+            "faceChangePercent": -24.381013470173187,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "across": {
+            "reference": {
+              "frame": {
+                "mean": 8.334608984866277,
+                "p95": 10,
+                "count": 2404
+              },
+              "fps": 119.98163342944687,
+              "cpu": {
+                "mean": 1.0423876794919793,
+                "p95": 1.299999713897705,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 1.5380531072319201,
+                "p95": 2.752512,
+                "count": 401
+              },
+              "faces": 338315,
+              "drawnFaces": 339008,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                1.286918368159204,
+                1.79044352
+              ],
+              "blockCpu": [
+                1.0487115436658598,
+                1.0360532843203072
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.338477537556615,
+                "p95": 10,
+                "count": 2404
+              },
+              "fps": 119.92596915875669,
+              "cpu": {
+                "mean": 1.0503743623140052,
+                "p95": 1.299999713897705,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 1.46866176,
+                "p95": 1.835008,
+                "count": 400
+              },
+              "faces": 248157,
+              "drawnFaces": 248800,
+              "residentFaces": 846927,
+              "tightFraction": 1,
+              "blockGpu": [
+                1.44310272,
+                1.4942208000000001
+              ],
+              "blockCpu": [
+                1.0584026473929204,
+                1.04234607723509
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": -4.511635320369778,
+            "cpuChangePercent": 0.7661912145698224,
+            "faceChangePercent": -26.64912877052451,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "turn": {
+            "reference": {
+              "frame": {
+                "mean": 8.353814089084576,
+                "p95": 10.099999904632568,
+                "count": 2399
+              },
+              "fps": 119.7058001693669,
+              "cpu": {
+                "mean": 1.6221342239841017,
+                "p95": 2,
+                "count": 2399
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2399
+              },
+              "gpu": {
+                "mean": 2.7000832,
+                "p95": 4.325376,
+                "count": 400
+              },
+              "faces": 416631.88161734055,
+              "drawnFaces": 417019.1713213839,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.64208384,
+                2.75808256
+              ],
+              "blockCpu": [
+                1.6267111910404466,
+                1.6175686898179893
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "tight": {
+              "frame": {
+                "mean": 8.3516021640014,
+                "p95": 10.099999904632568,
+                "count": 2403
+              },
+              "fps": 119.73750429712545,
+              "cpu": {
+                "mean": 1.6253017113201826,
+                "p95": 1.9000000953674316,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0,
+                "p95": 0,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 2.7144324788029923,
+                "p95": 4.325376,
+                "count": 401
+              },
+              "faces": 416594.4993757803,
+              "drawnFaces": 416984.98210570123,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.67517952,
+                2.7534901492537314
+              ],
+              "blockCpu": [
+                1.6223793724015627,
+                1.6282264834935223
+              ],
+              "blockTerrainCpu": [
+                0,
+                0
+              ]
+            },
+            "gpuChangePercent": 0.5314383943054946,
+            "cpuChangePercent": 0.19526666099809464,
+            "faceChangePercent": -0.008972487034630827
+          }
+        },
+        "maintenance": {
+          "torus": {
+            "reference": {
+              "frame": {
+                "mean": 8.334997919267582,
+                "p95": 10.100000381469727,
+                "count": 2403
+              },
+              "fps": 119.97603474961306,
+              "cpu": {
+                "mean": 1.1810237227307723,
+                "p95": 1.4000000953674316,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0.045443190369465127,
+                "p95": 0.10000038146972656,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 2.61865472,
+                "p95": 4.784128,
+                "count": 400
+              },
+              "faces": 420930,
+              "drawnFaces": 421312,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.71024128,
+                2.5270681600000002
+              ],
+              "blockCpu": [
+                1.1859284066637787,
+                1.1761231192336503
+              ],
+              "blockTerrainCpu": [
+                0.04646127170368992,
+                0.04442595602470309
+              ]
+            },
+            "cpu": {
+              "frame": {
+                "mean": 8.33309771305806,
+                "p95": 10.199999809265137,
+                "count": 2405
+              },
+              "fps": 120.00339302789989,
+              "cpu": {
+                "mean": 1.1548024952783407,
+                "p95": 1.4000000953674316,
+                "count": 2405
+              },
+              "terrainCpu": {
+                "mean": 0.008898128144706361,
+                "p95": 0.09999990463256836,
+                "count": 2405
+              },
+              "gpu": {
+                "mean": 2.81625025436409,
+                "p95": 5.24288,
+                "count": 401
+              },
+              "faces": 420930,
+              "drawnFaces": 421312,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.4625152,
+                3.168225432835821
+              ],
+              "blockCpu": [
+                1.16217789804549,
+                1.1474209565687894
+              ],
+              "blockTerrainCpu": [
+                0.009310058822061058,
+                0.008485854762961187
+              ]
+            },
+            "gpuChangePercent": 7.545688740671008,
+            "cpuChangePercent": -2.220211749159673,
+            "terrainCpuChangePercent": -80.4192265719853,
+            "faceChangePercent": 0.0,
+            "imageDifference": {
+              "changedPixels": 0,
+              "changedFraction": 0.0,
+              "meanAbsoluteChannelError": 0.0,
+              "maxChannelError": 0
+            }
+          },
+          "turn": {
+            "reference": {
+              "frame": {
+                "mean": 8.334914689851809,
+                "p95": 10.199999809265137,
+                "count": 2403
+              },
+              "fps": 119.97723278650373,
+              "cpu": {
+                "mean": 1.623761956115291,
+                "p95": 1.9000000953674316,
+                "count": 2403
+              },
+              "terrainCpu": {
+                "mean": 0.07652933598556867,
+                "p95": 0.19999980926513672,
+                "count": 2403
+              },
+              "gpu": {
+                "mean": 2.80051712,
+                "p95": 5.046272,
+                "count": 400
+              },
+              "faces": 416540.8764044944,
+              "drawnFaces": 416928.70578443614,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.7508736,
+                2.85016064
+              ],
+              "blockCpu": [
+                1.613976697556786,
+                1.6335553622662673
+              ],
+              "blockTerrainCpu": [
+                0.07745424879965886,
+                0.07560365305256586
+              ]
+            },
+            "cpu": {
+              "frame": {
+                "mean": 8.341763727081794,
+                "p95": 10.299999713897705,
+                "count": 2404
+              },
+              "fps": 119.87872501752466,
+              "cpu": {
+                "mean": 1.5797004969465158,
+                "p95": 1.8999996185302734,
+                "count": 2404
+              },
+              "terrainCpu": {
+                "mean": 0.033111480230499625,
+                "p95": 0.09999990463256836,
+                "count": 2404
+              },
+              "gpu": {
+                "mean": 2.6910617855361596,
+                "p95": 4.456448,
+                "count": 401
+              },
+              "faces": 416812.50041597337,
+              "drawnFaces": 417202.1697171381,
+              "residentFaces": 846927,
+              "tightFraction": 0,
+              "blockGpu": [
+                2.9641182885572137,
+                2.41664
+              ],
+              "blockCpu": [
+                1.5759567305966344,
+                1.583444263296397
+              ],
+              "blockTerrainCpu": [
+                0.03344425980540956,
+                0.03277870065558968
+              ]
+            },
+            "gpuChangePercent": -3.908397262854091,
+            "cpuChangePercent": -2.713541785040241,
+            "terrainCpuChangePercent": -56.73361096881392,
+            "faceChangePercent": 0.06520944926788896
+          }
+        }
+      }
+    }
+  ]
+}

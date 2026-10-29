@@ -1,0 +1,6 @@
+{
+  "engine/src/render/NodeMaterials.ts": "ae2b5acba4da0f99d0b54887762d207f5230b8a43461e847e4fbb74490d8cf55",
+  "engine/src/voxel/World.ts": "a479d904f5fc1c4957897beda5156b3b5283b2a5df78185fba4b49479a816efe",
+  "engine/src/render/VoxelFaceArena.ts": "e5d967b357d9b914ce24282a42de66f067e95f8331204f1509acf9a6e52ab505",
+  "client/src/dev/TorusStressChild.ts": "b825d4c6b924c195882c63cb210747b6b47f04fa3881bfcabbe6899414106d87"
+}

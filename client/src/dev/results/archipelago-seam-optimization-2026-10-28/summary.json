@@ -1,0 +1,283 @@
+{
+  "runs": {
+    "baseline": {
+      "dense": {
+        "fps": 115.82014987510406,
+        "p95": 13,
+        "p99": 17,
+        "onePercentLow": 47.53820033955858,
+        "frames": 2782,
+        "blockFps": [
+          116.79014401065513,
+          114.84967102523527
+        ],
+        "cpu": 2.60352264557872,
+        "gpu": 3.050459384449244,
+        "mapKiB": 0.0,
+        "nearPendingPercent": 0,
+        "probes": {
+          "streamWindow": 0.007548526240115025,
+          "publish": 0.009345794392523364,
+          "picking": 0.2875629043853343,
+          "handoff": 0.0035945363048166786,
+          "arena": 0,
+          "draw": 1.6549245147375988
+        }
+      },
+      "move": {
+        "fps": 80.8667856698078,
+        "p95": 18,
+        "p99": 20,
+        "onePercentLow": 42.19409282700422,
+        "frames": 1948,
+        "blockFps": [
+          80.57816913108489,
+          81.15509086382873
+        ],
+        "cpu": 5.6637577002053385,
+        "gpu": 3.174103993846154,
+        "mapKiB": 1069.4087044404519,
+        "nearPendingPercent": 61.960985626283374,
+        "probes": {
+          "streamWindow": 0.029260780287474333,
+          "publish": 0.08316221765913757,
+          "picking": 0.6468172484599589,
+          "handoff": 0.017967145790554414,
+          "arena": 1.0693018480492813,
+          "draw": 2.830082135523614
+        }
+      }
+    },
+    "seam": {
+      "dense": {
+        "fps": 114.76979435517441,
+        "p95": 14,
+        "p99": 17,
+        "onePercentLow": 47.05882352941177,
+        "frames": 2757,
+        "blockFps": [
+          114.92052925022885,
+          114.61890878800499
+        ],
+        "cpu": 2.6605005440696408,
+        "gpu": 3.0392966840958606,
+        "mapKiB": 0.0,
+        "nearPendingPercent": 0,
+        "probes": {
+          "streamWindow": 0.008705114254624592,
+          "publish": 0.007616974972796518,
+          "picking": 0.27783822996010155,
+          "handoff": 0.00544069640914037,
+          "arena": 0,
+          "draw": 1.7094668117519043
+        }
+      },
+      "move": {
+        "fps": 79.85201812362307,
+        "p95": 18,
+        "p99": 23,
+        "onePercentLow": 38.02281368821293,
+        "frames": 1921,
+        "blockFps": [
+          79.51146560319043,
+          80.192995591049
+        ],
+        "cpu": 5.742842269651224,
+        "gpu": 3.1294597625,
+        "mapKiB": 1062.3313378448725,
+        "nearPendingPercent": 62.88391462779802,
+        "probes": {
+          "streamWindow": 0.034877667881311816,
+          "publish": 0.10307131702238417,
+          "picking": 0.6434148880791255,
+          "handoff": 0.01353461738677772,
+          "arena": 1.0661114003123373,
+          "draw": 2.885476314419573
+        }
+      }
+    },
+    "optimized": {
+      "dense": {
+        "fps": 116.21138414203152,
+        "p95": 12,
+        "p99": 16,
+        "onePercentLow": 53.537284894837484,
+        "frames": 2795,
+        "blockFps": [
+          117.44631263525886,
+          114.97881531943175
+        ],
+        "cpu": 2.680143112701252,
+        "gpu": 3.105884305376344,
+        "mapKiB": 0.0,
+        "nearPendingPercent": 0,
+        "probes": {
+          "streamWindow": 0.0064400715563506265,
+          "publish": 0.01037567084078712,
+          "picking": 0.2994633273703041,
+          "handoff": 0.004293381037567084,
+          "arena": 0,
+          "draw": 1.7198568872987479
+        }
+      },
+      "move": {
+        "fps": 81.98014867727065,
+        "p95": 18,
+        "p99": 21,
+        "onePercentLow": 42.19409282700422,
+        "frames": 1974,
+        "blockFps": [
+          81.34130146082337,
+          82.61989859529548
+        ],
+        "cpu": 5.536474164133739,
+        "gpu": 3.163489510638298,
+        "mapKiB": 78.64159067882473,
+        "nearPendingPercent": 61.49949341438703,
+        "probes": {
+          "streamWindow": 0.03546099290780142,
+          "publish": 0.0851063829787234,
+          "picking": 0.6403242147923,
+          "handoff": 0.016717325227963525,
+          "arena": 1.0374873353596759,
+          "draw": 2.7421479229989867
+        }
+      }
+    },
+    "repeat": {
+      "dense": {
+        "fps": 116.0016625103907,
+        "p95": 14,
+        "p99": 17,
+        "onePercentLow": 46.82274247491639,
+        "frames": 2791,
+        "blockFps": [
+          113.21853423176108,
+          118.78062962040036
+        ],
+        "cpu": 2.5066284485847365,
+        "gpu": 2.8708954612068966,
+        "mapKiB": 0.0,
+        "nearPendingPercent": 0,
+        "probes": {
+          "streamWindow": 0.009315657470440702,
+          "publish": 0.00895736295234683,
+          "picking": 0.28018631314940884,
+          "handoff": 0.004299534217126478,
+          "arena": 0,
+          "draw": 1.6162665711214619
+        }
+      },
+      "move": {
+        "fps": 79.62140396031384,
+        "p95": 19,
+        "p99": 32,
+        "onePercentLow": 19.64636542239686,
+        "frames": 1918,
+        "blockFps": [
+          72.47218993856882,
+          86.7723989039276
+        ],
+        "cpu": 5.681438998957247,
+        "gpu": 2.997041071875,
+        "mapKiB": 1058.0918274244004,
+        "nearPendingPercent": 61.93952033368092,
+        "probes": {
+          "streamWindow": 0.029718456725755994,
+          "publish": 0.09384775808133472,
+          "picking": 0.6908237747653806,
+          "handoff": 0.01824817518248175,
+          "arena": 1.089676746611053,
+          "draw": 2.772679874869656
+        }
+      }
+    }
+  },
+  "coverageProbe": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:153.0) Gecko/20100101 Firefox/153.0",
+    "width": 256,
+    "height": 128,
+    "cases": [
+      {
+        "name": "face ends at next chunk",
+        "legacy": true,
+        "wrongPixels": 16384,
+        "pixels": 32768
+      },
+      {
+        "name": "face ends at next chunk",
+        "legacy": false,
+        "wrongPixels": 0,
+        "pixels": 32768
+      },
+      {
+        "name": "face spans several chunks",
+        "legacy": true,
+        "wrongPixels": 0,
+        "pixels": 32768
+      },
+      {
+        "name": "face spans several chunks",
+        "legacy": false,
+        "wrongPixels": 0,
+        "pixels": 32768
+      },
+      {
+        "name": "negative major-ring seam",
+        "legacy": true,
+        "wrongPixels": 19712,
+        "pixels": 32768
+      },
+      {
+        "name": "negative major-ring seam",
+        "legacy": false,
+        "wrongPixels": 0,
+        "pixels": 32768
+      },
+      {
+        "name": "positive major-ring seam",
+        "legacy": true,
+        "wrongPixels": 19712,
+        "pixels": 32768
+      },
+      {
+        "name": "positive major-ring seam",
+        "legacy": false,
+        "wrongPixels": 0,
+        "pixels": 32768
+      },
+      {
+        "name": "tube seam",
+        "legacy": true,
+        "wrongPixels": 19712,
+        "pixels": 32768
+      },
+      {
+        "name": "tube seam",
+        "legacy": false,
+        "wrongPixels": 0,
+        "pixels": 32768
+      },
+      {
+        "name": "side-face owner offset",
+        "legacy": true,
+        "wrongPixels": 16384,
+        "pixels": 32768
+      },
+      {
+        "name": "side-face owner offset",
+        "legacy": false,
+        "wrongPixels": 0,
+        "pixels": 32768
+      }
+    ],
+    "errors": [],
+    "passed": true
+  },
+  "visual": {
+    "changedPixels": 1685,
+    "previousBackgroundNowGeometry": 861,
+    "totalPixels": 3686400,
+    "note": "Background-color difference is a screen-space indicator, not a complete hole detector."
+  }
+}

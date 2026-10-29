@@ -533,3 +533,95 @@ for (const cached of [false, true]) test(`flat blocks outside the camera can cul
     assert.equal(arena.stats.visibleFaces,32,'torus keeps the flattening exemption');
   } finally {arena.dispose();coverage.dispose();setWorldProjection('torus');}
 });
+
+for (const cached of [false, true]) test(`idle tightening preserves visible blocks and restores motion guards (cached=${cached})`, () => {
+  const f = cullingFixture(cached); f.mesh.material = f.mesh.userData.opaqueMaterial;
+  for (let i = 0; i < 96; i++) f.bounds[i * 12 + 7] = 2;
+  f.arena.setTightIdleCullingEnabled(true);
+  try {
+    f.tick(); const wide = f.arena.stats.visibleFaces;
+    for (let i = 0; i < 8; i++) f.tick();
+    assert.ok(f.arena.stats.visibleFaces < wide, 'stationary view submits fewer outside blocks');
+    const resident = f.arena.stats.residentFaces;
+    for (let frame = 0; frame < 160; frame++) {
+      // Include sub-threshold motion, large turns, and stops after each move.
+      if (frame % 10 === 0) {
+        f.camera.rotation.y += frame % 20 === 0 ? .000001 : .3;
+        f.camera.position.x += .00001;
+        f.camera.fov = frame % 30 === 0 ? 110 : 75;
+      }
+      f.tick();
+      const page = f.arena.pages[0], drawn = new Set<number>();
+      for (let i = 0; i < f.arena.stats.paddedFaces / 16; i++) drawn.add(page.map.array[i * 8] / 16);
+      for (let block = 0; block < 96; block++) {
+        const at = block * 12, sphere = new THREE.Sphere(new THREE.Vector3(f.bounds[at], f.bounds[at + 1], f.bounds[at + 2]), f.bounds[at + 3]);
+        if (f.frustum.intersectsSphere(sphere)) assert.ok(drawn.has(block), `visible block ${block} at frame ${frame}`);
+      }
+      assert.equal(f.arena.stats.residentFaces, resident);
+    }
+    f.arena.setTightIdleCullingEnabled(false); f.tick();
+    const disabled = f.arena.stats.visibleFaces;
+    for (let i = 0; i < 10; i++) f.tick();
+    assert.equal(f.arena.stats.visibleFaces, disabled, 'reference stays wide after stopping');
+  } finally { f.arena.dispose(); f.coverage.dispose(); }
+});
+
+test('incremental map uploads match full uploads through coverage, compaction and storage changes', () => {
+  setWorldProjection('flat');
+  const fixtures = [true, false].map(incremental => {
+    const group = new THREE.BundleGroup(), meshes = [source(64, 0), source(64, 128)];
+    for (const [i, mesh] of meshes.entries()) {
+      mesh.userData.maskedMaterial = mesh.material;
+      mesh.geometry.userData.voxelProjection = 'flat';
+      const bounds = new Float32Array(4 * 12);
+      for (let b = 0; b < 4; b++) bounds.set([0, 0, -500, 1, 0, 0, 0, 2,
+        i * 128 + b * 16 + 2, i * 128 + b * 16 + 14, 2, 14], b * 12);
+      mesh.geometry.userData.voxelVisibility = bounds; group.add(mesh);
+    }
+    const arena = new VoxelFaceArena(group, make); arena.incrementalMapUploads = incremental;
+    const coverage = new THREE.DataTexture(new Uint8Array(1024 * 128 * 2), 1024, 128, THREE.RGFormat);
+    const camera = new THREE.Vector3(), frustum = new THREE.Frustum();
+    frustum.planes.forEach(p => p.setComponents(0, 0, 0, 1));
+    const tick = () => { arena.setView(camera, frustum, coverage, true); arena.restoreSources(); arena.sync(Infinity); };
+    tick(); return { arena, coverage, camera, meshes, tick };
+  });
+  const compare = () => {
+    const [a, b] = fixtures.map(f => f.arena);
+    assert.equal(a.stats.visibleFaces, b.stats.visibleFaces);
+    assert.equal(a.stats.draws, b.stats.draws);
+    for (let p = 0; p < a.pages.length; p++) {
+      const length = a.pages[p].runs.reduce((sum, m) => sum + (m.visible ? m.userData.voxelArenaFaces / 16 : 0), 0)
+        * ((a as any).compactMaps ? 4 : 8);
+      assert.deepEqual(a.pages[p].map.array.slice(0, length), b.pages[p].map.array.slice(0, length));
+    }
+  };
+  const setCoverage = (cx: number, value: number) => { for (const f of fixtures) {
+    f.coverage.image.data![cx * 2] = value; f.coverage.needsUpdate = true; f.tick();
+  } compare(); };
+  try {
+    compare();
+    for (const f of fixtures) f.arena.pages[0].map.clearUpdateRanges();
+    setCoverage(700, 255);
+    assert.equal(fixtures[0].arena.stats.mapUploadBytes, 0, 'an unrelated coverage epoch does not upload unchanged maps');
+    assert.ok(fixtures[1].arena.stats.mapUploadBytes > 0);
+    setCoverage(10, 255);
+    assert.equal(fixtures[0].arena.stats.mapUploadBytes, 3 * 8 * 4, 'only the changed second entry uploads');
+    assert.equal(fixtures[0].arena.pages[0].map.updateRanges[0].start, 4 * 8);
+    setCoverage(1, 255);
+    assert.ok(fixtures[0].arena.pages[0].map.updateRanges.some(r => r.start === 4 * 8), 'unconsumed prior upload ranges remain queued');
+    for (const visible of [false, true, false, true]) {
+      for (const f of fixtures) { f.arena.restoreSources(); f.meshes[0].visible = visible; f.arena.sync(Infinity); }
+      compare();
+    }
+    for (const compact of [true, false]) {
+      for (const f of fixtures) { f.arena.setCompactMapsEnabled(compact); f.tick(); }
+      compare(); assert.ok(fixtures[0].arena.stats.mapUploadBytes > 0, 'new storage is initialized even if list identities match');
+    }
+    setCoverage(1, 0); setCoverage(10, 0);
+    for (const f of fixtures) { f.camera.x += 64; f.tick(); }
+    compare(); assert.equal(fixtures[0].arena.stats.mapUploadBytes, 0, 'camera epochs with identical block lists reuse storage');
+  } finally {
+    for (const f of fixtures) { f.arena.dispose(); f.coverage.dispose(); }
+    setWorldProjection('torus');
+  }
+});

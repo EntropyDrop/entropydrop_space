@@ -1,0 +1,10 @@
+{
+  "native": [
+    "Abrupt fixed-detail boundary violated DH quadtree level transitions; replaced with a graded empty halo before accepted sampling.",
+    "Retina window restore failures aborted before sampling; fixed-size constraints applied to the disposable window.",
+    "Startup JVM SIGSEGV/SIGBUS failures were excluded.",
+    "One Aether run overlapped automated regression tests and was excluded.",
+    "First complete native series retained nominal FOV 70 with flight FOV effects enabled. It is excluded from the aligned comparison. The new series disables FOV effects and validates the actual projection matrix."
+  ],
+  "space": []
+}

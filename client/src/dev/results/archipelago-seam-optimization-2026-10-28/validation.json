@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-28",
+  "browser": "Native Firefox 153",
+  "terrain": "Aether Archipelago only",
+  "runs": 4,
+  "timedBlocks": 16,
+  "screenshots": 16,
+  "renderSize": [
+    2560,
+    1440
+  ],
+  "msaa": 0,
+  "fixedCellMetres": 1,
+  "fixtureZones": 8,
+  "worldCoverageFraction": 0.0625,
+  "timedExclusions": [],
+  "checks": {
+    "gpuCoverageProbe": "Six cases passed with zero ownership pixel errors; legacy shader fails five cases.",
+    "mapUploadPixels": "Zero changed pixels out of 3686400 at the settled dense pose in optimized and repeated-reference runs.",
+    "frames": "All rows have expected case order, actual 100-degree FOV, finest mip sources and nonempty raw CPU/GPU samples.",
+    "images": "All sixteen PNGs verified at 2560 x 1440.",
+    "engineTests": 659,
+    "clientTests": 1662,
+    "typechecks": "client and engine passed",
+    "productionBuild": "passed, including no DEV entry, import order and compiler-worker checks",
+    "docsAndEnglish": "passed",
+    "status": "passed"
+  },
+  "findings": [
+    "Corrected coverage wrapping and rounding now run after continuous coordinate interpolation.",
+    "Moving scheduled map upload volume falls from about 1062 to 79 KiB/frame.",
+    "The modest FPS difference is smaller than repeated-block variability and is not established as a stable FPS gain.",
+    "The per-fragment ownership fix does not establish identical reconstruction with Minecraft or every possible LOD transition."
+  ],
+  "furtherWork": "Moving terrain readiness and draw submission remain the larger costs; this patch does not change mesh retention or visible detail.",
+  "rawSha256": {
+    "firefox/aether-archipelago/baseline/result.json.gz": "c049fdb8811c4d37a2696b27d0188670724c2401f7910e9b4faf4ed4e4319163",
+    "firefox/aether-archipelago/optimized/result.json.gz": "e05470984cd81610cd92d1f679c929c07ef1f4814708abe265da099b8e854f5a",
+    "firefox/aether-archipelago/repeat/result.json.gz": "acdd7677d5f3354e2347c3e5e5155f8bd4ba689a00c735f4a27988696f5e6566",
+    "firefox/aether-archipelago/seam/result.json.gz": "a7e19f5e7d85b635368ac9d9d61b7d19ea8d0394d8b76678754ac870720dd368"
+  }
+}
