@@ -244,6 +244,8 @@ export class World {
   private rayBentPoint: THREE.Vector3;
   /** Reference switch for development comparisons; entity queries stay fresh. */
   aimRaycastCachingEnabled = true;
+  /** Exact discovery optimization; false retains the reference for DEV A/B. */
+  aimRaycastDiscoveryOptimized = true;
   private readonly standardAimCache = new BentRayCache<number, BentRayHit<number> | null>();
   private readonly microAimCache = new BentRayCache<number | null, BentRayHit<number | null> | null>();
   getAimRaycastCacheStats() { return { standard: { ...this.standardAimCache.stats }, micro: { ...this.microAimCache.stats } }; }
@@ -1430,7 +1432,7 @@ export class World {
     }
     return cache.run([originBent.x, originBent.y, originBent.z, dirBent.x, dirBent.y, dirBent.z,
       maxDistance, divisions, getWorldProjectionRevision(), getTorusViewCorrectionRevision(),
-      getGeometryKernels() ? 1 : 0, policy], getValue,
+      getGeometryKernels() ? 1 : 0, policy, this.aimRaycastDiscoveryOptimized === false ? 0 : 1], getValue,
     read => this.computeBentVoxelFaces(originBent, dirBent, maxDistance, divisions, read, isOccupied),
     hit => hit ? { ...hit, cell: { ...hit.cell }, normal: { ...hit.normal }, entry: { ...hit.entry } } : null);
   }
@@ -1462,6 +1464,8 @@ export class World {
     };
     const p = this.rayBentPoint;
     const flat = this.rayFlatPoint;
+    const skipOverlap = this.aimRaycastDiscoveryOptimized !== false;
+    let previousX = Infinity, previousY = Infinity, previousZ = Infinity;
 
     for (let t = 0; t <= cappedDistance + step; t += step) {
       p.copy(originBent).addScaledVector(direction, Math.min(t, cappedDistance));
@@ -1470,20 +1474,30 @@ export class World {
       const sampleY = Math.floor(flat.y * divisions);
       const sampleZ = Math.floor(flat.z * divisions);
 
+      // Keep every original sample and the same first-visit cell order. Only
+      // omit cells already covered by the previous sample's 3x3x3 stencil.
+      // Unwrapped coordinates make seam jumps conservative (less reuse).
+      if (skipOverlap && sampleX === previousX && sampleY === previousY && sampleZ === previousZ) continue;
+
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
           const y = sampleY + dy;
           if (y < 0 || y >= maxY) continue;
           for (let dz = -1; dz <= 1; dz++) {
+            if (skipOverlap && Math.abs(sampleX + dx - previousX) <= 1
+              && Math.abs(y - previousY) <= 1 && Math.abs(sampleZ + dz - previousZ) <= 1) continue;
             const x = ((sampleX + dx) % periodX + periodX) % periodX;
             const z = ((sampleZ + dz) % periodZ + periodZ) % periodZ;
             const key = keyOf(x, y, z);
-            if (candidates.has(key)) continue;
-            const value = readValue(x, y, z);
+            // Empty cells are just as final as solid cells within this query.
+            if (skipOverlap ? values.has(key) : candidates.has(key)) continue;
+            const value = skipOverlap ? getValue(x, y, z) : readValue(x, y, z);
+            if (skipOverlap) values.set(key, value);
             if (isOccupied(value)) candidates.set(key, { x, y, z, value });
           }
         }
       }
+      previousX = sampleX; previousY = sampleY; previousZ = sampleZ;
     }
 
     const kernels = getGeometryKernels();

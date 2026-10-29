@@ -3,6 +3,7 @@ import { GpuFrameTimeline } from './GpuFrameTimeline.ts';
 const host = (parent as any).torusStressHost, terrain = (parent as any).torusStressTerrain;
 const tick = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 const paired = (parent as any).torusStressPaired;
+const pickingExperiment = (parent as any).torusStressPicking;
 const order = paired ? ['dense','dense','dense','dense','move','move','move','move'] : (parent as any).torusStressFocus ? ['dense', 'move', 'move', 'dense'] : ['control', 'dense', 'turn', 'move', 'move', 'turn', 'dense', 'control'];
 const probes: Record<string, number> = {}, undoProbes: (() => void)[] = [];
 let game: any, undoPose = () => {}, undoRender = () => {}, undoTerrain = () => {}, unguard = () => {};
@@ -60,7 +61,7 @@ try {
   document.querySelectorAll<HTMLElement>('#root,#dev-render-diagnostics').forEach(e => e.style.visibility = 'hidden');
   const device = renderer.backend.device, adapter = renderer.backend.adapter;
   const result: any = { schema: 'torus-stress-firefox-v1', terrain, userAgent: navigator.userAgent, width: renderer.domElement.width, height: renderer.domElement.height,
-    nearVariant, streamingStart: game.world.getNearTerrainStreamingStats(),
+    nearVariant, experiment: pickingExperiment ? 'picking' : 'near-streaming', streamingStart: game.world.getNearTerrainStreamingStats(),
     samples: renderer.samples, settings: game.world.distantSurface.getSettings(), nearChunks: 8, farChunks: 576, fixedCellSize: 1, incrementalMapUploads: arena.incrementalMapUploads ?? false,
     adapter: Object.fromEntries(['vendor','architecture','device','description'].map(k => [k, adapter?.info?.[k] ?? ''])), rows: [], errors: [] };
   if (result.width !== 2560 || result.height !== 1440 || result.samples !== 0) throw Error('Framebuffer mismatch');
@@ -78,8 +79,11 @@ try {
   const canvas = document.createElement('canvas'); canvas.width = 2560; canvas.height = 1440; const ctx = canvas.getContext('2d')!;
   let pending: Promise<void> | undefined, serial = 0;
   for (const [block, nextMode] of order.entries()) {
-    const variant = paired ? (block % 4 === 0 || block % 4 === 3 ? 'baseline' : 'scheduled') : nearVariant;
-    if (paired) {
+    const reference = block % 4 === 0 || block % 4 === 3;
+    const variant = pickingExperiment ? (reference ? 'reference' : 'discovery') : paired ? (reference ? 'baseline' : 'scheduled') : nearVariant;
+    if (pickingExperiment) {
+      game.world.aimRaycastDiscoveryOptimized = !reference;
+    } else if (paired) {
       game.world.setNearTerrainStreamingOptions({ cache: variant !== 'baseline', workers: variant === 'baseline' ? 1 : 2, parallelPrefetch: false });
       game.world.nearTerrainBatches.setEnabled(variant !== 'baseline');
     }
@@ -121,6 +125,18 @@ try {
     stable = game.world.getTerrainAoiLoadProgress().ready && !layer.hasPendingWork
       && !layer.hasPendingTransitions && game.world.distantSurface.handoff.changes.size === 0 ? stable + 1 : 0;
     if (n > 7200) throw Error('Pixel reference failed to settle');
+  }
+  if (pickingExperiment) {
+    const saved = game.world.aimRaycastDiscoveryOptimized;
+    const query = (optimized: boolean) => {
+      game.world.aimRaycastDiscoveryOptimized = optimized;
+      const hit = game.controller.performAimRaycast('all');
+      return JSON.stringify({ kind: hit.kind, worldHit: hit.worldHit,
+        entityDistance: hit.entityHit?.distance, entityId: hit.entityHit?.entityId });
+    };
+    result.pickingEquality = query(false) === query(true);
+    game.world.aimRaycastDiscoveryOptimized = saved;
+    if (!result.pickingEquality) throw Error('Picking reference mismatch');
   }
   if ('incrementalMapUploads' in arena) {
     const saved = arena.incrementalMapUploads;

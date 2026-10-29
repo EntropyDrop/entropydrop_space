@@ -6,6 +6,7 @@ const run = query.get('run') ?? '';
 if (run && !/^(baseline|seam|optimized|repeat|cache|workers|batch|paired)$/.test(run)) throw Error('Unknown capture run');
 (window as any).torusStressFocus = query.get('focus') === '1';
 (window as any).torusStressPaired = query.get('paired') === '1';
+(window as any).torusStressPicking = query.get('experiment') === 'picking';
 (window as any).torusStressNear = query.get('near');
 (window as any).torusStressMapUploads = query.get('maps') !== 'full';
 const frame = document.querySelector<HTMLIFrameElement>('#fixture')!;

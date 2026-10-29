@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-29",
+  "baselineCommit": "b8e07bc",
+  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:153.0) Gecko/20100101 Firefox/153.0",
+  "terrain": "aether-archipelago",
+  "framebuffer": [
+    2560,
+    1440
+  ],
+  "experiment": "picking",
+  "blocks": 8,
+  "gpuErrors": [],
+  "pickingEquality": true,
+  "mapUploadPixelCheck": {
+    "changedPixels": 0,
+    "pixels": 3686400,
+    "pose": "settled dense phase 0"
+  },
+  "nearBatchPixelCheck": {
+    "changedPixels": 0,
+    "pixels": 3686400,
+    "changedSamples": []
+  },
+  "engineTests": {
+    "passed": 667,
+    "failed": 0
+  },
+  "clientPickingTests": {
+    "passed": 47,
+    "failed": 0
+  },
+  "targetedEngineTests": {
+    "passed": 50,
+    "failed": 0,
+    "includesExactHitAndReadOrderCases": 400,
+    "includesMovingSparseRayCases": 64
+  },
+  "typechecks": "engine and client passed",
+  "productionBuild": "passed, including DEV exclusion, four import orders and compiler worker checks",
+  "docs": "English-only, links and generated API checks passed",
+  "resultAudit": "correct browser, 8 ABBA blocks, 8 finest source zones, projection, framebuffer, PNG integrity and retained near-optimization settings verified",
+  "limitations": [
+    "One accepted same-page session, not a confidence interval.",
+    "Moving FPS block ranges overlap; use the lower picking CPU cost as the supported improvement.",
+    "The settled browser query is one pose; deterministic unit comparisons cover hits, seams, height limits, projection and JS/WASM paths."
+  ]
+}
