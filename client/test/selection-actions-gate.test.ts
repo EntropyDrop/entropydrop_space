@@ -300,6 +300,6 @@ test('a click ignores stale internal selection on a newly running entity', () =>
   controller.handleLeftClick();
   assert.equal(entity.isPhysicsSimulationEnabled(), true);
   assert.equal(entity.blocks.length, 2);
-  assert.equal(controller.selectedBlockSelection, selection);
+  assert.equal(controller.selectedBlockSelection, null);
   assert.equal(controller.selectorRange, null);
 });
