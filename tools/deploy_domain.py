@@ -24,7 +24,7 @@ BUCKET = 'entropydrop-com-frontend'
 MAIN_DISTRIBUTION = 'E1EYC8VR1RCTFX'
 API_DISTRIBUTION = 'E1Y004OSRWPKO6'
 PROXY = 'http://127.0.0.1:19100'
-CONFIG = Config(proxies={'http': PROXY, 'https': PROXY}, connect_timeout=10, read_timeout=60, max_pool_connections=16)
+CONFIG = Config(proxies={'http': PROXY, 'https': PROXY}, connect_timeout=10, read_timeout=60, max_pool_connections=16, retries={'max_attempts': 5, 'mode': 'standard'})
 
 def initialize():
     values = dotenv_values(ROOT.parent / 'entropydrop_backend/.env.prod')
@@ -197,18 +197,25 @@ def retain_assets(old_prefix, prefix):
     s3 = client('s3', 'us-east-2')
     for page in s3.get_paginator('list_objects_v2').paginate(Bucket=BUCKET, Prefix=old_prefix + 'assets/'):
         for item in page.get('Contents', []):
-            old = s3.get_object(Bucket=BUCKET, Key=item['Key'])
-            body = old['Body'].read()
             key = prefix + item['Key'][len(old_prefix):]
-            # Existing retry targets must contain the same immutable bytes.
-            try:
-                current = s3.get_object(Bucket=BUCKET, Key=key)
-            except s3.exceptions.NoSuchKey:
-                metadata = {k: old[k] for k in ('ContentType', 'CacheControl', 'ContentEncoding') if k in old}
-                s3.put_object(Bucket=BUCKET, Key=key, Body=body, IfNoneMatch='*', **metadata)
-            else:
-                if current['Body'].read() != body:
-                    raise RuntimeError(f'Conflicting retained asset: {key}')
+            for attempt in range(5):
+                try:
+                    old = s3.get_object(Bucket=BUCKET, Key=item['Key'])
+                    body = old['Body'].read()
+                    # Existing retry targets must contain the same immutable bytes.
+                    try:
+                        current = s3.get_object(Bucket=BUCKET, Key=key)
+                    except s3.exceptions.NoSuchKey:
+                        metadata = {k: old[k] for k in ('ContentType', 'CacheControl', 'ContentEncoding') if k in old}
+                        s3.put_object(Bucket=BUCKET, Key=key, Body=body, IfNoneMatch='*', **metadata)
+                    else:
+                        if current['Body'].read() != body:
+                            raise RuntimeError(f'Conflicting retained asset: {key}')
+                    break
+                except Exception:
+                    if attempt == 4:
+                        raise
+                    time.sleep(1 + attempt)
 
 
 def verify_objects(directory, prefix, aliases=()):
