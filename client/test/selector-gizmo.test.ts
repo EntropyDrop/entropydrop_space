@@ -219,11 +219,12 @@ test('handleLeftClick on gizmo handle starts drag without clearing selection', (
   // Release drag
   controller.releaseGizmoDrag();
 
-  // A block click away from the gizmo starts the next selection
+  // A block click away from the gizmo cancels without starting another selection.
   controller.hoveredGizmoHandle = null;
   controller.handleLeftClick();
-  assert.deepEqual(manager.selectionCornerA, { x: 10, y: 10, z: 10 });
+  assert.equal(manager.selectionCornerA, null);
   assert.equal(manager.selectionCornerB, null);
+  assert.equal(controller.selectorRange, null);
 });
 
 test('updateGizmoDrag translates mouse movement to discrete steps in micro mode', () => {

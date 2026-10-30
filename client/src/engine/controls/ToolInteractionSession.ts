@@ -202,6 +202,25 @@ export class ToolInteractionSession {
       this.host.resetEntityPlaybackClickGesture();
       return true;
     }
+    const selectorTool = this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE;
+    if (selectorTool && !this.host.bulkEditJob && !this.host.hoveredGizmoHandle
+      && !(e?.shiftKey || this.host.keys?.crouch)) {
+      const isEntityBoxInProgress = !!(this.host.selectorRange?.pointA && !this.host.selectorRange.pointB);
+      const isWorldBoxInProgress = !!(this.host.contraptions?.selectionCornerA && !this.host.contraptions.selectionCornerB);
+      const hasCompletedSelection = !!(
+        (this.host.selectedSubtree && !this.host.selectedBlockSelection) ||
+        this.host.selectedBlockSelection?.blocks?.length ||
+        this.host.contraptions?.hasValidSelection?.()
+      );
+      if (!isEntityBoxInProgress && !isWorldBoxInProgress && hasCompletedSelection) {
+        // Consume the click before target interactions: deselection must not
+        // also set point A or interact with a running entity outside the box.
+        this.toolUseSequence = (this.toolUseSequence || 0) + 1;
+        this.host.resetEntityPlaybackClickGesture();
+        this.host.clearSelection();
+        return;
+      }
+    }
     if ((this.activeTool === SpecialTool.WRENCH || this.activeTool === SpecialTool.SELECTOR)
       && this.host.handleEntityPlaybackClick(e)) return true;
     if (this.host.tryClickRunningEntity()) return false;
@@ -217,7 +236,6 @@ export class ToolInteractionSession {
     if ([SpecialTool.SHOVEL, SpecialTool.SPOON, SpecialTool.BRUSH].includes(this.activeTool)
       && !(this.activeTool === SpecialTool.BRUSH && this.brushSelection)
       && this.host.handleRunningEntityInteraction(this.host.hoveredContraptionHit?.contraption)) return false;
-    const selectorTool = this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE;
     const selectorTarget = this.host.hoveredGizmoHandle
       ? this.host.selectedBlockSelection?.contraption || this.host.selectedSubtree?.contraption
       : this.host.hoveredContraptionHit?.contraption;
@@ -484,27 +502,6 @@ export class ToolInteractionSession {
         ? new THREE.Vector3(this.host.currentRaycast.hitPos.x, this.host.currentRaycast.hitPos.y, this.host.currentRaycast.hitPos.z)
         : null;
 
-      // When in preselected state (completed selection without an in-progress 2-point drag),
-      // a plain left click on a block starts the next selection at that same click.
-      // A subtree-only selection created by Shift+click on an editable level also
-      // counts as preselected. Running interactions are consumed before this branch.
-      const isEntityBoxInProgress = !!(this.host.selectorRange && this.host.selectorRange.pointA && !this.host.selectorRange.pointB);
-      const isWorldBoxInProgress = !!(this.host.contraptions && this.host.contraptions.selectionCornerA !== null && this.host.contraptions.selectionCornerB === null);
-      const isEditableSubtreeSelection = !!(
-        this.host.selectedSubtree?.contraption &&
-        this.host.selectedBlockSelection === null &&
-        this.host.canEditEntityInternals(this.host.selectedSubtree.contraption)
-      );
-      const isPreselected = !!(
-        isEditableSubtreeSelection ||
-        (this.host.selectedBlockSelection && this.host.selectedBlockSelection.blocks?.length > 0) ||
-        (this.host.contraptions && typeof this.host.contraptions.hasValidSelection === 'function' && this.host.contraptions.hasValidSelection())
-      );
-      const clickedAnyBlock = !!(this.host.hoveredContraptionHit || worldPoint);
-      if (!isMultiSelect && !isEntityBoxInProgress && !isWorldBoxInProgress && isPreselected && clickedAnyBlock) {
-        this.host.clearSelection();
-      }
-
       if (this.host.hoveredContraptionHit) {
         // If world selection was in progress (cornerA was set on world terrain), but point 2 hits an entity:
         if (this.host.contraptions && this.host.contraptions.selectionCornerA !== null && this.host.contraptions.selectionCornerB === null) {
@@ -572,12 +569,8 @@ export class ToolInteractionSession {
         return;
       }
 
-      // World hit (no active entity box-selection): clear entity/component state and enter
-      // world 2-point box mode. Previously this would unconditionally re-enter "re-box entity
-      // level", causing selectorLevel to persist after G-assembly so clicks outside the entity
-      // could never start a world selection. Now: world click = world box; entity click = re-box
-      // entity level. A click that hits nothing (sky) intentionally leaves the current entity
-      // selection untouched — missing a shot must not cancel an in-progress 2-point box.
+      // With no completed selection to dismiss, a world hit enters world box mode.
+      // Clear any entity-level state left after consuming an earlier selection.
       if (worldPoint) {
         if (this.host.selectedSubtree) {
           this.host.selectedSubtree.contraption.clearSubtreeHighlight();
@@ -604,7 +597,7 @@ export class ToolInteractionSession {
         } else {
           // 2-point world box: cornerA then cornerB define the diagonal AABB.
           // In micro mode the confirmed box materializes into the existing
-          // micro voxels it contains; the next click starts a new box immediately.
+          // micro voxels it contains; completed selections are dismissed above.
           if (this.host.selectorMicroMode && Array.isArray(this.host.contraptions?.microSelection)) {
             this.host.clearSelection();
           }

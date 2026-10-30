@@ -269,9 +269,15 @@ test('selector click flow: two plain clicks build a materialized micro box, thir
   assert.equal(manager.selectionCornerB, null);
   assert.deepEqual(manager.microSelection, [{ x: 19, y: 47, z: 20 }, { x: 20, y: 47, z: 20 }]);
 
-  // Third plain click replaces the completed set and records the next point A.
+  // Third plain click cancels the completed set without recording another point A.
   controller.handleLeftClick();
   assert.equal(manager.microSelection, null);
+  assert.equal(manager.selectionCornerA, null);
+  assert.equal(manager.selectionCornerB, null);
+  assert.equal(manager.hasValidSelection(), false);
+  assert.equal(controller.selectionShapeAnchor, null);
+
+  controller.handleLeftClick();
   assert.deepEqual(manager.selectionCornerA, { x: 20, y: 47, z: 20, micro: true });
 });
 
