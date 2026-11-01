@@ -25,7 +25,11 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| root.join("../godot-space/matched-lod-fine/data"));
         return render_benchmark::run(&root, &path);
     }
-    let profile_render = if args.iter().any(|a| a == "--profile-frame-reuse") {
+    let profile_render = if args.iter().any(|a| a == "--profile-groups") {
+        Some(6)
+    } else if args.iter().any(|a| a == "--profile-submission") {
+        Some(5)
+    } else if args.iter().any(|a| a == "--profile-frame-reuse") {
         Some(4)
     } else if args.iter().any(|a| a == "--profile-culling") {
         Some(3)
@@ -181,6 +185,9 @@ fn smoke(
         options: [1.0, 1.0, 0.0, 1.0],
     };
     if let Some(mode) = profile_render {
+        if mode == 6 {
+            return render_benchmark::groups(&mut renderer, uniform, root, name, lod_stats);
+        }
         if mode >= 2 {
             return render_benchmark::optimized(
                 &mut renderer,

@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { IconType } from 'react-icons';
 import { FaPlay, FaStop, FaUndo } from 'react-icons/fa';
 import {
-  LiaCheckSolid, LiaCodeSolid, LiaCopySolid, LiaEllipsisHSolid,
+  LiaCheckSolid, LiaCodeSolid, LiaCopySolid, LiaCutSolid, LiaEllipsisHSolid,
   LiaHourglassHalfSolid, LiaIdCardSolid, LiaObjectUngroupSolid, LiaPauseSolid,
   LiaServerSolid, LiaTimesSolid, LiaTrashAltSolid, LiaVectorSquareSolid
 } from 'react-icons/lia';
@@ -67,8 +67,8 @@ function EntityActionButton({ label, caption = label, icon: Icon, title = label,
 }
 
 export function EntityNameplates() {
-  const { contraptions, sceneRenderer, hasStarted, activeModal, apiDocsOpen, controller, entityLabels, wrenchSnap } = useSpaceUiFields(
-    'contraptions', 'sceneRenderer', 'hasStarted', 'activeModal', 'apiDocsOpen', 'controller', 'entityLabels', 'wrenchSnap');
+  const { contraptions, sceneRenderer, hasStarted, activeModal, apiDocsOpen, controller, entityLabels } = useSpaceUiFields(
+    'contraptions', 'sceneRenderer', 'hasStarted', 'activeModal', 'apiDocsOpen', 'controller', 'entityLabels');
   const rootRef = useRef<HTMLDivElement>(null);
   const elements = useRef(new Map<any, HTMLDivElement>());
   const hidden = !hasStarted || !!activeModal || apiDocsOpen;
@@ -107,49 +107,20 @@ export function EntityNameplates() {
         const rect = event.currentTarget.getBoundingClientRect();
         spaceUiStore.showEntityContextMenu(entity, { x: rect.left + rect.width / 2, y: rect.bottom + 8 });
       };
-      return <div key={entity.publicId || entity.id} className={`entity-nameplate${wrenchSnap?.source === entity ? ' is-snapped' : ''}`} style={{ display: 'none' }}
+      return <div key={entity.publicId || entity.id} className="entity-nameplate" style={{ display: 'none' }}
         ref={element => { if (element) elements.current.set(entity, element); else elements.current.delete(entity); }}>
         <EntityStatusBadge
           status={status}
           showCaption={status.tone !== 'running'}
           nameplate
-          canControl={canControl && wrenchSnap?.source !== entity && wrenchSnap?.target !== entity}
+          canControl={canControl}
           entityId={String(entity.publicId || entity.id)}
           onToggle={() => void spaceUiStore.toggleEntityRun(entity)}
         />
         <div className="entity-nameplate-labels">
           <span className="entity-nameplate-name" title={name}>{name}</span>
           {status.tone === 'running' && <span className="entity-nameplate-executor" title={`Executor: ${status.caption}`}>{status.caption}</span>}
-          {wrenchSnap?.source === entity && <span className="entity-snap-caption">Locked · XYZ {wrenchSnap.gridStep} m</span>}
         </div>
-        {wrenchSnap?.source === entity && <button type="button" tabIndex={-1} className="entity-merge-trigger"
-          data-entity-merge-id={String(entity.publicId || entity.id)} data-entity-nameplate-control="merge"
-          aria-label="Merge snapped entity" title={`Merge into ${wrenchSnap.targetName} as a component`} disabled={wrenchSnap.busy}
-          onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-          onMouseUp={event => event.stopPropagation()}
-          onClick={event => { event.preventDefault(); event.stopPropagation(); void spaceUiStore.mergeWrenchSnappedEntity(entity); }}
-          onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}>
-          {wrenchSnap.busy ? 'Merging…' : 'Merge'}
-        </button>}
-        {wrenchSnap?.source === entity && <div className="entity-snap-adjust" aria-label="Snapped entity grid adjustment">
-          {(['x', 'y', 'z'] as const).map(axis => <span key={axis} className={`entity-snap-axis axis-${axis}`}>
-            <b>{axis.toUpperCase()}</b>
-            {([-1, 1] as const).map(steps => <button key={steps} type="button" tabIndex={-1}
-              disabled={wrenchSnap.busy} data-entity-merge-id={String(entity.publicId || entity.id)}
-              data-snap-axis={axis} data-snap-steps={steps} data-entity-nameplate-control="adjust"
-              aria-label={`Move ${axis.toUpperCase()} ${steps > 0 ? '+' : '-'}${wrenchSnap.gridStep} m`}
-              onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-              onMouseUp={event => event.stopPropagation()}
-              onClick={event => { event.preventDefault(); event.stopPropagation(); spaceUiStore.nudgeWrenchSnappedEntity(axis, steps); }}>
-              {steps > 0 ? '+' : '−'}
-            </button>)}
-          </span>)}
-          <button type="button" tabIndex={-1} disabled={wrenchSnap.busy}
-            data-entity-merge-id={String(entity.publicId || entity.id)} data-snap-detach="true" data-entity-nameplate-control="detach"
-            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-            onMouseUp={event => event.stopPropagation()}
-            onClick={event => { event.preventDefault(); event.stopPropagation(); spaceUiStore.detachWrenchSnappedEntity(); }}>Detach</button>
-        </div>}
         <button type="button" tabIndex={-1} className="entity-menu-trigger" data-entity-menu-id={String(entity.publicId || entity.id)} data-entity-nameplate-control="menu"
           aria-label={`Entity actions: ${name}`} title="Entity actions · works with any tool"
           onMouseDown={event => { event.stopPropagation(); event.preventDefault(); }}
@@ -190,6 +161,7 @@ export function EntityContextMenu() {
   const canResetRotation = canEdit && !isHosted && (!status.running || canControl);
   const canChangeBodyType = canEdit && !isHosted && (!status.running || canControl);
   const canDisassemble = canEdit && canControl && !isHosted;
+  const canCut = canEdit && canControl && !isHosted && !status.running;
   const componentId = entityContextMenu.componentId;
   const component = componentId ? entity.getEntityNode?.(componentId) : null;
   const componentName = componentId ? entity.getComponentName?.(componentId) || componentId : '';
@@ -282,6 +254,8 @@ export function EntityContextMenu() {
         <EntityActionButton label="Duplicate entity" caption="Duplicate" icon={LiaCopySolid} disabled={busy || (!canControl && status.running)}
           title="Duplicate the entire entity beside the original" onClick={() => void run('duplicate')} />
         <EntityActionButton label="Copy entity to backpack" caption="Copy to backpack" icon={LiaCopySolid} disabled={busy || (!canControl && status.running)} onClick={() => void run('copy')} />
+        <EntityActionButton label="Cut entity to backpack" caption="Cut to backpack" icon={LiaCutSolid} disabled={busy || !canCut}
+          title="Move the stopped entity to the backpack with its code, then install it using Hammer" onClick={() => void run('cut')} />
         <EntityActionButton label="Open programming interface" caption="Program" icon={LiaCodeSolid} disabled={busy || !canEdit} onClick={() => void run('program')} />
         <EntityActionButton label="Select all root blocks" caption="Select all" icon={LiaVectorSquareSolid} disabled={busy || !canEdit} onClick={() => void run('select-all')} />
         <EntityActionButton label="Copy entity ID" caption="Copy ID" icon={LiaIdCardSolid} disabled={busy} onClick={async () => {

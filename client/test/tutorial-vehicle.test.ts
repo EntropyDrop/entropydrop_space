@@ -147,7 +147,7 @@ test('micro rotation practice matches the horizontal cylinder after rotating the
     new Set(cells.filter(c => c[3] === 0xc5cbd6).map(c => c.slice(0, 3).join(','))));
 });
 
-test('the airborne wheel falls after assembly, then programs, duplicates and merges without using the backpack', async t => {
+test('the airborne wheel falls, is programmed and cut to the backpack, then drives after four Hammer installations', async t => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, null, null, null);
   manager.setEntityPersistenceMode('none');
@@ -157,7 +157,8 @@ test('the airborne wheel falls after assembly, then programs, duplicates and mer
     _activeTool: SpecialTool.WRENCH, contraptions: manager,
     ui: { showToast() {}, refresh() {}, notifyContraptionRemoved() {}, notifyContraptionStructureChanged() {} },
     sceneRenderer: { setWrenchTether() {}, clearWrenchPivotGizmo() {} }, clearSelection() {},
-    addInventoryItem() { assert.fail('the wheel lesson no longer uses the backpack'); },
+    saveInventoriesToLocalStorage() {}, requestLock() {},
+    activateTool(this: PlayerController, tool: string) { this.activeTool = tool; },
   });
   const selected = new Set(wheelCells.map(p => `${p.x},${p.y},${p.z}`));
   const wheelBlocks = level.terrain.micro
@@ -208,51 +209,41 @@ test('the airborne wheel falls after assembly, then programs, duplicates and mer
   assert.deepEqual(wheel.position.toArray(), wheelStart.toArray(), 'the menu-selected kinematic body ignores gravity');
   wheel.stopAllNodeScripts();
   assert.equal(await controller.performEntityMenuAction(wheel, 'reset-rotation'), true);
-  for (let i = 0; i < 3; i++) assert.equal(await controller.performEntityMenuAction(wheel, 'duplicate'), true);
-  const wheels = manager.contraptions.filter(entity => entity !== chassis);
-  assert.equal(wheels.length, 4, 'the wheels are configured before installation');
-
+  assert.equal(await controller.performEntityMenuAction(wheel, 'cut'), true);
+  assert.equal(manager.contraptions.includes(wheel), false, 'Cut removes the world instance after saving the module');
+  assert.equal(controller.activeTool, SpecialTool.HAMMER);
+  const savedWheel = controller.inventorySlots[controller.selectedInventoryIndex];
+  const savedJson = JSON.stringify(savedWheel);
   const bench = tutorialVehicleWorkbench();
-  const frameOrigin = new THREE.Vector3((bench.minX + bench.maxX) / 2 - 4.5, bench.maxY,
-    (bench.minZ + bench.maxZ) / 2 - 2.125);
-  // Keep uninstalled wheels clear of the current axle while moving each one.
-  wheels.forEach((entity, index) => { entity.position.set(20, 4, 10 + index * 4); entity.updateTransform(); });
-  // Reproduce an imprecise carrying path below the rear bumper. Rim contact
-  // must not lock the wheel before its center reaches an axle's capture area.
-  wheel.position.set(chassisBounds.maxX - 2.727, chassisBounds.minY - .695, chassisBounds.minZ - .2);
-  wheel.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
-  wheel.updateTransform();
-  assert.equal(controller.updateWrenchSnap(wheel), false, 'carrying past a bumper edge must not prematurely lock the wheel');
-  wheel.position.set(chassisBounds.minX + 2.625, chassisBounds.minY + 1, chassisBounds.minZ - .475);
-  wheel.updateTransform();
-  assert.equal(controller.updateWrenchSnap(wheel), true);
-  assert.ok(Math.abs(wheel.position.x - tutorialChassisWheelMounts()[0].x) < .01
-    && Math.abs(wheel.position.y - tutorialChassisWheelMounts()[0].y) < .01,
-  'the axle mounting pad wins over nearby fender segments during the approach');
-  controller.detachWrenchSnappedEntity();
-  wheel.position.set(20, 4, 10); wheel.updateTransform();
-  controller.updateWrenchSnap(wheel);
+  const frameOrigin = new THREE.Vector3(...chassisRecord.constructorOrigin);
   const installedCodes = new Map<string, string>();
   for (const [index, mount] of tutorialChassisWheelMounts().entries()) {
-    const moving = wheels[index];
-    const upright = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -mount.side * Math.PI / 2);
-    const wheelCenter = frameOrigin.clone().add(new THREE.Vector3(
-      mount.x - chassisBounds.minX, mount.y - chassisBounds.minY,
-      mount.z - chassisBounds.minZ + mount.side * .25));
-    moving.quaternion.copy(upright).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), .1));
-    moving.position.copy(wheelCenter).add(new THREE.Vector3(.9, .5, mount.side * .6));
-    moving.updateTransform();
-    assert.equal(controller.updateWrenchSnap(moving), true, `wheel ${index + 1} must snap onto the actual lesson chassis`);
-    assert.equal(controller.getWrenchSnapTarget()?.target?.id, chassis.id);
-    assert.ok(moving.quaternion.angleTo(upright) < 1e-6, 'snapping corrects a small rotation error');
-    assert.ok(Math.abs(moving.position.x - wheelCenter.x) < .01 && Math.abs(moving.position.y - wheelCenter.y) < .01,
-      `wheel ${index + 1} centers on the axle from an imprecise approach: ${moving.position.toArray()} vs ${wheelCenter.toArray()}`);
-    const aligned = moving.position.clone();
-    assert.equal(controller.nudgeWrenchSnappedEntity('x', 1), true);
-    assert.ok(Math.abs(moving.position.x - aligned.x - .125) < 1e-7);
-    assert.equal(controller.nudgeWrenchSnappedEntity('x', -1), true);
-    assert.equal(await controller.mergeWrenchSnappedEntity(moving), true);
+    controller.activateTool(SpecialTool.HAMMER);
+    controller.hammerMicroMode = true;
+    controller.clearHammerRotation();
+    controller.rotateActiveInventoryItem(1, 'x');
+    controller.rotateActiveInventoryItem(1, 'x');
+    controller.hoveredContraptionHit = { contraption: chassis, entityId: chassis.rootComponentId,
+      point: new THREE.Vector3(mount.x, mount.y, mount.z),
+      normal: new THREE.Vector3(0, 0, mount.side), worldNormal: new THREE.Vector3(0, 0, mount.side) };
+    controller.currentRaycast = null;
+    assert.equal(controller.handleLeftClick(), true, `wheel ${index + 1} can be previewed on its axle`);
+    assert.equal(chassis.entityNodes.size, index + 1, 'preview does not install before Enter');
+    assert.equal(controller.hammerPlacement.getInstallationLink()?.entity, chassis);
+    controller.hammerPlacement.moveAlongAxis('x', .125);
+    controller.hammerPlacement.moveAlongAxis('x', -.125);
+    assert.equal(controller.hammerPlacement.confirm(), true);
+    while (controller.bulkEditJob) controller.processBulkEditFrame(64, Infinity);
+    assert.equal(controller.activeTool, SpecialTool.WRENCH);
+    assert.equal(JSON.stringify(savedWheel), savedJson, 'installation preserves the reusable backpack module');
     const node = [...chassis.entityNodes.values()].at(-1)!;
+    assert.equal(chassis.getNodeScript(node.id), wheelCode, 'Cut and Hammer retain the wheel code');
+    assert.equal(chassis.getNodeBodyType(node.id), 'kinematic');
+    const hollowFace = new THREE.Vector3(0, 1, 0).applyQuaternion(chassis.getEntityNodeWorldQuaternion(node.id));
+    assert.ok(hollowFace.dot(new THREE.Vector3(0, 0, -mount.side)) > .999, 'the recessed wheel face points into the chassis');
+    const wheelCenter = new THREE.Vector3(mount.x, mount.y, mount.z + mount.side * .25);
+    assert.ok(chassis.getEntityNodeWorldPosition(node.id).distanceTo(wheelCenter) < .01,
+      `wheel ${index + 1} pivot aligns with the axle: ${chassis.getEntityNodeWorldPosition(node.id).toArray()} vs ${wheelCenter.toArray()}`);
     installedCodes.set(node.id, mount.side < 0 ? wheelCode : reverseWheelCode);
     // Edit the opposite-side wheel components after mounting, as the sign instructs.
     if (mount.side > 0) assert.equal(chassis.setNodeScript(node.id, reverseWheelCode), true);

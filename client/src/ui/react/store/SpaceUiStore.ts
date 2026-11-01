@@ -219,7 +219,6 @@ export interface SpaceUiSnapshot {
   inventoryRevision: number;
   entityLabels: EntityLabelView[];
   wrenchTarget: Contraption | null;
-  wrenchSnap: { source: Contraption; target: Contraption; targetName: string; busy: boolean; gridStep: number } | null;
   modelingView: ModelingView;
   textCreation: TextCreationView;
   editorDefinitionVersion: number;
@@ -415,7 +414,6 @@ export class SpaceUiStore {
     inventoryRevision: 0,
     entityLabels: [],
     wrenchTarget: null,
-    wrenchSnap: null,
     modelingView: EMPTY_MODELING_VIEW,
     textCreation: EMPTY_TEXT_CREATION,
     componentProperties: null,
@@ -516,12 +514,6 @@ export class SpaceUiStore {
     next.nearbyEntities = retainView(previous.nearbyEntities, next.nearbyEntities);
     next.telemetry = retainView(previous.telemetry, next.telemetry);
     next.wrenchTarget = next.controller?.hoveredContraptionHit?.contraption || next.controller?.hoveredContraption || null;
-    const wrenchSnap = next.controller?.getWrenchSnapTarget?.();
-    next.wrenchSnap = retainView(previous.wrenchSnap, wrenchSnap ? {
-      source: wrenchSnap.source, target: wrenchSnap.target, targetName: entityDisplayName(wrenchSnap.target),
-      gridStep: wrenchSnap.gridStep,
-      busy: next.controller?.wrenchMergeBusy === true,
-    } : null);
     next.entityLabels = retainView(previous.entityLabels, (next.contraptions?.contraptions || []).map((entity: Contraption) => ({
       entity, name: entityDisplayName(entity), status: entityRunStatus(entity, next.currentUserName),
       canControl: !entity.serverManaged || entity.serverCanControl === true,
@@ -1112,44 +1104,6 @@ export class SpaceUiStore {
     void this.toggleEntityRun(target);
     event.preventDefault?.();
     event.stopPropagation?.();
-    return true;
-  }
-
-  async mergeWrenchSnappedEntity(source: Contraption): Promise<boolean> {
-    const result = await this.snapshot.controller?.mergeWrenchSnappedEntity?.(source);
-    this.refresh();
-    return !!result;
-  }
-
-  nudgeWrenchSnappedEntity(axis: 'x' | 'y' | 'z', steps: number) {
-    const result = this.snapshot.controller?.nudgeWrenchSnappedEntity?.(axis, steps);
-    this.refresh();
-    return !!result;
-  }
-
-  detachWrenchSnappedEntity() {
-    const result = this.snapshot.controller?.detachWrenchSnappedEntity?.();
-    this.refresh();
-    return !!result;
-  }
-
-  tryMergeEntityAtPointer(event: any): boolean {
-    if (!event || typeof document === 'undefined' || !document.elementFromPoint
-      || this.hasAnyModalOpen() || this.snapshot.entityContextMenu || this.snapshot.selectorContextMenu) return false;
-    const locked = this.snapshot.controller?.isLocked || this.snapshot.pointerLocked || document.pointerLockElement;
-    const x = locked ? window.innerWidth / 2 : Number(event.clientX);
-    const y = locked ? window.innerHeight / 2 : Number(event.clientY);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    const button = document.elementFromPoint(x, y)?.closest<HTMLButtonElement>('[data-entity-merge-id]');
-    if (!button) return false;
-    const snap = this.snapshot.wrenchSnap;
-    if (!button.disabled && snap && String(snap.source.publicId || snap.source.id) === button.dataset.entityMergeId) {
-      if (button.dataset.snapAxis) {
-        this.nudgeWrenchSnappedEntity(button.dataset.snapAxis as 'x' | 'y' | 'z', Number(button.dataset.snapSteps));
-      } else if (button.dataset.snapDetach) this.detachWrenchSnappedEntity();
-      else void this.mergeWrenchSnappedEntity(snap.source);
-    }
-    event.preventDefault?.(); event.stopPropagation?.();
     return true;
   }
 

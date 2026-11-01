@@ -702,8 +702,7 @@ test('Wrench displays the selected component pivot while body clicks still point
   assert.ok(displayed.position.distanceTo(pivotWorld) < 1e-9);
   assert.ok((gizmoCalls[0][0] as THREE.Vector3).distanceTo(pivotWorld) < 1e-9);
   assert.equal(gizmoCalls.length, 1);
-  assert.equal(gizmoCalls[0].length, 6, 'display carries hover, active handle and translation-only state');
-  assert.equal(gizmoCalls[0][5], false);
+  assert.equal(gizmoCalls[0].length, 5, 'display carries both hover and active handle state');
   controller.handleLeftClick();
 
   assert.equal(grabs, 1);
@@ -1478,7 +1477,7 @@ test('ContraptionPhysics constrainWrenchVelocity constrains velocity when collis
   assert.ok(constrained.normals.length > 0, 'contact normals must be reported');
 });
 
-test('Wrench grab disables collision allowing smooth transport through another entity', () => {
+test('Wrench carries past a stopped entity without snapping, locking or merging', () => {
   const world = {
     getBlock: () => BlockTypes.AIR,
     raycast: () => ({ hit: false as const }),
@@ -1506,6 +1505,7 @@ test('Wrench grab disables collision allowing smooth transport through another e
   );
   manager.registerContraption(grabbed);
   manager.registerContraption(obstacle);
+  obstacle.stopAllNodeScripts();
 
   const eye = new THREE.Vector3(0, 0, 0);
   const camera = new THREE.PerspectiveCamera();
@@ -1539,9 +1539,13 @@ test('Wrench grab disables collision allowing smooth transport through another e
   for (let frame = 0; frame < 120; frame++) {
     controller.update(1 / 60);
     manager.update(1 / 60, null);
+    assert.equal(controller.wrenchGrab?.active, true, 'nearby faces must not lock the held entity');
   }
 
   assert.ok(grabbed.position.x > 3, `with collision disabled during grab, grabbed entity passes smoothly, x=${grabbed.position.x}`);
+  assert.equal(manager.contraptions.length, 2, 'carrying cannot install or merge entities');
+  assert.equal(grabbed.entityNodes.size, 1);
+  assert.equal(obstacle.entityNodes.size, 1);
   controller.releaseWrenchGrab();
   assert.equal(grabbed.isCollisionSimulationEnabled(), true, 'releasing grab restores collision');
   assert.equal(obstacle.position.x, 3.5, 'a kinematic obstacle must remain fixed');

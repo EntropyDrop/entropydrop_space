@@ -65,6 +65,8 @@ impl Coverage {
 
 #[derive(Clone, Copy)]
 pub struct CullView {
+    /// Pass conservative ancestor proofs down the ordered tree.
+    pub inherit_proofs: bool,
     planes: [Vec4; 6],
     eye: Vec3,
     torus: bool,
@@ -147,10 +149,86 @@ impl VisibilityTree {
     ) {
         output.clear();
         if !self.nodes.is_empty() {
-            self.visit(0, blocks, covered, view, output);
+            if !view.inherit_proofs {
+                self.visit_reference(0, blocks, covered, view, output);
+                return;
+            }
+            self.visit(
+                0,
+                blocks,
+                covered,
+                view,
+                output,
+                63 | (u8::from(view.backfaces) << 6),
+            );
         }
     }
+    #[allow(clippy::too_many_arguments)]
     fn visit(
+        &self,
+        index: usize,
+        blocks: &[VisibilityBlock],
+        covered: &[u8],
+        view: &CullView,
+        output: &mut Vec<u32>,
+        mut pending: u8,
+    ) {
+        let n = &self.nodes[index];
+        let delta = view.eye - n.center;
+        let distance = delta.length();
+        let local = view.torus && distance + n.radius < 255.9;
+        let outside_blend = !view.torus || distance - n.radius > 256.1;
+        if !local {
+            for (i, plane) in view.planes.iter().enumerate() {
+                if pending & (1 << i) == 0 {
+                    continue;
+                }
+                let signed = plane.truncate().dot(n.center) + plane.w;
+                if outside_blend && signed < -n.radius - 0.1 {
+                    return;
+                }
+                // A node sphere encloses every padded leaf sphere, even when
+                // a child's looser enclosing sphere protrudes beyond it.
+                if signed > n.radius + 0.1 {
+                    pending &= !(1 << i);
+                }
+            }
+        }
+        if pending & 64 != 0 && !local {
+            // Upper bound of every leaf's original facing expression:
+            // ai·(eye-ci) + |eye-ci|*di + ri. Triangle inequality also
+            // covers non-unit/zero cone axes and variation in cone width.
+            let dot = n.axis.dot(delta);
+            let upper = dot
+                + distance * n.cone_deviation
+                + n.radius * (n.normal_length + n.deviation + 1.0);
+            if outside_blend && upper < -0.2 {
+                return;
+            }
+            // Drop the nonnegative di and ri terms for a safe lower bound.
+            if dot - distance * n.axis_deviation - n.radius * n.normal_length > 0.2 {
+                pending &= !64;
+            }
+        }
+        if local || pending == 0 {
+            output.extend(
+                (n.start..n.end)
+                    .filter(|&i| covered[i] == 0)
+                    .map(|i| i as u32),
+            );
+        } else if n.right != 0 {
+            self.visit(index + 1, blocks, covered, view, output, pending);
+            self.visit(n.right, blocks, covered, view, output, pending);
+        } else {
+            output.extend(
+                (n.start..n.end)
+                    .filter(|&i| covered[i] == 0 && view.visible_bounds(&blocks[i]))
+                    .map(|i| i as u32),
+            );
+        }
+    }
+    // Original traversal retained verbatim for honest performance A/B and regression.
+    fn visit_reference(
         &self,
         index: usize,
         blocks: &[VisibilityBlock],
@@ -195,8 +273,8 @@ impl VisibilityTree {
                     .map(|i| i as u32),
             );
         } else if n.right != 0 {
-            self.visit(index + 1, blocks, covered, view, output);
-            self.visit(n.right, blocks, covered, view, output);
+            self.visit_reference(index + 1, blocks, covered, view, output);
+            self.visit_reference(n.right, blocks, covered, view, output);
         } else {
             output.extend(
                 (n.start..n.end)
@@ -210,6 +288,7 @@ impl CullView {
     pub fn new(clip: Mat4, eye: Vec3, torus: bool, backfaces: bool) -> Self {
         let [x, y, z, w] = [clip.row(0), clip.row(1), clip.row(2), clip.row(3)];
         Self {
+            inherit_proofs: true,
             planes: [w + x, w - x, w + y, w - y, z, w - z].map(|p| p / p.truncate().length()),
             eye,
             torus,
@@ -254,7 +333,7 @@ mod tests {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             (seed >> 32) as f32 / u32::MAX as f32
         };
-        let blocks: Vec<_> = (0..4099)
+        let mut blocks: Vec<_> = (0..4099)
             .map(|i| {
                 let center = Vec3::new(
                     random() * 2000.0 - 1000.0,
@@ -273,6 +352,18 @@ mod tests {
                 }
             })
             .collect();
+        // Coherent ranges exercise inherited inside/facing proofs; the random
+        // half above mainly exercises conservative descent and rejection.
+        blocks.extend((0..4099).map(|i| VisibilityBlock {
+            sphere: [
+                (i % 64) as f32 * 4.0 - 128.0,
+                (i / 64) as f32 * 2.0 - 64.0,
+                -600.0,
+                2.5,
+            ],
+            cone: [0.0, 0.0, 1.0, 0.01],
+            flat: [0.0; 4],
+        }));
         let tree = VisibilityTree::new(&blocks);
         let covered: Vec<u8> = (0..blocks.len()).map(|i| u8::from(i % 7 == 0)).collect();
         let projection = Mat4::perspective_rh(70_f32.to_radians(), 1.7, 0.1, 10000.0);
@@ -291,6 +382,20 @@ mod tests {
                 i % 2 == 0,
             );
             tree.select(&blocks, &covered, &view, &mut selected);
+            let mut previous = Vec::new();
+            tree.select(
+                &blocks,
+                &covered,
+                &CullView {
+                    inherit_proofs: false,
+                    ..view
+                },
+                &mut previous,
+            );
+            assert_eq!(
+                selected, previous,
+                "Inherited proofs changed ordered visibility"
+            );
             let expected: Vec<_> = blocks
                 .iter()
                 .enumerate()

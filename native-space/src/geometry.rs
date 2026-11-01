@@ -245,9 +245,57 @@ pub fn sphere_in_frustum(clip: Mat4, center: Vec3, radius: f32) -> bool {
         .all(|p| p.truncate().dot(center) + p.w >= -radius * p.truncate().length())
 }
 
+/// Keep the original, unnormalized plane arithmetic so cached coarse culling
+/// makes exactly the same boundary decisions as `sphere_in_frustum`.
+pub struct Frustum {
+    planes: [(glam::Vec4, f32); 6],
+}
+impl Frustum {
+    pub fn new(clip: Mat4) -> Self {
+        let (x, y, z, w) = (clip.row(0), clip.row(1), clip.row(2), clip.row(3));
+        Self {
+            planes: [w + x, w - x, w + y, w - y, z, w - z].map(|p| (p, p.truncate().length())),
+        }
+    }
+    pub fn contains_sphere(&self, center: Vec3, radius: f32) -> bool {
+        self.planes
+            .iter()
+            .all(|(p, length)| p.truncate().dot(center) + p.w >= -radius * length)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cached_frustum_matches_original_sphere_decisions() {
+        let mut state = 912_345_u32;
+        let mut random = || {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            state as f32 / u32::MAX as f32
+        };
+        for clip in [
+            Mat4::perspective_rh(70_f32.to_radians(), 16.0 / 9.0, 0.1, 10000.0),
+            Mat4::orthographic_rh(-64.0, 64.0, -64.0, 64.0, 0.5, 208.0),
+            camera_matrix(
+                DVec3::new(8315.0, 108.0, 1098.0),
+                DVec3::new(-0.3, -0.5, -1.0).normalize(),
+                1908.0 / 2018.0,
+                true,
+            ),
+        ] {
+            let cached = Frustum::new(clip);
+            for _ in 0..4096 {
+                let center = Vec3::new(random() - 0.5, random() - 0.5, random() - 0.5) * 10000.0;
+                let radius = random() * 2000.0;
+                assert_eq!(
+                    cached.contains_sphere(center, radius),
+                    sphere_in_frustum(clip, center, radius)
+                );
+            }
+        }
+    }
+
     #[test]
     fn compact_faces_preserve_micro_coordinates_and_all_material_bits() {
         assert_eq!(std::mem::size_of::<PackedFace>(), 16);

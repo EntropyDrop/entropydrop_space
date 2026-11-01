@@ -46,8 +46,10 @@ the code editor explain that the tutorial demonstrates how entities work;
 in the full game, players can ask AI to configure and program entities using
 natural language. Agent requests remain unavailable inside the tutorial.
 After running the example, press Escape, stop the wheel, choose **Reset rotation**
-in its right-click menu, then use **Duplicate** three times. Carry the four
-configured wheels forward to **11 ASSEMBLY** to install them on the ready chassis.
+in its right-click menu, then choose **Cut to backpack**. This saves the complete
+wheel with its code before removing the world instance and switches to Hammer.
+Take this reusable module forward to **11 ASSEMBLY** to install it four times
+on the ready chassis; no duplicate wheel entities need to be carried there.
 
 Chapter 11 provides a stopped double-cab off-road pickup entity without wheels:
 it has a low hood, four doors, large tinted windows, an open ribbed cargo bed,
@@ -62,16 +64,15 @@ Run `node client/tools/refresh-tutorial-chassis.mjs` from the repository root
 to rebuild this saved entity without changing the workbench underneath or other lessons.
 
 The workbench's narrow, flat top supports the chassis rails while leaving all four tires
-clear of the sides and the ground. With the Wrench (`3`),
-use each wheel's X rotation arc to stand it upright with its hollow face toward
-the body. Hold LMB to carry it near an axle pad. Snapping centers the wheel on
-the mounting face and corrects small rotation errors. It then locks free dragging
-and shows translation-only XYZ arrows. Drag an arrow or use the HUD's +/− buttons
-to adjust in 0.125 m steps; overlapping placements are rejected. Click **Merge**
-on the wheel's HUD to attach it, or **Detach** to resume free movement.
-Repeat for all four axle pads; the wheels
-become components of the chassis, retaining their scripts. This assembly uses
-the wheels directly in the world and requires no backpack or Hammer placement.
+clear of the sides and the ground. With Hammer (`2`), check that the positioning
+mode is MICRO and press Tab if needed. Aim at an axle pad: the wheel preview
+automatically stands upright against that surface. Press Up twice to turn its
+hollow face toward the body, then click LMB to pin the preview. Drag XYZ to align
+its center with the axle and press
+Enter to install it. The preview's wave link identifies the parent component.
+Press `2` again after each installation and reuse the same backpack module for
+all four axle pads. The wheels become components of the chassis, retaining their
+scripts. Wrench movement stays free and no longer snaps or merges entities.
 Reverse RPM on the opposite side in the editor so all four drive forward.
 From chapter 09 onward, Stop is taught as Wrench (`3`) plus double left-click.
 Chapter 10 returns from the editor with Escape before stopping the wheel;

@@ -8,6 +8,57 @@ use sha2::{Digest, Sha256};
 use space_native::storage::atomic_write;
 use std::path::Path;
 
+/// Sweep only instance size: same face order, shaders, culling and Ultra.
+pub fn groups(
+    renderer: &mut Renderer,
+    u: Uniforms,
+    root: &Path,
+    world: &str,
+    lod: serde_json::Value,
+) -> Result<()> {
+    use crate::metal_renderer::RenderProbe;
+    let mut cases = Vec::new();
+    for size in [[1280, 720], [2560, 1440]] {
+        for round in 0..2 {
+            let mut groups = vec![8, 16, 32, 64, 128, 256];
+            if round == 1 {
+                groups.reverse();
+            }
+            for group in groups {
+                renderer.probe = RenderProbe {
+                    quad_group: group,
+                    cache_submission: false,
+                    ..Default::default()
+                };
+                let (gpu, wall) = renderer.benchmark(u, size, 24, 120)?;
+                println!(
+                    "Groups {size:?} round {round} size {group}: GPU {:.3}, serial {:.3}",
+                    summary(&gpu)["p50"].as_f64().unwrap(),
+                    summary(&wall)["p50"].as_f64().unwrap()
+                );
+                cases.push(serde_json::json!({"resolution":size,"round":round,"group":group,"gpu_ms":summary(&gpu),"serial_ms":summary(&wall),"raw_gpu_ms":gpu,"raw_serial_ms":wall,"faces":renderer.visible_faces}));
+                if round == 1 {
+                    renderer.draw_offscreen(
+                        u,
+                        size,
+                        &root.join(format!(
+                            "results/groups-{world}-{group}-{}x{}.png",
+                            size[0], size[1]
+                        )),
+                    )?;
+                }
+            }
+        }
+    }
+    atomic_write(
+        &root.join(format!("results/{world}-groups-profile.json")),
+        &serde_json::to_vec_pretty(
+            &serde_json::json!({"device":renderer.device.name().to_string(),"lod":lod,"resident_faces":renderer.resident_faces(),"quality":"Ultra 100%, 4x MSAA, 4096 shadows, unchanged frozen LOD","cases":cases}),
+        )?,
+    )?;
+    Ok(())
+}
+
 pub fn optimized(
     renderer: &mut Renderer,
     uniforms: Uniforms,
@@ -20,14 +71,25 @@ pub fn optimized(
     use space_native::geometry;
     let culling_only = mode == 3;
     let frame_reuse = mode == 4;
-    let prefix = if frame_reuse {
+    let submission = mode == 5;
+    let recent = frame_reuse || submission;
+    let prefix = if submission {
+        "submission"
+    } else if frame_reuse {
         "frame-reuse"
     } else if culling_only {
         "culling"
     } else {
         "optimized"
     };
-    let legacy = if frame_reuse {
+    let legacy = if submission {
+        RenderProbe {
+            inherit_cull_proofs: false,
+            quad_group: 32,
+            cache_submission: false,
+            ..Default::default()
+        }
+    } else if frame_reuse {
         RenderProbe {
             cache_shadows: false,
             reuse_buffers: false,
@@ -61,7 +123,9 @@ pub fn optimized(
         ),
         ("optimized", RenderProbe::default()),
     ];
-    let variants = if frame_reuse {
+    let variants = if submission {
+        vec![("previous", legacy), ("optimized", RenderProbe::default())]
+    } else if frame_reuse {
         vec![
             ("previous", legacy),
             (
@@ -85,7 +149,7 @@ pub fn optimized(
     } else {
         variants.to_vec()
     };
-    let rounds = if frame_reuse { 4 } else { 2 };
+    let rounds = if recent { 4 } else { 2 };
     let mut cases = Vec::new();
     for size in [[1280, 720], [2560, 1440]] {
         for round in 0..rounds {
@@ -173,7 +237,7 @@ pub fn optimized(
         })
         .collect();
     let mut moving = Vec::new();
-    let ui = if frame_reuse {
+    let ui = if recent {
         renderer.benchmark_ui()?
     } else {
         Vec::new()
@@ -189,7 +253,7 @@ pub fn optimized(
             )
         })
         .collect();
-    let paths = if frame_reuse {
+    let paths = if recent {
         vec![
             ("stationary", &still),
             ("turn", &turn),
@@ -200,15 +264,35 @@ pub fn optimized(
         vec![("moving", &path)]
     };
     for (motion, path) in paths {
-        for size in if culling_only || frame_reuse {
+        for size in if culling_only || recent {
             vec![[1280, 720], [2560, 1440]]
         } else {
             vec![[1280, 720]]
         } {
+            if submission {
+                let samples = renderer.benchmark_pair(
+                    path,
+                    size,
+                    if motion == "moving_ui" { &ui } else { &[] },
+                    [legacy, RenderProbe::default()],
+                )?;
+                for (mode, sample) in ["previous", "optimized"].into_iter().zip(samples) {
+                    println!(
+                        "Paired {motion} {size:?} {mode}: GPU {:.3}, encode {:.3}, serial {:.3}",
+                        summary(&sample.gpu)["p50"].as_f64().unwrap(),
+                        summary(&sample.cpu)["p50"].as_f64().unwrap(),
+                        summary(&sample.wall)["p50"].as_f64().unwrap()
+                    );
+                    moving.push(serde_json::json!({"motion":motion,"mode":mode,"resolution":size,"batches":20,"warmup_per_batch":6,"samples_per_batch":24,
+                        "gpu_ms":summary(&sample.gpu),"cpu_encode_ms":summary(&sample.cpu),"serial_frame_ms":summary(&sample.wall),
+                        "raw_gpu_ms":sample.gpu,"raw_cpu_encode_ms":sample.cpu,"raw_serial_frame_ms":sample.wall,"dynamic_allocations":sample.allocations,"shadow_cache_hits":sample.shadow_hits}));
+                }
+                continue;
+            }
             for round in 0..rounds {
                 let variants = [
                     (
-                        if frame_reuse {
+                        if recent {
                             "previous"
                         } else if culling_only {
                             "linear"
@@ -245,7 +329,7 @@ pub fn optimized(
             }
         }
     }
-    if culling_only || frame_reuse {
+    if culling_only || recent {
         renderer.probe = RenderProbe {
             validate_visibility: true,
             ..Default::default()
@@ -285,7 +369,7 @@ pub fn optimized(
     for i in 0..4 {
         renderer.remove(&format!("probe-material-{i}"));
     }
-    let validation = if frame_reuse {
+    let validation = if recent {
         renderer.validate_frame_resources(uniforms, &ui)?
     } else {
         serde_json::Value::Null

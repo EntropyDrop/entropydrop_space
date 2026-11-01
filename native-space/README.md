@@ -21,6 +21,8 @@ Space 的 Rust 桌面客户端，当前使用 **winit + egui + 直接 Metal 渲�
 
 默认启用每实例 32 面成组绘制、远景每 16 面的保守剔除和无损 16 字节面记录；移动时使用有序层级筛选、4 个固定工作线程和复用的 CPU 可见列表。主视角与阴影分别计算可见列表，不改变分辨率、LOD 或 Ultra 特效；无法无损打包的几何保留原格式。
 
+层级筛选向子节点传递已经证明成立的视锥平面和朝向条件，避免重复测试。粗剔除的平面参数每帧只计算一次，网格可见性结果在筛选和提交之间复用；绘制排序每个网格只计算一次距离，并保留原来的透明顺序与距离相同时的名称顺序。
+
 阴影按输入精确缓存：静止和原地转头可以复用，相机位置、地形/实体几何、实体姿态、投影或远近遮罩变化时更新。可见列表与 UI 使用三帧独立 Metal 缓冲，GPU 完成后才覆写；未变化的列表在对应帧槽内免重复复制。每帧公共参数按绘制通道绑定一次。Apple GPU 上的 4× MSAA 临时附件使用片上 memoryless 存储，仍保留原分辨率和颜色/深度 resolve。
 
 脚本会安装隔离在 `.toolchain/` 中的 Rust 工具链、下载锁定的 Cargo 依赖、准备出生点地形，再构建和打开 `build/Space Native.app`。已有构建时可以直接打开该应用。
@@ -107,6 +109,15 @@ native-space/target/release/space-native --validate-sky
 ```
 
 冻结云动画，在平面、环面以及两个周期接缝连续平移 128 帧，检查天空图像保持稳定，同时确认转头仍改变天空视角。保留完整 Ultra 后处理，输出 `results/sky-validation.json`；超过浮点/量化误差容限时以非零状态退出。
+
+最新 CPU 筛选与提交优化的配对对照，以及实例分组诊断：
+
+```sh
+native-space/target/release/space-native --profile-submission --world=aether-archipelago --lod-zones=128
+native-space/target/release/space-native --profile-groups --world=aether-archipelago --lod-zones=128
+```
+
+分别输出 `results/aether-archipelago-submission-profile.json` 和 `results/aether-archipelago-groups-profile.json`。前者以本轮优化前的默认路径为基线，包含静止、转头、移动、带 UI 移动，以及可见列表/画面/在途缓冲回归；后者只诊断每实例 8–256 面，默认仍为 32 面。运行前关闭原生窗口。
 
 ## 目录与数据边界
 

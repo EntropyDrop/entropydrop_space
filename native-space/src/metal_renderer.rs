@@ -24,6 +24,15 @@ use winit::{
 mod frame_validation;
 
 type Metal<T> = Retained<ProtocolObject<T>>;
+const MAX_QUAD_GROUP: usize = 256;
+#[derive(Default)]
+pub struct FrameSamples {
+    pub gpu: Vec<f64>,
+    pub wall: Vec<f64>,
+    pub cpu: Vec<f64>,
+    pub allocations: usize,
+    pub shadow_hits: usize,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct Uniforms {
@@ -124,6 +133,8 @@ struct Targets {
     bloom: Vec<(Metal<dyn MTLTexture>, Metal<dyn MTLTexture>)>,
 }
 pub struct Mesh {
+    frame_visible: [bool; 2],
+    frame_distance: f32,
     revision: u64,
     buffer: Metal<dyn MTLBuffer>,
     packed: bool,
@@ -153,6 +164,7 @@ struct VisibilityMap {
 }
 #[derive(Clone, PartialEq)]
 struct VisibilityKey {
+    inherit_proofs: bool,
     clip: [[f32; 4]; 4],
     camera: [f32; 4],
     coverage: u64,
@@ -173,6 +185,7 @@ struct DynamicSlot {
 }
 #[derive(PartialEq)]
 struct ShadowKey {
+    quad_group: usize,
     camera: [f32; 4],
     shadow: [[f32; 4]; 4],
     correction: [[f32; 4]; 4],
@@ -206,6 +219,9 @@ fn grow_buffer(
 /// only make sense with fixed camera, geometry and sky time.
 #[derive(Clone, Copy)]
 pub struct RenderProbe {
+    pub inherit_cull_proofs: bool,
+    pub quad_group: usize,
+    pub cache_submission: bool,
     pub cache_shadows: bool,
     pub reuse_buffers: bool,
     pub memoryless_msaa: bool,
@@ -223,6 +239,9 @@ pub struct RenderProbe {
 impl Default for RenderProbe {
     fn default() -> Self {
         Self {
+            inherit_cull_proofs: true,
+            quad_group: 32,
+            cache_submission: true,
             cache_shadows: true,
             reuse_buffers: true,
             memoryless_msaa: true,
@@ -242,6 +261,8 @@ impl Default for RenderProbe {
 impl RenderProbe {
     pub fn legacy() -> Self {
         Self {
+            inherit_cull_proofs: false,
+            cache_submission: false,
             cache_shadows: false,
             reuse_buffers: false,
             memoryless_msaa: false,
@@ -313,7 +334,19 @@ fn uses_visibility(mesh: &Mesh, u: Uniforms) -> bool {
             .bounds
             .is_some_and(|(_, torus)| torus == (u.options[0] > 0.5))
 }
-fn mesh_visible(mesh: &Mesh, uniforms: Uniforms, frame: &FrameUniforms, shadow: bool) -> bool {
+fn mesh_distance(mesh: &Mesh, camera: Vec3) -> f32 {
+    let mut delta = mesh.model.transform_point3(mesh.center) - camera;
+    delta.x -= (delta.x / 16384.0).round() * 16384.0;
+    delta.z -= (delta.z / 2048.0).round() * 2048.0;
+    delta.length_squared()
+}
+fn mesh_visible(
+    mesh: &Mesh,
+    uniforms: Uniforms,
+    frame: &FrameUniforms,
+    shadow: bool,
+    frustum: Option<&geometry::Frustum>,
+) -> bool {
     let Some((bound, torus)) = mesh.bounds else {
         return true;
     };
@@ -329,6 +362,9 @@ fn mesh_visible(mesh: &Mesh, uniforms: Uniforms, frame: &FrameUniforms, shadow: 
         center += (Mat4::from_cols_array_2d(&frame.correction).transform_vector3(delta) - delta)
             * (1.0 - t * t * (3.0 - 2.0 * t));
         radius *= 4.0;
+    }
+    if let Some(frustum) = frustum {
+        return frustum.contains_sphere(center, radius);
     }
     geometry::sphere_in_frustum(
         Mat4::from_cols_array_2d(if shadow {
@@ -559,7 +595,7 @@ impl Renderer {
             }
             .context("Allocate immutable geometry table")
         };
-        let indices: Vec<u16> = (0..32)
+        let indices: Vec<u16> = (0..MAX_QUAD_GROUP as u16)
             .flat_map(|i| [0, 1, 2, 2, 1, 3].map(|v| v + i * 4))
             .collect();
         let quad_indices = buffer(bytemuck::cast_slice(&indices))?;
@@ -655,6 +691,8 @@ impl Renderer {
                 self.meshes.insert(
                     name,
                     Mesh {
+                        frame_visible: [true; 2],
+                        frame_distance: 0.0,
                         revision: self.geometry_revision,
                         buffer,
                         packed: packed.is_some(),
@@ -715,6 +753,8 @@ impl Renderer {
             self.shadow_revision += 1;
         }
         let mesh = Mesh {
+            frame_visible: [true; 2],
+            frame_distance: 0.0,
             revision: self.geometry_revision,
             buffer: self.buffer(bytemuck::cast_slice(&tile.data))?,
             packed: true,
@@ -1024,6 +1064,53 @@ impl Renderer {
     ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
         self.benchmark_paint_path(path, size, &[])
     }
+    /// Short paired batches reduce time-order bias from other desktop work.
+    /// Warm each variant after switching, so caches retain production semantics.
+    pub fn benchmark_pair(
+        &mut self,
+        path: &[Uniforms],
+        size: [usize; 2],
+        paint: &[egui::ClippedPrimitive],
+        variants: [RenderProbe; 2],
+    ) -> Result<[FrameSamples; 2]> {
+        anyhow::ensure!(!path.is_empty(), "Empty benchmark path");
+        let target = self.offscreen_texture(size[0], size[1])?;
+        let mut samples: [FrameSamples; 2] = Default::default();
+        self.animate_sky = false;
+        for batch in 0..20 {
+            // Balanced ABBA/BAAB blocks with a deterministic shuffled order.
+            let hash = (batch as u32 / 2)
+                .wrapping_mul(1_103_515_245)
+                .wrapping_add(12345);
+            let order = if (hash.count_ones() as usize + batch % 2).is_multiple_of(2) {
+                [0, 1]
+            } else {
+                [1, 0]
+            };
+            for index in order {
+                self.probe = variants[index];
+                for frame in 0..30 {
+                    let u = path[(batch * 24 + frame + path.len() - 6 % path.len()) % path.len()];
+                    let start = std::time::Instant::now();
+                    let command = self.encode(&target, u, paint, 1.0)?;
+                    let cpu = start.elapsed().as_secs_f64() * 1000.0;
+                    command.commit();
+                    self.inflight.push_back(command);
+                    self.finish()?;
+                    if frame >= 6 {
+                        let wall = start.elapsed().as_secs_f64() * 1000.0;
+                        let sample = &mut samples[index];
+                        sample.gpu.push(self.gpu_ms);
+                        sample.wall.push(wall);
+                        sample.cpu.push(cpu);
+                        sample.allocations += self.dynamic_allocations;
+                        sample.shadow_hits += usize::from(self.shadow_cache_hit);
+                    }
+                }
+            }
+        }
+        Ok(samples)
+    }
     pub fn benchmark_paint_path(
         &mut self,
         path: &[Uniforms],
@@ -1182,7 +1269,7 @@ impl Renderer {
             .context("Allocate visibility/reference buffer")
         };
         let eye = Vec3::new(frame.eye[0], frame.eye[1], frame.eye[2]);
-        let views = [
+        let mut views = [
             CullView::new(
                 Mat4::from_cols_array_2d(&uniforms.clip),
                 eye,
@@ -1196,8 +1283,28 @@ impl Renderer {
                 false,
             ),
         ];
+        for view in &mut views {
+            view.inherit_proofs = self.probe.inherit_cull_proofs;
+        }
         let mut jobs = Vec::new();
+        let camera = Vec3::new(uniforms.camera[0], uniforms.camera[1], uniforms.camera[2]);
+        let coarse = self.probe.cache_submission.then(|| {
+            [
+                geometry::Frustum::new(Mat4::from_cols_array_2d(&uniforms.clip)),
+                geometry::Frustum::new(Mat4::from_cols_array_2d(&frame.shadow)),
+            ]
+        });
         for mesh in self.meshes.values_mut() {
+            if self.probe.cache_submission {
+                let coarse = coarse.as_ref().unwrap();
+                mesh.frame_visible = [
+                    mesh_visible(mesh, uniforms, frame, false, Some(&coarse[0])),
+                    render_shadow && mesh_visible(mesh, uniforms, frame, true, Some(&coarse[1])),
+                ];
+                if mesh.frame_visible[0] {
+                    mesh.frame_distance = mesh_distance(mesh, camera);
+                }
+            }
             for map in &mut mesh.maps {
                 map.active = false;
             }
@@ -1225,10 +1332,14 @@ impl Renderer {
                     .collect();
                 mesh.coverage_revision = self.coverage.revision;
             }
-            let visible = [
-                mesh_visible(mesh, uniforms, frame, false),
-                render_shadow && mesh_visible(mesh, uniforms, frame, true),
-            ];
+            let visible = if self.probe.cache_submission {
+                mesh.frame_visible
+            } else {
+                [
+                    mesh_visible(mesh, uniforms, frame, false, None),
+                    render_shadow && mesh_visible(mesh, uniforms, frame, true, None),
+                ]
+            };
             for (index, map) in mesh.maps.iter_mut().enumerate() {
                 let shadow = index == 1;
                 if !visible[index] {
@@ -1237,6 +1348,7 @@ impl Renderer {
                 map.active = true;
                 let clip = if shadow { frame.shadow } else { uniforms.clip };
                 let key = VisibilityKey {
+                    inherit_proofs: self.probe.inherit_cull_proofs,
                     clip,
                     camera: uniforms.camera,
                     coverage: self.coverage.revision,
@@ -1414,6 +1526,7 @@ impl Renderer {
         let command = self.queue.commandBuffer().context("Create frame command")?;
         let shadow_key = if self.probe.cache_shadows {
             Some(ShadowKey {
+                quad_group: self.probe.quad_group,
                 camera: uniforms.camera,
                 shadow: frame.shadow,
                 correction: frame.correction,
@@ -1462,7 +1575,13 @@ impl Renderer {
                 2,
             );
         };
-        let visible = |mesh: &Mesh, shadow: bool| mesh_visible(mesh, uniforms, &frame, shadow);
+        let visible = |mesh: &Mesh, shadow: bool| {
+            if self.probe.cache_submission {
+                mesh.frame_visible[usize::from(shadow)]
+            } else {
+                mesh_visible(mesh, uniforms, &frame, shadow, None)
+            }
+        };
         let draw_mesh = |encoder: &ProtocolObject<dyn MTLRenderCommandEncoder>,
                          mesh: &Mesh,
                          shadow: bool| {
@@ -1479,7 +1598,11 @@ impl Renderer {
                 mesh.faces
             };
             let compact = mesh.packed && self.probe.compact_faces;
-            let group = if self.probe.grouped_quads { 32 } else { 1 };
+            let group = if self.probe.grouped_quads {
+                self.probe.quad_group.clamp(1, MAX_QUAD_GROUP)
+            } else {
+                1
+            };
             let draw = DrawUniforms {
                 origin: mesh.origin.extend(0.0).to_array(),
                 counts: [
@@ -1694,12 +1817,6 @@ impl Renderer {
                 encoder.setFragmentTexture_atIndex(Some(&self.mask), 1);
             }
             let camera = Vec3::new(uniforms.camera[0], uniforms.camera[1], uniforms.camera[2]);
-            let distance = |mesh: &Mesh| {
-                let mut delta = mesh.model.transform_point3(mesh.center) - camera;
-                delta.x -= (delta.x / 16384.0).round() * 16384.0;
-                delta.z -= (delta.z / 2048.0).round() * 2048.0;
-                delta.length_squared()
-            };
             let mut meshes: Vec<_> = self
                 .meshes
                 .iter()
@@ -1709,11 +1826,21 @@ impl Renderer {
                         && visible(mesh, false)
                 })
                 .collect();
-            meshes.sort_by(|a, b| {
-                let order = distance(a.1).total_cmp(&distance(b.1));
-                let order = if transparent { order.reverse() } else { order };
-                order.then_with(|| a.0.cmp(b.0))
-            });
+            if self.probe.cache_submission {
+                // Unique mesh names break every distance tie, so in-place
+                // sorting preserves the exact draw order without scratch storage.
+                meshes.sort_unstable_by(|a, b| {
+                    let order = a.1.frame_distance.total_cmp(&b.1.frame_distance);
+                    let order = if transparent { order.reverse() } else { order };
+                    order.then_with(|| a.0.cmp(b.0))
+                });
+            } else {
+                meshes.sort_by(|a, b| {
+                    let order = mesh_distance(a.1, camera).total_cmp(&mesh_distance(b.1, camera));
+                    let order = if transparent { order.reverse() } else { order };
+                    order.then_with(|| a.0.cmp(b.0))
+                });
+            }
             for (_, mesh) in meshes {
                 let faces = draw_mesh(&encoder, mesh, false);
                 self.draw_calls += usize::from(faces > 0);

@@ -1138,11 +1138,9 @@ export class SceneRenderer {
     quaternion: THREE.Quaternion | null = null,
     axisLength = 1,
     hoveredHandle: string | null = null,
-    activeHandle: string | null = null,
-    translationOnly = false
+    activeHandle: string | null = null
   ) {
     if (!this.wrenchTransformGizmo) this.setupWrenchPivotGizmo();
-    this.wrenchTransformGizmo.setOperations(translationOnly ? ['move'] : ['move', 'rotate']);
     if (!position) {
       this.clearWrenchPivotGizmo();
       return;

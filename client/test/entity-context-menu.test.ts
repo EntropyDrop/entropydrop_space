@@ -317,6 +317,60 @@ test('whole entity copy needs no Selector A/B and includes the complete root def
   assert.equal(calls.some(call => call[0] === 'clear' || call[0] === 'tool'), false);
 });
 
+test('Cut saves the captured complete entity with child code before removal and selects Hammer', async t => {
+  const { controller, target, other, calls } = componentHarness(t);
+  target.setNodeScript('arm', 'self.setSpinYAxisRPM(30)');
+  controller.hoveredContraption = other;
+  assert.equal(await controller.performEntityMenuAction(target, 'cut', 'arm'), true);
+  const inventory = calls.find(call => call[0] === 'inventory');
+  assert.ok(inventory);
+  assert.equal(inventory[1], 'entity');
+  assert.equal(inventory[2].blocks.length, 4, 'a selected child must not limit whole-entity cutting');
+  assert.ok(inventory[2].scripts.some((script: { id: string; code: string }) => script.id === 'arm' && script.code === 'self.setSpinYAxisRPM(30)'));
+  const removed = calls.findIndex(call => call[0] === 'remove');
+  assert.ok(calls.indexOf(inventory) < removed, 'save before deleting the source');
+  assert.equal(calls[removed][1], target, 'menu target stays fixed when hover changes');
+  assert.ok(calls.some(call => call[0] === 'tool' && call[1] === SpecialTool.HAMMER));
+});
+
+test('Cut with a full backpack leaves the entity and current tool intact', async () => {
+  const { controller, target, calls } = harness();
+  target.scriptStatus = 'stopped';
+  controller.addInventoryItem = () => null;
+  assert.equal(await controller.performEntityMenuAction(target, 'cut'), false);
+  assert.equal(calls.some(call => ['remove', 'clear', 'tool'].includes(call[0])), false);
+});
+
+test('Cut rejects running, hosted and read-only entities before saving or deleting', async () => {
+  for (const state of [
+    { scriptStatus: 'running' },
+    { scriptStatus: 'stopped', serverExecutionMode: 'hosted' },
+    { scriptStatus: 'stopped', serverManaged: true, serverCanEdit: false, serverCanControl: true },
+    { scriptStatus: 'stopped', serverManaged: true, serverCanEdit: true, serverCanControl: false },
+  ]) {
+    const { controller, target, calls } = harness();
+    Object.assign(target, state);
+    assert.equal(await controller.performEntityMenuAction(target, 'cut'), false);
+    assert.equal(calls.some(call => ['serialize', 'inventory', 'remove', 'tool'].includes(call[0])), false);
+  }
+});
+
+for (const succeeds of [true, false]) test(`remote Cut keeps the saved module and waits for deletion (${succeeds ? 'success' : 'failure'})`, async () => {
+  const { controller, target, calls } = harness();
+  Object.assign(target, { scriptStatus: 'stopped', serverManaged: true, serverCanEdit: true, serverCanControl: true });
+  let resolve!: () => void;
+  let reject!: (reason: Error) => void;
+  controller.serverEntityDeleteHandler = () => new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+  const pending = controller.performEntityMenuAction(target, 'cut');
+  assert.equal(calls.filter(call => call[0] === 'inventory').length, 1);
+  assert.equal(calls.some(call => call[0] === 'remove'), false);
+  if (succeeds) resolve(); else reject(new Error('offline'));
+  assert.equal(await pending, succeeds);
+  assert.equal(calls.some(call => call[0] === 'remove'), succeeds);
+  assert.equal(calls.some(call => call[0] === 'tool'), succeeds);
+  if (succeeds) assert.deepEqual(calls.find(call => call[0] === 'remove')[2], { skipRemoteDelete: true });
+});
+
 test('Duplicate uses the captured whole entity even with a selected child, without backpack or tool changes', async () => {
   const { controller, target, calls } = harness();
   controller.contraptions.duplicateContraption = (entity: unknown) => {
@@ -369,7 +423,7 @@ test('remote delete waits for acknowledgement and keeps entity after failure or 
 test('opening a menu during bulk editing is allowed but commands cannot race its captured entity', async () => {
   const { controller, target, calls } = harness();
   controller.bulkEditJob = { label: 'Filling selection' };
-  for (const action of ['start', 'stop', 'copy', 'duplicate', 'delete', 'disassemble', 'program', 'select-all', 'set-kinematic', 'set-dynamic']) {
+  for (const action of ['start', 'stop', 'copy', 'cut', 'duplicate', 'delete', 'disassemble', 'program', 'select-all', 'set-kinematic', 'set-dynamic']) {
     assert.equal(await controller.performEntityMenuAction(target, action), false);
   }
   assert.equal(calls.every(call => call[0] === 'toast'), true);

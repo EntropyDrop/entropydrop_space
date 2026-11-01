@@ -4,6 +4,9 @@ use glam::Quat;
 
 pub fn previous() -> RenderProbe {
     RenderProbe {
+        inherit_cull_proofs: false,
+        quad_group: 32,
+        cache_submission: false,
         cache_shadows: false,
         reuse_buffers: false,
         memoryless_msaa: false,
