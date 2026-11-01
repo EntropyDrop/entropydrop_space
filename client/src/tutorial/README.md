@@ -39,7 +39,9 @@ ground. After it lands, stop it with Wrench (`3`) and a double-click, then hold
 LMB to carry it to **10 CODE**.
 
 Chapter 10 configures that wheel as kinematic and programs
-`self.setSpinYAxisRPM(30)` to spin around local Y. The sign and the note above
+`self.setSpinYAxisRPM(30)` to spin around local Y. The sign explains that
+kinematic lets code drive the spin without gravity pulling the standalone wheel
+down. Once attached, it follows the dynamic chassis. The sign and the note above
 the code editor explain that the tutorial demonstrates how entities work;
 in the full game, players can ask AI to configure and program entities using
 natural language. Agent requests remain unavailable inside the tutorial.

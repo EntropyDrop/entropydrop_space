@@ -147,11 +147,14 @@ const lessons = [
     corners(), instruction('G', 'ASSEMBLE WHEEL'), text('GRAVITY: WATCH IT FALL'),
     instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP'),
     instruction('HOLD LMB', 'TO 10 CODE')]],
-  ['10 CODE', [text('DEMO: HOW ENTITIES WORK'), text('IN GAME: ASK AI IN WORDS'),
-    instruction('RMB', 'KINEMATIC'), instruction('C', 'ENTER CODE'),
+  ['10 CODE', [
+    ...['CODE HERE SHOWS HOW IT WORKS', 'FULL GAME: ASK AGENT', 'IN NATURAL LANGUAGE', 'USUALLY NO MANUAL CODING']
+      .map(line => text(line, { color: WHITE })),
+    join([instruction('RMB', 'KINEMATIC'), instruction('C', 'ENTER CODE')]),
+    text('SPIN BY CODE, NO GRAVITY', { color: WHITE }),
     text('self.setSpinYAxisRPM(30)', { color: WHITE }),
     join([instruction('▶', 'RUN'), instruction('ESC', 'EXIT')]),
-    instruction('LMB X2', 'STOP'), instruction('RMB', 'RESET ROTATION'),
+    join([instruction('LMB X2', 'STOP'), instruction('RMB', 'RESET ROTATION')]),
     join([instruction('RMB', 'DUPLICATE X3'), text('CARRY TO 11')])]],
   ['11 ASSEMBLY', [text('STOPPED CHASSIS READY'), instruction('3', 'WRENCH'),
     instruction('X ARC', 'WHEEL UPRIGHT'), text('HOLLOW SIDE IN'),
