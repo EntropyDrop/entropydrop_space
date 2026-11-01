@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SPACE_HOSTING_UI_ENABLED, SPACE_LOCAL_SESSION, SPACE_TUTORIAL } from '../../../bootstrap/SpaceFeatures.ts';
 import { onlineSpaceUrl } from '../../../bootstrap/SpaceSiteLinks.ts';
-import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
+import { OnlineSpaceNotice, TUTORIAL_ENTITY_PROGRAMMING_NOTE } from './OnlineSpaceNotice.tsx';
 import { apiDocsBodyMarkup } from '../apiDocsMarkup.ts';
 import { resolveApiOrigin } from '../../../bootstrap/SpaceBootstrap.ts';
 import {
@@ -324,6 +324,7 @@ export function CodeEditorModal() {
             <ComponentInspector />
           </div>
           <div className="code-area-wrapper">
+            {SPACE_TUTORIAL ? <p className="code-tutorial-note" role="note">{TUTORIAL_ENTITY_PROGRAMMING_NOTE}</p> : null}
             <div className="code-tab-bar" id="code-tab-bar">{nodes.map((node: any) => {
               const code = contraption.getNodeScript(node.id);
               const enabled = contraption.isNodeScriptEnabled(node.id);

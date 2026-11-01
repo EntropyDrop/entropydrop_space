@@ -1970,7 +1970,8 @@ export class Contraption {
       || bounds.max.z - bounds.min.z > MAX_ENTITY_BOUNDS
     ))) return fail('component_bounds_too_large');
 
-    const sourceRootPivot = new THREE.Vector3(
+    const sourceRootPivot = isFiniteVector3Array(slot.rootPivotOverride)
+      ? new THREE.Vector3().fromArray(slot.rootPivotOverride) : new THREE.Vector3(
       (minX + maxX) / 2,
       (minY + maxY) / 2,
       (minZ + maxZ) / 2

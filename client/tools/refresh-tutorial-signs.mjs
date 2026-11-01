@@ -143,21 +143,23 @@ const lessons = [
   ['06 CYLINDER', [text('CHECK: STANDARD'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('F', 'FILL')]],
   ['07 CARVE', [text('CHECK: MICRO'), instruction('TAB', 'IF NEEDED'), instruction('ALT+2', 'CYLINDER'), corners(RED), instruction('DEL', 'CUT OUT')]],
   ['08 ROTATE', [text('CHECK: MICRO'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('↑', 'ROTATE'), instruction('F', 'FILL')]],
-  ['09 ENTITY', [text('CHECK: MICRO'), instruction('ALT+1', 'BOX'), corners(), instruction('G', 'ASSEMBLE'), text('RUN WITH GRAVITY'),
-    instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP'), instruction('HOLD LMB', 'CARRY CHASSIS')]],
-  ['10 WHEEL', [instruction('1', 'SELECTOR'), text('CHECK: MICRO'), instruction('ALT+2', 'CYLINDER'),
-    corners(), instruction('G', 'ASSEMBLE WHEEL'), instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP')]],
-  ['11 MOTOR', [instruction('RMB', 'KINEMATIC'), instruction('C', 'ENTER CODE'),
+  ['09 ENTITY', [instruction('1', 'SELECTOR: MICRO'), instruction('ALT+2', 'CYLINDER'),
+    corners(), instruction('G', 'ASSEMBLE WHEEL'), text('GRAVITY: WATCH IT FALL'),
+    instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP'),
+    instruction('HOLD LMB', 'TO 10 CODE')]],
+  ['10 CODE', [text('DEMO: HOW ENTITIES WORK'), text('IN GAME: ASK AI IN WORDS'),
+    instruction('RMB', 'KINEMATIC'), instruction('C', 'ENTER CODE'),
     text('self.setSpinYAxisRPM(30)', { color: WHITE }),
     join([instruction('▶', 'RUN'), instruction('ESC', 'EXIT')]),
-    instruction('LMB X2', 'STOP'), instruction('RMB', 'COPY TO BACKPACK')]],
-  ['12 MODULE', [text('PLACE 09 CHASSIS'), instruction('RMB', 'RESET ROTATION'), instruction('2', 'HAMMER: MICRO'),
-    text('AXLE: AUTO ALIGN'), instruction('↑ X2', 'HOLLOW SIDE IN'),
-    join([instruction('LMB', 'SET'), instruction('ENTER', 'ADD')]),
-    text('FIRST ONE, THEN THREE'), text('OPPOSITE: REVERSE RPM')]],
-  ['13 DRIVE', [instruction('3', 'WRENCH'), text('CAR TO START LINE'), text('ALIGN WITH THE LANE'),
+    instruction('LMB X2', 'STOP'), instruction('RMB', 'RESET ROTATION'),
+    join([instruction('RMB', 'DUPLICATE X3'), text('CARRY TO 11')])]],
+  ['11 ASSEMBLY', [text('STOPPED CHASSIS READY'), instruction('3', 'WRENCH'),
+    instruction('X ARC', 'WHEEL UPRIGHT'), text('HOLLOW SIDE IN'),
+    instruction('HOLD LMB', 'SNAP TO AXLE'), text('LOCKED: XYZ GRID'), text('ADJUST; CLICK MERGE'),
+    text('REPEAT FOR 4 WHEELS'), text('OPPOSITE: REVERSE RPM')]],
+  ['12 DRIVE', [instruction('3', 'WRENCH'), text('CAR TO START LINE'), text('ALIGN WITH THE LANE'),
     instruction('LMB X2', 'START'), text('WATCH THE WHEELS DRIVE'), instruction('LMB X2', 'STOP')]],
-  ['14 MODELING', [instruction('7', 'MODELING'), text('AIM AT EMPTY GRAY PAD'),
+  ['13 MODELING', [instruction('7', 'MODELING'), text('AIM AT EMPTY GRAY PAD'),
     instruction('RMB', 'DRAG + RELEASE'), instruction('LMB', 'SELECT PANEL'),
     instruction('ESC', 'SIDE PANEL'), text(`DIMENSIONS ${TUTORIAL_RAMP_DIMENSIONS.join(' ')}`),
     text(`ROTATION Z: ${TUTORIAL_RAMP_ROTATION_Z}`), text('Y ARROW: LIFT PANEL'), text('VISUAL: NO COLLISION')]],
@@ -168,9 +170,9 @@ const lessons = [
   plane: Math.round(tutorialLessonHint(index + 1).z * 8),
   center: Math.round(tutorialLessonHint(index + 1).x * 8),
   direction: -1,
-  maxWidth: index === 10 ? 224 : MAX_WIDTH,
-  gap: index === 10 || index === 11 ? 3 : GAP,
-  bottom: index === 10 || index === 11 ? 19 * 8 : 17 * 8 + 6,
+  maxWidth: index === 9 ? 224 : MAX_WIDTH,
+  gap: index === 9 || index === 10 ? 2 : index === 8 ? 3 : GAP,
+  bottom: index === 10 ? 19 * 8 : 17 * 8 + 6,
 }));
 
 for (let i = 1; i < lessons.length; i++) {
@@ -187,7 +189,7 @@ const terrainCenter = getTutorialTerrainCenter(level.spawn);
 const minX = (Math.floor(terrainCenter.x / 16) - TUTORIAL_CHUNK_RADIUS) * 16;
 const minZ = (Math.floor(terrainCenter.z / 16) - TUTORIAL_CHUNK_RADIUS) * 16;
 const terrainSize = (TUTORIAL_CHUNK_RADIUS * 2 + 1) * 16;
-const driveStation = tutorialVehicleStation(13);
+const driveStation = tutorialVehicleStation(12);
 const oldFinish = { plane: (driveStation.x - 33) * 8,
   center: Math.round((driveStation.z - 33 * TUTORIAL_LESSON_STEP.z / TUTORIAL_LESSON_STEP.x) * 8), direction: -1 };
 const finishPosition = tutorialFinishPosition();
@@ -245,8 +247,8 @@ for (const sign of lessons) {
     bottom += shape.height + sign.gap;
   }
   const top = (bottom - sign.gap) / 8;
-  if (sign.title.startsWith('11 ') || sign.title.startsWith('12 ')) assert.ok(top <= 33, `${sign.title} is too tall to read from the practice area`);
-  if (sign.title.startsWith('14 ')) assert.ok(top <= 34, `${sign.title} is too tall to read from the work pad`);
+  if (/^(09|10|11|12) /.test(sign.title)) assert.ok(top <= 33, `${sign.title} is too tall to read from the practice area`);
+  if (sign.title.startsWith('13 ')) assert.ok(top <= 34, `${sign.title} is too tall to read from the work pad`);
   signBounds.push({ chapter: sign.title, width: Math.max(...sign.rows.map(row => row.width)) / 8, top });
 }
 place(finish, text('NICE WORK!', { scale: 2 }), 20 * 8);

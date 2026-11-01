@@ -198,7 +198,7 @@ export class ToolInteractionSession {
   handleLeftClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
     if (this.host.hammerPlacementActive) return true;
-    if (this.host.ui?.tryToggleEntityPlaybackAtPointer?.(e) || this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) {
+    if (this.host.ui?.tryMergeEntityAtPointer?.(e) || this.host.ui?.tryToggleEntityPlaybackAtPointer?.(e) || this.host.ui?.tryOpenEntityContextMenuAtPointer?.(e)) {
       this.host.resetEntityPlaybackClickGesture();
       return true;
     }

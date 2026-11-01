@@ -317,11 +317,28 @@ test('whole entity copy needs no Selector A/B and includes the complete root def
   assert.equal(calls.some(call => call[0] === 'clear' || call[0] === 'tool'), false);
 });
 
+test('Duplicate uses the captured whole entity even with a selected child, without backpack or tool changes', async () => {
+  const { controller, target, calls } = harness();
+  controller.contraptions.duplicateContraption = (entity: unknown) => {
+    assert.equal(entity, target);
+    calls.push(['duplicate', entity]);
+    return { id: 3 };
+  };
+  assert.equal(await controller.performEntityMenuAction(target, 'duplicate', 'arm'), true);
+  assert.equal(calls.filter(call => call[0] === 'duplicate').length, 1);
+  assert.equal(calls.some(call => ['inventory', 'tool', 'action', 'clear'].includes(call[0])), false);
+  controller.contraptions.duplicateContraption = () => null;
+  assert.equal(await controller.performEntityMenuAction(target, 'duplicate'), false);
+  controller.contraptions.contraptions = [];
+  controller.contraptions.duplicateContraption = () => assert.fail('departed targets must not be copied');
+  assert.equal(await controller.performEntityMenuAction(target, 'duplicate'), false);
+});
+
 test('online control permissions are checked at action time, including hosted deletion', async () => {
   const { controller, target, calls } = harness();
   Object.assign(target, { serverManaged: true, serverCanControl: false, serverCanEdit: false, serverExecutionMode: 'hosted' });
   controller.serverEntityDeleteHandler = async () => { throw new Error('must not call backend'); };
-  for (const action of ['start', 'stop', 'delete', 'disassemble', 'program']) assert.equal(await controller.performEntityMenuAction(target, action), false);
+  for (const action of ['start', 'stop', 'delete', 'disassemble', 'program', 'duplicate']) assert.equal(await controller.performEntityMenuAction(target, action), false);
   assert.equal(calls.some(call => call[0] === 'remove' || call[0] === 'action'), false);
   target.serverCanControl = true;
   controller.serverEntityDeleteHandler = async (entity: import('@entropydrop/space-engine/contraption/Contraption.ts').Contraption) => { assert.equal(entity, target); calls.push(['remote-delete']); };
@@ -352,7 +369,7 @@ test('remote delete waits for acknowledgement and keeps entity after failure or 
 test('opening a menu during bulk editing is allowed but commands cannot race its captured entity', async () => {
   const { controller, target, calls } = harness();
   controller.bulkEditJob = { label: 'Filling selection' };
-  for (const action of ['start', 'stop', 'copy', 'delete', 'disassemble', 'program', 'select-all', 'set-kinematic', 'set-dynamic']) {
+  for (const action of ['start', 'stop', 'copy', 'duplicate', 'delete', 'disassemble', 'program', 'select-all', 'set-kinematic', 'set-dynamic']) {
     assert.equal(await controller.performEntityMenuAction(target, action), false);
   }
   assert.equal(calls.every(call => call[0] === 'toast'), true);

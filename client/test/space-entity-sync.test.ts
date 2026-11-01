@@ -10,6 +10,39 @@ import { encode as encodeMessagePack } from '@msgpack/msgpack';
 const definition = Uint8Array.from([8, 4, 26, 0]);
 const definitionDigest = '0caed08c0cdfe078464c77fbc4032b985d9757db85e8fac65733d57ee7fb5917';
 
+test('online merge saves the complete target before deleting the source, and a save failure prevents deletion', async t => {
+  const { sync } = harness('owner-1');
+  t.after(() => sync.stop());
+  const internal = sync as any;
+  internal.stopped = false;
+  const source = { publicId: 'source' }, target = { publicId: 'target' };
+  internal.contraptions.getContraptionChunk = () => ({ id: '0,0' });
+  internal.contraptions.captureContraptionForStreaming = (entity: unknown) => {
+    assert.equal(entity, target); return { publicId: 'target', slot: { blocks: ['original', 'merged'] } };
+  };
+  const calls: string[] = [];
+  let finishSave!: () => void;
+  internal.persistRecord = async (record: any, definitionChanged: boolean, strict: boolean) => {
+    assert.deepEqual(record.slot.blocks, ['original', 'merged']);
+    assert.equal(definitionChanged, true); assert.equal(strict, true);
+    calls.push('save'); await new Promise<void>(resolve => { finishSave = resolve; });
+    calls.push('saved');
+  };
+  internal.queueDelete = async (id: string, reportErrors: boolean) => {
+    assert.equal(id, 'source'); assert.equal(reportErrors, true); calls.push('delete');
+  };
+  const pending = internal.persistEntityMerge(source, target);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['save']);
+  finishSave(); await pending;
+  assert.deepEqual(calls, ['save', 'saved', 'delete']);
+  calls.length = 0;
+  internal.persistRecord = async () => { throw new Error('revision conflict'); };
+  await assert.rejects(internal.persistEntityMerge(source, target), /revision conflict/);
+  assert.deepEqual(calls, []);
+  assert.equal(internal.saveChains.size, 0);
+});
+
 test('click dispatch captures the observed execution epoch before awaiting transport', async t => {
   const { sync } = harness('observer');
   t.after(() => sync.stop());

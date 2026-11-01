@@ -2,15 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
 import { ContraptionPhysics } from '@entropydrop/space-engine/physics/ContraptionPhysics.ts';
+import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 import { computeSelectionCells } from '../src/engine/controls/SelectorShapes.ts';
 import { setScript } from '../../engine/test/script-helpers.ts';
 import level from '../src/tutorial/tutorial-level.json' with { type: 'json' };
+import type { EntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
+import type { InventoryInput } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
 import { tutorialChassisBounds, tutorialChassisWheelMounts, tutorialWheelBounds, tutorialRotationBounds,
-  TUTORIAL_MODELING_ENTITY_ID } from '../src/tutorial/TutorialCourse.ts';
+  tutorialVehicleWorkbench, tutorialVehicleStation, TUTORIAL_MODELING_ENTITY_ID, TUTORIAL_CHASSIS_ENTITY_ID } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
 
-// Code typed by the player from the lesson 11 world sign.
+// Code typed by the player from the lesson 10 world sign.
 const wheelCode = 'self.setSpinYAxisRPM(30)';
 const reverseWheelCode = 'self.setSpinYAxisRPM(-30)';
 const wheelBounds = tutorialWheelBounds();
@@ -18,38 +22,36 @@ const wheelCells = computeSelectionCells('cylinder',
   { x: wheelBounds.minX * 8, y: wheelBounds.maxY * 8 - 1, z: wheelBounds.maxZ * 8 - 1 },
   { x: wheelBounds.maxX * 8 - 1, y: wheelBounds.minY * 8, z: wheelBounds.minZ * 8 }, true);
 const chassisBounds = tutorialChassisBounds();
-const chassisCells = level.terrain.micro.filter(([x, y, z]) =>
-  x >= chassisBounds.minX * 8 && x < chassisBounds.maxX * 8
-  && y >= chassisBounds.minY * 8 && y < chassisBounds.maxY * 8
-  && z >= chassisBounds.minZ * 8 && z < chassisBounds.maxZ * 8);
+const chassisRecord = level.entities.entities.find(entity => entity.publicId === TUTORIAL_CHASSIS_ENTITY_ID)!;
+const chassisBlocks = chassisRecord.slot.blocks;
+const chassisCells = chassisBlocks.map(block => [(block.localX + chassisBounds.minX) * 8,
+  (block.localY + chassisBounds.minY) * 8, (block.localZ + chassisBounds.minZ) * 8, block.color]);
 
-test('the pickup has a floating green corner, complete box selection and four clear wheel mounts', () => {
+test('chapter 11 provides a stopped chassis on the wheel installation workbench', t => {
+  const manager = new ContraptionManager(new THREE.Scene(), null, null, null);
+  manager.setEntityPersistenceMode('none');
+  const chassis = manager.buildFromSlot(chassisRecord.slot as InventoryInput, new THREE.Vector3(...chassisRecord.constructorOrigin), chassisRecord as unknown as EntityStreamState, false)!;
+  t.after(() => chassis.dispose());
+  assert.equal(chassis.isPhysicsSimulationEnabled(), false);
+  assert.equal(chassis.bodyType, 'dynamic');
+  assert.equal(chassis.getNodeScript(chassis.rootComponentId), '');
+  assert.ok(Math.abs(chassis.getVisualWorldBounds().min.y - tutorialVehicleWorkbench().maxY) < 1e-7);
+  assert.ok(!level.terrain.micro.some(([x, y, z]) => x >= chassisBounds.minX * 8 && x < chassisBounds.maxX * 8
+    && y >= chassisBounds.minY * 8 && y < chassisBounds.maxY * 8
+    && z >= chassisBounds.minZ * 8 && z < chassisBounds.maxZ * 8), 'the chassis is an entity, not terrain that needs assembling');
+});
+
+test('the ready pickup has connected bodywork and four clear wheel mounts', () => {
   assert.ok(chassisCells.length > 1000, 'the assembly subject is a detailed vehicle body');
-  const blue = chassisCells.filter(cell => cell[3] === 0x3bc1f2);
-  const green = chassisCells.filter(cell => cell[3] === 0x5af23b);
-  assert.equal(blue.length, 1, 'the blue selector corner is one microcell');
-  assert.equal(green.length, 1, 'the green selector corner is one microcell');
-  for (const divisor of [1, 8]) for (const cell of chassisCells) for (let axis = 0; axis < 3; axis++) {
-    assert.ok(Math.floor(cell[axis] / divisor) >= Math.floor(blue[0][axis] / divisor)
-      && Math.floor(cell[axis] / divisor) <= Math.floor(green[0][axis] / divisor),
-    'clicking the two microcells encloses every vehicle voxel in micro and standard mode');
-  }
   const keys = new Set(chassisCells.map(cell => cell.slice(0, 3).join(',')));
-  for (const [corner, neighborCount] of [[blue[0], 3], [green[0], 0]] as const) {
-    const [x, y, z] = corner;
-    const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
-      .filter(([dx, dy, dz]) => keys.has(`${x+dx},${y+dy},${z+dz}`));
-    assert.equal(neighbors.length, neighborCount, 'blue is embedded in the bumper and green floats without a post');
-  }
-  const reached = new Set<string>(), queue = [blue[0].slice(0, 3)];
+  const reached = new Set<string>(), queue = [chassisCells[0].slice(0, 3)];
   while (queue.length) {
     const [x, y, z] = queue.pop()!, key = `${x},${y},${z}`;
     if (!keys.has(key) || reached.has(key)) continue;
     reached.add(key);
     for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) queue.push([x+dx,y+dy,z+dz]);
   }
-  assert.equal(reached.size, chassisCells.length - 1, 'all bodywork and the blue corner remain connected');
-  assert.equal(reached.has(green[0].slice(0, 3).join(',')), false, 'only the green helper is detached');
+  assert.equal(reached.size, chassisCells.length, 'all bodywork remains connected without floating selection helpers');
   const mounts = tutorialChassisWheelMounts();
   assert.equal(mounts.length, 4);
   for (const mount of mounts) {
@@ -80,7 +82,24 @@ test('the default cylinder selects the entire flat tutorial wheel while leaving 
   assert.equal(wheelCells.length, 752);
   assert.ok(blocks.length > 400 && blocks.length < wheelCells.length, 'the cylinder contains a wheel with open spoke windows');
   assert.equal(blocks.filter(c => c[3] === 0x3bc1f2 || c[3] === 0x5af23b).length, 0);
-  assert.equal(wheelBounds.maxY - wheelBounds.minY, .5, 'the wheel lies flat on the ground');
+  assert.equal(wheelBounds.maxY - wheelBounds.minY, .5, 'the suspended wheel remains horizontal');
+  assert.ok(wheelBounds.minY >= 21, 'there is a visible drop to the ground at Y=17');
+  const motor = tutorialVehicleStation(10), assembly = tutorialVehicleWorkbench();
+  assert.ok(wheelBounds.minX > motor.x && motor.x > chassisBounds.maxX
+    && chassisBounds.minX > assembly.minX, 'wheel creation and programming precede installation at the ready chassis');
+  const markers = level.terrain.micro.filter(([x, y, z, color]) =>
+    (color === 0x3bc1f2 || color === 0x5af23b)
+    && x >= wheelBounds.minX * 8 && x < wheelBounds.maxX * 8
+    && y >= wheelBounds.minY * 8 && y < wheelBounds.maxY * 8
+    && z >= wheelBounds.minZ * 8 && z < wheelBounds.maxZ * 8);
+  assert.equal(markers.length, 2, 'both colored selection corners move with the chapter 09 wheel');
+  const [blue, green] = [0x3bc1f2, 0x5af23b].map(color => markers.find(c => c[3] === color)!);
+  assert.deepEqual(new Set(computeSelectionCells('cylinder',
+    { x: blue[0], y: blue[1], z: blue[2] }, { x: green[0], y: green[1], z: green[2] }, true)
+    .map(p => `${p.x},${p.y},${p.z}`)), new Set(wheelCells.map(p => `${p.x},${p.y},${p.z}`)));
+  assert.ok(!level.terrain.standard.some(([x, y, z, block]) => block && y >= 17 && y < 19
+    && x + 1 > wheelBounds.minX && x < wheelBounds.maxX && z + 1 > wheelBounds.minZ && z < wheelBounds.maxZ),
+  'the old landing workbench no longer intersects the wheel selection');
   const face = (y: number) => blocks.filter(c => c[1] === y).map(([x, , z, color]) => [x, z, color]);
   const bottom = face(wheelBounds.minY * 8), top = face(wheelBounds.maxY * 8 - 1);
   assert.ok(top.length < bottom.length, 'the inside face has a hollow barrel instead of flush spokes');
@@ -109,8 +128,8 @@ test('the default cylinder selects the entire flat tutorial wheel while leaving 
       assert.ok(c[2] / divisor >= minZ && c[2] / divisor < minZ + size);
     }
   }
-  assert.deepEqual(level.entities.entities.map(entity => entity.publicId), [TUTORIAL_MODELING_ENTITY_ID],
-    'only the stopped Modeling work pad is preset; the player still supplies the chassis from lesson 09');
+  assert.deepEqual(level.entities.entities.map(entity => entity.publicId).sort(), [TUTORIAL_CHASSIS_ENTITY_ID, TUTORIAL_MODELING_ENTITY_ID],
+    'the chassis and Modeling work pad are ready to use');
 });
 
 test('micro rotation practice matches the horizontal cylinder after rotating the selector', () => {
@@ -128,16 +147,58 @@ test('micro rotation practice matches the horizontal cylinder after rotating the
     new Set(cells.filter(c => c[3] === 0xc5cbd6).map(c => c.slice(0, 3).join(','))));
 });
 
-test('outward-facing spoked wheels with reversed opposite-side RPM drive the lesson 09 vehicle', async t => {
+test('the airborne wheel falls after assembly, then programs, duplicates and merges without using the backpack', async t => {
   const scene = new THREE.Scene();
+  const manager = new ContraptionManager(scene, null, null, null);
+  manager.setEntityPersistenceMode('none');
+  const chassis = manager.buildFromSlot(chassisRecord.slot as InventoryInput, new THREE.Vector3(...chassisRecord.constructorOrigin), chassisRecord as unknown as EntityStreamState, false)!;
+  t.after(() => { for (const entity of manager.contraptions) entity.dispose(); });
+  const controller: any = Object.assign(Object.create(PlayerController.prototype), {
+    _activeTool: SpecialTool.WRENCH, contraptions: manager,
+    ui: { showToast() {}, refresh() {}, notifyContraptionRemoved() {}, notifyContraptionStructureChanged() {} },
+    sceneRenderer: { setWrenchTether() {}, clearWrenchPivotGizmo() {} }, clearSelection() {},
+    addInventoryItem() { assert.fail('the wheel lesson no longer uses the backpack'); },
+  });
   const selected = new Set(wheelCells.map(p => `${p.x},${p.y},${p.z}`));
   const wheelBlocks = level.terrain.micro
     .filter(([x, y, z]) => selected.has(`${x},${y},${z}`))
     .map(([x, y, z, color]) => ({ localX: x / 8 - wheelBounds.minX, localY: y / 8 - wheelBounds.minY,
       localZ: z / 8 - wheelBounds.minZ, size: 0.125, block: 1, color }));
-  const wheel = new Contraption(1, wheelBlocks, new THREE.Vector3(0, 4, 0), scene);
+  // Use the same assembly commit as G, with the authored wheel's airborne pose.
+  const wheel = manager.commitPreparedAssembly(wheelBlocks,
+    new THREE.Vector3(wheelBounds.minX, wheelBounds.minY, wheelBounds.minZ))!;
+  assert.ok(wheel);
+  assert.equal(wheel.bodyType, 'dynamic');
+  assert.equal(wheel.useGravity, true);
+  assert.equal(wheel.isPhysicsSimulationEnabled(), true, 'G starts physics without a script or a separate Run action');
+  const groundPhysics = new ContraptionPhysics({
+    getBlock: (_x, y, _z) => y < 17 ? 1 : 0,
+    raycast: (origin, direction, maxDistance) => {
+      const distance = (17 - origin.y) / direction.y;
+      return direction.y < 0 && distance >= 0 && distance <= maxDistance
+        ? { hit: true, distance } : { hit: false };
+    },
+    raycastMicro: () => ({ hit: false }),
+  });
+  const airborne = wheel.position.clone();
+  for (let i = 0; i < 100; i++) {
+    wheel.update(.05, null, { gravity: [0, -18, 0], world: null });
+    groundPhysics.update(wheel, .05);
+    if (i === 9) {
+      assert.ok(wheel.position.y < airborne.y - .5, 'the unprogrammed wheel visibly falls under gravity');
+      assert.ok(wheel.getVisualWorldBounds().min.y > 17.5, 'the fall has a visible airborne interval');
+    }
+  }
+  assert.ok(Math.abs(wheel.getVisualWorldBounds().min.y - 17) < .05, 'the wheel lands on the tutorial floor');
+  wheel.stopAllNodeScripts();
+  const stopped = wheel.position.clone();
+  wheel.update(.05, null, { gravity: [0, -18, 0], world: null });
+  groundPhysics.update(wheel, .05);
+  assert.deepEqual(wheel.position.toArray(), stopped.toArray(), 'Stop holds the wheel for carrying');
+  const motor = tutorialVehicleStation(10);
+  wheel.position.set(motor.x - 1, 18, motor.z - 1).add(wheel.localCenter);
+  wheel.updateTransform();
   const wheelStart = wheel.position.clone();
-  t.after(() => wheel.dispose());
   assert.equal(wheel.setBodyType('kinematic'), 'kinematic', 'the player first changes Type in the context menu');
   assert.equal(await setScript(wheel, wheelCode), true);
   wheel.enableAllNodeScripts();
@@ -146,33 +207,66 @@ test('outward-facing spoked wheels with reversed opposite-side RPM drive the les
   assert.ok(Math.abs(wheel.quaternion.y) > 0.2, 'the standalone wheel spins around its flat Y axis');
   assert.deepEqual(wheel.position.toArray(), wheelStart.toArray(), 'the menu-selected kinematic body ignores gravity');
   wheel.stopAllNodeScripts();
-  const slot = wheel.serializeSubtree(wheel.rootComponentId);
-  assert.ok(slot);
-  assert.equal(await setScript(wheel, reverseWheelCode), true);
-  const reverseSlot = wheel.serializeSubtree(wheel.rootComponentId);
-  assert.ok(reverseSlot);
+  assert.equal(await controller.performEntityMenuAction(wheel, 'reset-rotation'), true);
+  for (let i = 0; i < 3; i++) assert.equal(await controller.performEntityMenuAction(wheel, 'duplicate'), true);
+  const wheels = manager.contraptions.filter(entity => entity !== chassis);
+  assert.equal(wheels.length, 4, 'the wheels are configured before installation');
 
-  const chassisBlocks = chassisCells.map(([x, y, z, color]) => ({
-    localX: x / 8 - chassisBounds.minX, localY: y / 8 - chassisBounds.minY,
-    localZ: z / 8 - chassisBounds.minZ, size: .125, block: 1, color,
-  }));
-  const frameOrigin = new THREE.Vector3(0, 2, 0);
-  const chassis = new Contraption(2, chassisBlocks, frameOrigin.clone(), scene);
-  t.after(() => chassis.dispose());
-  chassis.stopAllNodeScripts();
+  const bench = tutorialVehicleWorkbench();
+  const frameOrigin = new THREE.Vector3((bench.minX + bench.maxX) / 2 - 4.5, bench.maxY,
+    (bench.minZ + bench.maxZ) / 2 - 2.125);
+  // Keep uninstalled wheels clear of the current axle while moving each one.
+  wheels.forEach((entity, index) => { entity.position.set(20, 4, 10 + index * 4); entity.updateTransform(); });
+  // Reproduce an imprecise carrying path below the rear bumper. Rim contact
+  // must not lock the wheel before its center reaches an axle's capture area.
+  wheel.position.set(chassisBounds.maxX - 2.727, chassisBounds.minY - .695, chassisBounds.minZ - .2);
+  wheel.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+  wheel.updateTransform();
+  assert.equal(controller.updateWrenchSnap(wheel), false, 'carrying past a bumper edge must not prematurely lock the wheel');
+  wheel.position.set(chassisBounds.minX + 2.625, chassisBounds.minY + 1, chassisBounds.minZ - .475);
+  wheel.updateTransform();
+  assert.equal(controller.updateWrenchSnap(wheel), true);
+  assert.ok(Math.abs(wheel.position.x - tutorialChassisWheelMounts()[0].x) < .01
+    && Math.abs(wheel.position.y - tutorialChassisWheelMounts()[0].y) < .01,
+  'the axle mounting pad wins over nearby fender segments during the approach');
+  controller.detachWrenchSnappedEntity();
+  wheel.position.set(20, 4, 10); wheel.updateTransform();
+  controller.updateWrenchSnap(wheel);
   const installedCodes = new Map<string, string>();
-  for (const mount of tutorialChassisWheelMounts()) {
+  for (const [index, mount] of tutorialChassisWheelMounts().entries()) {
+    const moving = wheels[index];
     const upright = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -mount.side * Math.PI / 2);
-    const rotatedWheelPivot = new THREE.Vector3().fromArray(wheel.getComponentApi(wheel.rootComponentId)!.getPivot()).applyQuaternion(upright);
     const wheelCenter = frameOrigin.clone().add(new THREE.Vector3(
       mount.x - chassisBounds.minX, mount.y - chassisBounds.minY,
       mount.z - chassisBounds.minZ + mount.side * .25));
-    const installed = chassis.installEntitySlot(mount.side < 0 ? slot : reverseSlot,
-      chassis.rootComponentId, wheelCenter.sub(rotatedWheelPivot), null, upright);
-    assert.equal(installed.ok, true);
+    moving.quaternion.copy(upright).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), .1));
+    moving.position.copy(wheelCenter).add(new THREE.Vector3(.9, .5, mount.side * .6));
+    moving.updateTransform();
+    assert.equal(controller.updateWrenchSnap(moving), true, `wheel ${index + 1} must snap onto the actual lesson chassis`);
+    assert.equal(controller.getWrenchSnapTarget()?.target?.id, chassis.id);
+    assert.ok(moving.quaternion.angleTo(upright) < 1e-6, 'snapping corrects a small rotation error');
+    assert.ok(Math.abs(moving.position.x - wheelCenter.x) < .01 && Math.abs(moving.position.y - wheelCenter.y) < .01,
+      `wheel ${index + 1} centers on the axle from an imprecise approach: ${moving.position.toArray()} vs ${wheelCenter.toArray()}`);
+    const aligned = moving.position.clone();
+    assert.equal(controller.nudgeWrenchSnappedEntity('x', 1), true);
+    assert.ok(Math.abs(moving.position.x - aligned.x - .125) < 1e-7);
+    assert.equal(controller.nudgeWrenchSnappedEntity('x', -1), true);
+    assert.equal(await controller.mergeWrenchSnappedEntity(moving), true);
     const node = [...chassis.entityNodes.values()].at(-1)!;
     installedCodes.set(node.id, mount.side < 0 ? wheelCode : reverseWheelCode);
+    // Edit the opposite-side wheel components after mounting, as the sign instructs.
+    if (mount.side > 0) assert.equal(chassis.setNodeScript(node.id, reverseWheelCode), true);
   }
+  assert.equal(manager.contraptions.length, 1, 'the completed car is one entity');
+  for (const box of chassis.getCollisionWorldAABBs()) {
+    assert.ok(box.maxY <= bench.minY || box.minY >= bench.maxY - 1e-6
+      || box.maxX <= bench.minX || box.minX >= bench.maxX
+      || box.maxZ <= bench.minZ || box.minZ >= bench.maxZ,
+    'the chassis and all mounted wheels clear the narrow assembly workbench');
+    assert.ok(box.minY > 17, 'the mounted wheels also clear the floor');
+  }
+  // Carry the finished car off the workbench to the driving lane.
+  chassis.position.add(new THREE.Vector3(0, 2, 0).sub(frameOrigin));
   // The wrench aligns the car with the lane. Its chassis has no drive script.
   chassis.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(27, 158));
   chassis.updateTransform();

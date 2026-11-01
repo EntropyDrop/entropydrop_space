@@ -13,56 +13,72 @@ This covers the entire straight course, the driving lane and the Modeling statio
 window does not follow the player, and distant terrain is always disabled.
 Terrain-distance settings from other worlds do not change the tutorial window.
 
-Chapter signs follow roughly 20 m intervals along the initial heading. Chapter 11
+Chapter signs follow roughly 20 m intervals along the initial heading. Chapter 10
 has extra space on each side for `self.setSpinYAxisRPM(30)` to appear on
 one line: its sign and practice stand move about 5 m farther along the course,
-and chapters 12–13, their guides, the driving lane and finish move about 10 m.
+and chapters 11–13, their guides, the driving lane and finish move about 10 m.
 Chapter 03 teaches double-tapping Space to toggle flight; chapter 04 teaches
 Space to rise and Shift to descend. Landing exits flight.
 Run `node client/tools/refresh-tutorial-signs.mjs`
 from the repository root to rebuild the clear pixel lettering and spoked wheel. The wheel,
-motor stand, chassis guides, and driving lane continue beyond chapter 09.
+motor stand, chassis assembly workbench, and driving lane follow in that order from chapter 09.
 Signs ask players to check STANDARD/MICRO instead of blindly toggling Tab at
 every chapter. Tab switches modes when the displayed mode is different.
 From chapter 08 onward, selection exercises use MICRO mode. Colored corner
 microcells identify the selection endpoints without additional HUD labels.
 A new click after a completed selection immediately starts the next selection. The horizontal
 rotation cylinder and its two corner markers use individual microcells. Run
-`node client/tools/refresh-tutorial-micro-practice.mjs` to rebuild it and the
-vehicle-sized module assembly guide.
-Chapter 09's airborne subject is a double-cab off-road pickup without wheels:
+`node client/tools/refresh-tutorial-micro-practice.mjs` to rebuild it,
+the narrow wheel assembly workbench with its vehicle-sized floor guide.
+Chapter 09 teaches entity creation with the micro-voxel wheel. It floats
+horizontally five metres above the ground and is selected with the default
+Y-axis cylinder between the blue and green corners. It has an unbroken tire and eight spokes on its lower face;
+the upper half has an open recessed barrel, so the two faces are distinguishable.
+Assemble it with `G` and watch gravity make the new dynamic entity fall to the
+ground. After it lands, stop it with Wrench (`3`) and a double-click, then hold
+LMB to carry it to **10 CODE**.
+
+Chapter 10 configures that wheel as kinematic and programs
+`self.setSpinYAxisRPM(30)` to spin around local Y. The sign and the note above
+the code editor explain that the tutorial demonstrates how entities work;
+in the full game, players can ask AI to configure and program entities using
+natural language. Agent requests remain unavailable inside the tutorial.
+After running the example, press Escape, stop the wheel, choose **Reset rotation**
+in its right-click menu, then use **Duplicate** three times. Carry the four
+configured wheels forward to **11 ASSEMBLY** to install them on the ready chassis.
+
+Chapter 11 provides a stopped double-cab off-road pickup entity without wheels:
 it has a low hood, four doors, large tinted windows, an open ribbed cargo bed,
 sport bar, lights, recovery bumpers, running boards and interior seats. Four
-flared wheel arches and recessed axle mounting pads remain for the chapter 10
-wheels. A single blue microcell is embedded in the front bumper; a single green
-microcell floats at the opposite upper rear corner without a supporting post.
-Chapter 09 uses a micro-grid box between these opposite corners to select every
-vehicle voxel. The floating green microcell is included in the assembled entity.
+flared wheel arches and recessed axle mounting pads remain for the chapter 09
+wheels. It starts on its installation workbench, so players can directly attach
+the wheels without selecting, assembling or carrying the chassis first.
 The body is 9 m long, 4.25 m wide and 3.125 m high, proportioned around the
 2 m diameter lesson wheel; the wheelbase is 6 m. Tires sit beneath the flared
 arches, with their complete rotating envelope clear of the bodywork.
 Run `node client/tools/refresh-tutorial-chassis.mjs` from the repository root
-to rebuild this subject without changing the obstacle underneath or other lessons.
-The micro-voxel wheel lies flat on the ground and is selected with the default
-Y-axis cylinder. It has an unbroken tire and eight spokes on its lower face;
-the upper half has an open recessed barrel, so the two faces are distinguishable.
-Its script uses `self.setSpinYAxisRPM(30)` to spin around local Y. Aim the
-Hammer at an axle face: surface alignment already turns the wheel upright.
-From the default Hammer pose, press Up twice to put the hollow face toward the
-body. Repeat this alignment when attaching the first wheel and then the other three.
+to rebuild this saved entity without changing the workbench underneath or other lessons.
+
+The workbench's narrow, flat top supports the chassis rails while leaving all four tires
+clear of the sides and the ground. With the Wrench (`3`),
+use each wheel's X rotation arc to stand it upright with its hollow face toward
+the body. Hold LMB to carry it near an axle pad. Snapping centers the wheel on
+the mounting face and corrects small rotation errors. It then locks free dragging
+and shows translation-only XYZ arrows. Drag an arrow or use the HUD's +/− buttons
+to adjust in 0.125 m steps; overlapping placements are rejected. Click **Merge**
+on the wheel's HUD to attach it, or **Detach** to resume free movement.
+Repeat for all four axle pads; the wheels
+become components of the chassis, retaining their scripts. This assembly uses
+the wheels directly in the world and requires no backpack or Hammer placement.
 Reverse RPM on the opposite side in the editor so all four drive forward.
 From chapter 09 onward, Stop is taught as Wrench (`3`) plus double left-click.
-Chapter 11 returns from the editor with Escape before stopping the wheel;
-chapter 13 also starts the car with a Wrench double-click.
-The tutorial editor's Agent panel explains that the code teaches
-how entities work. In the full game, players can usually describe their intent
-to the Agent in natural language instead of writing code manually. Agent
-requests remain unavailable inside the tutorial.
+Chapter 10 returns from the editor with Escape before stopping the wheel;
+chapter 12 moves the completed car to the driving lane and starts it with a Wrench double-click.
 Kinematic wheel scripts drive the dynamic chassis through terrain contact
 friction; the chassis needs no thrust script. Keep wheel collision enabled,
 use a nonzero wheel friction, and point the car along the lane before starting.
 
-Chapter 14 continues straight beyond the driving lane with one stopped, kinematic
+Chapter 13 continues straight beyond the driving lane with one stopped, kinematic
 work pad. Its empty half is for practice; the other half shows a finished sloping
 panel. Press `7`, aim at the empty gray pad, then hold and drag RMB and release
 to create a panel. Creation selects it automatically; LMB selects it again later. Escape releases the cursor
@@ -93,7 +109,7 @@ The file contains generator metadata, spawn, sparse standard/micro voxel edits
 (including AIR tombstones for removed ground), and all active and dormant
 entities, including their scripts and component hierarchy. It excludes generated
 terrain, backpacks, account information and network queues. The checked-in file
-contains the authored course and the Modeling work pad.
+contains the authored course, the stopped pickup chassis and the Modeling work pad.
 
 Every entry creates fresh in-memory terrain/entity storage from the bundled
 file. Edits made while playing are temporary, including entity changes, unless

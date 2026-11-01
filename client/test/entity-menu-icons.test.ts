@@ -49,7 +49,7 @@ test('a captured child is identified in the menu and Delete opens a component-or
 
 test('every entity action retains a shortened visible caption alongside its icon and descriptive hover title', () => {
   const markup = render({ id: 'one', rootComponentName: 'Walker', scriptStatus: 'stopped' }, EntityContextMenu);
-  for (const [label, caption] of [['Start entity', 'Start'], ['Stop entity', 'Stop'], ['Copy entity to backpack', 'Copy to backpack'],
+  for (const [label, caption] of [['Start entity', 'Start'], ['Stop entity', 'Stop'], ['Duplicate entity', 'Duplicate'], ['Copy entity to backpack', 'Copy to backpack'],
     ['Reset entity rotation', 'Reset rotation'], ['Disassemble entity', 'Disassemble'], ['Host on server', 'Host…'],
     ['Open programming interface', 'Program'], ['Select all root blocks', 'Select all'], ['Copy entity ID', 'Copy ID'], ['Delete entity…', 'Delete…']]) {
     const action = button(markup, label);
@@ -69,7 +69,7 @@ test('iconifying actions preserves remote occupancy and server-hosting availabil
   const markup = render({ id: 'hosted', rootComponentName: 'Beacon', serverManaged: true,
     serverExecutionMode: 'hosted', serverHostingEnabled: true, serverDesiredRunState: 'running',
     serverCanControl: false, serverCanEdit: false }, EntityContextMenu);
-  for (const label of ['Start entity', 'Stop entity', 'Reset entity rotation', 'Disassemble entity', 'Open programming interface', 'Select all root blocks', 'Delete entity…', 'Copy entity to backpack']) {
+  for (const label of ['Start entity', 'Stop entity', 'Reset entity rotation', 'Disassemble entity', 'Open programming interface', 'Select all root blocks', 'Delete entity…', 'Duplicate entity', 'Copy entity to backpack']) {
     assert.match(button(markup, label).attributes, /disabled=/);
   }
   for (const label of ['Copy entity ID']) {
@@ -161,6 +161,31 @@ test('clicking entity status indicator toggles running state between play and st
   } finally {
     (spaceUiStore as any).patch(original);
   }
+});
+
+test('snapped entity nameplate offers an accessible Merge button and saving state', () => {
+  const original = spaceUiStore.getSnapshot();
+  const source = { id: 'source', publicId: 'source', rootComponentName: 'Wheel', scriptStatus: 'stopped' };
+  const target = { id: 'target', rootComponentName: 'Vehicle', scriptStatus: 'stopped' };
+  try {
+    const controller = { getWrenchSnapTarget: () => ({ source, target, gridStep: .125 }), wrenchMergeBusy: false };
+    (spaceUiStore as any).patch({ controller });
+    let markup = render(source, EntityNameplates);
+    assert.match(markup, /Locked · XYZ 0.125 m/);
+    for (const axis of ['X', 'Y', 'Z']) for (const direction of ['+', '-']) {
+      assert.doesNotMatch(button(markup, `Move ${axis} ${direction}0.125 m`).attributes, /disabled=/);
+    }
+    assert.match(markup, /data-snap-detach="true"/);
+    const merge = button(markup, 'Merge snapped entity');
+    assert.match(merge.attributes, /data-entity-nameplate-control="merge"/);
+    assert.match(merge.attributes, /data-entity-merge-id="source"/);
+    assert.doesNotMatch(merge.attributes, /disabled=/);
+    assert.equal(merge.content, 'Merge');
+    controller.wrenchMergeBusy = true;
+    markup = render(source, EntityNameplates);
+    assert.match(button(markup, 'Merge snapped entity').attributes, /disabled=/);
+    assert.equal(button(markup, 'Merge snapped entity').content, 'Merging…');
+  } finally { (spaceUiStore as any).patch(original); }
 });
 
 test('the smaller second nameplate line uses the actual remote executor, while menu status remains unchanged', () => {

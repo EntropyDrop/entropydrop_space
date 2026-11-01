@@ -16,6 +16,7 @@ type Handle = { key: string; kind: TransformOperation; axis: TransformAxis; mate
 export class TransformGizmo {
   readonly group = new THREE.Group();
   private handles: Handle[] = [];
+  private operations = new Set<TransformOperation>(['move', 'rotate', 'scale']);
 
   constructor({ includeScale = true, includeRotate = true, name = 'TransformGizmo' } = {}) {
     this.group.name = name;
@@ -71,11 +72,20 @@ export class TransformGizmo {
     for (const handle of this.handles) handle.material.color.setHex(handle.key === highlighted ? 0xffdc73 : handle.color);
   }
 
+  setOperations(operations: TransformOperation[]) {
+    this.operations = new Set(operations);
+    for (const object of this.group.children) {
+      const kind = String(object.userData.transformHandle).split('-')[0] as TransformOperation;
+      object.visible = this.operations.has(kind);
+    }
+  }
+
   pick(ray: THREE.Ray): TransformHandle | null {
     if (!this.group.visible) return null;
     this.group.updateWorldMatrix(true, false);
     let best: (TransformHandle & { score: number; distance: number }) | null = null;
     for (const handle of this.handles) {
+      if (!this.operations.has(handle.kind)) continue;
       const radius = handle.radius * this.group.scale.x;
       for (const [start, end] of handle.segments) {
         const a = this.group.localToWorld(start.clone()), b = this.group.localToWorld(end.clone());

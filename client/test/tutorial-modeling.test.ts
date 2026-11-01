@@ -80,9 +80,9 @@ test('following the Modeling lesson creates a slope and a fresh tutorial resets 
 });
 
 test('Modeling follows the driving lane and its sign, subject and finish fit the fixed terrain window', () => {
-  const drive = tutorialVehicleStation(13), modeling = tutorialVehicleStation(14);
+  const drive = tutorialVehicleStation(12), modeling = tutorialVehicleStation(13);
   assert.ok(modeling.x + 2 < drive.x - 33, 'the work pad does not block the driving lane');
-  const origin = tutorialModelingOrigin(), finish = tutorialFinishPosition(), sign = tutorialLessonHint(14);
+  const origin = tutorialModelingOrigin(), finish = tutorialFinishPosition(), sign = tutorialLessonHint(13);
   assert.ok(finish.x < origin.x);
   const center = getTutorialTerrainCenter(level.spawn);
   const minX = (Math.floor(center.x / 16) - TUTORIAL_CHUNK_RADIUS) * 16;

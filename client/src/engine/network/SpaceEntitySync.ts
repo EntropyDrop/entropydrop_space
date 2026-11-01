@@ -145,6 +145,7 @@ export class SpaceEntitySync {
       this.setRunState(contraption, desiredState)
     ));
     this.controller?.setServerEntityDeleteHandler?.((contraption: Contraption) => this.queueDelete(String(contraption.publicId), true));
+    this.controller?.setServerEntityMergeHandler?.((source: Contraption, target: Contraption) => this.persistEntityMerge(source, target));
     this.controller?.setServerEntityClickHandler?.((contraption: Contraption, click: ScriptClickedBlock) => (
       this.client.sendClickedBlock(contraption.publicId, click, Number(contraption.serverExecutionEpoch))
     ));
@@ -174,6 +175,7 @@ export class SpaceEntitySync {
     this.enforceExecutionLeases();
     this.controller?.setServerEntityRunStateHandler?.(null);
     this.controller?.setServerEntityDeleteHandler?.(null);
+    this.controller?.setServerEntityMergeHandler?.(null);
     this.controller?.setServerEntityClickHandler?.(null);
     this.contraptions?.setRemoteEntityPersistence?.(null);
   }
@@ -1019,7 +1021,7 @@ export class SpaceEntitySync {
     return encoded;
   }
 
-  private async persistRecord(record: any, _definitionChanged: boolean) {
+  private async persistRecord(record: any, _definitionChanged: boolean, rejectConflict = false) {
     const originalPublicId = String(record.publicId);
     const serverId = this.entityAliases.get(originalPublicId)
       || (record.serverManaged === true ? originalPublicId : null);
@@ -1046,11 +1048,12 @@ export class SpaceEntitySync {
       this.lastSnapshotJson.set(created.id, snapshotJson);
       // Coalescing can replace the queued pose while the first immutable create
       // input is retained for retries. Publish that newer state after adoption.
-      if (createRecord !== record) await this.persistRecord(record, true);
+      if (createRecord !== record) await this.persistRecord(record, true, rejectConflict);
       return;
     }
 
     const executing = (this.leasedUntil.get(serverId) || 0) > Date.now();
+    if (rejectConflict && record.serverDesiredRunState === 'running') throw new Error('Stop the merge target before saving');
     // Frozen replicas keep the durable running intent. They must never publish
     // their local stopped pose as an owner/admin checkpoint.
     if (record.serverDesiredRunState === 'running' && !executing) return;
@@ -1059,7 +1062,10 @@ export class SpaceEntitySync {
     const { definition, digest: definitionDigest } = await this.encodeDefinition(record.slot);
     const active = this.contraptions.findActiveContraptionByPublicId?.(serverId);
     const revision = Number(active?.serverRevision ?? record.serverRevision);
-    if (!Number.isSafeInteger(revision) || revision < 1) return;
+    if (!Number.isSafeInteger(revision) || revision < 1) {
+      if (rejectConflict) throw new Error('Merge target has no confirmed server revision');
+      return;
+    }
     const currentDefinitionDigest = active?.serverDefinitionDigest || record.serverDefinitionDigest;
     // Live checkpoints only publish execution state: the server rejects authored
     // replacements until Stop. This also permits older saved disabled masks to
@@ -1077,6 +1083,7 @@ export class SpaceEntitySync {
       });
     } catch (error: any) {
       if (error?.code === 'ENTITY_REVISION_CONFLICT' && error?.detail?.current) {
+        if (rejectConflict) throw error;
         await this.applyRecord(error.detail.current as SpaceWorldEntityRecord);
         return;
       }
@@ -1084,6 +1091,24 @@ export class SpaceEntitySync {
     }
     this.applyServerMetadata(serverId, updated);
     this.lastSnapshotJson.set(serverId, snapshotJson);
+  }
+
+  /** Keep the source until the merged target has been acknowledged by the server. */
+  private async persistEntityMerge(source: Contraption, target: Contraption) {
+    const key = this.queueKey(String(target.publicId));
+    const previous = this.saveChains.get(key) || Promise.resolve();
+    const next = previous.catch(() => undefined).then(async () => {
+      if (this.stopped || this.pendingSaves.has(key) || this.deletingKeys.has(key)) {
+        throw new Error('Wait for the target entity to finish saving before merging');
+      }
+      const record = this.contraptions.captureContraptionForStreaming(target,
+        this.contraptions.getContraptionChunk(target) || { id: '0,0' });
+      await this.persistRecord(record, true, true);
+      await this.queueDelete(String(source.publicId), true);
+    });
+    this.saveChains.set(key, next);
+    try { await next; }
+    finally { if (this.saveChains.get(key) === next) this.saveChains.delete(key); }
   }
 
   private adoptServerIdentity(localPublicId: string, entity: SpaceWorldEntityRecord) {

@@ -1785,6 +1785,35 @@ export class ContraptionManager {
     return contraption;
   }
 
+  /** Copy the complete entity beside its current pose, with fresh identity and stopped playback. */
+  duplicateContraption(source: Contraption) {
+    if (!this.contraptions.includes(source)) return null;
+    const snapshot = captureEntityStreamState(source, { id: '' });
+    const slot = structuredClone(snapshot.slot);
+    if (!slot) return null;
+    const width = source.getVisualWorldBounds().getSize(new THREE.Vector3()).x;
+    const offset = new THREE.Vector3(Math.max(1, width) + 1, 0, 0);
+    const translate = (position: number[]) => new THREE.Vector3().fromArray(position).add(offset).toArray();
+    for (const constraint of slot.constraints) {
+      if (constraint.bodyA === null && constraint.anchorA) constraint.anchorA = translate(constraint.anchorA);
+    }
+    // Restore only geometry/pose and configuration. Ownership, execution leases,
+    // runtime state and IDs belong to the source and must not follow the copy.
+    return this.buildFromSlot({ ...slot, mode: source.mode },
+      new THREE.Vector3().fromArray(snapshot.constructorOrigin).add(offset), {
+        position: translate(snapshot.position),
+        quaternion: snapshot.quaternion,
+        localCenter: snapshot.localCenter,
+        rootPivotOverride: snapshot.rootPivotOverride,
+        nodes: snapshot.nodes,
+        bodies: snapshot.bodies.map(body => ({ ...body, position: translate(body.position) })),
+        behaviorPrompt: snapshot.behaviorPrompt,
+        agentInterpretation: snapshot.agentInterpretation,
+        scriptStatus: 'stopped',
+        physicsSimulationEnabled: false
+      });
+  }
+
   /** Merge an inventory entity into an existing stopped entity as a component subtree. */
   installSlotAsComponent(
     contraption: Contraption,

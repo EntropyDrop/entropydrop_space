@@ -3,11 +3,11 @@ export const TUTORIAL_LESSON_STEP = { x: -158 / 8, z: 27 / 8 } as const;
 
 /** Reserve room for the motor code example and Modeling beyond the driving lane. */
 function courseClearance(chapter: number) {
-  const gaps = Number(chapter >= 11) + Number(chapter >= 12);
+  const gaps = Number(chapter >= 10) + Number(chapter >= 11);
   // Modeling starts beyond the driving lane, leaving room to stop the car.
-  const afterDrive = Number(chapter >= 14);
-  return { x: -5 * gaps + afterDrive * TUTORIAL_LESSON_STEP.x,
-    z: gaps + afterDrive * TUTORIAL_LESSON_STEP.z };
+  const openSpace = Number(chapter >= 12) + Number(chapter >= 13);
+  return { x: -5 * gaps + openSpace * TUTORIAL_LESSON_STEP.x,
+    z: gaps + openSpace * TUTORIAL_LESSON_STEP.z };
 }
 
 export function tutorialLessonHint(chapter: number) {
@@ -16,16 +16,17 @@ export function tutorialLessonHint(chapter: number) {
     z: 4568 / 8 + (chapter - 1) * TUTORIAL_LESSON_STEP.z + extra.z };
 }
 
-/** Continue from the center of the actual airborne chassis in chapter 09. */
+/** Vehicle lessons begin with the wheel in chapter 09, then its code in 10. */
 export function tutorialVehicleStation(chapter: number) {
   const extra = courseClearance(chapter);
   return { x: 8014 + (chapter - 9) * TUTORIAL_LESSON_STEP.x + extra.x,
     z: 590 + (chapter - 9) * TUTORIAL_LESSON_STEP.z + extra.z };
 }
 
+/** Suspended five metres above the ground so assembly visibly introduces gravity. */
 export function tutorialWheelBounds() {
-  const center = tutorialVehicleStation(10);
-  return { minX: center.x - 1, maxX: center.x + 1, minY: 17, maxY: 17.5,
+  const center = tutorialVehicleStation(9);
+  return { minX: center.x - 1, maxX: center.x + 1, minY: 22, maxY: 22.5,
     minZ: center.z - 1, maxZ: center.z + 1 };
 }
 
@@ -34,12 +35,15 @@ export function tutorialRotationBounds() {
   return { minX: 8032, maxX: 8036, minY: 17, maxY: 21, minZ: 584, maxZ: 590 };
 }
 
-/** The wheel-less pickup stays clear of the collision obstacle below chapter 09. */
+export const TUTORIAL_CHASSIS_ENTITY_ID = 'tutorial-chassis';
+
+/** The stopped pickup is already centered on the wheel assembly workbench. */
 export function tutorialChassisBounds() {
-  const center = tutorialVehicleStation(9);
+  const bench = tutorialVehicleWorkbench();
+  const center = { x: (bench.minX + bench.maxX) / 2, z: (bench.minZ + bench.maxZ) / 2 };
   const tireDiameter = tutorialWheelBounds().maxX - tutorialWheelBounds().minX;
   return { minX: center.x - tireDiameter * 2.25, maxX: center.x + tireDiameter * 2.25,
-    minY: 24, maxY: 27.125, minZ: center.z - 2.125, maxZ: center.z + 2.125 };
+    minY: bench.maxY, maxY: bench.maxY + 3.125, minZ: center.z - 2.125, maxZ: center.z + 2.125 };
 }
 
 /** Recessed axle faces put the tires beneath the flared wheel arches. */
@@ -50,17 +54,24 @@ export function tutorialChassisWheelMounts() {
   })));
 }
 
+/** The narrow workbench supports the rails and leaves all four tires clear. */
+export function tutorialVehicleWorkbench() {
+  const station = tutorialVehicleStation(11);
+  const minX = Math.floor(station.x) - 5, minZ = Math.floor(station.z) - 1;
+  return { minX, maxX: minX + 11, minY: 17, maxY: 19, minZ, maxZ: minZ + 3 };
+}
+
 export const TUTORIAL_MODELING_ENTITY_ID = 'tutorial-modeling-base';
 export const TUTORIAL_RAMP_DIMENSIONS = [4, 0.25, 3] as const;
 export const TUTORIAL_RAMP_ROTATION_Z = -30;
 
 /** An empty work pad and a finished sloping panel share one stopped entity. */
 export function tutorialModelingOrigin() {
-  const station = tutorialVehicleStation(14);
+  const station = tutorialVehicleStation(13);
   return { x: station.x - 2, y: 17, z: station.z - 4 };
 }
 
 export function tutorialFinishPosition() {
-  const station = tutorialVehicleStation(14);
+  const station = tutorialVehicleStation(13);
   return { x: station.x - 18, z: station.z - 18 * TUTORIAL_LESSON_STEP.z / TUTORIAL_LESSON_STEP.x };
 }

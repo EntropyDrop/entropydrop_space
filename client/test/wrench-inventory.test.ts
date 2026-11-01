@@ -702,7 +702,8 @@ test('Wrench displays the selected component pivot while body clicks still point
   assert.ok(displayed.position.distanceTo(pivotWorld) < 1e-9);
   assert.ok((gizmoCalls[0][0] as THREE.Vector3).distanceTo(pivotWorld) < 1e-9);
   assert.equal(gizmoCalls.length, 1);
-  assert.equal(gizmoCalls[0].length, 5, 'display carries hover and active handle state');
+  assert.equal(gizmoCalls[0].length, 6, 'display carries hover, active handle and translation-only state');
+  assert.equal(gizmoCalls[0][5], false);
   controller.handleLeftClick();
 
   assert.equal(grabs, 1);

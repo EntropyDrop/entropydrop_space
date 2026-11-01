@@ -19,7 +19,7 @@ for (let x = 0; x < 4; x++) for (let z = 0; z < 8; z++) {
 }
 const entity = new Contraption(previous?.id ?? Math.max(0, ...others.map(entity => entity.id)) + 1,
   blocks, new THREE.Vector3(origin.x, origin.y, origin.z), new THREE.Scene(), {
-    publicId: TUTORIAL_MODELING_ENTITY_ID, rootComponentId: 'base', rootComponentName: '14 Modeling practice',
+    publicId: TUTORIAL_MODELING_ENTITY_ID, rootComponentId: 'base', rootComponentName: '13 Modeling practice',
     bodyType: 'kinematic', useGravity: false,
     decorations: [{ id: 'slope-example', color: 0x9db3c8, position: [2, 2.125, 6],
       scale: [...TUTORIAL_RAMP_DIMENSIONS], rotation: new THREE.Quaternion()

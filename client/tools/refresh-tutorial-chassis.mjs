@@ -1,8 +1,11 @@
-// Rebuild chapter 09's double-cab off-road pickup without its four tires.
+// Rebuild chapter 11's stopped pickup, ready for direct wheel installation.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { bresenham3D } from '../src/engine/controls/SelectorShapes.ts';
-import { tutorialChassisBounds, tutorialChassisWheelMounts } from '../src/tutorial/TutorialCourse.ts';
+import * as THREE from 'three';
+import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { captureEntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
+import { tutorialChassisBounds, tutorialChassisWheelMounts, TUTORIAL_CHASSIS_ENTITY_ID } from '../src/tutorial/TutorialCourse.ts';
 
 const file = new URL('../src/tutorial/tutorial-level.json', import.meta.url);
 const level = JSON.parse(readFileSync(file, 'utf8')), old = structuredClone(level);
@@ -11,13 +14,7 @@ const { minX: x, minY: y, minZ: z } = bounds;
 const BODY = 0xc8783d, EDGE = 0xe0a066, TRIM = 0x252e34, STEEL = 0x535f68;
 const SILVER = 0xb0b8c1, GLASS = 0x446574, REFLECTION = 0x7899a4;
 const LAMP = 0xfff1cd, RED = 0xcb4438, AMBER = 0xe9a347;
-const BLUE = 0x3bc1f2, GREEN = 0x5af23b;
 const frame = new Map();
-function inFrame(cell, scale, size) {
-  return cell[0] / scale + size > bounds.minX && cell[0] / scale < bounds.maxX
-    && cell[1] / scale + size > bounds.minY && cell[1] / scale < bounds.maxY
-    && cell[2] / scale + size > bounds.minZ && cell[2] / scale < bounds.maxZ;
-}
 function part(x0, y0, z0, x1, y1, z1, color = BODY) {
   const grid = [x0, y0, z0, x1, y1, z1].map(v => v * 8);
   assert.ok(grid.every(Number.isSafeInteger), 'Pickup parts must align to microcells');
@@ -165,26 +162,20 @@ for (const mount of tutorialChassisWheelMounts()) {
     dx + .25, .75, mount.side < 0 ? dz + .25 : dz, SILVER);
 }
 
-// The blue corner is in the front bumper; the opposite green corner floats above the rear.
-// No supporting post is needed for two-point box selection.
-part(0, 0, 0, .125, .125, .125, BLUE);
-part(8.875, 3, 4.125, 9, 3.125, 4.25, GREEN);
-
-const micro = new Map(level.terrain.micro.filter(cell => !inFrame(cell, 8, .125))
-  .map(cell => [cell.slice(0, 3).join(','), cell]));
-for (const [key, cell] of frame) {
-  assert.ok(inFrame(cell, 8, .125));
-  micro.set(key, cell);
-}
-level.terrain.standard = level.terrain.standard.filter(cell => !inFrame(cell, 1, 1));
-level.terrain.micro = [...micro.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+const previous = level.entities.entities.find(entity => entity.publicId === TUTORIAL_CHASSIS_ENTITY_ID);
+const others = level.entities.entities.filter(entity => entity.publicId !== TUTORIAL_CHASSIS_ENTITY_ID);
+const entity = new Contraption(previous?.id ?? Math.max(0, ...others.map(entity => entity.id)) + 1,
+  [...frame.values()].map(([mx, my, mz, color]) => ({ localX: mx / 8 - x, localY: my / 8 - y,
+    localZ: mz / 8 - z, size: .125, block: 1, color })), new THREE.Vector3(x, y, z), new THREE.Scene(), {
+      publicId: TUTORIAL_CHASSIS_ENTITY_ID, rootComponentName: '11 Chassis', bodyType: 'dynamic', useGravity: true,
+    });
+try {
+  entity.stopAllNodeScripts();
+  const record = captureEntityStreamState(entity, { id: `${Math.floor(x / 16)},${Math.floor(z / 16)}` });
+  level.entities.entities = [...others, record];
+} finally { entity.dispose(); }
 assert.deepEqual(level.spawn, old.spawn);
-assert.deepEqual(level.entities, old.entities);
-assert.deepEqual(level.terrain.standard, old.terrain.standard.filter(cell => !inFrame(cell, 1, 1)));
-assert.deepEqual(level.terrain.micro.filter(cell => !inFrame(cell, 8, .125)),
-  old.terrain.micro.filter(cell => !inFrame(cell, 8, .125)));
+assert.deepEqual(level.terrain, old.terrain);
 writeFileSync(file, JSON.stringify(level, null, 2) + '\n');
 console.log(JSON.stringify({ chassisMicroCells: frame.size,
-  blueJoint: [...frame.values()].filter(cell => cell[3] === BLUE).length,
-  greenJoint: [...frame.values()].filter(cell => cell[3] === GREEN).length,
   bounds, mounts: tutorialChassisWheelMounts(), otherLevelContentPreserved: true }, null, 2));
