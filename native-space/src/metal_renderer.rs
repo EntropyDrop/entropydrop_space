@@ -20,6 +20,8 @@ use winit::{
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::Window,
 };
+#[path = "frame_validation.rs"]
+mod frame_validation;
 
 type Metal<T> = Retained<ProtocolObject<T>>;
 #[repr(C)]
@@ -41,7 +43,7 @@ struct UiVertex {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct FrameUniforms {
-    inverse_clip: [[f32; 4]; 4],
+    inverse_direction_clip: [[f32; 4]; 4],
     correction: [[f32; 4]; 4],
     shadow: [[f32; 4]; 4],
     inverse_projection: [[f32; 4]; 4],
@@ -72,8 +74,16 @@ impl FrameUniforms {
         let clip = Mat4::from_cols_array_2d(&u.clip);
         let projection =
             Mat4::perspective_rh(70_f32.to_radians(), w as f32 / h as f32, 0.1, 10000.0);
+        // Remove view translation BEFORE inversion. Unprojecting a distant
+        // world point through a kilometre-scale f32 matrix and subtracting the
+        // eye makes sky rays jump as the camera moves. Directions only need
+        // rotation and projection; their homogeneous w is never divided out.
+        let direction_clip = Mat4 {
+            w_axis: projection.w_axis,
+            ..clip
+        };
         Self {
-            inverse_clip: clip.inverse().to_cols_array_2d(),
+            inverse_direction_clip: direction_clip.inverse().to_cols_array_2d(),
             correction: Mat4::from_mat3(if torus {
                 geometry::view_correction(camera).as_mat3()
             } else {
@@ -114,6 +124,7 @@ struct Targets {
     bloom: Vec<(Metal<dyn MTLTexture>, Metal<dyn MTLTexture>)>,
 }
 pub struct Mesh {
+    revision: u64,
     buffer: Metal<dyn MTLBuffer>,
     packed: bool,
     origin: Vec3,
@@ -130,6 +141,9 @@ pub struct Mesh {
 }
 #[derive(Default)]
 struct VisibilityMap {
+    content_revision: u64,
+    active: bool,
+    offset: usize,
     dirty: bool,
     key: Option<VisibilityKey>,
     indices: Vec<u32>,
@@ -151,10 +165,50 @@ struct DrawUniforms {
     origin: [f32; 4],
     counts: [u32; 4],
 }
-/// Offscreen investigation only. Frozen passes retain the baseline textures;
-/// the camera, scene and sky time must stay fixed throughout a comparison.
+#[derive(Default)]
+struct DynamicSlot {
+    visibility: Option<Metal<dyn MTLBuffer>>,
+    visibility_layout: Vec<(u64, usize, u64, usize, usize)>,
+    ui: Option<Metal<dyn MTLBuffer>>,
+}
+#[derive(PartialEq)]
+struct ShadowKey {
+    camera: [f32; 4],
+    shadow: [[f32; 4]; 4],
+    correction: [[f32; 4]; 4],
+    torus: bool,
+    coverage: u64,
+    draw_modes: [bool; 5],
+    scene_revision: u64,
+}
+fn casts_shadow(key: &str) -> bool {
+    !key.starts_with("avatar:hand") && !key.starts_with("preview:") && !key.ends_with(":alpha")
+}
+fn grow_buffer(
+    device: &ProtocolObject<dyn MTLDevice>,
+    buffer: &mut Option<Metal<dyn MTLBuffer>>,
+    bytes: usize,
+) -> Result<bool> {
+    if bytes == 0 || buffer.as_ref().is_some_and(|b| b.length() >= bytes) {
+        return Ok(false);
+    }
+    *buffer = Some(
+        device
+            .newBufferWithLength_options(
+                bytes.next_power_of_two().max(4096),
+                MTLResourceOptions::StorageModeShared,
+            )
+            .context("Grow dynamic frame buffer")?,
+    );
+    Ok(true)
+}
+/// Production defaults plus explicit A/B diagnostics. The freeze_* switches
+/// only make sense with fixed camera, geometry and sky time.
 #[derive(Clone, Copy)]
 pub struct RenderProbe {
+    pub cache_shadows: bool,
+    pub reuse_buffers: bool,
+    pub memoryless_msaa: bool,
     pub grouped_quads: bool,
     pub compact_faces: bool,
     pub fine_culling: bool,
@@ -169,6 +223,9 @@ pub struct RenderProbe {
 impl Default for RenderProbe {
     fn default() -> Self {
         Self {
+            cache_shadows: true,
+            reuse_buffers: true,
+            memoryless_msaa: true,
             grouped_quads: true,
             compact_faces: true,
             fine_culling: true,
@@ -185,6 +242,9 @@ impl Default for RenderProbe {
 impl RenderProbe {
     pub fn legacy() -> Self {
         Self {
+            cache_shadows: false,
+            reuse_buffers: false,
+            memoryless_msaa: false,
             grouped_quads: false,
             compact_faces: false,
             fine_culling: false,
@@ -193,6 +253,16 @@ impl RenderProbe {
     }
 }
 pub struct Renderer {
+    geometry_revision: u64,
+    shadow_revision: u64,
+    shadow_key: Option<ShadowKey>,
+    dynamic_slots: [DynamicSlot; 3],
+    dynamic_slot: usize,
+    targets_memoryless: bool,
+    pub shadow_cache_hit: bool,
+    pub dynamic_allocations: usize,
+    pub benchmark_allocations: usize,
+    pub benchmark_shadow_hits: usize,
     pub probe: RenderProbe,
     pub shadow_faces: usize,
     pub shadow_draws: usize,
@@ -220,14 +290,14 @@ pub struct Renderer {
     baseline: Vec<Metal<dyn MTLRenderPipelineState>>,
     targets_ultra: bool,
     post: HashMap<&'static str, Metal<dyn MTLRenderPipelineState>>,
-    pub replay: Vec<ReplayMesh>,
+    replay: Vec<ReplayMesh>,
     reference_pipelines: Option<Vec<Metal<dyn MTLRenderPipelineState>>>,
     started: std::time::Instant,
     pub animate_sky: bool,
     depth_size: [usize; 2],
     textures: HashMap<egui::TextureId, Metal<dyn MTLTexture>>,
     sampler: Metal<dyn MTLSamplerState>,
-    pub meshes: HashMap<String, Mesh>,
+    meshes: HashMap<String, Mesh>,
     inflight: VecDeque<Metal<dyn MTLCommandBuffer>>,
     pub gpu_ms: f64,
     pub draw_calls: usize,
@@ -496,6 +566,16 @@ impl Renderer {
         let theta_table = buffer(bytemuck::cast_slice(&theta))?;
         let phi_table = buffer(bytemuck::cast_slice(&phi))?;
         Ok(Self {
+            geometry_revision: 0,
+            shadow_revision: 0,
+            shadow_key: None,
+            dynamic_slots: Default::default(),
+            dynamic_slot: 0,
+            targets_memoryless: false,
+            shadow_cache_hit: false,
+            dynamic_allocations: 0,
+            benchmark_allocations: 0,
+            benchmark_shadow_hits: 0,
             probe: RenderProbe::default(),
             shadow_faces: 0,
             shadow_draws: 0,
@@ -552,12 +632,15 @@ impl Renderer {
         .context("Allocate Metal buffer")
     }
     pub fn upload(&mut self, key: String, faces: &[Face], model: Mat4) -> Result<()> {
-        self.meshes.remove(&key);
-        self.meshes.remove(&(key.clone() + ":alpha"));
+        self.remove(&key);
         let (opaque, alpha): (Vec<_>, Vec<_>) =
             faces.iter().copied().partition(|f| (f.color >> 24) <= 2);
         for (name, data) in [(key.clone(), opaque), (key + ":alpha", alpha)] {
             if !data.is_empty() {
+                self.geometry_revision += 1;
+                if casts_shadow(&name) {
+                    self.shadow_revision += 1;
+                }
                 let origin = data.iter().fold(Vec3::splat(f32::INFINITY), |a, f| {
                     a.min(Vec3::from_array(f.origin))
                 });
@@ -572,6 +655,7 @@ impl Renderer {
                 self.meshes.insert(
                     name,
                     Mesh {
+                        revision: self.geometry_revision,
                         buffer,
                         packed: packed.is_some(),
                         origin,
@@ -626,7 +710,12 @@ impl Renderer {
             min = min.min(p);
             max = max.max(q);
         }
+        self.geometry_revision += 1;
+        if casts_shadow(&tile.key) {
+            self.shadow_revision += 1;
+        }
         let mesh = Mesh {
+            revision: self.geometry_revision,
             buffer: self.buffer(bytemuck::cast_slice(&tile.data))?,
             packed: true,
             origin,
@@ -651,8 +740,24 @@ impl Renderer {
         self.depth_size[1] as u32
     }
     pub fn remove(&mut self, key: &str) {
-        self.meshes.remove(key);
+        if self.meshes.remove(key).is_some() && casts_shadow(key) {
+            self.shadow_revision += 1;
+        }
         self.meshes.remove(&format!("{key}:alpha"));
+    }
+    pub fn retain_meshes(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        let mut changed = false;
+        self.meshes.retain(|key, _| {
+            let retain = keep(key);
+            changed |= !retain && casts_shadow(key);
+            retain
+        });
+        if changed {
+            self.shadow_revision += 1;
+        }
+    }
+    pub fn resident_faces(&self) -> usize {
+        self.meshes.values().map(|m| m.faces).sum()
     }
     pub fn has_mesh(&self, key: &str) -> bool {
         self.meshes.contains_key(key) || self.meshes.contains_key(&format!("{key}:alpha"))
@@ -707,6 +812,9 @@ impl Renderer {
     pub fn set_model(&mut self, key: &str, model: Mat4) {
         for name in [key.to_owned(), format!("{key}:alpha")] {
             if let Some(mesh) = self.meshes.get_mut(&name) {
+                if mesh.model != model && casts_shadow(&name) {
+                    self.shadow_revision += 1;
+                }
                 mesh.model = model;
             }
         }
@@ -784,11 +892,25 @@ impl Renderer {
         Ok(())
     }
     fn ensure_depth(&mut self, w: usize, h: usize, ultra: bool) -> Result<()> {
-        if self.depth_size != [w, h] || self.targets_ultra != ultra {
+        let memoryless =
+            self.probe.memoryless_msaa && self.device.supportsFamily(MTLGPUFamily::Apple1);
+        if self.depth_size != [w, h]
+            || self.targets_ultra != ultra
+            || self.targets_memoryless != memoryless
+        {
             self.finish()?;
             let hdr = MTLPixelFormat::RGBA16Float;
             let depth = MTLPixelFormat::Depth32Float;
-            let t = |w, h, format, samples| texture(&self.device, w, h, format, samples);
+            let t = |w, h, format, samples| {
+                texture_with_storage(
+                    &self.device,
+                    w,
+                    h,
+                    format,
+                    samples,
+                    memoryless && samples > 1,
+                )
+            };
             let mut bloom = Vec::new();
             for i in 0..5 {
                 let bw = (w >> (i + 1)).max(1);
@@ -817,10 +939,13 @@ impl Renderer {
             });
             self.depth_size = [w, h];
             self.targets_ultra = ultra;
+            self.targets_memoryless = memoryless;
         }
         Ok(())
     }
     pub fn upload_replay(&mut self, vertices: &[u8], indices: &[u8], cull: bool) -> Result<()> {
+        self.geometry_revision += 1;
+        self.shadow_revision += 1;
         self.replay.push(ReplayMesh {
             vertices: self.buffer(vertices)?,
             indices: self.buffer(indices)?,
@@ -874,6 +999,8 @@ impl Renderer {
         let target = self.offscreen_texture(size[0], size[1])?;
         let mut gpu = Vec::new();
         let mut wall = Vec::new();
+        self.benchmark_allocations = 0;
+        self.benchmark_shadow_hits = 0;
         self.animate_sky = false;
         for i in 0..warmup + frames {
             let start = std::time::Instant::now();
@@ -882,6 +1009,8 @@ impl Renderer {
             self.inflight.push_back(command);
             self.finish()?;
             if i >= warmup {
+                self.benchmark_allocations += self.dynamic_allocations;
+                self.benchmark_shadow_hits += usize::from(self.shadow_cache_hit);
                 gpu.push(self.gpu_ms);
                 wall.push(start.elapsed().as_secs_f64() * 1000.0);
             }
@@ -893,17 +1022,29 @@ impl Renderer {
         path: &[Uniforms],
         size: [usize; 2],
     ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        self.benchmark_paint_path(path, size, &[])
+    }
+    pub fn benchmark_paint_path(
+        &mut self,
+        path: &[Uniforms],
+        size: [usize; 2],
+        paint: &[egui::ClippedPrimitive],
+    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
         let target = self.offscreen_texture(size[0], size[1])?;
         let (mut gpu, mut wall, mut encode) = (Vec::new(), Vec::new(), Vec::new());
         self.animate_sky = false;
+        self.benchmark_allocations = 0;
+        self.benchmark_shadow_hits = 0;
         for i in 0..144 {
             let start = std::time::Instant::now();
-            let command = self.encode(&target, path[i % path.len()], &[], 1.0)?;
+            let command = self.encode(&target, path[i % path.len()], paint, 1.0)?;
             let cpu = start.elapsed().as_secs_f64() * 1000.0;
             command.commit();
             self.inflight.push_back(command);
             self.finish()?;
             if i >= 24 {
+                self.benchmark_allocations += self.dynamic_allocations;
+                self.benchmark_shadow_hits += usize::from(self.shadow_cache_hit);
                 gpu.push(self.gpu_ms);
                 wall.push(start.elapsed().as_secs_f64() * 1000.0);
                 encode.push(cpu);
@@ -979,7 +1120,12 @@ impl Renderer {
         self.finish()?;
         self.write_png(&texture, path)
     }
-    fn prepare_visibility(&mut self, uniforms: Uniforms, frame: &FrameUniforms) -> Result<()> {
+    fn prepare_visibility(
+        &mut self,
+        uniforms: Uniforms,
+        frame: &FrameUniforms,
+        render_shadow: bool,
+    ) -> Result<()> {
         if !self.probe.grouped_quads
             && !self.probe.compact_faces
             && !self.probe.fine_culling
@@ -1052,6 +1198,9 @@ impl Renderer {
         ];
         let mut jobs = Vec::new();
         for mesh in self.meshes.values_mut() {
+            for map in &mut mesh.maps {
+                map.active = false;
+            }
             if mesh.packed && !self.probe.compact_faces && mesh.reference.is_none() {
                 // Diagnostic reference only; normal windows retain only the compact buffer.
                 let packed = unsafe {
@@ -1078,13 +1227,14 @@ impl Renderer {
             }
             let visible = [
                 mesh_visible(mesh, uniforms, frame, false),
-                mesh_visible(mesh, uniforms, frame, true),
+                render_shadow && mesh_visible(mesh, uniforms, frame, true),
             ];
             for (index, map) in mesh.maps.iter_mut().enumerate() {
                 let shadow = index == 1;
                 if !visible[index] {
                     continue;
                 }
+                map.active = true;
                 let clip = if shadow { frame.shadow } else { uniforms.clip };
                 let key = VisibilityKey {
                     clip,
@@ -1131,49 +1281,107 @@ impl Renderer {
         drop(jobs);
         for mesh in self.meshes.values_mut() {
             for (index, map) in mesh.maps.iter_mut().enumerate() {
-                if !map.dirty {
-                    continue;
+                if map.dirty {
+                    let view = &views[index];
+                    if self.probe.validate_visibility {
+                        let expected: Vec<_> = mesh
+                            .blocks
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, b)| mesh.covered[*i] == 0 && view.visible_bounds(b))
+                            .map(|(i, _)| i as u32)
+                            .collect();
+                        anyhow::ensure!(
+                            map.scratch == expected,
+                            "Hierarchical visibility differs from linear reference"
+                        );
+                    }
+                    let faces = map.scratch.len() * BLOCK_FACES
+                        - if map
+                            .scratch
+                            .last()
+                            .is_some_and(|&i| (i as usize + 1) * BLOCK_FACES > mesh.faces)
+                        {
+                            mesh.faces.next_multiple_of(BLOCK_FACES) - mesh.faces
+                        } else {
+                            0
+                        };
+                    if map.scratch != map.indices {
+                        map.content_revision += 1;
+                        map.buffer = None;
+                        std::mem::swap(&mut map.scratch, &mut map.indices);
+                    }
+                    map.faces = faces;
+                    map.dirty = false;
                 }
-                let view = &views[index];
-                if self.probe.validate_visibility {
-                    let expected: Vec<_> = mesh
-                        .blocks
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, b)| mesh.covered[*i] == 0 && view.visible_bounds(b))
-                        .map(|(i, _)| i as u32)
-                        .collect();
-                    anyhow::ensure!(
-                        map.scratch == expected,
-                        "Hierarchical visibility differs from linear reference"
-                    );
+                if self.probe.reuse_buffers {
+                    map.buffer = None;
+                } else if map.active && map.buffer.is_none() && !map.indices.is_empty() {
+                    map.buffer = Some(create(bytemuck::cast_slice(&map.indices))?);
+                    self.dynamic_allocations += 1;
                 }
-                let faces = map.scratch.len() * BLOCK_FACES
-                    - if map
-                        .scratch
-                        .last()
-                        .is_some_and(|&i| (i as usize + 1) * BLOCK_FACES > mesh.faces)
-                    {
-                        mesh.faces.next_multiple_of(BLOCK_FACES) - mesh.faces
-                    } else {
-                        0
-                    };
-                if map.scratch != map.indices {
-                    map.buffer = if map.scratch.is_empty() {
-                        None
-                    } else {
-                        Some(create(bytemuck::cast_slice(&map.scratch))?)
-                    };
-                    std::mem::swap(&mut map.scratch, &mut map.indices);
-                }
-                map.faces = faces;
-                map.dirty = false;
             }
+        }
+        if self.probe.reuse_buffers {
+            let mut bytes = 0;
+            for mesh in self.meshes.values_mut() {
+                for map in &mut mesh.maps {
+                    if map.active && !map.indices.is_empty() {
+                        map.offset = bytes;
+                        bytes += (map.indices.len() * 4).next_multiple_of(256);
+                    }
+                }
+            }
+            let slot = &mut self.dynamic_slots[self.dynamic_slot];
+            if grow_buffer(&self.device, &mut slot.visibility, bytes)? {
+                self.dynamic_allocations += 1;
+                slot.visibility_layout.clear();
+            }
+            let mut entry = 0;
+            if let Some(buffer) = &slot.visibility {
+                for mesh in self.meshes.values() {
+                    for (pass, map) in mesh.maps.iter().enumerate() {
+                        if map.active && !map.indices.is_empty() {
+                            let layout = (
+                                mesh.revision,
+                                pass,
+                                map.content_revision,
+                                map.offset,
+                                map.indices.len(),
+                            );
+                            if slot.visibility_layout.get(entry) == Some(&layout) {
+                                entry += 1;
+                                continue;
+                            }
+                            let source = bytemuck::cast_slice::<u32, u8>(&map.indices);
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(
+                                    source.as_ptr(),
+                                    buffer.contents().as_ptr().cast::<u8>().add(map.offset),
+                                    source.len(),
+                                );
+                            }
+                            if entry < slot.visibility_layout.len() {
+                                slot.visibility_layout[entry] = layout;
+                            } else {
+                                slot.visibility_layout.push(layout);
+                            }
+                            entry += 1;
+                        }
+                    }
+                }
+            }
+            slot.visibility_layout.truncate(entry);
         }
         Ok(())
     }
     pub fn geometry_bytes(&self) -> usize {
         self.meshes.values().map(|m| m.buffer.length()).sum()
+    }
+    pub fn msaa_attachment_bytes(&self) -> usize {
+        self.targets.as_ref().map_or(0, |t| {
+            MTLResource::allocatedSize(&*t.ms_color) + MTLResource::allocatedSize(&*t.ms_depth)
+        })
     }
     fn encode(
         &mut self,
@@ -1182,6 +1390,13 @@ impl Renderer {
         paint: &[egui::ClippedPrimitive],
         ppp: f32,
     ) -> Result<Metal<dyn MTLCommandBuffer>> {
+        // Every submission uses only this slot. No cached map points into an
+        // earlier slot, so waiting for the oldest frame fences all CPU writes.
+        while self.inflight.len() >= self.dynamic_slots.len() {
+            self.wait_oldest()?;
+        }
+        self.dynamic_slot = (self.dynamic_slot + 1) % self.dynamic_slots.len();
+        self.dynamic_allocations = 0;
         let w = target.width();
         let h = target.height();
         let ultra = uniforms.options[3] > 0.5;
@@ -1197,7 +1412,31 @@ impl Renderer {
             },
         );
         let command = self.queue.commandBuffer().context("Create frame command")?;
-        self.prepare_visibility(uniforms, &frame)?;
+        let shadow_key = if self.probe.cache_shadows {
+            Some(ShadowKey {
+                camera: uniforms.camera,
+                shadow: frame.shadow,
+                correction: frame.correction,
+                torus: uniforms.options[0] > 0.5,
+                coverage: self.coverage.revision,
+                draw_modes: [
+                    self.probe.grouped_quads,
+                    self.probe.compact_faces,
+                    self.probe.fine_culling,
+                    self.probe.hierarchical_culling,
+                    self.probe.skip_far,
+                ],
+                scene_revision: self.shadow_revision,
+            })
+        } else {
+            None
+        };
+        self.shadow_cache_hit = shadow_key.is_some() && shadow_key == self.shadow_key;
+        let render_shadow = ultra
+            && uniforms.options[1] > 0.5
+            && !self.probe.freeze_shadow
+            && !self.shadow_cache_hit;
+        self.prepare_visibility(uniforms, &frame, render_shadow)?;
         let legacy =
             !self.probe.grouped_quads && !self.probe.compact_faces && !self.probe.fine_culling;
         let targets = self.targets.as_ref().unwrap();
@@ -1256,7 +1495,24 @@ impl Renderer {
             } else {
                 0.0
             };
-            bind(encoder, &u);
+            if self.probe.reuse_buffers {
+                // The frame and torus tables are identical for every draw in
+                // this pass; only the model and per-draw lattice mode change.
+                unsafe {
+                    encoder.setVertexBytes_length_atIndex(
+                        ptr(std::slice::from_ref(&u)),
+                        std::mem::size_of::<Uniforms>(),
+                        1,
+                    );
+                    encoder.setFragmentBytes_length_atIndex(
+                        ptr(std::slice::from_ref(&u)),
+                        std::mem::size_of::<Uniforms>(),
+                        1,
+                    );
+                }
+            } else {
+                bind(encoder, &u);
+            }
             unsafe {
                 let data = if mesh.packed && !compact {
                     mesh.reference.as_ref().unwrap()
@@ -1271,15 +1527,28 @@ impl Renderer {
                 );
                 encoder.setVertexBuffer_offset_atIndex(
                     Some(if culled {
-                        map.buffer.as_ref().unwrap()
+                        if self.probe.reuse_buffers {
+                            self.dynamic_slots[self.dynamic_slot]
+                                .visibility
+                                .as_ref()
+                                .unwrap()
+                        } else {
+                            map.buffer.as_ref().unwrap()
+                        }
                     } else {
                         &self.quad_indices
                     }),
-                    0,
+                    if culled && self.probe.reuse_buffers {
+                        map.offset
+                    } else {
+                        0
+                    },
                     6,
                 );
-                encoder.setVertexBuffer_offset_atIndex(Some(&self.theta_table), 0, 3);
-                encoder.setVertexBuffer_offset_atIndex(Some(&self.phi_table), 0, 4);
+                if !self.probe.reuse_buffers {
+                    encoder.setVertexBuffer_offset_atIndex(Some(&self.theta_table), 0, 3);
+                    encoder.setVertexBuffer_offset_atIndex(Some(&self.phi_table), 0, 4);
+                }
                 encoder.drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset_instanceCount(MTLPrimitiveType::Triangle,6*group,MTLIndexType::UInt16,&self.quad_indices,0,slots.div_ceil(group));
             }
             faces
@@ -1312,7 +1581,14 @@ impl Renderer {
         };
         let mut shadow_faces = 0;
         let mut shadow_draws = 0;
-        if ultra && uniforms.options[1] > 0.5 && !self.probe.freeze_shadow {
+        let bind_pass = |encoder: &ProtocolObject<dyn MTLRenderCommandEncoder>| {
+            bind(encoder, &uniforms);
+            unsafe {
+                encoder.setVertexBuffer_offset_atIndex(Some(&self.theta_table), 0, 3);
+                encoder.setVertexBuffer_offset_atIndex(Some(&self.phi_table), 0, 4);
+            }
+        };
+        if render_shadow {
             let pass = MTLRenderPassDescriptor::new();
             let d = pass.depthAttachment();
             d.setTexture(Some(&self.shadow_map));
@@ -1322,6 +1598,9 @@ impl Renderer {
             let encoder = command
                 .renderCommandEncoderWithDescriptor(&pass)
                 .context("Shadow encoder")?;
+            if self.probe.reuse_buffers {
+                bind_pass(&encoder);
+            }
             encoder.setCullMode(MTLCullMode::None);
             encoder.setDepthStencilState(Some(&self.depth_state));
             encoder.setRenderPipelineState(if legacy {
@@ -1333,9 +1612,7 @@ impl Renderer {
                 encoder.setFragmentTexture_atIndex(Some(&self.mask), 1);
             }
             for (key, mesh) in &self.meshes {
-                if !key.starts_with("avatar:hand")
-                    && !key.starts_with("preview:")
-                    && !key.ends_with(":alpha")
+                if casts_shadow(key)
                     && !(self.probe.skip_far && key.starts_with("far:"))
                     && visible(mesh, true)
                 {
@@ -1349,6 +1626,7 @@ impl Renderer {
             shadow_faces += self.replay.iter().map(|m| m.count / 6).sum::<usize>();
             shadow_draws += self.replay.len();
             encoder.endEncoding();
+            self.shadow_key = shadow_key;
         }
         self.shadow_faces = shadow_faces;
         self.shadow_draws = shadow_draws;
@@ -1382,6 +1660,9 @@ impl Renderer {
             &self.baseline[3]
         });
         bind(&encoder, &uniforms);
+        if self.probe.reuse_buffers {
+            bind_pass(&encoder);
+        }
         unsafe {
             encoder.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3);
         }
@@ -1532,6 +1813,25 @@ impl Renderer {
         if paint.is_empty() {
             return Ok(command);
         }
+        if self.probe.reuse_buffers {
+            let bytes = paint
+                .iter()
+                .map(|p| {
+                    if let egui::epaint::Primitive::Mesh(mesh) = &p.primitive {
+                        (mesh.vertices.len() * std::mem::size_of::<UiVertex>())
+                            .next_multiple_of(256)
+                            + (mesh.indices.len() * 4).next_multiple_of(256)
+                    } else {
+                        0
+                    }
+                })
+                .sum();
+            self.dynamic_allocations += usize::from(grow_buffer(
+                &self.device,
+                &mut self.dynamic_slots[self.dynamic_slot].ui,
+                bytes,
+            )?);
+        }
         let pass = MTLRenderPassDescriptor::new();
         let color = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
         color.setTexture(Some(target));
@@ -1547,6 +1847,7 @@ impl Renderer {
             encoder.setVertexBytes_length_atIndex(ptr(&screen), 8, 1);
             encoder.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
         }
+        let mut ui_offset = 0;
         for primitive in paint {
             let egui::epaint::Primitive::Mesh(mesh) = &primitive.primitive else {
                 continue;
@@ -1565,17 +1866,45 @@ impl Renderer {
             if right <= x || bottom <= y {
                 continue;
             }
-            let vertices: Vec<UiVertex> = mesh
-                .vertices
-                .iter()
-                .map(|v| UiVertex {
-                    pos: [v.pos.x, v.pos.y],
-                    uv: [v.uv.x, v.uv.y],
-                    color: u32::from_le_bytes(v.color.to_array()),
-                })
-                .collect();
-            let vb = self.buffer(bytemuck::cast_slice(&vertices))?;
-            let ib = self.buffer(bytemuck::cast_slice(&mesh.indices))?;
+            let vertex = |v: &egui::epaint::Vertex| UiVertex {
+                pos: [v.pos.x, v.pos.y],
+                uv: [v.uv.x, v.uv.y],
+                color: u32::from_le_bytes(v.color.to_array()),
+            };
+            let (vb, ib, vertex_offset, index_offset) = if self.probe.reuse_buffers {
+                let buffer = self.dynamic_slots[self.dynamic_slot].ui.as_ref().unwrap();
+                let vertex_offset = ui_offset;
+                let index_offset = vertex_offset
+                    + (mesh.vertices.len() * std::mem::size_of::<UiVertex>()).next_multiple_of(256);
+                ui_offset = index_offset + (mesh.indices.len() * 4).next_multiple_of(256);
+                unsafe {
+                    let out = buffer
+                        .contents()
+                        .as_ptr()
+                        .cast::<u8>()
+                        .add(vertex_offset)
+                        .cast::<UiVertex>();
+                    for (i, v) in mesh.vertices.iter().enumerate() {
+                        out.add(i).write(vertex(v));
+                    }
+                    let source = bytemuck::cast_slice::<u32, u8>(&mesh.indices);
+                    std::ptr::copy_nonoverlapping(
+                        source.as_ptr(),
+                        buffer.contents().as_ptr().cast::<u8>().add(index_offset),
+                        source.len(),
+                    );
+                }
+                (buffer.clone(), buffer.clone(), vertex_offset, index_offset)
+            } else {
+                let vertices: Vec<_> = mesh.vertices.iter().map(vertex).collect();
+                self.dynamic_allocations += 2;
+                (
+                    self.buffer(bytemuck::cast_slice(&vertices))?,
+                    self.buffer(bytemuck::cast_slice(&mesh.indices))?,
+                    0,
+                    0,
+                )
+            };
             encoder.setScissorRect(MTLScissorRect {
                 x,
                 y,
@@ -1583,14 +1912,14 @@ impl Renderer {
                 height: bottom - y,
             });
             unsafe {
-                encoder.setVertexBuffer_offset_atIndex(Some(&vb), 0, 0);
+                encoder.setVertexBuffer_offset_atIndex(Some(&vb), vertex_offset, 0);
                 encoder.setFragmentTexture_atIndex(Some(texture), 0);
                 encoder.drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(
                     MTLPrimitiveType::Triangle,
                     mesh.indices.len(),
                     MTLIndexType::UInt32,
                     &ib,
-                    0,
+                    index_offset,
                 );
             }
         }
@@ -1602,7 +1931,7 @@ impl Renderer {
             self.textures.remove(id);
         }
     }
-    fn write_png(&self, texture: &ProtocolObject<dyn MTLTexture>, path: &Path) -> Result<()> {
+    fn read_pixels(texture: &ProtocolObject<dyn MTLTexture>) -> Vec<u8> {
         let w = texture.width();
         let h = texture.height();
         let mut data = vec![0_u8; w * h * 4];
@@ -1624,6 +1953,12 @@ impl Renderer {
         for pixel in data.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
+        data
+    }
+    fn write_png(&self, texture: &ProtocolObject<dyn MTLTexture>, path: &Path) -> Result<()> {
+        let w = texture.width();
+        let h = texture.height();
+        let data = Self::read_pixels(texture);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -1687,13 +2022,31 @@ fn texture(
     format: MTLPixelFormat,
     samples: usize,
 ) -> Result<Metal<dyn MTLTexture>> {
+    texture_with_storage(device, w, h, format, samples, false)
+}
+fn texture_with_storage(
+    device: &ProtocolObject<dyn MTLDevice>,
+    w: usize,
+    h: usize,
+    format: MTLPixelFormat,
+    samples: usize,
+    memoryless: bool,
+) -> Result<Metal<dyn MTLTexture>> {
     let d = unsafe {
         MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
             format, w, h, false,
         )
     };
-    d.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
-    d.setStorageMode(MTLStorageMode::Private);
+    d.setUsage(if memoryless {
+        MTLTextureUsage::RenderTarget
+    } else {
+        MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead
+    });
+    d.setStorageMode(if memoryless {
+        MTLStorageMode::Memoryless
+    } else {
+        MTLStorageMode::Private
+    });
     if samples > 1 {
         d.setTextureType(MTLTextureType::Type2DMultisample);
         unsafe {

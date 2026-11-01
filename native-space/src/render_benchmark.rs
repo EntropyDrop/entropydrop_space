@@ -14,12 +14,27 @@ pub fn optimized(
     root: &Path,
     world: &str,
     lod: serde_json::Value,
-    culling_only: bool,
+    mode: u8,
 ) -> Result<()> {
     use crate::metal_renderer::RenderProbe;
     use space_native::geometry;
-    let prefix = if culling_only { "culling" } else { "optimized" };
-    let legacy = if culling_only {
+    let culling_only = mode == 3;
+    let frame_reuse = mode == 4;
+    let prefix = if frame_reuse {
+        "frame-reuse"
+    } else if culling_only {
+        "culling"
+    } else {
+        "optimized"
+    };
+    let legacy = if frame_reuse {
+        RenderProbe {
+            cache_shadows: false,
+            reuse_buffers: false,
+            memoryless_msaa: false,
+            ..Default::default()
+        }
+    } else if culling_only {
         RenderProbe {
             hierarchical_culling: false,
             ..Default::default()
@@ -46,15 +61,35 @@ pub fn optimized(
         ),
         ("optimized", RenderProbe::default()),
     ];
-    let variants = if culling_only {
+    let variants = if frame_reuse {
+        vec![
+            ("previous", legacy),
+            (
+                "buffers",
+                RenderProbe {
+                    reuse_buffers: true,
+                    ..legacy
+                },
+            ),
+            (
+                "shadows",
+                RenderProbe {
+                    cache_shadows: true,
+                    ..legacy
+                },
+            ),
+            ("optimized", RenderProbe::default()),
+        ]
+    } else if culling_only {
         vec![("linear", legacy), ("hierarchy", RenderProbe::default())]
     } else {
         variants.to_vec()
     };
+    let rounds = if frame_reuse { 4 } else { 2 };
     let mut cases = Vec::new();
     for size in [[1280, 720], [2560, 1440]] {
-        for round in 0..2 {
-            let order: Vec<_> = if round == 0 {
+        for round in 0..rounds {
+            let order: Vec<_> = if round % 2 == 0 {
                 variants.iter().collect()
             } else {
                 variants.iter().rev().collect()
@@ -63,7 +98,7 @@ pub fn optimized(
                 renderer.probe = probe;
                 let (gpu, wall) = renderer.benchmark(uniforms, size, 24, 120)?;
                 let row = serde_json::json!({"mode":name,"round":round,"resolution":size,"gpu_ms":summary(&gpu),"serial_frame_ms":summary(&wall),
-                    "raw_gpu_ms":gpu,"raw_serial_frame_ms":wall,"submitted_faces":renderer.visible_faces,"shadow_faces":renderer.shadow_faces,"scene_draws":renderer.draw_calls,"shadow_draws":renderer.shadow_draws});
+                    "raw_gpu_ms":gpu,"raw_serial_frame_ms":wall,"submitted_faces":renderer.visible_faces,"shadow_faces":renderer.shadow_faces,"scene_draws":renderer.draw_calls,"shadow_draws":renderer.shadow_draws,"dynamic_allocations":renderer.benchmark_allocations,"shadow_cache_hits":renderer.benchmark_shadow_hits,"msaa_attachment_bytes":renderer.msaa_attachment_bytes()});
                 println!(
                     "Optimize {size:?} {round} {name}: GPU {:.3}, serial {:.3}, faces {}/{}",
                     row["gpu_ms"]["p50"].as_f64().unwrap(),
@@ -138,38 +173,79 @@ pub fn optimized(
         })
         .collect();
     let mut moving = Vec::new();
-    for size in if culling_only {
-        vec![[1280, 720], [2560, 1440]]
+    let ui = if frame_reuse {
+        renderer.benchmark_ui()?
     } else {
-        vec![[1280, 720]]
-    } {
-        for round in 0..2 {
-            let variants = [
-                (if culling_only { "linear" } else { "legacy" }, legacy),
-                (
-                    if culling_only {
-                        "hierarchy"
-                    } else {
-                        "optimized"
-                    },
-                    RenderProbe::default(),
-                ),
-            ];
-            for i in if round == 0 { [0, 1] } else { [1, 0] } {
-                let (mode, options) = variants[i];
-                renderer.probe = options;
-                let (gpu, wall, cpu) = renderer.benchmark_path(&path, size)?;
-                println!(
-                    "Moving {size:?} {round} {mode}: GPU {:.3}, encode {:.3}, serial {:.3}",
-                    summary(&gpu)["p50"].as_f64().unwrap(),
-                    summary(&cpu)["p50"].as_f64().unwrap(),
-                    summary(&wall)["p50"].as_f64().unwrap()
-                );
-                moving.push(serde_json::json!({"mode":mode,"round":round,"resolution":size,"gpu_ms":summary(&gpu),"cpu_encode_ms":summary(&cpu),"serial_frame_ms":summary(&wall),"raw_gpu_ms":gpu,"raw_cpu_encode_ms":cpu,"raw_serial_frame_ms":wall}));
+        Vec::new()
+    };
+    let still = vec![uniforms; 120];
+    let turn: Vec<_> = (0..120)
+        .map(|i| {
+            make(
+                eye,
+                glam::DQuat::from_rotation_y(
+                    (i as f64 / 120.0 * std::f64::consts::TAU).sin() * 0.5,
+                ) * direction,
+            )
+        })
+        .collect();
+    let paths = if frame_reuse {
+        vec![
+            ("stationary", &still),
+            ("turn", &turn),
+            ("moving", &path),
+            ("moving_ui", &path),
+        ]
+    } else {
+        vec![("moving", &path)]
+    };
+    for (motion, path) in paths {
+        for size in if culling_only || frame_reuse {
+            vec![[1280, 720], [2560, 1440]]
+        } else {
+            vec![[1280, 720]]
+        } {
+            for round in 0..rounds {
+                let variants = [
+                    (
+                        if frame_reuse {
+                            "previous"
+                        } else if culling_only {
+                            "linear"
+                        } else {
+                            "legacy"
+                        },
+                        legacy,
+                    ),
+                    (
+                        if culling_only {
+                            "hierarchy"
+                        } else {
+                            "optimized"
+                        },
+                        RenderProbe::default(),
+                    ),
+                ];
+                for i in if round % 2 == 0 { [0, 1] } else { [1, 0] } {
+                    let (mode, options) = variants[i];
+                    renderer.probe = options;
+                    let (gpu, wall, cpu) = renderer.benchmark_paint_path(
+                        path,
+                        size,
+                        if motion == "moving_ui" { &ui } else { &[] },
+                    )?;
+                    println!(
+                        "{motion} {size:?} {round} {mode}: GPU {:.3}, encode {:.3}, serial {:.3}",
+                        summary(&gpu)["p50"].as_f64().unwrap(),
+                        summary(&cpu)["p50"].as_f64().unwrap(),
+                        summary(&wall)["p50"].as_f64().unwrap()
+                    );
+                    moving.push(serde_json::json!({"motion":motion,"mode":mode,"round":round,"resolution":size,"gpu_ms":summary(&gpu),"cpu_encode_ms":summary(&cpu),"serial_frame_ms":summary(&wall),"raw_gpu_ms":gpu,"raw_cpu_encode_ms":cpu,"raw_serial_frame_ms":wall,"dynamic_allocations":renderer.benchmark_allocations,"shadow_cache_hits":renderer.benchmark_shadow_hits}));
+                }
             }
         }
     }
-    if culling_only {
+    if culling_only || frame_reuse {
         renderer.probe = RenderProbe {
             validate_visibility: true,
             ..Default::default()
@@ -178,7 +254,7 @@ pub fn optimized(
         renderer.benchmark_path(&path, [1280, 720])?;
     }
     renderer.probe = RenderProbe::default();
-    let resident = renderer.meshes.values().map(|m| m.faces).sum::<usize>();
+    let resident = renderer.resident_faces();
     let compact_bytes = renderer.geometry_bytes();
     // Exercise packed local coordinates, transformed objects, emission and
     // transparency without changing the timed production scene above.
@@ -209,10 +285,15 @@ pub fn optimized(
     for i in 0..4 {
         renderer.remove(&format!("probe-material-{i}"));
     }
+    let validation = if frame_reuse {
+        renderer.validate_frame_resources(uniforms, &ui)?
+    } else {
+        serde_json::Value::Null
+    };
     renderer.probe = RenderProbe::default();
     let report = serde_json::json!({"device":renderer.device.name().to_string(),"world":world,"lod":lod,"quality":"Ultra","msaa":4,"shadow_map":4096,"render_scale":1,
-        "resident_faces":resident,"old_face_bytes":resident*32,"compact_geometry_bytes":compact_bytes,"warmup_frames":24,"sample_frames":120,"rounds":2,"cases":cases,"images":images,"moving":moving,
-        "limitations":["Frozen 720p LOD selection; no LOD reduction between variants or output resolutions.","GPU and serial submit+completion timing, not displayed FPS; excludes UI, streaming, physics and PNG readback.","Movement cases rebuild visibility as the camera moves; still use fixed resident geometry.","Legacy buffers are allocated only for this diagnostic reference; reported compact bytes exclude visibility metadata/maps and render targets."]});
+        "resident_faces":resident,"old_face_bytes":resident*32,"compact_geometry_bytes":compact_bytes,"warmup_frames":24,"sample_frames":120,"rounds":rounds,"cases":cases,"images":images,"moving":moving,"frame_resource_validation":validation,
+        "limitations":["Frozen 720p LOD selection; no LOD reduction between variants or output resolutions.","GPU and serial submit+completion timing, not displayed FPS; excludes streaming, physics and PNG readback.","UI is excluded except for moving_ui, which includes fixed egui mesh uploads/drawing but not layout or tessellation.","Movement cases rebuild visibility as the camera moves; still use fixed resident geometry.","Legacy buffers are allocated only for this diagnostic reference; reported compact bytes exclude visibility metadata/maps and render targets."]});
     atomic_write(
         &root.join(format!("results/{world}-{prefix}-profile.json")),
         &serde_json::to_vec_pretty(&report)?,
@@ -328,7 +409,7 @@ pub fn profile(
     let report = serde_json::json!({
         "device":renderer.device.name().to_string(),"world":world,"lod":lod,
         "warmup_frames":24,"sample_frames_per_case":96,"rounds":2,
-        "resident_faces":renderer.meshes.values().map(|m|m.faces).sum::<usize>(),
+        "resident_faces":renderer.resident_faces(),
         "face_bytes":std::mem::size_of::<space_native::geometry::Face>(),
         "cases":cases,
         "limitations":[

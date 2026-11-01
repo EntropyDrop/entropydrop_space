@@ -16,13 +16,18 @@ fn main() -> anyhow::Result<()> {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
     let world = value("--world=").unwrap_or_else(|| "aether-archipelago".into());
+    if args.iter().any(|a| a == "--validate-sky") {
+        return metal_renderer::Renderer::new(None)?.validate_sky(&root.join("results"));
+    }
     if args.iter().any(|a| a == "--benchmark") {
         let path = value("--matched=")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| root.join("../godot-space/matched-lod-fine/data"));
         return render_benchmark::run(&root, &path);
     }
-    let profile_render = if args.iter().any(|a| a == "--profile-culling") {
+    let profile_render = if args.iter().any(|a| a == "--profile-frame-reuse") {
+        Some(4)
+    } else if args.iter().any(|a| a == "--profile-culling") {
         Some(3)
     } else if args.iter().any(|a| a == "--profile-optimized") {
         Some(2)
@@ -183,7 +188,7 @@ fn smoke(
                 root,
                 name,
                 lod_stats,
-                mode == 3,
+                mode,
             );
         }
         return render_benchmark::profile(&mut renderer, uniform, root, name, lod_stats, mode == 1);
@@ -197,7 +202,7 @@ fn smoke(
         serde_json::Value::Null
     };
     renderer.draw_offscreen(uniform, [1280, 720], &path)?;
-    let report = serde_json::json!({"world":name,"renderer":"Metal","device":renderer.device.name().to_string(),"chunks":world.chunks.len(),"near_faces":faces,"submitted_faces":renderer.visible_faces,"triangles":renderer.visible_faces*2,"resolution":[1280,720],"quality":"Ultra / full resolution","msaa":4,"shadow_map":4096,"draw_calls":renderer.draw_calls,"gpu_ms":renderer.gpu_ms,"mesh_and_upload_ms":mesh_and_upload_ms,"resident_faces":renderer.meshes.values().map(|m|m.faces).sum::<usize>(),"lod":lod_stats,"timing":timing,"edit_undo_redo":true,"entity_runtime":true,"entities":frame.entities.len(),"image":path,"note":"Smoke validation; not a matched-workload performance benchmark"});
+    let report = serde_json::json!({"world":name,"renderer":"Metal","device":renderer.device.name().to_string(),"chunks":world.chunks.len(),"near_faces":faces,"submitted_faces":renderer.visible_faces,"triangles":renderer.visible_faces*2,"resolution":[1280,720],"quality":"Ultra / full resolution","msaa":4,"shadow_map":4096,"draw_calls":renderer.draw_calls,"gpu_ms":renderer.gpu_ms,"mesh_and_upload_ms":mesh_and_upload_ms,"resident_faces":renderer.resident_faces(),"lod":lod_stats,"timing":timing,"edit_undo_redo":true,"entity_runtime":true,"entities":frame.entities.len(),"image":path,"note":"Smoke validation; not a matched-workload performance benchmark"});
     space_native::storage::atomic_write(
         &root.join("results").join(format!("{name}-{suffix}.json")),
         &serde_json::to_vec_pretty(&report)?,

@@ -4,7 +4,7 @@ using namespace metal;
 struct Face { packed_float3 origin; uint color; float2 extent; uint axis; uint padding; };
 struct Draw { float4 origin; uint4 counts; };
 struct Uniforms { float4x4 clip; float4x4 model; float4 camera; float4 options; };
-struct Frame { float4x4 inverse_clip, correction, shadow, inverse_projection; float4 eye, up, east, north, sun, fill, resolution; };
+struct Frame { float4x4 inverse_direction_clip, correction, shadow, inverse_projection; float4 eye, up, east, north, sun, fill, resolution; };
 struct Out { float4 position [[position]]; float3 color, world, normal; float2 mask; float alpha, emission, smooth_normal; };
 float3 linear_rgb(float3 c) { return select(c/12.92,pow((c+0.055)/1.055,float3(2.4)),c>0.04045); }
 float3 srgb(float3 c) { return select(12.92*c,1.055*pow(max(c,0.0),float3(1.0/2.4))-.055,c>.0031308); }
@@ -97,13 +97,14 @@ fragment float4 voxel_fragment(Out in [[stage_in]],constant Uniforms &u [[buffer
 }
 struct Full { float4 position [[position]]; float2 uv; };
 vertex Full fullscreen(uint v [[vertex_id]]) {Full o;o.uv=float2((v<<1)&2,v&2);o.position=float4(o.uv*float2(2,-2)+float2(-1,1),1,1);return o;}
-float3 world_at(float2 uv,float depth,constant Frame &f){float4 p=f.inverse_clip*float4(uv*float2(2,-2)+float2(-1,1),depth,1);return p.xyz/p.w;}
+// Translation-free world direction: no large world coordinates or eye subtraction.
+float3 direction_at(float2 uv,constant Frame &f){return normalize((f.inverse_direction_clip*float4(uv*float2(2,-2)+float2(-1,1),1,1)).xyz);}
 float hash(float2 p){return fract(sin(dot(p,float2(127.1,311.7)))*43758.5453);}
 float noise(float2 p){float2 c=floor(p),a=fract(p);a=a*a*(3-2*a);return mix(mix(hash(c),hash(c+float2(1,0)),a.x),mix(hash(c+float2(0,1)),hash(c+1),a.x),a.y);}
 float fbm(float2 p){float a=0,w=.5;for(int i=0;i<5;i++){a+=noise(p)*w;p=float2(p.x*1.6+p.y*1.2,p.x*-1.2+p.y*1.6)+float2(11.3,7.1);w*=.5;}return a;}
 fragment float4 sky_fragment(Full in [[stage_in]],constant Uniforms &u [[buffer(1)]],constant Frame &f [[buffer(2)]]) {
     if(u.options.w<.5)return float4(linear_rgb(float3(18,24,32)/255),1);
-    float3 dir=normalize(world_at(in.uv,.9999,f)-f.eye.xyz),sun=f.sun.xyz;float h=dot(dir,f.up.xyz),sd=max(dot(dir,sun),0.0);
+    float3 dir=direction_at(in.uv,f),sun=f.sun.xyz;float h=dot(dir,f.up.xyz),sd=max(dot(dir,sun),0.0);
     float3 c=mix(float3(.35,.58,.94),float3(.018,.09,.34),pow(max(h,0.0),.45));
     c+=float3(1,.56,.22)*pow(sd,8.0)*.26+float3(1,.69,.35)*pow(sd,96.0)*1.35+float3(1,.86,.59)*smoothstep(.99945,.99978,sd)*12;
     if(h>.015){float2 wind=float2(.008,.003)*f.resolution.z;
@@ -130,13 +131,13 @@ fragment float4 secondary_fragment(Full in [[stage_in]],constant Uniforms &u [[b
             if(all(suv>=0)&&all(suv<=1)&&depth.sample(sample_nearest,suv)<.999999){float3 q=view_at(suv,depth,f),delta=q-p;float dist=length(delta);if(-q.z>=.8)occlusion+=max(dot(n,delta/max(dist,.0001))-.2,0.0)*(1-smoothstep(.15,1.3,dist));}}
         ao=clamp(1-occlusion*2/16,.6,1.0);
     }
-    float4 sunclip=u.clip*float4(f.eye.xyz+f.sun.xyz*1000,1);
+    float4 sunclip=u.clip*float4(f.sun.xyz,0);
     if(sunclip.w>0){float2 sun=sunclip.xy/sunclip.w,sp=sun*float2(.5,-.5)+.5,q=uv,step=(sp-uv)*(.94/24);float decay=1,visibility=1-smoothstep(.9,1.6,max(abs(sun.x),abs(sun.y)));
         for(int i=0;i<24;i++){q+=step;if(all(q>=0)&&all(q<=1)){float proximity=max(1-length((q-sp)*float2(f.resolution.x/f.resolution.y,1))/.85,0.0);float transmission=smoothstep(.3,1.4,dot(scene.sample(sample_linear,q).rgb,float3(.2126,.7152,.0722)));shaft+=(depth.sample(sample_nearest,q)>=.999999?1:0)*proximity*proximity*decay*transmission;}decay*=.965;}shaft*=.014*visibility;}
     return float4(ao,shaft,log2(max(-p.z,0.0)+1),1);
 }
 fragment float4 atmosphere_fragment(Full in [[stage_in]],constant Frame &f [[buffer(2)]],texture2d<float> scene [[texture(0)]],depth2d<float> depth [[texture(1)]],texture2d<float> secondary [[texture(2)]]) {
-    float4 source=scene.sample(sample_linear,in.uv);float3 c=source.rgb,p=view_at(in.uv,depth,f),wp=world_at(in.uv,depth.sample(sample_nearest,in.uv),f),ray=normalize(wp-f.eye.xyz);float coverage=clamp(source.a-1,0.0,1.0);
+    float4 source=scene.sample(sample_linear,in.uv);float3 c=source.rgb,p=view_at(in.uv,depth,f),ray=direction_at(in.uv,f);float coverage=clamp(source.a-1,0.0,1.0);
     float2 size=float2(secondary.get_width(),secondary.get_height()),grid=in.uv*size-.5,base=floor(grid),fraction=fract(grid);float d=log2(max(-p.z,0.0)+1),ao=0,weight=0,shaft=0;
     for(int y=0;y<2;y++)for(int x=0;x<2;x++){float2 offset=float2(x,y);float3 effect=secondary.sample(sample_nearest,(base+offset+.5)/size).rgb;float2 blend=mix(1-fraction,fraction,offset);float spatial=blend.x*blend.y,w=spatial*exp2(abs(effect.b-d)*-128);ao+=effect.r*w;weight+=w;shaft+=effect.g*spatial;}
     ao=weight>.0001?ao/weight:1;

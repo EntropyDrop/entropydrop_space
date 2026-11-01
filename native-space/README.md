@@ -21,6 +21,8 @@ Space 的 Rust 桌面客户端，当前使用 **winit + egui + 直接 Metal 渲�
 
 默认启用每实例 32 面成组绘制、远景每 16 面的保守剔除和无损 16 字节面记录；移动时使用有序层级筛选、4 个固定工作线程和复用的 CPU 可见列表。主视角与阴影分别计算可见列表，不改变分辨率、LOD 或 Ultra 特效；无法无损打包的几何保留原格式。
 
+阴影按输入精确缓存：静止和原地转头可以复用，相机位置、地形/实体几何、实体姿态、投影或远近遮罩变化时更新。可见列表与 UI 使用三帧独立 Metal 缓冲，GPU 完成后才覆写；未变化的列表在对应帧槽内免重复复制。每帧公共参数按绘制通道绑定一次。Apple GPU 上的 4× MSAA 临时附件使用片上 memoryless 存储，仍保留原分辨率和颜色/深度 resolve。
+
 脚本会安装隔离在 `.toolchain/` 中的 Rust 工具链、下载锁定的 Cargo 依赖、准备出生点地形，再构建和打开 `build/Space Native.app`。已有构建时可以直接打开该应用。
 
 依赖：Apple Silicon macOS、Xcode Command Line Tools、仓库已安装的 npm 依赖、Node（与 engine 要求一致：24.22.1 或 26.12.1 系列）、`protoc`。本机已用 Rust 1.99.1 和 Apple M1 Pro 构建验证。Metal 着色器在运行时编译，不需要完整 Xcode 的离线 Metal 编译器。
@@ -89,6 +91,22 @@ native-space/target/release/space-native --profile-culling --world=aether-archip
 ```
 
 输出 `results/aether-archipelago-culling-profile.json`；对比上一版线性细粒度剔除和当前层级/并行路径，包含两轮移动采样及逐帧有序可见列表断言。
+
+阴影与帧资源复用的同条件对照：
+
+```sh
+native-space/target/release/space-native --profile-frame-reuse --world=aether-archipelago --lod-zones=128
+```
+
+输出 `results/aether-archipelago-frame-reuse-profile.json`，分别比较静止、原地转头、平移/转向、带固定 UI 的移动场景；包含三帧在途缓冲回归和阴影失效图像断言。UI 场景计入 GPU 绘制与缓冲上传，未计入 egui 布局/细分时间。
+
+天空移动稳定性回归（无需加载世界）：
+
+```sh
+native-space/target/release/space-native --validate-sky
+```
+
+冻结云动画，在平面、环面以及两个周期接缝连续平移 128 帧，检查天空图像保持稳定，同时确认转头仍改变天空视角。保留完整 Ultra 后处理，输出 `results/sky-validation.json`；超过浮点/量化误差容限时以非零状态退出。
 
 ## 目录与数据边界
 

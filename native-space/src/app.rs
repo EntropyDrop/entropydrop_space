@@ -449,9 +449,7 @@ impl Game {
                             }
                         }
                     }
-                    renderer
-                        .meshes
-                        .retain(|key, _| !key.starts_with("entity:") || keep.contains(key));
+                    renderer.retain_meshes(|key| !key.starts_with("entity:") || keep.contains(key));
                     self.decoration_colors.retain(|key, _| keep.contains(key));
                     // New local user edits win over a simulation reply based on
                     // an older snapshot. The next request repairs worker state.
@@ -1051,7 +1049,7 @@ impl Application {
         if let Some(name) = game.pending_world.take() {
             match game.save().and_then(|_| Game::open(&self.root, &name)) {
                 Ok(next) => {
-                    renderer.meshes.clear();
+                    renderer.retain_meshes(|_| false);
                     *game = next;
                     self.world_name = name;
                 }

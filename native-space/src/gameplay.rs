@@ -293,7 +293,7 @@ impl Game {
         self.update_grab();
         let preview = self.active_tool == HotbarTool::Hammer && self.editor.clipboard.is_some();
         if self.preview_dirty {
-            renderer.meshes.retain(|k, _| !k.starts_with("preview:"));
+            renderer.retain_meshes(|k| !k.starts_with("preview:"));
             self.preview_parts.clear();
             if preview {
                 let r = self.editor.clipboard.as_ref().unwrap();
@@ -317,11 +317,11 @@ impl Game {
             }
         }
         if !preview && !self.preview_parts.is_empty() {
-            renderer.meshes.retain(|k, _| !k.starts_with("preview:"));
+            renderer.retain_meshes(|k| !k.starts_with("preview:"));
             self.preview_parts.clear();
         }
         if self.avatar_mode != Some(self.perspective) {
-            renderer.meshes.retain(|k, _| !k.starts_with("avatar:"));
+            renderer.retain_meshes(|k| !k.starts_with("avatar:"));
             if self.perspective == 0 {
                 renderer.upload(
                     "avatar:hand".into(),
