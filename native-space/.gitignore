@@ -1,0 +1,9 @@
+/.toolchain/
+/target/
+/data/
+/build/
+/results/
+/saves/
+/exports/
+*.log
+.DS_Store
