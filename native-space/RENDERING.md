@@ -310,3 +310,40 @@ CPU 指标是渲染线程准备/编码的经过时间，含等待工作线程，
 七组 A/B 图像全部逐像素一致；144 帧移动的主视角/阴影有序可见列表与线性参考一致；36 帧三帧在途缓冲与 20 项阴影失效检查均通过且图像一致。30 个 Rust 测试、4 个 Node 测试、格式、Clippy、TypeScript 与 128 帧天空稳定性回归通过。原始采样见 [submission-profile.json](results/aether-archipelago-submission-profile.json)，结构化验收见 [submission-validation.json](results/submission-validation.json)。
 
 最终应用包已构建并打开。窗口确认 1908×2018 原生分辨率、100% 比例、4× MSAA、4096 阴影和全部 Ultra 特效；检查飞行、视角切换、默认皮肤、天空、工具栏与后台区域加载，随后恢复第一人称。已有存档中的地形编辑数在验收前后均为 60，未新增地形编辑。应用保持打开；[窗口截图](results/submission-window.png)用于功能验收，不纳入性能对照。
+
+## 2026-11-02: leaf and distance proofs
+
+The ordered hierarchy now carries unresolved plane/facing bits into leaf tests.
+An additional bit proves that every leaf is outside the camera-local nonlinear
+blend. Nodes with that proof and no remaining facing test skip distance work.
+Every unresolved test keeps the previous arithmetic and thresholds. Scene
+quality, resolution, MSAA, shadow map, draw order, LOD and shaders are unchanged.
+`RenderProbe.leaf_cull_proofs = false` retains the previous traversal.
+
+`--profile-leaves --world=aether-archipelago --lod-zones=128` compares only this
+change with the previous defaults. Final paired run: M1 Pro, Ultra 100%, 4x MSAA,
+4096 shadows, 11,239,907 resident faces, frozen 720p LOD. Each variant has 480
+samples per case, in 20 balanced short batches with six warmup frames per batch.
+Builds and other GPU benchmarks were stopped before the final run.
+
+| Case | Resolution | Previous CPU encode ms | Current CPU encode ms | Reduction |
+|---|---|---:|---:|---:|
+| Stationary | 1280x720 | 0.3072 | 0.3119 | -1.5% |
+| Stationary | 2560x1440 | 0.3656 | 0.3614 | 1.1% |
+| Turn | 1280x720 | 0.6995 | 0.6757 | 3.4% |
+| Turn | 2560x1440 | 0.7412 | 0.7220 | 2.6% |
+| Moving | 1280x720 | 0.8511 | 0.8534 | -0.3% |
+| Moving | 2560x1440 | 0.8885 | 0.8807 | 0.9% |
+| Moving with UI | 1280x720 | 0.8692 | 0.8386 | 3.5% |
+| Moving with UI | 2560x1440 | 0.8833 | 0.8350 | 5.5% |
+
+These are small CPU savings, not evidence of a large FPS gain. GPU times are
+essentially unchanged; serial frame medians range from 2.6% slower to 1.2%
+faster. The preliminary run is retained rather than selecting its larger gains.
+Raw final results: `results/aether-archipelago-leaves-profile.json`.
+
+Validation: seven paired images are pixel-identical; 144 moving main/shadow
+selections match the linear oracle; 36 queued frames and 20 shadow mutation
+cases have zero differing pixels. Rust's randomized hierarchy test also compares
+the previous leaf traversal explicitly. The full check script passes (30 Rust
+and four Node tests), and the sky regression is retained.

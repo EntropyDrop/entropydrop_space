@@ -136,3 +136,16 @@ native-space/target/release/space-native --profile-groups --world=aether-archipe
 `data/`、`saves/`、`exports/`、`results/`、`build/`、`target/` 和 `.toolchain/` 均为本目录内的生成内容。原生存档不覆盖浏览器或 Godot 数据。更换生成器源码会触发来源校验，不能直接把旧存档套到新地形上。
 
 实体脚本仍由现有 AssemblyScript/Wasm 沙箱执行，没有给脚本添加文件、进程或网络能力。适配器不监听 HTTP 端口；主进程通过有界 stdin/stdout 通道通信，脚本和物理不会阻塞 Metal 主线程。联网、账号和市场尚未接入。
+
+Further culling work (2026-11-02): ancestors pass proven planes, facing and
+camera-local blend bounds down to leaves. Distant nodes with proven facing skip
+distance calculations. Compare against the previous defaults with:
+
+```sh
+native-space/target/release/space-native --profile-leaves --world=aether-archipelago --lod-zones=128
+```
+
+In paired samples, turning CPU encode time falls 2.6–3.4% and moving with UI
+3.5–5.5%. Ordinary movement is essentially unchanged; no GPU improvement is
+established. Seven image pairs are pixel-identical. See `RENDERING.md` and the
+Web port report at `../client/docs/performance-native-port-2026-11-02.md`.

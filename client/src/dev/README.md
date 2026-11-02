@@ -1,5 +1,10 @@
 # Local rendering fixture
 
+The [native hierarchy port](../../docs/performance-native-port-2026-11-02.md)
+adds ordered sphere/cone traversal and lazy position caches to the packed arena.
+Use `tools/visibility-browser.html?trial=native` for Ultra A/B captures, moving
+repeats and identical-code controls against the previous linear cache.
+
 The [production visibility integration](../../docs/performance-visibility-integration-2026-10-27.md)
 now enables Fast CPU plus wider conservative reuse by default. Boundary, camera,
 projection and publication regression tests pass. The follow-up upload trial

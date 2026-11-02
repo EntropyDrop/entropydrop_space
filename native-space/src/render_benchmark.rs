@@ -71,9 +71,12 @@ pub fn optimized(
     use space_native::geometry;
     let culling_only = mode == 3;
     let frame_reuse = mode == 4;
-    let submission = mode == 5;
+    let leaves = mode == 7;
+    let submission = mode == 5 || leaves;
     let recent = frame_reuse || submission;
-    let prefix = if submission {
+    let prefix = if leaves {
+        "leaves"
+    } else if submission {
         "submission"
     } else if frame_reuse {
         "frame-reuse"
@@ -82,7 +85,12 @@ pub fn optimized(
     } else {
         "optimized"
     };
-    let legacy = if submission {
+    let legacy = if leaves {
+        RenderProbe {
+            leaf_cull_proofs: false,
+            ..Default::default()
+        }
+    } else if submission {
         RenderProbe {
             inherit_cull_proofs: false,
             quad_group: 32,

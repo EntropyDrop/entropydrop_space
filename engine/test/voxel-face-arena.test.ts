@@ -225,7 +225,7 @@ test('cached rotation tests preserve exact maps through position, coverage, mate
   const a = cullingFixture(true, true), b = cullingFixture(false, true);
   const textures: THREE.DataTexture[] = [];
   try {
-    a.tick(); b.tick(); const positionTests = a.arena.stats.positionBlockTests;
+    a.tick(); b.tick();
     for (let frame = 1; frame <= 70; frame++) {
       for (const f of [a, b]) {
         f.camera.rotation.y = frame * .13;
@@ -242,10 +242,10 @@ test('cached rotation tests preserve exact maps through position, coverage, mate
           f.tick(textures[f === a ? 0 : 1]);
         } else f.tick();
       }
-      for (const key of ['visibleFaces', 'backFaces', 'outsideFaces', 'coveredFaces', 'paddedFaces', 'draws'] as const)
+      for (const key of ['visibleFaces', 'coveredFaces', 'paddedFaces', 'draws'] as const)
         assert.equal(a.arena.stats[key], b.arena.stats[key], `${key} at frame ${frame}`);
       assert.deepEqual(a.arena.pages.map(p => p.map.array), b.arena.pages.map(p => p.map.array));
-      if (frame < 20) assert.equal(a.arena.stats.positionBlockTests, positionTests, 'rotation reuses position-only work');
+      if (frame < 20) assert.ok(a.arena.stats.positionBlockTests <= 96, 'rotation evaluates each lazy position cache at most once');
     }
     assert.equal(a.arena.stats.coveredFaces, 16 * 96, 'a new texture with the same version invalidates coverage');
     assert.ok(a.arena.stats.blockCacheBytes > 0);
@@ -624,4 +624,39 @@ test('incremental map uploads match full uploads through coverage, compaction an
     for (const f of fixtures) { f.arena.dispose(); f.coverage.dispose(); }
     setWorldProjection('torus');
   }
+});
+
+
+test('hierarchy switches restore exact ordered maps and release auxiliary metadata', () => {
+  const f = cullingFixture(true);
+  try {
+    f.tick();
+    const maps = f.arena.pages.map(p => p.map.array.slice()), bytes = f.arena.stats.blockCacheBytes;
+    for (const enabled of [false, true, false, true]) {
+      f.arena.setHierarchicalVisibilityEnabled(enabled); f.tick();
+      assert.deepEqual(f.arena.pages.map(p => p.map.array), maps);
+      if (enabled) assert.equal(f.arena.stats.blockCacheBytes, bytes);
+      else assert.ok(f.arena.stats.blockCacheBytes < bytes);
+    }
+  } finally { f.arena.dispose(); f.coverage.dispose(); assert.equal(f.arena.stats.blockCacheBytes, 0); }
+});
+
+test('hierarchical lists count partial tail blocks exactly through coverage and camera changes', () => {
+  const candidate = cullingFixture(true), reference = cullingFixture(false);
+  try {
+    for (const f of [candidate, reference]) f.mesh.geometry.instanceCount -= 9;
+    for (let frame = 0; frame < 36; frame++) {
+      for (const f of [candidate, reference]) {
+        f.camera.rotation.y = frame * .24;
+        f.camera.position.set(Math.sin(frame) * 100, 0, Math.cos(frame) * 100);
+        f.data[0] = frame % 3 === 0 ? 255 : frame % 3 === 1 ? 128 : 0;
+        f.coverage.needsUpdate = true; f.tick();
+      }
+      for (const key of ['visibleFaces', 'paddedFaces', 'coveredFaces', 'draws'] as const)
+        assert.equal(candidate.arena.stats[key], reference.arena.stats[key], `${frame}/${key}`);
+      const stats = candidate.arena.stats;
+      assert.equal(stats.visibleFaces + stats.backFaces + stats.outsideFaces + stats.coveredFaces, 96 * 16 - 9);
+      assert.deepEqual(candidate.arena.pages.map(p => p.map.array), reference.arena.pages.map(p => p.map.array));
+    }
+  } finally { for (const f of [candidate, reference]) { f.arena.dispose(); f.coverage.dispose(); } }
 });

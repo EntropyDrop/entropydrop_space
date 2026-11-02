@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { storage, vertexIndex, instanceIndex, uint, float, vec2, vec3, varying, min, uniform, wgslFn } from 'three/tsl';
 import { VOXEL_FACE_BLOCK, VOXEL_VISIBILITY_STRIDE } from './VoxelFaceVisibility.ts';
+import { VoxelVisibilityTree } from './VoxelVisibilityTree.ts';
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { orderVoxelPages } from './VoxelDrawOrder.ts';
 import { getWorldProjection, getWorldProjectionRevision } from '../torus/TorusWorld.ts';
@@ -53,7 +54,7 @@ const unpackColor = wgslFn('fn voxelArenaColor(value: u32) -> vec3<f32> { return
 type Range = { start: number; count: number };
 type BlockTests = { data: Float32Array; position: number; coverage: number;
   distance: Float64Array; facing: Uint8Array; covered: Uint8Array;
-  sphere: THREE.Sphere; view: number; planeMask: number; clusters?: VoxelVisibilityClusters };
+  sphere: THREE.Sphere; view: number; planeMask: number; tree?: VoxelVisibilityTree; treeView?: number; treeCoverage?: number; treeMasked?: boolean; coveredPrefix?: Uint32Array; clusters?: VoxelVisibilityClusters };
 type Entry = Range & { mesh: VoxelFaceMesh; geometry: THREE.InstancedBufferGeometry; page: Page; allocated: number; copied: number;
   attributes?: THREE.BufferAttribute[]; versions: number[]; origin: THREE.Vector3;
   visibility?: { map: Float32Array; blocks: number; faces: number; view: number; mask: number; masked: boolean;
@@ -115,6 +116,7 @@ export class VoxelFaceArena {
   private readonly lastViewCamera = new THREE.Vector3(Infinity, Infinity, Infinity);
   private readonly lastViewFrustum = new THREE.Frustum();
   private cachedBlockTests = true;
+  private hierarchicalVisibility = true;
   private flatBlockCulling = true;
   // DEV candidate until ordinary-frame comparisons establish a benefit.
   private visibilityClusterSize = 0;
@@ -146,6 +148,15 @@ export class VoxelFaceArena {
     this.cachedBlockTests = cached; this.resetView = true;
   }
   getViewOptimizations() { return { cached: this.cachedBlockTests }; }
+
+  /** Native hierarchy port; the linear cache remains an exact A/B reference. */
+  setHierarchicalVisibilityEnabled(enabled: boolean) {
+    if (this.hierarchicalVisibility === enabled) return;
+    this.hierarchicalVisibility = enabled;
+    this.positionEpoch++; this.viewEpoch++; this.resetView = this.visibilityDirty = true;
+    this.root.needsUpdate = true;
+  }
+  getHierarchicalVisibilityEnabled() { return this.hierarchicalVisibility; }
 
   /** Tighten only a stationary view; movement restores the conservative reuse guard immediately. */
   setTightIdleCullingEnabled(enabled: boolean) {
@@ -331,7 +342,7 @@ export class VoxelFaceArena {
     if (!this.cachedBlockTests || !this.visibilityEnabled || !data) return;
     let cache = entry.blockTests;
     if (!cache || cache.data !== data) {
-      if (cache) this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength + (cache.clusters?.bytes ?? 0);
+      if (cache) this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength + (cache.clusters?.bytes ?? 0) + (cache.tree?.bytes ?? 0) + (cache.coveredPrefix?.byteLength ?? 0);
       const blocks = Math.ceil(entry.count / BLOCK);
       cache = entry.blockTests = { data, position: -1, coverage: -1,
         distance: new Float64Array(blocks), facing: new Uint8Array(blocks), covered: new Uint8Array(blocks),
@@ -353,8 +364,21 @@ export class VoxelFaceArena {
       this.stats.blockCacheBytes += cache.clusters?.bytes ?? 0;
       cache.view = -1;
     }
+    // The optional surface proxy changes facing semantics; retain its original path.
+    const hierarchical = this.hierarchicalVisibility && !this.torusBackfaceCulling && !this.visibilityClusterSize
+      && data.length === cache.distance.length * VOXEL_VISIBILITY_STRIDE;
+    if (hierarchical && !cache.tree) {
+      cache.tree = new VoxelVisibilityTree(data); this.stats.blockCacheBytes += cache.tree.bytes;
+      cache.treeView = -1;
+      cache.coveredPrefix = new Uint32Array(cache.covered.length + 1);
+      for (let i = 0; i < cache.covered.length; i++) cache.coveredPrefix[i + 1] = cache.coveredPrefix[i] + cache.covered[i];
+      this.stats.blockCacheBytes += cache.coveredPrefix.byteLength;
+    } else if (!hierarchical && cache.tree) {
+      this.stats.blockCacheBytes -= cache.tree.bytes + (cache.coveredPrefix?.byteLength ?? 0); cache.tree = undefined; cache.coveredPrefix = undefined;
+      cache.position = -1; cache.view = -1;
+    }
     const count = Math.min(cache.distance.length, Math.floor(data.length / VOXEL_VISIBILITY_STRIDE));
-    if (cache.position !== this.positionEpoch) {
+    if (!hierarchical && cache.position !== this.positionEpoch) {
       const { x, y, z } = this.camera, { padding } = this.viewReuse;
       const viewFlattening = !this.flatBlockCulling || getWorldProjection() !== 'flat';
       const surface = this.torusBackfaceCulling && getWorldProjection() === 'torus'
@@ -373,7 +397,17 @@ export class VoxelFaceArena {
     if (masked && cache.coverage !== this.coverageEpoch) {
       for (let block = 0; block < count; block++) cache.covered[block] = this.coverage
         && voxelHandoffMode(this.coverage.image.data!, data, block * VOXEL_VISIBILITY_STRIDE + 8) === 2 ? 1 : 0;
+      if (cache.coveredPrefix) for (let i = 0; i < count; i++) cache.coveredPrefix[i + 1] = cache.coveredPrefix[i] + cache.covered[i];
       cache.coverage = this.coverageEpoch; this.stats.coverageBlockTests += count;
+    }
+    if (cache.tree) {
+      if (cache.treeView !== this.viewEpoch || cache.treeMasked !== masked || (masked && cache.treeCoverage !== this.coverageEpoch)) {
+        cache.tree.select(this.camera, this.frustum, this.viewReuse.padding, this.viewReuse.angular,
+          !this.flatBlockCulling || getWorldProjection() !== 'flat', this.positionEpoch, cache.distance, cache.facing, masked ? cache.coveredPrefix : undefined);
+        this.stats.positionBlockTests += cache.tree.positionTests;
+        cache.treeView = this.viewEpoch; cache.treeCoverage = this.coverageEpoch; cache.treeMasked = masked;
+      }
+      return cache;
     }
     if (cache.view !== this.viewEpoch) {
       const { center, radius } = cache.sphere, distance = center.distanceTo(this.camera);
@@ -399,6 +433,7 @@ export class VoxelFaceArena {
     const at = block * VOXEL_VISIBILITY_STRIDE, data = cache.data;
     if (at + VOXEL_VISIBILITY_STRIDE > data.length) return 0;
     if (masked && cache.covered[block]) return 3;
+    if (cache.tree) return cache.tree.result[block];
     if (cache.facing[block] === 1) return 1;
     if (cache.facing[block] === 2) return 0;
     const planeMask = cache.planeMask > 0 && cache.clusters
@@ -424,8 +459,23 @@ export class VoxelFaceArena {
     result.blocks = result.faces = result.back = result.outside = result.covered = 0;
     result.view = this.viewEpoch; result.mask = this.coverageEpoch; result.masked = masked;
     const tests = this.prepareBlockTests(entry, masked);
-    for (let offset = 0; offset < entry.count; offset += BLOCK) {
-      const count = Math.min(BLOCK, entry.count - offset), culled = tests
+    if (tests && this.emptyFrustum) {
+      result.outside = entry.count;
+      if (!cached || previousBlocks !== 0) result.revision++;
+      entry.visibility = result; return result;
+    }
+    const tree = tests?.tree;
+    if (tree) {
+      const blocks = tree.result.length, last = blocks - 1, padding = blocks * BLOCK - entry.count;
+      const lastCovered = masked && tests.covered[last] !== 0;
+      result.back = tree.back * BLOCK - (padding && !lastCovered && tree.result[last] === 1 ? padding : 0);
+      result.outside = tree.outside * BLOCK - (padding && !lastCovered && tree.result[last] === 2 ? padding : 0);
+      result.covered = masked ? tests.coveredPrefix![blocks] * BLOCK - (lastCovered ? padding : 0) : 0;
+    }
+    const limit = tree ? tree.count : Math.ceil(entry.count / BLOCK);
+    for (let cursor = 0; cursor < limit; cursor++) {
+      const offset = (tree ? tree.selected[cursor] : cursor) * BLOCK;
+      const count = Math.min(BLOCK, entry.count - offset), culled = tree ? 0 : tests
         ? this.culledCached(tests, offset / BLOCK, masked) : this.culled(entry, offset / BLOCK, masked);
       if (culled) {
         if (culled === 1) result.back += count;
@@ -554,7 +604,7 @@ export class VoxelFaceArena {
     this.entries.delete(entry.mesh); entry.page.entries.delete(entry);
     if (entry.blockTests) {
       const cache = entry.blockTests;
-      this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength + (cache.clusters?.bytes ?? 0);
+      this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength + (cache.clusters?.bytes ?? 0) + (cache.tree?.bytes ?? 0) + (cache.coveredPrefix?.byteLength ?? 0);
       entry.blockTests = undefined;
     }
     const ranges = entry.page.free;

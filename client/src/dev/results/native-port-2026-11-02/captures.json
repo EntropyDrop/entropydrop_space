@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-02",
+  "accepted": {
+    "aether-archipelago": "chromium-1793554094860",
+    "nature": "chromium-1793554444897",
+    "copper-metropolis": "chromium-1793554655780"
+  },
+  "excluded": {
+    "chromium-1793553000711": "First candidate preserved per-leaf rejection categories and regressed CPU.",
+    "chromium-1793553558997": "Second candidate still scanned all blocks when generating draw lists.",
+    "chromium-1793553858719": "Image harness failed identical-code restore by one RGB level because handoff time advanced; no performance samples accepted."
+  },
+  "notes": [
+    "First accepted capture completed all Aether runs, then timed out loading Nature; subsequent worlds use fresh top-level loads.",
+    "All accepted captures use the same final rendering code.",
+    "Raw captures are local and ignored by git; summary and one Ultra reference image are retained."
+  ]
+}

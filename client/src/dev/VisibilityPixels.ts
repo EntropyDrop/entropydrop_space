@@ -13,7 +13,9 @@ export async function captureVisibilityPixels(game: any, trial: VisibilityTrial,
   // Scene.render still calls updateView while simulation is paused. Freeze
   // publication, not culling, so readback awaits cannot swap terrain generations
   // between reference and candidate images. Timed ordinary frames stay live.
-  const publication = [interceptMethod(layer, 'buildSynchronously', () => {}),
+  const frozenHandoffTime = performance.now();
+  const publication = [interceptMethod(game.world.distantSurface, 'updateHandoffs', original => original(frozenHandoffTime)),
+    interceptMethod(layer, 'buildSynchronously', () => {}),
     interceptMethod(layer, 'processPending', () => {})];
   const residentFaces = layer.arena.stats.residentFaces;
   const canvas = document.createElement('canvas'); canvas.width = renderer.domElement.width; canvas.height = renderer.domElement.height;

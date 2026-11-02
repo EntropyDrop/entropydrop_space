@@ -165,6 +165,7 @@ struct VisibilityMap {
 #[derive(Clone, PartialEq)]
 struct VisibilityKey {
     inherit_proofs: bool,
+    leaf_proofs: bool,
     clip: [[f32; 4]; 4],
     camera: [f32; 4],
     coverage: u64,
@@ -220,6 +221,7 @@ fn grow_buffer(
 #[derive(Clone, Copy)]
 pub struct RenderProbe {
     pub inherit_cull_proofs: bool,
+    pub leaf_cull_proofs: bool,
     pub quad_group: usize,
     pub cache_submission: bool,
     pub cache_shadows: bool,
@@ -240,6 +242,7 @@ impl Default for RenderProbe {
     fn default() -> Self {
         Self {
             inherit_cull_proofs: true,
+            leaf_cull_proofs: true,
             quad_group: 32,
             cache_submission: true,
             cache_shadows: true,
@@ -1285,6 +1288,7 @@ impl Renderer {
         ];
         for view in &mut views {
             view.inherit_proofs = self.probe.inherit_cull_proofs;
+            view.leaf_proofs = self.probe.leaf_cull_proofs;
         }
         let mut jobs = Vec::new();
         let camera = Vec3::new(uniforms.camera[0], uniforms.camera[1], uniforms.camera[2]);
@@ -1349,6 +1353,7 @@ impl Renderer {
                 let clip = if shadow { frame.shadow } else { uniforms.clip };
                 let key = VisibilityKey {
                     inherit_proofs: self.probe.inherit_cull_proofs,
+                    leaf_proofs: self.probe.leaf_cull_proofs,
                     clip,
                     camera: uniforms.camera,
                     coverage: self.coverage.revision,

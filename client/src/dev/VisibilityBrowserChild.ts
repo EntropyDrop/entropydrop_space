@@ -24,16 +24,17 @@ try {
   game = (window as any).game; await game.sceneRenderer.ready;
   if (!game.offline || innerWidth !== 1280 || innerHeight !== 720) throw Error('Invalid fixture environment.');
   saved = { far: game.world.distantSurface.isEnabled(), position: game.playerPhysics.position.clone() };
+  if (config.native) { game.sceneRenderer.setLightingQuality('ultra'); game.sceneRenderer.setShadowsEnabled(true); game.sceneRenderer.setResolutionScale(1); }
   game.uiStore.startGame(false); await tick(); await tick();
   game.uiStore.setDistantSurfaceEnabled(true, false);
   if (config.world === 'nature') game.playerPhysics.position.y = 180;
   game.playerPhysics.velocity.set(0, 0, 0); game.playerPhysics.resetRenderInterpolation();
   await host.checkpoint?.(config.world, diagnostic('ready'));
-  if (config.probeOnly) await host.accept(config.world, 'probe', await runVisibilityExperiment(game, { probeOnly: true, production: !!config.production, clusters: !!config.clusters }));
+  if (config.probeOnly) await host.accept(config.world, 'probe', await runVisibilityExperiment(game, { probeOnly: true, production: !!config.production, clusters: !!config.clusters, native: !!config.native }));
   else for (const [name, options] of config.onlyControl ? [['control', { control: true }]] as const
     : [['raw', {}], ['repeat', { repeat: true }], ['control', { control: true }]] as const) {
     await host.checkpoint?.(config.world, diagnostic(`running-${name}`));
-    await host.accept(config.world, name, await runVisibilityExperiment(game, { ...options, production: !!config.production, clusters: !!config.clusters }));
+    await host.accept(config.world, name, await runVisibilityExperiment(game, { ...options, production: !!config.production, clusters: !!config.clusters, native: !!config.native }));
   }
   host.complete();
 } catch (error) { host.fail(String(error)); }

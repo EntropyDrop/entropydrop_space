@@ -1,0 +1,40 @@
+{
+  "native": {
+    "rustTests": 30,
+    "nodeTests": 4,
+    "pairedImages": 7,
+    "differentPixels": 0,
+    "skyFrames": 128,
+    "queuedFrames": 36,
+    "shadowInvalidationCases": 20,
+    "bundled": true,
+    "windowVerified": true,
+    "existingEditedCellsPreserved": 60
+  },
+  "web": {
+    "engineTests": 672,
+    "clientTests": 1675,
+    "typecheck": true,
+    "productionBuild": true,
+    "productionImportOrders": 4,
+    "productionCompilerWorker": true,
+    "docLinks": true,
+    "timedBlocks": 96,
+    "gameFrames": 27375,
+    "gpuSamples": 4560,
+    "nonBaselineImageComparisons": 120,
+    "differentPixels": 0,
+    "pickingMatches": true
+  },
+  "englishOnly": {
+    "passed": false,
+    "existingViolatingLines": 275,
+    "headViolatingLines": 275,
+    "files": [
+      "native-space/MIGRATION.md",
+      "native-space/README.md",
+      "native-space/RENDERING.md"
+    ],
+    "newViolations": 0
+  }
+}

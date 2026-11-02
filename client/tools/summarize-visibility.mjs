@@ -15,13 +15,14 @@ function capture(world, file) {
   const data = JSON.parse(gunzipSync(readFileSync(new URL(`${world}/${file}`, root))));
   const { comparison: run, pixels } = data;
   const modes = run.trial.activeModes ?? ['original', 'fast', 'wide', run.rows.some(r => r.role === 'upload') ? 'upload' : 'gpu'];
-  if (run.errors.length || run.width !== 2560 || run.height !== 1440 || run.quality !== 'medium' || run.shadows || run.samples !== 4) throw Error('Invalid environment: ' + world);
-  if (!pixels || pixels.width !== 2560 || pixels.height !== 1440 || pixels.rows.length !== 25) throw Error('Incomplete image checks.');
+  const native = modes.includes('hierarchy');
+  if (run.errors.length || run.width !== 2560 || run.height !== 1440 || run.quality !== (native ? 'ultra' : 'medium') || run.shadows !== native || run.samples !== 4) throw Error('Invalid environment: ' + world);
+  if (!pixels || pixels.width !== 2560 || pixels.height !== 1440 || pixels.rows.length !== (pixels.modeOrder.length + 1) * pixels.poses.length) throw Error('Incomplete image checks.');
   if (pixels.errors.length || pixels.rows.some(r => r.changedOver2 || !r.identicalPicking || (r.restored && r.max !== 0)
     || r.gpuValidation?.missingBlocks || r.gpuValidation?.orderErrors || r.uploadValidation?.mismatches)) throw Error('Image or GPU map control failed.');
   if (pixels.frozenPublication && new Set(pixels.rows.map(r => r.residentFaces)).size !== 1) throw Error('Frozen geometry changed.');
   const motions = [...new Set(run.rows.map(r => r.motion))];
-  if (run.rows.length !== motions.length * 16) throw Error('Incomplete blocks.');
+  if (run.rows.length !== motions.length * modes.length * 4) throw Error('Incomplete blocks.');
   const entries = motions.flatMap(motion => modes.map(mode => {
     const blocks = run.rows.filter(r => r.role === mode && r.motion === motion), raw = blocks.flatMap(b => b.raw), gpu = blocks.flatMap(b => b.gpu);
     if (blocks.length !== 4 || blocks.some(b => b.actual !== (run.control ? run.reference ?? 'original' : mode)) || raw.some(f => f.frame <= 0)) throw Error('Invalid candidate frames.');

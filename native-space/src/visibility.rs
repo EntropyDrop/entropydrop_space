@@ -67,6 +67,7 @@ impl Coverage {
 pub struct CullView {
     /// Pass conservative ancestor proofs down the ordered tree.
     pub inherit_proofs: bool,
+    pub leaf_proofs: bool,
     planes: [Vec4; 6],
     eye: Vec3,
     torus: bool,
@@ -174,10 +175,15 @@ impl VisibilityTree {
         mut pending: u8,
     ) {
         let n = &self.nodes[index];
+        let outside_proof = view.leaf_proofs && pending & 128 != 0;
         let delta = view.eye - n.center;
-        let distance = delta.length();
-        let local = view.torus && distance + n.radius < 255.9;
-        let outside_blend = !view.torus || distance - n.radius > 256.1;
+        let distance = if !outside_proof || pending & 64 != 0 {
+            delta.length()
+        } else {
+            0.0
+        };
+        let local = !outside_proof && view.torus && distance + n.radius < 255.9;
+        let outside_blend = outside_proof || !view.torus || distance - n.radius > 256.1;
         if !local {
             for (i, plane) in view.planes.iter().enumerate() {
                 if pending & (1 << i) == 0 {
@@ -210,7 +216,10 @@ impl VisibilityTree {
                 pending &= !64;
             }
         }
-        if local || pending == 0 {
+        if outside_blend && view.leaf_proofs {
+            pending |= 128;
+        }
+        if local || pending & 127 == 0 {
             output.extend(
                 (n.start..n.end)
                     .filter(|&i| covered[i] == 0)
@@ -222,7 +231,14 @@ impl VisibilityTree {
         } else {
             output.extend(
                 (n.start..n.end)
-                    .filter(|&i| covered[i] == 0 && view.visible_bounds(&blocks[i]))
+                    .filter(|&i| {
+                        covered[i] == 0
+                            && if view.leaf_proofs {
+                                view.visible_pending(&blocks[i], pending)
+                            } else {
+                                view.visible_bounds(&blocks[i])
+                            }
+                    })
                     .map(|i| i as u32),
             );
         }
@@ -289,6 +305,7 @@ impl CullView {
         let [x, y, z, w] = [clip.row(0), clip.row(1), clip.row(2), clip.row(3)];
         Self {
             inherit_proofs: true,
+            leaf_proofs: true,
             planes: [w + x, w - x, w + y, w - y, z, w - z].map(|p| p / p.truncate().length()),
             eye,
             torus,
@@ -300,6 +317,30 @@ impl CullView {
             return false;
         }
         self.visible_bounds(block)
+    }
+    // Bits 0..5 are unresolved planes, 6 is facing, 7 proves the whole
+    // subtree lies outside camera-local bending. Keep the reference arithmetic
+    // for every test that an ancestor has not discharged.
+    fn visible_pending(&self, block: &VisibilityBlock, pending: u8) -> bool {
+        let center = Vec3::from_array(block.sphere[..3].try_into().unwrap());
+        let radius = block.sphere[3] + 0.05;
+        if pending & 64 != 0 || (self.torus && pending & 128 == 0) {
+            let delta = self.eye - center;
+            let distance = delta.length();
+            if self.torus && pending & 128 == 0 && distance - radius <= 256.0 {
+                return true;
+            }
+            if pending & 64 != 0 {
+                let axis = Vec3::from_array(block.cone[..3].try_into().unwrap());
+                if axis.dot(delta) + distance * block.cone[3] + radius < -0.05 {
+                    return false;
+                }
+            }
+        }
+        self.planes
+            .iter()
+            .enumerate()
+            .all(|(i, p)| pending & (1 << i) == 0 || p.truncate().dot(center) + p.w >= -radius)
     }
     pub fn visible_bounds(&self, block: &VisibilityBlock) -> bool {
         let center = Vec3::from_array(block.sphere[..3].try_into().unwrap());
@@ -382,6 +423,20 @@ mod tests {
                 i % 2 == 0,
             );
             tree.select(&blocks, &covered, &view, &mut selected);
+            let mut leaf_reference = Vec::new();
+            tree.select(
+                &blocks,
+                &covered,
+                &CullView {
+                    leaf_proofs: false,
+                    ..view
+                },
+                &mut leaf_reference,
+            );
+            assert_eq!(
+                selected, leaf_reference,
+                "Leaf proofs changed ordered visibility"
+            );
             let mut previous = Vec::new();
             tree.select(
                 &blocks,

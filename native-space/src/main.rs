@@ -25,7 +25,9 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| root.join("../godot-space/matched-lod-fine/data"));
         return render_benchmark::run(&root, &path);
     }
-    let profile_render = if args.iter().any(|a| a == "--profile-groups") {
+    let profile_render = if args.iter().any(|a| a == "--profile-leaves") {
+        Some(7)
+    } else if args.iter().any(|a| a == "--profile-groups") {
         Some(6)
     } else if args.iter().any(|a| a == "--profile-submission") {
         Some(5)
