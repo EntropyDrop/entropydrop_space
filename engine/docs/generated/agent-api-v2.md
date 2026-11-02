@@ -366,7 +366,7 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 - `self.setPivot([x,y,z])` — Set a kinematic pivot in entity-local coordinates while preserving block world positions. Dynamic bodies use their physical center of mass.
 #### Rigid body, constraints, and Stop
 
-- `self.body.getType() / self.body.setType(type)` — Read or set `'kinematic'|'dynamic'`; setter returns `{ok,type,reason}`. Entity bodies have no static type.
+- `self.body.getType() / self.body.setType(type)` — Read or set `'kinematic'|'dynamic'`; setter returns `{ok,type,reason}`. Switching from kinematic to dynamic enables gravity; setting an already-dynamic body leaves its gravity flag unchanged. Entity bodies have no static type.
 - `self.body.getMass() / self.body.setMass(kg)` — Read or set runtime mass; setter returns `{ok,mass,reason}`. Automatic mass is owned block count × 10 kg; minimum is 0.1 kg and invalid input returns `invalid_mass`.
 - `self.body.getMaterial() / self.body.setMaterial(options)` — Read or set `{restitution,friction}`; setter returns `{ok,material,reason}`. Both coefficients clamp to `[0,1]` and default to 0.1/0.7.
 - `self.body.getGravityEnabled() / self.body.setGravityEnabled(bool)` — Read or set runtime gravity; setter returns `{ok,enabled,reason}`. Kinematic bodies retain the flag but are not gravity-driven.
@@ -429,7 +429,7 @@ Only kinematic bodies accept direct pose commands; dynamic bodies are solver-dri
 
 > Mutations update an optimistic in-tick snapshot, but the main thread can still reject internal entity edits with `entity_not_stopped`.
 
-> Assembly defaults: dynamic body, restitution 0.1, friction 0.7, gravity enabled for dynamic bodies, and mass equal to owned block count × 10 kg with a 0.1 kg minimum.
+> New assemblies are stopped (physics and scripts disabled) until Start. Body defaults: kinematic, restitution 0.1, friction 0.7, gravity disabled, and mass equal to owned block count × 10 kg with a 0.1 kg minimum. Explicit assembly options override these defaults. Switching to dynamic enables gravity; saved entities retain their settings.
 
 > Gate destructive selection commands with `self.state` or an input edge so they run once.
 

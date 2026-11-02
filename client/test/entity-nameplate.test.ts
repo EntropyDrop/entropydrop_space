@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
-import { applyCameraBend, bendPoint, TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { applyCameraBend, bendPoint, getWorldProjection, setWorldProjection, TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { entityDisplayName, entityRunStatus, EntityNameplateProjector, EntityNameplateAimHighlighter } from '../src/ui/react/utils/entityNameplate.ts';
 
 function aimFixture() {
@@ -157,9 +157,28 @@ test('projector hides behind-camera/offscreen/empty entities and uses updated au
   assert.equal(projector.project({ blocks: [], entityNodes: new Map() }, camera, viewport), null);
 });
 
-test('labels project consistently across the periodic world seam', () => {
+test('a distance limit hides distant labels and restores nearby labels in flat and torus views', t => {
+  const originalProjection = getWorldProjection();
+  t.after(() => { setWorldProjection(originalProjection); });
+  for (const projection of ['flat', 'torus'] as const) {
+    setWorldProjection(projection);
+    const { entity, camera } = entityAndCamera();
+    t.after(() => entity.dispose());
+    const limited = new EntityNameplateProjector(32), regular = new EntityNameplateProjector();
+    const viewport = { width: 800, height: 600 }, cameraMatrix = camera.matrixWorld.clone();
+    assert.ok(limited.project(entity, camera, viewport), `${projection}: nearby labels are visible`);
+    entity.rootGroup.position.z -= 80;
+    assert.ok(regular.project(entity, camera, viewport), `${projection}: regular worlds retain distant labels`);
+    assert.equal(limited.project(entity, camera, viewport), null, `${projection}: distant labels are hidden`);
+    entity.rootGroup.position.z += 80;
+    assert.ok(limited.project(entity, camera, viewport), `${projection}: labels reappear immediately on return`);
+    assert.deepEqual(camera.matrixWorld, cameraMatrix, 'distance checks must not mutate the rendered camera');
+  }
+});
+
+test('distance-limited labels project consistently across the periodic world seam', () => {
   const { entity, camera } = entityAndCamera();
-  const projector = new EntityNameplateProjector();
+  const projector = new EntityNameplateProjector(32);
   const viewport = { width: 800, height: 600 };
   const before = projector.project(entity, camera, viewport)!;
   entity.rootGroup.position.x += TORUS_SIZE_X;

@@ -34,11 +34,12 @@ function makeController(manager: any, world: any = {}) {
   controller.particles = { emitSteamPuff() {} };
   controller.keys = {};
   controller.hoveredContraption = null;
-  controller.openCodeEditorForTarget = () => false;
   const toasts: string[] = [];
+  const editors: Contraption[] = [];
   const progress: any[] = [];
   controller.ui = {
     showToast: (message: string) => toasts.push(message),
+    openCodeEditor: (entity: Contraption) => editors.push(entity),
     setBulkEditProgress: (value: unknown) => progress.push(value),
     renderInventoryBar() {},
     selectTool() {},
@@ -48,6 +49,7 @@ function makeController(manager: any, world: any = {}) {
   };
   controller.inventoryCategory();
   controller.__toasts = toasts;
+  controller.__editors = editors;
   controller.__progress = progress;
   manager.selectionHost = controller;
   return controller;
@@ -199,6 +201,13 @@ test('large world assembly extracts through BulkEditJob and commits one complete
 
   assert.equal(manager.contraptions.length, 1);
   assert.equal(manager.contraptions[0].blocks.length, 2);
+  assert.equal(manager.contraptions[0].bodyType, 'kinematic');
+  assert.equal(manager.contraptions[0].useGravity, false);
+  assert.equal(manager.contraptions[0].isPhysicsSimulationEnabled(), false);
+  assert.equal(manager.contraptions[0].canEditInternalSelection(), true);
+  assert.match(controller.__toasts.at(-1), /2 blocks assembled.*press C/,
+    'successful assembly must not be replaced by a missing programming target error');
+  assert.deepEqual(controller.__editors, [], 'assembly leaves the player in the world');
   assert.equal(world.getBlock(20, 80, 20), BlockTypes.AIR);
   assert.equal(world.getBlock(27, 87, 24), BlockTypes.AIR);
   assert.equal(controller.__progress.at(-1).phase, 'complete');

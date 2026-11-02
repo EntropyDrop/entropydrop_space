@@ -1,16 +1,21 @@
 import { SurfaceCacheWrites } from './SurfaceCacheWrites.ts';
 
-/** Optional, content-addressed cache. Authentication always happens at the
- * manifest; cached bytes are revalidated against its digest before use. */
+/** Optional, content-addressed cache. Previously authenticated manifests can
+ * restore terrain while revalidating; bytes are always checked by digest. */
 export interface SurfaceByteCache {
   get(digest: string): Promise<Uint8Array | undefined>;
   put(digest: string, bytes: Uint8Array): Promise<void>;
   remove(digest: string): Promise<void>;
+  getManifest?(key: string): Promise<string | undefined>;
+  putManifest?(key: string, manifest: string): Promise<void>;
 }
 
 const STORE = 'snapshots';
 const META = 'metadata';
 const ACCOUNTING = 'accounting';
+const MANIFESTS = 'manifests';
+export const MAX_SURFACE_MANIFEST_BYTES = 512 * 1024;
+const MAX_CACHED_MANIFESTS = 16;
 const TOTAL = 'bytes';
 const MiB = 1024 * 1024;
 // Match the snapshot decoder's per-zone limit, including after decompression.
@@ -84,7 +89,7 @@ export function createSurfaceDiskCache(): SurfaceByteCache {
   const open = () => database ??= new Promise(resolve => {
     if (typeof indexedDB === 'undefined') { resolve(null); return; }
     try {
-      const request = indexedDB.open('space-surface-cache-v1', 2);
+      const request = indexedDB.open('space-surface-cache-v1', 3);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'digest' });
@@ -93,6 +98,9 @@ export function createSurfaceDiskCache(): SurfaceByteCache {
           store.createIndex('accessed', 'accessed');
         }
         if (!db.objectStoreNames.contains(ACCOUNTING)) db.createObjectStore(ACCOUNTING);
+        if (!db.objectStoreNames.contains(MANIFESTS)) {
+          db.createObjectStore(MANIFESTS, { keyPath: 'key' }).createIndex('accessed', 'accessed');
+        }
       };
       request.onsuccess = () => {
         const db = request.result;
@@ -194,6 +202,37 @@ export function createSurfaceDiskCache(): SurfaceByteCache {
     });
   });
   const cache: SurfaceByteCache = {
+    async getManifest(key) {
+      return transact<string>([MANIFESTS], 'readwrite', (transaction, result) => {
+        const store = transaction.objectStore(MANIFESTS);
+        const request = store.get(key);
+        request.onsuccess = () => {
+          const row = request.result;
+          if (typeof row?.manifest !== 'string' || row.manifest.length > MAX_SURFACE_MANIFEST_BYTES) return;
+          result(row.manifest);
+          store.put({ ...row, accessed: Date.now() });
+        };
+      });
+    },
+    async putManifest(key, manifest) {
+      if (new TextEncoder().encode(manifest).byteLength > MAX_SURFACE_MANIFEST_BYTES) return;
+      await transact<void>([MANIFESTS], 'readwrite', transaction => {
+        const store = transaction.objectStore(MANIFESTS);
+        store.put({ key, manifest, accessed: Date.now() });
+        const count = store.count();
+        count.onsuccess = () => {
+          let remaining = count.result - MAX_CACHED_MANIFESTS;
+          if (remaining <= 0) return;
+          const cursor = store.index('accessed').openCursor();
+          cursor.onsuccess = () => {
+            const entry = cursor.result;
+            if (!entry || remaining <= 0) return;
+            if (entry.primaryKey !== key) { entry.delete(); remaining--; }
+            if (remaining > 0) entry.continue();
+          };
+        };
+      });
+    },
     async get(digest) {
       // Large blob reads use readonly transactions; LRU touches are batched.
       const row = await transact<SurfaceCacheRecord>([STORE], 'readonly', (transaction, result) => {

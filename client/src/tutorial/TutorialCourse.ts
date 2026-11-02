@@ -23,10 +23,10 @@ export function tutorialVehicleStation(chapter: number) {
     z: 590 + (chapter - 9) * TUTORIAL_LESSON_STEP.z + extra.z };
 }
 
-/** Suspended five metres above the ground so assembly visibly introduces gravity. */
+/** Wheel sits one metre above the ground for selection without flying. */
 export function tutorialWheelBounds() {
   const center = tutorialVehicleStation(9);
-  return { minX: center.x - 1, maxX: center.x + 1, minY: 22, maxY: 22.5,
+  return { minX: center.x - 1, maxX: center.x + 1, minY: 18, maxY: 18.5,
     minZ: center.z - 1, maxZ: center.z + 1 };
 }
 
@@ -35,9 +35,10 @@ export function tutorialRotationBounds() {
   return { minX: 8032, maxX: 8036, minY: 17, maxY: 21, minZ: 584, maxZ: 590 };
 }
 
+/** The stopped lesson car already contains its chassis and three driven wheels. */
 export const TUTORIAL_CHASSIS_ENTITY_ID = 'tutorial-chassis';
 
-/** The stopped pickup is already centered on the wheel assembly workbench. */
+/** Pickup bodywork is centered on the wheel-installation workbench. */
 export function tutorialChassisBounds() {
   const bench = tutorialVehicleWorkbench();
   const center = { x: (bench.minX + bench.maxX) / 2, z: (bench.minZ + bench.maxZ) / 2 };
@@ -54,6 +55,11 @@ export function tutorialChassisWheelMounts() {
   })));
 }
 
+/** Right rear faces the approach and accepts lesson 10's unchanged +30 RPM wheel. */
+export function tutorialMissingWheelMount() {
+  return tutorialChassisWheelMounts()[2];
+}
+
 /** The narrow workbench supports the rails and leaves all four tires clear. */
 export function tutorialVehicleWorkbench() {
   const station = tutorialVehicleStation(11);
@@ -62,13 +68,14 @@ export function tutorialVehicleWorkbench() {
 }
 
 export const TUTORIAL_MODELING_ENTITY_ID = 'tutorial-modeling-base';
+export const TUTORIAL_MODELING_EXAMPLE_ID = 'tutorial-modeling-example';
 export const TUTORIAL_RAMP_DIMENSIONS = [4, 0.25, 3] as const;
 export const TUTORIAL_RAMP_ROTATION_Z = -30;
 
-/** An empty work pad and a finished sloping panel share one stopped entity. */
+/** Standard terrain blocks form the empty pad the player assembles. */
 export function tutorialModelingOrigin() {
   const station = tutorialVehicleStation(13);
-  return { x: station.x - 2, y: 17, z: station.z - 4 };
+  return { x: Math.floor(station.x) - 2, y: 17, z: Math.floor(station.z) - 4 };
 }
 
 export function tutorialFinishPosition() {

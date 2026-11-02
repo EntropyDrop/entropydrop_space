@@ -217,7 +217,7 @@ export function EntityContextMenu() {
             aria-describedby="entity-body-type-tooltip">?</button>
           <div id="entity-body-type-tooltip" className="entity-body-type-tooltip" role="tooltip">
             <p><b>kinematic</b>: Moved by scripts; unaffected by gravity and forces. Collision-enabled movement is clipped against other entities.</p>
-            <p><b>dynamic</b>: Simulated by physics; responds to forces, and to gravity and collisions when enabled.</p>
+            <p><b>dynamic</b>: Simulated by physics; responds to forces, and to gravity and collisions when enabled. Switching from kinematic enables gravity.</p>
             <p>Applies to the entity's root body. Child bodies keep their own types.</p>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { randomFillSync } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import {
   createSurfaceDiskCache, surfaceDiskBudget, encodeSurfaceCacheRecord, decodeSurfaceCacheRecord,
+  MAX_SURFACE_MANIFEST_BYTES,
 } from '../src/bootstrap/SurfaceDiskCache.ts';
 
 test('disk cache has a large but quota-aware bound', () => {
@@ -21,6 +22,8 @@ test('unavailable browser storage is a non-blocking cache miss', async () => {
   assert.equal(await cache.get('a'.repeat(64)), undefined);
   await cache.put('a'.repeat(64), new Uint8Array([1, 2, 3]));
   await cache.remove('a'.repeat(64));
+  assert.equal(await cache.getManifest!('world'), undefined);
+  await cache.putManifest!('world', '{}');
 });
 
 test('large terrain cache records shrink without changing authenticated bytes', async () => {
@@ -135,11 +138,36 @@ test('v1 cache accounting migrates once and updates atomically across writers an
   assert.equal(await cache.get('a'), undefined);
   assert.equal((await cache.get('c'))?.length, 150);
   assert.equal((await cache.get('d'))?.length, 100);
-  const db = await open(2);
+  const db = await open(3);
   const total = await new Promise<number>(resolve => {
     const request = db.transaction('accounting').objectStore('accounting').get('bytes');
     request.onsuccess = () => resolve(request.result);
   });
   assert.equal(total, 250);
+  await cache.putManifest!('world', '{"revision":1}');
+  assert.equal(await createSurfaceDiskCache().getManifest!('world'), '{"revision":1}',
+    'migration preserves snapshot bytes and adds reloadable world metadata');
+  assert.equal((await cache.get('c'))?.length, 150);
   db.close();
+});
+
+test('persistent manifest cache is bounded and oversized metadata cannot replace good data', async t => {
+  const { IDBFactory } = await import('fake-indexeddb');
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, 'indexedDB', previous);
+    else Reflect.deleteProperty(globalThis, 'indexedDB');
+  });
+  let now = 100;
+  t.mock.method(Date, 'now', () => now++);
+  const cache = createSurfaceDiskCache();
+  for (let i = 0; i < 16; i++) await cache.putManifest!(`world-${i}`, JSON.stringify({ revision: i }));
+  assert.equal(await cache.getManifest!('world-0'), '{"revision":0}');
+  await cache.putManifest!('world-16', '{"revision":16}');
+  const reloaded = createSurfaceDiskCache();
+  assert.equal(await reloaded.getManifest!('world-1'), undefined, 'evicts the least recently read manifest');
+  assert.equal(await reloaded.getManifest!('world-0'), '{"revision":0}');
+  await cache.putManifest!('world-0', 'x'.repeat(MAX_SURFACE_MANIFEST_BYTES + 1));
+  assert.equal(await reloaded.getManifest!('world-0'), '{"revision":0}');
 });

@@ -1649,6 +1649,9 @@ export class ContraptionManager {
 
     const options = {
       ...customOptions,
+      // New assemblies stay in place for authoring. Saved/inventory entities
+      // keep their own body defaults through the separate restoration path.
+      bodyType: customOptions.bodyType ?? BodyType.KINEMATIC,
       mode: finalMode,
       particleSystem: this.particles
     };
@@ -1662,6 +1665,10 @@ export class ContraptionManager {
       this.scene,
       options
     );
+
+    // New assemblies are ready to edit/carry until explicitly started. Keep
+    // callers' opt-in to running physics and the separate restoration path.
+    if (customOptions.physicsSimulationEnabled !== true) contraption.stopAllNodeScripts();
 
     this.registerContraption(contraption);
     this.activeProgrammingContraption = contraption;

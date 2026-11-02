@@ -1060,7 +1060,29 @@ test('assembleSelection creates the contraption without automatically writing to
   const contraption = controller.assembleSelection();
   assert.ok(contraption, 'contraption should be assembled');
   assert.equal(controller.inventories.entity.items.filter(Boolean).length, 0, 'assembly does not write to backpack');
-  assert.ok(controller.__toasts.some((m: string) => m.includes('assembled into a contraption')));
+  assert.match(controller.__toasts.at(-1), /1 blocks assembled.*press C/,
+    'assembly success must remain visible when no entity is under the cursor');
+});
+
+test('assembly does not open the editor for an unrelated entity under the cursor', t => {
+  const { contraption: existing, manager, scene } = makeEntity();
+  const world = new World(scene) as any;
+  manager.world = world;
+  world.setBlock(10, 80, 10, BlockTypes.COLOR_BLOCK, false, 0xff0000);
+  const controller = makeController({ manager, world, hoveredContraption: existing });
+  manager.selectionHost = controller;
+  const editors: Contraption[] = [];
+  controller.ui.openCodeEditor = (entity: Contraption) => editors.push(entity);
+  t.after(() => { for (const entity of manager.contraptions) entity.dispose(); });
+  manager.setCornerA({ x: 10, y: 80, z: 10 });
+  manager.setCornerB({ x: 10, y: 80, z: 10 });
+
+  assert.ok(controller.assembleSelection());
+  assert.deepEqual(editors, [], 'G must not open the hovered entity editor');
+  assert.match(controller.__toasts.at(-1), /assembled.*press C/);
+  controller.hoveredContraption = manager.contraptions.at(-1);
+  assert.equal(controller.openCodeEditorForTarget(), true, 'C still opens the entity the player aims at');
+  assert.deepEqual(editors, [manager.contraptions.at(-1)]);
 });
 
 test('copySelectionToInventory rejects writing when shared Item slots are full', () => {

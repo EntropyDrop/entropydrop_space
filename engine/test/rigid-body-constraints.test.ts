@@ -24,6 +24,57 @@ function makePhysics() {
   });
 }
 
+test('switching root or child to dynamic enables gravity without changing other body settings', t => {
+  const entity = new Contraption(100, [block(0), block(1)], new THREE.Vector3(), new THREE.Scene(), {
+    bodyType: BodyType.KINEMATIC, useGravity: false, friction: 0.23,
+    childEntities: [{ id: 'arm', parentId: 'root', bodyType: BodyType.KINEMATIC,
+      useGravity: false, collisionEnabled: false, blockKeys: [[1, 0, 0]] }],
+  });
+  t.after(() => entity.dispose());
+  for (const id of ['root', 'arm']) {
+    const result = executeBasicAction({ contraption: entity }, {
+      domain: ActionDomain.PHYSICS, action: 'set-body-type', nodeId: id, bodyType: BodyType.DYNAMIC,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(entity.getNodeBodyType(id), BodyType.DYNAMIC);
+    assert.equal(entity.getNodeGravityEnabled(id), true);
+    assert.equal(entity.getNodeDefaultBodyConfig(id)!.useGravity, true);
+    entity.setNodeGravityEnabled(id, false);
+    entity.setNodeBodyType(id, BodyType.DYNAMIC);
+    assert.equal(entity.getNodeGravityEnabled(id), false, 'setting the same type preserves a gravity opt-out');
+    entity.setNodeBodyType(id, BodyType.KINEMATIC);
+    assert.equal(entity.getNodeGravityEnabled(id), false, 'kinematic does not rewrite the gravity flag');
+  }
+  assert.equal(entity.friction, 0.23);
+  assert.equal(entity.getNodeCollisionEnabled('arm'), false);
+});
+
+test('runtime dynamic transitions enable gravity temporarily and Stop restores saved gravity', t => {
+  const entity = new Contraption(101, [block(0), block(1)], new THREE.Vector3(), new THREE.Scene(), {
+    bodyType: BodyType.KINEMATIC, useGravity: false,
+    childEntities: [{ id: 'arm', parentId: 'root', bodyType: BodyType.KINEMATIC,
+      useGravity: false, blockKeys: [[1, 0, 0]] }],
+  });
+  t.after(() => entity.dispose());
+  for (const id of ['root', 'arm']) {
+    entity.setNodeBodyType(id, BodyType.DYNAMIC, { runtimeOnly: true });
+    assert.equal(entity.getNodeGravityEnabled(id), true);
+    assert.equal(entity.getNodeDefaultBodyConfig(id)!.bodyType, BodyType.KINEMATIC);
+    assert.equal(entity.getNodeDefaultBodyConfig(id)!.useGravity, false);
+  }
+  entity.stopAllNodeScripts();
+  for (const id of ['root', 'arm']) {
+    assert.equal(entity.getNodeBodyType(id), BodyType.KINEMATIC);
+    assert.equal(entity.getNodeGravityEnabled(id), false);
+  }
+  entity.setNodeBodyType('root', BodyType.DYNAMIC, { runtimeOnly: true });
+  entity.setNodeGravityEnabled('root', false, { runtimeOnly: true });
+  entity.setNodeBodyType('root', BodyType.DYNAMIC);
+  entity.stopAllNodeScripts();
+  assert.equal(entity.bodyType, BodyType.DYNAMIC, 'an editor transition replaces the saved kinematic default');
+  assert.equal(entity.useGravity, true, 'editor transitions also persist enabled gravity during a runtime override');
+});
+
 test('body defaults persist while script body mutations remain runtime-only until Stop', () => {
   const contraption = new Contraption(
     1,

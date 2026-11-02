@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { bendPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { SPACE_TUTORIAL } from '../../../bootstrap/SpaceFeatures.ts';
+
+// Keep later lessons' HUD controls out of the current tutorial work area.
+const NAMEPLATE_DISTANCE = SPACE_TUTORIAL ? 32 : Infinity;
 
 export function entityDisplayName(entity: any): string {
   return entity.getComponentName?.() || entity.rootComponentName || entity.rootComponentId || `Entity #${entity.id}`;
@@ -62,6 +66,12 @@ export class EntityNameplateAimHighlighter {
  * move the anchor. The label stays half that height above the root pivot. */
 export class EntityNameplateProjector {
   private point = new THREE.Vector3();
+  private cameraPosition = new THREE.Vector3();
+  private readonly maxDistanceSquared: number;
+
+  constructor(maxDistance = NAMEPLATE_DISTANCE) {
+    this.maxDistanceSquared = maxDistance * maxDistance;
+  }
 
   project(entity: any, camera: THREE.Camera, viewport: { width: number; height: number }) {
     const rootGroup = entity.rootGroup;
@@ -73,6 +83,11 @@ export class EntityNameplateProjector {
     this.point.setFromMatrixPosition(rootGroup.matrixWorld);
     this.point.y += height / 2;
     bendPoint(this.point.x, this.point.y, this.point.z, this.point);
+    if (Number.isFinite(this.maxDistanceSquared)) {
+      // The overlay camera is already bent; compare in its rendered world space.
+      this.cameraPosition.setFromMatrixPosition(camera.matrixWorld);
+      if (this.point.distanceToSquared(this.cameraPosition) > this.maxDistanceSquared) return null;
+    }
     this.point.project(camera);
     if (![this.point.x, this.point.y, this.point.z].every(Number.isFinite)
       || this.point.z < -1 || this.point.z > 1 || Math.abs(this.point.x) > 1 || Math.abs(this.point.y) > 1) return null;

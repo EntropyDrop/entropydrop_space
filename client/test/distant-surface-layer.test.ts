@@ -369,7 +369,8 @@ test('surface loading progress counts the full world domain and refreshes stale 
   complete = true; revision++;
   progress.length = 0;
   await remote.loadAll(() => {}, undefined, options);
-  assert.deepEqual(progress[0], { loadedZones: 0, totalZones: 2 }, 'stale revisions are not ready');
+  assert.deepEqual(progress[0], { loadedZones: 1, totalZones: 2 }, 'last-good coverage is available during revalidation');
+  assert.deepEqual(progress[1], { loadedZones: 0, totalZones: 2 }, 'fresh metadata marks changed revisions as pending');
   assert.deepEqual(progress.at(-1), { loadedZones: 2, totalZones: 2 });
   revision++;
   const refreshedAt = Date.now() + 10001;

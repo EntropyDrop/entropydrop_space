@@ -3,7 +3,7 @@
 // Rebuild lettering and the spoked wheel while preserving other practice geometry.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { tutorialLessonHint, tutorialVehicleStation, tutorialWheelBounds, tutorialFinishPosition,
+import { tutorialLessonHint, tutorialVehicleStation, tutorialWheelBounds, tutorialFinishPosition, tutorialChassisBounds,
   TUTORIAL_LESSON_STEP, TUTORIAL_RAMP_DIMENSIONS, TUTORIAL_RAMP_ROTATION_Z } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
 import { computeSelectionCells } from '../src/engine/controls/SelectorShapes.ts';
@@ -144,25 +144,28 @@ const lessons = [
   ['07 CARVE', [text('CHECK: MICRO'), instruction('TAB', 'IF NEEDED'), instruction('ALT+2', 'CYLINDER'), corners(RED), instruction('DEL', 'CUT OUT')]],
   ['08 ROTATE', [text('CHECK: MICRO'), instruction('ALT+2', 'CYLINDER'), corners(), instruction('↑', 'ROTATE'), instruction('F', 'FILL')]],
   ['09 ENTITY', [instruction('1', 'SELECTOR: MICRO'), instruction('ALT+2', 'CYLINDER'),
-    corners(), instruction('G', 'ASSEMBLE WHEEL'), text('GRAVITY: WATCH IT FALL'),
-    instruction('3', 'WRENCH'), instruction('LMB X2', 'STOP'),
+    corners(), instruction('G', 'ASSEMBLE WHEEL'),
+    instruction('3', 'WRENCH'),
     instruction('HOLD LMB', 'TO 10 CODE')]],
   ['10 CODE', [
     ...['CODE HERE SHOWS HOW IT WORKS', 'FULL GAME: ASK AGENT', 'IN NATURAL LANGUAGE', 'USUALLY NO MANUAL CODING']
       .map(line => text(line, { color: WHITE })),
-    join([instruction('RMB', 'KINEMATIC'), instruction('C', 'ENTER CODE')]),
-    text('SPIN BY CODE, NO GRAVITY', { color: WHITE }),
+    instruction('C', 'ENTER CODE'),
     text('self.setSpinYAxisRPM(30)', { color: WHITE }),
     join([instruction('▶', 'RUN'), instruction('ESC', 'EXIT')]),
     join([instruction('LMB X2', 'STOP'), instruction('RMB', 'RESET ROTATION')]),
     join([instruction('RMB', 'CUT TO BACKPACK'), text('TO 11')])]],
-  ['11 ASSEMBLY', [join([instruction('2', 'HAMMER'), text('CHECK: MICRO')]), instruction('TAB', 'IF NEEDED'),
-    text('AIM AT AXLE PAD'), instruction('↑ X2', 'HOLLOW SIDE IN'),
-    join([instruction('LMB', 'PIN'), text('DRAG XYZ')]), instruction('ENTER', 'INSTALL'),
-    instruction('2', 'REPEAT FOUR WHEELS'), text('OPPOSITE: REVERSE RPM')]],
+  ['11 INSTALL', [text('ADD THE LAST WHEEL'), instruction('2', 'HAMMER'),
+    join([text('MICRO'), instruction('TAB', 'IF NEEDED')]),
+    text('AIM AT EMPTY AXLE'), instruction('↑ X2', 'TURN WHEEL OVER'), text('HOLLOW FACE TO CAR'),
+    join([instruction('LMB', 'PIN'), text('DRAG XYZ')]), text('CENTER ON AXLE PAD'),
+    join([instruction('ENTER', 'INSTALL'), text('TO 12')])]],
   ['12 DRIVE', [instruction('3', 'WRENCH'), text('CAR TO START LINE'), text('ALIGN WITH THE LANE'),
-    instruction('LMB X2', 'START'), text('WATCH THE WHEELS DRIVE'), instruction('LMB X2', 'STOP')]],
-  ['13 MODELING', [instruction('7', 'MODELING'), text('AIM AT EMPTY GRAY PAD'),
+    instruction('RMB', 'TYPE: DYNAMIC'), text('WHEELS: KINEMATIC'),
+    instruction('LMB X2', 'START'), text('GRAVITY PULLS IT DOWN'), instruction('LMB X2', 'STOP')]],
+  ['13 MODELING', [join([instruction('1', 'SELECTOR'), instruction('ALT+1', 'BOX')]),
+    join([text('STANDARD'), instruction('TAB', 'IF NEEDED')]), corners(),
+    join([instruction('G', 'ASSEMBLE'), instruction('7', 'MODELING')]),
     instruction('RMB', 'DRAG + RELEASE'), instruction('LMB', 'SELECT PANEL'),
     instruction('ESC', 'SIDE PANEL'), text(`DIMENSIONS ${TUTORIAL_RAMP_DIMENSIONS.join(' ')}`),
     text(`ROTATION Z: ${TUTORIAL_RAMP_ROTATION_Z}`), text('Y ARROW: LIFT PANEL'), text('VISUAL: NO COLLISION')]],
@@ -174,8 +177,9 @@ const lessons = [
   center: Math.round(tutorialLessonHint(index + 1).x * 8),
   direction: -1,
   maxWidth: index === 9 ? 224 : MAX_WIDTH,
-  gap: index === 9 || index === 10 ? 2 : index === 8 ? 3 : GAP,
-  bottom: index === 10 ? 19 * 8 : 17 * 8 + 6,
+  gap: index === 12 ? 1 : index === 9 || index === 10 ? 2 : index === 8 ? 3 : GAP,
+  bottom: 17 * 8 + 6,
+  maxTop: index === 12 ? 34 : 33,
 }));
 
 for (let i = 1; i < lessons.length; i++) {
@@ -184,6 +188,13 @@ for (let i = 1; i < lessons.length; i++) {
   assert.ok(Math.abs(previous.center - current.center) > halfWidths[0] + halfWidths[1] + 4,
     `${previous.title} and ${current.title} need more space between their lettering`);
 }
+
+// Clear the retired 11B/11C boards as well as the replacement chapter 11 sign.
+const assembly = tutorialLessonHint(11), drive = tutorialLessonHint(12), chassis = tutorialChassisBounds();
+const retiredWheelSigns = [
+  { axis: 'z', plane: Math.round((assembly.z + drive.z) * 4), center: Math.round((assembly.x + drive.x) * 4), maxWidth: MAX_WIDTH },
+  { axis: 'x', plane: Math.round((chassis.minX - 4) * 8), center: Math.round((chassis.minZ + chassis.maxZ) * 4), maxWidth: MAX_WIDTH },
+];
 
 const file = new URL('../src/tutorial/tutorial-level.json', import.meta.url);
 const level = JSON.parse(readFileSync(file, 'utf8'));
@@ -198,15 +209,31 @@ const oldFinish = { plane: (driveStation.x - 33) * 8,
 const finishPosition = tutorialFinishPosition();
 const finish = { title: 'NICE WORK!', axis: 'x', plane: Math.round(finishPosition.x * 8),
   center: Math.round(finishPosition.z * 8), direction: -1 };
-const isSignCell = ([x, y, z]) => lessons.some(sign =>
-  z === sign.plane && Math.abs(x - sign.center) <= Math.max(100, sign.maxWidth / 2 + 4) && y >= 17 * 8)
+const signRegions = [...lessons, ...retiredWheelSigns];
+const isSignCell = ([x, y, z]) => signRegions.some(sign =>
+  (sign.axis === 'z' ? z : x) === sign.plane
+  && Math.abs((sign.axis === 'z' ? x : z) - sign.center) <= Math.max(100, sign.maxWidth / 2 + 4) && y >= 17 * 8)
   || [oldFinish, finish].some(sign => x === sign.plane && Math.abs(z - sign.center) <= 100 && y >= 17 * 8);
 const wheel = tutorialWheelBounds();
+const wheelCorners = [
+  [wheel.minX * 8, wheel.maxY * 8 - 1, wheel.maxZ * 8 - 1, BLUE],
+  [wheel.maxX * 8 - 1, wheel.minY * 8, wheel.minZ * 8, GREEN],
+];
+// Locate the previous elevation from its authored corner markers so changing
+// wheel height moves both markers and removes the old wheel as well.
+const previousCorners = level.terrain.micro.filter(([x, , z, color]) =>
+  wheelCorners.some(([cx, , cz, marker]) => x === cx && z === cz && color === marker));
+assert.ok(previousCorners.length === 0 || previousCorners.length === 2, 'Wheel needs both selection corners');
+const previousWheel = previousCorners.length ? { ...wheel,
+  minY: Math.min(...previousCorners.map(cell => cell[1])) / 8,
+  maxY: (Math.max(...previousCorners.map(cell => cell[1])) + 1) / 8,
+} : wheel;
 const wheelSelection = computeSelectionCells('cylinder',
   { x: wheel.minX * 8, y: wheel.maxY * 8 - 1, z: wheel.maxZ * 8 - 1 },
   { x: wheel.maxX * 8 - 1, y: wheel.minY * 8, z: wheel.minZ * 8 }, true);
-const wheelKeys = new Set(wheelSelection.map(({ x, y, z }) => `${x},${y},${z}`));
-const isWheelCell = cell => wheelKeys.has(cell.slice(0, 3).join(','));
+const isWheelCell = ([x, y, z]) => [wheel, previousWheel].some(bounds =>
+  x >= bounds.minX * 8 && x < bounds.maxX * 8 && y >= bounds.minY * 8 && y < bounds.maxY * 8
+  && z >= bounds.minZ * 8 && z < bounds.maxZ * 8);
 const micro = new Map(level.terrain.micro.filter(cell => !isSignCell(cell) && !isWheelCell(cell))
   .map(cell => [cell.slice(0, 3).join(','), cell]));
 let wheelMicroCells = 0;
@@ -225,6 +252,7 @@ for (const { x, y, z } of wheelSelection) {
   micro.set(`${x},${y},${z}`, [x, y, z, color]);
   wheelMicroCells++;
 }
+for (const corner of wheelCorners) micro.set(corner.slice(0, 3).join(','), corner);
 const occupied = new Set(level.terrain.standard.filter(cell => cell[3]).map(cell => cell.slice(0, 3).join(',')));
 const signBounds = [];
 
@@ -250,8 +278,7 @@ for (const sign of lessons) {
     bottom += shape.height + sign.gap;
   }
   const top = (bottom - sign.gap) / 8;
-  if (/^(09|10|11|12) /.test(sign.title)) assert.ok(top <= 33, `${sign.title} is too tall to read from the practice area`);
-  if (sign.title.startsWith('13 ')) assert.ok(top <= 34, `${sign.title} is too tall to read from the work pad`);
+  assert.ok(top <= sign.maxTop, `${sign.title} is too tall to read from the practice area`);
   signBounds.push({ chapter: sign.title, width: Math.max(...sign.rows.map(row => row.width)) / 8, top });
 }
 place(finish, text('NICE WORK!', { scale: 2 }), 20 * 8);

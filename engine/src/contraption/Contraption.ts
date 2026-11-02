@@ -3303,11 +3303,18 @@ export class Contraption {
     const body = this.getRigidBody(id);
     const type = normalizeBodyType(value, null);
     if (!body || !type) return false;
+    const enablingDynamics = type === BodyType.DYNAMIC && (body.type !== type
+      || (!options.runtimeOnly && this.getNodeDefaultBodyConfig(id)?.bodyType !== type));
     if (options.runtimeOnly) {
       if (options.captureDefault !== false) this.captureRuntimeBodyConfigDefault(id);
     } else {
       this.updateCapturedBodyConfigDefault(id, { bodyType: type });
     }
+    // A deliberate transition to dynamics enables gravity. Reapplying an
+    // existing dynamic type preserves explicitly disabled gravity; runtime
+    // changes are captured/restored alongside the body type on Stop.
+    // Editor transport temporarily changes types without changing gravity.
+    if (enablingDynamics && !options.preserveGravity) this.setNodeGravityEnabled(id, true, options);
     if (body.type === type) return true;
 
     if (body.id !== this.rootComponentId && body.type === BodyType.KINEMATIC && type === BodyType.DYNAMIC) {
@@ -3464,7 +3471,7 @@ export class Contraption {
   restoreRuntimeBodyConfigDefaults() {
     for (const [id, defaults] of this.runtimeBodyConfigDefaults) {
       if (!this.getRigidBody(id)) continue;
-      this.setNodeBodyType(id, defaults.bodyType, { runtimeOnly: true, captureDefault: false });
+      this.setNodeBodyType(id, defaults.bodyType, { runtimeOnly: true, captureDefault: false, preserveGravity: true });
 
       const ownedBlocks = this.blocks.filter(block => (block.entityId || this.rootComponentId) === id);
       const configuredMass = normalizeBodyMass(defaults.mass);

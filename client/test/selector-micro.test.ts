@@ -337,6 +337,10 @@ test('G assembles a sparse micro selection into 0.125 m entity blocks', () => {
   });
   const entity = result.entity;
   assert.ok(entity, `assembly should succeed (reason: ${result.reason})`);
+  assert.equal(entity.bodyType, 'kinematic');
+  assert.equal(entity.useGravity, false);
+  assert.equal(entity.isPhysicsSimulationEnabled(), false);
+  assert.equal(entity.canEditInternalSelection(), true);
   assert.equal(entity.blocks.length, 2);
   assert.deepEqual(entity.blocks.map((b: import('@entropydrop/space-engine/contraption/EntityTypes.ts').RuntimeVoxel) => b.size), [0.125, 0.125]);
   // The entity origin anchors the sparse min corner; the block offsets stay

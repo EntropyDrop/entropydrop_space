@@ -4,32 +4,47 @@ import * as THREE from 'three';
 import { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
 import { ModelingTool } from '../src/engine/controls/ModelingTool.ts';
 import { PlayerController } from '../src/engine/controls/PlayerController.ts';
-import { createTutorialStorage, parseTutorialLevel, TUTORIAL_WORLD_ID } from '../src/bootstrap/TutorialLevel.ts';
+import { TUTORIAL_WORLD_ID } from '../src/bootstrap/TutorialLevel.ts';
+import { createLessonWorld } from './tutorial-fixtures.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
 import { tutorialVehicleStation, tutorialLessonHint, tutorialFinishPosition, tutorialModelingOrigin,
-  TUTORIAL_MODELING_ENTITY_ID, TUTORIAL_RAMP_DIMENSIONS, TUTORIAL_RAMP_ROTATION_Z } from '../src/tutorial/TutorialCourse.ts';
+  TUTORIAL_MODELING_EXAMPLE_ID, TUTORIAL_RAMP_DIMENSIONS, TUTORIAL_RAMP_ROTATION_Z } from '../src/tutorial/TutorialCourse.ts';
 import level from '../src/tutorial/tutorial-level.json' with { type: 'json' };
 
 function fixture(t: test.TestContext) {
-  const storage = createTutorialStorage(parseTutorialLevel(level));
-  const manager = new ContraptionManager(new THREE.Scene(), null, null, null, storage);
+  const origin = tutorialModelingOrigin(), scene = new THREE.Scene();
+  const { world, storage } = createLessonWorld(scene,
+    { minX: origin.x, maxX: origin.x + 4, minZ: origin.z, maxZ: origin.z + 8 });
+  const manager = new ContraptionManager(scene, world, null, null, storage);
   manager.setWorldIdentity({ id: TUTORIAL_WORLD_ID, slug: 'tutorial', name: level.name });
-  manager.loadEntitiesFromStorage();
+  assert.equal(manager.loadEntitiesFromStorage(), 2, 'the practice car and finished Modeling example are preassembled');
   t.after(() => { for (const entity of manager.contraptions) entity.dispose(); });
-  const entity = manager.contraptions.find(entity => entity.publicId === TUTORIAL_MODELING_ENTITY_ID);
-  assert.ok(entity, 'the saved level loads its Modeling subject through normal persistence');
-  return { manager, entity };
+  const example = manager.contraptions.find(entity => entity.publicId === TUTORIAL_MODELING_EXAMPLE_ID)!;
+  assert.ok(example, 'the finished example loads through normal persistence');
+  const blue = { ...origin }, green = { x: origin.x + 3, y: origin.y, z: origin.z + 3 };
+  assert.equal(world.getBlockColor(blue.x, blue.y, blue.z), 0x3bc1f2);
+  assert.equal(world.getBlockColor(green.x, green.y, green.z), 0x5af23b);
+  manager.setCornerA(blue);
+  manager.setCornerB(green);
+  const entity = manager.assembleSelection()!;
+  assert.ok(entity, 'G assembles the marked STANDARD box into the practice pad');
+  for (let x = origin.x; x < origin.x + 4; x++) for (let z = origin.z; z < origin.z + 4; z++) {
+    assert.equal(world.getBlock(x, origin.y, z), 0, 'the pad is extracted from terrain');
+    assert.equal(world.getBlock(x, origin.y - 1, z), 1, 'the ground below remains intact');
+  }
+  return { manager, entity, example };
 }
 
-test('Modeling has an editable, stopped work pad and one finished sloping panel', t => {
-  const { entity } = fixture(t);
+test('Modeling starts with an unassembled pad and a separate finished sloping panel', t => {
+  const { entity, example: reference } = fixture(t);
   assert.equal(entity.canEditInternalSelection(), true);
   assert.equal(entity.isPhysicsSimulationEnabled(), false);
   assert.equal(entity.bodyType, 'kinematic');
   assert.equal(entity.getNodeScript(entity.rootComponentId), '');
-  assert.equal(entity.blocks.length, 32);
-  const [example] = entity.getComponentDecorations(entity.rootComponentId);
-  assert.equal(entity.getDecorationCount(), 1);
+  assert.equal(entity.blocks.length, 16);
+  assert.equal(entity.getDecorationCount(), 0);
+  const [example] = reference.getComponentDecorations(reference.rootComponentId);
+  assert.equal(reference.getDecorationCount(), 1);
   assert.deepEqual(example.scale, [...TUTORIAL_RAMP_DIMENSIONS]);
   const rotation = new THREE.Quaternion().fromArray(example.rotation!);
   const euler = new THREE.Euler().setFromQuaternion(rotation, 'XYZ');
@@ -37,15 +52,18 @@ test('Modeling has an editable, stopped work pad and one finished sloping panel'
   const origin = tutorialModelingOrigin();
   const baseCorner = entity.entityLocalToWorld(entity.rootComponentId, new THREE.Vector3());
   assert.ok(baseCorner.distanceTo(new THREE.Vector3(origin.x, origin.y, origin.z)) < 1e-8);
-  // The entire example clears the base, and its footprint leaves the other half empty.
+  const referenceCorner = reference.entityLocalToWorld(reference.rootComponentId, new THREE.Vector3());
+  assert.ok(referenceCorner.distanceTo(new THREE.Vector3(origin.x, origin.y, origin.z + 4)) < 1e-8);
+  // The entire example clears its own base, beside the player's practice pad.
   for (const x of [-2, 2]) for (const y of [-.125, .125]) for (const z of [-1.5, 1.5]) {
     const corner = new THREE.Vector3(x, y, z).applyQuaternion(rotation).add(new THREE.Vector3().fromArray(example.position!));
-    assert.ok(corner.y > 1 && corner.z >= 4.5 && corner.z <= 7.5);
+    assert.ok(corner.y > 1 && corner.z >= .5 && corner.z <= 3.5);
   }
 });
 
 test('following the Modeling lesson creates a slope and a fresh tutorial resets the edit', t => {
-  const { manager, entity } = fixture(t);
+  const { manager, entity, example } = fixture(t);
+  const originalExample = example.getComponentDecorations(example.rootComponentId);
   let unlocks = 0;
   const camera = new THREE.PerspectiveCamera(60, 4 / 3, .1, 1000);
   camera.position.copy(entity.position).add(new THREE.Vector3(5, 7, 5));
@@ -74,9 +92,10 @@ test('following the Modeling lesson creates a slope and a fresh tutorial resets 
   const slope = tool.getSelection()!.value;
   assert.deepEqual(slope.scale, [...TUTORIAL_RAMP_DIMENSIONS]);
   assert.ok(new THREE.Quaternion().fromArray(slope.rotation!).angleTo(new THREE.Quaternion().fromArray(rotation)) < 1e-7);
-  assert.equal(entity.getDecorationCount(), 2);
+  assert.equal(entity.getDecorationCount(), 1);
   assert.deepEqual(entity.blocks, before, 'Modeling does not change collision voxels');
-  assert.equal(fixture(t).entity.getDecorationCount(), 1, 're-entry restores the authored example and empty pad');
+  assert.deepEqual(example.getComponentDecorations(example.rootComponentId), originalExample, 'practice edits leave the example alone');
+  assert.equal(fixture(t).entity.getDecorationCount(), 0, 're-entry restores terrain for a fresh assembly with no practice edits');
 });
 
 test('Modeling follows the driving lane and its sign, subject and finish fit the fixed terrain window', () => {

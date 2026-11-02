@@ -267,11 +267,12 @@ test('ctx.selection exposes world box, sparse cells, deletion and assembly comma
   assert.equal(world.getBlock(21, 10, 20), BlockTypes.AIR);
   assert.equal(manager.contraptions.length, 1);
   assert.equal(manager.contraptions[0].mode, 'programmable');
-  assert.equal(manager.contraptions[0].bodyType, 'dynamic');
+  assert.equal(manager.contraptions[0].bodyType, 'kinematic');
   assert.equal(manager.contraptions[0].mass, 10);
   assert.equal(manager.contraptions[0].restitution, 0.1);
   assert.equal(manager.contraptions[0].friction, 0.7);
-  assert.equal(manager.contraptions[0].useGravity, true);
+  assert.equal(manager.contraptions[0].useGravity, false);
+  assert.equal(manager.contraptions[0].isPhysicsSimulationEnabled(), false);
 });
 
 test('ctx.selection rejects invalid assembly modes before consuming world voxels', () => {

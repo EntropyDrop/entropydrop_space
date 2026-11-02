@@ -110,7 +110,7 @@ const kinematicEntries: ApiEntry[] = [
 ];
 
 const bodyEntries: ApiEntry[] = [
-  { signature: 'self.body.getType() / self.body.setType(type)', description: "Read or set `'kinematic'|'dynamic'`; setter returns `{ok,type,reason}`. Entity bodies have no static type." },
+  { signature: 'self.body.getType() / self.body.setType(type)', description: "Read or set `'kinematic'|'dynamic'`; setter returns `{ok,type,reason}`. Switching from kinematic to dynamic enables gravity; setting an already-dynamic body leaves its gravity flag unchanged. Entity bodies have no static type." },
   { signature: 'self.body.getMass() / self.body.setMass(kg)', description: 'Read or set runtime mass; setter returns `{ok,mass,reason}`. Automatic mass is owned block count × 10 kg; minimum is 0.1 kg and invalid input returns `invalid_mass`.' },
   { signature: 'self.body.getMaterial() / self.body.setMaterial(options)', description: 'Read or set `{restitution,friction}`; setter returns `{ok,material,reason}`. Both coefficients clamp to `[0,1]` and default to 0.1/0.7.' },
   { signature: 'self.body.getGravityEnabled() / self.body.setGravityEnabled(bool)', description: 'Read or set runtime gravity; setter returns `{ok,enabled,reason}`. Kinematic bodies retain the flag but are not gravity-driven.' },
@@ -299,7 +299,7 @@ self.decorations.upsert("panel", panel);` }]
       notes: [
         'Selections are capped at a 256×256×256 AABB. Boxes can clamp; sparse operations that exceed the cap fail with `bounds_exceeded`.',
         'Mutations update an optimistic in-tick snapshot, but the main thread can still reject internal entity edits with `entity_not_stopped`.',
-        "Assembly defaults: dynamic body, restitution 0.1, friction 0.7, gravity enabled for dynamic bodies, and mass equal to owned block count × 10 kg with a 0.1 kg minimum.",
+        "New assemblies are stopped (physics and scripts disabled) until Start. Body defaults: kinematic, restitution 0.1, friction 0.7, gravity disabled, and mass equal to owned block count × 10 kg with a 0.1 kg minimum. Explicit assembly options override these defaults. Switching to dynamic enables gravity; saved entities retain their settings.",
         'Gate destructive selection commands with `self.state` or an input edge so they run once.'
       ]
     },

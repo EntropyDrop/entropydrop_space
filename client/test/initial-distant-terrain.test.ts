@@ -127,6 +127,26 @@ test('a partial manifest holds entry even when every currently available zone is
   assert.equal(finalized, true);
 });
 
+test('complete cached coverage enters without waiting for version checks or another refinement pass', { timeout: 5000 }, async t => {
+  const { world, frame } = fixture(t);
+  world.distantSurface.hasPendingWork = false;
+  const gpu = deferred();
+  let calls = 0, finalized = false, entered = false;
+  world.finalizeSurfaceConnections = async () => { finalized = true; };
+  const remote: SpaceSurfaceSnapshotRemote = { async loadAll() {
+    assert.equal(++calls, 1, 'revalidation belongs to the background streaming poll');
+    return { loaded: 128, complete: true, revalidating: true };
+  } };
+  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async preparePipelines() {},
+    waitForGpu: () => gpu.promise }).then(() => { entered = true; });
+  await frame(); await frame(); await frame();
+  assert.equal(finalized, true);
+  assert.equal(entered, false, 'cached terrain still needs completed GPU preparation');
+  gpu.resolve();
+  await entering;
+  assert.equal(entered, true);
+});
+
 test('the entry gate shows cache and byte progress through shader and GPU preparation', async t => {
   const { world, frame } = fixture(t);
   world.distantSurface.hasPendingWork = false;

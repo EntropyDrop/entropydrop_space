@@ -1,5 +1,5 @@
 import type { SurfaceZoneSnapshot, DistantChunkSnapshot, VoxelSurfaceMip } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
-import { createSurfaceDiskCache, type SurfaceByteCache } from './SurfaceDiskCache.ts';
+import { createSurfaceDiskCache, MAX_SURFACE_MANIFEST_BYTES, type SurfaceByteCache } from './SurfaceDiskCache.ts';
 import { SurfaceCacheWrites } from './SurfaceCacheWrites.ts';
 export type { SurfaceZoneSnapshot } from '@entropydrop/space-engine/voxel/SurfaceZoneSnapshot.ts';
 
@@ -19,8 +19,6 @@ export const LEGACY_SURFACE_ZONE_RECORD_BYTES = 5;
 // Seven volumetric mips in dense terrain-lab districts exceed 32 MiB. This
 // matches the server's per-zone bound; residency/download budgets still apply.
 export const MAX_SURFACE_ZONE_BYTES = 64 * 1024 * 1024;
-// 128 zones with seven full authenticated digest URLs exceed 256 KiB in v6.
-const MAX_SURFACE_MANIFEST_BYTES = 512 * 1024;
 const MAX_SURFACE_ZONES = 128;
 const SURFACE_DOWNLOAD_CONCURRENCY = 6;
 const SURFACE_LOD_SIZES = [2, 4, 8, 16, 32, 64];
@@ -269,6 +267,8 @@ export interface SpaceSurfaceSnapshotRemote {
   ): Promise<{
     loaded: number;
     complete: boolean;
+    /** Cached coverage is ready; the regular streaming poll applies fresh versions. */
+    revalidating?: boolean;
   }>;
 }
 
@@ -318,10 +318,16 @@ export function createSpaceSurfaceSnapshotRemote(
   const overviews = new Map<string, { digest: string; zone: SurfaceZoneSnapshot }>();
   let cachedManifest: SurfaceZoneManifest | null = null;
   let manifestFetchedAt = 0;
-  let inFlight: Promise<{ loaded: number; complete: boolean }> | null = null;
+  let inFlight: ReturnType<SpaceSurfaceSnapshotRemote['loadAll']> | null = null;
   let installationQueue = Promise.resolve();
-  const run: SpaceSurfaceSnapshotRemote['loadAll'] = async (onZone, onZoneRemoved, options) => {
-    const safeManifestUrl = resolveSurfaceApiUrl(manifestUrl, apiOrigin);
+  type ManifestResult = { manifest: SurfaceZoneManifest; fetchedAt: number } | { error: unknown };
+  let manifestRequest: Promise<ManifestResult> | null = null;
+  let manifestResult: ManifestResult | undefined;
+  let diskManifestRead = false;
+  let hasCompleteDiskManifest = false;
+  const stream = async (manifest: SurfaceZoneManifest,
+    onZone: Parameters<SpaceSurfaceSnapshotRemote['loadAll']>[0],
+    options: SurfaceStreamOptions | undefined, cacheOnly = false) => {
     let loaded = 0;
     const progress: SurfaceStreamProgress = { loadedZones: 0, totalZones: 0 };
     const newDetails = (phase: SurfaceStreamProgressDetails['phase']): SurfaceStreamProgressDetails => ({
@@ -339,131 +345,124 @@ export function createSpaceSurfaceSnapshotRemote(
       finally { details[stage]--; reportProgress(); }
     };
     reportProgress();
-    while (true) {
-      if (!options || !cachedManifest || Date.now() - manifestFetchedAt >= 10_000 || !cachedManifest.complete) {
-        const response = await fetchImpl(safeManifestUrl.toString(), {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-          cache: 'no-store',
-        });
-        const manifestBody = await readJsonResponse(response, MAX_SURFACE_MANIFEST_BYTES);
-        if (!response.ok) throw new Error(`Space surface manifest failed with HTTP ${response.status}.`);
-        cachedManifest = parseManifest(manifestBody);
-        manifestFetchedAt = Date.now();
+    progress.loadedZones = manifest.zones.filter(entry => {
+      const current = installed.get(`${entry.zone_x},${entry.zone_z}`);
+      return !!current && (current.sourceDigest === entry.digest || current.revision > entry.revision);
+    }).length;
+    progress.totalZones = manifest.width_chunks * manifest.length_chunks / manifest.zone_size_chunks ** 2;
+    details.availableZones = manifest.zones.length;
+    reportProgress();
+    // An absent zone is unavailable (initial build, migration, or a legacy
+    // dirty manifest), never a deletion. Retain last-good coverage until an
+    // authenticated replacement arrives. The world has a fixed zone domain.
+    const zones = manifest.zones.map(entry => ({
+      entry, demand: options?.getZoneDemand(entry.zone_x, entry.zone_z)
+        ?? { sampleSize: 2, priority: entry.zone_x * 32 + entry.zone_z },
+    })).sort((a, b) => a.demand.priority - b.demand.priority);
+    const targets = new Map<string, SurfaceLodManifestEntry>();
+    const selectTargets = () => {
+      const candidates = zones.map(({ entry }) => {
+        const demand = options?.getZoneDemand(entry.zone_x, entry.zone_z)
+          ?? { sampleSize: entry.sample_size ?? 2, priority: 0 };
+        const available = [{ ...entry, sample_size: entry.sample_size ?? 2 }, ...(entry.lods ?? [])]
+          .sort((a, b) => b.sample_size - a.sample_size);
+        targets.set(`${entry.zone_x},${entry.zone_z}`, available[0]);
+        const previous = installed.get(`${entry.zone_x},${entry.zone_z}`);
+        // A small priority dead band avoids exchanging two large source mips
+        // every second when walking along their equal-distance boundary.
+        const priority = demand.priority - (previous && previous.sampleSize < 64
+          ? Math.min(128, Math.max(0, demand.priority) * 0.1) : 0);
+        // Downloaded detail is a residency high-water mark. Measuring a
+        // smaller error after refinement must not downgrade that source and
+        // immediately rediscover the coarse error on the following poll.
+        const sampleSize = Math.min(demand.sampleSize, previous?.sampleSize ?? 64);
+        return { entry, sampleSize, available, priority, index: 0 };
+      }).sort((a, b) => a.priority - b.priority);
+      let refinementBytes = 0;
+      // Refine in waves, so a full-detail nearby zone cannot consume the
+      // cache before the rest of the visible terrain gets even its 32m mip.
+      for (let round = 0; round < 6; round++) for (const candidate of candidates) {
+        const { entry, sampleSize, available, index } = candidate;
+        const current = available[index], next = available[index + 1];
+        if (!next || current.sample_size <= sampleSize) continue;
+        const cost = next.byte_length - current.byte_length;
+        if (options && available[0].sample_size === 64 && refinementBytes + cost
+          > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) continue;
+        refinementBytes += cost;
+        candidate.index++;
+        targets.set(`${entry.zone_x},${entry.zone_z}`, next);
       }
-      const manifest = cachedManifest;
-      progress.loadedZones = manifest.zones.filter(entry => {
-        const current = installed.get(`${entry.zone_x},${entry.zone_z}`);
-        return !!current && (current.sourceDigest === entry.digest || current.revision > entry.revision);
-      }).length;
-      progress.totalZones = manifest.width_chunks * manifest.length_chunks / manifest.zone_size_chunks ** 2;
-      details.availableZones = manifest.zones.length;
-      reportProgress();
-      // An absent zone is unavailable (initial build, migration, or a legacy
-      // dirty manifest), never a deletion. Retain last-good coverage until an
-      // authenticated replacement arrives. The world has a fixed zone domain.
-      const zones = manifest.zones.map(entry => ({
-        entry, demand: options?.getZoneDemand(entry.zone_x, entry.zone_z)
-          ?? { sampleSize: 2, priority: entry.zone_x * 32 + entry.zone_z },
-      })).sort((a, b) => a.demand.priority - b.demand.priority);
-      const targets = new Map<string, SurfaceLodManifestEntry>();
-      const selectTargets = () => {
-        const candidates = zones.map(({ entry }) => {
-          const demand = options?.getZoneDemand(entry.zone_x, entry.zone_z)
-            ?? { sampleSize: entry.sample_size ?? 2, priority: 0 };
-          const available = [{ ...entry, sample_size: entry.sample_size ?? 2 }, ...(entry.lods ?? [])]
-            .sort((a, b) => b.sample_size - a.sample_size);
-          targets.set(`${entry.zone_x},${entry.zone_z}`, available[0]);
-          const previous = installed.get(`${entry.zone_x},${entry.zone_z}`);
-          // A small priority dead band avoids exchanging two large source mips
-          // every second when walking along their equal-distance boundary.
-          const priority = demand.priority - (previous && previous.sampleSize < 64
-            ? Math.min(128, Math.max(0, demand.priority) * 0.1) : 0);
-          // Downloaded detail is a residency high-water mark. Measuring a
-          // smaller error after refinement must not downgrade that source and
-          // immediately rediscover the coarse error on the following poll.
-          const sampleSize = Math.min(demand.sampleSize, previous?.sampleSize ?? 64);
-          return { entry, sampleSize, available, priority, index: 0 };
-        }).sort((a, b) => a.priority - b.priority);
-        let refinementBytes = 0;
-        // Refine in waves, so a full-detail nearby zone cannot consume the
-        // cache before the rest of the visible terrain gets even its 32m mip.
-        for (let round = 0; round < 6; round++) for (const candidate of candidates) {
-          const { entry, sampleSize, available, index } = candidate;
-          const current = available[index], next = available[index + 1];
-          if (!next || current.sample_size <= sampleSize) continue;
-          const cost = next.byte_length - current.byte_length;
-          if (options && available[0].sample_size === 64 && refinementBytes + cost
-            > (options.getDataBudgetBytes?.() ?? SURFACE_REFINEMENT_BUDGET_BYTES)) continue;
-          refinementBytes += cost;
-          candidate.index++;
-          targets.set(`${entry.zone_x},${entry.zone_z}`, next);
-        }
-      };
-      const download = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
-        const key = `${entry.zone_x},${entry.zone_z}`;
-        const cached = overviews.get(key);
-        const url = resolveSurfaceApiUrl(level.url, apiOrigin);
-        if (level.sample_size === 64 && cached?.digest === level.digest) {
-          details.cacheHits++;
-          details.cacheBytes += level.byte_length;
-          details.processedBytes += level.byte_length;
-          reportProgress();
-          return cached.zone;
-        }
-        let bytes = await trackWork('reading', () => byteCache.get(level.digest).catch(() => undefined));
-        if (bytes && !await trackWork('verifying', async () =>
-          bytes!.byteLength === level.byte_length && await sha256Hex(bytes!) === level.digest)) {
-          await byteCache.remove(level.digest).catch(() => {});
-          bytes = undefined;
-        }
-        const downloaded = !bytes;
-        if (bytes) {
-          details.cacheHits++;
-          details.cacheBytes += bytes.byteLength;
-          details.processedBytes += bytes.byteLength;
-          reportProgress();
-        }
-        if (!bytes) {
-          bytes = await trackWork('downloading', async () => {
-            let zoneResponse: Response | undefined;
-            for (let attempt = 0; attempt < 3; attempt++) {
-              zoneResponse = await fetchImpl(url.toString(), {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  Accept: 'application/vnd.entropydrop.surface-zone',
-                },
-                cache: 'force-cache',
-              });
-              if (zoneResponse.status === 429 && attempt < 2) {
-                const retryAfter = zoneResponse.headers?.get?.('Retry-After');
-                const seconds = retryAfter ? Number(retryAfter) : NaN;
-                const delayMs = Number.isFinite(seconds) && seconds > 0
-                  ? seconds * 1000
-                  : 500 * (attempt + 1);
-                await new Promise(resolve => setTimeout(resolve, Math.min(delayMs, 3000)));
-                continue;
-              }
-              break;
-            }
-            if (!zoneResponse || !zoneResponse.ok) {
-              throw new Error(`Space surface zone failed with HTTP ${zoneResponse?.status}.`);
-            }
-            let received = 0;
-            return readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES, count => {
-              details.downloadedBytes += count - received;
-              details.processedBytes += count - received;
-              received = count;
-              reportProgress();
+    };
+    const download = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
+      const key = `${entry.zone_x},${entry.zone_z}`;
+      const cached = overviews.get(key);
+      const url = resolveSurfaceApiUrl(level.url, apiOrigin);
+      if (level.sample_size === 64 && cached?.digest === level.digest) {
+        details.cacheHits++;
+        details.cacheBytes += level.byte_length;
+        details.processedBytes += level.byte_length;
+        reportProgress();
+        return cached.zone;
+      }
+      let bytes = await trackWork('reading', () => byteCache.get(level.digest).catch(() => undefined));
+      if (bytes && !await trackWork('verifying', async () =>
+        bytes!.byteLength === level.byte_length && await sha256Hex(bytes!) === level.digest)) {
+        await byteCache.remove(level.digest).catch(() => {});
+        bytes = undefined;
+      }
+      // A stale manifest may only identify local data. Never download its
+      // old URLs while the authoritative version check is still pending.
+      if (!bytes && cacheOnly) return undefined;
+      const downloaded = !bytes;
+      if (bytes) {
+        details.cacheHits++;
+        details.cacheBytes += bytes.byteLength;
+        details.processedBytes += bytes.byteLength;
+        reportProgress();
+      }
+      if (!bytes) {
+        bytes = await trackWork('downloading', async () => {
+          let zoneResponse: Response | undefined;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            zoneResponse = await fetchImpl(url.toString(), {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.entropydrop.surface-zone',
+              },
+              cache: 'force-cache',
             });
-          });
-          if (!await trackWork('verifying', async () =>
-            bytes!.byteLength === level.byte_length && await sha256Hex(bytes!) === level.digest)) {
-            throw new Error('Space surface-zone snapshot checksum mismatch.');
+            if (zoneResponse.status === 429 && attempt < 2) {
+              const retryAfter = zoneResponse.headers?.get?.('Retry-After');
+              const seconds = retryAfter ? Number(retryAfter) : NaN;
+              const delayMs = Number.isFinite(seconds) && seconds > 0
+                ? seconds * 1000
+                : 500 * (attempt + 1);
+              await new Promise(resolve => setTimeout(resolve, Math.min(delayMs, 3000)));
+              continue;
+            }
+            break;
           }
-          details.downloadedFiles++;
-          reportProgress();
+          if (!zoneResponse || !zoneResponse.ok) {
+            throw new Error(`Space surface zone failed with HTTP ${zoneResponse?.status}.`);
+          }
+          let received = 0;
+          return readResponseBytes(zoneResponse, MAX_SURFACE_ZONE_BYTES, count => {
+            details.downloadedBytes += count - received;
+            details.processedBytes += count - received;
+            received = count;
+            reportProgress();
+          });
+        });
+        if (!await trackWork('verifying', async () =>
+          bytes!.byteLength === level.byte_length && await sha256Hex(bytes!) === level.digest)) {
+          throw new Error('Space surface-zone snapshot checksum mismatch.');
         }
-        const zone = parseSurfaceZoneSnapshot(bytes);
+        details.downloadedFiles++;
+        reportProgress();
+      }
+      let zone: SurfaceZoneSnapshot;
+      try {
+        zone = parseSurfaceZoneSnapshot(bytes);
         if (
           zone.zoneX !== entry.zone_x
           || zone.zoneZ !== entry.zone_z
@@ -474,97 +473,183 @@ export function createSpaceSurfaceSnapshotRemote(
         ) {
           throw new Error('Space surface-zone snapshot identity mismatch.');
         }
-        // Do not keep a duplicate decoded fine lattice in JS memory. The GPU
-        // working set can shrink independently without losing downloaded data.
-        // Publish authenticated terrain immediately. Cache compression and disk
-        // latency consume a separate, bounded budget and never gate entry.
-        if (downloaded) void cacheWrites.enqueue(level.digest, bytes);
-        if (level.sample_size === 64) overviews.set(key, { digest: level.digest, zone });
-        return zone;
-      };
-      const install = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
+      } catch (error) {
+        if (!cacheOnly) throw error;
+        await byteCache.remove(level.digest).catch(() => {});
+        return undefined;
+      }
+      // Do not keep a duplicate decoded fine lattice in JS memory. The GPU
+      // working set can shrink independently without losing downloaded data.
+      // Publish authenticated terrain immediately. Cache compression and disk
+      // latency consume a separate, bounded budget and never gate entry.
+      if (downloaded) void cacheWrites.enqueue(level.digest, bytes);
+      if (level.sample_size === 64) overviews.set(key, { digest: level.digest, zone });
+      return zone;
+    };
+    const install = async (entry: SurfaceZoneManifestEntry, level: SurfaceLodManifestEntry) => {
+      const key = `${entry.zone_x},${entry.zone_z}`;
+      const current = installed.get(key);
+      if (current && (current.revision > entry.revision
+        || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) return true;
+      const zone = await download(entry, level);
+      if (!zone) return false;
+      const publication = trackWork('preparing', () => installationQueue.then(async () => {
+        // Network concurrency must not turn six fine mip builds into one
+        // long render-frame task. Keep downloads parallel, install one fine
+        // source per frame; hidden tabs continue warming via a timer.
+        if (level.sample_size <= 2 && typeof requestAnimationFrame === 'function') {
+          await new Promise<void>(resolve => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') setTimeout(resolve, 16);
+            else requestAnimationFrame(() => resolve());
+          });
+        }
+        await onZone(zone);
+        if (!current || (current.sourceDigest !== entry.digest && current.revision <= entry.revision)) {
+          progress.loadedZones++;
+        }
+        installed.set(key, { sourceDigest: entry.digest, sampleSize: level.sample_size, revision: entry.revision });
+        loaded++;
+        details.completedFiles++;
+        reportProgress();
+      }));
+      installationQueue = publication.catch(() => {});
+      await publication;
+      return true;
+    };
+    const pass = async (overview: boolean) => {
+      details = newDetails(overview ? 'overview' : 'detail');
+      details.availableZones = manifest.zones.length;
+      for (const { entry } of zones) {
         const key = `${entry.zone_x},${entry.zone_z}`;
+        const level = overview ? entry.lods?.find(level => level.sample_size === 64) : targets.get(key);
+        if (!level || (overview && (!options || installed.has(key)))) continue;
         const current = installed.get(key);
         if (current && (current.revision > entry.revision
-          || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) return;
-        const zone = await download(entry, level);
-        const publication = trackWork('preparing', () => installationQueue.then(async () => {
-          // Network concurrency must not turn six fine mip builds into one
-          // long render-frame task. Keep downloads parallel, install one fine
-          // source per frame; hidden tabs continue warming via a timer.
-          if (level.sample_size <= 2 && typeof requestAnimationFrame === 'function') {
-            await new Promise<void>(resolve => {
-              if (typeof document !== 'undefined' && document.visibilityState === 'hidden') setTimeout(resolve, 16);
-              else requestAnimationFrame(() => resolve());
-            });
-          }
-          await onZone(zone);
-          if (!current || (current.sourceDigest !== entry.digest && current.revision <= entry.revision)) {
-            progress.loadedZones++;
-          }
-          installed.set(key, { sourceDigest: entry.digest, sampleSize: level.sample_size, revision: entry.revision });
-          loaded++;
-          details.completedFiles++;
-          reportProgress();
-        }));
-        installationQueue = publication.catch(() => {});
-        await publication;
-      };
-      const pass = async (overview: boolean) => {
-        details = newDetails(overview ? 'overview' : 'detail');
-        details.availableZones = manifest.zones.length;
-        for (const { entry } of zones) {
+          || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) continue;
+        details.totalFiles++;
+        details.totalBytes += level.byte_length;
+      }
+      reportProgress();
+      let cursor = 0;
+      let failed = false;
+      const worker = async () => {
+        while (cursor < zones.length && !failed) {
+          const { entry } = zones[cursor++];
           const key = `${entry.zone_x},${entry.zone_z}`;
-          const level = overview ? entry.lods?.find(level => level.sample_size === 64) : targets.get(key);
-          if (!level || (overview && (!options || installed.has(key)))) continue;
-          const current = installed.get(key);
-          if (current && (current.revision > entry.revision
-            || (current.sourceDigest === entry.digest && current.sampleSize === level.sample_size))) continue;
-          details.totalFiles++;
-          details.totalBytes += level.byte_length;
-        }
-        reportProgress();
-        let cursor = 0;
-        let failed = false;
-        const worker = async () => {
-          while (cursor < zones.length && !failed) {
-            const { entry } = zones[cursor++];
-            const key = `${entry.zone_x},${entry.zone_z}`;
-            const coarse = entry.lods?.find(level => level.sample_size === 64);
-            if (overview) {
-              // Refresh existing zones directly at their requested resolution;
-              // inserting a new overview first causes a visible 64m flash.
-              if (!options || !coarse || installed.has(key)) continue;
-              await install(entry, coarse);
+          const coarse = entry.lods?.find(level => level.sample_size === 64);
+          if (overview) {
+            // Refresh existing zones directly at their requested resolution;
+            // inserting a new overview first causes a visible 64m flash.
+            if (!options || !coarse || installed.has(key)) continue;
+            await install(entry, coarse);
+          } else {
+            const target = targets.get(key)!;
+            if (cacheOnly) {
+              // Missing fine bytes should still restore the best available
+              // coarser mip, including when its 64m overview was evicted.
+              const levels = [{ ...entry, sample_size: entry.sample_size ?? 2 }, ...(entry.lods ?? [])]
+                .filter(level => level.sample_size >= target.sample_size)
+                .sort((a, b) => a.sample_size - b.sample_size);
+              for (const level of levels) if (await install(entry, level)) break;
             } else {
-              await install(entry, targets.get(key)!);
+              await install(entry, target);
             }
           }
-        };
-        // Drain every worker before retrying so a failed pass cannot leave
-        // late responses installing an older revision over the next pass.
-        const results = await Promise.allSettled(Array.from(
-          { length: Math.min(SURFACE_DOWNLOAD_CONCURRENCY, zones.length) },
-          () => worker().catch(error => { failed = true; throw error; }),
-        ));
-        const error = results.find(result => result.status === 'rejected');
-        if (error?.status === 'rejected') throw error.reason;
+        }
       };
-      await pass(true);
-      // Overview residuals are now known. Request real refinement in this same
-      // pass instead of waiting for another poll / an idle rendering queue.
-      selectTargets();
-      await pass(false);
-      details.phase = 'complete';
-      reportProgress();
-      return { loaded, complete: manifest.complete };
+      // Drain every worker before retrying so a failed pass cannot leave
+      // late responses installing an older revision over the next pass.
+      const results = await Promise.allSettled(Array.from(
+        { length: Math.min(SURFACE_DOWNLOAD_CONCURRENCY, zones.length) },
+        () => worker().catch(error => { failed = true; throw error; }),
+      ));
+      const error = results.find(result => result.status === 'rejected');
+      if (error?.status === 'rejected') throw error.reason;
+    };
+    await pass(true);
+    // Overview residuals are now known. Request real refinement in this same
+    // pass instead of waiting for another poll / an idle rendering queue.
+    selectTargets();
+    await pass(false);
+    details.phase = 'complete';
+    reportProgress();
+    return { loaded, complete: manifest.complete && (!cacheOnly || progress.loadedZones === progress.totalZones) };
+  };
+  const run: SpaceSurfaceSnapshotRemote['loadAll'] = async (onZone, _onZoneRemoved, options) => {
+    const safeManifestUrl = resolveSurfaceApiUrl(manifestUrl, apiOrigin);
+    // The authenticated world bootstrap precedes streaming. Scope its previous
+    // manifest by API/world URL and generator identity, never by a saved token.
+    const manifestKey = JSON.stringify([safeManifestUrl.toString(), expectedSeed, expectedGeneratorVersion]);
+    if (!manifestRequest && (!options || !cachedManifest || Date.now() - manifestFetchedAt >= 10_000
+      || !cachedManifest.complete)) {
+      manifestResult = undefined;
+      // Begin the version check before any disk I/O. Catch immediately so a
+      // cached entry can finish before a slow or failed network request.
+      manifestRequest = (async (): Promise<ManifestResult> => {
+        try {
+          const response = await fetchImpl(safeManifestUrl.toString(), {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            cache: 'no-store',
+          });
+          if (!response.ok) throw new Error(`Space surface manifest failed with HTTP ${response.status}.`);
+          const manifest = parseManifest(await readJsonResponse(response, MAX_SURFACE_MANIFEST_BYTES));
+          return { manifest, fetchedAt: Date.now() };
+        } catch (error) { return { error }; }
+      })().then(result => { manifestResult = result; return result; });
     }
+    let restoringDisk = false;
+    if (!diskManifestRead) {
+      diskManifestRead = true;
+      if (options) {
+        try {
+          const saved = await byteCache.getManifest?.(manifestKey);
+          if (saved && saved.length <= MAX_SURFACE_MANIFEST_BYTES) {
+            const manifest = parseManifest(JSON.parse(saved));
+            for (const entry of manifest.zones) {
+              for (const level of [entry, ...(entry.lods ?? [])]) resolveSurfaceApiUrl(level.url, apiOrigin);
+            }
+            cachedManifest = manifest;
+            hasCompleteDiskManifest = manifest.complete;
+            restoringDisk = true;
+          }
+        } catch { /* Missing, obsolete or corrupt metadata falls back to the network. */ }
+      }
+    }
+    let restored = 0;
+    if (options && cachedManifest && manifestRequest && (restoringDisk || !manifestResult)) {
+      const result = await stream(cachedManifest, onZone, options, true);
+      restored = result.loaded;
+      // Entry may finish from complete cached coverage. The next normal poll
+      // consumes the fresh manifest; no callback survives the loading screen.
+      if (result.complete && (restoringDisk || !manifestResult)) return { ...result, revalidating: true };
+    }
+    let refreshed = false;
+    if (manifestRequest) {
+      const result = await manifestRequest;
+      manifestRequest = null;
+      manifestResult = undefined;
+      if ('error' in result) throw result.error;
+      cachedManifest = result.manifest;
+      manifestFetchedAt = result.fetchedAt;
+      refreshed = true;
+    }
+    const result = await stream(cachedManifest!, onZone, options);
+    // A failed download or a temporarily partial manifest must not overwrite
+    // the complete disk index used by the next entry. Storage stays optional.
+    if (refreshed && (cachedManifest!.complete || !hasCompleteDiskManifest)) {
+      hasCompleteDiskManifest = cachedManifest!.complete;
+      const serialized = JSON.stringify(cachedManifest);
+      void Promise.resolve().then(() => byteCache.putManifest?.(manifestKey, serialized)).catch(() => {});
+    }
+    return { ...result, loaded: restored + result.loaded };
   };
   return {
     loadAll(onZone, onZoneRemoved, options) {
       if (inFlight) return inFlight;
       inFlight = run(onZone, onZoneRemoved, options).catch(error => {
-        cachedManifest = null;
+        // Keep last-good coverage during outages; retry the version check on
+        // the next poll instead of discarding usable metadata and geometry.
+        manifestFetchedAt = 0;
         throw error;
       }).finally(() => { inFlight = null; });
       return inFlight;

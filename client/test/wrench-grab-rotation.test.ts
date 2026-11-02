@@ -58,6 +58,7 @@ for (const type of ['dynamic', 'kinematic'] as const) test(`held ${type} entity 
   const initial = f.entity.quaternion.clone();
   const childPosition = f.entity.getEntityNode('wheel')!.localPosition.clone();
   assert.equal(f.controller.startWrenchGrab(), true);
+  assert.equal(f.entity.useGravity, false, 'temporary Wrench dynamics preserve the saved gravity setting');
   f.step(2);
   assert.ok(f.entity.quaternion.angleTo(initial) < 1e-7, 'picking up does not snap orientation to the player');
   const startAnchor = f.anchor();
@@ -75,6 +76,7 @@ for (const type of ['dynamic', 'kinematic'] as const) test(`held ${type} entity 
   assert.ok(f.entity.position.distanceTo(finalPosition) < 1e-7);
   assert.ok(f.entity.quaternion.angleTo(finalRotation) < 1e-7);
   assert.equal(f.entity.getNodeBodyType('base'), type);
+  assert.equal(f.entity.useGravity, false);
   assert.equal(f.entity.getNodeBodyType('wheel'), 'dynamic');
   assert.equal(f.entity.isPhysicsSimulationEnabled(), false);
   assert.ok(f.entity.angularVelocity.length() < 1e-9);

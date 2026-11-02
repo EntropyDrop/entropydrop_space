@@ -121,7 +121,9 @@ export async function preloadInitialDistantTerrain({
       }
       // A no-install pass confirms that newly decoded bounds/residuals no
       // longer request further refinement within the existing data budget.
-    } while (!stopped && (!result.complete || result.loaded > 0));
+      // Complete disk coverage can enter immediately; live streaming handles
+      // fresh versions and further refinement after the loading screen closes.
+    } while (!stopped && (!result.complete || (result.loaded > 0 && !result.revalidating)));
     if (stopped) return;
     setStage(98, 'Preparing distant terrain for play…');
     await world.finalizeSurfaceConnections();

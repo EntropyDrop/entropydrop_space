@@ -4831,7 +4831,7 @@ export class PlayerController {
     // while held so the same collision-aware servo can move them.
     this.beginWrenchManipulation(contraption, true);
     let movable = originalBodyType !== BodyType.KINEMATIC
-      || contraption.setNodeBodyType(bodyId, BodyType.DYNAMIC, { runtimeOnly: true });
+      || contraption.setNodeBodyType(bodyId, BodyType.DYNAMIC, { runtimeOnly: true, preserveGravity: true });
     // Hold the hierarchy as one object, including independently dynamic
     // children. Stop restores every temporary type from its captured default.
     for (const childBody of contraption.rigidBodies?.values?.() || []) {
@@ -6405,8 +6405,7 @@ export class PlayerController {
     });
     const contraption = actionResult.entity;
     if (contraption) {
-      this.ui?.showToast?.(`${contraption.blocks.length} blocks assembled into a contraption · press C to open the editor`);
-      this.openCodeEditorForTarget();
+      this.ui?.showToast?.(`${contraption.blocks.length} blocks assembled into a contraption · aim at it and press C to open the editor`);
     }
     return contraption || null;
   }
@@ -6605,8 +6604,7 @@ export class PlayerController {
     });
     const contraption = actionResult.entity;
     if (contraption && this.ui) {
-      this.ui.showToast(`${contraption.blocks.length} blocks assembled into a contraption · press C to open the editor`);
-      this.openCodeEditorForTarget();
+      this.ui.showToast(`${contraption.blocks.length} blocks assembled into a contraption · aim at it and press C to open the editor`);
     }
     return contraption || null;
   }

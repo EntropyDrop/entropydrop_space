@@ -1,11 +1,12 @@
-// Rebuild chapter 11's stopped pickup, ready for direct wheel installation.
+// Rebuild chapter 11's stopped pickup with three wheels; the player installs the last one.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { bresenham3D } from '../src/engine/controls/SelectorShapes.ts';
 import * as THREE from 'three';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { captureEntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
-import { tutorialChassisBounds, tutorialChassisWheelMounts, TUTORIAL_CHASSIS_ENTITY_ID } from '../src/tutorial/TutorialCourse.ts';
+import { bresenham3D, computeSelectionCells } from '../src/engine/controls/SelectorShapes.ts';
+import { tutorialChassisBounds, tutorialChassisWheelMounts, tutorialMissingWheelMount,
+  tutorialWheelBounds, TUTORIAL_CHASSIS_ENTITY_ID } from '../src/tutorial/TutorialCourse.ts';
 
 const file = new URL('../src/tutorial/tutorial-level.json', import.meta.url);
 const level = JSON.parse(readFileSync(file, 'utf8')), old = structuredClone(level);
@@ -162,20 +163,55 @@ for (const mount of tutorialChassisWheelMounts()) {
     dx + .25, .75, mount.side < 0 ? dz + .25 : dz, SILVER);
 }
 
+const inside = ([mx, my, mz]) => mx >= x * 8 && mx < bounds.maxX * 8
+  && my >= y * 8 && my < bounds.maxY * 8 && mz >= z * 8 && mz < bounds.maxZ * 8;
+// Remove the previous terrain chassis so only the saved car occupies the workbench.
+level.terrain.micro = level.terrain.micro.filter(cell => !inside(cell));
 const previous = level.entities.entities.find(entity => entity.publicId === TUTORIAL_CHASSIS_ENTITY_ID);
 const others = level.entities.entities.filter(entity => entity.publicId !== TUTORIAL_CHASSIS_ENTITY_ID);
 const entity = new Contraption(previous?.id ?? Math.max(0, ...others.map(entity => entity.id)) + 1,
-  [...frame.values()].map(([mx, my, mz, color]) => ({ localX: mx / 8 - x, localY: my / 8 - y,
-    localZ: mz / 8 - z, size: .125, block: 1, color })), new THREE.Vector3(x, y, z), new THREE.Scene(), {
-      publicId: TUTORIAL_CHASSIS_ENTITY_ID, rootComponentName: '11 Chassis', bodyType: 'dynamic', useGravity: true,
-    });
+  [...frame.values()].map(([mx, my, mz, color]) => ({
+    localX: mx / 8 - x, localY: my / 8 - y, localZ: mz / 8 - z, size: .125, block: 1, color,
+  })), new THREE.Vector3(x, y, z), new THREE.Scene(), {
+    publicId: TUTORIAL_CHASSIS_ENTITY_ID, rootComponentId: 'chassis', rootComponentName: '11 Practice car',
+    bodyType: 'kinematic', useGravity: false,
+  });
 try {
   entity.stopAllNodeScripts();
+  const wheel = tutorialWheelBounds(), missing = tutorialMissingWheelMount();
+  const selected = new Set(computeSelectionCells('cylinder',
+    { x: wheel.minX * 8, y: wheel.maxY * 8 - 1, z: wheel.maxZ * 8 - 1 },
+    { x: wheel.maxX * 8 - 1, y: wheel.minY * 8, z: wheel.minZ * 8 }, true)
+    .map(cell => `${cell.x},${cell.y},${cell.z}`));
+  const wheelBlocks = level.terrain.micro.filter(cell => selected.has(cell.slice(0, 3).join(',')))
+    .map(([mx, my, mz, color]) => ({ localX: mx / 8 - wheel.minX, localY: my / 8 - wheel.minY,
+      localZ: mz / 8 - wheel.minZ, size: .125, block: 1, color }));
+  assert.ok(wheelBlocks.length > 400, 'Regenerate tutorial signs and the lesson 09 wheel first');
+  const pivot = new THREE.Vector3((wheel.maxX - wheel.minX) / 2,
+    (wheel.maxY - wheel.minY) / 2, (wheel.maxZ - wheel.minZ) / 2);
+  for (const mount of tutorialChassisWheelMounts()) {
+    if (mount.x === missing.x && mount.side === missing.side) continue;
+    const end = mount.x === bounds.minX + 1.5 ? 'front' : 'rear', side = mount.side < 0 ? 'right' : 'left';
+    const id = `${end}_${side}_wheel`;
+    const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -mount.side * Math.PI / 2);
+    const center = new THREE.Vector3(mount.x, mount.y, mount.z + mount.side * pivot.y);
+    const result = entity.installEntitySlot({ rootComponentId: id, name: `${end} ${side} wheel`,
+      blocks: wheelBlocks.map(block => ({ ...block, entityId: id })), rootPivotOverride: pivot.toArray(),
+    }, entity.rootComponentId, center.clone().sub(pivot.clone().applyQuaternion(rotation)), null, rotation.toArray());
+    assert.equal(result.ok, true, `${id}: ${result.reason}`);
+    entity.setNodeScriptDraft(result.rootId, `self.setSpinYAxisRPM(${mount.side < 0 ? 30 : -30})`);
+    assert.ok(entity.getEntityNodeWorldPosition(result.rootId).distanceTo(center) < 1e-6);
+  }
+  entity.stopAllNodeScripts();
+  assert.equal(entity.entityNodes.size, 4);
   const record = captureEntityStreamState(entity, { id: `${Math.floor(x / 16)},${Math.floor(z / 16)}` });
-  level.entities.entities = [...others, record];
+  assert.equal(record.scriptStatus, 'stopped');
+  level.entities.entities = [record, ...others];
+  assert.deepEqual(level.spawn, old.spawn);
+  assert.deepEqual(level.terrain.standard, old.terrain.standard);
+  assert.deepEqual(level.terrain.micro, old.terrain.micro.filter(cell => !inside(cell)));
+  assert.deepEqual(level.entities.entities.filter(entity => entity.publicId !== TUTORIAL_CHASSIS_ENTITY_ID), others);
+  writeFileSync(file, JSON.stringify(level, null, 2) + '\n');
+  console.log(JSON.stringify({ chassisMicroCells: frame.size, installedWheels: 3, missingWheel: missing,
+    bounds, otherLevelContentPreserved: true }, null, 2));
 } finally { entity.dispose(); }
-assert.deepEqual(level.spawn, old.spawn);
-assert.deepEqual(level.terrain, old.terrain);
-writeFileSync(file, JSON.stringify(level, null, 2) + '\n');
-console.log(JSON.stringify({ chassisMicroCells: frame.size,
-  bounds, mounts: tutorialChassisWheelMounts(), otherLevelContentPreserved: true }, null, 2));

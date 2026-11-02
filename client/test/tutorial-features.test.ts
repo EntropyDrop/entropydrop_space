@@ -7,7 +7,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 import * as THREE from 'three';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
+import { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
+import { applyCameraBend } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { configureTutorialTerrain } from '../src/bootstrap/TutorialTerrain.ts';
+import { createTutorialStorage, parseTutorialLevel, TUTORIAL_WORLD_ID } from '../src/bootstrap/TutorialLevel.ts';
+import { tutorialModelingOrigin, TUTORIAL_MODELING_EXAMPLE_ID } from '../src/tutorial/TutorialCourse.ts';
 import level from '../src/tutorial/tutorial-level.json' with { type: 'json' };
 
 // Exercise tutorial policy in the normal online build, independently of offline mode.
@@ -33,6 +37,7 @@ const { InventoryModal } = await import('../src/ui/react/components/InventoryMod
 const { CodeEditorModal } = await import('../src/ui/react/components/EditorModal.tsx');
 const { EntityContextMenu } = await import('../src/ui/react/components/EntityMenus.tsx');
 const { Hud } = await import('../src/ui/react/components/Hud.tsx');
+const { EntityNameplateProjector } = await import('../src/ui/react/utils/entityNameplate.ts');
 
 function render(component: React.ComponentType, state: Record<string, unknown> = {}) {
   const original = spaceUiStore.getSnapshot();
@@ -79,6 +84,35 @@ test('tutorial entity editor and menu display the current player without browser
   assert.doesNotMatch(editor, /this browser/);
   assert.doesNotMatch(menu, /this browser/);
   assert.doesNotMatch(menu, /Server Hosting|Server hosting|Host on server|Hosting credit budget|Leave tutorial/);
+});
+
+test('the Modeling example nameplate stays hidden at tutorial entry and appears near its work area', t => {
+  const scene = new THREE.Scene(), storage = createTutorialStorage(parseTutorialLevel(level));
+  const world = new World(scene, level.generator.seed, null, level.generator.version);
+  const manager = new ContraptionManager(scene, world, null, null, storage);
+  manager.setWorldIdentity({ id: TUTORIAL_WORLD_ID, slug: 'tutorial', name: level.name });
+  manager.loadEntitiesFromStorage();
+  t.after(() => { for (const entity of manager.contraptions) entity.dispose(); });
+  const example = manager.contraptions.find(entity => entity.publicId === TUTORIAL_MODELING_EXAMPLE_ID)!;
+  assert.ok(example);
+  const camera = new THREE.PerspectiveCamera(75, 800 / 600, .1, 10000);
+  const viewport = { width: 800, height: 600 }, projector = new EntityNameplateProjector();
+  const atEntry = () => {
+    camera.position.set(level.spawn.x_cm / 100, level.spawn.y_cm / 100 + 1.7, level.spawn.z_cm / 100);
+    camera.rotation.set(0, level.spawn.yaw_q15 / 32767 * Math.PI, 0, 'YXZ');
+    applyCameraBend(camera);
+  };
+  atEntry();
+  assert.ok(new EntityNameplateProjector(Infinity).project(example, camera, viewport),
+    'the example projects over the opening course without the distance limit');
+  assert.equal(projector.project(example, camera, viewport), null, 'later lessons must not overlay tutorial entry');
+  const origin = tutorialModelingOrigin();
+  camera.position.set(origin.x + 10, origin.y + 1.7, origin.z - 3);
+  camera.lookAt(example.position);
+  applyCameraBend(camera);
+  assert.ok(projector.project(example, camera, viewport), 'the name and menu remain available near the Modeling example');
+  atEntry();
+  assert.equal(projector.project(example, camera, viewport), null, 'moving away hides the label again');
 });
 
 test('published tutorial keeps controls and feature notices but has no save button', () => {
