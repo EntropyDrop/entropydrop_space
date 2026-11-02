@@ -1,0 +1,1011 @@
+{
+  "blocks": [
+    {
+      "block": 0,
+      "candidate": false,
+      "control": false,
+      "focused": true,
+      "fps": 125.49948623647822,
+      "frame_ms": {
+        "count": 502,
+        "max": 32.179125000000006,
+        "mean": 7.968160109561754,
+        "p50": 7.359083,
+        "p95": 15.596708000000001,
+        "p99": 18.42275
+      },
+      "gpu_ms": {
+        "count": 502,
+        "max": 23.198749870061874,
+        "mean": 15.177463654399038,
+        "p50": 14.899000525474548,
+        "p95": 21.11891657114029,
+        "p99": 21.91529143601656
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 502,
+        "max": 0.803208,
+        "mean": 0.25375954780876475,
+        "p50": 0.235167,
+        "p95": 0.434,
+        "p99": 0.59175
+      },
+      "render_present_ms": {
+        "count": 502,
+        "max": 31.901332999999997,
+        "mean": 7.626213581673306,
+        "p50": 7.003875,
+        "p95": 15.307667,
+        "p99": 18.131332999999998
+      },
+      "resident_faces": 11283518,
+      "visible_faces": {
+        "count": 502,
+        "mean": 979231.8784860558,
+        "p50": 969727,
+        "p95": 1260987,
+        "min": 748792,
+        "max": 1262322
+      }
+    },
+    {
+      "block": 1,
+      "candidate": true,
+      "control": false,
+      "focused": true,
+      "fps": 132.51362881460204,
+      "frame_ms": {
+        "count": 531,
+        "max": 26.211499999999997,
+        "mean": 7.546393596986813,
+        "p50": 6.711834,
+        "p95": 15.7825,
+        "p99": 17.739207999999998
+      },
+      "gpu_ms": {
+        "count": 531,
+        "max": 20.337999798357487,
+        "mean": 12.7706659550861,
+        "p50": 12.521499767899513,
+        "p95": 18.453833647072315,
+        "p99": 19.414874725043774
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 531,
+        "max": 0.588042,
+        "mean": 0.24074066854990592,
+        "p50": 0.232709,
+        "p95": 0.321334,
+        "p99": 0.472916
+      },
+      "render_present_ms": {
+        "count": 531,
+        "max": 25.956708,
+        "mean": 7.22242836911487,
+        "p50": 6.384,
+        "p95": 15.534125,
+        "p99": 17.456417
+      },
+      "resident_faces": 11283518,
+      "visible_faces": {
+        "count": 531,
+        "mean": 986759.8493408663,
+        "p50": 994504,
+        "p95": 1261026,
+        "min": 748808,
+        "max": 1262315
+      }
+    },
+    {
+      "block": 2,
+      "candidate": true,
+      "control": false,
+      "focused": true,
+      "fps": 132.0409491993705,
+      "frame_ms": {
+        "count": 528,
+        "max": 80.765583,
+        "mean": 7.5734081439393925,
+        "p50": 6.825458,
+        "p95": 15.59675,
+        "p99": 21.911666999999998
+      },
+      "gpu_ms": {
+        "count": 528,
+        "max": 20.663208328187466,
+        "mean": 13.736866550364843,
+        "p50": 13.827291317284107,
+        "p95": 18.97483319044113,
+        "p99": 20.09749971330166
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 528,
+        "max": 12.135750000000002,
+        "mean": 0.26837617613636366,
+        "p50": 0.235666,
+        "p95": 0.339791,
+        "p99": 0.479708
+      },
+      "render_present_ms": {
+        "count": 528,
+        "max": 80.38920800000001,
+        "mean": 7.21983168181818,
+        "p50": 6.438584,
+        "p95": 15.304125,
+        "p99": 21.51775
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 528,
+        "mean": 973360.0037878788,
+        "p50": 958132,
+        "p95": 1261234,
+        "min": 748776,
+        "max": 1262331
+      }
+    },
+    {
+      "block": 3,
+      "candidate": false,
+      "control": false,
+      "focused": true,
+      "fps": 128.074619163167,
+      "frame_ms": {
+        "count": 513,
+        "max": 21.850333,
+        "mean": 7.8079482612085735,
+        "p50": 7.5291250000000005,
+        "p95": 15.383458,
+        "p99": 17.186792
+      },
+      "gpu_ms": {
+        "count": 513,
+        "max": 25.837999768555164,
+        "mean": 15.38110500452114,
+        "p50": 15.447874553501606,
+        "p95": 21.01175021380186,
+        "p99": 23.142624646425247
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 513,
+        "max": 0.9802910000000001,
+        "mean": 0.24086007407407403,
+        "p50": 0.231916,
+        "p95": 0.317834,
+        "p99": 0.40475
+      },
+      "render_present_ms": {
+        "count": 513,
+        "max": 21.490167,
+        "mean": 7.4829579376218325,
+        "p50": 7.213208,
+        "p95": 15.110792,
+        "p99": 16.984166
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 513,
+        "mean": 976733.9649122807,
+        "p50": 963984,
+        "p95": 1260987,
+        "min": 748824,
+        "max": 1262354
+      }
+    },
+    {
+      "block": 4,
+      "candidate": false,
+      "control": true,
+      "focused": true,
+      "fps": 128.1915780343224,
+      "frame_ms": {
+        "count": 513,
+        "max": 40.096334,
+        "mean": 7.800824479532166,
+        "p50": 7.188333,
+        "p95": 15.464625,
+        "p99": 19.719375
+      },
+      "gpu_ms": {
+        "count": 513,
+        "max": 23.133291862905025,
+        "mean": 14.764649047358343,
+        "p50": 14.682999812066555,
+        "p95": 19.826500676572323,
+        "p99": 21.877000108361244
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 513,
+        "max": 0.750625,
+        "mean": 0.2495953528265105,
+        "p50": 0.230583,
+        "p95": 0.447667,
+        "p99": 0.575042
+      },
+      "render_present_ms": {
+        "count": 513,
+        "max": 39.1625,
+        "mean": 7.464075292397662,
+        "p50": 6.883334,
+        "p95": 15.191417000000001,
+        "p99": 19.356292
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 513,
+        "mean": 976734.5477582846,
+        "p50": 967584,
+        "p95": 1261003,
+        "min": 748808,
+        "max": 1262338
+      }
+    },
+    {
+      "block": 5,
+      "candidate": true,
+      "control": true,
+      "focused": true,
+      "fps": 128.49924908251307,
+      "frame_ms": {
+        "count": 514,
+        "max": 24.170375,
+        "mean": 7.782146643968878,
+        "p50": 7.386208,
+        "p95": 15.350417,
+        "p99": 21.317417000000003
+      },
+      "gpu_ms": {
+        "count": 514,
+        "max": 23.563125170767307,
+        "mean": 15.084783026607932,
+        "p50": 15.069333836436272,
+        "p95": 20.359166897833347,
+        "p99": 21.727999672293663
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.12 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 514,
+        "max": 0.759625,
+        "mean": 0.2498135914396888,
+        "p50": 0.23174999999999998,
+        "p95": 0.390459,
+        "p99": 0.6377079999999999
+      },
+      "render_present_ms": {
+        "count": 514,
+        "max": 23.793416,
+        "mean": 7.445738647859921,
+        "p50": 7.053083,
+        "p95": 15.155792,
+        "p99": 20.963417000000003
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 514,
+        "mean": 973223.1478599221,
+        "p50": 958096,
+        "p95": 1260754,
+        "min": 748856,
+        "max": 1262306
+      }
+    },
+    {
+      "block": 6,
+      "candidate": true,
+      "control": true,
+      "focused": true,
+      "fps": 128.39272787585972,
+      "frame_ms": {
+        "count": 514,
+        "max": 21.77025,
+        "mean": 7.788603112840467,
+        "p50": 7.203041000000001,
+        "p95": 15.449708,
+        "p99": 18.6775
+      },
+      "gpu_ms": {
+        "count": 514,
+        "max": 24.837583303451538,
+        "mean": 14.955422900805562,
+        "p50": 14.934624545276165,
+        "p95": 20.68575005978346,
+        "p99": 22.429917007684708
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 514,
+        "max": 0.694334,
+        "mean": 0.2509590525291828,
+        "p50": 0.233958,
+        "p95": 0.398,
+        "p99": 0.567833
+      },
+      "render_present_ms": {
+        "count": 514,
+        "max": 21.426292,
+        "mean": 7.4498845739299675,
+        "p50": 6.8950000000000005,
+        "p95": 15.262875000000001,
+        "p99": 18.552708000000003
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 514,
+        "mean": 974503.1420233463,
+        "p50": 961124,
+        "p95": 1260843,
+        "min": 748840,
+        "max": 1262290
+      }
+    },
+    {
+      "block": 7,
+      "candidate": false,
+      "control": true,
+      "focused": true,
+      "fps": 129.8792839592827,
+      "frame_ms": {
+        "count": 520,
+        "max": 32.059458,
+        "mean": 7.699457292307688,
+        "p50": 7.1827499999999995,
+        "p95": 15.423791,
+        "p99": 20.510084000000003
+      },
+      "gpu_ms": {
+        "count": 520,
+        "max": 22.710416465997696,
+        "mean": 14.935266987707179,
+        "p50": 14.849833212792873,
+        "p95": 20.070750266313553,
+        "p99": 21.98325004428625
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 520,
+        "max": 0.7045,
+        "mean": 0.24506114615384614,
+        "p50": 0.230958,
+        "p95": 0.344209,
+        "p99": 0.612958
+      },
+      "render_present_ms": {
+        "count": 520,
+        "max": 31.810875000000003,
+        "mean": 7.369245184615383,
+        "p50": 6.798208,
+        "p95": 15.163,
+        "p99": 20.249416999999998
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 520,
+        "mean": 975940.1269230769,
+        "p50": 963728,
+        "p95": 1260866,
+        "min": 748792,
+        "max": 1262315
+      }
+    },
+    {
+      "block": 8,
+      "candidate": true,
+      "control": false,
+      "focused": true,
+      "fps": 136.30731965323585,
+      "frame_ms": {
+        "count": 546,
+        "max": 25.027417,
+        "mean": 7.336363172161171,
+        "p50": 6.7235000000000005,
+        "p95": 15.656291999999999,
+        "p99": 20.551582999999997
+      },
+      "gpu_ms": {
+        "count": 546,
+        "max": 20.21587546914816,
+        "mean": 13.134764561995919,
+        "p50": 12.938916683197021,
+        "p95": 18.111292272806168,
+        "p99": 19.206750206649303
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 546,
+        "max": 0.694792,
+        "mean": 0.23896107142857154,
+        "p50": 0.230292,
+        "p95": 0.32804099999999997,
+        "p99": 0.485041
+      },
+      "render_present_ms": {
+        "count": 546,
+        "max": 24.542499999999997,
+        "mean": 7.0141049377289395,
+        "p50": 6.3825,
+        "p95": 15.430458,
+        "p99": 20.240458
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 546,
+        "mean": 978703.282051282,
+        "p50": 970735,
+        "p95": 1261106,
+        "min": 748808,
+        "max": 1262338
+      }
+    },
+    {
+      "block": 9,
+      "candidate": false,
+      "control": false,
+      "focused": true,
+      "fps": 129.54101255316132,
+      "frame_ms": {
+        "count": 519,
+        "max": 24.434957999999998,
+        "mean": 7.719562942196533,
+        "p50": 7.101334,
+        "p95": 15.447667,
+        "p99": 19.446667
+      },
+      "gpu_ms": {
+        "count": 519,
+        "max": 23.030624724924564,
+        "mean": 14.969321590469637,
+        "p50": 15.018083155155182,
+        "p95": 20.33262513577938,
+        "p99": 21.696124225854874
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 519,
+        "max": 0.6563749999999999,
+        "mean": 0.2421919672447015,
+        "p50": 0.23399999999999999,
+        "p95": 0.327042,
+        "p99": 0.576833
+      },
+      "render_present_ms": {
+        "count": 519,
+        "max": 24.10575,
+        "mean": 7.392936025048169,
+        "p50": 6.793917,
+        "p95": 15.198833,
+        "p99": 18.913667
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 519,
+        "mean": 972501.0404624278,
+        "p50": 952265,
+        "p95": 1260818,
+        "min": 748776,
+        "max": 1262338
+      }
+    },
+    {
+      "block": 10,
+      "candidate": false,
+      "control": false,
+      "focused": true,
+      "fps": 129.2785934837906,
+      "frame_ms": {
+        "count": 517,
+        "max": 29.925041999999998,
+        "mean": 7.735232671179886,
+        "p50": 7.256458,
+        "p95": 15.497791000000001,
+        "p99": 17.930999999999997
+      },
+      "gpu_ms": {
+        "count": 517,
+        "max": 23.388291709125042,
+        "mean": 14.571305357164755,
+        "p50": 14.400499872863293,
+        "p95": 20.262000150978565,
+        "p99": 22.01104164123535
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 517,
+        "max": 0.716417,
+        "mean": 0.25295885106382976,
+        "p50": 0.236083,
+        "p95": 0.452083,
+        "p99": 0.5966250000000001
+      },
+      "render_present_ms": {
+        "count": 517,
+        "max": 29.24525,
+        "mean": 7.394135168278535,
+        "p50": 6.888084,
+        "p95": 15.160625000000001,
+        "p99": 17.501417
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 517,
+        "mean": 977942.3675048356,
+        "p50": 966325,
+        "p95": 1261035,
+        "min": 748792,
+        "max": 1262338
+      }
+    },
+    {
+      "block": 11,
+      "candidate": true,
+      "control": false,
+      "focused": true,
+      "fps": 139.26708197802373,
+      "frame_ms": {
+        "count": 557,
+        "max": 24.325458,
+        "mean": 7.180447710951532,
+        "p50": 6.455083,
+        "p95": 15.623584,
+        "p99": 18.4005
+      },
+      "gpu_ms": {
+        "count": 557,
+        "max": 19.619625061750412,
+        "mean": 13.165311546765496,
+        "p50": 13.333207927644253,
+        "p95": 17.8811252117157,
+        "p99": 18.94704159349203
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 557,
+        "max": 0.674041,
+        "mean": 0.23850382585278276,
+        "p50": 0.2325,
+        "p95": 0.31416700000000003,
+        "p99": 0.5037079999999999
+      },
+      "render_present_ms": {
+        "count": 557,
+        "max": 24.043249999999997,
+        "mean": 6.860135019748654,
+        "p50": 6.148292,
+        "p95": 15.316333,
+        "p99": 18.089417
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 557,
+        "mean": 981721.1974865351,
+        "p50": 978095,
+        "p95": 1261195,
+        "min": 748792,
+        "max": 1262338
+      }
+    },
+    {
+      "block": 12,
+      "candidate": true,
+      "control": true,
+      "focused": true,
+      "fps": 129.3295600097461,
+      "frame_ms": {
+        "count": 516,
+        "max": 21.445584,
+        "mean": 7.732184350775192,
+        "p50": 7.428292000000001,
+        "p95": 15.549833000000001,
+        "p99": 17.699416
+      },
+      "gpu_ms": {
+        "count": 516,
+        "max": 24.08620808273554,
+        "mean": 14.905515572691495,
+        "p50": 14.952083118259907,
+        "p95": 20.7136245444417,
+        "p99": 22.28200063109398
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 516,
+        "max": 0.62,
+        "mean": 0.23332575581395334,
+        "p50": 0.226875,
+        "p95": 0.314042,
+        "p99": 0.369125
+      },
+      "render_present_ms": {
+        "count": 516,
+        "max": 21.210458000000003,
+        "mean": 7.41668839534884,
+        "p50": 7.0735,
+        "p95": 15.311625000000001,
+        "p99": 17.287332999999997
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 516,
+        "mean": 974631.7325581395,
+        "p50": 962288,
+        "p95": 1261051,
+        "min": 748776,
+        "max": 1262331
+      }
+    },
+    {
+      "block": 13,
+      "candidate": false,
+      "control": true,
+      "focused": true,
+      "fps": 128.58605486706628,
+      "frame_ms": {
+        "count": 514,
+        "max": 28.731958,
+        "mean": 7.776893077821008,
+        "p50": 7.392042,
+        "p95": 15.595125,
+        "p99": 17.984416
+      },
+      "gpu_ms": {
+        "count": 514,
+        "max": 23.06324988603592,
+        "mean": 14.825223086235125,
+        "p50": 14.786958694458008,
+        "p95": 20.39620839059353,
+        "p99": 21.94062527269125
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 514,
+        "max": 0.714125,
+        "mean": 0.2453450311284045,
+        "p50": 0.23491599999999999,
+        "p95": 0.340416,
+        "p99": 0.484541
+      },
+      "render_present_ms": {
+        "count": 514,
+        "max": 27.972667,
+        "mean": 7.446320519455254,
+        "p50": 7.059458,
+        "p95": 15.314417,
+        "p99": 17.694041000000002
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 514,
+        "mean": 977677.4513618677,
+        "p50": 969984,
+        "p95": 1260987,
+        "min": 748824,
+        "max": 1262299
+      }
+    },
+    {
+      "block": 14,
+      "candidate": false,
+      "control": true,
+      "focused": true,
+      "fps": 130.48123042051185,
+      "frame_ms": {
+        "count": 521,
+        "max": 23.997042,
+        "mean": 7.66393753934741,
+        "p50": 7.3332500000000005,
+        "p95": 14.636625,
+        "p99": 18.830040999999998
+      },
+      "gpu_ms": {
+        "count": 521,
+        "max": 23.904000408947468,
+        "mean": 15.157511856428378,
+        "p50": 15.189625322818756,
+        "p95": 20.45924961566925,
+        "p99": 21.75900060683489
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 521,
+        "max": 0.895625,
+        "mean": 0.25248728214971217,
+        "p50": 0.230167,
+        "p95": 0.49,
+        "p99": 0.627833
+      },
+      "render_present_ms": {
+        "count": 521,
+        "max": 23.709958999999998,
+        "mean": 7.324163230326302,
+        "p50": 6.987875,
+        "p95": 14.25525,
+        "p99": 18.556875
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 521,
+        "mean": 974301.9500959693,
+        "p50": 956768,
+        "p95": 1260722,
+        "min": 748824,
+        "max": 1262315
+      }
+    },
+    {
+      "block": 15,
+      "candidate": true,
+      "control": true,
+      "focused": true,
+      "fps": 129.95619800355044,
+      "frame_ms": {
+        "count": 520,
+        "max": 29.124333,
+        "mean": 7.694900400000004,
+        "p50": 7.172625,
+        "p95": 15.362667,
+        "p99": 18.270583
+      },
+      "gpu_ms": {
+        "count": 520,
+        "max": 24.155625142157078,
+        "mean": 14.596427944847024,
+        "p50": 14.647374860942364,
+        "p95": 20.37124987691641,
+        "p99": 21.557041443884373
+      },
+      "lod": "LOD 128/128 zones \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 53.25 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": false,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 520,
+        "max": 0.65725,
+        "mean": 0.2442621057692305,
+        "p50": 0.231666,
+        "p95": 0.339333,
+        "p99": 0.565625
+      },
+      "render_present_ms": {
+        "count": 520,
+        "max": 28.852167,
+        "mean": 7.367585821153849,
+        "p50": 6.852125,
+        "p95": 15.109875,
+        "p99": 17.978916
+      },
+      "resident_faces": 11283769,
+      "visible_faces": {
+        "count": 520,
+        "mean": 978973.7942307693,
+        "p50": 971311,
+        "p95": 1261035,
+        "min": 748792,
+        "max": 1262290
+      }
+    }
+  ],
+  "control": false,
+  "device": "Apple M1 Pro",
+  "limitations": [
+    "Counts actual window render/present-loop completions, not unique display scanouts; display refresh can cap visible frames.",
+    "Normal streaming, physics, UI layout and cloud animation remain active. Camera follows the same four-second path in each block.",
+    "24-second moving warm-up, then eight ABBA/BAAB candidate blocks interleaved with eight identical-code control blocks. Two-second warm-up plus four-second samples per block. GPU durations are from completed in-flight frames.",
+    "Player saves are read but never written in this ephemeral diagnostic session."
+  ],
+  "msaa": 4,
+  "quality": "Ultra",
+  "render_scale": 1,
+  "resolution": [
+    1788,
+    2178
+  ],
+  "shadow_map": 4096,
+  "vsync": false,
+  "world": "aether-archipelago",
+  "summary": [
+    {
+      "control": false,
+      "candidate_label": false,
+      "actual_packed": false,
+      "fps": 128.09893327021103,
+      "frame_ms": {
+        "count": 2051,
+        "mean": 7.806466255972696,
+        "p50": 7.281292,
+        "p95": 15.518083,
+        "min": 0.817667,
+        "max": 32.179125000000006
+      },
+      "gpu_ms": {
+        "count": 2051,
+        "mean": 15.022933396848163,
+        "p50": 15.012499876320362,
+        "p95": 20.68466693162918,
+        "min": 6.403124891221523,
+        "max": 25.837999768555164
+      },
+      "per_block_fps": [
+        125.49948623647822,
+        128.074619163167,
+        129.54101255316132,
+        129.2785934837906
+      ],
+      "per_block_gpu_p50": [
+        14.899000525474548,
+        15.447874553501606,
+        15.018083155155182,
+        14.400499872863293
+      ]
+    },
+    {
+      "control": false,
+      "candidate_label": true,
+      "actual_packed": true,
+      "fps": 135.03167482434395,
+      "frame_ms": {
+        "count": 2162,
+        "mean": 7.4056698274745605,
+        "p50": 6.69125,
+        "p95": 15.693875,
+        "min": 0.800125,
+        "max": 80.765583
+      },
+      "gpu_ms": {
+        "count": 2162,
+        "mean": 13.200253997752778,
+        "p50": 13.154292479157448,
+        "p95": 18.323124386370182,
+        "min": 5.551083944737911,
+        "max": 20.663208328187466
+      },
+      "per_block_fps": [
+        132.51362881460204,
+        132.0409491993705,
+        136.30731965323585,
+        139.26708197802373
+      ],
+      "per_block_gpu_p50": [
+        12.521499767899513,
+        13.827291317284107,
+        12.938916683197021,
+        13.333207927644253
+      ]
+    },
+    {
+      "control": true,
+      "candidate_label": false,
+      "actual_packed": false,
+      "fps": 129.284137072381,
+      "frame_ms": {
+        "count": 2068,
+        "mean": 7.734900991295938,
+        "p50": 7.2670829999999995,
+        "p95": 15.367958,
+        "min": 0.800125,
+        "max": 40.096334
+      },
+      "gpu_ms": {
+        "count": 2068,
+        "mean": 14.921582271966441,
+        "p50": 14.92270827293396,
+        "p95": 20.262625068426132,
+        "min": 6.459333002567291,
+        "max": 23.904000408947468
+      },
+      "per_block_fps": [
+        128.1915780343224,
+        129.8792839592827,
+        128.58605486706628,
+        130.48123042051185
+      ],
+      "per_block_gpu_p50": [
+        14.682999812066555,
+        14.849833212792873,
+        14.786958694458008,
+        15.189625322818756
+      ]
+    },
+    {
+      "control": true,
+      "candidate_label": true,
+      "actual_packed": false,
+      "fps": 129.04419192552922,
+      "frame_ms": {
+        "count": 2064,
+        "mean": 7.74928328875969,
+        "p50": 7.297708,
+        "p95": 15.484582999999999,
+        "min": 0.7903330000000001,
+        "max": 29.124333
+      },
+      "gpu_ms": {
+        "count": 2064,
+        "mean": 14.884716285620058,
+        "p50": 14.933374710381031,
+        "p95": 20.54691594094038,
+        "min": 5.637625232338905,
+        "max": 24.837583303451538
+      },
+      "per_block_fps": [
+        128.49924908251307,
+        128.39272787585972,
+        129.3295600097461,
+        129.95619800355044
+      ],
+      "per_block_gpu_p50": [
+        15.069333836436272,
+        14.934624545276165,
+        14.952083118259907,
+        14.647374860942364
+      ]
+    }
+  ],
+  "source_report": "native-space/results/window-gpu.json",
+  "source_sha256": "3196c8e83e7150b742c553ed826793e1d377dee790beaaddc58a90348ffed69c",
+  "verification": "Completed with focus=true and occluded=false throughout every sample block; physical window size unchanged."
+}

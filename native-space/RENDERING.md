@@ -347,3 +347,19 @@ selections match the linear oracle; 36 queued frames and 20 shadow mutation
 cases have zero differing pixels. Rust's randomized hierarchy test also compares
 the previous leaf traversal explicitly. The full check script passes (30 Rust
 and four Node tests), and the sky regression is retained.
+
+## 2026-11-02: GPU vertex output and opaque terrain
+
+Distant terrain keeps color and material flags packed until fragment shading.
+Opaque batches with conservatively proven empty ownership rectangles also omit
+mask varyings, texture reads and discard. The proof wraps both world seams,
+includes partial mask values and boundary padding, and is invalidated by coverage
+changes. Transformed, transparent and uncertain batches retain the masked path.
+Near/entity arithmetic, shadow rendering, draw order, geometry and all Ultra
+quality settings remain unchanged.
+
+`--profile-gpu` preserves the previous shaders as a matched reference.
+`--profile-window-gpu` measures the normal window loop with interleaved noise
+controls and an ephemeral save session. Full results, numerical image differences
+and measurement limits are documented in
+[the GPU report](../client/docs/performance-gpu-port-2026-11-02.md).

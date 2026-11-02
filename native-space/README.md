@@ -149,3 +149,15 @@ In paired samples, turning CPU encode time falls 2.6–3.4% and moving with UI
 3.5–5.5%. Ordinary movement is essentially unchanged; no GPU improvement is
 established. Seven image pairs are pixel-identical. See `RENDERING.md` and the
 Web port report at `../client/docs/performance-native-port-2026-11-02.md`.
+
+GPU bandwidth and actual-window comparisons (Ultra remains unchanged):
+
+```sh
+native-space/target/release/space-native --profile-gpu --world=aether-archipelago --lod-zones=128
+'native-space/build/Space Native.app/Contents/MacOS/space-native' --profile-window-gpu --world=aether-archipelago
+```
+
+The window diagnostic does not save player state. Keep the window focused and visible;
+focus loss, occlusion or resizing during sampling fails the comparison. It prewarms a moving
+path, then interleaves candidate and identical-code controls. See
+[GPU measurements and limits](../client/docs/performance-gpu-port-2026-11-02.md).

@@ -4,7 +4,7 @@ import { installVisibilityUploadTrial } from './VisibilityUploadTrial.ts';
 import { installVisibilityCpuTrial } from './VisibilityCpuTrial.ts';
 import { installVisibilityGpuTrial } from './VisibilityGpuTrial.ts';
 export const VISIBILITY_MODES = ['original', 'fast', 'wide', 'gpu'] as const;
-export type VisibilityMode = typeof VISIBILITY_MODES[number] | 'upload' | 'cluster16' | 'cluster32' | 'cluster64' | 'linear' | 'hierarchy';
+export type VisibilityMode = typeof VISIBILITY_MODES[number] | 'upload' | 'cluster16' | 'cluster32' | 'cluster64' | 'linear' | 'hierarchy' | 'varyings' | 'packed';
 if (import.meta.hot) import.meta.hot.accept();
 export async function createVisibilityTrial(game: any) {
   if (!import.meta.env.DEV || !game.offline) throw Error('Offline DEV required.');
@@ -13,6 +13,7 @@ export async function createVisibilityTrial(game: any) {
     || !arena.getBlockInstancingEnabled() || arena.getInstanceFaces() !== 32 || arena.getCompactMapsEnabled()
     || !arena.getViewOptimizations().cached) throw Error('Default packed torus arena required, surface backface filter off.');
   let mode: VisibilityMode = 'original', closed = false;
+  const savedVaryings = arena.getPackedVaryingsEnabled();
   const savedHierarchy = arena.getHierarchicalVisibilityEnabled();
   arena.setHierarchicalVisibilityEnabled(false);
   const savedClusterSize = arena.visibilityClusterSize;
@@ -27,10 +28,10 @@ export async function createVisibilityTrial(game: any) {
   interceptMethod(arena, 'setView', (original, args) => { const epoch = arena.viewEpoch; const result = original(...args);
     stats.visibilityQueries += Number(arena.viewEpoch !== epoch); return result; })];
   function set(next: VisibilityMode) {
-    if (closed || ![...VISIBILITY_MODES, 'upload', 'cluster16', 'cluster32', 'cluster64', 'linear', 'hierarchy'].includes(next)) throw Error('Invalid visibility mode.');
+    if (closed || ![...VISIBILITY_MODES, 'upload', 'cluster16', 'cluster32', 'cluster64', 'linear', 'hierarchy', 'varyings', 'packed'].includes(next)) throw Error('Invalid visibility mode.');
     if (next === mode) return;
     if (mode === 'gpu') gpu.restoreIndirect();
-    mode = next; arena.setHierarchicalVisibilityEnabled(next === 'hierarchy'); undoCpu.update(); arena.resetView = arena.visibilityDirty = true; arena.positionEpoch++; arena.viewEpoch++;
+    mode = next; arena.setPackedVaryingsEnabled(next === 'varyings' ? false : savedVaryings); arena.setHierarchicalVisibilityEnabled(next === 'hierarchy' || next === 'varyings' || next === 'packed'); undoCpu.update(); arena.resetView = arena.visibilityDirty = true; arena.positionEpoch++; arena.viewEpoch++;
     arena.visibilityClusterSize = next.startsWith('cluster') ? Number(next.slice(7)) : 0;
     for (const page of arena.pages) for (const entry of page.entries) {
       entry.visibility = undefined; if (entry.blockTests) { entry.blockTests.position = -1; entry.blockTests.view = -1; }
@@ -38,7 +39,7 @@ export async function createVisibilityTrial(game: any) {
     gpu.invalidate(); layer.arenaDirty = true; layer.group.needsUpdate = true;
   }
   return { stats, set, get mode() { return mode; }, verify: gpu.verify,
-    metadata: { revision: 'visibility-v2-production-wide', modes: VISIBILITY_MODES, scope: 'All settled packed distant arena pages; original PBR and records',
+    metadata: { packed: 'Original 8-bit face color and emission share a flat u32, decoded in fragment; unchanged PBR, geometry and quality', varyings: 'Production float3 color and float emission varying reference', revision: 'visibility-v2-production-wide', modes: VISIBILITY_MODES, scope: 'All settled packed distant arena pages; original PBR and records',
       fast: 'One Float64 sqrt per position block, reused for distance and normal cone',
       wide: 'Fast math plus 32 m / .12 plane-normal reuse guards, 34 m / .121 conservative rejection margins',
       gpu: 'Stable classify / per-run prefix / scatter; existing page order; indirect indexed draws; masked CPU fallback',
@@ -48,7 +49,7 @@ export async function createVisibilityTrial(game: any) {
       clusters: 'Production wide CPU plus order-preserving sphere groups of 16/32/64 visibility blocks; exact plane masks',
       originalGuards: { translation: 16, rotation: .06, padding: 18, angularPadding: .061 } },
     beginFrame() { stats.arenaMs = stats.arenaCalls = stats.visibilityQueries = 0; },
-    dispose() { if (closed) return; set('original'); closed = true; undo.reverse().forEach(f => f()); gpu.dispose(); undoCpu.dispose(); arena.visibilityClusterSize = savedClusterSize; arena.setHierarchicalVisibilityEnabled(savedHierarchy); }
+    dispose() { if (closed) return; set('original'); closed = true; undo.reverse().forEach(f => f()); gpu.dispose(); undoCpu.dispose(); arena.setPackedVaryingsEnabled(savedVaryings); arena.visibilityClusterSize = savedClusterSize; arena.setHierarchicalVisibilityEnabled(savedHierarchy); }
   };
 }
 export type VisibilityTrial = Awaited<ReturnType<typeof createVisibilityTrial>>;

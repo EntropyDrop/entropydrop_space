@@ -1,0 +1,42 @@
+{
+  "native": {
+    "format": "passed",
+    "clippy": "passed",
+    "rust_tests": 31,
+    "integration_tests": 4,
+    "typescript": "passed",
+    "release_bundle": "passed",
+    "ordered_visibility_frames": 144,
+    "queued_resource_frames": 36,
+    "shadow_invalidation_cases": 20,
+    "sky_translation_frames": 128,
+    "foreground_window_blocks": 16,
+    "foreground_window_fps": "passed"
+  },
+  "web": {
+    "engine_tests": 673,
+    "client_tests": 1675,
+    "typecheck": "passed",
+    "production_build": "passed",
+    "production_boundaries": "passed",
+    "docs_links": "passed",
+    "image_captures": 165,
+    "pixel_max_difference": 0,
+    "picking": "passed",
+    "blocks": 96,
+    "sampled_frames": 26720,
+    "gpu_samples": 4448,
+    "engine_typecheck": "passed"
+  },
+  "english_only": {
+    "files": [
+      "native-space/MIGRATION.md",
+      "native-space/README.md",
+      "native-space/RENDERING.md"
+    ],
+    "previousViolations": 275,
+    "currentViolations": 275,
+    "newViolations": 0
+  },
+  "player_save": "Aether SHA-256 unchanged after ephemeral benchmarks"
+}

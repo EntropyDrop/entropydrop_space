@@ -63,7 +63,7 @@ export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: TH
     const range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object?.userData.terrainCoverage ?? coverage);
     discardWhen(result, transition.lessThan(range.x).or(transition.greaterThanEqual(range.y)));
   }
-  const emission = varying(float(arena?.emission ?? attribute<'float'>('voxelEmission', 'float'))).greaterThan(.5);
+  const emission = (arena?.emission ?? varying(float(attribute<'float'>('voxelEmission', 'float')))).greaterThan(.5);
   result.outputNode = emission.select(vec4(voxelEmissionColor(arena?.color ?? attribute<'vec3'>('color', 'vec3')),
     reference('value', 'float', emissionMask).add(1)), output);
   result.userData.sharedTerrainMaterial = true;

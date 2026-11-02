@@ -455,6 +455,34 @@ test('drawing reference switches retain storage and release replaced materials e
   } finally { arena.dispose(); }
 });
 
+test('packed varying reference restores material identity and retires both variants on layout changes', () => {
+  const group = new THREE.BundleGroup(); group.add(source(33, 0));
+  const retired = new Map<THREE.Material, number>();
+  const arena = new VoxelFaceArena(group, () => {
+    const mesh = make(); mesh.userData.opaqueMaterial = mesh.material;
+    mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial();
+    for (const material of [mesh.material, mesh.userData.maskedMaterial]) {
+      retired.set(material, 0); material.addEventListener('dispose', () => retired.set(material, retired.get(material)! + 1));
+    }
+    return mesh;
+  });
+  try {
+    settle(arena); const page = arena.pages[0], packed = page.mesh.material, data = page.data, map = page.map;
+    const faces = submittedVertices(arena);
+    arena.setPackedVaryingsEnabled(false); const reference = page.mesh.material;
+    for (let i = 0; i < 6; i++) {
+      arena.setPackedVaryingsEnabled(true); assert.equal(page.mesh.material, packed);
+      arena.setPackedVaryingsEnabled(false); assert.equal(page.mesh.material, reference);
+    }
+    assert.equal(retired.size, 4); assert.deepEqual([...retired.values()], [0, 0, 0, 0]);
+    assert.equal(page.data, data); assert.equal(page.map, map); assert.deepEqual(submittedVertices(arena), faces);
+    arena.setCompactMapsEnabled(true);
+    assert.deepEqual([...retired.values()], [1, 1, 1, 1, 0, 0]);
+    arena.setPackedVaryingsEnabled(true);
+    arena.dispose(); assert.ok([...retired.values()].every(n => n === 1));
+  } finally { arena.dispose(); }
+});
+
 
 test('compact maps preserve ordered faces, origins and tails through switches and publication', () => {
   const group = new THREE.BundleGroup(), a = source(17, -16384), b = source(33, 512), barrier = source(7, 0);

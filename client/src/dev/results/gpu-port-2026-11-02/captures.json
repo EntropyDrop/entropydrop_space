@@ -1,0 +1,287 @@
+{
+  "date": "2026-11-02",
+  "base_commit": "1e238525e520f98d3d798a70b1ab9a033037e78e",
+  "web_captures": [
+    {
+      "world": "aether-archipelago",
+      "capture": "chromium-1793587304966",
+      "browser": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "browser": "chromium",
+        "time": "2026-11-02T02:41:44.966Z",
+        "fixtureCss": [
+          1280,
+          720
+        ],
+        "framebuffer": [
+          2560,
+          1440
+        ],
+        "harness": "visibility-browser-v3",
+        "requestedWorld": "aether-archipelago",
+        "onlyControl": false,
+        "captureId": "chromium-1793587304966",
+        "experiment": "packed-varyings-ultra",
+        "adapter": {
+          "vendor": "apple",
+          "architecture": "metal-3",
+          "device": "",
+          "description": ""
+        },
+        "features": [
+          "depth32float-stencil8",
+          "rg11b10ufloat-renderable",
+          "bgra8unorm-storage",
+          "texture-formats-tier1",
+          "texture-compression-bc",
+          "dual-source-blending",
+          "core-features-and-limits",
+          "float32-filterable",
+          "indirect-first-instance",
+          "texture-compression-astc-sliced-3d",
+          "float32-blendable",
+          "subgroup-size-control",
+          "texture-compression-unaligned",
+          "texture-compression-astc",
+          "texture-compression-etc2",
+          "depth-clip-control",
+          "texture-compression-bc-sliced-3d",
+          "clip-distances",
+          "shader-f16",
+          "timestamp-query",
+          "texture-formats-tier2",
+          "primitive-index",
+          "texture-component-swizzle",
+          "subgroups"
+        ],
+        "events": [
+          {
+            "time": "2026-11-02T02:41:44.998Z",
+            "value": "Ready. The iframe fixes the game viewport at 1280 \u00d7 720 CSS, DPR 2."
+          },
+          {
+            "time": "2026-11-02T02:41:51.514Z",
+            "value": "Loading aether-archipelago"
+          },
+          {
+            "time": "2026-11-02T02:41:52.152Z",
+            "value": "aether-archipelago: page loaded; visibility visible; loading benchmark module"
+          },
+          {
+            "time": "2026-11-02T02:44:50.004Z",
+            "value": "Complete: 1 world(s), main runs, moving repeats, and identical-code controls."
+          }
+        ]
+      },
+      "files_sha256": {
+        "across-packed.png": "e37a1bf7111f6186931fc4413292b93ad2ce8ff02bd76e1b733a4ac4b11662ef",
+        "across-varyings.png": "e37a1bf7111f6186931fc4413292b93ad2ce8ff02bd76e1b733a4ac4b11662ef",
+        "control.json.gz": "3dec03ee35c3fe0fff80ed1fe0663517d0efb2d880004ca52b14d16023e5544a",
+        "diagnostics.json": "35f744cf6a13d207638ec1500f051f9c503bd63b989f5991ba47fcad5d8a78aa",
+        "near-packed.png": "9fd153e4eb889bead6e9741984f28c117bc89cb6c992a9b3c1e59ed7fd87f80b",
+        "near-varyings.png": "9fd153e4eb889bead6e9741984f28c117bc89cb6c992a9b3c1e59ed7fd87f80b",
+        "raw.json.gz": "d1937ef7dbde28a2179aaf1d6b8ac10c46e7e363003b46777b07e5f7e25cd336",
+        "repeat.json.gz": "78832fbc24240009f70a071397b5d84ac007d53a6ad0f60fd8c3aa6ab9016346"
+      }
+    },
+    {
+      "world": "nature",
+      "capture": "chromium-1793587947842",
+      "browser": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "browser": "chromium",
+        "time": "2026-11-02T02:52:27.842Z",
+        "fixtureCss": [
+          1280,
+          720
+        ],
+        "framebuffer": [
+          2560,
+          1440
+        ],
+        "harness": "visibility-browser-v3",
+        "requestedWorld": "nature",
+        "onlyControl": false,
+        "captureId": "chromium-1793587947842",
+        "experiment": "packed-varyings-ultra",
+        "adapter": {
+          "vendor": "apple",
+          "architecture": "metal-3",
+          "device": "",
+          "description": ""
+        },
+        "features": [
+          "depth32float-stencil8",
+          "rg11b10ufloat-renderable",
+          "bgra8unorm-storage",
+          "texture-formats-tier1",
+          "texture-compression-bc",
+          "dual-source-blending",
+          "core-features-and-limits",
+          "float32-filterable",
+          "indirect-first-instance",
+          "texture-compression-astc-sliced-3d",
+          "float32-blendable",
+          "subgroup-size-control",
+          "texture-compression-unaligned",
+          "texture-compression-astc",
+          "texture-compression-etc2",
+          "depth-clip-control",
+          "texture-compression-bc-sliced-3d",
+          "clip-distances",
+          "timestamp-query",
+          "texture-formats-tier2",
+          "shader-f16",
+          "primitive-index",
+          "texture-component-swizzle",
+          "subgroups"
+        ],
+        "events": [
+          {
+            "time": "2026-11-02T02:52:27.857Z",
+            "value": "Ready. The iframe fixes the game viewport at 1280 \u00d7 720 CSS, DPR 2."
+          },
+          {
+            "time": "2026-11-02T02:52:33.813Z",
+            "value": "Loading nature"
+          },
+          {
+            "time": "2026-11-02T02:52:33.982Z",
+            "value": "nature: page loaded; visibility visible; loading benchmark module"
+          },
+          {
+            "time": "2026-11-02T02:55:13.107Z",
+            "value": "Complete: 1 world(s), main runs, moving repeats, and identical-code controls."
+          }
+        ]
+      },
+      "files_sha256": {
+        "across-packed.png": "947a7762cd90db9f9ba97fac40ccdc086241ac2fe8733e86836bb945949df5d7",
+        "across-varyings.png": "947a7762cd90db9f9ba97fac40ccdc086241ac2fe8733e86836bb945949df5d7",
+        "control.json.gz": "dd55babfe40f8cc760b937656bcc74046dc8d1bfed464a55de66c216a5033e9d",
+        "diagnostics.json": "c62d23b2a537bb4f8e1e6344e76e58a675ef86c9780ee8bafd0b79a3693b82e1",
+        "near-packed.png": "623b0fa0acb85aaf9a7603e9a36a9bc780330b982b6fae173e6bd9ba4adb73e2",
+        "near-varyings.png": "623b0fa0acb85aaf9a7603e9a36a9bc780330b982b6fae173e6bd9ba4adb73e2",
+        "raw.json.gz": "929f0c0a5d2f03031d48712a3be029048375279d5f235a5e8420948918f3ffd8",
+        "repeat.json.gz": "efd2a528b12988d0311ccdec44443ec14ff2afaba33e8a0c55d3860dcd41f081"
+      }
+    },
+    {
+      "world": "copper-metropolis",
+      "capture": "chromium-1793587504520",
+      "browser": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "browser": "chromium",
+        "time": "2026-11-02T02:45:04.520Z",
+        "fixtureCss": [
+          1280,
+          720
+        ],
+        "framebuffer": [
+          2560,
+          1440
+        ],
+        "harness": "visibility-browser-v3",
+        "requestedWorld": "copper-metropolis",
+        "onlyControl": false,
+        "captureId": "chromium-1793587504520",
+        "experiment": "packed-varyings-ultra",
+        "adapter": {
+          "vendor": "apple",
+          "architecture": "metal-3",
+          "device": "",
+          "description": ""
+        },
+        "features": [
+          "depth32float-stencil8",
+          "rg11b10ufloat-renderable",
+          "bgra8unorm-storage",
+          "texture-formats-tier1",
+          "texture-compression-bc",
+          "dual-source-blending",
+          "core-features-and-limits",
+          "float32-filterable",
+          "indirect-first-instance",
+          "texture-compression-astc-sliced-3d",
+          "float32-blendable",
+          "subgroup-size-control",
+          "texture-compression-unaligned",
+          "texture-compression-astc",
+          "texture-compression-etc2",
+          "depth-clip-control",
+          "texture-compression-bc-sliced-3d",
+          "texture-formats-tier2",
+          "timestamp-query",
+          "clip-distances",
+          "shader-f16",
+          "primitive-index",
+          "texture-component-swizzle",
+          "subgroups"
+        ],
+        "events": [
+          {
+            "time": "2026-11-02T02:45:04.527Z",
+            "value": "Ready. The iframe fixes the game viewport at 1280 \u00d7 720 CSS, DPR 2."
+          },
+          {
+            "time": "2026-11-02T02:45:08.336Z",
+            "value": "Loading copper-metropolis"
+          },
+          {
+            "time": "2026-11-02T02:45:08.500Z",
+            "value": "copper-metropolis: page loaded; visibility visible; loading benchmark module"
+          },
+          {
+            "time": "2026-11-02T02:48:00.680Z",
+            "value": "Complete: 1 world(s), main runs, moving repeats, and identical-code controls."
+          }
+        ]
+      },
+      "files_sha256": {
+        "across-packed.png": "603e8dc24470c5539b92c2dc2bd2614230ff815882ab146f28afeb6c63463aab",
+        "across-varyings.png": "603e8dc24470c5539b92c2dc2bd2614230ff815882ab146f28afeb6c63463aab",
+        "control.json.gz": "7a78f958d1d64bc5178c3819937b1e2eecbd85eb25cadb9e91b500798bbc30f4",
+        "diagnostics.json": "fe57accee7ee69c753139f8dab46be7e81357867411af5b4a8ed17441adaccaf",
+        "near-packed.png": "e4d934ee6c312ee2b7a15b7afb9b1884c22bc2050165c00657ea9e73bc2f543d",
+        "near-varyings.png": "e4d934ee6c312ee2b7a15b7afb9b1884c22bc2050165c00657ea9e73bc2f543d",
+        "raw.json.gz": "50cb0e5dcba672f20604ab305149d317b0d472c2993d43e415079dcd88eba2ae",
+        "repeat.json.gz": "1b9fa18ad09df8bcfc868fab4b1b4b25f0f82fc9d4afb7e3115eab14cd98f075"
+      }
+    }
+  ],
+  "native_gpu_report": "native-space/results/aether-archipelago-gpu-profile.json",
+  "native_gpu_report_sha256": "9f476e9e8b04a7d76f06cf8663b3daa491d61794edfee75086321746de064948",
+  "source_sha256": {
+    "native-space/shaders/space.metal": "8e1218f872d358da605206d896af1b001809e90449ceeb076f1089bc8b79fe4d",
+    "native-space/src/metal_renderer.rs": "5a9208645de3591f5e9fd762917fb298bf88341fe6296ff4eb42ea248f6fc406",
+    "native-space/src/visibility.rs": "c639f0f879d726a4f2cd254c416ba351cf14ac796fb0c276ebb814a5641bd3a1",
+    "native-space/src/window_benchmark.rs": "4c9cfffc598efa91cbc73eb9986a04803105bc4e68f7b24ec34f547948dfac3b",
+    "engine/src/render/VoxelFaceArena.ts": "c894f873b7655bd7bb4b300bc24318a31efad917ac5878c547291d397933e137",
+    "engine/src/render/DistantVoxelLayer.ts": "d44db410fa2f3d4f2c4a31ad5c29f57a66ec53139e6940507919a9d14405d148",
+    "client/src/dev/VisibilityTrial.ts": "c18016ddb1b9937565f6c96d48adb79c64dba43ce4c57684d45a9219519eb6fd",
+    "native-space/src/app.rs": "fdc35b872936f0c23ab2a62f72b7f00d165e0c4e4b7a821b595b87405ab6fb81",
+    "native-space/src/main.rs": "f8453889bcf48b9fe62acc1ce90171a34c19576b4be174db5cede10e9a1eb780",
+    "native-space/src/render_benchmark.rs": "999050fed5e26c2b90b9782d7fc93b08f6d590ad2f3243850bf84862c253c223",
+    "client/src/dev/VisibilityExperiment.ts": "4831849c10c9eb3c425bb3b73a4030dca0ae99506cf91f38c1238e4490affba8",
+    "client/src/dev/VisibilityBrowserHost.ts": "d331f594387d5ff0c2a939036d9dee82ccd0991b8ceae14c10b8a53d59ff6f88",
+    "client/src/dev/VisibilityBrowserChild.ts": "dbcb3c39a5409cf5e6c85c4796e18b88b935978b18c8c14444a2d406890446c0"
+  },
+  "excluded": [
+    "chromium-1793585012965: first Web version failed the restored-reference image assertion by one channel value.",
+    "chromium-1793585679967: color-only experiment, superseded by combined color/emission varying.",
+    "native window-gpu-cold-excluded.json: insufficient movement warm-up.",
+    "native window-gpu-pre-visibility-check.json: no foreground/occlusion validation; cannot substantiate visible frame rate.",
+    "native invariant-position experiment: image mismatch; reverted."
+  ],
+  "limitations": [
+    "One Apple M1 Pro / Chrome 156 machine, within-client comparisons only.",
+    "Final Web Aether main capture overlapped a metadata-text-only HMR edit; shader and render implementation were unchanged. Repetition/control used unchanged files.",
+    "Web repetition results show substantial early-block timing drift; retain raw blocks and do not infer a uniform FPS improvement.",
+    "Native GPU shader timing predates final CPU identity/revision guards; final shader source is unchanged."
+  ],
+  "native_window_report": "native-space/results/window-gpu.json",
+  "native_window_report_sha256": "3196c8e83e7150b742c553ed826793e1d377dee790beaaddc58a90348ffed69c",
+  "native_window_verification": "Completed with focus=true and occluded=false throughout every sample block; physical window size unchanged.",
+  "native_release_sha256": "f13db67abe8f5b176a17f1f133bbad3a12193c414080b799ed12ebfe77f60d52",
+  "native_window_log": "/tmp/space-gpu-window-front-accepted.log"
+}

@@ -15,12 +15,14 @@ pub struct VisibilityBlock {
 /// Both dimensions wrap at the same seam as the fragment ownership mask.
 pub struct Coverage {
     sums: Vec<u32>,
+    occupied: Vec<u32>,
     pub revision: u64,
 }
 impl Default for Coverage {
     fn default() -> Self {
         Self {
             sums: vec![0; 1025 * 129],
+            occupied: vec![0; 1025 * 129],
             revision: 0,
         }
     }
@@ -31,14 +33,25 @@ impl Coverage {
         self.revision += 1;
         for z in 0..128 {
             let mut row = 0;
+            let mut occupied = 0;
             for x in 0..1024 {
                 let at = (z * 1024 + x) * 2;
                 row += u32::from(bytes[at] == 255 || bytes[at + 1] > 127);
+                occupied += u32::from(bytes[at] > 127 || bytes[at + 1] > 127);
                 self.sums[(z + 1) * 1025 + x + 1] = self.sums[z * 1025 + x + 1] + row;
+                self.occupied[(z + 1) * 1025 + x + 1] = self.occupied[z * 1025 + x + 1] + occupied;
             }
         }
     }
     pub fn covers(&self, bounds: [f32; 4]) -> bool {
+        self.query(bounds, &self.sums, false)
+    }
+    /// Proves that fragment ownership cannot discard anywhere in the padded,
+    /// wrapped rectangle, including partially owned cells in either channel.
+    pub fn empty(&self, bounds: [f32; 4]) -> bool {
+        self.query(bounds, &self.occupied, true)
+    }
+    fn query(&self, bounds: [f32; 4], sums: &[u32], empty: bool) -> bool {
         let ranges = |min: f32, max: f32, period: i32| {
             let lo = ((min - 0.02) / 16.0).floor() as i32;
             let hi = ((max + 0.02) / 16.0).floor() as i32;
@@ -51,10 +64,10 @@ impl Coverage {
         };
         for (x0, x1) in ranges(bounds[0], bounds[1], 1024) {
             for (z0, z1) in ranges(bounds[2], bounds[3], 128) {
-                let count = self.sums[z1 * 1025 + x1] + self.sums[z0 * 1025 + x0]
-                    - self.sums[z0 * 1025 + x1]
-                    - self.sums[z1 * 1025 + x0];
-                if count as usize != (x1 - x0) * (z1 - z0) {
+                let count = sums[z1 * 1025 + x1] + sums[z0 * 1025 + x0]
+                    - sums[z0 * 1025 + x1]
+                    - sums[z1 * 1025 + x0];
+                if count as usize != if empty { 0 } else { (x1 - x0) * (z1 - z0) } {
                     return false;
                 }
             }
@@ -479,6 +492,28 @@ mod tests {
         c.update(&bytes);
         assert!(c.covers([-1.0, 1.0, -1.0, 1.0]));
         assert!(!c.covers([0.0, 100.0, 0.0, 100.0]));
+    }
+    #[test]
+    fn empty_coverage_proof_includes_partial_cells_boundaries_and_both_seams() {
+        let mut c = Coverage::default();
+        let mut bytes = vec![0; 1024 * 128 * 2];
+        assert!(c.empty([-1.0, 1.0, -1.0, 1.0]));
+        for (x, z, channel) in [(0, 0, 0), (1023, 127, 1)] {
+            bytes.fill(0);
+            bytes[(z * 1024 + x) * 2 + channel] = 128;
+            c.update(&bytes);
+            assert!(!c.empty([-1.0, 1.0, -1.0, 1.0]));
+            assert!(!c.empty([16383.0, 16385.0, 2047.0, 2049.0]));
+            assert!(!c.empty([0.0, 16384.0, 0.0, 2048.0]));
+            assert!(c.empty([32.0, 48.0, 32.0, 48.0]));
+        }
+        bytes.fill(0);
+        bytes[2] = 255;
+        c.update(&bytes);
+        assert!(!c.empty([0.0, 16.0, 0.0, 1.0]));
+        bytes.fill(0);
+        c.update(&bytes);
+        assert!(c.empty([0.0, 16384.0, 0.0, 2048.0]));
     }
     #[test]
     fn shadow_keeps_backfaces_and_local_blend_keeps_uncertain_bounds() {

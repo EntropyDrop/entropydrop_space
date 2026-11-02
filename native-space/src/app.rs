@@ -7,6 +7,8 @@ use space_native::{
 mod gameplay;
 #[path = "hud.rs"]
 mod hud;
+#[path = "window_benchmark.rs"]
+pub mod window_benchmark;
 use anyhow::{Context, Result};
 use glam::{DVec3, Mat4};
 use space_native::{
@@ -35,6 +37,7 @@ type Key = (i32, i32);
 type MeshResult = (Key, Vec<geometry::Face>);
 
 pub struct Game {
+    ephemeral: bool,
     pub world: World,
     pub camera: Camera,
     pub editor: Editor,
@@ -122,6 +125,7 @@ impl Game {
             .build()?;
         let runtime = Runtime::new(&source.root);
         Ok(Self {
+            ephemeral: false,
             previous_position: camera.position,
             world,
             camera,
@@ -180,6 +184,10 @@ impl Game {
         })
     }
     pub fn save(&mut self) -> Result<()> {
+        if self.ephemeral {
+            self.save_elapsed = 0.0;
+            return Ok(());
+        }
         let save = storage::Save {
             schema: 1,
             world: self.world.source.manifest.world.clone(),
@@ -950,6 +958,7 @@ pub struct Application {
     frame_rate: space_native::frame_metrics::FrameRate,
     pub error: Option<anyhow::Error>,
     pub quit_after: Option<f64>,
+    pub window_benchmark: Option<window_benchmark::WindowBenchmark>,
     started: Instant,
 }
 impl Application {
@@ -971,6 +980,7 @@ impl Application {
             frame_rate: Default::default(),
             error: None,
             quit_after: None,
+            window_benchmark: None,
             started: Instant::now(),
         }
     }
@@ -996,6 +1006,9 @@ impl Application {
         self.last = Instant::now();
         let game = self.game.as_mut().context("Game missing")?;
         let renderer = self.renderer.as_mut().unwrap();
+        if let Some(benchmark) = &self.window_benchmark {
+            benchmark.before_frame(game, renderer);
+        }
         game.stream(renderer)?;
         game.simulate(
             renderer,
@@ -1036,6 +1049,7 @@ impl Application {
         renderer.update_textures(&output.textures_delta)?;
         let paint = self.egui.tessellate(output.shapes, output.pixels_per_point);
         let capture = game.capture.take();
+        let render_started = Instant::now();
         let submitted = renderer.draw(
             game.uniforms([size.width, size.height]),
             &paint,
@@ -1045,12 +1059,29 @@ impl Application {
         self.frame_rate
             .record(self.started.elapsed().as_secs_f64(), submitted);
         renderer.free_textures(&output.textures_delta.free);
+        if let Some(benchmark) = &mut self.window_benchmark
+            && benchmark.after_frame(
+                game,
+                renderer,
+                [size.width, size.height],
+                submitted,
+                [
+                    render_started.duration_since(self.last).as_secs_f64() * 1000.0,
+                    render_started.elapsed().as_secs_f64() * 1000.0,
+                ],
+            )?
+        {
+            event_loop.exit();
+            return Ok(());
+        }
         let capture_request = game.capture_request.take();
         if let Some(name) = game.pending_world.take() {
             match game.save().and_then(|_| Game::open(&self.root, &name)) {
                 Ok(next) => {
                     renderer.retain_meshes(|_| false);
+                    let ephemeral = game.ephemeral;
                     *game = next;
+                    game.ephemeral = ephemeral;
                     self.world_name = name;
                 }
                 Err(e) => game.status = format!("World change failed: {e:#}"),
@@ -1075,11 +1106,13 @@ impl Application {
 impl ApplicationHandler for Application {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let result = (|| -> Result<()> {
-            let window = event_loop.create_window(
-                Window::default_attributes()
-                    .with_title("Space · Native Metal")
-                    .with_inner_size(winit::dpi::LogicalSize::new(1440.0, 900.0)),
-            )?;
+            let mut attributes = Window::default_attributes()
+                .with_title("Space · Native Metal")
+                .with_inner_size(winit::dpi::LogicalSize::new(1440.0, 900.0));
+            if self.window_benchmark.is_some() {
+                attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(2560, 1440));
+            }
+            let window = event_loop.create_window(attributes)?;
             let renderer = Renderer::new(Some(&window))?;
             let size = window.inner_size();
             let mut renderer = renderer;
@@ -1094,6 +1127,7 @@ impl ApplicationHandler for Application {
                 Some(8192),
             );
             self.game = Some(Game::open(&self.root, &self.world_name)?);
+            self.game.as_mut().unwrap().ephemeral = self.window_benchmark.is_some();
             self.renderer = Some(renderer);
             self.input = Some(input);
             self.window = Some(window);
@@ -1110,7 +1144,17 @@ impl ApplicationHandler for Application {
         } else {
             false
         };
+        if let WindowEvent::Focused(focused) = &event
+            && let Some(benchmark) = &mut self.window_benchmark
+        {
+            benchmark.focused = *focused;
+        }
         match event {
+            WindowEvent::Occluded(occluded) => {
+                if let Some(benchmark) = &mut self.window_benchmark {
+                    benchmark.occluded = occluded;
+                }
+            }
             WindowEvent::CloseRequested => {
                 if let Some(game) = &mut self.game
                     && let Err(e) = game.save()

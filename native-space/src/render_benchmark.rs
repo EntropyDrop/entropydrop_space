@@ -72,9 +72,12 @@ pub fn optimized(
     let culling_only = mode == 3;
     let frame_reuse = mode == 4;
     let leaves = mode == 7;
-    let submission = mode == 5 || leaves;
+    let gpu_work = mode == 8;
+    let submission = mode == 5 || leaves || gpu_work;
     let recent = frame_reuse || submission;
-    let prefix = if leaves {
+    let prefix = if gpu_work {
+        "gpu"
+    } else if leaves {
         "leaves"
     } else if submission {
         "submission"
@@ -85,7 +88,12 @@ pub fn optimized(
     } else {
         "optimized"
     };
-    let legacy = if leaves {
+    let legacy = if gpu_work {
+        RenderProbe {
+            packed_varyings: false,
+            ..Default::default()
+        }
+    } else if leaves {
         RenderProbe {
             leaf_cull_proofs: false,
             ..Default::default()
@@ -157,7 +165,13 @@ pub fn optimized(
     } else {
         variants.to_vec()
     };
-    let rounds = if recent { 4 } else { 2 };
+    let rounds = if gpu_work {
+        0
+    } else if recent {
+        4
+    } else {
+        2
+    };
     let mut cases = Vec::new();
     for size in [[1280, 720], [2560, 1440]] {
         for round in 0..rounds {
@@ -216,6 +230,20 @@ pub fn optimized(
         ),
     ];
     let mut images = Vec::new();
+    if gpu_work {
+        // Untimed diagnostic isolates interpolation rounding before the
+        // nonlinear bloom/tone-map/FXAA chain; never changes timed quality.
+        for (name, options) in [("legacy", legacy), ("optimized", RenderProbe::default())] {
+            renderer.probe = RenderProbe {
+                skip_post: true,
+                ..options
+            };
+            let path = root.join(format!(
+                "results/{prefix}-{world}-close-unprocessed-{name}-1280x720.png"
+            ));
+            renderer.draw_offscreen(views[2].1, [1280, 720], &path)?;
+        }
+    }
     for (view, u) in views {
         for size in [[1280, 720], [2560, 1440]] {
             if view != "overview" && size[0] > 1280 {

@@ -15,7 +15,7 @@ function capture(world, file) {
   const data = JSON.parse(gunzipSync(readFileSync(new URL(`${world}/${file}`, root))));
   const { comparison: run, pixels } = data;
   const modes = run.trial.activeModes ?? ['original', 'fast', 'wide', run.rows.some(r => r.role === 'upload') ? 'upload' : 'gpu'];
-  const native = modes.includes('hierarchy');
+  const native = modes.includes('hierarchy') || modes.includes('packed');
   if (run.errors.length || run.width !== 2560 || run.height !== 1440 || run.quality !== (native ? 'ultra' : 'medium') || run.shadows !== native || run.samples !== 4) throw Error('Invalid environment: ' + world);
   if (!pixels || pixels.width !== 2560 || pixels.height !== 1440 || pixels.rows.length !== (pixels.modeOrder.length + 1) * pixels.poses.length) throw Error('Incomplete image checks.');
   if (pixels.errors.length || pixels.rows.some(r => r.changedOver2 || !r.identicalPicking || (r.restored && r.max !== 0)

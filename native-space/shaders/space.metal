@@ -5,7 +5,24 @@ struct Face { packed_float3 origin; uint color; float2 extent; uint axis; uint p
 struct Draw { float4 origin; uint4 counts; };
 struct Uniforms { float4x4 clip; float4x4 model; float4 camera; float4 options; };
 struct Frame { float4x4 inverse_direction_clip, correction, shadow, inverse_projection; float4 eye, up, east, north, sun, fill, resolution; };
+#ifndef PACKED_VARYINGS
+#define PACKED_VARYINGS 0
+#endif
+#ifndef UNMASKED_TERRAIN
+#define UNMASKED_TERRAIN 0
+#endif
+#if PACKED_VARYINGS
+// Distant faces carry their original 8-bit color and material flags, losslessly.
+// Decode once per shaded fragment instead of exporting/interpolating six
+// floating-point color/material components for every transformed vertex.
+struct Out { float4 position [[position]]; float3 world, normal;
+#if !UNMASKED_TERRAIN
+float2 mask;
+#endif
+uint2 surface [[flat]]; };
+#else
 struct Out { float4 position [[position]]; float3 color, world, normal; float2 mask; float alpha, emission, smooth_normal; };
+#endif
 float3 linear_rgb(float3 c) { return select(c/12.92,pow((c+0.055)/1.055,float3(2.4)),c>0.04045); }
 float3 srgb(float3 c) { return select(12.92*c,1.055*pow(max(c,0.0),float3(1.0/2.4))-.055,c>.0031308); }
 // Terrain vertices are on the 1/8 m lattice. Tables use f64-generated periodic
@@ -28,12 +45,18 @@ Out face_vertex(uint vid,Face face,constant Uniforms &u,constant Frame &f,device
     Out o;o.world=p;o.normal=n;
     if(u.options.x>.5){float3 bent;float3x3 basis=torus(p,u,xt,zt,bent);o.normal=basis*n;
         float3 delta=bent-f.eye.xyz;o.world=bent+((f.correction*float4(delta,0)).xyz-delta)*(1-smoothstep(96.0,256.0,length(delta)));}
+#if PACKED_VARYINGS
+    o.surface=uint2(face.color,face.padding);
+#else
     float3 rgb=float3((face.color>>16)&255,(face.color>>8)&255,face.color&255)/255.0;o.color=(face.padding&2)?rgb:linear_rgb(rgb);
     uint material=(face.color>>24)-1;o.alpha=material>=2?1.0-float(material-1)/100.0:1.0;o.emission=material==1?1:0;
     // 1 = terrain normal + coverage mask, 2 = analytic avatar normal only.
     o.smooth_normal=(face.padding&1)?1:((face.padding&4)?2:0);
     if(material==1){o.color=linear_rgb(rgb);o.color*=.65/max(dot(o.color,float3(.2126,.7152,.0722)),.000001);}
+#endif
+#if !UNMASKED_TERRAIN
     o.mask=float2(-1);if(face.padding&1)o.mask=(p-n*.01).xz;
+#endif
     o.position=u.clip*float4(o.world,1);return o;
 }
 // Stable, ordered block indirection preserves depth ties and material order.
@@ -55,14 +78,29 @@ struct ReplayVertex { packed_float3 position; packed_float3 color; packed_float2
 // compact decoding / map lookup branches inflating the "before" GPU time.
 vertex Out legacy_vertex(uint v [[vertex_id]],uint i [[instance_id]],device const Face *faces [[buffer(0)]],constant Uniforms &u [[buffer(1)]],constant Frame &f [[buffer(2)]],device const float2 *xt [[buffer(3)]],device const float2 *zt [[buffer(4)]]) {return face_vertex(v,faces[i],u,f,xt,zt);}
 vertex Out legacy_shadow_vertex(uint v [[vertex_id]],uint i [[instance_id]],device const Face *faces [[buffer(0)]],constant Uniforms &u [[buffer(1)]],constant Frame &f [[buffer(2)]],device const float2 *xt [[buffer(3)]],device const float2 *zt [[buffer(4)]]) {Out o=face_vertex(v,faces[i],u,f,xt,zt);o.position=f.shadow*float4(o.world,1);return o;}
+#if !PACKED_VARYINGS
 vertex Out replay_vertex(uint v [[vertex_id]],device const ReplayVertex *vertices [[buffer(0)]],constant Uniforms &u [[buffer(1)]]) {
     ReplayVertex p=vertices[v];Out o;o.world=p.position;o.position=u.clip*float4(o.world,1);o.color=p.color;o.mask=p.mask;o.alpha=1;o.emission=0;o.smooth_normal=0;o.normal=float3(0);return o;
 }
 vertex Out replay_shadow_vertex(uint v [[vertex_id]],device const ReplayVertex *vertices [[buffer(0)]],constant Frame &f [[buffer(2)]]) {
     Out o;o.world=vertices[v].position;o.position=f.shadow*float4(o.world,1);o.mask=vertices[v].mask;o.smooth_normal=0;return o;
 }
+#endif
 void apply_mask(float2 uv,texture2d<float> mask) {constexpr sampler nearest(coord::normalized,address::clamp_to_edge,filter::nearest);if(uv.x>=0){float2 m=mask.sample(nearest,uv).rg;if(max(m.r,m.g)>.5)discard_fragment();}}
-float2 mask_uv(Out in){if(in.smooth_normal>.5&&in.smooth_normal<1.5){float2 p=in.mask-floor(in.mask/float2(16384,2048))*float2(16384,2048);return (floor(p/16)+.5)/float2(1024,128);}return in.mask;}
+float surface_kind(Out in) {
+#if PACKED_VARYINGS
+    return (in.surface.y&1)?1:((in.surface.y&4)?2:0);
+#else
+    return in.smooth_normal;
+#endif
+}
+float2 mask_uv(Out in){
+#if UNMASKED_TERRAIN
+    return float2(-1);
+#else
+    float kind=surface_kind(in);if(kind>.5&&kind<1.5){float2 p=in.mask-floor(in.mask/float2(16384,2048))*float2(16384,2048);return (floor(p/16)+.5)/float2(1024,128);}return in.mask;
+#endif
+}
 fragment void replay_shadow_fragment(Out in [[stage_in]],texture2d<float> mask [[texture(1)]]){apply_mask(mask_uv(in),mask);}
 float shadow_at(float3 p,constant Frame &f,depth2d<float> shadow) {
     float4 q=f.shadow*float4(p,1);q.xyz/=q.w;float2 uv=q.xy*float2(.5,-.5)+.5;
@@ -72,12 +110,23 @@ float shadow_at(float3 p,constant Frame &f,depth2d<float> shadow) {
     return sum/9;
 }
 fragment float4 voxel_fragment(Out in [[stage_in]],constant Uniforms &u [[buffer(1)]],constant Frame &f [[buffer(2)]],depth2d<float> shadow [[texture(0)]],texture2d<float> mask [[texture(1)]]) {
-    apply_mask(mask_uv(in),mask);if(in.alpha<.005)discard_fragment();
+#if PACKED_VARYINGS
+    uint material=(in.surface.x>>24)-1;
+    float alpha=material>=2?1.0-float(material-1)/100.0:1.0,emission=material==1?1:0;
+    float3 rgb=float3((in.surface.x>>16)&255,(in.surface.x>>8)&255,in.surface.x&255)/255.0;
+    float3 color=(in.surface.y&2)?rgb:linear_rgb(rgb);
+    if(material==1){color=linear_rgb(rgb);color*=.65/max(dot(color,float3(.2126,.7152,.0722)),.000001);}
+#else
+    float alpha=in.alpha,emission=in.emission;float3 color=in.color;
+#endif
+#if !UNMASKED_TERRAIN
+    apply_mask(mask_uv(in),mask);if(alpha<.005)discard_fragment();
+#endif
     float3 n=normalize(cross(dfdx(in.world),dfdy(in.world)));if(dot(n,in.normal)<0)n=-n;
     if(length(in.normal)<.1&&dot(n,f.eye.xyz-in.world)<0)n=-n;
-    if(in.smooth_normal>.5)n=normalize(in.normal);
-    float3 c=in.color;
-    if(u.options.y>.5&&in.emission<.5) {
+    if(surface_kind(in)>.5)n=normalize(in.normal);
+    float3 c=color;
+    if(u.options.y>.5&&emission<.5) {
         float hemi=dot(n,f.up.xyz)*.5+.5;
         float3 ambient=mix(linear_rgb(float3(135,156,97)/255),linear_rgb(float3(184,217,255)/255),hemi)*.85;
         float3 sunlight=linear_rgb(float3(255,223,173)/255)*3.2*shadow_at(in.world+n*.05,f,shadow);
@@ -93,7 +142,7 @@ fragment float4 voxel_fragment(Out in [[stage_in]],constant Uniforms &u [[buffer
             result+=radiance*nl*(diffuse/M_PI_F+F*(D*V));}
         c=result;
     }
-    return float4(c,in.alpha<.999?in.alpha:1+in.emission);
+    return float4(c,alpha<.999?alpha:1+emission);
 }
 struct Full { float4 position [[position]]; float2 uv; };
 vertex Full fullscreen(uint v [[vertex_id]]) {Full o;o.uv=float2((v<<1)&2,v&2);o.position=float4(o.uv*float2(2,-2)+float2(-1,1),1,1);return o;}

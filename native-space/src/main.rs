@@ -25,7 +25,9 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| root.join("../godot-space/matched-lod-fine/data"));
         return render_benchmark::run(&root, &path);
     }
-    let profile_render = if args.iter().any(|a| a == "--profile-leaves") {
+    let profile_render = if args.iter().any(|a| a == "--profile-gpu") {
+        Some(8)
+    } else if args.iter().any(|a| a == "--profile-leaves") {
         Some(7)
     } else if args.iter().any(|a| a == "--profile-groups") {
         Some(6)
@@ -57,6 +59,15 @@ fn main() -> anyhow::Result<()> {
     }
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut application = app::Application::new(root, world);
+    if args
+        .iter()
+        .any(|a| a == "--profile-window-gpu" || a == "--profile-window-control")
+    {
+        application.window_benchmark = Some(app::window_benchmark::WindowBenchmark::new(
+            &application.root,
+            args.iter().any(|a| a == "--profile-window-control"),
+        ));
+    }
     application.quit_after = value("--quit-after=").map(|s| s.parse()).transpose()?;
     event_loop.run_app(&mut application)?;
     if let Some(error) = application.error {

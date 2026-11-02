@@ -9,6 +9,7 @@ import { BACKFACE_PROXY_STRIDE, surfaceFacingProxy, surfaceBlockBackFacing } fro
 import { buildVoxelVisibilityClusters, updateVoxelVisibilityClusters, type VoxelVisibilityClusters } from './VoxelVisibilityClusters.ts';
 
 export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
+/** Color and emission are fragment-stage nodes sharing one packed varying. */
 export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
 const BLOCK = VOXEL_FACE_BLOCK;
 const PAGE_FACES = 256 * 1024;
@@ -62,6 +63,7 @@ type Entry = Range & { mesh: VoxelFaceMesh; geometry: THREE.InstancedBufferGeome
   uploaded?: { map: THREE.StorageBufferAttribute; start: number; revision: number; pass: number };
   blockTests?: BlockTests; invalid: boolean; releasing: boolean; onDispose: () => void };
 type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; free: Range[];
+  varyingMaterials?: Map<boolean, [THREE.MeshStandardNodeMaterial, THREE.MeshStandardNodeMaterial | undefined]>;
   map: THREE.StorageBufferAttribute; data: THREE.StorageBufferAttribute; release: Set<() => void>;
   releaseMap: Set<(attribute: THREE.StorageBufferAttribute) => void> };
 
@@ -127,6 +129,7 @@ export class VoxelFaceArena {
   // Experimental: far replay improves, but ordinary turning GPU spans regress.
   // Keep the original layout until the full-frame regression is resolved.
   private compactMaps = false;
+  private packedVaryings = true;
   private emptyFrustum = false;
   readonly stats = { residentFaces: 0, bytes: 0, visibleFaces: 0, paddedFaces: 0, draws: 0,
     sourceDraws: 0, mapUploadBytes: 0, copyFaces: 0, copyMs: 0, maxCopyMs: 0, pendingSources: 0,
@@ -239,6 +242,27 @@ export class VoxelFaceArena {
     this.maintenanceDirty = this.visibilityDirty = true; this.root.needsUpdate = true;
   }
   getCompactMapsEnabled() { return this.compactMaps; }
+  /** Lossless face color/emission stay packed until the fragment stage, reducing
+   * vertex output bandwidth without changing records, geometry or shading. */
+  setPackedVaryingsEnabled(enabled: boolean) {
+    if (this.packedVaryings === enabled) return;
+    const previous = this.packedVaryings;
+    this.packedVaryings = enabled;
+    for (const page of this.pages) {
+      const oldOpaque = page.mesh.userData.opaqueMaterial ?? page.mesh.material, oldMasked = page.mesh.userData.maskedMaterial;
+      const variants = page.varyingMaterials ??= new Map([[previous, [oldOpaque, oldMasked]]]);
+      if (!variants.has(enabled)) {
+        const replacement = this.createDrawingMesh(page.data, page.map);
+        variants.set(enabled, [replacement.userData.opaqueMaterial ?? replacement.material, replacement.userData.maskedMaterial]);
+        replacement.geometry.dispose();
+      }
+      const [opaque, masked] = variants.get(enabled)!;
+      for (const mesh of page.runs) mesh.material = oldMasked && mesh.material === oldMasked ? masked! : opaque;
+      page.mesh.userData.opaqueMaterial = opaque; page.mesh.userData.maskedMaterial = masked;
+    }
+    this.root.needsUpdate = true;
+  }
+  getPackedVaryingsEnabled() { return this.packedVaryings; }
   private get mapStride() { return this.compactMaps ? 4 : 8; }
   private createMap(capacity: number) {
     return new THREE.StorageBufferAttribute(new Float32Array(capacity / BLOCK * this.mapStride), 4);
@@ -256,7 +280,8 @@ export class VoxelFaceArena {
       for (const mesh of page.runs) mesh.material = oldMasked && mesh.material === oldMasked ? masked : opaque;
       page.mesh.userData.opaqueMaterial = opaque; page.mesh.userData.maskedMaterial = masked;
       replacement.geometry.dispose();
-      for (const material of new Set<THREE.Material>([oldOpaque, oldMasked].filter(Boolean))) material.dispose();
+      for (const material of new Set<THREE.Material>([oldOpaque, oldMasked, ...[...page.varyingMaterials?.values() ?? []].flat()].filter(Boolean))) material.dispose();
+      page.varyingMaterials = undefined;
     }
   }
   private updateDrawRange(mesh: VoxelFaceMesh) {
@@ -528,11 +553,13 @@ export class VoxelFaceArena {
     const valid = this.blockInstancing ? local.lessThan(uint(blockFaces)).and(faceIndex.lessThan(runFaces)) : local.lessThan(uint(blockFaces));
     const face = blockStart.add(uint(min(float(local), float(blockFaces).sub(1))));
     const record = records.element(face);
+    const surface = varying(uint(record.w).bitAnd(uint(0xffffff)).bitOr(uint(record.z).bitAnd(uint(0xff000000))));
     return this.make({ origin,
       offset: vec3(float(uint(record.x).bitAnd(65535)), float(uint(record.x).shiftRight(16)), float(uint(record.y).bitAnd(65535))),
       span: vec3(float(uint(record.y).shiftRight(16)), float(uint(record.z).bitAnd(65535)), 0).xy,
-      direction: float(uint(record.z).shiftRight(16).bitAnd(255)), emission: float(uint(record.z).shiftRight(24)),
-      color: varying(unpackColor(uint(record.w))), valid,
+      direction: float(uint(record.z).shiftRight(16).bitAnd(255)),
+      emission: this.packedVaryings ? float(surface.shiftRight(24)) : varying(float(uint(record.z).shiftRight(24))),
+      color: this.packedVaryings ? unpackColor(surface) : varying(unpackColor(uint(record.w))), valid,
       quad: vec2(float(corner.equal(1).or(corner.equal(2))), float(corner.greaterThanEqual(2))) });
   }
   private createPage(capacity: number) {
@@ -616,7 +643,7 @@ export class VoxelFaceArena {
   private disposePage(page: Page) {
     for (const mesh of page.runs) { mesh.removeFromParent(); mesh.geometry.dispose(); }
     for (const material of new Set<THREE.Material>([page.mesh.material,
-      page.mesh.userData.opaqueMaterial, page.mesh.userData.maskedMaterial].filter(Boolean))) material.dispose();
+      page.mesh.userData.opaqueMaterial, page.mesh.userData.maskedMaterial, ...[...page.varyingMaterials?.values() ?? []].flat()].filter(Boolean))) material.dispose();
     for (const release of page.release) release(); page.release.clear(); page.releaseMap.clear();
     this.pages.splice(this.pages.indexOf(page), 1);
   }

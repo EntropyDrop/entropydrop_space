@@ -144,6 +144,8 @@ pub struct Mesh {
     tree: VisibilityTree,
     covered: Vec<u8>,
     coverage_revision: u64,
+    opaque_bounds: Option<[f32; 4]>,
+    mask_required: bool,
     maps: [VisibilityMap; 2],
     center: Vec3,
     bounds: Option<([f32; 4], bool)>,
@@ -220,6 +222,7 @@ fn grow_buffer(
 /// only make sense with fixed camera, geometry and sky time.
 #[derive(Clone, Copy)]
 pub struct RenderProbe {
+    pub packed_varyings: bool,
     pub inherit_cull_proofs: bool,
     pub leaf_cull_proofs: bool,
     pub quad_group: usize,
@@ -241,6 +244,7 @@ pub struct RenderProbe {
 impl Default for RenderProbe {
     fn default() -> Self {
         Self {
+            packed_varyings: true,
             inherit_cull_proofs: true,
             leaf_cull_proofs: true,
             quad_group: 32,
@@ -297,6 +301,7 @@ pub struct Renderer {
     queue: Metal<dyn MTLCommandQueue>,
     pub layer: Option<Retained<CAMetalLayer>>,
     pipeline: Metal<dyn MTLRenderPipelineState>,
+    packed_pipelines: Vec<Metal<dyn MTLRenderPipelineState>>,
     transparent_pipeline: Metal<dyn MTLRenderPipelineState>,
     ui_pipeline: Metal<dyn MTLRenderPipelineState>,
     depth_state: Metal<dyn MTLDepthStencilState>,
@@ -395,6 +400,56 @@ impl Renderer {
         );
         let hdr = MTLPixelFormat::RGBA16Float;
         let display = MTLPixelFormat::BGRA8Unorm_sRGB;
+        let packed_library = device
+            .newLibraryWithSource_options_error(
+                &NSString::from_str(&format!(
+                    "#define PACKED_VARYINGS 1\n{}",
+                    include_str!("../shaders/space.metal")
+                )),
+                None,
+            )
+            .map_err(|e| anyhow!("Packed shader: {e}"))?;
+        let unmasked_library = device
+            .newLibraryWithSource_options_error(
+                &NSString::from_str(&format!(
+                    "#define PACKED_VARYINGS 1\n#define UNMASKED_TERRAIN 1\n{}",
+                    include_str!("../shaders/space.metal")
+                )),
+                None,
+            )
+            .map_err(|e| anyhow!("Unmasked terrain shader: {e}"))?;
+        let packed_pipelines = vec![
+            make_pipeline(
+                &device,
+                &packed_library,
+                "voxel_vertex",
+                "voxel_fragment",
+                false,
+                hdr,
+                4,
+                true,
+            )?,
+            make_pipeline(
+                &device,
+                &packed_library,
+                "voxel_vertex",
+                "voxel_fragment",
+                true,
+                hdr,
+                4,
+                true,
+            )?,
+            make_pipeline(
+                &device,
+                &unmasked_library,
+                "voxel_vertex",
+                "voxel_fragment",
+                false,
+                hdr,
+                4,
+                true,
+            )?,
+        ];
         let pipeline = make_pipeline(
             &device,
             &library,
@@ -625,6 +680,7 @@ impl Renderer {
             queue,
             layer,
             pipeline,
+            packed_pipelines,
             transparent_pipeline,
             ui_pipeline,
             depth_state,
@@ -705,6 +761,8 @@ impl Renderer {
                         tree: VisibilityTree::default(),
                         covered: Vec::new(),
                         coverage_revision: 0,
+                        opaque_bounds: None,
+                        mask_required: true,
                         maps: Default::default(),
                         bounds: None,
                         center: {
@@ -741,8 +799,10 @@ impl Renderer {
         let origin = Vec3::from_array(tile.origin);
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
+        let mut opaque = true;
         for f in &tile.data {
             let f = f.unpack(origin);
+            opaque &= matches!(f.color >> 24, 1 | 2);
             let p = Vec3::from_array(f.origin);
             let mut q = p;
             let axis = f.axis as usize / 2;
@@ -767,6 +827,8 @@ impl Renderer {
             blocks: tile.visibility.clone(),
             covered: Vec::new(),
             coverage_revision: 0,
+            opaque_bounds: opaque.then_some([min.x, max.x, min.z, max.z]),
+            mask_required: true,
             maps: Default::default(),
             center: (min + max) * 0.5,
             bounds: Some((tile.bounds, torus)),
@@ -1335,6 +1397,9 @@ impl Renderer {
                     .map(|b| u8::from(self.coverage.covers(b.flat)))
                     .collect();
                 mesh.coverage_revision = self.coverage.revision;
+                mesh.mask_required = !mesh
+                    .opaque_bounds
+                    .is_some_and(|bounds| self.coverage.empty(bounds));
             }
             let visible = if self.probe.cache_submission {
                 mesh.frame_visible
@@ -1846,7 +1911,33 @@ impl Renderer {
                     order.then_with(|| a.0.cmp(b.0))
                 });
             }
-            for (_, mesh) in meshes {
+            let mut packed = None;
+            for (key, mesh) in meshes {
+                // Far terrain already stores linear 8-bit colors. Keep the
+                // original vertex color arithmetic for near and entity meshes.
+                let next =
+                    (ultra && !legacy && self.probe.packed_varyings && key.starts_with("far:"))
+                        .then_some(
+                            if !transparent
+                                && !mesh.mask_required
+                                && mesh.model == Mat4::IDENTITY
+                                && mesh.coverage_revision == self.coverage.revision
+                            {
+                                2
+                            } else {
+                                usize::from(transparent)
+                            },
+                        );
+                if next != packed {
+                    encoder.setRenderPipelineState(if let Some(index) = next {
+                        &self.packed_pipelines[index]
+                    } else if transparent {
+                        &self.transparent_pipeline
+                    } else {
+                        &self.pipeline
+                    });
+                    packed = next;
+                }
                 let faces = draw_mesh(&encoder, mesh, false);
                 self.draw_calls += usize::from(faces > 0);
                 self.visible_faces += faces;
