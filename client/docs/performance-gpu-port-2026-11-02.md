@@ -123,6 +123,13 @@ Full raw samples remain in `native-space/results/window-gpu.json`.
 
 ## Native image and resource checks
 
+Correction from the later frame-submission investigation: modes with no initial
+timed rounds captured these first seven pairs before explicitly freezing cloud
+time. The observed differences below are historical measurements, but cannot
+be attributed solely to varying precision. `optimized()` now freezes cloud time
+before any paired images. Timed GPU batches already froze it and are unaffected.
+See the [follow-up validation](performance-frameflow-2026-11-02.md).
+
 Seven full-quality paired views include overview at both resolutions, turning,
 close geometry, the near/far transition, torus seams and material fixtures.
 Geometry, masks and quality settings are unchanged, but the new varying layout

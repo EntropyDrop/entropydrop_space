@@ -42,11 +42,16 @@ pub struct Game {
     pub camera: Camera,
     pub editor: Editor,
     streaming: Streaming,
+    near_demand: space_native::streaming::NearDemand,
+    stream_optimized: bool,
     distant: space_native::distant::Distant,
     distant_tiles: std::collections::VecDeque<space_native::distant::Tile>,
     distant_status: String,
     distant_failed: bool,
+    distant_ready: bool,
+    distant_zones: usize,
     last_lod: Instant,
+    last_lod_view: Option<([f64; 3], u32, bool, u64)>,
     near_ready: HashSet<Key>,
     mask_dirty: bool,
     lod_publishing: bool,
@@ -131,11 +136,16 @@ impl Game {
             camera,
             editor,
             streaming: Streaming::new(source.clone()),
+            near_demand: Default::default(),
+            stream_optimized: std::env::var("SPACE_NATIVE_LEGACY_STREAMING").as_deref() != Ok("1"),
             distant: space_native::distant::Distant::new(source.clone()),
             distant_tiles: Default::default(),
             distant_status: "Generating volumetric LOD…".into(),
             distant_failed: false,
+            distant_ready: false,
+            distant_zones: 0,
             last_lod: Instant::now(),
+            last_lod_view: None,
             near_ready: HashSet::new(),
             mask_dirty: true,
             lod_publishing: false,
@@ -235,21 +245,15 @@ impl Game {
     pub fn stream(&mut self, renderer: &mut Renderer) -> Result<()> {
         let cx = (self.camera.position.x / 16.0).floor() as i32;
         let cz = (self.camera.position.z / 16.0).floor() as i32;
-        let mut keys = Vec::new();
-        for dz in -self.radius..=self.radius {
-            for dx in -self.radius..=self.radius {
-                if dx * dx + dz * dz <= self.radius * self.radius {
-                    keys.push((
-                        dx * dx + dz * dz,
-                        ((cx + dx).rem_euclid(1024), (cz + dz).rem_euclid(128)),
-                    ));
+        self.near_demand
+            .update(cx, cz, self.radius, !self.stream_optimized);
+        if !self.near_demand.complete {
+            self.near_demand.complete = true;
+            for &key in &self.near_demand.keys {
+                if !self.world.chunks.contains_key(&key) {
+                    self.near_demand.complete = false;
+                    self.streaming.request(key);
                 }
-            }
-        }
-        keys.sort_by_key(|x| x.0);
-        for (_, key) in keys {
-            if !self.world.chunks.contains_key(&key) {
-                self.streaming.request(key);
             }
         }
         let started = Instant::now();
@@ -347,10 +351,15 @@ impl Game {
             self.lod_publishing = true;
             match result {
                 Ok(frame) => {
+                    self.distant_failed = false;
+                    self.distant_ready = frame.ready;
+                    self.distant_zones = frame.zones;
                     self.lod_projection = frame.torus;
                     self.distant_status = format!(
-                        "LOD {}/128 zones · {:.1} MiB source · requested 1 px² / effective {:.2} px² · {} source-limited zones",
+                        "LOD {}/128 zones · refined {}/128 · {} restored · {:.1} MiB source · requested 1 px² / effective {:.2} px² · {} source-limited zones",
                         frame.zones,
+                        frame.refined_zones,
+                        frame.cache_restored_zones,
                         frame.source_bytes as f64 / 1048576.0,
                         frame.stats["effectiveAreaPx2"].as_f64().unwrap_or(1.0),
                         frame.source_limited_zones
@@ -360,6 +369,8 @@ impl Game {
                 Err(e) => {
                     self.distant_status = format!("LOD error: {e:#}");
                     self.distant_failed = true;
+                    self.distant_ready = false;
+                    self.last_lod = Instant::now();
                 }
             }
         }
@@ -374,17 +385,32 @@ impl Game {
             self.distant.busy = false;
             self.lod_publishing = false;
         }
-        if !self.distant_failed
+        let view = (
+            self.camera.position.to_array(),
+            renderer.frame_height().max(720),
+            self.torus,
+            self.world.revision,
+        );
+        let delay = if self.distant_failed {
+            1000
+        } else if self.stream_optimized && !self.distant_ready {
+            0
+        } else {
+            500
+        };
+        if !self.distant.busy
             && self.distant_tiles.is_empty()
-            && self.last_lod.elapsed() > Duration::from_millis(500)
-        {
-            self.distant.request(space_native::distant::View {
-                camera: self.camera.position.to_array(),
-                height: renderer.frame_height().max(720),
-                torus: self.torus,
+            && self.last_lod.elapsed() >= Duration::from_millis(delay)
+            && (!self.stream_optimized || !self.distant_ready || self.last_lod_view != Some(view))
+            && self.distant.request(space_native::distant::View {
+                camera: view.0,
+                height: view.1,
+                torus: view.2,
                 edits: self.world.edits.iter().map(|(c, v)| (*c, *v)).collect(),
-            });
+            })
+        {
             self.last_lod = Instant::now();
+            self.last_lod_view = Some(view);
         }
         if self.status == "Loading world…"
             && self.streaming.pending.is_empty()
@@ -632,9 +658,10 @@ impl Game {
             let r = self.editor.rotate_clipboard();
             self.result(r);
         }
-        if ui.button("Create entity template").clicked() {
-            let r = self.editor.entityize(&self.world);
-            self.result(r);
+        if ui.button("Assemble selection  G").clicked()
+            && let Err(error) = self.assemble_selection()
+        {
+            self.status = error.to_string();
         }
         if ui.button("Paste at crosshair  ⌘V").clicked() {
             let r = self.paste_at_cursor();
@@ -647,7 +674,7 @@ impl Game {
             self.editor.revision += 1;
         }
         ui.separator();
-        ui.label("Enter: play · Esc: controls\nWASD: move · Space/Q: up/down · Shift: boost\nF: fly/walk · F5: camera · B: backpack\n1–7: tools · Tab: grid · R: rotate");
+        ui.label("Enter: play · Esc: controls\nWASD: move · Space/Q: up/down · Shift: boost\nF: fly/walk · F5: camera · B: backpack\n1–7: tools · Tab: grid · R: rotate\nG: assemble stopped · C: edit aimed entity");
     }
     fn inventory_ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Backpack");
@@ -884,30 +911,57 @@ fn component_ui(ui: &mut egui::Ui, c: &mut protocol::inventory::Component, chang
         *changed |= ui.text_edit_singleline(&mut c.name).changed();
         let mut body = c.body.unwrap_or_default();
         let mut body_changed = false;
+        let mut body_type = body.r#type;
         ui.horizontal(|ui| {
-            body_changed |= ui
-                .selectable_value(&mut body.r#type, 0, "Dynamic")
-                .changed();
-            body_changed |= ui
-                .selectable_value(&mut body.r#type, 1, "Kinematic")
-                .changed();
+            ui.selectable_value(&mut body_type, 0, "Dynamic")
+                .on_hover_text("Simulated physics. Switching from kinematic enables gravity.");
+            ui.selectable_value(&mut body_type, 1, "Kinematic")
+                .on_hover_text("Moved by scripts; unaffected by gravity and forces.");
         });
-        body_changed |= ui
-            .checkbox(body.use_gravity.get_or_insert(true), "Gravity")
-            .changed();
-        body_changed |= ui
-            .checkbox(body.collision_enabled.get_or_insert(true), "Collision")
-            .changed();
-        body_changed |= ui
-            .add(
-                egui::DragValue::new(body.mass.get_or_insert(1.0))
+        body_changed |= space_native::editor::set_body_type(&mut body, body_type);
+        let mut gravity = body.use_gravity.unwrap_or(body.r#type == 0);
+        if ui.checkbox(&mut gravity, "Gravity").changed() {
+            body.use_gravity = Some(gravity);
+            body_changed = true;
+        }
+        let mut collision = body.collision_enabled.unwrap_or(true);
+        if ui.checkbox(&mut collision, "Collision").changed() {
+            body.collision_enabled = Some(collision);
+            body_changed = true;
+        }
+        let mut automatic_mass = body.mass.is_none();
+        let volume: f64 = c
+            .blocks
+            .iter()
+            .map(|b| if b.is_micro { 1.0 / 512.0 } else { 1.0 })
+            .sum();
+        let mut mass = body
+            .mass
+            .unwrap_or(((volume * 10_000.0).round() / 1000.0).max(0.1));
+        if ui.checkbox(&mut automatic_mass, "Automatic mass").changed() {
+            body.mass = if automatic_mass { None } else { Some(mass) };
+            body_changed = true;
+        }
+        if ui
+            .add_enabled(
+                !automatic_mass,
+                egui::DragValue::new(&mut mass)
                     .range(0.1..=1_000_000.0)
                     .prefix("Mass "),
             )
-            .changed();
-        body_changed |= ui
-            .add(egui::Slider::new(body.friction.get_or_insert(0.5), 0.0..=1.0).text("Friction"))
-            .changed();
+            .changed()
+        {
+            body.mass = Some(mass);
+            body_changed = true;
+        }
+        let mut friction = body.friction.unwrap_or(0.7);
+        if ui
+            .add(egui::Slider::new(&mut friction, 0.0..=1.0).text("Friction"))
+            .changed()
+        {
+            body.friction = Some(friction);
+            body_changed = true;
+        }
         if body_changed {
             c.body = Some(body);
             *changed = true;
@@ -997,6 +1051,10 @@ impl Application {
         }
     }
     fn draw(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        // An already queued redraw can arrive after a benchmark requests exit.
+        if event_loop.exiting() {
+            return Ok(());
+        }
         let window = self.window.as_ref().context("Window missing")?;
         let size = window.inner_size();
         if size.width == 0 || size.height == 0 {
@@ -1110,7 +1168,9 @@ impl ApplicationHandler for Application {
                 .with_title("Space · Native Metal")
                 .with_inner_size(winit::dpi::LogicalSize::new(1440.0, 900.0));
             if self.window_benchmark.is_some() {
-                attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(2560, 1440));
+                attributes = attributes
+                    .with_inner_size(winit::dpi::PhysicalSize::new(2560, 1440))
+                    .with_resizable(false);
             }
             let window = event_loop.create_window(attributes)?;
             let renderer = Renderer::new(Some(&window))?;
@@ -1224,6 +1284,22 @@ impl ApplicationHandler for Application {
                     let command = self.modifiers.super_key() || self.modifiers.control_key();
                     if let Some(game) = &mut self.game {
                         match key {
+                            KeyCode::KeyG if !command && game.active_tool == HotbarTool::Select => {
+                                if let Err(error) = game.assemble_selection() {
+                                    game.status = error.to_string();
+                                }
+                            }
+                            KeyCode::KeyC if !command => {
+                                let (eye, dir) = game.view();
+                                let picked = self.renderer.as_ref().and_then(|r| {
+                                    r.pick_entity(
+                                        eye,
+                                        dir,
+                                        game.hit().map_or(50.0, |h| h.distance + 0.01),
+                                    )
+                                });
+                                game.open_entity_editor(picked);
+                            }
                             KeyCode::KeyF => game.camera.flying = !game.camera.flying,
                             KeyCode::Digit1 => game.choose_tool(HotbarTool::Select),
                             KeyCode::Digit2 => game.choose_tool(HotbarTool::Hammer),

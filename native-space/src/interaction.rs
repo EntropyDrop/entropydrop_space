@@ -35,7 +35,7 @@ impl HotbarTool {
     }
     pub fn hint(self) -> &'static str {
         match self {
-            Self::Select => "LMB: two corners   Ctrl/Cmd+C: copy   Delete: erase selection",
+            Self::Select => "LMB: corners   G: assemble   Ctrl/Cmd+C: copy   Delete: erase",
             Self::Hammer => "LMB: place   R: rotate blocks   Tab: grid   RMB: cancel",
             Self::Wrench => {
                 "Hold LMB: grab   R: rotate   Wheel: distance   RMB: inspect   Esc: cancel"

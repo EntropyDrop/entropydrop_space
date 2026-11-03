@@ -90,3 +90,29 @@ test('micro terrain edits, hierarchy pivots and seats survive the native simulat
   request.entities = undefined; await runtime.step(request);
   assert.equal(runtime.world.microVoxels.get(16, 16, 16), null);
 });
+
+test('stopped assemblies and deliberate script body changes preserve Web gravity semantics', async t => {
+  const { runtime, request } = fixture(t);
+  const e = entity({ body: { type: 'kinematic', useGravity: false },
+    scriptLanguage: 'assemblyscript', script: 'self.body.setType("dynamic");' });
+  request.entities = [e]; request.steps = 3;
+  await runtime.step(request);
+  let c = runtime.manager.contraptions[0];
+  assert.equal(c.bodyType, 'kinematic');
+  assert.equal(c.useGravity, false);
+  e.running = true; await runtime.step(request); request.entities = undefined;
+  for (let i = 0; i < 3; i++) await runtime.step(request);
+  c = runtime.manager.contraptions[0];
+  assert.equal(c.bodyType, 'dynamic');
+  assert.equal(c.useGravity, true);
+  assert.ok(c.velocity.y < 0);
+  e.running = false; request.entities = [e]; await runtime.step(request);
+  assert.equal(c.bodyType, 'kinematic');
+  assert.equal(c.useGravity, false);
+  const floating = entity({ body: { type: 'dynamic', useGravity: false },
+    scriptLanguage: 'assemblyscript', script: 'self.body.setType("dynamic");' });
+  floating.running = true; request.entities = [floating];
+  await runtime.step(request); request.entities = undefined;
+  await runtime.step(request);
+  assert.equal(runtime.manager.contraptions[0].useGravity, false);
+});

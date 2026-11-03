@@ -1,0 +1,374 @@
+diff --git a/client/src/dev/VisibilityBrowserChild.ts b/client/src/dev/VisibilityBrowserChild.ts
+index 38c091b..2f0ad0c 100644
+--- a/client/src/dev/VisibilityBrowserChild.ts
++++ b/client/src/dev/VisibilityBrowserChild.ts
+@@ -30,11 +30,11 @@ try {
+   if (config.world === 'nature') game.playerPhysics.position.y = 180;
+   game.playerPhysics.velocity.set(0, 0, 0); game.playerPhysics.resetRenderInterpolation();
+   await host.checkpoint?.(config.world, diagnostic('ready'));
+-  if (config.probeOnly) await host.accept(config.world, 'probe', await runVisibilityExperiment(game, { probeOnly: true, production: !!config.production, clusters: !!config.clusters, native: !!config.native, packed: !!config.packed }));
++  if (config.probeOnly) await host.accept(config.world, 'probe', await runVisibilityExperiment(game, { probeOnly: true, production: !!config.production, clusters: !!config.clusters, native: !!config.native, packed: !!config.packed, sparse: !!config.sparse }));
+   else for (const [name, options] of config.onlyControl ? [['control', { control: true }]] as const
+     : [['raw', {}], ['repeat', { repeat: true }], ['control', { control: true }]] as const) {
+     await host.checkpoint?.(config.world, diagnostic(`running-${name}`));
+-    await host.accept(config.world, name, await runVisibilityExperiment(game, { ...options, production: !!config.production, clusters: !!config.clusters, native: !!config.native, packed: !!config.packed }));
++    await host.accept(config.world, name, await runVisibilityExperiment(game, { ...options, production: !!config.production, clusters: !!config.clusters, native: !!config.native, packed: !!config.packed, sparse: !!config.sparse }));
+   }
+   host.complete();
+ } catch (error) { host.fail(String(error)); }
+diff --git a/client/src/dev/VisibilityBrowserHost.ts b/client/src/dev/VisibilityBrowserHost.ts
+index fa7822d..b4a326c 100644
+--- a/client/src/dev/VisibilityBrowserHost.ts
++++ b/client/src/dev/VisibilityBrowserHost.ts
+@@ -13,7 +13,7 @@ let localCapture = false;
+ let active = false, resolveWorld: (() => void) | undefined, rejectWorld: ((reason: Error) => void) | undefined;
+ let progressTimer = 0;
+ const info: any = { userAgent: navigator.userAgent, browser, time: new Date().toISOString(),
+-  fixtureCss: [1280, 720], framebuffer: [2560, 1440], harness: 'visibility-browser-v3', requestedWorld: query.get('world'), onlyControl: query.get('run') === 'control', captureId, experiment: query.get('trial') === 'packed' ? 'packed-varyings-ultra' : query.get('trial') === 'native' ? 'native-hierarchy-ultra' : query.get('trial') === 'clusters' ? 'visibility-clusters' : query.get('trial') === 'production' ? 'production-wide-upload' : 'visibility' };
++  fixtureCss: [1280, 720], framebuffer: [2560, 1440], harness: 'visibility-browser-v3', requestedWorld: query.get('world'), onlyControl: query.get('run') === 'control', captureId, experiment: query.get('trial') === 'sparse' ? 'sparse-shafts-ultra' : query.get('trial') === 'packed' ? 'packed-varyings-ultra' : query.get('trial') === 'native' ? 'native-hierarchy-ultra' : query.get('trial') === 'clusters' ? 'visibility-clusters' : query.get('trial') === 'production' ? 'production-wide-upload' : 'visibility' };
+ async function saveLocal(name: string, bytes: Uint8Array) {
+   if (!localCapture) return;
+   const response = await fetch(`${receiver}/${captureId}/${name}`, { method: 'POST', body: bytes as BodyInit });
+@@ -39,7 +39,7 @@ function finishWorld() { clearInterval(progressTimer); resolveWorld?.(); }
+     }
+     const run = result.comparison;
+     log.textContent += `${world} / ${name}: ${run?.rows.length ?? 0} blocks; pixel max ${Math.max(...pixels.rows.map((r: any) => r.max))}\n`;
+-    if (run) for (const mode of ['original', 'fast', 'wide', 'gpu', 'upload', 'cluster16', 'cluster32', 'cluster64', 'linear', 'hierarchy', 'varyings', 'packed']) {
++    if (run) for (const mode of ['original', 'fast', 'wide', 'gpu', 'upload', 'cluster16', 'cluster32', 'cluster64', 'linear', 'hierarchy', 'varyings', 'packed', 'shafts', 'sparse']) {
+       const rows = run.rows.filter((r: any) => r.motion === 'acrossMove' && r.role === mode);
+       if (rows.length) {
+         const raw = rows.flatMap((r: any) => r.raw), mean = (key: string) => raw.reduce((n: number, r: any) => n + r[key], 0) / raw.length;
+@@ -63,7 +63,7 @@ async function load(world: string, probeOnly: boolean) {
+       note(`${world}: page loaded; visibility ${win.document.visibilityState}; loading benchmark module`);
+       const script = win.document.createElement('script'); script.type = 'module';
+       script.src = new URL('../src/dev/VisibilityBrowserChild.ts', location.href).href;
+-      win.visibilityBrowserConfig = { world, probeOnly, packed: query.get('trial') === 'packed', native: ['native', 'packed'].includes(query.get('trial') ?? ''), production: query.get('trial') === 'production', clusters: query.get('trial') === 'clusters', onlyControl: query.get('run') === 'control' };
++      win.visibilityBrowserConfig = { world, probeOnly, sparse: query.get('trial') === 'sparse', packed: query.get('trial') === 'packed', native: ['native', 'packed', 'sparse'].includes(query.get('trial') ?? ''), production: query.get('trial') === 'production', clusters: query.get('trial') === 'clusters', onlyControl: query.get('run') === 'control' };
+       script.onerror = () => reject(new Error('Child module failed to load.'));
+       win.document.body.append(script);
+       progressTimer = window.setInterval(() => {
+diff --git a/client/src/dev/VisibilityCpuTrial.ts b/client/src/dev/VisibilityCpuTrial.ts
+index 738ae08..86c25f1 100644
+--- a/client/src/dev/VisibilityCpuTrial.ts
++++ b/client/src/dev/VisibilityCpuTrial.ts
+@@ -5,7 +5,7 @@ import { voxelBlockBackFacing } from '@entropydrop/space-engine/render/VoxelFace
+ export function installVisibilityCpuTrial(arena: any, getMode: () => string) {
+   const undo: (() => void)[] = [];
+   const savedReuse = arena.viewReuse && { ...arena.viewReuse };
+-  const wide = () => getMode() === 'wide' || getMode() === 'upload' || getMode() === 'linear' || getMode() === 'hierarchy' || getMode() === 'varyings' || getMode() === 'packed' || getMode().startsWith('cluster');
++  const wide = () => getMode() === 'wide' || getMode() === 'upload' || getMode() === 'linear' || getMode() === 'hierarchy' || getMode() === 'varyings' || getMode() === 'packed' || getMode() === 'shafts' || getMode() === 'sparse' || getMode().startsWith('cluster');
+   function configure() {
+     if (savedReuse) Object.assign(arena.viewReuse, wide() ? savedReuse : { translation: 16, normal: .06, padding: 18, angular: .061 });
+   }
+diff --git a/client/src/dev/VisibilityExperiment.ts b/client/src/dev/VisibilityExperiment.ts
+index 5f0c7e6..733d8a4 100644
+--- a/client/src/dev/VisibilityExperiment.ts
++++ b/client/src/dev/VisibilityExperiment.ts
+@@ -3,26 +3,27 @@ import { createVisibilityTrial, VISIBILITY_MODES } from './VisibilityTrial.ts';
+ import { captureVisibilityPixels } from './VisibilityPixels.ts';
+ import { runVisibilityFrames } from './VisibilityFrames.ts';
+ if (import.meta.hot) import.meta.hot.accept();
+-export async function runVisibilityExperiment(game: any, options: { repeat?: boolean; control?: boolean; probeOnly?: boolean; production?: boolean; clusters?: boolean; native?: boolean; packed?: boolean } = {}) {
++export async function runVisibilityExperiment(game: any, options: { repeat?: boolean; control?: boolean; probeOnly?: boolean; production?: boolean; clusters?: boolean; native?: boolean; packed?: boolean; sparse?: boolean } = {}) {
++  const native = options.native || options.packed || options.sparse;
+   await warmGaussianPath(game);
+   const trial = await createVisibilityTrial(game); (window as any).visibilityTrial = trial;
+   try {
+     (window as any).visibilityProgress = { state: 'pixels' };
+-    const modes = options.packed ? ['varyings', 'packed'] as const : options.native ? ['linear', 'hierarchy'] as const : options.clusters ? ['wide', 'cluster16', 'cluster32', 'cluster64'] as const
++    const modes = options.sparse ? ['shafts', 'sparse'] as const : options.packed ? ['varyings', 'packed'] as const : native ? ['linear', 'hierarchy'] as const : options.clusters ? ['wide', 'cluster16', 'cluster32', 'cluster64'] as const
+       : options.production ? ['original', 'fast', 'wide', 'upload'] as const : VISIBILITY_MODES;
+-    const order = options.native ? [0,1,1,0,1,0,0,1].map(i => modes[i]) : options.clusters || options.production ? [0,1,2,3,3,2,1,0,2,0,3,1,1,3,0,2].map(i => modes[i]) : undefined;
++    const order = native ? [0,1,1,0,1,0,0,1].map(i => modes[i]) : options.clusters || options.production ? [0,1,2,3,3,2,1,0,2,0,3,1,1,3,0,2].map(i => modes[i]) : undefined;
+     // Identical-code controls also compare repeated original images. Candidate
+     // images belong to the main/repeat captures, not the noise calibration.
+-    const pixelModes = (options.native || options.production || options.clusters) && options.control ? [modes[0], modes[0], modes[0], modes[0]] : modes;
++    const pixelModes = (native || options.production || options.clusters) && options.control ? [modes[0], modes[0], modes[0], modes[0]] : modes;
+     const pixels = await captureVisibilityPixels(game, trial, pixelModes);
+     if (options.probeOnly) return { pixels };
+     if (pixels.rows.some(r => r.changedOver2)) throw Error('Candidate changes visible pixels; inspect before accepting timings.');
+     const warmup = await runVisibilityFrames(game, trial, { motions: ['acrossMove'], order: [...modes], warmMs: 600, sampleMs: 900, tag: 'excluded-warmup' });
+     const comparison = await runVisibilityFrames(game, trial, {
+-      ...(order ? { order: [...order], motions: options.native ? ['across', 'acrossMove'] : ['acrossMove'] } : {}),
+-      ...(options.native ? { reference: options.packed ? 'varyings' : 'linear' } : {}),
++      ...(order ? { order: [...order], motions: options.sparse ? ['acrossMove', 'sunwardMove'] : native ? ['across', 'acrossMove'] : ['acrossMove'] } : {}),
++      ...(native ? { reference: options.sparse ? 'shafts' : options.packed ? 'varyings' : 'linear' } : {}),
+       ...(options.clusters ? { reference: 'wide' } : {}),
+-      ...(options.repeat || options.control ? { motions: ['acrossMove'] } : {}),
++      ...(options.repeat || options.control ? { motions: options.sparse ? ['sunwardMove'] : ['acrossMove'] } : {}),
+       ...(options.control ? { control: true, tag: 'identical-code-control' } : options.repeat ? { tag: 'moving-replication' } : {}),
+     });
+     (window as any).visibilityProgress = { state: 'complete', world: comparison.world, blocks: comparison.rows.length };
+diff --git a/client/src/dev/VisibilityFrames.ts b/client/src/dev/VisibilityFrames.ts
+index 2d067c8..1fd5397 100644
+--- a/client/src/dev/VisibilityFrames.ts
++++ b/client/src/dev/VisibilityFrames.ts
+@@ -6,7 +6,7 @@ import { type VisibilityMode, type VisibilityTrial } from './VisibilityTrial.ts'
+ const VISIBILITY_ORDER: VisibilityMode[] = ['original','fast','wide','gpu','gpu','wide','fast','original','wide','original','gpu','fast','fast','gpu','original','wide'];
+ 
+ if (import.meta.hot) import.meta.hot.accept();
+-type Motion = 'fixed' | 'sweep' | 'move' | 'across' | 'acrossMove';
++type Motion = 'fixed' | 'sweep' | 'move' | 'across' | 'acrossMove' | 'sunwardMove';
+ export async function runVisibilityFrames(game: any, trial: VisibilityTrial,
+   options: { motions?: Motion[]; order?: VisibilityMode[]; warmMs?: number; sampleMs?: number; control?: boolean; reference?: VisibilityMode; tag?: string } = {}) {
+   if (!import.meta.env.DEV || !game.offline) throw new Error('Offline DEV required.');
+@@ -36,8 +36,13 @@ export async function runVisibilityFrames(game: any, trial: VisibilityTrial,
+   function pose(motion: Motion, t: number) {
+     game.controller.yaw = Math.PI / 2 + (motion === 'sweep' || motion === 'move' || motion === 'across' || motion === 'acrossMove' ? .6 * Math.sin(t * Math.PI * 2) : 0);
+     game.controller.pitch = motion === 'across' || motion === 'acrossMove' ? 1.35 : -.85;
++    if (motion === 'sunwardMove') {
++      const angle = (8.2 - 6) / 24 * Math.PI * 2;
++      game.controller.yaw = Math.atan2(-Math.cos(angle), -.25) + .5 * Math.sin(t * Math.PI * 2);
++      game.controller.pitch = .2 + .15 * Math.cos(t * Math.PI * 2);
++    }
+     game.playerPhysics.position.copy(saved.position);
+-    if (motion === 'move' || motion === 'acrossMove') { game.playerPhysics.position.x += 16 * Math.sin(t * Math.PI * 2); game.playerPhysics.position.z += 8 * (1 - Math.cos(t * Math.PI * 2)); }
++    if (motion === 'move' || motion === 'acrossMove' || motion === 'sunwardMove') { game.playerPhysics.position.x += 16 * Math.sin(t * Math.PI * 2); game.playerPhysics.position.z += 8 * (1 - Math.cos(t * Math.PI * 2)); }
+     game.playerPhysics.velocity.set(0, 0, 0); game.playerPhysics.resetRenderInterpolation();
+   }
+   try {
+@@ -64,7 +69,7 @@ export async function runVisibilityFrames(game: any, trial: VisibilityTrial,
+             if (document.visibilityState !== 'visible' || renderer.domElement.width !== result.width || renderer.domElement.height !== result.height
+               || !game.world.distantSurface.isEnabled()) { finished = true; reject(new Error('Benchmark workload changed.')); return; }
+             if (!warm && previous) { raw.push({ frame: stamp - previous, cpu, calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles,
+-              ...trial.stats, mapUploadBytes: layer.arena.stats.mapUploadBytes, pending: layer.hasPendingWork || layer.hasPendingTransitions }); serial++; }
++              ...trial.stats, shaftVisibility: scene.cinematicEffects?.sunVisibility.value ?? 0, mapUploadBytes: layer.arena.stats.mapUploadBytes, pending: layer.hasPendingWork || layer.hasPendingTransitions }); serial++; }
+             previous = stamp;
+             if (elapsed >= warmMs + sampleMs) { finished = true; resolve(); }
+           });
+@@ -72,7 +77,7 @@ export async function runVisibilityFrames(game: any, trial: VisibilityTrial,
+         await pending;
+         const metrics: any = Object.fromEntries(['frame','cpu','calls','triangles','computePasses','indirectDraws','gpuEncodeMs','gpuBytes','arenaMs','arenaCalls','visibilityQueries','mapUploadBytes','newGpuPages'].map(key => [key, summarize(raw.map(row => row[key]))]));
+         metrics.gpu = summarize(gpu.map(row => row.spanMs));
+-        result.rows.push({ motion, block, role, actual: trial.mode, metrics, fps: 1000 / metrics.frame.mean,
++        result.rows.push({ motion, block, role, actual: trial.mode, metrics, fps: 1000 / metrics.frame.mean, shaftVisibility: summarize(raw.map(row => row.shaftVisibility)),
+           residentStart, residentEnd: layer.arena.stats.residentFaces,
+           pendingFrames: raw.filter(row => row.pending).length, raw, gpu });
+       }
+diff --git a/client/src/dev/VisibilityPixels.ts b/client/src/dev/VisibilityPixels.ts
+index 30e41d9..63c9a26 100644
+--- a/client/src/dev/VisibilityPixels.ts
++++ b/client/src/dev/VisibilityPixels.ts
+@@ -28,6 +28,12 @@ export async function captureVisibilityPixels(game: any, trial: VisibilityTrial,
+     { name: 'cached-step', yaw: .025, pitch: 1.35, x: 8, z: 4 },
+     { name: 'guard-step', yaw: .07, pitch: 1.35, x: 18, z: 8 },
+     { name: 'return', yaw: 0, pitch: 1.35, x: 0, z: 0 }];
++  if (modes.includes('shafts') || modes.includes('sparse')) {
++    const angle = (8.2 - 6) / 24 * Math.PI * 2, yaw = Math.atan2(-Math.cos(angle), -.25) - Math.PI / 2;
++    poses.push({ name: 'sun-visible', yaw, pitch: .2, x: 0, z: 0 },
++      { name: 'sun-edge', yaw: yaw + 1.1, pitch: .2, x: 0, z: 0 },
++      { name: 'sun-hidden', yaw: yaw + Math.PI, pitch: .2, x: 0, z: 0 });
++  }
+   const reference: Uint8ClampedArray[] = [], picks: string[] = [];
+   function compare(a: Uint8ClampedArray, b: Uint8ClampedArray) {
+     let changed = 0, max = 0, sum = 0;
+@@ -51,7 +57,7 @@ export async function captureVisibilityPixels(game: any, trial: VisibilityTrial,
+         if (!pixels.some((v, i) => i % 4 !== 3 && v)) throw Error('Empty visibility capture.');
+         if (order === 0) reference[index] = pixels;
+         const pick = JSON.stringify(game.controller.performAimRaycast()); if (order === 0) picks[index] = pick;
+-        const row = { mode, pose: pose.name, restored: order === modes.length, ...compare(pixels, reference[index]),
++        const row = { mode, pose: pose.name, shaftVisibility: scene.cinematicEffects?.sunVisibility.value, restored: order === modes.length, ...compare(pixels, reference[index]),
+           identicalPicking: pick === picks[index], nominalTriangles: renderer.info.render.triangles, draws: renderer.info.render.drawCalls,
+           ...trial.stats, residentFaces: layer.arena.stats.residentFaces,
+           uploadValidation: modes.includes('upload') ? await verifyVisibilityMaps(game) : undefined, gpuValidation: mode === 'gpu' ? await trial.verify() : undefined };
+diff --git a/client/src/dev/VisibilityTrial.ts b/client/src/dev/VisibilityTrial.ts
+index 2d4c6b8..a33cd57 100644
+--- a/client/src/dev/VisibilityTrial.ts
++++ b/client/src/dev/VisibilityTrial.ts
+@@ -4,7 +4,7 @@ import { installVisibilityUploadTrial } from './VisibilityUploadTrial.ts';
+ import { installVisibilityCpuTrial } from './VisibilityCpuTrial.ts';
+ import { installVisibilityGpuTrial } from './VisibilityGpuTrial.ts';
+ export const VISIBILITY_MODES = ['original', 'fast', 'wide', 'gpu'] as const;
+-export type VisibilityMode = typeof VISIBILITY_MODES[number] | 'upload' | 'cluster16' | 'cluster32' | 'cluster64' | 'linear' | 'hierarchy' | 'varyings' | 'packed';
++export type VisibilityMode = typeof VISIBILITY_MODES[number] | 'upload' | 'cluster16' | 'cluster32' | 'cluster64' | 'linear' | 'hierarchy' | 'varyings' | 'packed' | 'shafts' | 'sparse';
+ if (import.meta.hot) import.meta.hot.accept();
+ export async function createVisibilityTrial(game: any) {
+   if (!import.meta.env.DEV || !game.offline) throw Error('Offline DEV required.');
+@@ -14,6 +14,7 @@ export async function createVisibilityTrial(game: any) {
+     || !arena.getViewOptimizations().cached) throw Error('Default packed torus arena required, surface backface filter off.');
+   let mode: VisibilityMode = 'original', closed = false;
+   const savedVaryings = arena.getPackedVaryingsEnabled();
++  const effects = game.sceneRenderer.cinematicEffects, savedShafts = effects?.getSparseShaftsEnabled();
+   const savedHierarchy = arena.getHierarchicalVisibilityEnabled();
+   arena.setHierarchicalVisibilityEnabled(false);
+   const savedClusterSize = arena.visibilityClusterSize;
+@@ -28,10 +29,14 @@ export async function createVisibilityTrial(game: any) {
+   interceptMethod(arena, 'setView', (original, args) => { const epoch = arena.viewEpoch; const result = original(...args);
+     stats.visibilityQueries += Number(arena.viewEpoch !== epoch); return result; })];
+   function set(next: VisibilityMode) {
+-    if (closed || ![...VISIBILITY_MODES, 'upload', 'cluster16', 'cluster32', 'cluster64', 'linear', 'hierarchy', 'varyings', 'packed'].includes(next)) throw Error('Invalid visibility mode.');
++    if (closed || ![...VISIBILITY_MODES, 'upload', 'cluster16', 'cluster32', 'cluster64', 'linear', 'hierarchy', 'varyings', 'packed', 'shafts', 'sparse'].includes(next)) throw Error('Invalid visibility mode.');
+     if (next === mode) return;
+     if (mode === 'gpu') gpu.restoreIndirect();
+-    mode = next; arena.setPackedVaryingsEnabled(next === 'varyings' ? false : savedVaryings); arena.setHierarchicalVisibilityEnabled(next === 'hierarchy' || next === 'varyings' || next === 'packed'); undoCpu.update(); arena.resetView = arena.visibilityDirty = true; arena.positionEpoch++; arena.viewEpoch++;
++    if (next === 'shafts' || next === 'sparse') {
++      if (!effects) throw Error('Ultra cinematic effects required.');
++      effects.setSparseShaftsEnabled(next === 'sparse');
++    } else if (effects) effects.setSparseShaftsEnabled(savedShafts);
++    mode = next; arena.setPackedVaryingsEnabled(next === 'varyings' ? false : savedVaryings); arena.setHierarchicalVisibilityEnabled(['hierarchy', 'varyings', 'packed', 'shafts', 'sparse'].includes(next)); undoCpu.update(); arena.resetView = arena.visibilityDirty = true; arena.positionEpoch++; arena.viewEpoch++;
+     arena.visibilityClusterSize = next.startsWith('cluster') ? Number(next.slice(7)) : 0;
+     for (const page of arena.pages) for (const entry of page.entries) {
+       entry.visibility = undefined; if (entry.blockTests) { entry.blockTests.position = -1; entry.blockTests.view = -1; }
+@@ -39,7 +44,7 @@ export async function createVisibilityTrial(game: any) {
+     gpu.invalidate(); layer.arenaDirty = true; layer.group.needsUpdate = true;
+   }
+   return { stats, set, get mode() { return mode; }, verify: gpu.verify,
+-    metadata: { packed: 'Original 8-bit face color and emission share a flat u32, decoded in fragment; unchanged PBR, geometry and quality', varyings: 'Production float3 color and float emission varying reference', revision: 'visibility-v2-production-wide', modes: VISIBILITY_MODES, scope: 'All settled packed distant arena pages; original PBR and records',
++    metadata: { shafts: 'Full 24-tap shaft reference', sparse: 'Skip only geometry-covered shaft color taps; all positions, decay, AO and Ultra settings unchanged', packed: 'Original 8-bit face color and emission share a flat u32, decoded in fragment; unchanged PBR, geometry and quality', varyings: 'Production float3 color and float emission varying reference', revision: 'visibility-v2-production-wide', modes: VISIBILITY_MODES, scope: 'All settled packed distant arena pages; original PBR and records',
+       fast: 'One Float64 sqrt per position block, reused for distance and normal cone',
+       wide: 'Fast math plus 32 m / .12 plane-normal reuse guards, 34 m / .121 conservative rejection margins',
+       gpu: 'Stable classify / per-run prefix / scatter; existing page order; indirect indexed draws; masked CPU fallback',
+diff --git a/client/src/engine/render/CinematicEffects.ts b/client/src/engine/render/CinematicEffects.ts
+index 4106173..e767dcd 100644
+--- a/client/src/engine/render/CinematicEffects.ts
++++ b/client/src/engine/render/CinematicEffects.ts
+@@ -36,7 +36,10 @@ export class CinematicEffects {
+   readonly sunUv = uniform(new THREE.Vector2());
+   readonly sunVisibility = uniform(0);
+   readonly atmosphere: THREE.NodeMaterial;
+-  readonly secondary: THREE.NodeMaterial;
++  secondary: THREE.NodeMaterial;
++  private readonly secondaryVariants = new Map<boolean, THREE.NodeMaterial>();
++  private readonly createSecondary: (sparse: boolean) => THREE.NodeMaterial;
++  private sparseShafts = true;
+   readonly output: THREE.NodeMaterial;
+   readonly bloom: BoundedBloom;
+   readonly antialias: ReturnType<typeof fxaa>;
+@@ -89,27 +92,34 @@ export class CinematicEffects {
+       });
+       return result;
+     })();
+-    const shafts = Fn(() => {
++    const shafts = (sparse: boolean) => Fn(() => {
+       const illumination = float(0).toVar();
+       If(this.sunVisibility.greaterThan(0), () => {
+         const step = this.sunUv.sub(uv()).mul(.94/24), p = uv().toVar(), decay = float(1).toVar();
+         Loop(24, () => {
+           p.addAssign(step);
+           If(inBounds(p), () => {
+-            const sky = depthAt(p).greaterThanEqual(.999999).select(1,0);
+-            const proximity = max(p.sub(this.sunUv).mul(vec2(this.resolution.x.div(this.resolution.y),1)).length().div(.85).oneMinus(),0);
+-            const transmission = smoothstep(.3,1.4,dot(colorAt(p).rgb,vec3(.2126,.7152,.0722)));
+-            illumination.addAssign(sky.mul(proximity).mul(proximity).mul(decay).mul(transmission));
++            const sky = depthAt(p).greaterThanEqual(.999999).select(1,0).toVar();
++            const contribute = () => {
++              const proximity = max(p.sub(this.sunUv).mul(vec2(this.resolution.x.div(this.resolution.y),1)).length().div(.85).oneMinus(),0);
++              const transmission = smoothstep(.3,1.4,dot(colorAt(p).rgb,vec3(.2126,.7152,.0722)));
++              illumination.addAssign(sky.mul(proximity).mul(proximity).mul(decay).mul(transmission));
++            };
++            // Keep every position and decay step. Covered taps have exactly zero
++            // weight, so their color fetch and luminance calculation are unused.
++            if (sparse) If(sky.greaterThan(0), contribute); else contribute();
+           });
+           decay.mulAssign(.965);
+         });
+       });
+       return illumination.mul(.014).mul(this.sunVisibility);
+     })();
+-    this.secondary = fullscreen(Fn(() => {
++    this.createSecondary = sparse => fullscreen(Fn(() => {
+       const p = positionAt(uv());
+-      return vec4(depthAt(uv()).lessThan(.999999).select(contact(p),1), shafts, log2(max(p.z.negate(),0).add(1)),1);
++      return vec4(depthAt(uv()).lessThan(.999999).select(contact(p),1), shafts(sparse), log2(max(p.z.negate(),0).add(1)),1);
+     })(), 'Space.Ultra.Secondary');
++    this.secondary = this.createSecondary(true);
++    this.secondaryVariants.set(true, this.secondary);
+     const secondaryAt = (position: any) => Fn(() => {
+       const grid = uv().mul(this.secondaryResolution).sub(.5), base = floor(grid), fraction = fract(grid);
+       const depth = log2(max(position.z.negate(),0).add(1));
+@@ -166,6 +176,13 @@ export class CinematicEffects {
+   }
+   setSecondaryResolutionScale(scale: .5 | 1) { this.secondaryScale=scale; this.setSize(this.sceneTarget.width,this.sceneTarget.height); }
+   getSecondaryResolutionScale() { return this.secondaryScale; }
++  setSparseShaftsEnabled(enabled: boolean) {
++    if (this.sparseShafts === enabled) return;
++    this.sparseShafts = enabled;
++    if (!this.secondaryVariants.has(enabled)) this.secondaryVariants.set(enabled, this.createSecondary(enabled));
++    this.secondary = this.secondaryVariants.get(enabled)!;
++  }
++  getSparseShaftsEnabled() { return this.sparseShafts; }
+   render(renderer: SpaceRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
+     sunDirection: THREE.Vector3, surfaceUp: THREE.Vector3) {
+     renderer.getDrawingBufferSize(this.size); this.setSize(this.size.x,this.size.y);
+@@ -193,7 +210,7 @@ export class CinematicEffects {
+     if(this.disposed) return; this.disposed=true;
+     this.sceneTarget.depthTexture?.dispose();
+     for(const target of [this.sceneTarget,this.atmosphereTarget,this.secondaryTarget,this.displayTarget]) target.dispose();
+-    for(const material of [this.atmosphere,this.secondary,this.output]) material.dispose();
++    for(const material of [this.atmosphere,...this.secondaryVariants.values(),this.output]) material.dispose();
+     this.bloom.dispose(); this.pipeline?.dispose();
+   }
+ }
+diff --git a/client/test/cinematic-effects.test.ts b/client/test/cinematic-effects.test.ts
+index e71f290..9c9c123 100644
+--- a/client/test/cinematic-effects.test.ts
++++ b/client/test/cinematic-effects.test.ts
+@@ -45,6 +45,22 @@ test('leaving cinematic quality disposes all render targets, shaders and bloom b
+   assert.deepEqual(counts, resources.map(() => 1));
+ });
+ 
++test('shaft reference switches retain targets and material identity, disposing each variant once', () => {
++  const effects = new CinematicEffects(); effects.setSize(1280, 720);
++  const optimized = effects.secondary, target = effects.secondaryTarget;
++  effects.setSparseShaftsEnabled(false); const reference = effects.secondary;
++  assert.notEqual(reference, optimized);
++  for (let i = 0; i < 4; i++) {
++    effects.setSparseShaftsEnabled(true); assert.equal(effects.secondary, optimized);
++    effects.setSparseShaftsEnabled(false); assert.equal(effects.secondary, reference);
++  }
++  assert.equal(effects.secondaryTarget, target);
++  assert.equal(effects.secondaryTarget.width, 640); assert.equal(effects.secondaryTarget.height, 360);
++  const disposed = [0, 0];
++  [optimized, reference].forEach((m, i) => m.addEventListener('dispose', () => disposed[i]++));
++  effects.dispose(); effects.dispose(); assert.deepEqual(disposed, [1, 1]);
++});
++
+ test('all HDR stages render in order at every resolution and restore renderer state', () => {
+   const effects = new CinematicEffects();
+   const scene = new THREE.Scene();
+diff --git a/client/tools/summarize-visibility.mjs b/client/tools/summarize-visibility.mjs
+index 8db97ce..f5df8c7 100644
+--- a/client/tools/summarize-visibility.mjs
++++ b/client/tools/summarize-visibility.mjs
+@@ -4,7 +4,9 @@ import { resolve, sep } from 'node:path';
+ import { pathToFileURL } from 'node:url';
+ const root = process.argv[2] ? pathToFileURL(resolve(process.argv[2]) + sep)
+   : new URL('../src/dev/results/visibility-2026-10-27/', import.meta.url);
+-const worlds = ['aether-archipelago', 'nature', 'copper-metropolis'];
++const knownWorlds = ['aether-archipelago', 'nature', 'copper-metropolis'];
++const worlds = process.argv.length > 3 ? process.argv.slice(3) : knownWorlds;
++if (worlds.some(w => !knownWorlds.includes(w)) || new Set(worlds).size !== worlds.length) throw Error('Invalid world selection.');
+ function stats(values) {
+   if (!values.length || values.some(v => !Number.isFinite(v))) throw Error('Invalid visibility samples.');
+   const a = [...values].sort((a, b) => a - b);
+@@ -15,7 +17,7 @@ function capture(world, file) {
+   const data = JSON.parse(gunzipSync(readFileSync(new URL(`${world}/${file}`, root))));
+   const { comparison: run, pixels } = data;
+   const modes = run.trial.activeModes ?? ['original', 'fast', 'wide', run.rows.some(r => r.role === 'upload') ? 'upload' : 'gpu'];
+-  const native = modes.includes('hierarchy') || modes.includes('packed');
++  const native = modes.includes('hierarchy') || modes.includes('packed') || modes.includes('sparse');
+   if (run.errors.length || run.width !== 2560 || run.height !== 1440 || run.quality !== (native ? 'ultra' : 'medium') || run.shadows !== native || run.samples !== 4) throw Error('Invalid environment: ' + world);
+   if (!pixels || pixels.width !== 2560 || pixels.height !== 1440 || pixels.rows.length !== (pixels.modeOrder.length + 1) * pixels.poses.length) throw Error('Incomplete image checks.');
+   if (pixels.errors.length || pixels.rows.some(r => r.changedOver2 || !r.identicalPicking || (r.restored && r.max !== 0)
+@@ -34,7 +36,7 @@ function capture(world, file) {
+       'gpuBytes', 'arenaMs', 'arenaCalls', 'visibilityQueries', 'mapUploadBytes', 'newGpuPages'].map(k => [k, stats(raw.map(r => r[k]))]));
+     metrics.gpu = stats(gpu.map(g => g.spanMs));
+     return { motion, mode, fps: 1000 / metrics.frame.mean, metrics, perBlockFps: blocks.map(b => b.fps),
+-      perBlockGpu: blocks.map(b => b.metrics.gpu.mean), pendingFrames: blocks.reduce((sum, b) => sum + b.pendingFrames, 0),
++      perBlockGpu: blocks.map(b => b.metrics.gpu.mean), perBlockSunVisibility: blocks.map(b => b.shaftVisibility), pendingFrames: blocks.reduce((sum, b) => sum + b.pendingFrames, 0),
+       residents: blocks.map(b => [b.residentStart, b.residentEnd]) };
+   }));
+   const { rows, ...environment } = run;
+diff --git a/client/tools/visibility-result-receiver.mjs b/client/tools/visibility-result-receiver.mjs
+index dc37ba4..50431c6 100644
+--- a/client/tools/visibility-result-receiver.mjs
++++ b/client/tools/visibility-result-receiver.mjs
+@@ -5,7 +5,7 @@ import { resolve, dirname } from 'node:path';
+ const root = resolve(process.argv[2] ?? 'client/src/dev/results/visibility-browser-captures');
+ const port = 54379;
+ const origins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173']);
+-const filePattern = /^(?:browser\.json|status\.json|failure\.txt|(?:aether-archipelago|nature|copper-metropolis)\/(?:diagnostics\.json|(?:raw|repeat|control|probe)\.json\.gz|(?:near|across)-(?:original|fast|wide|gpu|upload|cluster16|cluster32|cluster64|linear|hierarchy|varyings|packed)\.png))$/;
++const filePattern = /^(?:browser\.json|status\.json|failure\.txt|(?:aether-archipelago|nature|copper-metropolis)\/(?:diagnostics\.json|(?:raw|repeat|control|probe)\.json\.gz|(?:near|across)-(?:original|fast|wide|gpu|upload|cluster16|cluster32|cluster64|linear|hierarchy|varyings|packed|shafts|sparse)\.png))$/;
+ const server = createServer(async (req, res) => {
+   if (req.headers.host !== `127.0.0.1:${port}` || !origins.has(req.headers.origin)) { res.writeHead(403); res.end(); return; }
+   res.setHeader('Access-Control-Allow-Origin', req.headers.origin);

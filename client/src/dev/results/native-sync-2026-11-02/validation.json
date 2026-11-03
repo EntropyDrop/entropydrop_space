@@ -1,0 +1,37 @@
+{
+  "base_commit": "023a3255d7a6102af70cab183a88d06cb4746ead",
+  "source_sha256": {
+    "native-space/src/app.rs": "45206d26bf3bb02a0093fc93696f4a6116d446661e6466d45c5509d2a9113e2f",
+    "native-space/src/editor.rs": "cefd9ee1b9564ad7ffa44777b0dcecdb0cb3460bad50322f8c2c0195894ce56a",
+    "native-space/src/gameplay.rs": "1651f1b524cf6ba39a85a600f5d46b088a46680ee441e03bfffbb2808f500ad2",
+    "native-space/src/interaction.rs": "6e8845beba16ce031adaa3901cdf49b1afa5d061544445927dedc1659f15e9e9",
+    "native-space/src/hud.rs": "67a72a50d2ff4f57b4cf68648c553a23688acd94cb1e03c70d8025e9521b7e32",
+    "native-space/src/distant.rs": "f9586e6e9c48e806e876e77ebf2679e15ab87c399b4ef80c83cb87dce0c880cf",
+    "native-space/src/streaming.rs": "16ce957f6ee7f07f9421964904d1ea5201bcda7b89f0f5ea305b2480135e33aa",
+    "native-space/src/window_benchmark.rs": "ef8284e894141d0069e4d20ab92792c63315ffb8dff276ef5bbfb598ec9baa72",
+    "native-space/src/metal_renderer.rs": "8b9a3959a10f7713c02a193cb737fa7c69da4f3113b6da713d137e83385cc2c9",
+    "native-space/shaders/space.metal": "8e1218f872d358da605206d896af1b001809e90449ceeb076f1089bc8b79fe4d",
+    "native-space/tools/distant.ts": "1a9ba92a2ce6eee6fbf1214d25775afedd1be271969d6ab03b465fd847f76ec3",
+    "native-space/tools/distant-cache.ts": "2f94a5e32feebc7a17a6c26e5e1e82c9bd3cdc550f9a714769ead5e381d3af07",
+    "native-space/tools/distant-packing.ts": "1aebcfafad6c9eedd04b47a5fd1a0537c630e29893ed41a7cc2d2db07fb9b0b2",
+    "native-space/tools/benchmark-lod.ts": "a0834c98e69c9e538b6c4414c8aae89e1fd73fd2ee504ca8ff1ea19f4bb2d826",
+    "engine/src/render/VoxelLodPlanner.ts": "463e7c6ef079ca16eff67ae67cf3b00b88a06a6d8516a6ae7ffd47c426d97bee",
+    "native-space/src/main.rs": "9a6c730f92faa1abbe7d302d18de3edf41c760d076a6d82de553e92b115c16dc"
+  },
+  "startup_binary_sha256": "00eb5fa62279fd2895d883af4262b60ef5318f07d507ec00522b18e2bdea3242",
+  "save_sha256": "6142286a23321d0a53a0148fb9963f402ca07a80317fdd9b0f1517e0f1a6fb4b",
+  "checks": {
+    "rust": 35,
+    "node": 9,
+    "web_engine_targeted": 40,
+    "fmt": true,
+    "clippy": true,
+    "native_typescript": true,
+    "release_bundle": true,
+    "invalid_lod_zone_count_rejected": true,
+    "documentation_links": true,
+    "english_existing_violations": 274
+  },
+  "startup_binary_note": "Startup measurement build precedes only the invalid --lod-zones >128 CLI guard.",
+  "final_binary_sha256": "45e6a74cc9252daf6b3ad5d458bdbac9685ee1b8f07a24182b58102db820356e"
+}

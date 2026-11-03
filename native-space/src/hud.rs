@@ -290,7 +290,7 @@ impl Game {
                                 self.editor.rgb as u8,
                             );
                             ui.colored_label(color, "■");
-                            ui.small("Ctrl/Cmd+Z Undo · R Rotate · B Backpack");
+                            ui.small("Ctrl/Cmd+Z Undo · R Rotate · C Edit · B Backpack");
                         });
                     });
             });

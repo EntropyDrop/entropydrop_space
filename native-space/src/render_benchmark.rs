@@ -69,13 +69,19 @@ pub fn optimized(
 ) -> Result<()> {
     use crate::metal_renderer::RenderProbe;
     use space_native::geometry;
+    // Images precede timed batches in some modes. Freeze clouds explicitly;
+    // relying on benchmark() leaves these reference/candidate captures animated.
+    renderer.animate_sky = false;
     let culling_only = mode == 3;
     let frame_reuse = mode == 4;
     let leaves = mode == 7;
     let gpu_work = mode == 8;
-    let submission = mode == 5 || leaves || gpu_work;
+    let frame_flow = mode == 9;
+    let submission = mode == 5 || leaves || gpu_work || frame_flow;
     let recent = frame_reuse || submission;
-    let prefix = if gpu_work {
+    let prefix = if frame_flow {
+        "frameflow"
+    } else if gpu_work {
         "gpu"
     } else if leaves {
         "leaves"
@@ -88,7 +94,13 @@ pub fn optimized(
     } else {
         "optimized"
     };
-    let legacy = if gpu_work {
+    let legacy = if frame_flow {
+        RenderProbe {
+            late_drawable: false,
+            fused_present: false,
+            ..Default::default()
+        }
+    } else if gpu_work {
         RenderProbe {
             packed_varyings: false,
             ..Default::default()
@@ -165,7 +177,7 @@ pub fn optimized(
     } else {
         variants.to_vec()
     };
-    let rounds = if gpu_work {
+    let rounds = if gpu_work || frame_flow {
         0
     } else if recent {
         4
@@ -410,9 +422,14 @@ pub fn optimized(
     } else {
         serde_json::Value::Null
     };
+    let frameflow_validation = if frame_flow {
+        renderer.validate_frameflow(uniforms, &ui, root)?
+    } else {
+        serde_json::Value::Null
+    };
     renderer.probe = RenderProbe::default();
     let report = serde_json::json!({"device":renderer.device.name().to_string(),"world":world,"lod":lod,"quality":"Ultra","msaa":4,"shadow_map":4096,"render_scale":1,
-        "resident_faces":resident,"old_face_bytes":resident*32,"compact_geometry_bytes":compact_bytes,"warmup_frames":24,"sample_frames":120,"rounds":rounds,"cases":cases,"images":images,"moving":moving,"frame_resource_validation":validation,
+        "resident_faces":resident,"old_face_bytes":resident*32,"compact_geometry_bytes":compact_bytes,"warmup_frames":24,"sample_frames":120,"rounds":rounds,"cases":cases,"images":images,"moving":moving,"frame_resource_validation":validation,"frameflow_validation":frameflow_validation,
         "limitations":["Frozen 720p LOD selection; no LOD reduction between variants or output resolutions.","GPU and serial submit+completion timing, not displayed FPS; excludes streaming, physics and PNG readback.","UI is excluded except for moving_ui, which includes fixed egui mesh uploads/drawing but not layout or tessellation.","Movement cases rebuild visibility as the camera moves; still use fixed resident geometry.","Legacy buffers are allocated only for this diagnostic reference; reported compact bytes exclude visibility metadata/maps and render targets."]});
     atomic_write(
         &root.join(format!("results/{world}-{prefix}-profile.json")),

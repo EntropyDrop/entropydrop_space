@@ -1,0 +1,138 @@
+[
+  {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    "browser": "chromium",
+    "time": "2026-11-02T04:46:58.524Z",
+    "fixtureCss": [
+      1280,
+      720
+    ],
+    "framebuffer": [
+      2560,
+      1440
+    ],
+    "harness": "visibility-browser-v3",
+    "requestedWorld": "aether-archipelago",
+    "onlyControl": false,
+    "captureId": "chromium-1793594818524",
+    "experiment": "sparse-shafts-ultra",
+    "adapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "device": "",
+      "description": ""
+    },
+    "features": [
+      "depth32float-stencil8",
+      "rg11b10ufloat-renderable",
+      "bgra8unorm-storage",
+      "texture-formats-tier1",
+      "texture-compression-bc",
+      "dual-source-blending",
+      "core-features-and-limits",
+      "float32-filterable",
+      "indirect-first-instance",
+      "texture-compression-astc-sliced-3d",
+      "float32-blendable",
+      "subgroup-size-control",
+      "texture-compression-unaligned",
+      "texture-compression-astc",
+      "texture-compression-etc2",
+      "depth-clip-control",
+      "texture-compression-bc-sliced-3d",
+      "timestamp-query",
+      "texture-formats-tier2",
+      "clip-distances",
+      "shader-f16",
+      "primitive-index",
+      "texture-component-swizzle",
+      "subgroups"
+    ],
+    "events": [
+      {
+        "time": "2026-11-02T04:46:58.540Z",
+        "value": "Ready. The iframe fixes the game viewport at 1280 \u00d7 720 CSS, DPR 2."
+      },
+      {
+        "time": "2026-11-02T04:47:01.954Z",
+        "value": "Loading aether-archipelago"
+      },
+      {
+        "time": "2026-11-02T04:47:03.065Z",
+        "value": "aether-archipelago: page loaded; visibility visible; loading benchmark module"
+      },
+      {
+        "time": "2026-11-02T04:50:16.741Z",
+        "value": "Complete: 1 world(s), main runs, moving repeats, and identical-code controls."
+      }
+    ]
+  },
+  {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    "browser": "chromium",
+    "time": "2026-11-02T04:50:26.093Z",
+    "fixtureCss": [
+      1280,
+      720
+    ],
+    "framebuffer": [
+      2560,
+      1440
+    ],
+    "harness": "visibility-browser-v3",
+    "requestedWorld": "copper-metropolis",
+    "onlyControl": false,
+    "captureId": "chromium-1793595026093",
+    "experiment": "sparse-shafts-ultra",
+    "adapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "device": "",
+      "description": ""
+    },
+    "features": [
+      "depth32float-stencil8",
+      "rg11b10ufloat-renderable",
+      "texture-formats-tier1",
+      "bgra8unorm-storage",
+      "texture-compression-bc",
+      "dual-source-blending",
+      "core-features-and-limits",
+      "float32-filterable",
+      "indirect-first-instance",
+      "texture-compression-astc-sliced-3d",
+      "float32-blendable",
+      "subgroup-size-control",
+      "texture-compression-unaligned",
+      "texture-compression-astc",
+      "texture-compression-etc2",
+      "depth-clip-control",
+      "texture-compression-bc-sliced-3d",
+      "texture-formats-tier2",
+      "timestamp-query",
+      "shader-f16",
+      "clip-distances",
+      "primitive-index",
+      "texture-component-swizzle",
+      "subgroups"
+    ],
+    "events": [
+      {
+        "time": "2026-11-02T04:50:26.102Z",
+        "value": "Ready. The iframe fixes the game viewport at 1280 \u00d7 720 CSS, DPR 2."
+      },
+      {
+        "time": "2026-11-02T04:50:31.493Z",
+        "value": "Loading copper-metropolis"
+      },
+      {
+        "time": "2026-11-02T04:50:31.713Z",
+        "value": "copper-metropolis: page loaded; visibility visible; loading benchmark module"
+      },
+      {
+        "time": "2026-11-02T04:53:23.336Z",
+        "value": "Complete: 1 world(s), main runs, moving repeats, and identical-code controls."
+      }
+    ]
+  }
+]

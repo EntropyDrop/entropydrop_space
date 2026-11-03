@@ -1,0 +1,9 @@
+{
+  "state": "running-control",
+  "time": "2026-11-02T04:52:39.218Z",
+  "visibility": "visible",
+  "hasGame": true,
+  "gate": "Offline development: Preparing character animations…",
+  "diagnostics": true,
+  "deviceLost": null
+}

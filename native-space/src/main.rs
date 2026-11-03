@@ -25,7 +25,9 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| root.join("../godot-space/matched-lod-fine/data"));
         return render_benchmark::run(&root, &path);
     }
-    let profile_render = if args.iter().any(|a| a == "--profile-gpu") {
+    let profile_render = if args.iter().any(|a| a == "--profile-frameflow") {
+        Some(9)
+    } else if args.iter().any(|a| a == "--profile-gpu") {
         Some(8)
     } else if args.iter().any(|a| a == "--profile-leaves") {
         Some(7)
@@ -59,13 +61,27 @@ fn main() -> anyhow::Result<()> {
     }
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut application = app::Application::new(root, world);
-    if args
-        .iter()
-        .any(|a| a == "--profile-window-gpu" || a == "--profile-window-control")
-    {
+    if args.iter().any(|a| {
+        a == "--profile-window-gpu"
+            || a == "--profile-window-control"
+            || a == "--profile-window-frameflow"
+            || a == "--profile-window-streaming"
+            || a == "--profile-window-startup"
+    }) {
+        use app::window_benchmark::Experiment;
+        let experiment = if args.iter().any(|a| a == "--profile-window-startup") {
+            Experiment::Startup
+        } else if args.iter().any(|a| a == "--profile-window-streaming") {
+            Experiment::Streaming
+        } else if args.iter().any(|a| a == "--profile-window-frameflow") {
+            Experiment::FrameFlow
+        } else {
+            Experiment::Packed
+        };
         application.window_benchmark = Some(app::window_benchmark::WindowBenchmark::new(
             &application.root,
             args.iter().any(|a| a == "--profile-window-control"),
+            experiment,
         ));
     }
     application.quit_after = value("--quit-after=").map(|s| s.parse()).transpose()?;
@@ -88,6 +104,7 @@ fn smoke(
     lod_zones: usize,
     profile_render: Option<u8>,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(lod_zones <= 128, "LOD zone count must be between 0 and 128");
     use glam::{DVec3, Mat4};
     use objc2_metal::MTLDevice;
     use space_native::{
@@ -139,7 +156,7 @@ fn smoke(
     let mut lod_stats = serde_json::Value::Null;
     if lod_zones > 0 {
         let mut distant = space_native::distant::Distant::new(source.clone());
-        for _ in 0..lod_zones {
+        loop {
             distant.request(space_native::distant::View {
                 camera: eye.to_array(),
                 height: 720,
@@ -153,8 +170,14 @@ fn smoke(
             for tile in frame.tiles {
                 renderer.upload_distant(&tile, true)?;
             }
-            lod_stats = serde_json::json!({"zones":frame.zones,"source_bytes":frame.source_bytes,"selection":frame.stats});
-            println!("LOD: {}/128 zones", frame.zones);
+            lod_stats = serde_json::json!({"zones":frame.zones,"refined_zones":frame.refined_zones,"source_bytes":frame.source_bytes,"selection":frame.stats});
+            println!(
+                "LOD: {}/128 zones, {} refined",
+                frame.zones, frame.refined_zones
+            );
+            if frame.refined_zones >= lod_zones {
+                break;
+            }
         }
         let mut mask = vec![0_u8; 1024 * 128 * 2];
         for &(x, z) in world.chunks.keys() {

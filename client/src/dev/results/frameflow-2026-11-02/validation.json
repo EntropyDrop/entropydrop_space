@@ -1,0 +1,38 @@
+{
+  "native_format": true,
+  "native_clippy": true,
+  "native_rust_tests": 31,
+  "native_node_tests": 4,
+  "native_typecheck": true,
+  "release_bundle": true,
+  "client_typecheck": true,
+  "client_application_tests": true,
+  "client_production_build_and_guards": true,
+  "documentation_links": true,
+  "native_standard_image_pairs_exact": 7,
+  "native_sun_ui_pairs_exact": 30,
+  "native_queued_frames_exact": 36,
+  "native_injected_unavailable_drawables": 4,
+  "native_shadow_cases_exact": 20,
+  "native_visibility_oracle_frames": 144,
+  "web_tested_worlds": [
+    "aether-archipelago",
+    "copper-metropolis"
+  ],
+  "web_production_change_retained": false,
+  "web_blocks": 64,
+  "web_frames": 17035,
+  "web_gpu_samples": 2836,
+  "web_image_rows_exact": 176,
+  "english_check": {
+    "passed": false,
+    "preexisting_violations": 275,
+    "new_violations": 0
+  },
+  "base_commit": "0a12646e159806a18247d99a7c9ba44e979751a6",
+  "native_save_sha256": "6142286a23321d0a53a0148fb9963f402ca07a80317fdd9b0f1517e0f1a6fb4b",
+  "notes": [
+    "Client production experiment was reverted after the measurements.",
+    "The final three-line diagnostic capture-clock fix was recompiled, checked by Clippy and validated by the full GPU/image run. Native production code is identical in both accepted window runs."
+  ]
+}

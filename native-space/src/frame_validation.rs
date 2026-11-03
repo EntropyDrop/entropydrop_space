@@ -4,6 +4,7 @@ use glam::Quat;
 
 pub fn previous() -> RenderProbe {
     RenderProbe {
+        fused_present: false,
         inherit_cull_proofs: false,
         quad_group: 32,
         cache_submission: false,
@@ -15,6 +16,93 @@ pub fn previous() -> RenderProbe {
 }
 
 impl Renderer {
+    /// Compare the new post/present path across the sun's visibility boundary,
+    /// with real egui clipping/blending and unchanged frozen cloud time.
+    pub fn validate_frameflow(
+        &mut self,
+        u: Uniforms,
+        paint: &[egui::ClippedPrimitive],
+        root: &Path,
+    ) -> Result<serde_json::Value> {
+        self.finish()?;
+        self.animate_sky = false;
+        let saved = self.probe;
+        let size = [1280, 720];
+        let target = self.offscreen_texture(size[0], size[1])?;
+        let eye = DVec3::new(
+            u.camera[0] as f64,
+            u.camera[1] as f64 - 35.0,
+            u.camera[2] as f64,
+        );
+        let angle = (8.2_f64 - 6.0) / 24.0 * std::f64::consts::TAU;
+        let sun = DVec3::new(angle.cos(), angle.sin().max(0.1), 0.25).normalize();
+        let mut rows = Vec::new();
+        for torus in [false, true] {
+            for pitch in [-0.45, 0.0, 0.45] {
+                for yaw in [0.0, 0.6, 1.1, 1.6, std::f64::consts::PI] {
+                    let direction = glam::DQuat::from_rotation_y(yaw)
+                        * glam::DQuat::from_rotation_z(pitch)
+                        * sun;
+                    let view = Uniforms {
+                        clip: geometry::camera_matrix(eye, direction, 16.0 / 9.0, torus)
+                            .to_cols_array_2d(),
+                        camera: eye.as_vec3().extend(0.0).to_array(),
+                        options: [u8::from(torus) as f32, 1.0, 0.0, 1.0],
+                        ..u
+                    };
+                    let mut images = Vec::new();
+                    for optimized in [false, true] {
+                        self.probe = RenderProbe {
+                            fused_present: optimized,
+                            ..Default::default()
+                        };
+                        let submission = self
+                            .encode_frame(size, view, paint, 1.0, optimized, || Some(&*target))?
+                            .context("Validation target")?;
+                        submission.end.commit();
+                        self.inflight.push_back(submission);
+                        self.finish()?;
+                        images.push(Self::read_pixels(&target));
+                    }
+                    let mut sum = 0_u64;
+                    let mut max = 0_u8;
+                    let mut over_2 = 0;
+                    for (a, b) in images[0]
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .zip(images[1].as_chunks::<4>().0)
+                    {
+                        let mut pixel = 0;
+                        for c in 0..3 {
+                            let d = a[c].abs_diff(b[c]);
+                            sum += u64::from(d);
+                            max = max.max(d);
+                            pixel = pixel.max(d);
+                        }
+                        over_2 += usize::from(pixel > 2);
+                    }
+                    let mean = sum as f64 / (size[0] * size[1] * 3) as f64;
+                    rows.push(serde_json::json!({"torus":torus,"pitch":pitch,"yaw":yaw,"max":max,"mean_rgb":mean,"pixels_over_2":over_2}));
+                }
+            }
+        }
+        self.probe = saved;
+        let passed = rows
+            .iter()
+            .all(|r| r["pixels_over_2"] == 0 && r["mean_rgb"].as_f64().unwrap() < 0.01);
+        let report = serde_json::json!({"passed":passed,"resolution":size,"pairs":rows,"quality":"Ultra 100%, all 24 shaft taps, 4x MSAA, 4096 shadows, fixed cloud time, egui UI"});
+        space_native::storage::atomic_write(
+            &root.join("results/frameflow-validation.json"),
+            &serde_json::to_vec_pretty(&report)?,
+        )?;
+        anyhow::ensure!(
+            passed,
+            "Frameflow image validation failed; see frameflow-validation.json"
+        );
+        Ok(report)
+    }
+
     /// With fixed local heading and cloud time, an infinitely distant sky must
     /// not move when the camera translates, including across either torus seam.
     pub fn validate_sky(&mut self, output: &Path) -> Result<()> {
@@ -36,7 +124,7 @@ impl Renderer {
         let render = |renderer: &mut Self, u| -> Result<Vec<u8>> {
             let command = renderer.encode(&target, u, &[], 1.0)?;
             command.commit();
-            renderer.inflight.push_back(command);
+            renderer.inflight.push_back(command.into());
             renderer.finish()?;
             Ok(Self::read_pixels(&target))
         };
@@ -221,17 +309,27 @@ impl Renderer {
             let target = self.offscreen_texture(size[0], size[1])?;
             let command = self.encode(&target, *u, paint, 1.0)?;
             command.commit();
-            self.inflight.push_back(command);
+            self.inflight.push_back(command.into());
             self.finish()?;
             reference.push(Self::read_pixels(&target));
         }
         self.probe = RenderProbe::default();
         let mut targets = Vec::new();
-        for (u, paint) in &frames {
+        for (i, (u, paint)) in frames.iter().enumerate() {
             let target = self.offscreen_texture(size[0], size[1])?;
-            let command = self.encode(&target, *u, paint, 1.0)?;
-            command.commit();
-            self.inflight.push_back(command);
+            if i % 9 == 4 {
+                // Exercise missing drawables after scene submission. Those
+                // commands must still fence the dynamic slot before reuse.
+                let unavailable = self.encode_frame(size, *u, paint, 1.0, true, || {
+                    None::<&ProtocolObject<dyn MTLTexture>>
+                })?;
+                anyhow::ensure!(unavailable.is_none(), "Unexpected unavailable drawable");
+            }
+            let submission = self
+                .encode_frame(size, *u, paint, 1.0, true, || Some(&*target))?
+                .context("Queued validation target")?;
+            submission.end.commit();
+            self.inflight.push_back(submission);
             targets.push(target);
         }
         self.finish()?;
@@ -359,13 +457,13 @@ impl Renderer {
                 "Unexpected shadow reuse for {label}"
             );
             command.commit();
-            self.inflight.push_back(command);
+            self.inflight.push_back(command.into());
             self.finish()?;
             let cached = Self::read_pixels(&target);
             self.probe = previous();
             let command = self.encode(&target, current, paint, 1.0)?;
             command.commit();
-            self.inflight.push_back(command);
+            self.inflight.push_back(command.into());
             self.finish()?;
             anyhow::ensure!(
                 cached == Self::read_pixels(&target),
@@ -378,7 +476,7 @@ impl Renderer {
             self.probe = RenderProbe::default();
             let command = self.encode(&target, current, paint, 1.0)?;
             command.commit();
-            self.inflight.push_back(command);
+            self.inflight.push_back(command.into());
             self.finish()?;
         }
         self.remove(key);

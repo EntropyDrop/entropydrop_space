@@ -71,3 +71,19 @@ Rust World + Editor + Protobuf + Save
 ## 完成判定
 
 完整单机迁移必须同时满足：表中离线用户操作均有可用原生入口；原有文件协议、存档与脚本行为经过对照；单机关键工作流可在新客户端完成；性能基准使用同一工作负载。在线功能暂不纳入该验收。当前原生窗口和自动测试通过，不代表这些完成条件已经满足。
+
+
+## Web behavior sync, 2026-11-02
+
+G now assembles terrain selections in place into stopped, kinematic entities,
+without automatically opening a panel; C edits the aimed entity. Assembly has
+atomic terrain/entity undo and redo. Gravity transitions, automatic mass and
+imported body settings match the shared Web behavior. The tutorial system and
+course-specific nameplates remain unimplemented.
+
+Native now restores verified local coarse coverage before full refinement,
+retains last-good geometry on adapter failures, and treats corrupt/missing
+coverage as optional cache misses. Edited zones skip base coverage. The original
+quality budgets and final LOD planner are unchanged. Near requests reuse demand
+ordering; full-source loading no longer waits 500 ms between completed batches.
+Details and measured limits: [native sync report](../client/docs/performance-native-sync-2026-11-02.md).

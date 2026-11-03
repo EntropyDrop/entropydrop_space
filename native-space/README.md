@@ -12,7 +12,7 @@ Space 的 Rust 桌面客户端，当前使用 **winit + egui + 直接 Metal 渲�
 ./native-space/launch.command
 ```
 
-默认以 **Ultra 最高画质**打开 Aether Archipelago：100% 原生分辨率、4× MSAA、4096 阴影、HDR、云层、接触阴影、光束、泛光、AgX 与 FXAA。全世界远景在后台生成；Settings 显示加载区域和实际 LOD，达到 128/128 后再观察稳定性能。详见 [渲染验证](RENDERING.md)。也可以指定世界：
+默认以 **Ultra 最高画质**打开 Aether Archipelago：100% 原生分辨率、4× MSAA、4096 阴影、HDR、云层、接触阴影、光束、泛光、AgX 与 FXAA。全世界远景在后台生成；Settings reports coverage and refinement separately; wait for `refined 128/128` before comparing settled performance.详见 [渲染验证](RENDERING.md)。也可以指定世界：
 
 ```sh
 ./native-space/launch.command --world=nature
@@ -36,7 +36,7 @@ Space 的 Rust 桌面客户端，当前使用 **winit + egui + 直接 Metal 渲�
 - 三个现有世界的近处地形按需加载；标准方块、0.125 m 微方块、精确环面近场修正、体积远景、Ultra 灯光和材质。
 - 建造、擦除、涂色、取色、两角点矩形选区，复制、剪切、填充、删除、旋转复制的方块、地形撤销/重做。
 - 导入和导出 inventory v8 `.edpb`：BlockSet、Entity、Item、ColorSet；本地背包。
-- 从选区创建实体模板；放置、复制、移动、旋转、删除实体；查看组件层级、编辑名称、BodyConfig 和脚本。
+- Assemble terrain selections in place with G into stopped, kinematic entities; C opens the entity under the crosshair. Assembly has atomic undo/redo. Place, copy, move, rotate and delete entities; edit component names, body configuration and scripts.
 - Run/Stop、共享引擎的地形/实体物理与约束、AssemblyScript 沙箱、编译错误和脚本日志、座位驾驶输入。几何在变化时上传，运行中更新组件矩阵。
 - 独立原生存档、自动保存、PNG 截图。保存的是地形编辑、构造态实体、背包和相机；尚未保存脚本变量和完整模拟检查点。
 
@@ -161,3 +161,54 @@ The window diagnostic does not save player state. Keep the window focused and vi
 focus loss, occlusion or resizing during sampling fails the comparison. It prewarms a moving
 path, then interleaves candidate and identical-code controls. See
 [GPU measurements and limits](../client/docs/performance-gpu-port-2026-11-02.md).
+
+Window submission comparison (same Ultra shaders and quality):
+
+```sh
+native-space/target/release/space-native --profile-frameflow --world=aether-archipelago --lod-zones=128
+'native-space/build/Space Native.app/Contents/MacOS/space-native' --profile-window-frameflow --world=aether-archipelago
+```
+
+The default Ultra path submits offscreen scene work before acquiring a drawable
+and merges FXAA with UI rendering. The diagnostic compares the previous frame
+submission with these defaults; it also fails if a drawable is unavailable
+during a measured block. See the
+[frame submission report](../client/docs/performance-frameflow-2026-11-02.md).
+
+
+## Web interaction and local LOD sync (2026-11-02)
+
+The native controls follow Web commit `023a325`: G assembles the selection
+without opening a panel; C edits the entity under the crosshair. New assemblies
+start stopped and kinematic, with gravity disabled and automatic mass. A deliberate
+switch to Dynamic enables gravity; reselecting Dynamic preserves an explicitly
+disabled gravity setting. Carrying an entity preserves its authored body settings.
+Imported entities retain their existing settings. The native tutorial system and
+its course/nameplate UI remain outside this migration.
+
+The optional local coverage cache is keyed by world, seed, generator and terrain
+source hash. Returning to a world restores verified 64-unit coverage before full
+sources are refined at the original budgets. Edited zones skip base coverage;
+corrupt or missing cache entries are misses, and caching failures do not discard
+last-good coverage. This path is entirely offline. Coverage is not the same as
+completed refinement: Settings shows both counts.
+
+Fine sources load as soon as the previous batch has been uploaded. Near chunk
+demand is reused until the chunk center or radius changes, and an unchanged,
+fully refined view does not repeatedly request LOD planning. Packed IPC uses
+bulk typed-array writes while retaining exactly the same face/visibility bytes.
+
+```sh
+node native-space/tools/benchmark-lod.ts
+native-space/target/release/space-native --profile-window-startup
+native-space/target/release/space-native --profile-window-streaming
+```
+
+The first command verifies final and moving geometry hashes in balanced legacy/
+optimized runs. Window diagnostics keep Ultra settings and never write player
+saves. The startup reference uses `SPACE_NATIVE_LEGACY_LOD=1` and
+`SPACE_NATIVE_LEGACY_STREAMING=1`; the streaming benchmark interleaves the two
+main-thread scheduling paths with identical-code controls. Keep its window
+focused and unoccluded. Normal gameplay does not change VSync defaults.
+
+Results and limitations: [native sync report](../client/docs/performance-native-sync-2026-11-02.md).

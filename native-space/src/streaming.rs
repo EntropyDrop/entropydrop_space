@@ -9,6 +9,36 @@ use std::{
 };
 
 type Key = (i32, i32);
+#[derive(Default)]
+pub struct NearDemand {
+    view: Option<(i32, i32, i32)>,
+    pub keys: Vec<Key>,
+    pub complete: bool,
+}
+impl NearDemand {
+    pub fn update(&mut self, cx: i32, cz: i32, radius: i32, reference: bool) {
+        let view = (cx.rem_euclid(1024), cz.rem_euclid(128), radius);
+        if !reference && self.view == Some(view) {
+            return;
+        }
+        let mut keys = Vec::new();
+        for dz in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx * dx + dz * dz <= radius * radius {
+                    keys.push((
+                        dx * dx + dz * dz,
+                        ((cx + dx).rem_euclid(1024), (cz + dz).rem_euclid(128)),
+                    ));
+                }
+            }
+        }
+        keys.sort_by_key(|x| x.0);
+        self.keys.clear();
+        self.keys.extend(keys.into_iter().map(|x| x.1));
+        self.view = Some(view);
+        self.complete = false;
+    }
+}
 pub struct Streaming {
     requests: Sender<Key>,
     pub responses: Receiver<(Key, Result<Chunk>)>,

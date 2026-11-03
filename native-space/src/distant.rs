@@ -34,6 +34,11 @@ pub struct Frame {
     pub source_limited_zones: usize,
     pub tiles: Vec<Tile>,
     pub zones: usize,
+    pub ready: bool,
+    #[serde(rename = "refinedZones")]
+    pub refined_zones: usize,
+    #[serde(rename = "cacheRestoredZones")]
+    pub cache_restored_zones: usize,
     #[serde(rename = "sourceBytes")]
     pub source_bytes: usize,
     pub stats: serde_json::Value,
@@ -48,10 +53,15 @@ struct Worker {
     output: BufReader<std::process::ChildStdout>,
 }
 impl Worker {
-    fn new(source: &WorldSource) -> Result<Self> {
+    fn new(source: &WorldSource, restore_coverage: bool) -> Result<Self> {
         let mut child = crate::node_command()
             .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tools/distant.ts"))
             .arg(&source.root)
+            .args(if restore_coverage {
+                vec![]
+            } else {
+                vec!["--skip-coverage"]
+            })
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -114,13 +124,20 @@ impl Distant {
             .name("space-distant".into())
             .spawn(move || {
                 let mut worker = None;
+                let mut restore_coverage = true;
                 while let Ok(view) = rx.recv() {
                     let result = (|| {
                         if worker.is_none() {
-                            worker = Some(Worker::new(&source)?);
+                            worker = Some(Worker::new(&source, restore_coverage)?);
+                            restore_coverage = false;
                         }
                         worker.as_mut().unwrap().build(view, &source)
                     })();
+                    // Retain the last published GPU coverage in the caller and
+                    // recover a failed adapter on the next bounded retry.
+                    if result.is_err() {
+                        worker = None;
+                    }
                     if output.send(result).is_err() {
                         break;
                     }
@@ -133,9 +150,11 @@ impl Distant {
             busy: false,
         }
     }
-    pub fn request(&mut self, view: View) {
+    pub fn request(&mut self, view: View) -> bool {
         if !self.busy && self.requests.try_send(view).is_ok() {
             self.busy = true;
+            return true;
         }
+        false
     }
 }

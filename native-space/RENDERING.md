@@ -363,3 +363,18 @@ quality settings remain unchanged.
 controls and an ephemeral save session. Full results, numerical image differences
 and measurement limits are documented in
 [the GPU report](../client/docs/performance-gpu-port-2026-11-02.md).
+
+## 2026-11-02: Window submission overlap
+
+The Ultra scene and offscreen post-processing commands are submitted before
+waiting for a window drawable. The final FXAA/UI pass uses the same queue and
+its completion fences the entire frame slot. A missing drawable still fences
+the scene command. FXAA and egui share one render encoder with the same formats,
+blend state and ordering. Normal drawables use `framebufferOnly`; captures keep
+the existing readable copy path. No shader or quality setting changes remain.
+
+`--profile-frameflow` checks frozen GPU work, images and resource lifetime;
+`--profile-window-frameflow` records actual window cadence and separates drawable
+acquisition, CPU encoding, submission and in-flight waiting. GPU measurements
+span the first scene command through the final command and can include scheduling
+gaps. See the [results and controls](../client/docs/performance-frameflow-2026-11-02.md).

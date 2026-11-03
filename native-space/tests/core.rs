@@ -23,6 +23,103 @@ fn world() -> World {
 }
 
 #[test]
+fn assembly_is_stopped_and_moves_voxels_with_atomic_undo_without_touching_inventory() {
+    let mut world = world();
+    let mut editor = Editor::default();
+    let full = Cell::new(2, 4, 2, false);
+    let micro = Cell::new(24, 32, 16, true);
+    world.set(full, color(0x123456, 0));
+    world.set(micro, color(0xabcdef, 1));
+    editor.selection = Some((full, Cell::new(3, 4, 2, false)));
+    editor.copy_selection(&world).unwrap();
+    let clipboard = protocol::encode(editor.clipboard.as_ref().unwrap()).unwrap();
+    assert_eq!(editor.assemble_selection(&mut world).unwrap(), 2);
+    assert!(editor.selection.is_none());
+    assert_eq!(world.get(full), 0);
+    assert_eq!(world.get(micro), 0);
+    assert!(editor.backpack.is_empty());
+    assert_eq!(
+        protocol::encode(editor.clipboard.as_ref().unwrap()).unwrap(),
+        clipboard
+    );
+    let e = &editor.entities[0];
+    assert!(!e.running);
+    assert_eq!(e.position, [2.0, 4.0, 2.0]);
+    let root = e.definition.root.as_ref().unwrap();
+    let body = root.body.unwrap();
+    assert_eq!(body.r#type, 1);
+    assert_eq!(body.use_gravity, Some(false));
+    assert_eq!(body.mass, None);
+    assert_eq!(body.friction, Some(0.7));
+    assert_eq!(root.script, None);
+    protocol::validate_entity(&e.definition).unwrap();
+    let id = e.id.clone();
+    editor.undo(&mut world);
+    assert!(editor.entities.is_empty());
+    assert_eq!(world.get(full), color(0x123456, 0));
+    assert_eq!(world.get(micro), color(0xabcdef, 1));
+    editor.redo(&mut world);
+    assert_eq!(editor.entities[0].id, id);
+    assert!(!editor.entities[0].running);
+    assert_eq!(world.get(full), 0);
+    assert_eq!(world.get(micro), 0);
+}
+
+#[test]
+fn failed_assembly_and_body_reselection_preserve_authored_state() {
+    use protocol::inventory::BodyConfig;
+    let mut world = world();
+    let mut editor = Editor::default();
+    editor.selection = Some((Cell::new(0, 0, 0, false), Cell::new(0, 0, 0, false)));
+    assert!(editor.assemble_selection(&mut world).is_err());
+    assert!(editor.entities.is_empty() && editor.undo.is_empty() && world.edits.is_empty());
+    let mut body = BodyConfig {
+        r#type: 1,
+        use_gravity: Some(false),
+        ..Default::default()
+    };
+    assert!(space_native::editor::set_body_type(&mut body, 0));
+    assert_eq!(body.use_gravity, Some(true));
+    body.use_gravity = Some(false);
+    assert!(!space_native::editor::set_body_type(&mut body, 0));
+    assert_eq!(body.use_gravity, Some(false));
+    assert!(space_native::editor::set_body_type(&mut body, 1));
+    assert_eq!(body.use_gravity, Some(false));
+}
+
+#[test]
+fn near_streaming_cache_matches_every_reference_request_across_boundaries_and_resizes() {
+    use space_native::streaming::NearDemand;
+    let mut optimized = NearDemand::default();
+    let mut reference = NearDemand::default();
+    for radius in [2, 7, 12, 3] {
+        for (cx, cz) in [
+            (0, 0),
+            (-1, -1),
+            (1023, 127),
+            (1024, 128),
+            (511, 64),
+            (512, 64),
+        ] {
+            optimized.update(cx, cz, radius, false);
+            reference.update(cx, cz, radius, true);
+            assert_eq!(optimized.keys, reference.keys);
+            assert!(!optimized.complete);
+            optimized.complete = true;
+            let pointer = optimized.keys.as_ptr();
+            optimized.update(cx, cz, radius, false);
+            assert!(optimized.complete);
+            assert_eq!(optimized.keys.as_ptr(), pointer);
+            assert_eq!(optimized.keys, reference.keys);
+            // Simulate a failed load / full request queue: demand remains live.
+            optimized.complete = false;
+            optimized.update(cx, cz, radius, false);
+            assert!(!optimized.complete);
+        }
+    }
+}
+
+#[test]
 fn shared_typescript_fixtures_preserve_canonical_bytes_in_rust() {
     let fixtures: std::collections::BTreeMap<String, String> =
         serde_json::from_str(include_str!("fixtures/inventory.json")).unwrap();

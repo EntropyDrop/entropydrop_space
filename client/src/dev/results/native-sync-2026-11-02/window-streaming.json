@@ -1,0 +1,1368 @@
+{
+  "blocks": [
+    {
+      "block": 0,
+      "candidate": false,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 482,
+          "max": 28.684874999999998,
+          "mean": 7.0023347614107845,
+          "p50": 0.043459,
+          "p95": 16.348374999999997,
+          "p99": 18.635458
+        },
+        "encode": {
+          "count": 482,
+          "max": 3.6022079999999996,
+          "mean": 0.9411173568464729,
+          "p50": 0.90775,
+          "p95": 1.2026670000000017,
+          "p99": 2.112375
+        },
+        "submit": {
+          "count": 482,
+          "max": 0.111667,
+          "mean": 0.011836601659751025,
+          "p50": 0.011375,
+          "p95": 0.019917,
+          "p99": 0.050207999999999996
+        },
+        "wait": {
+          "count": 482,
+          "max": 5.49875,
+          "mean": 0.046418502074688756,
+          "p50": 0.001709,
+          "p95": 0.004541,
+          "p99": 1.2380419999999999
+        }
+      },
+      "focused": true,
+      "fps": 120.49877491908006,
+      "frame_ms": {
+        "count": 482,
+        "max": 30.135959,
+        "mean": 8.298839558091288,
+        "p50": 5.46725,
+        "p95": 17.647666,
+        "p99": 19.9605
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 482,
+        "max": 26.148750446736813,
+        "mean": 10.030197375743839,
+        "p50": 9.704167023301125,
+        "p95": 15.489000827074051,
+        "p99": 17.67354179173708
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 482,
+        "max": 0.7978339999999999,
+        "mean": 0.2217309937759337,
+        "p50": 0.214917,
+        "p95": 0.325542,
+        "p99": 0.642625
+      },
+      "render_present_ms": {
+        "count": 482,
+        "max": 29.717625,
+        "mean": 8.003697788381743,
+        "p50": 5.182209,
+        "p95": 17.385125000000002,
+        "p99": 19.687584
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 1,
+      "candidate": true,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 478,
+          "max": 21.131292,
+          "mean": 7.125698585774052,
+          "p50": 0.021959,
+          "p95": 15.47075,
+          "p99": 17.525917
+        },
+        "encode": {
+          "count": 478,
+          "max": 3.3028329999999997,
+          "mean": 0.9252888765690377,
+          "p50": 0.865042,
+          "p95": 1.1914170000000013,
+          "p99": 2.7530409999999996
+        },
+        "submit": {
+          "count": 478,
+          "max": 0.052542,
+          "mean": 0.010655435146443522,
+          "p50": 0.010875,
+          "p95": 0.018541000000000002,
+          "p99": 0.035290999999999996
+        },
+        "wait": {
+          "count": 478,
+          "max": 0.018083,
+          "mean": 0.0020140292887029245,
+          "p50": 0.00175,
+          "p95": 0.004625,
+          "p99": 0.005542
+        }
+      },
+      "focused": true,
+      "fps": 119.97271749123385,
+      "frame_ms": {
+        "count": 478,
+        "max": 21.963292,
+        "mean": 8.335228382845191,
+        "p50": 4.456291,
+        "p95": 16.577334,
+        "p99": 18.610125
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 478,
+        "max": 19.403541460633278,
+        "mean": 9.784167883800787,
+        "p50": 9.40345786511898,
+        "p95": 14.080124907195568,
+        "p99": 15.880624763667583
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 478,
+        "max": 0.8220000000000001,
+        "mean": 0.19919838493723857,
+        "p50": 0.19595800000000002,
+        "p95": 0.276625,
+        "p99": 0.512667
+      },
+      "render_present_ms": {
+        "count": 478,
+        "max": 21.841708,
+        "mean": 8.065465832635992,
+        "p50": 3.323333,
+        "p95": 16.411458,
+        "p99": 18.471959
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": true
+    },
+    {
+      "block": 2,
+      "candidate": true,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 480,
+          "max": 20.310458,
+          "mean": 7.099999300000004,
+          "p50": 0.033333,
+          "p95": 15.953458,
+          "p99": 18.847333000000003
+        },
+        "encode": {
+          "count": 480,
+          "max": 11.469584000000001,
+          "mean": 0.9542656041666667,
+          "p50": 0.8712090000000003,
+          "p95": 1.2062079999999984,
+          "p99": 3.036833
+        },
+        "submit": {
+          "count": 480,
+          "max": 0.043875000000000004,
+          "mean": 0.010931829166666672,
+          "p50": 0.010875,
+          "p95": 0.018709,
+          "p99": 0.033708
+        },
+        "wait": {
+          "count": 480,
+          "max": 1.375083,
+          "mean": 0.004918474999999995,
+          "p50": 0.001708,
+          "p95": 0.004625,
+          "p99": 0.007
+        }
+      },
+      "focused": true,
+      "fps": 119.96335119620952,
+      "frame_ms": {
+        "count": 480,
+        "max": 21.271958,
+        "mean": 8.33587916666667,
+        "p50": 5.1032079999999995,
+        "p95": 16.939249999999998,
+        "p99": 19.759875
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 480,
+        "max": 18.955083563923836,
+        "mean": 9.920912406717738,
+        "p50": 9.091000072658062,
+        "p95": 14.510833658277988,
+        "p99": 17.228083685040474
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 480,
+        "max": 0.709334,
+        "mean": 0.19434738125000003,
+        "p50": 0.18954200000000002,
+        "p95": 0.27608299999999997,
+        "p99": 0.506708
+      },
+      "render_present_ms": {
+        "count": 480,
+        "max": 21.119208,
+        "mean": 8.072015291666665,
+        "p50": 4.114750000000001,
+        "p95": 16.78,
+        "p99": 19.636542
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": true
+    },
+    {
+      "block": 3,
+      "candidate": false,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 480,
+          "max": 19.091207999999998,
+          "mean": 7.0522996645833365,
+          "p50": 0.042833,
+          "p95": 15.910125,
+          "p99": 18.121167
+        },
+        "encode": {
+          "count": 480,
+          "max": 9.183000000000002,
+          "mean": 0.9704574750000003,
+          "p50": 0.872834,
+          "p95": 1.207292,
+          "p99": 3.199416
+        },
+        "submit": {
+          "count": 480,
+          "max": 0.038208,
+          "mean": 0.011814566666666661,
+          "p50": 0.011583999999999999,
+          "p95": 0.022,
+          "p99": 0.036292
+        },
+        "wait": {
+          "count": 480,
+          "max": 0.12787500000000002,
+          "mean": 0.002395039583333327,
+          "p50": 0.00175,
+          "p95": 0.004834,
+          "p99": 0.007375
+        }
+      },
+      "focused": true,
+      "fps": 119.99943498266038,
+      "frame_ms": {
+        "count": 480,
+        "max": 20.368417,
+        "mean": 8.333372570833335,
+        "p50": 8.131209,
+        "p95": 17.018874999999998,
+        "p99": 19.432875
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 480,
+        "max": 17.569875344634056,
+        "mean": 9.672525430020565,
+        "p50": 8.88216681778431,
+        "p95": 14.609791338443756,
+        "p99": 16.762875020503998
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 480,
+        "max": 0.6964579999999999,
+        "mean": 0.2187839479166667,
+        "p50": 0.21016700000000002,
+        "p95": 0.333208,
+        "p99": 0.556625
+      },
+      "render_present_ms": {
+        "count": 480,
+        "max": 20.181874999999998,
+        "mean": 8.038979231249998,
+        "p50": 7.918457999999999,
+        "p95": 16.828375,
+        "p99": 19.245584
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 4,
+      "candidate": false,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 478,
+          "max": 19.787208,
+          "mean": 7.132470338912133,
+          "p50": 0.035542,
+          "p95": 15.387208,
+          "p99": 17.910958
+        },
+        "encode": {
+          "count": 478,
+          "max": 3.4692089999999998,
+          "mean": 0.9192708891213391,
+          "p50": 0.8838339999999999,
+          "p95": 1.1756239999999973,
+          "p99": 1.5040419999999999
+        },
+        "submit": {
+          "count": 478,
+          "max": 0.054458,
+          "mean": 0.011353740585774055,
+          "p50": 0.011167,
+          "p95": 0.020667,
+          "p99": 0.037834
+        },
+        "wait": {
+          "count": 478,
+          "max": 0.039708,
+          "mean": 0.0021596108786610846,
+          "p50": 0.00175,
+          "p95": 0.004208,
+          "p99": 0.006167000000000001
+        }
+      },
+      "focused": true,
+      "fps": 119.83539431296111,
+      "frame_ms": {
+        "count": 478,
+        "max": 20.753417,
+        "mean": 8.344779985355649,
+        "p50": 4.489208,
+        "p95": 16.598916,
+        "p99": 18.904417
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 478,
+        "max": 18.22887547314167,
+        "mean": 10.09809040507325,
+        "p50": 9.185833856463432,
+        "p95": 14.209000393748283,
+        "p99": 16.113624908030033
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 478,
+        "max": 0.6808339999999999,
+        "mean": 0.20777920083682003,
+        "p50": 0.202833,
+        "p95": 0.29075,
+        "p99": 0.5397919999999999
+      },
+      "render_present_ms": {
+        "count": 478,
+        "max": 20.577083,
+        "mean": 8.06725514853557,
+        "p50": 3.52725,
+        "p95": 16.43525,
+        "p99": 18.670417
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 5,
+      "candidate": true,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 480,
+          "max": 20.07275,
+          "mean": 7.028197302083336,
+          "p50": 0.111834,
+          "p95": 16.28125,
+          "p99": 18.575582999999998
+        },
+        "encode": {
+          "count": 480,
+          "max": 4.348541,
+          "mean": 0.9804539166666668,
+          "p50": 0.89025,
+          "p95": 1.437416,
+          "p99": 3.095292
+        },
+        "submit": {
+          "count": 480,
+          "max": 0.10124999999999999,
+          "mean": 0.012607918750000006,
+          "p50": 0.011209,
+          "p95": 0.031875,
+          "p99": 0.042457999999999996
+        },
+        "wait": {
+          "count": 480,
+          "max": 0.008917,
+          "mean": 0.0020508062499999943,
+          "p50": 0.001625,
+          "p95": 0.004792,
+          "p99": 0.007666999999999999
+        }
+      },
+      "focused": true,
+      "fps": 119.99737628736679,
+      "frame_ms": {
+        "count": 480,
+        "max": 21.349333,
+        "mean": 8.333515539583336,
+        "p50": 5.458,
+        "p95": 17.2995,
+        "p99": 19.812458000000003
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 480,
+        "max": 18.548374995589256,
+        "mean": 9.632124994338179,
+        "p50": 9.11466684192419,
+        "p95": 14.99562431126833,
+        "p99": 16.7264174669981
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 480,
+        "max": 1.090083,
+        "mean": 0.22876743124999974,
+        "p50": 0.21025,
+        "p95": 0.461542,
+        "p99": 0.659583
+      },
+      "render_present_ms": {
+        "count": 480,
+        "max": 21.149917000000002,
+        "mean": 8.025415110416667,
+        "p50": 4.486708,
+        "p95": 17.099417,
+        "p99": 19.567749999999997
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 6,
+      "candidate": true,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 480,
+          "max": 20.303,
+          "mean": 7.167297235416669,
+          "p50": 0.026417000000000003,
+          "p95": 15.917542,
+          "p99": 17.645334
+        },
+        "encode": {
+          "count": 480,
+          "max": 3.3420830000000024,
+          "mean": 0.8918812312500007,
+          "p50": 0.8435839999999999,
+          "p95": 1.1663759999999996,
+          "p99": 1.506875
+        },
+        "submit": {
+          "count": 480,
+          "max": 0.151083,
+          "mean": 0.01121625208333334,
+          "p50": 0.011375,
+          "p95": 0.01925,
+          "p99": 0.028541999999999998
+        },
+        "wait": {
+          "count": 480,
+          "max": 0.015958,
+          "mean": 0.002033141666666662,
+          "p50": 0.00175,
+          "p95": 0.003917,
+          "p99": 0.005708
+        }
+      },
+      "focused": true,
+      "fps": 119.96837459691473,
+      "frame_ms": {
+        "count": 480,
+        "max": 21.533209,
+        "mean": 8.33553012083334,
+        "p50": 2.341542,
+        "p95": 16.911875,
+        "p99": 18.960125
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 480,
+        "max": 18.72674934566021,
+        "mean": 10.001951560843736,
+        "p50": 9.225791320204735,
+        "p95": 14.515832997858524,
+        "p99": 16.520291566848755
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 480,
+        "max": 0.338459,
+        "mean": 0.19419975416666663,
+        "p50": 0.198042,
+        "p95": 0.264375,
+        "p99": 0.294792
+      },
+      "render_present_ms": {
+        "count": 480,
+        "max": 21.350875,
+        "mean": 8.074145193749995,
+        "p50": 1.995166,
+        "p95": 16.756333,
+        "p99": 18.742915999999997
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 7,
+      "candidate": false,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 481,
+          "max": 28.089,
+          "mean": 7.024199804573803,
+          "p50": 3.322959,
+          "p95": 17.19825,
+          "p99": 20.285042
+        },
+        "encode": {
+          "count": 481,
+          "max": 11.136001,
+          "mean": 0.9723415883575888,
+          "p50": 0.878333,
+          "p95": 1.2229169999999954,
+          "p99": 3.007584
+        },
+        "submit": {
+          "count": 481,
+          "max": 0.056208999999999995,
+          "mean": 0.011692058212058211,
+          "p50": 0.011292,
+          "p95": 0.022917,
+          "p99": 0.037166000000000005
+        },
+        "wait": {
+          "count": 481,
+          "max": 1.9050420000000001,
+          "mean": 0.014363648648648652,
+          "p50": 0.001667,
+          "p95": 0.004959,
+          "p99": 0.075542
+        }
+      },
+      "focused": true,
+      "fps": 120.23502448723009,
+      "frame_ms": {
+        "count": 481,
+        "max": 29.429458,
+        "mean": 8.31704409147609,
+        "p50": 5.448291,
+        "p95": 18.44675,
+        "p99": 21.658791
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 481,
+        "max": 25.69966670125723,
+        "mean": 9.913943578216118,
+        "p50": 9.221124462783337,
+        "p95": 15.806042589247227,
+        "p99": 18.542958423495293
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.62 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 481,
+        "max": 0.9757499999999999,
+        "mean": 0.21836469854469853,
+        "p50": 0.209791,
+        "p95": 0.314208,
+        "p99": 0.748666
+      },
+      "render_present_ms": {
+        "count": 481,
+        "max": 29.178416,
+        "mean": 8.024697773388775,
+        "p50": 5.205375,
+        "p95": 18.201666,
+        "p99": 21.359458
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 8,
+      "candidate": true,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 479,
+          "max": 18.275208000000003,
+          "mean": 7.095263799582465,
+          "p50": 0.025542,
+          "p95": 15.5415,
+          "p99": 17.3295
+        },
+        "encode": {
+          "count": 479,
+          "max": 10.586625,
+          "mean": 0.9825002755741131,
+          "p50": 0.8384579999999975,
+          "p95": 1.2737499999999997,
+          "p99": 4.306834000000002
+        },
+        "submit": {
+          "count": 479,
+          "max": 0.038125,
+          "mean": 0.011409359081419625,
+          "p50": 0.01175,
+          "p95": 0.02,
+          "p99": 0.026666
+        },
+        "wait": {
+          "count": 479,
+          "max": 0.00825,
+          "mean": 0.002025830897703545,
+          "p50": 0.001792,
+          "p95": 0.003958,
+          "p99": 0.006167000000000001
+        }
+      },
+      "focused": true,
+      "fps": 119.74607705864254,
+      "frame_ms": {
+        "count": 479,
+        "max": 19.559208,
+        "mean": 8.351004263048015,
+        "p50": 8.583458,
+        "p95": 16.565707999999997,
+        "p99": 18.390583
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 479,
+        "max": 16.716917045414448,
+        "mean": 9.90648284780021,
+        "p50": 9.582875296473503,
+        "p95": 14.349708333611488,
+        "p99": 16.228292137384415
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.62 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 479,
+        "max": 0.596125,
+        "mean": 0.18857739874739052,
+        "p50": 0.190292,
+        "p95": 0.255584,
+        "p99": 0.307542
+      },
+      "render_present_ms": {
+        "count": 479,
+        "max": 19.39375,
+        "mean": 8.092973240083507,
+        "p50": 8.250375,
+        "p95": 16.386167,
+        "p99": 18.234834
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": true
+    },
+    {
+      "block": 9,
+      "candidate": false,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 479,
+          "max": 19.452792,
+          "mean": 7.090218937369526,
+          "p50": 8.969417,
+          "p95": 17.05425,
+          "p99": 18.619709
+        },
+        "encode": {
+          "count": 479,
+          "max": 4.570124,
+          "mean": 0.9539666805845519,
+          "p50": 0.881167,
+          "p95": 1.2091250000000002,
+          "p99": 2.6614590000000002
+        },
+        "submit": {
+          "count": 479,
+          "max": 0.11474999999999999,
+          "mean": 0.011721093945720257,
+          "p50": 0.010834,
+          "p95": 0.023083,
+          "p99": 0.039834
+        },
+        "wait": {
+          "count": 479,
+          "max": 0.102291,
+          "mean": 0.0021505574112734836,
+          "p50": 0.001666,
+          "p95": 0.004167,
+          "p99": 0.006666
+        }
+      },
+      "focused": true,
+      "fps": 119.74864160134683,
+      "frame_ms": {
+        "count": 479,
+        "max": 20.375084,
+        "mean": 8.350825417536536,
+        "p50": 10.184875,
+        "p95": 18.091208,
+        "p99": 19.934834
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 479,
+        "max": 18.52625049650669,
+        "mean": 9.928727460274617,
+        "p50": 9.159999899566174,
+        "p95": 15.60920849442482,
+        "p99": 16.95733331143856
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 479,
+        "max": 0.91775,
+        "mean": 0.21758075156576198,
+        "p50": 0.205458,
+        "p95": 0.324,
+        "p99": 0.684666
+      },
+      "render_present_ms": {
+        "count": 479,
+        "max": 20.239250000000002,
+        "mean": 8.059998081419632,
+        "p50": 9.916625,
+        "p95": 17.930249999999997,
+        "p99": 19.570625
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 10,
+      "candidate": false,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 479,
+          "max": 21.160959,
+          "mean": 7.0984985469728645,
+          "p50": 3.126458,
+          "p95": 15.675417000000001,
+          "p99": 17.441833
+        },
+        "encode": {
+          "count": 479,
+          "max": 11.172499,
+          "mean": 0.9597431169102303,
+          "p50": 0.8805829999999997,
+          "p95": 1.2021249999999988,
+          "p99": 2.4405
+        },
+        "submit": {
+          "count": 479,
+          "max": 0.051666000000000004,
+          "mean": 0.010883935281837169,
+          "p50": 0.011084,
+          "p95": 0.018542,
+          "p99": 0.034917
+        },
+        "wait": {
+          "count": 479,
+          "max": 0.007958000000000002,
+          "mean": 0.0019956638830897645,
+          "p50": 0.001709,
+          "p95": 0.004417,
+          "p99": 0.005584
+        }
+      },
+      "focused": true,
+      "fps": 119.71912617328714,
+      "frame_ms": {
+        "count": 479,
+        "max": 22.112625,
+        "mean": 8.35288422129437,
+        "p50": 8.923917,
+        "p95": 16.687625,
+        "p99": 18.681041
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 479,
+        "max": 19.895125180482864,
+        "mean": 9.719192604524606,
+        "p50": 9.215625002980232,
+        "p95": 14.180375263094902,
+        "p99": 16.157375648617744
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 479,
+        "max": 0.7282080000000001,
+        "mean": 0.2094413903966596,
+        "p50": 0.205791,
+        "p95": 0.29654200000000003,
+        "p99": 0.552417
+      },
+      "render_present_ms": {
+        "count": 479,
+        "max": 21.968834,
+        "mean": 8.073018348643009,
+        "p50": 8.640042000000001,
+        "p95": 16.476042,
+        "p99": 18.503375
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 11,
+      "candidate": true,
+      "control": false,
+      "draw_timings": {
+        "drawable": {
+          "count": 489,
+          "max": 23.13825,
+          "mean": 6.8401433067484625,
+          "p50": 0.021707999999999998,
+          "p95": 16.156333,
+          "p99": 19.232208
+        },
+        "encode": {
+          "count": 489,
+          "max": 4.3929990000000005,
+          "mean": 0.9554642903885481,
+          "p50": 0.883375,
+          "p95": 1.2130840000000003,
+          "p99": 2.789751
+        },
+        "submit": {
+          "count": 489,
+          "max": 0.042375,
+          "mean": 0.011137813905930471,
+          "p50": 0.010958,
+          "p95": 0.019542,
+          "p99": 0.035917000000000004
+        },
+        "wait": {
+          "count": 489,
+          "max": 5.411041999999999,
+          "mean": 0.1141216012269939,
+          "p50": 0.001667,
+          "p95": 0.005084,
+          "p99": 3.8918749999999998
+        }
+      },
+      "focused": true,
+      "fps": 122.0586387547597,
+      "frame_ms": {
+        "count": 489,
+        "max": 24.544459,
+        "mean": 8.19278348670757,
+        "p50": 5.031125,
+        "p95": 17.317666,
+        "p99": 20.412959
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 489,
+        "max": 22.284625098109245,
+        "mean": 10.303504511729217,
+        "p50": 9.928165934979916,
+        "p95": 15.155416913330555,
+        "p99": 17.872500233352184
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 489,
+        "max": 0.830375,
+        "mean": 0.19950278323108409,
+        "p50": 0.19366699999999998,
+        "p95": 0.295042,
+        "p99": 0.5195
+      },
+      "render_present_ms": {
+        "count": 489,
+        "max": 24.321083,
+        "mean": 7.922700588957058,
+        "p50": 4.728834,
+        "p95": 17.130375,
+        "p99": 20.265167
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": true
+    },
+    {
+      "block": 12,
+      "candidate": true,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 480,
+          "max": 19.955208,
+          "mean": 7.116956550000006,
+          "p50": 0.026375,
+          "p95": 16.490041,
+          "p99": 18.370334
+        },
+        "encode": {
+          "count": 480,
+          "max": 5.274458,
+          "mean": 0.9191924625000003,
+          "p50": 0.871001,
+          "p95": 1.169042000000001,
+          "p99": 2.378042
+        },
+        "submit": {
+          "count": 480,
+          "max": 0.04425,
+          "mean": 0.01092397291666667,
+          "p50": 0.011042,
+          "p95": 0.018375,
+          "p99": 0.031458
+        },
+        "wait": {
+          "count": 480,
+          "max": 0.008957999999999999,
+          "mean": 0.0018967020833333295,
+          "p50": 0.001708,
+          "p95": 0.003834,
+          "p99": 0.005791
+        }
+      },
+      "focused": true,
+      "fps": 120.08063540752275,
+      "frame_ms": {
+        "count": 480,
+        "max": 21.118833,
+        "mean": 8.327737412500005,
+        "p50": 5.824208,
+        "p95": 17.901291999999998,
+        "p99": 19.823375000000002
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 480,
+        "max": 19.11016646772623,
+        "mean": 9.837457471682379,
+        "p50": 9.400250390172005,
+        "p95": 15.123208984732628,
+        "p99": 16.947250813245773
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 480,
+        "max": 0.652583,
+        "mean": 0.20786684583333334,
+        "p50": 0.205792,
+        "p95": 0.29912500000000003,
+        "p99": 0.442791
+      },
+      "render_present_ms": {
+        "count": 480,
+        "max": 20.715583,
+        "mean": 8.050759902083335,
+        "p50": 5.289834,
+        "p95": 17.548916000000002,
+        "p99": 19.54225
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 13,
+      "candidate": false,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 478,
+          "max": 18.423624999999998,
+          "mean": 7.148089550209208,
+          "p50": 10.001291,
+          "p95": 15.260458,
+          "p99": 16.498959
+        },
+        "encode": {
+          "count": 478,
+          "max": 4.971333,
+          "mean": 0.9352850774058579,
+          "p50": 0.8627489999999991,
+          "p95": 1.1729579999999995,
+          "p99": 2.222667
+        },
+        "submit": {
+          "count": 478,
+          "max": 0.04125,
+          "mean": 0.010904029288702936,
+          "p50": 0.011042,
+          "p95": 0.018667,
+          "p99": 0.034999999999999996
+        },
+        "wait": {
+          "count": 478,
+          "max": 0.010917000000000001,
+          "mean": 0.0019930920502092015,
+          "p50": 0.001708,
+          "p95": 0.004334,
+          "p99": 0.005917
+        }
+      },
+      "focused": true,
+      "fps": 119.47721596373945,
+      "frame_ms": {
+        "count": 478,
+        "max": 19.553250000000002,
+        "mean": 8.369796633891214,
+        "p50": 11.062208,
+        "p95": 16.393625,
+        "p99": 17.835459
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 478,
+        "max": 16.400249674916267,
+        "mean": 10.100018303202287,
+        "p50": 9.428542107343674,
+        "p95": 13.86374980211258,
+        "p99": 15.169749967753887
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 478,
+        "max": 0.8023750000000001,
+        "mean": 0.2029100418410042,
+        "p50": 0.19875,
+        "p95": 0.26925,
+        "p99": 0.5135
+      },
+      "render_present_ms": {
+        "count": 478,
+        "max": 19.310917,
+        "mean": 8.097996077405863,
+        "p50": 10.825208,
+        "p95": 16.197833,
+        "p99": 17.58875
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 14,
+      "candidate": false,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 479,
+          "max": 20.312791999999998,
+          "mean": 7.12877695407098,
+          "p50": 6.368959,
+          "p95": 16.659917,
+          "p99": 18.968916999999998
+        },
+        "encode": {
+          "count": 479,
+          "max": 2.354958,
+          "mean": 0.9195066012526095,
+          "p50": 0.8883329999999994,
+          "p95": 1.215583,
+          "p99": 1.6992080000000005
+        },
+        "submit": {
+          "count": 479,
+          "max": 0.042874999999999996,
+          "mean": 0.011994250521920666,
+          "p50": 0.011666,
+          "p95": 0.022791,
+          "p99": 0.035167
+        },
+        "wait": {
+          "count": 479,
+          "max": 0.008209000000000001,
+          "mean": 0.002001680584551143,
+          "p50": 0.001709,
+          "p95": 0.004209,
+          "p99": 0.005958000000000001
+        }
+      },
+      "focused": true,
+      "fps": 119.76436175302722,
+      "frame_ms": {
+        "count": 479,
+        "max": 21.578958,
+        "mean": 8.349729296450942,
+        "p50": 7.298833999999999,
+        "p95": 17.864333,
+        "p99": 20.263334
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 479,
+        "max": 20.176791585981846,
+        "mean": 9.728993201678879,
+        "p50": 9.109999984502792,
+        "p95": 15.144666656851768,
+        "p99": 17.330041155219078
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 479,
+        "max": 0.821958,
+        "mean": 0.21327397703549056,
+        "p50": 0.2145,
+        "p95": 0.281167,
+        "p99": 0.425416
+      },
+      "render_present_ms": {
+        "count": 479,
+        "max": 21.385583,
+        "mean": 8.064235229645098,
+        "p50": 7.077959,
+        "p95": 17.663249999999998,
+        "p99": 20.048666
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    },
+    {
+      "block": 15,
+      "candidate": true,
+      "control": true,
+      "draw_timings": {
+        "drawable": {
+          "count": 480,
+          "max": 18.763749999999998,
+          "mean": 7.141626743749997,
+          "p50": 0.0395,
+          "p95": 15.287749999999999,
+          "p99": 17.015417000000003
+        },
+        "encode": {
+          "count": 480,
+          "max": 3.6575420000000003,
+          "mean": 0.9075852958333327,
+          "p50": 0.8522909999999992,
+          "p95": 1.1619580000000003,
+          "p99": 2.0236669999999997
+        },
+        "submit": {
+          "count": 480,
+          "max": 0.039167,
+          "mean": 0.011432825000000013,
+          "p50": 0.011167,
+          "p95": 0.020458,
+          "p99": 0.032167
+        },
+        "wait": {
+          "count": 480,
+          "max": 0.02425,
+          "mean": 0.001966408333333329,
+          "p50": 0.00175,
+          "p95": 0.0037500000000000003,
+          "p99": 0.005542
+        }
+      },
+      "focused": true,
+      "fps": 119.99325163952447,
+      "frame_ms": {
+        "count": 480,
+        "max": 19.800874999999998,
+        "mean": 8.33380199583333,
+        "p50": 4.509416,
+        "p95": 16.456083,
+        "p99": 18.110208
+      },
+      "fused_present": true,
+      "gpu_ms": {
+        "count": 480,
+        "max": 16.790125519037247,
+        "mean": 10.013354614299411,
+        "p50": 9.367458522319794,
+        "p95": 13.958041556179523,
+        "p99": 15.730000101029873
+      },
+      "late_drawable": true,
+      "lod": "LOD 128/128 zones \u00b7 refined 128/128 \u00b7 126 restored \u00b7 1024.0 MiB source \u00b7 requested 1 px\u00b2 / effective 46.75 px\u00b2 \u00b7 29 source-limited zones",
+      "occluded": false,
+      "packed": true,
+      "pending_chunks": 0,
+      "pending_meshes": 0,
+      "pre_render_ms": {
+        "count": 480,
+        "max": 0.583416,
+        "mean": 0.20018939791666687,
+        "p50": 0.197625,
+        "p95": 0.27270799999999995,
+        "p99": 0.505459
+      },
+      "render_present_ms": {
+        "count": 480,
+        "max": 19.645916,
+        "mean": 8.064338137500009,
+        "p50": 3.707959,
+        "p95": 16.243666,
+        "p99": 17.968458
+      },
+      "resident_faces": 11283651,
+      "stream_optimized": false
+    }
+  ],
+  "control": false,
+  "device": "Apple M1 Pro",
+  "experiment": "streaming",
+  "limitations": [
+    "Counts actual window render/present-loop completions, not unique display scanouts; display refresh can cap visible frames.",
+    "Normal streaming, physics, UI layout and cloud animation remain active. Camera follows the same four-second path in each block.",
+    "24-second moving warm-up, then eight ABBA/BAAB candidate blocks interleaved with eight identical-code control blocks. Two-second warm-up plus four-second samples per block.",
+    "GPU durations are elapsed timeline spans from the first scene command start to final command end, including possible scheduling gaps; not isolated busy time. Encoding includes early scene submission. All in-flight work is fenced by its final command.",
+    "Player saves are read but never written in this ephemeral diagnostic session."
+  ],
+  "msaa": 4,
+  "quality": "Ultra",
+  "render_scale": 1,
+  "resolution": [
+    1908,
+    2018
+  ],
+  "shadow_map": 4096,
+  "vsync": false,
+  "world": "aether-archipelago",
+  "aggregates": [
+    {
+      "control": false,
+      "candidate": false,
+      "fps": 119.99147747032214,
+      "mean_frame_ms": 8.333925217708343,
+      "pre_render_median_ms": 0.20908325
+    },
+    {
+      "control": false,
+      "candidate": true,
+      "fps": 120.43624684467929,
+      "mean_frame_ms": 8.303148148494289,
+      "pre_render_median_ms": 0.19236475000000003
+    },
+    {
+      "control": true,
+      "candidate": false,
+      "fps": 119.8279918084423,
+      "mean_frame_ms": 8.345295493215021,
+      "pre_render_median_ms": 0.2064685
+    },
+    {
+      "control": true,
+      "candidate": true,
+      "fps": 120.00989456828671,
+      "mean_frame_ms": 8.332646267187503,
+      "pre_render_median_ms": 0.20292725
+    }
+  ],
+  "binary_sha256": "7013f3d55553122330d26782883dc4516f7d98625c7efaa691ce9c5578cfd513",
+  "build_note": "Before final HUD shortcut labels and non-resizable startup-diagnostic window changes; production scheduling and rendering are identical."
+}

@@ -1,0 +1,36 @@
+{
+  "all_ready_ms": 71738.10325,
+  "coverage_ready_ms": 71738.10325,
+  "device": "Apple M1 Pro",
+  "experiment": "startup",
+  "focused": false,
+  "legacy_lod": true,
+  "limitations": [
+    "Times start at benchmark construction, including window and engine startup.",
+    "Coverage may be cached 64-unit mips; refinement uses the original full source and face budgets.",
+    "The diagnostic is ephemeral and never writes player saves."
+  ],
+  "lod": "LOD 128/128 zones · refined 128/128 · 0 restored · 1024.0 MiB source · requested 1 px² / effective 29.06 px² · 29 source-limited zones",
+  "msaa": 4,
+  "near_chunks": 149,
+  "occluded": true,
+  "occluded_frames": 6034,
+  "quality": "Ultra",
+  "refinement_ready_ms": 71738.10325,
+  "render_scale": 1,
+  "resident_faces": 11271128,
+  "resolution": [
+    2560,
+    1440
+  ],
+  "shadow_map": 4096,
+  "sizes": [
+    [
+      2560,
+      1440
+    ]
+  ],
+  "stream_optimized": false,
+  "unfocused_frames": 6009,
+  "world": "aether-archipelago"
+}

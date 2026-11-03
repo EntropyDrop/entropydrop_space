@@ -10,6 +10,25 @@ pub(super) struct Grab {
     pub distance: f64,
 }
 impl Game {
+    pub(super) fn assemble_selection(&mut self) -> Result<()> {
+        let count = self.editor.assemble_selection(&mut self.world)?;
+        self.selecting = false;
+        self.status = format!("{count} blocks assembled · aim at the entity and press C to edit");
+        Ok(())
+    }
+    pub(super) fn open_entity_editor(&mut self, picked: Option<(String, f64)>) {
+        let Some(index) =
+            picked.and_then(|(id, _)| self.editor.entities.iter().position(|e| e.id == id))
+        else {
+            self.status = "Aim at an entity and press C to edit".into();
+            return;
+        };
+        self.end_tool(false);
+        self.editor.selected_entity = Some(index);
+        self.panel = Panel::Entities;
+        self.panel_open = true;
+        self.capture_request = Some(false);
+    }
     pub(super) fn view(&self) -> (DVec3, DVec3) {
         let direction = self.camera.direction();
         if self.perspective == 0 {
@@ -427,6 +446,26 @@ mod tests {
         id
     }
     #[test]
+    fn assembling_keeps_controls_and_c_edits_only_the_aimed_entity() {
+        let mut g = game();
+        let unrelated = entity(&mut g);
+        g.editor.selected_entity = Some(0);
+        g.panel_open = false;
+        let cell = Cell::new(4, 4, 4, false);
+        g.editor.selection = Some((cell, cell));
+        g.assemble_selection().unwrap();
+        assert!(!g.panel_open && g.capture_request.is_none());
+        assert!(g.status.contains("press C"));
+        assert!(!g.editor.entities[1].running);
+        g.open_entity_editor(None);
+        assert!(!g.panel_open && g.capture_request.is_none());
+        let id = g.editor.entities[1].id.clone();
+        assert_ne!(id, unrelated);
+        g.open_entity_editor(Some((id, 4.0)));
+        assert!(g.panel_open && g.capture_request == Some(false));
+        assert_eq!(g.editor.selected_entity, Some(1));
+    }
+    #[test]
     fn spoon_carve_is_one_atomic_undo_and_brush_samples() {
         let mut g = game();
         g.choose_tool(HotbarTool::Spoon);
@@ -466,6 +505,7 @@ mod tests {
         let mut g = game();
         let id = entity(&mut g);
         let original = g.editor.entities[0].position;
+        let definition = g.editor.entities[0].definition.clone();
         g.choose_tool(HotbarTool::Wrench);
         g.tool_press(false, Some((id.clone(), 3.0))).unwrap();
         g.camera.position.x += 2.0;
@@ -477,6 +517,7 @@ mod tests {
         g.end_tool(false);
         g.tool_press(false, Some((id, 3.0))).unwrap();
         assert!(g.editor.entities[0].running);
+        assert_eq!(g.editor.entities[0].definition, definition);
         space_native::protocol::validate_entity(&g.editor.entities[0].definition).unwrap();
     }
     #[test]

@@ -26,6 +26,31 @@ pub struct Change {
     pub before: u32,
     pub after: u32,
 }
+pub struct EditBatch {
+    pub changes: Vec<Change>,
+    pub assembled: Option<PlacedEntity>,
+}
+impl From<Vec<Change>> for EditBatch {
+    fn from(changes: Vec<Change>) -> Self {
+        Self {
+            changes,
+            assembled: None,
+        }
+    }
+}
+
+/// A deliberate type transition matches the shared engine. Re-selecting a
+/// dynamic body preserves explicitly disabled gravity; carrying never calls this.
+pub fn set_body_type(body: &mut pb::BodyConfig, body_type: i32) -> bool {
+    if body.r#type == body_type {
+        return false;
+    }
+    if body_type == 0 {
+        body.use_gravity = Some(true);
+    }
+    body.r#type = body_type;
+    true
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PlacedEntity {
     pub id: String,
@@ -65,8 +90,8 @@ pub struct Editor {
     pub brush: i32,
     pub selection: Option<(Cell, Cell)>,
     pub clipboard: Option<pb::InventoryResource>,
-    pub undo: Vec<Vec<Change>>,
-    pub redo: Vec<Vec<Change>>,
+    pub undo: Vec<EditBatch>,
+    pub redo: Vec<EditBatch>,
     pub backpack: Vec<pb::InventoryResource>,
     pub entities: Vec<PlacedEntity>,
     pub selected_entity: Option<usize>,
@@ -100,7 +125,7 @@ impl Editor {
     }
     pub fn end_stroke(&mut self) {
         if let Some(batch) = self.stroke.take().filter(|b| !b.is_empty()) {
-            self.undo.push(batch);
+            self.undo.push(batch.into());
             if self.undo.len() > 128 {
                 self.undo.remove(0);
             }
@@ -168,7 +193,7 @@ impl Editor {
             if let Some(stroke) = &mut self.stroke {
                 stroke.extend(batch);
             } else {
-                self.undo.push(batch);
+                self.undo.push(batch.into());
             }
             if self.undo.len() > 128 {
                 self.undo.remove(0);
@@ -180,7 +205,11 @@ impl Editor {
     pub fn undo(&mut self, world: &mut World) {
         self.end_stroke();
         if let Some(batch) = self.undo.pop() {
-            for c in batch.iter().rev() {
+            if let Some(entity) = &batch.assembled {
+                self.entities.retain(|e| e.id != entity.id);
+                self.selected_entity = None;
+            }
+            for c in batch.changes.iter().rev() {
                 world.set(c.cell, c.before);
             }
             self.redo.push(batch);
@@ -190,8 +219,12 @@ impl Editor {
     pub fn redo(&mut self, world: &mut World) {
         self.end_stroke();
         if let Some(batch) = self.redo.pop() {
-            for c in &batch {
+            for c in &batch.changes {
                 world.set(c.cell, c.after);
+            }
+            if let Some(entity) = &batch.assembled {
+                self.entities.push(entity.clone());
+                self.selected_entity = Some(self.entities.len() - 1);
             }
             self.undo.push(batch);
             self.revision += 1;
@@ -508,6 +541,10 @@ impl Editor {
             script_language: "assemblyscript".into(),
             body: Some(pb::BodyConfig {
                 r#type: 1,
+                use_gravity: Some(false),
+                collision_enabled: Some(true),
+                restitution: Some(0.1),
+                friction: Some(0.7),
                 ..Default::default()
             }),
             ..Default::default()
@@ -520,6 +557,63 @@ impl Editor {
             })),
         });
         Ok(())
+    }
+    /// Move the selected terrain into one stopped, editable entity. Terrain and
+    /// entity creation share an undo entry; clipboard/inventory are unaffected.
+    pub fn assemble_selection(&mut self, world: &mut World) -> Result<usize> {
+        self.end_stroke();
+        let (a, b) = self
+            .selection
+            .ok_or_else(|| anyhow::anyhow!("Select two corners first"))?;
+        let pa = a.position();
+        let mut pb = b.position();
+        pb.x = crate::geometry::wrap_near(pb.x, pa.x, 16384.0);
+        pb.z = crate::geometry::wrap_near(pb.z, pa.z, 2048.0);
+        let origin = pa.min(pb).floor();
+        let saved = self.clipboard.take();
+        let result = self.entityize(world);
+        let resource = self.clipboard.take();
+        self.clipboard = saved;
+        result?;
+        let Some(pb::inventory_resource::Content::Entity(definition)) =
+            resource.and_then(|r| r.content)
+        else {
+            unreachable!()
+        };
+        protocol::validate_entity(&definition)?;
+        let blocks = &definition.root.as_ref().unwrap().blocks;
+        let count = blocks.len();
+        let changes: Vec<_> = blocks
+            .iter()
+            .map(|v| {
+                let scale = if v.is_micro { 8 } else { 1 };
+                (
+                    Cell::new(
+                        origin.x as i32 * scale
+                            + v.dx * scale
+                            + if v.is_micro { v.micro_x as i32 } else { 0 },
+                        origin.y as i32 * scale
+                            + v.dy * scale
+                            + if v.is_micro { v.micro_y as i32 } else { 0 },
+                        origin.z as i32 * scale
+                            + v.dz * scale
+                            + if v.is_micro { v.micro_z as i32 } else { 0 },
+                        v.is_micro,
+                    ),
+                    0,
+                )
+            })
+            .collect();
+        let entity = PlacedEntity::new(definition, origin);
+        self.edit(world, changes);
+        self.undo
+            .last_mut()
+            .expect("Occupied assembly creates terrain history")
+            .assembled = Some(entity.clone());
+        self.entities.push(entity);
+        self.selected_entity = Some(self.entities.len() - 1);
+        self.selection = None;
+        Ok(count)
     }
 }
 fn voxel_at(position: DVec3, micro_cell: bool, value: u32, origin: DVec3) -> pb::Voxel {

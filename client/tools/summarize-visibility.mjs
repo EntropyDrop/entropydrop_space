@@ -4,7 +4,9 @@ import { resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const root = process.argv[2] ? pathToFileURL(resolve(process.argv[2]) + sep)
   : new URL('../src/dev/results/visibility-2026-10-27/', import.meta.url);
-const worlds = ['aether-archipelago', 'nature', 'copper-metropolis'];
+const knownWorlds = ['aether-archipelago', 'nature', 'copper-metropolis'];
+const worlds = process.argv.length > 3 ? process.argv.slice(3) : knownWorlds;
+if (worlds.some(w => !knownWorlds.includes(w)) || new Set(worlds).size !== worlds.length) throw Error('Invalid world selection.');
 function stats(values) {
   if (!values.length || values.some(v => !Number.isFinite(v))) throw Error('Invalid visibility samples.');
   const a = [...values].sort((a, b) => a - b);
@@ -15,7 +17,7 @@ function capture(world, file) {
   const data = JSON.parse(gunzipSync(readFileSync(new URL(`${world}/${file}`, root))));
   const { comparison: run, pixels } = data;
   const modes = run.trial.activeModes ?? ['original', 'fast', 'wide', run.rows.some(r => r.role === 'upload') ? 'upload' : 'gpu'];
-  const native = modes.includes('hierarchy') || modes.includes('packed');
+  const native = modes.includes('hierarchy') || modes.includes('packed') || modes.includes('sparse');
   if (run.errors.length || run.width !== 2560 || run.height !== 1440 || run.quality !== (native ? 'ultra' : 'medium') || run.shadows !== native || run.samples !== 4) throw Error('Invalid environment: ' + world);
   if (!pixels || pixels.width !== 2560 || pixels.height !== 1440 || pixels.rows.length !== (pixels.modeOrder.length + 1) * pixels.poses.length) throw Error('Incomplete image checks.');
   if (pixels.errors.length || pixels.rows.some(r => r.changedOver2 || !r.identicalPicking || (r.restored && r.max !== 0)
@@ -34,7 +36,7 @@ function capture(world, file) {
       'gpuBytes', 'arenaMs', 'arenaCalls', 'visibilityQueries', 'mapUploadBytes', 'newGpuPages'].map(k => [k, stats(raw.map(r => r[k]))]));
     metrics.gpu = stats(gpu.map(g => g.spanMs));
     return { motion, mode, fps: 1000 / metrics.frame.mean, metrics, perBlockFps: blocks.map(b => b.fps),
-      perBlockGpu: blocks.map(b => b.metrics.gpu.mean), pendingFrames: blocks.reduce((sum, b) => sum + b.pendingFrames, 0),
+      perBlockGpu: blocks.map(b => b.metrics.gpu.mean), perBlockSunVisibility: blocks.map(b => b.shaftVisibility), pendingFrames: blocks.reduce((sum, b) => sum + b.pendingFrames, 0),
       residents: blocks.map(b => [b.residentStart, b.residentEnd]) };
   }));
   const { rows, ...environment } = run;

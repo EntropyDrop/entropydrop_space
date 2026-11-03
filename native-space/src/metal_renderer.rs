@@ -24,6 +24,15 @@ use winit::{
 mod frame_validation;
 
 type Metal<T> = Retained<ProtocolObject<T>>;
+struct Submission {
+    end: Metal<dyn MTLCommandBuffer>,
+    scene: Option<Metal<dyn MTLCommandBuffer>>,
+}
+impl From<Metal<dyn MTLCommandBuffer>> for Submission {
+    fn from(end: Metal<dyn MTLCommandBuffer>) -> Self {
+        Self { end, scene: None }
+    }
+}
 const MAX_QUAD_GROUP: usize = 256;
 #[derive(Default)]
 pub struct FrameSamples {
@@ -222,6 +231,8 @@ fn grow_buffer(
 /// only make sense with fixed camera, geometry and sky time.
 #[derive(Clone, Copy)]
 pub struct RenderProbe {
+    pub late_drawable: bool,
+    pub fused_present: bool,
     pub packed_varyings: bool,
     pub inherit_cull_proofs: bool,
     pub leaf_cull_proofs: bool,
@@ -244,6 +255,8 @@ pub struct RenderProbe {
 impl Default for RenderProbe {
     fn default() -> Self {
         Self {
+            late_drawable: true,
+            fused_present: true,
             packed_varyings: true,
             inherit_cull_proofs: true,
             leaf_cull_proofs: true,
@@ -327,8 +340,10 @@ pub struct Renderer {
     textures: HashMap<egui::TextureId, Metal<dyn MTLTexture>>,
     sampler: Metal<dyn MTLSamplerState>,
     meshes: HashMap<String, Mesh>,
-    inflight: VecDeque<Metal<dyn MTLCommandBuffer>>,
+    inflight: VecDeque<Submission>,
     pub gpu_ms: f64,
+    /// Drawable acquisition, encoding, submission and in-flight wait, in ms.
+    pub draw_timings: [f64; 4],
     pub draw_calls: usize,
     pub visible_faces: usize,
 }
@@ -616,7 +631,7 @@ impl Renderer {
             let layer = CAMetalLayer::new();
             layer.setDevice(Some(&device));
             layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm_sRGB);
-            layer.setFramebufferOnly(false);
+            layer.setFramebufferOnly(true);
             layer.setDisplaySyncEnabled(true);
             layer.setContentsScale(window.scale_factor());
             let RawWindowHandle::AppKit(handle) = window.window_handle()?.as_raw() else {
@@ -711,6 +726,7 @@ impl Renderer {
             meshes: HashMap::new(),
             inflight: VecDeque::new(),
             gpu_ms: 0.0,
+            draw_timings: [0.0; 4],
             draw_calls: 0,
             visible_faces: 0,
         })
@@ -1111,7 +1127,7 @@ impl Renderer {
             let start = std::time::Instant::now();
             let command = self.encode(&target, u, &[], 1.0)?;
             command.commit();
-            self.inflight.push_back(command);
+            self.inflight.push_back(command.into());
             self.finish()?;
             if i >= warmup {
                 self.benchmark_allocations += self.dynamic_allocations;
@@ -1160,7 +1176,7 @@ impl Renderer {
                     let command = self.encode(&target, u, paint, 1.0)?;
                     let cpu = start.elapsed().as_secs_f64() * 1000.0;
                     command.commit();
-                    self.inflight.push_back(command);
+                    self.inflight.push_back(command.into());
                     self.finish()?;
                     if frame >= 6 {
                         let wall = start.elapsed().as_secs_f64() * 1000.0;
@@ -1192,7 +1208,7 @@ impl Renderer {
             let command = self.encode(&target, path[i % path.len()], paint, 1.0)?;
             let cpu = start.elapsed().as_secs_f64() * 1000.0;
             command.commit();
-            self.inflight.push_back(command);
+            self.inflight.push_back(command.into());
             self.finish()?;
             if i >= 24 {
                 self.benchmark_allocations += self.dynamic_allocations;
@@ -1211,13 +1227,57 @@ impl Renderer {
         pixels_per_point: f32,
         capture: Option<&Path>,
     ) -> Result<bool> {
-        let Some(drawable) = self.layer.as_ref().and_then(|l| l.nextDrawable()) else {
-            return Ok(false);
+        self.draw_timings = [0.0; 4];
+        let layer = self.layer.clone().context("Window layer missing")?;
+        let framebuffer_only = self.probe.fused_present && capture.is_none();
+        if layer.framebufferOnly() != framebuffer_only {
+            self.finish()?;
+            layer.setFramebufferOnly(framebuffer_only);
+        }
+        let mut drawable = None;
+        let mut acquire_ms = 0.0;
+        let mut acquire = || {
+            let start = std::time::Instant::now();
+            let next = layer.nextDrawable();
+            acquire_ms += start.elapsed().as_secs_f64() * 1000.0;
+            next.map(|next| {
+                let texture = next.texture();
+                drawable = Some(next);
+                texture
+            })
         };
+        let start = std::time::Instant::now();
+        let submission =
+            if self.probe.late_drawable && uniforms.options[3] > 0.5 && capture.is_none() {
+                let size = layer.drawableSize();
+                let Some(submission) = self.encode_frame(
+                    [size.width as usize, size.height as usize],
+                    uniforms,
+                    paint,
+                    pixels_per_point,
+                    true,
+                    &mut acquire,
+                )?
+                else {
+                    return Ok(false);
+                };
+                submission
+            } else {
+                let Some(texture) = acquire() else {
+                    return Ok(false);
+                };
+                self.encode(&texture, uniforms, paint, pixels_per_point)?
+                    .into()
+            };
+        self.draw_timings[0] = acquire_ms;
+        self.draw_timings[1] = start.elapsed().as_secs_f64() * 1000.0 - acquire_ms;
+        let drawable = drawable.context("Frame has no drawable")?;
         let texture = drawable.texture();
-        let command = self.encode(&texture, uniforms, paint, pixels_per_point)?;
+        let command = &submission.end;
+        let start = std::time::Instant::now();
         command.presentDrawable(ProtocolObject::from_ref(&*drawable));
         command.commit();
+        self.draw_timings[2] = start.elapsed().as_secs_f64() * 1000.0;
         if let Some(path) = capture {
             command.waitUntilCompleted();
             // Drawable textures are private. Copy to a shared texture before CPU readback.
@@ -1237,19 +1297,26 @@ impl Renderer {
             copy.waitUntilCompleted();
             self.write_png(&target, path)?;
         }
-        self.inflight.push_back(command);
+        self.inflight.push_back(submission);
+        let start = std::time::Instant::now();
         if self.inflight.len() >= 3 {
             self.wait_oldest()?;
         }
+        self.draw_timings[3] = start.elapsed().as_secs_f64() * 1000.0;
         Ok(true)
     }
     fn wait_oldest(&mut self) -> Result<()> {
-        if let Some(c) = self.inflight.pop_front() {
+        if let Some(submission) = self.inflight.pop_front() {
+            let c = submission.end;
             c.waitUntilCompleted();
             if c.status() == MTLCommandBufferStatus::Error {
                 return Err(anyhow!("Metal command error: {:?}", c.error()));
             }
-            self.gpu_ms = (c.GPUEndTime() - c.GPUStartTime()) * 1000.0;
+            let first = submission.scene.as_ref().unwrap_or(&c);
+            if first.status() == MTLCommandBufferStatus::Error {
+                return Err(anyhow!("Metal scene command error: {:?}", first.error()));
+            }
+            self.gpu_ms = (c.GPUEndTime() - first.GPUStartTime()) * 1000.0;
         }
         Ok(())
     }
@@ -1268,7 +1335,7 @@ impl Renderer {
         let texture = self.offscreen_texture(size[0], size[1])?;
         let command = self.encode(&texture, uniforms, &[], 1.0)?;
         command.commit();
-        self.inflight.push_back(command);
+        self.inflight.push_back(command.into());
         self.finish()?;
         self.write_png(&texture, path)
     }
@@ -1572,6 +1639,27 @@ impl Renderer {
         paint: &[egui::ClippedPrimitive],
         ppp: f32,
     ) -> Result<Metal<dyn MTLCommandBuffer>> {
+        let submission = self
+            .encode_frame(
+                [target.width(), target.height()],
+                uniforms,
+                paint,
+                ppp,
+                false,
+                || Some(target),
+            )?
+            .context("Offscreen frame target missing")?;
+        Ok(submission.end)
+    }
+    fn encode_frame<T: std::ops::Deref<Target = ProtocolObject<dyn MTLTexture>>>(
+        &mut self,
+        size: [usize; 2],
+        uniforms: Uniforms,
+        paint: &[egui::ClippedPrimitive],
+        ppp: f32,
+        split: bool,
+        mut acquire: impl FnMut() -> Option<T>,
+    ) -> Result<Option<Submission>> {
         // Every submission uses only this slot. No cached map points into an
         // earlier slot, so waiting for the oldest frame fences all CPU writes.
         while self.inflight.len() >= self.dynamic_slots.len() {
@@ -1579,8 +1667,7 @@ impl Renderer {
         }
         self.dynamic_slot = (self.dynamic_slot + 1) % self.dynamic_slots.len();
         self.dynamic_allocations = 0;
-        let w = target.width();
-        let h = target.height();
+        let [w, h] = size;
         let ultra = uniforms.options[3] > 0.5;
         self.ensure_depth(w, h, ultra)?;
         let frame = FrameUniforms::new(
@@ -1593,7 +1680,12 @@ impl Renderer {
                 0.0
             },
         );
-        let command = self.queue.commandBuffer().context("Create frame command")?;
+        let early_target = if split && ultra {
+            None
+        } else {
+            Some(acquire().context("Frame target missing")?)
+        };
+        let mut command = self.queue.commandBuffer().context("Create frame command")?;
         let shadow_key = if self.probe.cache_shadows {
             Some(ShadowKey {
                 quad_group: self.probe.quad_group,
@@ -1826,7 +1918,11 @@ impl Renderer {
         let pass = MTLRenderPassDescriptor::new();
         let color = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
         color.setTexture(Some(&targets.ms_color));
-        color.setResolveTexture(Some(if ultra { &*targets.scene } else { target }));
+        color.setResolveTexture(Some(if ultra {
+            &*targets.scene
+        } else {
+            &**early_target.as_ref().unwrap()
+        }));
         color.setLoadAction(MTLLoadAction::Clear);
         color.setStoreAction(MTLStoreAction::MultisampleResolve);
         let depth = pass.depthAttachment();
@@ -1954,11 +2050,12 @@ impl Renderer {
             }
         }
         encoder.endEncoding();
-        let fullscreen = |name: &str,
-                          target: &ProtocolObject<dyn MTLTexture>,
-                          inputs: &[&ProtocolObject<dyn MTLTexture>],
-                          blur: Option<[f32; 4]>|
-         -> Result<()> {
+        let begin_fullscreen = |command: &ProtocolObject<dyn MTLCommandBuffer>,
+                                name: &str,
+                                target: &ProtocolObject<dyn MTLTexture>,
+                                inputs: &[&ProtocolObject<dyn MTLTexture>],
+                                blur: Option<[f32; 4]>|
+         -> Result<Metal<dyn MTLRenderCommandEncoder>> {
             let pass = MTLRenderPassDescriptor::new();
             let color = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
             color.setTexture(Some(target));
@@ -1978,14 +2075,23 @@ impl Renderer {
                 }
                 e.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3);
             }
-            e.endEncoding();
-            Ok(())
+            Ok(e)
         };
-        if ultra && self.probe.skip_post {
-            fullscreen("copy_fragment", target, &[&targets.scene], None)?;
+        let fullscreen = |command: &ProtocolObject<dyn MTLCommandBuffer>,
+                          name,
+                          target,
+                          inputs: &[&ProtocolObject<dyn MTLTexture>],
+                          blur| {
+            begin_fullscreen(command, name, target, inputs, blur)?.endEncoding();
+            Ok::<_, anyhow::Error>(())
+        };
+        let mut output_encoder = None;
+        let final_name = if ultra && self.probe.skip_post {
+            Some("copy_fragment")
         } else if ultra {
             if !self.probe.freeze_secondary {
                 fullscreen(
+                    &command,
                     "secondary_fragment",
                     &targets.secondary,
                     &[&targets.scene, &targets.depth],
@@ -1993,6 +2099,7 @@ impl Renderer {
                 )?;
             }
             fullscreen(
+                &command,
                 "atmosphere_fragment",
                 &targets.atmosphere,
                 &[&targets.scene, &targets.depth, &targets.secondary],
@@ -2000,6 +2107,7 @@ impl Renderer {
             )?;
             if !self.probe.freeze_bloom {
                 fullscreen(
+                    &command,
                     "bloom_extract",
                     &targets.bright,
                     &[&targets.scene, &targets.atmosphere],
@@ -2013,12 +2121,14 @@ impl Renderer {
                     };
                     let radius = (6 + i * 4) as f32;
                     fullscreen(
+                        &command,
                         "bloom_blur",
                         horizontal,
                         &[source],
                         Some([1.0 / horizontal.width() as f32, 0.0, radius, radius / 3.0]),
                     )?;
                     fullscreen(
+                        &command,
                         "bloom_blur",
                         vertical,
                         &[horizontal],
@@ -2030,11 +2140,53 @@ impl Renderer {
             for (_, t) in &targets.bloom {
                 inputs.push(t);
             }
-            fullscreen("output_fragment", &targets.display, &inputs, None)?;
-            fullscreen("fxaa_fragment", target, &[&targets.display], None)?;
+            fullscreen(&command, "output_fragment", &targets.display, &inputs, None)?;
+            Some("fxaa_fragment")
+        } else {
+            None
+        };
+        // Submit work which does not need a drawable before potentially blocking
+        // on the compositor. The same queue orders the scene, final pass and
+        // next frame; the final command fences every resource in this frame slot.
+        let mut scene = None;
+        if split && ultra {
+            command.commit();
+            scene = Some(command);
+            command = self
+                .queue
+                .commandBuffer()
+                .context("Create presentation command")?;
+        }
+        let target = if let Some(target) = early_target {
+            target
+        } else {
+            let Some(target) = acquire() else {
+                // A minimized/unavailable drawable still leaves scene work in
+                // flight. Fence that work before the slot can be reused.
+                if let Some(scene) = scene {
+                    self.inflight.push_back(scene.into());
+                }
+                return Ok(None);
+            };
+            target
+        };
+        if let Some(name) = final_name {
+            let input = if self.probe.skip_post {
+                &targets.scene
+            } else {
+                &targets.display
+            };
+            if self.probe.fused_present && !paint.is_empty() {
+                output_encoder = Some(begin_fullscreen(&command, name, &target, &[input], None)?);
+            } else {
+                fullscreen(&command, name, &target, &[input], None)?;
+            }
         }
         if paint.is_empty() {
-            return Ok(command);
+            return Ok(Some(Submission {
+                end: command,
+                scene,
+            }));
         }
         if self.probe.reuse_buffers {
             let bytes = paint
@@ -2057,12 +2209,18 @@ impl Renderer {
         }
         let pass = MTLRenderPassDescriptor::new();
         let color = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
-        color.setTexture(Some(target));
+        color.setTexture(Some(&target));
         color.setLoadAction(MTLLoadAction::Load);
         color.setStoreAction(MTLStoreAction::Store);
-        let encoder = command
-            .renderCommandEncoderWithDescriptor(&pass)
-            .context("UI encoder")?;
+        // Continue on the same attachment after FXAA. The UI uses the same
+        // blending format/order, without an intervening whole-screen store/load.
+        let encoder = if let Some(encoder) = output_encoder {
+            encoder
+        } else {
+            command
+                .renderCommandEncoderWithDescriptor(&pass)
+                .context("UI encoder")?
+        };
         encoder.setRenderPipelineState(&self.ui_pipeline);
         encoder.setDepthStencilState(Some(&self.ui_depth));
         let screen = [w as f32 / ppp, h as f32 / ppp];
@@ -2147,7 +2305,10 @@ impl Renderer {
             }
         }
         encoder.endEncoding();
-        Ok(command)
+        Ok(Some(Submission {
+            end: command,
+            scene,
+        }))
     }
     pub fn free_textures(&mut self, ids: &[egui::TextureId]) {
         for id in ids {
