@@ -1,14 +1,20 @@
 pub mod avatar;
+pub mod backpack;
 pub mod camera;
+pub mod commands;
 pub mod distant;
 pub mod editor;
+pub mod entity_edit;
 pub mod frame_metrics;
 pub mod geometry;
 pub mod interaction;
+pub mod palette;
 pub mod protocol;
 pub mod runtime;
+pub mod selection;
 pub mod storage;
 pub mod streaming;
+pub mod ui_state;
 pub mod visibility;
 pub mod world;
 
@@ -46,3 +52,14 @@ pub mod entropydrop {
         }
     }
 }
+
+pub mod model_import;
+pub mod text_voxels;
+
+pub mod tutorial;
+
+pub mod resource_transform;
+
+pub mod minimap;
+
+pub mod model_formats;

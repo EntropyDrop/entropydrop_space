@@ -61,6 +61,12 @@ fn main() -> anyhow::Result<()> {
     }
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut application = app::Application::new(root, world);
+    application.ui_test = args.iter().any(|a| a == "--ui-test")
+        || std::env::var("SPACE_NATIVE_UI_TEST").as_deref() == Ok("1")
+        || std::env::current_exe().ok().is_some_and(|p| {
+            p.components()
+                .any(|c| c.as_os_str() == "Space UI Validation.app")
+        });
     if args.iter().any(|a| {
         a == "--profile-window-gpu"
             || a == "--profile-window-control"
@@ -143,6 +149,7 @@ fn smoke(
         space_native::runtime::Input {
             steps: 0,
             down: Vec::new(),
+            clicks: Vec::new(),
             player: spawn.to_array(),
             driver: None,
         },

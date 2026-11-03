@@ -15,6 +15,7 @@ type Entity = { id: string; bytes: number[]; position: number[]; rotation: numbe
 export type Request = {
   epoch: number; chunks: number[][]; edits: [Cell, number][];
   entities?: Entity[]; steps: number; down: string[]; player: number[];
+  clicks?: unknown[];
   driver?: { id: string; component: string; seat: number } | null;
 };
 const mod = (v: number, n: number) => ((v % n) + n) % n;
@@ -154,7 +155,7 @@ export class NativeRuntime {
         if (!c) throw Error(`Cannot construct entity ${entity.id}`);
         c.publicId = entity.id;
         const rotation = new THREE.Quaternion().fromArray(entity.rotation).normalize();
-        c.position.copy(origin).add(c.localCenter.clone().applyQuaternion(rotation));
+        c.position.copy(origin).add((c.rootPivotOverride || c.localCenter).clone().applyQuaternion(rotation));
         c.quaternion.copy(rotation); c.updateTransform();
         await c.scriptRuntimeClient.ready();
         c.stopAllNodeScripts();
@@ -186,6 +187,10 @@ export class NativeRuntime {
     for (const [cell, value] of request.edits) { this.edits.set(keyOf(cell), [cell, value]); this.apply(cell, value); }
     if (request.entities) await this.synchronize(request.entities);
     this.manager.activeDrivable = this.driver ? this.entries.get(this.driver.id)?.c ?? null : null;
+    for (const click of (request.clicks ?? []).slice(0, 64)) {
+      if (click && typeof click === 'object' && 'entityId' in click && typeof click.entityId === 'string')
+        this.entries.get(click.entityId)?.c.enqueueClickedBlock(click);
+    }
     const keys = new Set(request.down);
     const pressed = [...keys].filter(k => !this.previousKeys.has(k));
     const released = [...this.previousKeys].filter(k => !keys.has(k));
@@ -204,7 +209,7 @@ export class NativeRuntime {
           voxels: entry.geometry !== c.definitionVersion ? c.blocks.filter(b => b.entityId === node.id)
             .map(b => [b.localX, b.localY, b.localZ, b.size ?? 1, b.color, b.materialId ?? 0]) : null,
           decorations: c.getRuntimeComponentDecorations(node.id),
-          seats: c.getComponentSeats(node.id).map((_, index) => ({ index,
+          seats: c.getComponentSeats(node.id).map((seat, index) => ({ index, fixedOrientation: seat.fixedOrientation,
             position: c.getSeatWorldPosition(node.id, index)?.toArray(),
             rotation: c.getSeatWorldQuaternion(node.id, index)?.toArray() })),
         });

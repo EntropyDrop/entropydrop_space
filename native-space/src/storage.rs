@@ -19,7 +19,11 @@ pub struct Save {
     pub entities: Vec<PlacedEntity>,
     pub backpack: Vec<inventory::InventoryResource>,
     #[serde(default)]
+    pub backpack_state: Option<crate::backpack::Backpack>,
+    #[serde(default)]
     pub perspective: u8,
+    #[serde(default)]
+    pub preferences: Option<crate::ui_state::Preferences>,
 }
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
@@ -107,6 +111,9 @@ pub fn load(path: &Path, world: &str, source_hash: &str) -> Result<Save> {
             "Invalid saved material"
         );
         ensure!(cells.insert(*cell), "Duplicate saved cell");
+    }
+    if let Some(backpack) = &value.backpack_state {
+        backpack.validate()?;
     }
     for r in &value.backpack {
         crate::protocol::validate(r)?;

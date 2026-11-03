@@ -34,6 +34,20 @@ pub struct Driver {
     pub component: String,
     pub seat: usize,
 }
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Click {
+    pub event_id: String,
+    pub entity_id: String,
+    pub player_id: String,
+    pub node_id: String,
+    pub kind: String,
+    pub position: [f64; 3],
+    pub size: Option<f64>,
+    pub decoration_id: Option<String>,
+    pub point: [f64; 3],
+    pub local_point: [f64; 3],
+}
 #[derive(Serialize)]
 pub struct Request {
     pub epoch: u64,
@@ -43,17 +57,21 @@ pub struct Request {
     pub entities: Option<Vec<EntityRequest>>,
     pub steps: usize,
     pub down: Vec<String>,
+    pub clicks: Vec<Click>,
     pub player: [f64; 3],
     pub driver: Option<Driver>,
 }
 pub struct Input {
     pub steps: usize,
     pub down: Vec<String>,
+    pub clicks: Vec<Click>,
     pub player: [f64; 3],
     pub driver: Option<Driver>,
 }
 #[derive(Debug, Deserialize)]
 pub struct Seat {
+    #[serde(default, rename = "fixedOrientation")]
+    pub fixed_orientation: bool,
     pub index: usize,
     pub position: [f64; 3],
     pub rotation: [f64; 4],
@@ -268,6 +286,7 @@ impl Runtime {
                 entities: definitions,
                 steps: input.steps,
                 down: input.down,
+                clicks: input.clicks,
                 player: input.player,
                 driver: input.driver,
             })

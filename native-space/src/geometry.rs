@@ -221,6 +221,15 @@ pub fn aabb_hit(origin: DVec3, dir: DVec3, min: DVec3, max: DVec3) -> Option<(f6
 }
 
 pub fn camera_matrix(position: DVec3, direction: DVec3, aspect: f32, torus: bool) -> Mat4 {
+    camera_matrix_fov(position, direction, aspect, torus, 70.0)
+}
+pub fn camera_matrix_fov(
+    position: DVec3,
+    direction: DVec3,
+    aspect: f32,
+    torus: bool,
+    fov: f32,
+) -> Mat4 {
     let (eye, forward, up) = if torus {
         (
             bend(position),
@@ -230,7 +239,7 @@ pub fn camera_matrix(position: DVec3, direction: DVec3, aspect: f32, torus: bool
     } else {
         (position, direction, DVec3::Y)
     };
-    Mat4::perspective_rh(70_f32.to_radians(), aspect.max(0.01), 0.1, 10000.0)
+    Mat4::perspective_rh(fov.to_radians(), aspect.max(0.01), 0.1, 10000.0)
         * Mat4::look_to_rh(eye.as_vec3(), forward.as_vec3(), up.as_vec3())
 }
 

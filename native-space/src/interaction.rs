@@ -36,14 +36,14 @@ impl HotbarTool {
     pub fn hint(self) -> &'static str {
         match self {
             Self::Select => "LMB: corners   G: assemble   Ctrl/Cmd+C: copy   Delete: erase",
-            Self::Hammer => "LMB: place   R: rotate blocks   Tab: grid   RMB: cancel",
+            Self::Hammer => "LMB: pin preview   Enter: place   Arrows: rotate   Tab: grid",
             Self::Wrench => {
                 "Hold LMB: grab   R: rotate   Wheel: distance   RMB: inspect   Esc: cancel"
             }
             Self::Shovel => "Hold LMB: remove   Hold RMB: build   One stroke = one undo",
             Self::Spoon => "Hold LMB: carve   Hold RMB: build   0.125 m grid",
-            Self::Brush => "Hold LMB: paint   RMB: sample color and material",
-            Self::Model => "Select a stopped entity with Wrench, then LMB: add decorative cube",
+            Self::Brush => "Hold LMB: paint   RMB: two-corner entity region",
+            Self::Model => "LMB: select decoration   RMB: add cube   Drag XYZ: transform",
         }
     }
 }
@@ -86,8 +86,8 @@ pub fn component_matrix(c: &pb::Component) -> Mat4 {
     Mat4::from_rotation_translation(q, p)
 }
 pub fn resource_parts(r: &pb::InventoryResource) -> Vec<(Vec<Face>, Mat4)> {
-    fn component(c: &pb::Component, parent: Mat4, parts: &mut Vec<(Vec<Face>, Mat4)>) {
-        let m = parent * component_matrix(c);
+    fn component(c: &pb::Component, root: &pb::Component, parts: &mut Vec<(Vec<Face>, Mat4)>) {
+        let m = crate::entity_edit::matrix(root, &c.id).unwrap().as_mat4();
         parts.push((
             runtime::voxel_faces(&c.blocks.iter().map(voxel).collect::<Vec<_>>()),
             m,
@@ -116,7 +116,7 @@ pub fn resource_parts(r: &pb::InventoryResource) -> Vec<(Vec<Face>, Mat4)> {
             ));
         }
         for child in &c.children {
-            component(child, m, parts);
+            component(child, root, parts);
         }
     }
     let mut parts = Vec::new();
@@ -128,7 +128,7 @@ pub fn resource_parts(r: &pb::InventoryResource) -> Vec<(Vec<Face>, Mat4)> {
         )),
         Some(Content::Entity(e)) => {
             if let Some(c) = &e.root {
-                component(c, Mat4::IDENTITY, &mut parts);
+                component(c, c, &mut parts);
             }
         }
         Some(Content::Item(item)) => {
@@ -140,7 +140,7 @@ pub fn resource_parts(r: &pb::InventoryResource) -> Vec<(Vec<Face>, Mat4)> {
             }
             for e in &item.entity_list {
                 if let Some(c) = &e.root {
-                    component(c, Mat4::IDENTITY, &mut parts);
+                    component(c, c, &mut parts);
                 }
             }
         }
@@ -170,4 +170,55 @@ pub fn project(
         rect.center().x + ndc.x * rect.width() * 0.5,
         rect.center().y - ndc.y * rect.height() * 0.5,
     ))
+}
+
+#[derive(Clone, Debug)]
+pub struct MeshPick {
+    pub key: String,
+    pub distance: f64,
+    pub local_point: DVec3,
+    pub local_normal: DVec3,
+    pub model: Mat4,
+}
+#[derive(Clone, Debug)]
+pub struct ScenePick {
+    pub entity: String,
+    pub component: String,
+    pub decoration: Option<String>,
+    pub hit: MeshPick,
+}
+fn key_part(id: &str) -> String {
+    id.as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+pub fn entity_mesh_key(entity: &str, component: &str) -> String {
+    format!("entity:{entity}:{}", key_part(component))
+}
+pub fn decoration_mesh_key(entity: &str, component: &str, decoration: &str) -> String {
+    format!(
+        "{}:decoration:{}",
+        entity_mesh_key(entity, component),
+        key_part(decoration)
+    )
+}
+
+/// UI commands cannot leak into an entity script while typing or selecting tools.
+pub fn reserved_script_key(key: &str) -> bool {
+    matches!(
+        key,
+        "Escape"
+            | "Backspace"
+            | "Delete"
+            | "KeyB"
+            | "KeyC"
+            | "KeyF"
+            | "KeyG"
+            | "KeyR"
+            | "KeyV"
+            | "KeyX"
+            | "F3"
+            | "F5"
+    ) || key.starts_with("Digit")
 }

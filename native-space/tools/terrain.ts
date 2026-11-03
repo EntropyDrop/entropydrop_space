@@ -8,6 +8,7 @@ import { Chunk } from '../../engine/src/voxel/Chunk.ts';
 
 const root=resolve(import.meta.dirname,'..');
 const worlds:Record<string,{seed:number;generator:number;spawn:number[]}>= {
+  tutorial:{seed:42,generator:9,spawn:[8190,18.65,561]},
   nature:{seed:42,generator:1,spawn:[8192.5,24,1024.5]},
   'copper-metropolis':{seed:20260922,generator:2,spawn:[8200,128,1032]},
   'aether-archipelago':{seed:42,generator:3,spawn:[8192.5,180,1024.5]},

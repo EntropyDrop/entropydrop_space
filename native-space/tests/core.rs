@@ -325,11 +325,23 @@ fn rust_process_bridge_receives_native_component_geometry() {
     zip.write_all(&data).unwrap();
     std::fs::write(dir.join("chunks/0_0.bin.gz"), zip.finish().unwrap()).unwrap();
     let resource = protocol::decode(include_bytes!("../examples/entity.edpb")).unwrap();
-    let Some(protocol::inventory::inventory_resource::Content::Entity(definition)) =
+    let Some(protocol::inventory::inventory_resource::Content::Entity(mut definition)) =
         resource.content
     else {
         panic!()
     };
+    let root = definition.root.as_mut().unwrap();
+    root.pivot = Some(space_native::entity_edit::pb_vector(glam::DVec3::new(
+        0.25, 0.5, 0.75,
+    )));
+    if let Some(child) = root.children.first_mut() {
+        child.local_position = Some(space_native::entity_edit::pb_vector(glam::DVec3::new(
+            2.0, 1.0, 0.5,
+        )));
+        child.local_rotation = Some(space_native::entity_edit::pb_quaternion(
+            glam::DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2),
+        ));
+    }
     let entities = vec![PlacedEntity::new(
         definition,
         glam::DVec3::new(4.0, 5.0, 4.0),
@@ -343,6 +355,7 @@ fn rust_process_bridge_receives_native_component_geometry() {
             Input {
                 steps: 0,
                 down: Vec::new(),
+                clicks: Vec::new(),
                 player: [4.0, 10.0, 4.0],
                 driver: None,
             },
@@ -362,6 +375,23 @@ fn rust_process_bridge_receives_native_component_geometry() {
             .all(|n| n.model.iter().all(|v| v.is_finite()))
     );
     assert!(frame.entities[0].nodes.iter().all(|n| n.voxels.is_some()));
+    for node in &frame.entities[0].nodes {
+        let expected = space_native::entity_edit::pose(&entities[0])
+            * space_native::entity_edit::matrix(
+                entities[0].definition.root.as_ref().unwrap(),
+                &node.id,
+            )
+            .unwrap();
+        assert!(
+            expected
+                .to_cols_array()
+                .into_iter()
+                .zip(node.model)
+                .all(|(a, b)| (a - b as f64).abs() < 1e-5),
+            "Native preview differs from runtime for {}",
+            node.id
+        );
+    }
     drop(runtime);
     std::fs::remove_dir_all(dir).unwrap();
 }

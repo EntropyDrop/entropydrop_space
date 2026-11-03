@@ -1,5 +1,10 @@
 # 完整迁移清单
 
+> UI update: [Rust offline UI and interactions](UI_MIGRATION.md) supersedes the
+> UI/input/import/tutorial rows in the original baseline table below. Engine
+> migration remains in progress; the Node physics and AssemblyScript boundary
+> is still present. The original table is retained as the broader engine backlog.
+
 当前目标是把 Space 的单机玩法与编辑功能迁到原生桌面端，并逐步把计算引擎迁到 Rust。按用户最新要求，本阶段不接入账号、多人、市场等在线服务。**当前尚未达到完整迁移完成条件。** “桥接”表示调用现有 TypeScript/AssemblyScript 引擎，不能计为 Rust 实现；“部分”表示已有可用路径，但没有覆盖 Web 版的全部操作与行为。
 
 功能基线来自 `client/src/ui/react/store/UiPorts.ts`、`SpaceUiStore.ts`、`client/src/engine/controls/`、`engine/src/contraption/`、`engine/src/physics/`、`engine/src/scripting/` 和 `proto/`。本次只在 `native-space/` 中新增实现，未覆盖这些目录中的现有修改。
@@ -79,7 +84,7 @@ G now assembles terrain selections in place into stopped, kinematic entities,
 without automatically opening a panel; C edits the aimed entity. Assembly has
 atomic terrain/entity undo and redo. Gravity transitions, automatic mass and
 imported body settings match the shared Web behavior. The tutorial system and
-course-specific nameplates remain unimplemented.
+course-specific nameplates were subsequently added in the Rust UI migration.
 
 Native now restores verified local coarse coverage before full refinement,
 retains last-good geometry on adapter failures, and treats corrupt/missing

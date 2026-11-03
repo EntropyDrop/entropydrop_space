@@ -3,6 +3,14 @@ use space_native::{
     avatar::Avatar,
     interaction::{self, HotbarTool},
 };
+#[path = "audio.rs"]
+mod audio;
+#[path = "desktop_ui.rs"]
+mod desktop_ui;
+#[path = "entity_preview.rs"]
+mod entity_preview;
+#[path = "file_dialog.rs"]
+mod file_dialog;
 #[path = "gameplay.rs"]
 mod gameplay;
 #[path = "hud.rs"]
@@ -13,7 +21,7 @@ use anyhow::{Context, Result};
 use glam::{DVec3, Mat4};
 use space_native::{
     camera::Camera,
-    editor::{Editor, SelectionAction, Tool},
+    editor::{Editor, Tool},
     geometry, protocol,
     runtime::{self, Driver, Frame, Runtime},
     storage,
@@ -38,6 +46,8 @@ type MeshResult = (Key, Vec<geometry::Face>);
 
 pub struct Game {
     ephemeral: bool,
+    audio: audio::Audio,
+    pending_clicks: Vec<runtime::Click>,
     pub world: World,
     pub camera: Camera,
     pub editor: Editor,
@@ -78,6 +88,7 @@ pub struct Game {
     simulation_elapsed: f64,
     driver: Option<Driver>,
     decoration_colors: HashMap<String, (u32, u32)>,
+    runtime_geometry: HashMap<String, Vec<[f64; 6]>>,
     pending_world: Option<String>,
     active_tool: HotbarTool,
     panel_open: bool,
@@ -86,6 +97,7 @@ pub struct Game {
     held_tool: Option<bool>,
     stroke_elapsed: f64,
     grab: Option<gameplay::Grab>,
+    model_drag: Option<gameplay::ModelDrag>,
     last_grab_click: Option<(String, Instant)>,
     preview_dirty: bool,
     preview_parts: Vec<(String, Mat4)>,
@@ -95,13 +107,19 @@ pub struct Game {
     previous_position: DVec3,
     perspective: u8,
     model_size: [f32; 3],
+    interface: space_native::ui_state::UiState,
+    entity_preview: entity_preview::Preview,
+    gizmo_before: Option<space_native::editor::PlacedEntity>,
+    gizmo_origin: DVec3,
+    gizmo_pointer: egui::Pos2,
+    minimap: space_native::minimap::Minimap,
+    map_refresh: Instant,
+    import_job: Option<crossbeam_channel::Receiver<Result<protocol::inventory::InventoryResource>>>,
 }
 #[derive(Clone, Copy, PartialEq)]
 pub enum Panel {
     Build,
-    Inventory,
     Entities,
-    Settings,
 }
 impl Game {
     pub fn open(root: &Path, name: &str) -> Result<Self> {
@@ -113,15 +131,26 @@ impl Game {
         let mut editor = Editor::default();
         let save_path = root.join("saves").join(format!("{name}.json.gz"));
         let mut perspective = 0;
-        if save_path.exists() {
+        let mut interface = space_native::ui_state::UiState::default();
+        if save_path.exists() && name != "tutorial" {
             let s = storage::load(&save_path, name, &source.manifest.source_hash)?;
             camera.position = DVec3::from_array(s.position);
             camera.yaw = s.yaw;
             camera.pitch = s.pitch;
             world.edits = s.edits.into_iter().collect();
             editor.entities = s.entities;
-            editor.backpack = s.backpack;
+            editor.backpack = match s.backpack_state {
+                Some(state) => state,
+                None => space_native::backpack::Backpack::from_legacy(s.backpack)?,
+            };
             perspective = s.perspective.min(2);
+            if let Some(mut preferences) = s.preferences {
+                preferences.normalize();
+                interface.preferences = preferences;
+            }
+        }
+        if name == "tutorial" {
+            space_native::tutorial::load(&mut world, &mut editor, &mut camera)?;
         }
         let (mesh_tx, mesh_rx) = crossbeam_channel::bounded(8);
         let pool = rayon::ThreadPoolBuilder::new()
@@ -129,8 +158,21 @@ impl Game {
             .thread_name(|i| format!("space-mesher-{i}"))
             .build()?;
         let runtime = Runtime::new(&source.root);
+        let avatar = interface
+            .preferences
+            .skin_path
+            .as_ref()
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| Avatar::from_png_style(&bytes, interface.preferences.slim_skin).ok())
+            .unwrap_or(Avatar::bundled()?);
+        let entry = &interface.preferences.palette.entries[interface.preferences.palette.selected];
+        editor.rgb = space_native::palette::sample(entry, 0.0);
+        editor.material = entry.material_id;
+        editor.gradient = Some(entry.clone());
         Ok(Self {
             ephemeral: false,
+            audio: Default::default(),
+            pending_clicks: Vec::new(),
             previous_position: camera.position,
             world,
             camera,
@@ -175,6 +217,7 @@ impl Game {
             simulation_elapsed: 0.0,
             driver: None,
             decoration_colors: HashMap::new(),
+            runtime_geometry: HashMap::new(),
             pending_world: None,
             active_tool: HotbarTool::Select,
             panel_open: false,
@@ -183,18 +226,27 @@ impl Game {
             held_tool: None,
             stroke_elapsed: 0.0,
             grab: None,
+            model_drag: None,
             last_grab_click: None,
             preview_dirty: true,
             preview_parts: Vec::new(),
-            avatar: Avatar::bundled()?,
+            avatar,
             avatar_mode: None,
             avatar_phase: 0.0,
             perspective,
-            model_size: [1.0; 3],
+            model_size: interface.preferences.modeling_size,
+            interface,
+            entity_preview: Default::default(),
+            gizmo_before: None,
+            gizmo_origin: DVec3::ZERO,
+            gizmo_pointer: egui::Pos2::ZERO,
+            minimap: Default::default(),
+            map_refresh: Instant::now(),
+            import_job: None,
         })
     }
     pub fn save(&mut self) -> Result<()> {
-        if self.ephemeral {
+        if self.ephemeral || self.world.source.manifest.world == "tutorial" {
             self.save_elapsed = 0.0;
             return Ok(());
         }
@@ -207,8 +259,10 @@ impl Game {
             pitch: self.camera.pitch,
             edits: self.world.edits.iter().map(|(k, v)| (*k, *v)).collect(),
             entities: self.editor.entities.clone(),
-            backpack: self.editor.backpack.clone(),
+            backpack: self.editor.backpack.legacy_resources(),
+            backpack_state: Some(self.editor.backpack.clone()),
             perspective: self.perspective,
+            preferences: Some(self.interface.preferences.clone()),
         };
         storage::save(&self.save_path, &save)?;
         self.saved_revision = self.editor.revision;
@@ -218,28 +272,11 @@ impl Game {
     pub fn import(&mut self, path: &Path) -> Result<()> {
         let bytes = std::fs::read(path)?;
         let resource = protocol::decode(&bytes)?;
-        self.editor.backpack.push(resource.clone());
+        self.editor.backpack.insert(resource.clone())?;
         self.editor.clipboard = Some(resource);
         self.preview_dirty = true;
         self.editor.revision += 1;
         self.status = format!("Imported {}", path.display());
-        Ok(())
-    }
-    pub fn export(&mut self) -> Result<()> {
-        let resource = self
-            .editor
-            .selected_entity
-            .and_then(|i| self.editor.entities.get(i))
-            .map(|e| protocol::inventory::InventoryResource {
-                schema_version: 8,
-                content: Some(protocol::inventory::inventory_resource::Content::Entity(
-                    e.definition.clone(),
-                )),
-            })
-            .or_else(|| self.editor.clipboard.clone())
-            .context("Select an entity or copy a selection to export")?;
-        storage::atomic_write(Path::new(&self.path), &protocol::encode(&resource)?)?;
-        self.status = format!("Exported {}", self.path);
         Ok(())
     }
     pub fn stream(&mut self, renderer: &mut Renderer) -> Result<()> {
@@ -445,11 +482,12 @@ impl Game {
                             self.editor.revision += 1;
                         }
                         for node in &state.nodes {
-                            let key = format!("entity:{}:{}", state.id, node.id);
+                            let key = interaction::entity_mesh_key(&state.id, &node.id);
                             let model = Mat4::from_cols_array(&node.model);
                             keep.insert(key.clone());
                             keep.insert(format!("{key}:alpha"));
                             if let Some(voxels) = &node.voxels {
+                                self.runtime_geometry.insert(key.clone(), voxels.clone());
                                 renderer.upload(
                                     key.clone(),
                                     &runtime::voxel_faces(voxels),
@@ -459,7 +497,7 @@ impl Game {
                             renderer.set_model(&key, model);
                             for d in &node.decorations {
                                 let key =
-                                    format!("entity:{}:{}:decoration:{}", state.id, node.id, d.id);
+                                    interaction::decoration_mesh_key(&state.id, &node.id, &d.id);
                                 let (faces, model) = runtime::decoration_mesh(d, model);
                                 if self.decoration_colors.get(&key) != Some(&(d.color, d.material))
                                     || !renderer.has_mesh(&key)
@@ -485,6 +523,7 @@ impl Game {
                     }
                     renderer.retain_meshes(|key| !key.starts_with("entity:") || keep.contains(key));
                     self.decoration_colors.retain(|key, _| keep.contains(key));
+                    self.runtime_geometry.retain(|key, _| keep.contains(key));
                     // New local user edits win over a simulation reply based on
                     // an older snapshot. The next request repairs worker state.
                     let changes: Vec<_> = frame
@@ -520,9 +559,13 @@ impl Game {
                     down,
                     player: self.camera.position.to_array(),
                     driver: self.driver.clone(),
+                    clicks: self.pending_clicks.clone(),
                 },
             ) {
-                Ok(()) => self.simulation_elapsed = 0.0,
+                Ok(()) => {
+                    self.simulation_elapsed = 0.0;
+                    self.pending_clicks.clear();
+                }
                 Err(e) => {
                     self.runtime_error = Some(format!("{e:#}"));
                     self.status = format!("Simulation: {e:#}");
@@ -534,11 +577,12 @@ impl Game {
     pub fn uniforms(&self, size: [u32; 2]) -> Uniforms {
         let (eye, direction) = self.view();
         Uniforms {
-            clip: geometry::camera_matrix(
+            clip: geometry::camera_matrix_fov(
                 eye,
                 direction,
                 size[0] as f32 / size[1].max(1) as f32,
                 self.torus,
+                self.interface.preferences.fov as f32,
             )
             .to_cols_array_2d(),
             model: Mat4::IDENTITY.to_cols_array_2d(),
@@ -554,303 +598,6 @@ impl Game {
     fn result(&mut self, result: Result<()>) {
         if let Err(e) = result {
             self.status = format!("{e:#}");
-        }
-    }
-    fn paste_at_cursor(&mut self) -> Result<()> {
-        let position = self.placement();
-        self.editor.paste(&mut self.world, position)
-    }
-    fn build_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading(self.active_tool.name());
-        ui.label(self.active_tool.hint());
-        if self.active_tool == HotbarTool::Model {
-            ui.label("Decorative cube dimensions");
-            for (i, axis) in ["X", "Y", "Z"].iter().enumerate() {
-                ui.add(egui::Slider::new(&mut self.model_size[i], 0.125..=16.0).text(*axis));
-            }
-        }
-        if self.active_tool == HotbarTool::Hammer {
-            ui.label(self.editor.clipboard.as_ref().map_or(
-                "Backpack is empty. Copy a selection or import an item.".into(),
-                resource_name,
-            ));
-        }
-        ui.checkbox(&mut self.editor.micro, "Micro grid · 0.125 m");
-        ui.add(egui::Slider::new(&mut self.editor.brush, 1..=8).text("Brush"));
-        let mut rgb = [
-            (self.editor.rgb >> 16) as u8,
-            (self.editor.rgb >> 8) as u8,
-            self.editor.rgb as u8,
-        ];
-        ui.color_edit_button_srgb(&mut rgb);
-        self.editor.rgb = ((rgb[0] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[2] as u32;
-        ui.horizontal_wrapped(|ui| {
-            for color in [
-                0xf2a93b, 0x48dbfb, 0x2ed573, 0xeb4d4b, 0xa55eea, 0xf5f6fa, 0x2f3542, 0xff6b81,
-                0xf1c40f,
-            ] {
-                if ui
-                    .add(egui::Button::new("  ").fill(egui::Color32::from_rgb(
-                        (color >> 16) as u8,
-                        (color >> 8) as u8,
-                        color as u8,
-                    )))
-                    .clicked()
-                {
-                    self.editor.rgb = color;
-                }
-            }
-        });
-        ui.add(egui::Slider::new(&mut self.editor.material, 0..=101).text("Material"));
-        ui.small("0 solid · 1 emissive · 2–101 transparency");
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button("Undo").clicked() {
-                self.editor.undo(&mut self.world);
-            }
-            if ui.button("Redo").clicked() {
-                self.editor.redo(&mut self.world);
-            }
-        });
-        if let Some((a, b)) = self.editor.selection {
-            ui.label(format!(
-                "Selection: {},{},{} → {},{},{}",
-                a.x, a.y, a.z, b.x, b.y, b.z
-            ));
-        }
-        if ui.button("Start new selection").clicked() {
-            self.editor.selection = None;
-            self.choose_tool(HotbarTool::Select);
-        }
-        if ui.button("Copy selection").clicked() {
-            self.preview_dirty = true;
-            let r = self.editor.copy_selection(&self.world);
-            self.result(r);
-        }
-        ui.horizontal(|ui| {
-            if ui.button("Cut").clicked() {
-                let r = self.editor.cut_selection(&mut self.world);
-                self.result(r);
-            }
-            if ui.button("Delete").clicked() {
-                let r = self
-                    .editor
-                    .change_selection(&mut self.world, SelectionAction::Erase);
-                self.result(r);
-            }
-        });
-        ui.horizontal(|ui| {
-            if ui.button("Fill selection").clicked() {
-                let r = self
-                    .editor
-                    .change_selection(&mut self.world, SelectionAction::Fill);
-                self.result(r);
-            }
-            if ui.button("Paint selection").clicked() {
-                let r = self
-                    .editor
-                    .change_selection(&mut self.world, SelectionAction::Paint);
-                self.result(r);
-            }
-        });
-        if ui.button("Rotate copied blocks 90°").clicked() {
-            self.preview_dirty = true;
-            let r = self.editor.rotate_clipboard();
-            self.result(r);
-        }
-        if ui.button("Assemble selection  G").clicked()
-            && let Err(error) = self.assemble_selection()
-        {
-            self.status = error.to_string();
-        }
-        if ui.button("Paste at crosshair  ⌘V").clicked() {
-            let r = self.paste_at_cursor();
-            self.result(r);
-        }
-        if ui.button("Store clipboard in backpack").clicked()
-            && let Some(resource) = self.editor.clipboard.clone()
-        {
-            self.editor.backpack.push(resource);
-            self.editor.revision += 1;
-        }
-        ui.separator();
-        ui.label("Enter: play · Esc: controls\nWASD: move · Space/Q: up/down · Shift: boost\nF: fly/walk · F5: camera · B: backpack\n1–7: tools · Tab: grid · R: rotate\nG: assemble stopped · C: edit aimed entity");
-    }
-    fn inventory_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Backpack");
-        ui.label("Drop .edpb files into this window to import.");
-        if ui.button("Load example entity").clicked() {
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/entity.edpb");
-            let r = self.import(&path);
-            self.result(r);
-        }
-        ui.text_edit_singleline(&mut self.path);
-        ui.horizontal(|ui| {
-            if ui.button("Import file").clicked() {
-                let path = PathBuf::from(&self.path);
-                let r = self.import(&path);
-                self.result(r);
-            }
-            if ui.button("Export clipboard").clicked() {
-                let r = self.export();
-                self.result(r);
-            }
-        });
-        ui.separator();
-        let mut action = None;
-        for (i, resource) in self.editor.backpack.iter().enumerate() {
-            let name = resource_name(resource);
-            ui.horizontal(|ui| {
-                if ui.button(format!("{} · {name}", i + 1)).clicked() {
-                    action = Some((i, false));
-                }
-                if ui.small_button("×").clicked() {
-                    action = Some((i, true));
-                }
-            });
-        }
-        if let Some((i, remove)) = action {
-            if remove {
-                self.editor.backpack.remove(i);
-                self.editor.revision += 1;
-            } else {
-                self.editor.clipboard = Some(self.editor.backpack[i].clone());
-                self.preview_dirty = true;
-                self.choose_tool(HotbarTool::Hammer);
-                self.status = "Item equipped. Enter the world and click to place.".into();
-            }
-        }
-    }
-    fn entities_ui(&mut self, ui: &mut egui::Ui) {
-        if let Some(error) = &self.runtime_error {
-            ui.colored_label(egui::Color32::LIGHT_RED, error);
-            if ui.button("Restart simulation").clicked() {
-                self.runtime = Runtime::new(&self.world.source.root);
-                self.runtime_error = None;
-                self.runtime_frame = None;
-            }
-        }
-        ui.heading("Entities");
-        for (i, e) in self.editor.entities.iter().enumerate() {
-            if ui
-                .selectable_label(self.editor.selected_entity == Some(i), e.name())
-                .clicked()
-            {
-                self.editor.selected_entity = Some(i);
-            }
-        }
-        if let Some(index) = self
-            .editor
-            .selected_entity
-            .filter(|i| *i < self.editor.entities.len())
-        {
-            ui.separator();
-            let mut changed = false;
-            let e = &mut self.editor.entities[index];
-            if ui
-                .button(if e.running {
-                    "Stop"
-                } else {
-                    "Run physics & scripts"
-                })
-                .clicked()
-            {
-                e.running = !e.running;
-                changed = true;
-            }
-            if let Some(root) = &mut e.definition.root {
-                changed |= ui.text_edit_singleline(&mut root.name).changed();
-            }
-            ui.label("Position");
-            for (i, axis) in ["X", "Y", "Z"].iter().enumerate() {
-                changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut e.position[i])
-                            .speed(0.125)
-                            .prefix(format!("{axis} ")),
-                    )
-                    .changed();
-            }
-            if ui.button("Rotate 90° Y").clicked() {
-                e.rotation = (glam::DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2)
-                    * glam::DQuat::from_array(e.rotation))
-                .to_array();
-                changed = true;
-            }
-            if let Some(root) = &mut e.definition.root {
-                ui.push_id(&e.id, |ui| {
-                    ui.collapsing("Component hierarchy", |ui| {
-                        component_ui(ui, root, &mut changed)
-                    });
-                });
-            }
-            if changed {
-                self.editor.revision += 1;
-            }
-            if let Some(state) = self.runtime_frame.as_ref().and_then(|f| {
-                f.entities
-                    .iter()
-                    .find(|s| s.id == self.editor.entities[index].id)
-            }) {
-                ui.label(format!(
-                    "Physics: {} · Script: {}",
-                    if state.running { "running" } else { "stopped" },
-                    state.status
-                ));
-                if let Some(error) = &state.error {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
-                }
-                for node in &state.nodes {
-                    for seat in &node.seats {
-                        if ui
-                            .button(format!("Ride {} · seat {}", node.id, seat.index + 1))
-                            .clicked()
-                        {
-                            self.driver = Some(Driver {
-                                id: state.id.clone(),
-                                component: node.id.clone(),
-                                seat: seat.index,
-                            });
-                        }
-                    }
-                }
-                ui.collapsing("Script console", |ui| {
-                    for line in &state.logs {
-                        ui.monospace(line);
-                    }
-                });
-            }
-            if self.driver.is_some() && ui.button("Dismount").clicked() {
-                self.driver = None;
-                self.camera.position += DVec3::new(2.0, 1.0, 0.0);
-            }
-            if ui.button("Duplicate").clicked() {
-                let mut duplicate = self.editor.entities[index].clone();
-                duplicate.id = uuid::Uuid::new_v4().to_string();
-                duplicate.position[0] += 2.0;
-                self.editor.entities.push(duplicate);
-                self.editor.revision += 1;
-            }
-            if ui.button("Save to backpack").clicked() {
-                self.editor
-                    .backpack
-                    .push(protocol::inventory::InventoryResource {
-                        schema_version: 8,
-                        content: Some(protocol::inventory::inventory_resource::Content::Entity(
-                            self.editor.entities[index].definition.clone(),
-                        )),
-                    });
-                self.editor.revision += 1;
-            }
-            if ui.button("Export entity").clicked() {
-                let r = self.export();
-                self.result(r);
-            }
-            if ui.button("Delete entity").clicked() {
-                self.editor.entities.remove(index);
-                self.editor.selected_entity = None;
-                self.editor.revision += 1;
-            }
         }
     }
     fn settings_ui(&mut self, ui: &mut egui::Ui, renderer: &Renderer) {
@@ -895,106 +642,10 @@ impl Game {
         ));
     }
 }
-fn resource_name(r: &protocol::inventory::InventoryResource) -> String {
-    use protocol::inventory::inventory_resource::Content;
-    match &r.content {
-        Some(Content::BlockSet(b)) => b.name.clone(),
-        Some(Content::Item(i)) => i.name.clone(),
-        Some(Content::ColorSet(c)) => c.name.clone(),
-        Some(Content::Entity(e)) => e.root.as_ref().map_or("Entity".into(), |c| c.name.clone()),
-        None => "Invalid".into(),
-    }
-}
-fn component_ui(ui: &mut egui::Ui, c: &mut protocol::inventory::Component, changed: &mut bool) {
-    ui.push_id(&c.id, |ui| {
-        ui.label(format!("{} · {} voxels", c.id, c.blocks.len()));
-        *changed |= ui.text_edit_singleline(&mut c.name).changed();
-        let mut body = c.body.unwrap_or_default();
-        let mut body_changed = false;
-        let mut body_type = body.r#type;
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut body_type, 0, "Dynamic")
-                .on_hover_text("Simulated physics. Switching from kinematic enables gravity.");
-            ui.selectable_value(&mut body_type, 1, "Kinematic")
-                .on_hover_text("Moved by scripts; unaffected by gravity and forces.");
-        });
-        body_changed |= space_native::editor::set_body_type(&mut body, body_type);
-        let mut gravity = body.use_gravity.unwrap_or(body.r#type == 0);
-        if ui.checkbox(&mut gravity, "Gravity").changed() {
-            body.use_gravity = Some(gravity);
-            body_changed = true;
-        }
-        let mut collision = body.collision_enabled.unwrap_or(true);
-        if ui.checkbox(&mut collision, "Collision").changed() {
-            body.collision_enabled = Some(collision);
-            body_changed = true;
-        }
-        let mut automatic_mass = body.mass.is_none();
-        let volume: f64 = c
-            .blocks
-            .iter()
-            .map(|b| if b.is_micro { 1.0 / 512.0 } else { 1.0 })
-            .sum();
-        let mut mass = body
-            .mass
-            .unwrap_or(((volume * 10_000.0).round() / 1000.0).max(0.1));
-        if ui.checkbox(&mut automatic_mass, "Automatic mass").changed() {
-            body.mass = if automatic_mass { None } else { Some(mass) };
-            body_changed = true;
-        }
-        if ui
-            .add_enabled(
-                !automatic_mass,
-                egui::DragValue::new(&mut mass)
-                    .range(0.1..=1_000_000.0)
-                    .prefix("Mass "),
-            )
-            .changed()
-        {
-            body.mass = Some(mass);
-            body_changed = true;
-        }
-        let mut friction = body.friction.unwrap_or(0.7);
-        if ui
-            .add(egui::Slider::new(&mut friction, 0.0..=1.0).text("Friction"))
-            .changed()
-        {
-            body.friction = Some(friction);
-            body_changed = true;
-        }
-        if body_changed {
-            c.body = Some(body);
-            *changed = true;
-        }
-        if ui.button("Add seat at component origin").clicked() {
-            c.seats.push(protocol::inventory::Seat {
-                position: Some(Default::default()),
-                ..Default::default()
-            });
-            *changed = true;
-        }
-        ui.collapsing("Script source", |ui| {
-            let id = ui.id().with("script-draft");
-            let mut draft = ui
-                .data(|d| d.get_temp::<String>(id))
-                .unwrap_or_else(|| c.script.clone().unwrap_or_default());
-            ui.add(
-                egui::TextEdit::multiline(&mut draft)
-                    .code_editor()
-                    .desired_rows(10),
-            );
-            if ui.button("Apply script").clicked() {
-                c.script = Some(draft.clone());
-                c.script_language = "assemblyscript".into();
-                *changed = true;
-            }
-            ui.data_mut(|d| d.insert_temp(id, draft));
-        });
-        for child in &mut c.children {
-            let name = child.name.clone();
-            ui.collapsing(name, |ui| component_ui(ui, child, changed));
-        }
-    });
+fn pointer_over_ui(ctx: &egui::Context, cursor: Option<egui::Pos2>) -> bool {
+    cursor
+        .and_then(|p| ctx.layer_id_at(p))
+        .is_some_and(|layer| layer.order != egui::Order::Background)
 }
 
 pub struct Application {
@@ -1007,14 +658,18 @@ pub struct Application {
     game: Option<Game>,
     keys: HashSet<KeyCode>,
     modifiers: ModifiersState,
+    last_jump: Option<Instant>,
+    cursor: Option<egui::Pos2>,
     captured: bool,
     last: Instant,
     frame_rate: space_native::frame_metrics::FrameRate,
     pub error: Option<anyhow::Error>,
     pub quit_after: Option<f64>,
+    pub ui_test: bool,
     pub window_benchmark: Option<window_benchmark::WindowBenchmark>,
     started: Instant,
 }
+
 impl Application {
     pub fn new(root: PathBuf, world_name: String) -> Self {
         let ctx = egui::Context::default();
@@ -1029,16 +684,23 @@ impl Application {
             game: None,
             keys: HashSet::new(),
             modifiers: ModifiersState::empty(),
+            last_jump: None,
+            cursor: None,
             captured: false,
             last: Instant::now(),
             frame_rate: Default::default(),
             error: None,
             quit_after: None,
+            ui_test: false,
             window_benchmark: None,
             started: Instant::now(),
         }
     }
     fn capture(&mut self, value: bool) {
+        if !value {
+            self.keys.clear();
+            self.last_jump = None;
+        }
         if let Some(w) = &self.window {
             let result = if value {
                 w.set_cursor_grab(CursorGrabMode::Locked)
@@ -1067,26 +729,66 @@ impl Application {
         if let Some(benchmark) = &self.window_benchmark {
             benchmark.before_frame(game, renderer);
         }
+        if let Some(result) = game.import_job.as_ref().and_then(|job| job.try_recv().ok()) {
+            game.import_job = None;
+            match result {
+                Ok(resource) => {
+                    let r = game.editor.backpack.insert(resource.clone()).map(|_| ());
+                    if r.is_ok() {
+                        game.editor.clipboard = Some(resource);
+                        game.choose_tool(HotbarTool::Hammer);
+                        game.editor.revision += 1;
+                        game.close_modal();
+                        game.status = "Model imported · click to pin a preview".into();
+                    }
+                    game.result(r);
+                }
+                Err(e) => game.status = format!("Import failed: {e:#}"),
+            }
+        }
+        if let Err(e) = game.audio.update(game.interface.preferences.music) {
+            game.status = e.to_string();
+        }
         game.stream(renderer)?;
         game.simulate(
             renderer,
             dt,
             if self.captured {
-                self.keys.iter().map(|k| format!("{k:?}")).collect()
+                self.keys
+                    .iter()
+                    .filter(|k| !space_native::interaction::reserved_script_key(&format!("{k:?}")))
+                    .map(|k| format!("{k:?}"))
+                    .collect()
             } else {
                 Vec::new()
             },
         )?;
+        if let Some(target) = game.interface.navigation_target {
+            let delta = DVec3::new(
+                geometry::wrap_near(target.x, game.camera.position.x, 16384.0)
+                    - game.camera.position.x,
+                target.y - game.camera.position.y,
+                geometry::wrap_near(target.z, game.camera.position.z, 2048.0)
+                    - game.camera.position.z,
+            );
+            if delta.length() < 0.5 {
+                game.interface.navigation_target = None;
+            } else {
+                game.camera.position +=
+                    delta.normalize() * ((game.camera.speed * dt).min(delta.length()));
+            }
+        }
         if self.captured && game.driver.is_none() {
             let pressed = |key| if self.keys.contains(&key) { 1.0 } else { 0.0 };
             game.camera.update(
                 &game.world,
                 DVec3::new(
                     pressed(KeyCode::KeyD) - pressed(KeyCode::KeyA),
-                    pressed(KeyCode::Space) - pressed(KeyCode::KeyQ),
+                    pressed(KeyCode::Space)
+                        - pressed(KeyCode::ShiftLeft).max(pressed(KeyCode::ShiftRight)),
                     pressed(KeyCode::KeyW) - pressed(KeyCode::KeyS),
                 ),
-                self.modifiers.shift_key(),
+                self.modifiers.control_key(),
                 self.keys.contains(&KeyCode::Space),
                 dt,
             );
@@ -1135,7 +837,9 @@ impl Application {
         let capture_request = game.capture_request.take();
         if let Some(name) = game.pending_world.take() {
             match game.save().and_then(|_| Game::open(&self.root, &name)) {
-                Ok(next) => {
+                Ok(mut next) => {
+                    next.editor.backpack = game.editor.backpack.clone();
+                    next.interface.preferences = game.interface.preferences.clone();
                     renderer.retain_meshes(|_| false);
                     let ephemeral = game.ephemeral;
                     *game = next;
@@ -1187,7 +891,10 @@ impl ApplicationHandler for Application {
                 Some(8192),
             );
             self.game = Some(Game::open(&self.root, &self.world_name)?);
-            self.game.as_mut().unwrap().ephemeral = self.window_benchmark.is_some();
+            self.game.as_mut().unwrap().ephemeral = self.window_benchmark.is_some() || self.ui_test;
+            if self.window_benchmark.is_none() {
+                self.game.as_mut().unwrap().interface.modal = space_native::ui_state::Modal::Help;
+            }
             self.renderer = Some(renderer);
             self.input = Some(input);
             self.window = Some(window);
@@ -1217,7 +924,7 @@ impl ApplicationHandler for Application {
             }
             WindowEvent::CloseRequested => {
                 if let Some(game) = &mut self.game
-                    && let Err(e) = game.save()
+                    && let Err(e) = game.apply_scripts().and_then(|_| game.save())
                 {
                     game.status = format!(
                         "Save failed: {e:#}. The window remains open so your work can be recovered."
@@ -1240,6 +947,14 @@ impl ApplicationHandler for Application {
                 self.capture(false);
             }
             WindowEvent::ModifiersChanged(state) => self.modifiers = state.state(),
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = self.egui.pixels_per_point() as f64;
+                self.cursor = Some(egui::pos2(
+                    (position.x / scale) as f32,
+                    (position.y / scale) as f32,
+                ));
+            }
+            WindowEvent::CursorLeft { .. } => self.cursor = None,
             WindowEvent::RedrawRequested => {
                 if let Err(error) = objc2::rc::autoreleasepool(|_| self.draw(event_loop)) {
                     self.error = Some(error);
@@ -1260,47 +975,190 @@ impl ApplicationHandler for Application {
                     }
                     if key == KeyCode::Escape {
                         if let Some(game) = &mut self.game {
-                            game.end_tool(true);
-                            game.selecting = false;
+                            if game.interface.modal != space_native::ui_state::Modal::None {
+                                if game.interface.modal == space_native::ui_state::Modal::ApiDocs {
+                                    game.interface.modal = space_native::ui_state::Modal::Editor;
+                                } else {
+                                    game.close_modal();
+                                }
+                            } else if !game.interface.escape() {
+                                game.end_tool(true);
+                                game.selecting = false;
+                            }
                         }
                         self.keys.clear();
                         self.capture(false);
                         return;
                     }
+                    if key == KeyCode::F12 && !event.repeat {
+                        if let Some(game) = &mut self.game {
+                            game.capture = Some(self.root.join("results").join(if self.ui_test {
+                                "ui-validation.png".to_owned()
+                            } else {
+                                format!("capture-{}.png", uuid::Uuid::new_v4())
+                            }));
+                        }
+                        return;
+                    }
+                    if (self.modifiers.super_key() || self.modifiers.control_key())
+                        && key == KeyCode::KeyQ
+                    {
+                        if let Some(game) = &mut self.game {
+                            match game.apply_scripts().and_then(|_| game.save()) {
+                                Ok(()) => event_loop.exit(),
+                                Err(e) => game.status = e.to_string(),
+                            }
+                        }
+                        return;
+                    }
                     let editing_text = self.egui.memory(|m| m.focused()).is_some_and(|id| {
                         egui::text_edit::TextEditState::load(&self.egui, id).is_some()
                     });
+                    if (self.modifiers.super_key() || self.modifiers.control_key())
+                        && key == KeyCode::Enter
+                    {
+                        if let Some(game) = &mut self.game {
+                            let r = game.apply_scripts();
+                            game.result(r);
+                        }
+                        return;
+                    }
                     if editing_text && !self.captured {
                         return;
                     }
-                    if key == KeyCode::Enter && !response && !event.repeat {
-                        self.capture(!self.captured);
+                    if self
+                        .game
+                        .as_ref()
+                        .is_some_and(|g| g.interface.modal != space_native::ui_state::Modal::None)
+                    {
                         return;
+                    }
+                    if key == KeyCode::Enter && !event.repeat {
+                        if let Some(game) = &mut self.game
+                            && game.interface.placement.is_some()
+                        {
+                            let r = game.confirm_placement();
+                            game.result(r);
+                        } else if !response {
+                            self.capture(!self.captured);
+                        }
+                        return;
+                    }
+                    if matches!(
+                        key,
+                        KeyCode::KeyW
+                            | KeyCode::KeyA
+                            | KeyCode::KeyS
+                            | KeyCode::KeyD
+                            | KeyCode::Space
+                            | KeyCode::ShiftLeft
+                            | KeyCode::ShiftRight
+                    ) && let Some(game) = &mut self.game
+                    {
+                        game.interface.navigation_target = None;
                     }
                     self.keys.insert(key);
                     if event.repeat {
                         return;
                     }
+                    if key == KeyCode::Space && self.captured {
+                        if self
+                            .last_jump
+                            .is_some_and(|t| t.elapsed().as_secs_f32() < 0.35)
+                        {
+                            if let Some(game) = &mut self.game
+                                && game.driver.is_none()
+                            {
+                                game.camera.flying = !game.camera.flying;
+                                game.camera.velocity = DVec3::ZERO;
+                            }
+                            self.last_jump = None;
+                        } else {
+                            self.last_jump = Some(Instant::now());
+                        }
+                    }
                     let command = self.modifiers.super_key() || self.modifiers.control_key();
                     if let Some(game) = &mut self.game {
                         match key {
                             KeyCode::KeyG if !command && game.active_tool == HotbarTool::Select => {
-                                if let Err(error) = game.assemble_selection() {
-                                    game.status = error.to_string();
-                                }
+                                game.dispatch(space_native::commands::Command::Assemble)
                             }
                             KeyCode::KeyC if !command => {
-                                let (eye, dir) = game.view();
-                                let picked = self.renderer.as_ref().and_then(|r| {
-                                    r.pick_entity(
-                                        eye,
-                                        dir,
-                                        game.hit().map_or(50.0, |h| h.distance + 0.01),
-                                    )
-                                });
-                                game.open_entity_editor(picked);
+                                if let Some(pick) = game.pick_scene(self.renderer.as_ref().unwrap())
+                                {
+                                    game.interface.component = Some(pick.component.clone());
+                                    game.open_entity_editor(Some((pick.entity, pick.hit.distance)));
+                                } else {
+                                    game.status = "Aim at an entity and press C to edit".into();
+                                }
                             }
-                            KeyCode::KeyF => game.camera.flying = !game.camera.flying,
+                            KeyCode::KeyF if !command && game.active_tool == HotbarTool::Select => {
+                                game.dispatch(space_native::commands::Command::Fill)
+                            }
+                            KeyCode::KeyP if !command && game.active_tool == HotbarTool::Select => {
+                                game.dispatch(space_native::commands::Command::Paint)
+                            }
+                            KeyCode::KeyI if !command => {
+                                game.interface.color_picker = !game.interface.color_picker;
+                                game.capture_request = Some(false);
+                            }
+                            KeyCode::KeyT if !command && game.active_tool == HotbarTool::Hammer => {
+                                game.open_modal(space_native::ui_state::Modal::Text)
+                            }
+                            KeyCode::Digit1
+                            | KeyCode::Digit2
+                            | KeyCode::Digit3
+                            | KeyCode::Digit4
+                            | KeyCode::Digit5
+                            | KeyCode::Digit6
+                            | KeyCode::Digit7
+                            | KeyCode::Digit8
+                            | KeyCode::Digit9
+                                if self.modifiers.alt_key() =>
+                            {
+                                let index = match key {
+                                    KeyCode::Digit1 => 0,
+                                    KeyCode::Digit2 => 1,
+                                    KeyCode::Digit3 => 2,
+                                    KeyCode::Digit4 => 3,
+                                    KeyCode::Digit5 => 4,
+                                    KeyCode::Digit6 => 5,
+                                    KeyCode::Digit7 => 6,
+                                    KeyCode::Digit8 => 7,
+                                    _ => 8,
+                                };
+                                if game.active_tool == HotbarTool::Select && index < 5 {
+                                    game.editor.selection_shape.shape =
+                                        space_native::selection::Shape::ALL[index];
+                                } else {
+                                    game.interface.preferences.palette.selected = index;
+                                    game.sync_palette();
+                                }
+                            }
+                            KeyCode::Digit1
+                            | KeyCode::Digit2
+                            | KeyCode::Digit3
+                            | KeyCode::Digit4
+                            | KeyCode::Digit5
+                            | KeyCode::Digit6
+                            | KeyCode::Digit7
+                            | KeyCode::Digit8
+                            | KeyCode::Digit9
+                                if self.modifiers.shift_key() =>
+                            {
+                                let slot = match key {
+                                    KeyCode::Digit1 => 0,
+                                    KeyCode::Digit2 => 1,
+                                    KeyCode::Digit3 => 2,
+                                    KeyCode::Digit4 => 3,
+                                    KeyCode::Digit5 => 4,
+                                    KeyCode::Digit6 => 5,
+                                    KeyCode::Digit7 => 6,
+                                    KeyCode::Digit8 => 7,
+                                    _ => 8,
+                                };
+                                game.equip(space_native::backpack::Category::Items, slot);
+                            }
                             KeyCode::Digit1 => game.choose_tool(HotbarTool::Select),
                             KeyCode::Digit2 => game.choose_tool(HotbarTool::Hammer),
                             KeyCode::Digit3 => game.choose_tool(HotbarTool::Wrench),
@@ -1308,22 +1166,37 @@ impl ApplicationHandler for Application {
                             KeyCode::Digit5 => game.choose_tool(HotbarTool::Spoon),
                             KeyCode::Digit6 => game.choose_tool(HotbarTool::Brush),
                             KeyCode::Digit7 => game.choose_tool(HotbarTool::Model),
-                            KeyCode::KeyM | KeyCode::Tab if self.captured => {
-                                game.editor.micro = !game.editor.micro
-                            }
+                            KeyCode::KeyM | KeyCode::Tab if self.captured => game.toggle_grid(),
                             KeyCode::F5 | KeyCode::F3 => {
                                 game.perspective = (game.perspective + 1) % 3
                             }
-                            KeyCode::KeyR => game.rotate_tool(),
-                            KeyCode::KeyB | KeyCode::KeyE | KeyCode::KeyO => {
-                                game.end_tool(true);
-                                game.panel_open = true;
-                                game.panel = if key == KeyCode::KeyO {
-                                    Panel::Settings
+                            KeyCode::ArrowLeft
+                            | KeyCode::ArrowRight
+                            | KeyCode::ArrowUp
+                            | KeyCode::ArrowDown => game.rotate_tool(
+                                if matches!(key, KeyCode::ArrowUp | KeyCode::ArrowDown) {
+                                    0
                                 } else {
-                                    Panel::Inventory
-                                };
-                                game.capture_request = Some(false);
+                                    1
+                                },
+                                if matches!(key, KeyCode::ArrowLeft | KeyCode::ArrowDown) {
+                                    -1
+                                } else {
+                                    1
+                                },
+                            ),
+                            KeyCode::KeyR if !command && game.active_tool == HotbarTool::Select => {
+                                game.dispatch(space_native::commands::Command::Copy)
+                            }
+                            KeyCode::KeyX if !command && game.active_tool == HotbarTool::Select => {
+                                game.dispatch(space_native::commands::Command::Cut)
+                            }
+                            KeyCode::KeyB | KeyCode::KeyE | KeyCode::KeyO => {
+                                game.open_modal(if key == KeyCode::KeyO {
+                                    space_native::ui_state::Modal::Settings
+                                } else {
+                                    space_native::ui_state::Modal::Backpack
+                                })
                             }
                             KeyCode::KeyQ if command => {
                                 if game.save().is_ok() {
@@ -1331,53 +1204,38 @@ impl ApplicationHandler for Application {
                                 }
                             }
                             KeyCode::KeyV if !command => {
-                                if game.driver.take().is_some() {
-                                    game.camera.position += DVec3::new(2.0, 1.0, 0.0);
-                                } else if let Some(frame) = &game.runtime_frame {
-                                    'seat: for e in &frame.entities {
-                                        for n in &e.nodes {
-                                            for seat in &n.seats {
-                                                if DVec3::from_array(seat.position)
-                                                    .distance(game.camera.position)
-                                                    < 5.0
-                                                {
-                                                    game.driver = Some(Driver {
-                                                        id: e.id.clone(),
-                                                        component: n.id.clone(),
-                                                        seat: seat.index,
-                                                    });
-                                                    break 'seat;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                let picked = game.pick_scene(self.renderer.as_ref().unwrap());
+                                let r = game.toggle_seat(picked);
+                                game.result(r);
+                                self.keys.clear();
+                            }
+                            KeyCode::KeyR if !command && game.active_tool == HotbarTool::Model => {
+                                let r = game.decoration_command(false);
+                                game.result(r);
+                            }
+                            KeyCode::Delete | KeyCode::Backspace
+                                if game.active_tool == HotbarTool::Model =>
+                            {
+                                let r = game.decoration_command(true);
+                                game.result(r);
                             }
                             KeyCode::Delete | KeyCode::Backspace
                                 if game.active_tool == HotbarTool::Select =>
                             {
-                                let r = game
-                                    .editor
-                                    .change_selection(&mut game.world, SelectionAction::Erase);
-                                game.result(r);
+                                game.dispatch(space_native::commands::Command::Erase)
                             }
                             KeyCode::KeyX if command => {
-                                let r = game.editor.cut_selection(&mut game.world);
-                                game.result(r);
-                                game.preview_dirty = true;
+                                game.dispatch(space_native::commands::Command::Cut)
                             }
                             KeyCode::KeyZ if command => {
-                                game.end_tool(false);
-                                if self.modifiers.shift_key() {
-                                    game.editor.redo(&mut game.world);
+                                game.dispatch(if self.modifiers.shift_key() {
+                                    space_native::commands::Command::Redo
                                 } else {
-                                    game.editor.undo(&mut game.world);
-                                }
+                                    space_native::commands::Command::Undo
+                                })
                             }
                             KeyCode::KeyC if command => {
-                                game.preview_dirty = true;
-                                let r = game.editor.copy_selection(&game.world);
-                                game.result(r);
+                                game.dispatch(space_native::commands::Command::Copy)
                             }
                             KeyCode::KeyV if command => {
                                 game.choose_tool(HotbarTool::Hammer);
@@ -1411,7 +1269,24 @@ impl ApplicationHandler for Application {
                     return;
                 }
                 if !self.captured {
-                    if !response && button == MouseButton::Left {
+                    // winit may deliver move + press before egui's next frame.
+                    // Hit-test the current event position so a UI drag cannot
+                    // accidentally capture the camera using last frame's hover.
+                    let over_ui = response || pointer_over_ui(&self.egui, self.cursor);
+                    if !over_ui
+                        && button == MouseButton::Right
+                        && let Some(game) = &mut self.game
+                    {
+                        game.interface.placement = None;
+                    }
+                    if !over_ui
+                        && button == MouseButton::Left
+                        && self.game.as_ref().is_some_and(|g| {
+                            g.interface.modal == space_native::ui_state::Modal::None
+                                && g.interface.context_menu.is_none()
+                                && !g.interface.color_picker
+                        })
+                    {
                         self.capture(true);
                     }
                     return;
@@ -1419,17 +1294,15 @@ impl ApplicationHandler for Application {
                 if matches!(button, MouseButton::Left | MouseButton::Right)
                     && let (Some(game), Some(renderer)) = (&mut self.game, &self.renderer)
                 {
-                    let (eye, dir) = game.view();
-                    let picked = if game.active_tool == HotbarTool::Wrench {
-                        renderer.pick_entity(
-                            eye,
-                            dir,
-                            game.hit().map_or(50.0, |h| h.distance + 0.01),
-                        )
-                    } else {
-                        None
-                    };
-                    let r = game.tool_press(button == MouseButton::Right, picked);
+                    let pick = game.pick_scene(renderer);
+                    if button == MouseButton::Left && game.click_running(pick.as_ref()) {
+                        return;
+                    }
+                    let r = game.scene_press(
+                        button == MouseButton::Right,
+                        pick,
+                        self.modifiers.shift_key(),
+                    );
                     game.result(r);
                 }
             }
@@ -1463,5 +1336,38 @@ impl ApplicationHandler for Application {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+}
+
+#[cfg(test)]
+mod ui_input_tests {
+    #[test]
+    fn a_press_uses_current_cursor_before_the_next_ui_frame() {
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::Area::new("axis".into())
+                        .fixed_pos([400.0, 300.0])
+                        .show(ctx, |ui| {
+                            ui.allocate_exact_size(egui::vec2(80.0, 12.0), egui::Sense::drag());
+                        });
+                },
+            );
+        }
+        assert!(!ctx.wants_pointer_input());
+        assert!(super::pointer_over_ui(&ctx, Some(egui::pos2(440.0, 306.0))));
+        assert!(!super::pointer_over_ui(
+            &ctx,
+            Some(egui::pos2(100.0, 100.0))
+        ));
+        assert!(!super::pointer_over_ui(&ctx, None));
     }
 }

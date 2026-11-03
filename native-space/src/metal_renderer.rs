@@ -884,7 +884,12 @@ impl Renderer {
         self.meshes.contains_key(key) || self.meshes.contains_key(&format!("{key}:alpha"))
     }
     /// Pick the actual displayed entity faces, including runtime component poses.
-    pub fn pick_entity(&self, eye: DVec3, direction: DVec3, limit: f64) -> Option<(String, f64)> {
+    pub fn pick_mesh(
+        &self,
+        eye: DVec3,
+        direction: DVec3,
+        limit: f64,
+    ) -> Option<space_native::interaction::MeshPick> {
         let mut nearest = limit;
         let mut result = None;
         for (key, mesh) in &self.meshes {
@@ -924,7 +929,15 @@ impl Renderer {
                     && hit[(axis + 2) % 3] <= face.extent[1] as f64 + 1e-6
                 {
                     nearest = distance;
-                    result = key.split(':').nth(1).map(|id| (id.to_owned(), distance));
+                    let mut normal = DVec3::ZERO;
+                    normal[axis] = if face.axis % 2 == 0 { -1.0 } else { 1.0 };
+                    result = Some(space_native::interaction::MeshPick {
+                        key: key.clone(),
+                        distance,
+                        local_point: eye + ray * distance,
+                        local_normal: normal,
+                        model: mesh.model,
+                    });
                 }
             }
         }

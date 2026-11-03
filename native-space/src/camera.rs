@@ -53,7 +53,13 @@ impl Camera {
             + forward * input.z
             + DVec3::Y * if self.flying { input.y } else { 0.0 })
         .normalize_or_zero();
-        let speed = if self.flying { self.speed } else { 5.0 } * if boost { 3.0 } else { 1.0 };
+        let speed = if self.flying {
+            self.speed
+        } else if input.y < 0.0 {
+            2.0
+        } else {
+            5.0
+        } * if boost { 3.0 } else { 1.0 };
         if self.flying {
             self.position += motion * speed * dt;
             self.velocity = DVec3::ZERO;

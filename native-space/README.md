@@ -183,8 +183,7 @@ without opening a panel; C edits the entity under the crosshair. New assemblies
 start stopped and kinematic, with gravity disabled and automatic mass. A deliberate
 switch to Dynamic enables gravity; reselecting Dynamic preserves an explicitly
 disabled gravity setting. Carrying an entity preserves its authored body settings.
-Imported entities retain their existing settings. The native tutorial system and
-its course/nameplate UI remain outside this migration.
+Imported entities retain their existing settings. The Rust UI migration now includes the local tutorial world and course/nameplate UI.
 
 The optional local coverage cache is keyed by world, seed, generator and terrain
 source hash. Returning to a world restores verified 64-unit coverage before full
@@ -212,3 +211,16 @@ main-thread scheduling paths with identical-code controls. Keep its window
 focused and unoccluded. Normal gameplay does not change VSync defaults.
 
 Results and limitations: [native sync report](../client/docs/performance-native-sync-2026-11-02.md).
+
+
+## Native offline UI
+
+See [UI_MIGRATION.md](UI_MIGRATION.md) for the Rust-owned UI, editing commands,
+file formats, controls, validation and remaining engine boundaries. Build normally
+with `sh native-space/tools/bundle.sh`. For UI tests that must not modify saves,
+use `sh native-space/tools/ui-validation.sh` and open its separate validation app.
+
+The interface follows the Web pixel theme. B opens the backpack, C edits the aimed
+entity, O opens settings, and Escape releases the pointer or closes a modal.
+Hammer placement uses click → pin/adjust → Enter. Shift-click attaches an Item to
+a component. Modeling uses right-drag to create and left-drag to move decorations.

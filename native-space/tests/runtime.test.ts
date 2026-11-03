@@ -116,3 +116,18 @@ test('stopped assemblies and deliberate script body changes preserve Web gravity
   await runtime.step(request);
   assert.equal(runtime.manager.contraptions[0].useGravity, false);
 });
+
+test('native clicks reach AssemblyScript once and retain component hit coordinates', async t => {
+  const { runtime, request } = fixture(t);
+  const e=entity({body:{type:'kinematic',useGravity:false},scriptLanguage:'assemblyscript',
+    script:'if (!ctx.clickedBlock.isNull) { self.state.setNumber("clicks", self.state.getNumber("clicks") + 1); self.state.setString("node", ctx.clickedBlock.getString("nodeId")); }'});
+  e.running=true; request.entities=[e]; request.steps=1;
+  await runtime.step(request); request.entities=undefined;
+  const click={eventId:'native-click-test',entityId:e.id,playerId:'local',nodeId:'root',kind:'standard',position:[0,0,0],size:1,decorationId:null,point:[4,5,4],localPoint:[0,0,0]};
+  request.clicks=[click];
+  for(let i=0;i<5;i++) await runtime.step(request);
+  request.clicks=[];
+  for(let i=0;i<8;i++) await runtime.step(request);
+  const state=runtime.manager.contraptions[0].componentVariables.get('root');
+  assert.equal(state?.clicks,1); assert.equal(state?.node,'root');
+});

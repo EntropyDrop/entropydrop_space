@@ -13,8 +13,13 @@ pub struct Avatar {
 }
 impl Avatar {
     pub fn bundled() -> Result<Self> {
-        let mut decoder =
-            png::Decoder::new(Cursor::new(include_bytes!("../assets/default-skin.png")));
+        Self::from_png(include_bytes!("../assets/default-skin.png"))
+    }
+    pub fn from_png(bytes: &[u8]) -> Result<Self> {
+        Self::from_png_style(bytes, false)
+    }
+    pub fn from_png_style(bytes: &[u8], slim: bool) -> Result<Self> {
+        let mut decoder = png::Decoder::new(Cursor::new(bytes));
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
         let mut reader = decoder.read_info()?;
         let mut data = vec![0; reader.output_buffer_size().unwrap()];
@@ -49,14 +54,25 @@ impl Avatar {
             [32, 20, 8, 12],
             [20, 20, 8, 12],
         ];
-        let arm = [
-            [40, 20, 4, 12],
-            [48, 20, 4, 12],
-            [48, 16, 4, 4],
-            [44, 16, 4, 4],
-            [52, 20, 4, 12],
-            [44, 20, 4, 12],
-        ];
+        let arm = if slim {
+            [
+                [40, 20, 4, 12],
+                [47, 20, 4, 12],
+                [47, 16, 3, 4],
+                [44, 16, 3, 4],
+                [51, 20, 3, 12],
+                [44, 20, 3, 12],
+            ]
+        } else {
+            [
+                [40, 20, 4, 12],
+                [48, 20, 4, 12],
+                [48, 16, 4, 4],
+                [44, 16, 4, 4],
+                [52, 20, 4, 12],
+                [44, 20, 4, 12],
+            ]
+        };
         let leg = [
             [0, 20, 4, 12],
             [8, 20, 4, 12],
@@ -88,16 +104,16 @@ impl Avatar {
                 shift(body, 0, 16),
             ),
             (
-                Vec3::new(4.0, 12.0, 4.0),
-                Vec3::new(-6.0, 24.0, 0.0),
-                Vec3::new(-2.0, -12.0, -2.0),
+                Vec3::new(if slim { 3.0 } else { 4.0 }, 12.0, 4.0),
+                Vec3::new(if slim { -5.5 } else { -6.0 }, 24.0, 0.0),
+                Vec3::new(if slim { -1.5 } else { -2.0 }, -12.0, -2.0),
                 arm,
                 shift(arm, 0, 16),
             ),
             (
-                Vec3::new(4.0, 12.0, 4.0),
-                Vec3::new(6.0, 24.0, 0.0),
-                Vec3::new(-2.0, -12.0, -2.0),
+                Vec3::new(if slim { 3.0 } else { 4.0 }, 12.0, 4.0),
+                Vec3::new(if slim { 5.5 } else { 6.0 }, 24.0, 0.0),
+                Vec3::new(if slim { -1.5 } else { -2.0 }, -12.0, -2.0),
                 shift(arm, -8, 32),
                 shift(arm, 8, 32),
             ),
