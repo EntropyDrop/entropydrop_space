@@ -11,6 +11,7 @@ export interface PlayerCameraPort {
   bodyQuaternion: PlayerController['bodyQuaternion'];
   isDriving: PlayerController['isDriving'];
   drivenContraption: PlayerController['drivenContraption'];
+  drivenSeat: PlayerController['drivenSeat'];
   physics: PlayerController['physics'];
   sceneRenderer: PlayerController['sceneRenderer'];
   ui: PlayerController['ui'];
@@ -69,6 +70,7 @@ export class PlayerCamera {
     if (vehicle !== this.framingVehicle) {
       this.framingVehicle = vehicle;
       this.vehicleZoom = 1;
+      this.framing.reset();
     }
     return vehicle;
   }
@@ -183,13 +185,15 @@ export class PlayerCamera {
     const { distance } = this.getCameraPerspectiveTransition().pose;
     const vehicle = this.getFramingVehicle();
     if (distance > 0) {
-      const minimum = this.framing.measure(this.host.camera, eyePos, vehicle, this.host.physics.getAABB?.());
+      const seat = this.host.drivenSeat;
+      const minimum = this.framing.measure(this.host.camera, eyePos, vehicle, this.host.physics.getAABB?.(),
+        seat ? `${seat.componentId}:${seat.seatIndex}` : '');
       const target = Math.max(this.thirdPersonDistance, minimum) * (vehicle ? this.vehicleZoom : 1);
       if (this.followDistance === null) this.followDistance = target;
       if (Number.isFinite(dt) && dt > 0) {
         this.followDistance = THREE.MathUtils.damp(this.followDistance, target, 10, dt);
       }
-      // Fit immediately after mounting, turning or resizing; ease back inward.
+      // Fit immediately after mounting or an authored edit; ease manual zoom.
       this.followDistance = Math.max(minimum, this.followDistance);
     } else {
       this.followDistance = this.thirdPersonDistance;

@@ -86,7 +86,20 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   const parameters = new URLSearchParams(location.search);
   const baseline = parameters.get('dev_baseline') === '1';
   const busyStreaming = parameters.get('dev_stream_busy') === '1';
-  const game = create(offlineSession(parameters.get('world') ?? undefined), ephemeralStorage());
+  const session = offlineSession(parameters.get('world') ?? undefined);
+  // Reproduce a world seed and an existing-ground camera start for local captures.
+  // These overrides are confined to the loopback-only development entry above.
+  const captureSeed = parameters.get('dev_seed');
+  if (captureSeed !== null && /^\d{1,10}$/.test(captureSeed)) session.world.seed = Number(captureSeed);
+  const captureSpawn = parameters.get('dev_spawn')?.split(',').map(Number);
+  if (captureSpawn?.length === 3 && captureSpawn.every(Number.isFinite)
+    && captureSpawn[0] >= 0 && captureSpawn[0] < 16384
+    && captureSpawn[1] >= 0 && captureSpawn[1] < 256
+    && captureSpawn[2] >= 0 && captureSpawn[2] < 2048) {
+    Object.assign(session.player, { start_x_cm: Math.round(captureSpawn[0] * 100),
+      start_y_cm: Math.round(captureSpawn[1] * 100), start_z_cm: Math.round(captureSpawn[2] * 100) });
+  }
+  const game = create(session, ephemeralStorage());
   if (parameters.get('world') === 'matched-blocks') (game as any).uiStore.setWorldProjection('flat', false);
   const fixedDpr = Number(parameters.get('dev_dpr'));
   if (fixedDpr >= .5 && fixedDpr <= 2) game.sceneRenderer.cappedDevicePixelRatio = () => fixedDpr;
@@ -118,8 +131,10 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
       globalThis.cancelIdleCallback = id => window.clearTimeout(id);
     }
     game.start();
-    const surface = ['1', 'world'].includes(parameters.get('dev_lod') ?? '')
-      ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world, parameters.get('dev_lod') === 'world') : null;
+    const lod = parameters.get('dev_lod');
+    const surface = ['1', 'world', 'full'].includes(lod ?? '')
+      ? (await import('./OfflineSurface.ts')).startOfflineSurface(game.world,
+        lod === 'full' ? 'full' : lod === 'world' ? 'repeat' : 'bounded') : null;
     (window as any).offlineSurfaceStatus = surface;
     installDiagnostics(game, baseline, surface, busyStreaming);
     if (parameters.get('dev_perf') === '1') installFrameDiagnostics(game);

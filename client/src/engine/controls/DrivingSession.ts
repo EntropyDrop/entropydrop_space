@@ -80,6 +80,11 @@ export class DrivingSession {
       this.drivenSeat = { componentId: seat.componentId, seatIndex: seat.seatIndex };
       this.drivenSeatFixedOrientation = seat.fixedOrientation === true;
       this.host.contraptions.activeDrivable = target;
+      // Mount before the next render can cache the vehicle's framing envelope.
+      // The previous walking position can be many metres from the seat.
+      this.host.physics.position.copy(seat.worldPosition);
+      this.host.physics.velocity.set(0, 0, 0);
+      this.host.physics.resetRenderInterpolation?.();
       if (this.host.ui) this.host.ui.showToast(`Mounted! Key behavior is defined by the ctx.input script · [C] program [V] leave`);
     } else {
       if (this.host.ui) this.host.ui.showToast(`Aim at an entity block with a configured seat, then press V`);

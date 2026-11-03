@@ -3,10 +3,6 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 
-/**
- * The 8x8x8 spoon preview shows only surface grid lines, never the internal 7x7x7 grid.
- */
-
 function makeRendererWithPreview() {
   const renderer = Object.create(SceneRenderer.prototype);
   renderer.scene = { add() {} };
@@ -14,22 +10,17 @@ function makeRendererWithPreview() {
   return renderer;
 }
 
-test('the micro-carve preview contains only surface line segments', () => {
+test('the spoon shows a gray standard-cell boundary with no subdivision grid', () => {
   const renderer = makeRendererWithPreview();
-  const gridLines = renderer.microCarveGroup.children[0];
-  assert.ok(gridLines.isLineSegments);
-  const pos = gridLines.geometry.attributes.position.array;
-
-  // 3 axes × 2 surface orientations × 9 grid lines × 2 endpoints × 3 coordinates.
-  assert.equal(pos.length, 3 * 2 * 9 * 2 * 2 * 3, 'the preview should contain 108 segments');
-
-  const nearSurface = (value: number) => Math.abs(value) < 1e-9 || Math.abs(value - 1) < 1e-9;
-  for (let i = 0; i < pos.length; i += 6) {
-    const endpoints = [pos[i], pos[i + 1], pos[i + 2], pos[i + 3], pos[i + 4], pos[i + 5]];
-    assert.ok(
-      endpoints.some(nearSurface),
-      `segment ${endpoints.join(',')} must have at least one endpoint on surface 0 or 1`
-    );
+  assert.equal(renderer.microCarveGroup.children.length, 1);
+  const outline = renderer.microCarveGroup.children[0];
+  assert.equal(outline.material.color.getHex(), 0x909090);
+  assert.deepEqual(outline.position.toArray(), [0.5, 0.5, 0.5]);
+  const positions = outline.geometry.attributes.position;
+  for (let i = 0; i < positions.count; i++) {
+    const coordinates = [positions.getX(i), positions.getY(i), positions.getZ(i)];
+    assert.ok(coordinates.filter(v => Math.abs(v) >= 0.4374).length >= 2,
+      'every vertex belongs to a standard-cell edge, with no lines across a face');
   }
 });
 

@@ -7,7 +7,7 @@ import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.t
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 
 /**
- * Spoon-focus 8x8x8 preview tests for updateMicroCarvePreview coordinate conversion.
+ * Spoon standard-cell boundary tests for updateMicroCarvePreview coordinate conversion.
  */
 
 function makeController(tool: string) {
@@ -27,7 +27,7 @@ test('tools other than the spoon produce no preview', () => {
   assert.equal(controller.microCarvePreview, null);
 });
 
-test('spoon over a world standard block previews its 8x8x8 grid', () => {
+test('spoon over a world standard block previews its standard-cell boundary', () => {
   const controller = makeController(SpecialTool.SPOON);
   controller.currentRaycast = { hit: true as const, kind: 'standard', hitPos: { x: 3, y: 4, z: 5 } };
   controller.updateMicroCarvePreview();
@@ -81,7 +81,7 @@ test('spoon preview over an entity microblock follows the entity transform', () 
   assert.ok(Math.abs(preview.microCenter.z - 30.1875) < 1e-6);
 });
 
-test('spoon over an entity standard block shows the grid without a microcell highlight', () => {
+test('spoon over an entity standard block shows the boundary without a microcell highlight', () => {
   const scene = new THREE.Scene();
   const contraption = new Contraption(
     78,

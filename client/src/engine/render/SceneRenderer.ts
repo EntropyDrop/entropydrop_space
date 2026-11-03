@@ -488,45 +488,22 @@ export class SceneRenderer {
   }
 
   /**
-   * Micro-carve focus preview: draws the 8x8x8 micro-voxel grid wireframe
-   * inside the hit standard cell, and highlights the current 0.125³ micro cell
+   * Micro-carve focus preview: outlines the hit standard cell in gray,
+   * without a subdivision grid, and highlights the current 0.125³ micro cell
    * when a micro block is hit.
    */
   setupMicroCarvePreview() {
     this.microCarveGroup = new THREE.Group();
     this.microCarveGroup.name = 'MicroCarvePreview';
 
-    // 8×8 grid lines on the outer surface of each 1×1×1 standard cell
-    // (inner 3×3×3 lines hidden for a clean look)
-    const positions = [];
-    const N = MICRO_DIVISIONS;
-    const step = 1 / N;
-    for (const face of [0, 1]) {
-      for (let j = 0; j <= N; j++) {
-        const w = j * step;
-        // x = the two faces: grid lines along Y and along Z
-        positions.push(face, 0, w, face, 1, w);
-        positions.push(face, w, 0, face, w, 1);
-        // y = the two faces: grid lines along X and along Z
-        positions.push(0, face, w, 1, face, w);
-        positions.push(w, face, 0, w, face, 1);
-        // z = the two faces: grid lines along X and along Y
-        positions.push(0, w, face, 1, w, face);
-        positions.push(w, 0, face, w, 1, face);
-      }
-    }
-    const gridGeo = new THREE.BufferGeometry();
-    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const gridMat = new THREE.LineBasicNodeMaterial({
-      color: COMPONENT_OUTLINE_COLORS[0],
-      transparent: true,
-      opacity: 0.72,
-      depthTest: false,
-      depthWrite: false
-    });
-    const gridLines = new THREE.LineSegments(gridGeo, gridMat);
-    gridLines.renderOrder = 41;
-    this.microCarveGroup.add(gridLines);
+    // A quiet standard-cell boundary; the single hit microcell stays distinct.
+    const outline = createSelectionOutline(
+      new SelectionOutlineGeometry(), createSelectionOutlineMaterial(0x909090, 0.72)
+    );
+    outline.name = 'SpoonStandardCellOutline';
+    outline.position.set(0.5, 0.5, 0.5);
+    outline.renderOrder = 41;
+    this.microCarveGroup.add(outline);
     this.microCarveGroup.renderOrder = 41;
 
     this.microCarveFocusCell = createSelectionOutline(
@@ -544,7 +521,7 @@ export class SceneRenderer {
   /**
    * Update the micro-carve focus preview.
    * @param {null | { cellOrigin: THREE.Vector3, microCenter: THREE.Vector3|null, quaternion?: THREE.Quaternion }} preview
-   *   cellOrigin: world coordinates of the standard cell corner (8×8×8 grid drawn inside);
+   *   cellOrigin: world coordinates of the standard cell corner;
    *   microCenter: world coordinates of the focused micro cell center (when a micro
    *   block is hit), otherwise null;
    *   quaternion: optional orientation of the parent entity component.

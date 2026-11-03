@@ -526,6 +526,7 @@ export class PlayerController {
       get bodyQuaternion() { return host.bodyQuaternion; },
       get isDriving() { return host.isDriving; },
       get drivenContraption() { return host.drivenContraption; },
+      get drivenSeat() { return host.drivenSeat; },
       get physics() { return host.physics; },
       set physics(value) { host.physics = value; },
       get sceneRenderer() { return host.sceneRenderer; },
@@ -7129,14 +7130,14 @@ export class PlayerController {
   }
 
   /**
-   * Compute the spoon 8x8x8 grid focus preview (same hit priority as clicks):
-   * entity hit first, then world ray; standard cell shows the full grid,
+   * Compute the spoon standard-cell outline (same hit priority as clicks):
+   * entity hit first, then world ray; outline the containing standard cell,
    * micro hit additionally highlights the current micro cell.
    */
   updateMicroCarvePreview() {
     this.microCarvePreview = null;
     if (this.worldPickingSuspended) return;
-    // Spoon: show 8×8 micro-voxel focus grid.
+    // Spoon: show the containing standard-cell outline.
     // Selector (after a level has been selected): show a 1×1×1 outline on hover to help the user
     // aim their first box-selection corner.
     const isSpoon = this.activeTool === SpecialTool.SPOON;
@@ -7288,7 +7289,7 @@ export class PlayerController {
         }
         return;
       }
-      // Only the spoon renders the 8×8 micro-voxel grid.
+      // Only the spoon renders the containing standard-cell outline.
       if (!isSpoon) return;
       const focusNode = contraption.entityNodes?.get?.(nodeId);
       focusNode?.group?.updateWorldMatrix?.(true, false);
@@ -7348,8 +7349,8 @@ export class PlayerController {
       this.sceneRenderer?.clearBoxSelectionPreview?.();
       return;
     }
-    // World hit: only the Spoon shows the micro-voxel grid. The Selector already has its own
-    // block cursor overlay so we skip the grid to avoid duplication.
+    // World hit: only the Spoon shows the containing standard-cell outline. The Selector already has its own
+    // block cursor overlay so we skip this outline to avoid duplication.
     if (!isSpoon) return;
     const ray = this.currentRaycast;
     if (!ray || !ray.hit) return;

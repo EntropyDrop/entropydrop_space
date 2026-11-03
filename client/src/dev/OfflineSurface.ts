@@ -1,12 +1,16 @@
 import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { createSpaceSurfaceSnapshotRemote } from '../bootstrap/SpaceSurfaceSnapshot.ts';
 import { TERRAIN_GENERATOR_MATCHED } from '@entropydrop/space-engine/worldgen/MatchedTerrainSpec.ts';
+import { offlineSurfacePlan, type OfflineSurfaceMode } from './OfflineSurfacePlan.ts';
 
 /** Real volumetric snapshots, real streaming/LOD/disk-cache path, no server calls. */
-export function startOfflineSurface(world: World, repeatWorld = false) {
+export function startOfflineSurface(world: World, mode: OfflineSurfaceMode = 'bounded') {
   const matched = world.terrainGen.version === TERRAIN_GENERATOR_MATCHED;
-  if (matched || (world.terrainGen.version >= 11 && world.terrainGen.version <= 13)) repeatWorld = false;
-  const status = { generated: 0, total: matched ? 4 : repeatWorld ? 128 : 8, downloads: 0, passes: 0, fineZones: 0, error: '', progress: '' };
+  if (mode === 'repeat' && world.terrainGen.version >= 11 && world.terrainGen.version <= 13) mode = 'bounded';
+  const plan = offlineSurfacePlan(mode, matched);
+  const status = { generated: 0, total: plan.total, installed: 0, complete: false,
+    mode, downloads: 0, passes: 0, fineZones: 0, error: '', progress: '' };
+  const installed = new Set<string>();
   const fineZones = new Set<string>();
   const payloads = new Map<string, Uint8Array>(), zones: any[] = [];
   const templates = new Map<number, Uint8Array>();
@@ -19,7 +23,8 @@ export function startOfflineSurface(world: World, repeatWorld = false) {
     (async input => {
       const path = new URL(String(input)).pathname;
       if (path === `${root}manifest`) return Response.json({ schema_version: 7, samples_per_chunk_axis: 16,
-        zone_size_chunks: 32, width_chunks: 1024, length_chunks: 128, complete: false, zones });
+        zone_size_chunks: 32, width_chunks: 1024, length_chunks: 128,
+        complete: status.generated === 128, zones });
       const alias = aliases.get(path);
       const bytes = alias ? templates.get(alias.size)?.slice() : payloads.get(path);
       if (!bytes) return new Response(null, { status: 404 });
@@ -49,16 +54,15 @@ export function startOfflineSurface(world: World, repeatWorld = false) {
     status.generated++;
   };
   worker.onerror = event => { status.error = event.message; worker.terminate(); };
-  // Four districts around spawn and four across the hole. Intentionally a
-  // bounded test fixture, not a full-world generation benchmark.
-  worker.postMessage({ seed, version, repeatWorld,
-    zones: matched ? [[15,1],[15,2],[16,1],[16,2]] : repeatWorld ? [[16,2]] : [[15,1],[15,2],[16,1],[16,2],[0,1],[0,2],[31,1],[31,2]] });
+  worker.postMessage({ seed, version, repeatWorld: plan.repeatWorld, zones: plan.zones });
   const poll = async () => {
     try {
       if (zones.length) {
         await remote.loadAll(zone => {
           world.installSurfaceZone(zone);
           const key = `${zone.zoneX},${zone.zoneZ}`;
+          installed.add(key);
+          status.installed = installed.size;
           if (zone.sampleSize === 1) fineZones.add(key); else fineZones.delete(key);
           status.fineZones = fineZones.size;
         }, undefined, {
@@ -67,6 +71,7 @@ export function startOfflineSurface(world: World, repeatWorld = false) {
         });
         await world.finalizeSurfaceConnections(false);
         status.passes++;
+        status.complete = status.generated === plan.total && installed.size === plan.total;
         status.error = '';
       }
     } catch (error) { status.error = String(error); }

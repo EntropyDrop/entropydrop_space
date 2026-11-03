@@ -674,7 +674,7 @@ class Game {
       this.sceneRenderer.setCursor(null);
     }
 
-    // 6b. Spoon micro-carve 8x8x8 grid preview
+    // 6b. Spoon standard-cell boundary and focused microcell
     this.sceneRenderer.setMicroCarvePreview(this.controller.microCarvePreview);
 
     // 6c. Selector focus-block guide (brighter after point 1 is set; micro-sized

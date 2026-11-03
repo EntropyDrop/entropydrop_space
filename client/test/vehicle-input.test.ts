@@ -234,7 +234,7 @@ test('seat rotation leaves both third-person camera perspectives stable and inde
   const controller: any = Object.assign(Object.create(PlayerController.prototype), {
     isDriving: true, drivenSeat: { componentId: 'cab', seatIndex: 0 },
     drivenSeatFixedOrientation: true,
-    drivenContraption: { getSeatWorldQuaternion: () => seatRotation.clone() },
+    drivenContraption: { entityNodes: new Map(), getSeatWorldQuaternion: () => seatRotation.clone() },
     camera: new THREE.PerspectiveCamera(),
     physics: { getEyePosition: () => eye.clone() },
     yaw: 0.3, pitch: -0.2, thirdPersonDistance: 4
@@ -262,6 +262,7 @@ function mountedCameraFixture() {
   const controller: any = Object.assign(Object.create(PlayerController.prototype), {
     isDriving: true, drivenSeat: { componentId: 'cab', seatIndex: 0 },
     drivenContraption: {
+      entityNodes: new Map(),
       getSeatWorldQuaternion: () => seatRotation.clone(),
       getComponentSeats: () => [{ fixedOrientation }],
     },
@@ -493,6 +494,13 @@ test('the local avatar uses seat body rotation while first-person projection use
 test('V mounts the seat nearest the aimed entity block', () => {
   const controller = Object.create(PlayerController.prototype) as any;
   const focus = new THREE.Vector3(4, 5, 6);
+  const seatPosition = new THREE.Vector3(4, 6, 5);
+  let interpolationReset = false;
+  controller.physics = {
+    position: new THREE.Vector3(30, 9, 20),
+    velocity: new THREE.Vector3(2, 0, 3),
+    resetRenderInterpolation() { interpolationReset = true; }
+  };
   const focusedBlock = { id: 'focused-block' };
   const target = {
     getBlockWorldCenter(block: unknown) {
@@ -501,7 +509,7 @@ test('V mounts the seat nearest the aimed entity block', () => {
     },
     getNearestSeat(point: { x: number; y: number; z: number }) {
       assert.equal(point, focus);
-      return { componentId: 'cab', seatIndex: 2, worldPosition: new THREE.Vector3(), distanceSq: 0.25 };
+      return { componentId: 'cab', seatIndex: 2, worldPosition: seatPosition, distanceSq: 0.25 };
     }
   };
   controller.isDriving = false;
@@ -523,6 +531,10 @@ test('V mounts the seat nearest the aimed entity block', () => {
   assert.equal(controller.drivenContraption, target);
   assert.deepEqual(controller.drivenSeat, { componentId: 'cab', seatIndex: 2 });
   assert.equal(controller.contraptions.activeDrivable, target);
+  assert.deepEqual(controller.physics.position.toArray(), seatPosition.toArray(),
+    'the first mounted camera frame must measure from the seat, not the old walking position');
+  assert.deepEqual(controller.physics.velocity.toArray(), [0, 0, 0]);
+  assert.equal(interpolationReset, true);
 });
 
 test('entity program queries down, pressed and released by KeyboardEvent.code', async () => {

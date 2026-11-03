@@ -53,10 +53,34 @@ function assertBoxFits(box: THREE.Box3, camera: THREE.PerspectiveCamera) {
 }
 
 function assertFits(vehicle: Contraption, camera: THREE.PerspectiveCamera) {
-  return assertBoxFits(vehicle.getVisualWorldBounds(), camera);
+  camera.updateMatrixWorld(true);
+  const points: THREE.Vector3[] = [];
+  for (const node of vehicle.entityNodes.values()) {
+    node.group.updateWorldMatrix(true, false);
+    const bounds = vehicle.getNodeBlocksBounds(node.id);
+    if (!bounds) continue;
+    const box = new THREE.Box3(new THREE.Vector3().fromArray(bounds.min).sub(node.pivotLocal),
+      new THREE.Vector3().fromArray(bounds.max).sub(node.pivotLocal));
+    points.push(...boxCorners(box).map(p => p.applyMatrix4(node.group.matrixWorld)));
+  }
+  for (const group of vehicle.decorationGroups.values()) {
+    group.updateWorldMatrix(true, true);
+    for (const object of group.children) {
+      if (!object.userData.decorationId) continue;
+      const mesh = object as THREE.Mesh;
+      mesh.geometry.computeBoundingBox();
+      points.push(...boxCorners(mesh.geometry.boundingBox!).map(p => p.applyMatrix4(mesh.matrixWorld)));
+    }
+  }
+  const projected = points.map(point => point.project(camera));
+  for (const p of projected) {
+    assert.ok(Math.abs(p.x) <= 0.800001 && Math.abs(p.y) <= 0.800001, `component framing: ${p.toArray()}`);
+    assert.ok(p.z >= -1 && p.z < 1);
+  }
+  return projected;
 }
 
-test('the entire vehicle bounding box fits across view angles, aspect ratios, FOVs and off-center seats', () => {
+test('all vehicle components fit across view angles, aspect ratios, FOVs and off-center seats', () => {
   const { controller, eye, camera } = fixture();
   const vehicle = makeVehicle();
   controller.isDriving = true;
@@ -84,7 +108,7 @@ test('the entire vehicle bounding box fits across view angles, aspect ratios, FO
   assert.ok(maximumDistance > 12, 'automatic fit is not capped by the on-foot slider');
 });
 
-test('wide, tall and deep bounding boxes fit in both perspectives, including rotated empty corners', () => {
+test('wide, tall and deep components fit in both perspectives across rotations', () => {
   for (const [width, height, depth] of [[40, 1, 1], [1, 40, 1], [1, 1, 80], [30, 24, 55]]) {
     const { controller, eye, camera } = fixture();
     const vehicle = new Contraption(2, [
@@ -97,11 +121,7 @@ test('wide, tall and deep bounding boxes fit in both perspectives, including rot
     for (const perspective of ['third_person', 'third_person_front'] as const) {
       controller.setPerspective(perspective, false);
       controller.updateRender(5);
-      const projected = assertFits(vehicle, camera);
-      if (width === 40) {
-        const screenWidth = (Math.max(...projected.map(p => p.x)) - Math.min(...projected.map(p => p.x))) / 2;
-        assert.ok(screenWidth > 0.7, 'wide boxes use the available viewport instead of a one-third width cap');
-      }
+      assertFits(vehicle, camera);
       vehicle.quaternion.setFromEuler(new THREE.Euler(0.4, 0.9, 0.7));
       controller.yaw = -0.8;
       controller.pitch = 0.6;
@@ -113,7 +133,7 @@ test('wide, tall and deep bounding boxes fit in both perspectives, including rot
   }
 });
 
-test('moving child components and resizing decorations update the fit on the next camera pass', () => {
+test('authored geometry changes refresh framing while runtime motion keeps the mounted fit', () => {
   const { controller, camera, eye } = fixture();
   const vehicle = makeVehicle();
   controller.isDriving = true;
@@ -122,10 +142,14 @@ test('moving child components and resizing decorations update the fit on the nex
   const initial = camera.position.distanceTo(eye);
   vehicle.entityNodes.get('wing')!.group.position.x += 80;
   controller.updateCameraPosition();
+  assert.equal(camera.position.distanceTo(eye), initial, 'runtime component motion must not pump the camera');
+  vehicle.markDefinitionChanged();
+  controller.updateCameraPosition();
   assertFits(vehicle, camera);
   assert.ok(camera.position.distanceTo(eye) > initial);
   const rotor = vehicle.decorationGroups.get('hull')!.children[0];
   rotor.scale.x *= 10;
+  vehicle.markDefinitionChanged();
   controller.updateCameraPosition();
   assertFits(vehicle, camera);
 });
@@ -239,4 +263,33 @@ test('walking also adapts to character size and narrow viewports without changin
   controller.setPerspective('first_person', false);
   controller.updateCameraPosition();
   assert.ok(camera.position.distanceTo(eye) < 1e-8, 'automatic framing does not move first-person eyes');
+});
+
+
+test('a full turn with spinning components keeps FOV and mounted camera distance constant', () => {
+  const { controller, camera, eye } = fixture();
+  const vehicle = makeVehicle();
+  controller.isDriving = true;
+  controller.drivenContraption = vehicle;
+  controller.updateRender(5);
+  const distance = camera.position.distanceTo(eye);
+  const projection = camera.projectionMatrix.clone();
+  const getBounds = vehicle.getNodeBlocksBounds.bind(vehicle);
+  let scans = 0;
+  vehicle.getNodeBlocksBounds = id => { scans++; return getBounds(id); };
+  for (let i = 0; i < 360; i++) {
+    const angle = i * Math.PI / 180;
+    vehicle.quaternion.setFromEuler(new THREE.Euler(0.1 * Math.sin(angle), angle, 0.1 * Math.cos(angle)));
+    vehicle.entityNodes.get('wing')!.group.rotation.y = angle * 17;
+    vehicle.decorationGroups.get('hull')!.children[0].rotation.y = angle * 23;
+    controller.yaw = angle + 0.5;
+    controller.pitch = -0.3;
+    controller.updateRender(1 / 60);
+    assert.ok(Math.abs(camera.position.distanceTo(eye) - distance) < 1e-9);
+    assert.ok(camera.projectionMatrix.equals(projection));
+    const measuredByCamera = scans;
+    assertFits(vehicle, camera);
+    scans = measuredByCamera;
+  }
+  assert.equal(scans, 0, 'animation frames reuse the precomputed envelope');
 });
