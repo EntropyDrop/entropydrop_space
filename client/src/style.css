@@ -1669,7 +1669,8 @@ button.palette-title:hover {
 .entity-nameplates {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  /* Keep depth-sorted labels above the canvas (1), below panels (20+) and HUD (50). */
+  z-index: 10;
   pointer-events: none;
 }
 
