@@ -27,6 +27,16 @@ const DISTANT_LOD_CONTROLS: ReadonlyArray<{
     description: 'Resident source data, up to 1 GiB. Geometry uses additional memory. Turning never evicts terrain.' },
   { key: 'geometryBudgetMiB', label: 'Voxel Geometry Budget', unit: 'MiB',
     description: 'Raise this if actual detail exceeds the target. More detail costs GPU time and memory; CPU copies and transitions use additional memory.' },
+  { key: 'textureProxyEdge', label: 'Baked Surface Size', unit: 'm',
+    description: 'Maximum size of a merged textured surface. Smaller surfaces follow the curved world more closely.' },
+  { key: 'textureProxyDensity', label: 'Baked Texture Detail', unit: 'texels/cell',
+    description: 'Higher detail keeps filtered color edges sharper and uses more of the texture cache.' },
+  { key: 'textureProxyLodBias', label: 'Proxy Geometry Simplification', unit: 'levels',
+    description: '0 keeps the original shape. 1 or 2 uses coarser geometry with detailed colors; silhouettes and small openings can change.' },
+  { key: 'textureProxyDistance', label: 'Texture Baking Distance', unit: 'm',
+    description: 'Use textured surfaces beyond this distance. Nearby terrain keeps its detailed geometry.' },
+  { key: 'textureProxyBudgetMiB', label: 'Baked Texture Cache', unit: 'MiB',
+    description: 'Maximum texture pool size. Terrain keeps its original geometry when the cache is full.' },
 ];
 
 function DistantTerrainDetailStatus({ layer }: { layer?: DistantSurfaceLayer }) {
@@ -554,7 +564,32 @@ export function GlobalSettingsModal() {
                   ))}
                 </div>
               </div>
-              {DISTANT_LOD_CONTROLS.map(({ key, label, description, unit }) => {
+              {([
+                ['textureProxyEnabled', 'Baked Distant Surfaces', 'Reduce distant geometry with textures. Off is recommended; performance depends on terrain and GPU. Changes prepare in the background.', 'Off', 'On'],
+                ['textureProxyLinear', 'Baked Texture Filtering', 'Sharp preserves voxel color edges. Smooth softens color transitions at distance.', 'Sharp', 'Smooth'],
+              ] as const).map(([key, label, description, off, on]) => <div className="settings-row" key={key}>
+                <div className="settings-label-group"><span className="settings-label" id={`setting-${key}-label`}>{label}</span>
+                  <span className="settings-desc">{description}</span></div>
+                <div className="settings-segmented-control" role="group" aria-labelledby={`setting-${key}-label`}>
+                  {([false, true] as const).map(value => <button key={String(value)}
+                    className={`segment-btn ${state.distantSurfaceSettings[key] === value ? 'active' : ''}`}
+                    aria-pressed={state.distantSurfaceSettings[key] === value}
+                    onClick={() => spaceUiStore.setDistantSurfaceSetting(key, value)}>{value ? on : off}</button>)}
+                </div>
+              </div>)}
+              {state.distantSurfaceSettings.textureProxyEnabled && <div className="settings-row">
+                <div className="settings-label-group">
+                  <span className="settings-label" id="setting-texture-batching-label">Proxy Batching</span>
+                  <span className="settings-desc">Balanced uses more memory to reduce draw calls. Maximum also shares texture shading across all far faces; fewer draws can still cost frame rate.</span>
+                </div>
+                <div className="settings-segmented-control" role="group" aria-labelledby="setting-texture-batching-label">
+                  {([[0, 'Memory Saver'], [1, 'Balanced'], [2, 'Maximum']] as const).map(([value, label]) => <button key={value}
+                    className={`segment-btn ${state.distantSurfaceSettings.textureProxyBatching === value ? 'active' : ''}`}
+                    aria-pressed={state.distantSurfaceSettings.textureProxyBatching === value}
+                    onClick={() => spaceUiStore.setDistantSurfaceSetting('textureProxyBatching', value)}>{label}</button>)}
+                </div>
+              </div>}
+              {DISTANT_LOD_CONTROLS.filter(({key}) => !key.startsWith('textureProxy') || state.distantSurfaceSettings.textureProxyEnabled).map(({ key, label, description, unit }) => {
                 const limits = DISTANT_SURFACE_SETTING_LIMITS[key];
                 return <div className="settings-row" key={key}>
                   <div className="settings-label-group">

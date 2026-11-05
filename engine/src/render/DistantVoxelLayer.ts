@@ -3,13 +3,15 @@ import { VoxelFaceArena, type ArenaInputs } from './VoxelFaceArena.ts';
 import { StaticTerrainGroup } from './StaticTerrainGroup.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
 import { alignedInstanceAttribute, terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
-import { Fn, attribute, uniform, reference, vec2, vec3, vec4, positionGeometry, varying, float, screenCoordinate, output } from 'three/tsl';
+import { Fn, If, attribute, uniform, reference, vec2, vec3, vec4, positionGeometry, varying, float, uint, screenCoordinate, output, texture } from 'three/tsl';
 import { createVoxelEmissionMaskUniform, voxelEmissionColor } from './VoxelEmission.ts';
 import { computeBentBoundsSphere, getWorldProjection, hookSceneMaterials, projectBentSphereForView, type WorldProjection } from '../torus/TorusWorld.ts';
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { VoxelLodPlanner, type VoxelLodTile, type VoxelLodView } from './VoxelLodPlanner.ts';
 import { createCooperativeVoxelLodPort, createWorkerVoxelLodPort, type VoxelLodPort, type VoxelLodResponse } from './VoxelLodService.ts';
 import type { SurfaceZoneSnapshot, VoxelSurfaceMip } from '../voxel/SurfaceZoneSnapshot.ts';
+import { DEFAULT_VOXEL_TEXTURE_BAKE, VOXEL_BAKE_SIZE, type VoxelTextureBakeSettings } from './VoxelTextureBake.ts';
+import { VoxelTexturePool } from './VoxelTexturePool.ts';
 
 type FaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 // Worker transport uses 15 bytes per face, plus block visibility metadata.
@@ -31,24 +33,59 @@ function geometry() {
 }
 const opaqueMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMaterial>();
 const voxelMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMaterial>();
+const bakedMaterials = new WeakMap<THREE.DataArrayTexture, { opaque: typeof opaqueMaterials; masked: typeof voxelMaterials }>();
 export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THREE.Vector3,
-  optimized: { value: boolean }, solid = false, arena?: ArenaInputs) {
-  const cache = solid ? opaqueMaterials : voxelMaterials;
+  optimized: { value: boolean }, solid = false, arena?: ArenaInputs, bakedTexture?: THREE.DataArrayTexture) {
+  let cache = solid ? opaqueMaterials : voxelMaterials;
+  if (bakedTexture) {
+    let caches = bakedMaterials.get(bakedTexture);
+    if (!caches) { caches = { opaque: new WeakMap(), masked: new WeakMap() }; bakedMaterials.set(bakedTexture, caches); }
+    cache = solid ? caches.opaque : caches.masked;
+  }
   const cached = cache.get(mask);
   if (cached && !arena) return cached;
   const result = new THREE.MeshStandardNodeMaterial({ vertexColors: !arena, roughness: .65, metalness: .15 });
   const emissionMask = createVoxelEmissionMaskUniform(result);
-  const dir = arena?.direction ?? attribute<'float'>('voxelDirection', 'float');
+  const rawDir = arena?.direction ?? attribute<'float'>('voxelDirection', 'float');
+  const dir = bakedTexture ? float(uint(rawDir).bitAnd(7)) : rawDir;
+  const corner = arena?.quad ?? positionGeometry.xy;
+  const surfaceUv = vec2(dir.mod(2).lessThan(.5).select(corner.x.oneMinus(), corner.x), corner.y);
+  const span = arena?.span ?? attribute<'vec2'>('voxelSpan', 'vec2');
   const normal = dir.lessThan(2).select(vec3(1,0,0), dir.lessThan(4).select(vec3(0,1,0), vec3(0,0,1))).mul(dir.mod(2).mul(2).sub(1));
   const flat = Fn(() => {
-    const uv = (arena?.quad ?? positionGeometry.xy).toVar();
-    uv.x.assign(dir.mod(2).lessThan(.5).select(uv.x.oneMinus(), uv.x));
-    const p = uv.mul(arena?.span ?? attribute<'vec2'>('voxelSpan', 'vec2')).mul(.125);
+    const p = surfaceUv.mul(span).mul(.125);
     return (arena?.origin ?? uniform(new THREE.Vector3()).onObjectUpdate(({object}) => object?.userData.voxelOrigin ?? origin)).add((arena?.offset ?? attribute<'vec3'>('voxelOffset', 'vec3')).mul(.125)).add(
       dir.lessThan(2).select(vec3(0,p.x,p.y), dir.lessThan(4).select(vec3(p.y,0,p.x), vec3(p.x,p.y,0))));
   })();
   result.positionNode = arena ? arena.valid.select(flat, vec3(0)) : flat;
-  if (arena) result.colorNode = arena.color;
+  let surfaceColor: any = arena?.color ?? attribute<'vec3'>('color', 'vec3');
+  if (bakedTexture) {
+    const packed = arena?.bakeDescriptor ?? surfaceColor.mul(255).round();
+    const layer: any = arena?.bakeLayer ?? uniform(0).onObjectUpdate(({ object }) => (object as FaceMesh | undefined)?.geometry.userData.voxelBakeLayer ?? 0);
+    // Ordinary faces share the same draw, but do no atlas coordinate work.
+    // The layer is zero for retained vertex-colored faces, so one vec3 replaces
+    // separate UV, direction and layer varyings. Decode descriptors as bytes.
+    const bakedCoordinates = varying(Fn(() => {
+      const coordinates = vec3(0).toVar();
+      If(rawDir.greaterThanEqual(128).and(layer.greaterThan(0)), () => {
+        coordinates.assign(vec3(surfaceUv.mul(span).mul(.125 / 8).mul(packed.z).add(packed.xy).div(VOXEL_BAKE_SIZE), layer));
+      });
+      return coordinates;
+    })());
+    const sourceColor = surfaceColor;
+    surfaceColor = Fn(() => {
+      const color = sourceColor.toVar();
+      If(bakedCoordinates.z.greaterThan(0), () => {
+        color.assign((texture(bakedTexture, bakedCoordinates.xy) as any).depth(bakedCoordinates.z.sub(1)).level(float(0)).rgb);
+      });
+      return color;
+    })();
+    result.vertexColors = false;
+    const release = () => result.dispose();
+    bakedTexture.addEventListener('dispose', release);
+    result.addEventListener('dispose', () => bakedTexture.removeEventListener('dispose', release));
+  }
+  if (arena || bakedTexture) result.colorNode = surfaceColor;
   result.userData.flatNormalNode = normal;
   // A separate pipeline without discard avoids handoff sampling/dithering and
   // lets the GPU reject hidden fragments early. Only proven unowned, settled
@@ -64,13 +101,15 @@ export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: TH
     discardWhen(result, transition.lessThan(range.x).or(transition.greaterThanEqual(range.y)));
   }
   const emission = (arena?.emission ?? varying(float(attribute<'float'>('voxelEmission', 'float')))).greaterThan(.5);
-  result.outputNode = emission.select(vec4(voxelEmissionColor(arena?.color ?? attribute<'vec3'>('color', 'vec3')),
+  result.outputNode = emission.select(vec4(voxelEmissionColor(surfaceColor),
     reference('value', 'float', emissionMask).add(1)), output);
   result.userData.sharedTerrainMaterial = true;
   result.userData.voxelArenaPosition = true;
   result.userData.voxelIntegerCoordinates = true;
   if (!arena) {
-    mask.addEventListener('dispose', () => result.dispose());
+    // Baked materials belong to their pool. Keeping them on the long-lived
+    // handoff mask would retain every retired texture after a settings change.
+    if (!bakedTexture) mask.addEventListener('dispose', () => result.dispose());
     cache.set(mask, result);
   }
   return result;
@@ -127,6 +166,12 @@ export class DistantVoxelLayer {
   private hasWorkerSources = false;
   private readonly options: VoxelLodOptions;
   private readonly mask: THREE.DataTexture;
+  private textureSettings: VoxelTextureBakeSettings = { ...DEFAULT_VOXEL_TEXTURE_BAKE };
+  private texturePool: VoxelTexturePool | null = null;
+  private arenaPageFaces = 256 * 1024;
+  private unifiedBakedArena = false;
+  private textureReconfigure = false;
+  private readonly synchronousPending = new Map<string, VoxelLodTile>();
 
   constructor(mask: THREE.DataTexture, options: VoxelLodOptions = {}) {
     this.mask = mask; this.options = options;
@@ -145,7 +190,7 @@ export class DistantVoxelLayer {
   // Pending sources must not claim far coverage before their meshes exist.
   hasZone(x: number, z: number) { return this.zones.get(`${x},${z}`)?.readyMask === 0xffff; }
   get hasPendingWork() { return this.active && !this.halted && this.zones.size > 0
-    && (this.dirty || this.busy || !!this.packet || this.uploads.size > 0 || !!this.arena?.hasPendingWork); }
+    && (this.dirty || this.busy || !!this.packet || this.uploads.size > 0 || !!this.arena?.hasPendingWork || this.textureReconfigure || this.synchronousPending.size > 0); }
   get hasPendingTransitions() { return this.active && [...this.zones.values()]
     .some(zone => [...zone.batches.values()].some(batch => batch.transitioning)); }
   get preparationError(): string | null {
@@ -172,7 +217,18 @@ export class DistantVoxelLayer {
     this.group.needsUpdate = true;
   }
   getCommandCachingEnabled() { return this.group.isBundleGroup; }
+  private bindSourceMaterials(mesh: FaceMesh) {
+    const baked = mesh.geometry.userData.voxelBakeLayer ? this.texturePool?.texture : undefined;
+    if (mesh.userData.voxelBakeTexture === baked && mesh.userData.opaqueMaterial) return;
+    mesh.userData.voxelBakeTexture = baked;
+    const coverage = mesh.userData.terrainCoverage, origin = mesh.userData.voxelOrigin;
+    mesh.material = material(this.mask, coverage, origin, this.drawOptimizations, false, undefined, baked);
+    hookSceneMaterials(mesh); mesh.userData.maskedMaterial = mesh.material;
+    mesh.material = material(this.mask, coverage, origin, this.drawOptimizations, true, undefined, baked);
+    hookSceneMaterials(mesh); mesh.userData.opaqueMaterial = mesh.material;
+  }
   private selectMaterial = (mesh: FaceMesh) => {
+    this.bindSourceMaterials(mesh);
     const range = mesh.userData.terrainCoverage;
     mesh.material = this.opaqueFastPath && this.drawOptimizations.value
       && mesh.userData.voxelHandoffMode.value === 0 && range.x === 0 && range.y === 1
@@ -199,15 +255,15 @@ export class DistantVoxelLayer {
     } else {
       this.arena = new VoxelFaceArena(this.group, inputs => {
         const mesh = new THREE.Mesh(geometry(), material(this.mask, new THREE.Vector2(0, 1),
-          new THREE.Vector3(), this.drawOptimizations, true, inputs));
+          new THREE.Vector3(), this.drawOptimizations, true, inputs, inputs.baked ? this.texturePool?.texture : undefined));
         mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
         this.group.registerStaticLeaf(mesh);
         mesh.userData.opaqueMaterial = mesh.material;
-        mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs);
+        mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs, inputs.baked ? this.texturePool?.texture : undefined);
         hookSceneMaterials(mesh); mesh.userData.maskedMaterial = mesh.material;
         mesh.material = mesh.userData.opaqueMaterial;
         return mesh;
-      });
+      }, this.arenaPageFaces, this.unifiedBakedArena);
       this.arena.setTorusBackfaceCullingEnabled(this.torusBackfaceCulling);
       this.arena.setFlatBlockCullingEnabled(this.flatBlockCulling);
       this.group.userData.voxelArenaStats = this.arena.stats; this.arena.sync();
@@ -215,6 +271,57 @@ export class DistantVoxelLayer {
     this.group.needsUpdate = true;
   }
   getMergedBuffersEnabled() { return !!this.arena; }
+  private configureArenaLayout(faces: number, unified: boolean) {
+    if (faces === this.arenaPageFaces && unified === this.unifiedBakedArena) return;
+    const merged = !!this.arena;
+    if (merged) this.setMergedBuffersEnabled(false);
+    this.arenaPageFaces = faces; this.unifiedBakedArena = unified;
+    if (merged) this.setMergedBuffersEnabled(true);
+  }
+  /** Shared settings policy: memory saver, large pages, or one texture shader. */
+  setTextureBatching(mode: number) {
+    if (![0, 1, 2].includes(mode)) throw new Error('Invalid voxel texture batching mode');
+    this.configureArenaLayout((mode === 0 ? 256 : 1024) * 1024, mode === 2);
+  }
+  /** Reference controls for development comparisons. */
+  setArenaPageCapacity(faces: number) {
+    if (![256 * 1024, 512 * 1024, 1024 * 1024].includes(faces)) throw new Error('Invalid voxel arena page capacity');
+    this.configureArenaLayout(faces, this.unifiedBakedArena);
+  }
+  getArenaPageCapacity() { return this.arenaPageFaces; }
+  setUnifiedBakedArena(enabled: boolean) { this.configureArenaLayout(this.arenaPageFaces, enabled); }
+  getUnifiedBakedArena() { return this.unifiedBakedArena; }
+
+  setTextureBakeSettings(settings: VoxelTextureBakeSettings) {
+    if (Object.keys(DEFAULT_VOXEL_TEXTURE_BAKE).every(key => settings[key as keyof VoxelTextureBakeSettings] === this.textureSettings[key as keyof VoxelTextureBakeSettings])) return;
+    const poolChange = settings.textureProxyEnabled !== this.textureSettings.textureProxyEnabled
+      || settings.textureProxyBudgetMiB !== this.textureSettings.textureProxyBudgetMiB
+      || settings.textureProxyLinear !== this.textureSettings.textureProxyLinear
+      || settings.textureProxyEdge !== this.textureSettings.textureProxyEdge
+      || settings.textureProxyDensity !== this.textureSettings.textureProxyDensity
+      || settings.textureProxyLodBias !== this.textureSettings.textureProxyLodBias
+      || settings.textureProxyDistance !== this.textureSettings.textureProxyDistance;
+    this.textureSettings = { ...settings };
+    this.view.bakeRevision = (this.view.bakeRevision ?? 0) + 1;
+    this.textureReconfigure ||= poolChange;
+    this.view.bake = { ...settings, textureProxyEnabled: settings.textureProxyEnabled && !this.textureReconfigure };
+    this.dirty = true;
+    this.updateTexturePool();
+  }
+  private updateTexturePool() {
+    if (!this.textureReconfigure || (this.texturePool?.stats.used ?? 0) > 0) return;
+    const merged = !!this.arena;
+    if (merged) this.setMergedBuffersEnabled(false);
+    this.texturePool?.dispose();
+    this.texturePool = this.textureSettings.textureProxyEnabled
+      ? new VoxelTexturePool(this.textureSettings.textureProxyBudgetMiB, this.textureSettings.textureProxyLinear) : null;
+    this.group.userData.voxelTextureStats = this.texturePool?.stats ?? null;
+    for (const zone of this.zones.values()) for (const batch of zone.batches.values()) batch.forEachMesh(mesh => this.selectMaterial(mesh));
+    if (merged) this.setMergedBuffersEnabled(true);
+    this.textureReconfigure = false;
+    this.view.bake = { ...this.textureSettings }; this.view.bakeRevision = (this.view.bakeRevision ?? 0) + 1;
+    this.dirty = this.cullDirty = true;
+  }
 
   /** Development A/B control for scheduled settled-batch maintenance. */
   setIdleMaintenanceEnabled(enabled: boolean) {
@@ -241,6 +348,7 @@ export class DistantVoxelLayer {
   getTorusBackfaceCullingEnabled() { return this.torusBackfaceCulling; }
 
   setCompactMapsEnabled(enabled: boolean) {
+    if (enabled && this.texturePool) throw new Error('Compact experimental maps do not carry baked texture layers.');
     this.arena?.setCompactMapsEnabled(enabled); this.arenaDirty = true;
   }
   getCompactMapsEnabled() { return this.arena?.getCompactMapsEnabled() ?? false; }
@@ -272,7 +380,7 @@ export class DistantVoxelLayer {
   }
 
   private make = (coverage: THREE.Vector2, origin: THREE.Vector3, mode: { value: number }): FaceMesh => {
-    const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage, origin, this.drawOptimizations));
+    const mesh = new THREE.Mesh(geometry(), material(this.mask, coverage, origin, this.drawOptimizations, false));
     // A pooled slot can replace GPU attribute buffers without changing its face count.
     mesh.geometry.addEventListener('dispose', () => { this.group.needsUpdate = true; });
     Object.assign(mesh.userData, { voxelOrigin: origin, voxelHandoffMode: mode, voxelArenaCompatible: true });
@@ -312,7 +420,11 @@ export class DistantVoxelLayer {
     while (true) {
       const result = build.next();
       if (result.done === true) { this.group.userData.voxelLodStats = result.value; break; }
-      if (result.value) this.publish(result.value, true);
+      if (result.value) {
+        const tile = result.value, key = `${tile.key}/${tile.tile}`;
+        if (this.publish(tile, true)) this.synchronousPending.delete(key);
+        else this.synchronousPending.set(key, tile);
+      }
     }
     this.dirty = false;
   }
@@ -356,10 +468,21 @@ export class DistantVoxelLayer {
     // An outstanding worker packet can finish after a switch. Keep the existing
     // geometry until a packet for the current projection replaces its metadata.
     if ((tile.projection ?? 'torus') !== getWorldProjection()) return true;
+    if ((tile.bakeRevision ?? 0) !== (this.view.bakeRevision ?? 0)) return true;
     const zone = this.zones.get(tile.key);
     if (!zone || zone.token !== tile.token) return true; // Obsolete source, removal or remove/reinstall.
     let batch = zone.batches.get(tile.tile);
-    if (!synchronous && batch?.transitioning) return false;
+    if (batch?.transitioning && (!synchronous || tile.baked || batch.top.geometry.userData.voxelBakeLayer)) return false;
+    const lease = tile.baked && !this.textureReconfigure ? this.texturePool?.acquire(tile.baked.pixels, tile.baked.atlasSize) : null;
+    if (lease) {
+      const baked = tile.baked!;
+      // A retry must retain local descriptors; never mutate the worker packet.
+      const color = lease.x || lease.y ? baked.color.slice() : baked.color;
+      if (color !== baked.color) for (let i = 0; i < baked.count; i++) if (baked.direction[i] & 128) {
+        color[i * 3] += lease.x; color[i * 3 + 1] += lease.y;
+      }
+      tile = { ...tile, ...baked, color };
+    }
     if (tile.count || batch) {
       const bounds = new THREE.Sphere(new THREE.Vector3(...tile.bounds.slice(0, 3)), tile.bounds[3]);
       if (!batch) {
@@ -385,16 +508,17 @@ export class DistantVoxelLayer {
         ['voxelDirection', tile.direction, 1, false], ['voxelEmission', tile.emission, 1, false],
         ['color', tile.color, 3, true],
       ] as const) attributes[name] = alignedInstanceAttribute(array, size, normalized);
-      if (synchronous) {
+      const metadata = { voxelVisibility: tile.visibility, voxelProjection: tile.projection ?? 'torus',
+        voxelBakeLayer: lease?.layer ?? 0, releaseResources: lease?.release };
+      if (synchronous && !lease && !batch.top.geometry.userData.voxelBakeLayer) {
         const source = new THREE.Mesh(geometry(), new THREE.MeshStandardNodeMaterial());
         for (const [name, attribute] of Object.entries(attributes)) source.geometry.setAttribute(name, attribute);
         source.geometry.instanceCount = tile.count;
-        source.geometry.userData.voxelVisibility = tile.visibility;
-        source.geometry.userData.voxelProjection = tile.projection ?? 'torus';
+        source.geometry.userData = metadata;
         batch.submit(source, 0, tile.count, source, 0, 0, this.view.hasView);
         source.geometry.dispose(); source.material.dispose();
       } else if (!batch.submitPrepared(attributes, tile.count, this.view.hasView, performance.now(),
-        { voxelVisibility: tile.visibility, voxelProjection: tile.projection ?? 'torus' })) return false;
+        metadata)) { lease?.release(); return false; }
       const state = this.drawStates.get(batch)!;
       state.tight.copy(bounds); state.flatBounds = tile.flatBounds; state.maskVersion = -1;
       state.projection = tile.projection ?? 'torus';
@@ -457,7 +581,7 @@ export class DistantVoxelLayer {
         if (!tile) continue;
         const current = this.zones.get(tile.key);
         if (!current || current.token !== tile.token) { this.packet.tiles[i] = null; continue; }
-        const bytes = tile.count * VOXEL_GPU_BYTES_PER_FACE;
+        const bytes = tile.count * VOXEL_GPU_BYTES_PER_FACE + (tile.baked?.pixels.byteLength ?? 0);
         if (publicationBytes && publicationBytes + bytes > VOXEL_PUBLICATION_BUDGET_BYTES) break;
         if (!this.publish(tile)) continue;
         this.packet.tiles[i] = null; publicationBytes += bytes;
@@ -511,6 +635,7 @@ export class DistantVoxelLayer {
 
   updateView(frustum: THREE.Frustum, camera: THREE.Vector3, focal: number, area: number, distance: number,
     faceBudget = MAX_VOXEL_LOD_FACES) {
+    this.updateTexturePool();
     const projection = getWorldProjection();
     if (this.view.projection !== projection) {
       this.view.projection = projection;
@@ -559,6 +684,7 @@ export class DistantVoxelLayer {
     }
     try { this.processPending(); }
     catch (error) { this.fail(String(error)); }
+    for (const [key, tile] of this.synchronousPending) if (this.publish(tile, true)) this.synchronousPending.delete(key);
     if (arenaWork || this.arenaDirty) {
       this.arena?.sync(undefined, undefined, !maintenanceWork && !this.arenaDirty);
       this.arenaDirty = false;
@@ -572,6 +698,7 @@ export class DistantVoxelLayer {
     for (const batch of zone.batches.values()) batch.dispose();
     if (this.sharedSources.get(zone.snapshot.voxelMips!)?.key === key) this.sharedSources.delete(zone.snapshot.voxelMips!);
     this.zones.delete(key); this.uploads.delete(key); this.planner?.remove(key);
+    for (const [pending, tile] of this.synchronousPending) if (tile.key === key) this.synchronousPending.delete(pending);
     this.port?.postMessage({ type: 'remove', key }); this.dirty = true;
     if (!this.zones.size && !this.synchronous) { this.stopPort(); this.dirty = false; }
   }
@@ -597,8 +724,9 @@ export class DistantVoxelLayer {
   dispose() {
     // The source meshes are being destroyed too; do not reconstruct their data.
     this.arena?.dispose(false); this.arena = null; this.group.userData.voxelArenaStats = null;
-    this.stopPort(); this.active = false; this.uploads.clear();
+    this.stopPort(); this.active = false; this.uploads.clear(); this.synchronousPending.clear();
     for (const zone of this.zones.values()) for (const batch of zone.batches.values()) batch.dispose();
     this.zones.clear();
+    this.texturePool?.dispose(); this.texturePool = null;
   }
 }

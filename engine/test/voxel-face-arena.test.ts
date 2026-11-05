@@ -27,6 +27,52 @@ function settle(arena: VoxelFaceArena) {
 const snapshot = (mesh: VoxelFaceMesh) => Object.fromEntries(Object.entries(mesh.geometry.attributes)
   .map(([name, attribute]) => [name, Array.from(attribute.array)]));
 
+test('larger shared pages reduce draw boundaries and retain all packed face records', () => {
+  const run = (capacity:number) => {
+    const group=new THREE.BundleGroup(), meshes=[source(100000,0),source(100000,128),source(100000,256)];
+    meshes.forEach((mesh,j)=>{
+      mesh.userData.voxelTile=j;
+      const p=mesh.geometry.getAttribute('voxelOffset');for(let i=0;i<p.count;i++)p.setX(i,i%256);
+      group.add(mesh);
+    });
+    const arena=new VoxelFaceArena(group,make,capacity);settle(arena);
+    const result={faces:arena.stats.residentFaces,draws:arena.stats.draws,pages:arena.stats.pages};arena.dispose();
+    for(const mesh of meshes)for(const i of [0,255,99999]){
+      assert.equal(mesh.geometry.getAttribute('voxelOffset').getX(i),i%256);
+      assert.equal(mesh.geometry.getAttribute('color').array[i*4],17);
+      assert.equal(mesh.geometry.getAttribute('voxelDirection').getX(i),5);
+    }
+    return result;
+  };
+  assert.deepEqual(run(256*1024),{faces:300000,draws:2,pages:2});
+  assert.deepEqual(run(1024*1024),{faces:300000,draws:1,pages:1});
+});
+
+test('larger pages reject compact Float32 maps that cannot represent their face addresses', () => {
+  const arena=new VoxelFaceArena(new THREE.BundleGroup(),make,1024*1024);
+  assert.throws(()=>arena.setCompactMapsEnabled(true),/exact Float32/);arena.dispose();
+});
+
+test('baked directions, atlas descriptors and layer maps survive arena retirement', () => {
+  const group=new THREE.BundleGroup(), mesh=source(32,0);
+  (mesh.geometry.getAttribute('voxelDirection').array as Float32Array).fill(131);
+  mesh.geometry.userData.voxelBakeLayer=9;
+  const original=snapshot(mesh);group.add(mesh);const arena=new VoxelFaceArena(group,make);
+  settle(arena);const map=arena.pages[0].map.array;
+  assert.equal(map[5],9);assert.equal(map[13],9);
+  arena.dispose();assert.deepEqual(snapshot(mesh),original);assert.equal(mesh.geometry.userData.voxelBakeLayer,9);
+});
+
+test('unified texture pages retain distinct ordinary and baked layer descriptors', () => {
+  const group=new THREE.BundleGroup(), a=source(32,0), b=source(32,128);
+  (b.geometry.getAttribute('voxelDirection').array as Float32Array).fill(131);b.geometry.userData.voxelBakeLayer=7;
+  a.userData.voxelTile=0;b.userData.voxelTile=1;group.add(a,b);
+  const beforeA=snapshot(a),beforeB=snapshot(b),arena=new VoxelFaceArena(group,make,1024*1024,true);settle(arena);
+  assert.equal(arena.pages.length,1);assert.equal(arena.pages[0].baked,true);assert.equal(arena.stats.draws,1);
+  assert.deepEqual([0,1,2,3].map(i=>arena.pages[0].map.array[i*8+5]),[0,0,7,7]);
+  arena.dispose();assert.deepEqual(snapshot(a),beforeA);assert.deepEqual(snapshot(b),beforeB);
+});
+
 for (const cached of [true, false]) test(`optional torus backfaces restore stationary maps and survive projection/fade changes (cached=${cached})`, () => {
   const group = new THREE.BundleGroup(), mesh = source(32, 0), bounds = new Float32Array(24);
   for (const [block, z] of [0, 1024].entries()) {

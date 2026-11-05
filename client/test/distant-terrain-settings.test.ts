@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 import { uiStub } from './fixtures.ts';
 import { DistantSurfaceLayer, normalizeDistantSurfaceSettings } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
+import { DEFAULT_VOXEL_TEXTURE_BAKE } from '@entropydrop/space-engine/render/VoxelTextureBake.ts';
 
 function settingsFixture(t: test.TestContext) {
   const values = new Map<string, string>();
@@ -75,6 +76,40 @@ test('resetting recommended settings restores the master switch', t => {
   store.resetDistantSurfaceSettings();
   assert.equal(store.getSnapshot().distantSurfaceEnabled, true);
   assert.equal(values.get('space_setting_distant_surface_enabled'), 'true');
+});
+
+test('texture bake settings persist, normalize old saves, apply and reset together', t => {
+  const {store,values}=settingsFixture(t), layer=new DistantSurfaceLayer();t.after(()=>layer.voxels.dispose());
+  const world=uiStub('world',{renderDistance:8,distantSurface:layer,
+    getDistantSurfaceSettings:()=>layer.getSettings(),setDistantSurfaceSettings:value=>layer.setSettings(value),
+    setDistantSurfaceEnabled:value=>layer.setEnabled(value)});
+  store.setWorld(world);
+  for(const [key,value] of Object.entries({textureProxyEnabled:true,textureProxyEdge:32,textureProxyDensity:2,textureProxyLodBias:1,textureProxyBatching:2,
+    textureProxyDistance:768,textureProxyBudgetMiB:64,textureProxyLinear:true})) store.setDistantSurfaceSetting(key as any,value);
+  assert.equal(layer.getSettings().textureProxyEdge,32);
+  assert.equal(layer.voxels.getArenaPageCapacity(),1024*1024);assert.equal(layer.voxels.getUnifiedBakedArena(),true);
+  const restored=new SpaceUiStore();restored.setWorld(world);
+  assert.equal(restored.getSnapshot().distantSurfaceSettings.textureProxyEnabled,true);
+  assert.equal(restored.getSnapshot().distantSurfaceSettings.textureProxyLinear,true);
+  assert.equal(restored.getSnapshot().distantSurfaceSettings.textureProxyDistance,768);
+  assert.equal(restored.getSnapshot().distantSurfaceSettings.textureProxyLodBias,1);
+  assert.equal(restored.getSnapshot().distantSurfaceSettings.textureProxyBatching,2);
+  restored.setDistantSurfaceSetting('textureProxyBatching',1);
+  assert.equal(layer.voxels.getArenaPageCapacity(),1024*1024);assert.equal(layer.voxels.getUnifiedBakedArena(),false);
+  restored.setDistantSurfaceSetting('textureProxyBatching',0);
+  assert.equal(layer.voxels.getArenaPageCapacity(),256*1024);
+  restored.setDistantSurfaceSetting('textureProxyBatching',2);
+  restored.setDistantSurfaceSetting('textureProxyEnabled',false);
+  assert.equal(layer.voxels.getArenaPageCapacity(),256*1024);assert.equal(layer.voxels.getUnifiedBakedArena(),false);
+  restored.resetDistantSurfaceSettings();
+  assert.equal(restored.getSnapshot().distantSurfaceSettings.textureProxyBatching,1);
+  const saved=JSON.parse(values.get('space_setting_distant_surface')!);
+  for(const [key,value] of Object.entries(DEFAULT_VOXEL_TEXTURE_BAKE))assert.equal(saved[key],value);
+  const bounded=normalizeDistantSurfaceSettings({textureProxyEdge:999,textureProxyLodBias:999,textureProxyBatching:999,textureProxyDensity:0,textureProxyDistance:-1,textureProxyBudgetMiB:Infinity});
+  assert.equal(bounded.textureProxyLodBias,2);assert.equal(bounded.textureProxyBatching,2);
+  assert.equal(normalizeDistantSurfaceSettings({}).textureProxyBatching,1);
+  assert.equal(bounded.textureProxyEdge,32);assert.equal(bounded.textureProxyDensity,1);assert.equal(bounded.textureProxyDistance,256);
+  assert.equal(normalizeDistantSurfaceSettings({textureProxyEnabled:'true'} as any).textureProxyEnabled,false);
 });
 
 test('torus backface filtering defaults off, applies to the far layer, persists and resets off', t => {

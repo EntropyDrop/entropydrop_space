@@ -4,6 +4,11 @@ import { alignedInstanceAttribute } from './NodeMaterials.ts';
 
 type Mesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 type Slot = { top: Mesh; side: Mesh; coverage: THREE.Vector2; lastUsed: number };
+function releaseResources(mesh: Mesh) {
+  const release = mesh.geometry.userData.releaseResources;
+  delete mesh.geometry.userData.releaseResources;
+  if (typeof release === 'function') release();
+}
 
 function matches(target: Mesh, source: Mesh, start: number, count: number) {
   if (target.geometry.instanceCount !== count) return false;
@@ -96,6 +101,9 @@ export class SurfaceBatch {
     visit(this.current.top); visit(this.current.side);
     if (this.previous) { visit(this.previous.top); visit(this.previous.side); }
   }
+  forEachMesh(visit: (mesh: Mesh) => void) {
+    for (const slot of this.slots) { visit(slot.top); visit(slot.side); }
+  }
 
   /** Worker output is already packed, immutable and revision-checked by its
    * owner. Adopt its attributes without another O(faces) comparison/copy. Do not
@@ -105,6 +113,7 @@ export class SurfaceBatch {
     if (this.previous || this.pending) return false;
     let target = this.slots.find(slot => slot !== this.current);
     if (!target) target = this.allocate();
+    releaseResources(target.top);
     target.top.geometry.dispose();
     for (const [name, attribute] of Object.entries(target.top.geometry.attributes)) {
       if (attribute instanceof THREE.InstancedBufferAttribute) target.top.geometry.deleteAttribute(name);
@@ -164,6 +173,7 @@ export class SurfaceBatch {
       old.side.name = `DistantSurface:${this.key}:previous-sides`;
     } else {
       this.root.remove(old.top, old.side);
+      releaseResources(old.top); releaseResources(old.side);
       next.coverage.set(0, 1);
       this.nextCleanupAt = Math.min(this.nextCleanupAt, old.lastUsed + 5000);
     }
@@ -181,6 +191,7 @@ export class SurfaceBatch {
     this.previous.coverage.set(t, 1);
     if (linear < 1) return;
     this.root.remove(this.previous.top, this.previous.side);
+    releaseResources(this.previous.top); releaseResources(this.previous.side);
     this.nextCleanupAt = Math.min(this.nextCleanupAt, this.previous.lastUsed + 5000);
     this.previous = null;
     if (this.pending) this.activate(this.pending, this.visible, now);
@@ -196,6 +207,7 @@ export class SurfaceBatch {
       }
       for (const mesh of [slot.top, slot.side]) {
         if (!mesh.geometry.instanceCount) continue;
+        releaseResources(mesh);
         mesh.geometry.dispose();
         for (const [name, attribute] of Object.entries(mesh.geometry.attributes)) {
           if (attribute instanceof THREE.InstancedBufferAttribute) mesh.geometry.deleteAttribute(name);
@@ -219,6 +231,7 @@ export class SurfaceBatch {
   dispose() {
     for (const slot of this.slots) for (const mesh of [slot.top, slot.side]) {
       this.root.remove(mesh);
+      releaseResources(mesh);
       mesh.geometry.dispose();
       if (!mesh.material.userData.sharedTerrainMaterial) mesh.material.dispose();
     }

@@ -3,27 +3,32 @@ import { bendTorusPoint, computeBentBoundsSphere, type WorldProjection } from '.
 import { surfaceSubdivisionWorldArea, SURFACE_AREA_HYSTERESIS } from './SurfaceSubdivision.ts';
 import type { VoxelSurfaceMip } from '../voxel/SurfaceZoneSnapshot.ts';
 import { voxelFaceVisibility } from './VoxelFaceVisibility.ts';
+import { bakeVoxelTile, type BakedVoxelTile, type VoxelTextureBakeSettings } from './VoxelTextureBake.ts';
 
 export type VoxelLodSource = { key: string; x: number; z: number; token: number; mips: VoxelSurfaceMip[] };
 export type VoxelLodView = { camera: [number, number, number]; focal: number; area: number;
   distance: number; faceBudget: number; hasView: boolean; projection?: WorldProjection;
   /** Explicit development reference; never silently relax its quality to fit a budget. */
-  fixedCellSize?: number };
+  fixedCellSize?: number; bake?: VoxelTextureBakeSettings; bakeRevision?: number };
 export type VoxelLodStats = { faces: number; budget: number; requestedAreaPx2: number; effectiveAreaPx2: number };
 export type VoxelLodTile = { key: string; token: number; tile: number; count: number;
   bounds: [number, number, number, number]; offset: Uint16Array; span: Uint16Array;
   flatBounds: [number, number, number, number];
-  color: Uint8Array; direction: Uint8Array; emission: Uint8Array; visibility?: Float32Array; projection?: WorldProjection };
+  color: Uint8Array; direction: Uint8Array; emission: Uint8Array; visibility?: Float32Array; projection?: WorldProjection;
+  baked?: BakedVoxelTile; bakeRevision?: number };
 type Range = { start: number; end: number };
 type Brick = { x: number; y: number; z: number; size: number; bounds: THREE.Sphere };
 type Zone = { source: VoxelLodSource; mips: Map<number, { faces: Uint8Array; ranges: Map<number, Range> }>;
   sizes: number[]; bricks: Map<number, Brick>; signatures: Map<number, string> };
 const LINEAR = Uint8Array.from({ length: 256 }, (_, n) => Math.round(255 * (n / 255 <= .04045
   ? n / 255 / 12.92 : ((n / 255 + .055) / 1.055) ** 2.4)));
-export const voxelTileBytes = (tile: VoxelLodTile) => tile.count * 15 + (tile.visibility?.byteLength ?? 0);
+export const voxelTileBytes = (tile: VoxelLodTile) => tile.count * 15 + (tile.visibility?.byteLength ?? 0)
+  + (tile.baked ? tile.baked.count * 15 + (tile.baked.visibility?.byteLength ?? 0) + tile.baked.pixels.byteLength : 0);
 export const voxelTileTransfers = (tile: VoxelLodTile) =>
   [tile.offset.buffer, tile.span.buffer, tile.color.buffer, tile.direction.buffer, tile.emission.buffer,
-    ...(tile.visibility ? [tile.visibility.buffer] : [])] as ArrayBuffer[];
+    ...(tile.visibility ? [tile.visibility.buffer] : []), ...(tile.baked ? [tile.baked.offset.buffer,
+      tile.baked.span.buffer, tile.baked.color.buffer, tile.baked.direction.buffer, tile.baked.emission.buffer,
+      tile.baked.pixels.buffer, ...(tile.baked.visibility ? [tile.baked.visibility.buffer] : [])] : [])] as ArrayBuffer[];
 
 /** No scene objects or GPU resources. Yield boundaries also serve the cooperative
  * fallback when workers are unavailable. Sources remain immutable after install. */
@@ -137,12 +142,26 @@ export class VoxelLodPlanner {
       }
       scale = upper; faces = yield* this.measure(view, scale);
     }
-    for (const zone of this.zones.values()) {
+    const ordered = [...this.zones.values()];
+    if (view.bake?.textureProxyEnabled) {
+      const distances = new Map(ordered.map(zone => [zone, Math.min(...[...zone.bricks.values()].map(brick =>
+        Math.hypot(view.camera[0] - brick.bounds.center.x, view.camera[1] - brick.bounds.center.y,
+          view.camera[2] - brick.bounds.center.z) - brick.bounds.radius))]));
+      ordered.sort((a, b) => distances.get(a)! - distances.get(b)!);
+    }
+    for (const zone of ordered) {
       const selected = this.selection(zone, view, scale);
       for (const [id, size] of selected) zone.bricks.get(id)!.size = size;
       for (let tx = 0; tx < 4; tx++) for (let tz = 0; tz < 4; tz++) {
         const tile = tx * 4 + tz, ranges: { faces: Uint8Array; start: number; end: number }[] = [];
-        let count = 0, signature = '';
+        let bakeAllowed = false;
+        if (view.bake?.textureProxyEnabled && view.hasView) {
+          const tileBounds = computeBentBoundsSphere({ minX: zone.source.x * 512 + tx * 128, maxX: zone.source.x * 512 + (tx + 1) * 128,
+            minY: 0, maxY: 256, minZ: zone.source.z * 512 + tz * 128, maxZ: zone.source.z * 512 + (tz + 1) * 128 }, undefined, projection);
+          bakeAllowed = Math.hypot(view.camera[0] - tileBounds.center.x, view.camera[1] - tileBounds.center.y,
+            view.camera[2] - tileBounds.center.z) - tileBounds.radius >= view.bake.textureProxyDistance;
+        }
+        let count = 0, signature = `${view.bakeRevision ?? 0}:${Number(bakeAllowed)}`;
         for (const [id, brick] of zone.bricks) {
           if ((brick.x >> 1) !== tx || (brick.z >> 1) !== tz) continue;
           signature += `/${id}:${selected.get(id)}`;
@@ -184,9 +203,56 @@ export class VoxelLodPlanner {
         const project = projection === 'torus' ? bendTorusPoint : (x: number, y: number, z: number, out = new THREE.Vector3()) => out.set(x, y, z);
         const visibility = yield* voxelFaceVisibility({ count, offset, span, direction }, zone.source.x * 512, zone.source.z * 512, project);
         zone.signatures.set(tile, signature);
-        yield { key: zone.source.key, token: zone.source.token, tile, count,
+        const result: VoxelLodTile = { key: zone.source.key, token: zone.source.token, tile, count,
           bounds: [bounds.center.x, bounds.center.y, bounds.center.z, bounds.radius],
-          flatBounds: [minX, maxX, minZ, maxZ], offset, span, color, direction, emission, visibility, projection };
+          flatBounds: [minX, maxX, minZ, maxZ], offset, span, color, direction, emission, visibility, projection, bakeRevision: view.bakeRevision ?? 0 };
+        if (bakeAllowed && count >= 64) {
+          let proxy = result, projectionDepth = 0;
+          if ((view.bake!.textureProxyLodBias ?? 0) > 0) {
+            const coarse: { faces: Uint8Array; start: number; end: number }[] = [];
+            let coarseCount = 0;
+            for (const [id, brick] of zone.bricks) {
+              if ((brick.x >> 1) !== tx || (brick.z >> 1) !== tz) continue;
+              const fineSize = selected.get(id)!;
+              const size = zone.sizes.find(size => size <= Math.max(fineSize, Math.min(32, fineSize * 2 ** view.bake!.textureProxyLodBias)))!;
+              projectionDepth = Math.max(projectionDepth, size);
+              const mip = zone.mips.get(size)!, range = mip.ranges.get(id);
+              if (range) { coarse.push({ faces: mip.faces, ...range }); coarseCount += (range.end - range.start) / 16; }
+            }
+            proxy = { ...result, count: coarseCount, offset: new Uint16Array(coarseCount * 3), span: new Uint16Array(coarseCount * 2),
+              color: new Uint8Array(coarseCount * 3), direction: new Uint8Array(coarseCount), emission: new Uint8Array(coarseCount) };
+            let i = 0;
+            for (const range of coarse) {
+              const data = new DataView(range.faces.buffer, range.faces.byteOffset, range.faces.byteLength);
+              for (let at = range.start; at < range.end; at += 16) {
+                for (let d = 0; d < 3; d++) proxy.offset[i * 3 + d] = data.getUint16(at + d * 2, true);
+                proxy.span[i * 2] = data.getUint16(at + 6, true); proxy.span[i * 2 + 1] = data.getUint16(at + 8, true);
+                proxy.direction[i] = range.faces[at + 10]; proxy.emission[i] = range.faces[at + 11];
+                for (let d = 0; d < 3; d++) proxy.color[i * 3 + d] = proxy.emission[i] ? range.faces[at + 12 + d] : LINEAR[range.faces[at + 12 + d]];
+                if ((++i & 1023) === 0) yield;
+              }
+            }
+          }
+          result.baked = yield* bakeVoxelTile(proxy, view.bake!.textureProxyEdge, view.bake!.textureProxyDensity, result, projectionDepth);
+          if (result.baked) result.baked.visibility = yield* voxelFaceVisibility(result.baked, zone.source.x * 512, zone.source.z * 512, project);
+          if (result.baked && proxy !== result) {
+            // Coarsening can expand a silhouette. Culling must cover the proxy,
+            // the reference fallback, and both generations during handoff.
+            for (let i = 0; i < result.baked.count; i++) {
+              const b = result.baked, axis = (b.direction[i] & 7) >> 1;
+              const p = [b.offset[i * 3] / 8 + zone.source.x * 512, b.offset[i * 3 + 1] / 8, b.offset[i * 3 + 2] / 8 + zone.source.z * 512];
+              const w = b.span[i * 2] / 8, h = b.span[i * 2 + 1] / 8;
+              minX = Math.min(minX, p[0]); minY = Math.min(minY, p[1]); minZ = Math.min(minZ, p[2]);
+              maxX = Math.max(maxX, p[0] + (axis === 0 ? 0 : axis === 1 ? h : w));
+              maxY = Math.max(maxY, p[1] + (axis === 1 ? 0 : axis === 0 ? w : h));
+              maxZ = Math.max(maxZ, p[2] + (axis === 2 ? 0 : axis === 0 ? h : w));
+            }
+            computeBentBoundsSphere({ minX, maxX, minY, maxY, minZ, maxZ }, bounds, projection);
+            result.bounds = [bounds.center.x, bounds.center.y, bounds.center.z, bounds.radius];
+            result.flatBounds = [minX, maxX, minZ, maxZ];
+          }
+        }
+        yield result;
       }
       yield;
     }

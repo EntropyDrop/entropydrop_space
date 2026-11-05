@@ -10,7 +10,7 @@ import { buildVoxelVisibilityClusters, updateVoxelVisibilityClusters, type Voxel
 
 export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.MeshStandardNodeMaterial>;
 /** Color and emission are fragment-stage nodes sharing one packed varying. */
-export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any };
+export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any; bakeLayer?: any; bakeDescriptor?: any; baked?: boolean };
 const BLOCK = VOXEL_FACE_BLOCK;
 const PAGE_FACES = 256 * 1024;
 /** World coordinates fit Float64 squared distance. Share one distance between
@@ -62,7 +62,7 @@ type Entry = Range & { mesh: VoxelFaceMesh; geometry: THREE.InstancedBufferGeome
     back: number; outside: number; covered: number; revision: number };
   uploaded?: { map: THREE.StorageBufferAttribute; start: number; revision: number; pass: number };
   blockTests?: BlockTests; invalid: boolean; releasing: boolean; onDispose: () => void };
-type Page = { mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; free: Range[];
+type Page = { baked: boolean; mesh: VoxelFaceMesh; runs: VoxelFaceMesh[]; entries: Set<Entry>; free: Range[];
   varyingMaterials?: Map<boolean, [THREE.MeshStandardNodeMaterial, THREE.MeshStandardNodeMaterial | undefined]>;
   map: THREE.StorageBufferAttribute; data: THREE.StorageBufferAttribute; release: Set<() => void>;
   releaseMap: Set<(attribute: THREE.StorageBufferAttribute) => void> };
@@ -138,8 +138,11 @@ export class VoxelFaceArena {
     positionBlockTests: 0, coverageBlockTests: 0, drawnFaces: 0, instancePaddingFaces: 0, tightIdle: false };
   private readonly root: THREE.BundleGroup;
   private readonly make: (inputs: ArenaInputs) => VoxelFaceMesh;
-  constructor(root: THREE.BundleGroup, make: (inputs: ArenaInputs) => VoxelFaceMesh) {
-    this.root = root; this.make = make;
+  private readonly pageFaces: number;
+  private readonly unifiedBaked: boolean;
+  constructor(root: THREE.BundleGroup, make: (inputs: ArenaInputs) => VoxelFaceMesh, pageFaces = PAGE_FACES, unifiedBaked = false) {
+    if (![PAGE_FACES, PAGE_FACES * 2, PAGE_FACES * 4].includes(pageFaces)) throw new Error('Invalid voxel arena page capacity');
+    this.root = root; this.make = make; this.pageFaces = pageFaces; this.unifiedBaked = unifiedBaked;
     root.addEventListener('childadded', this.sourceMembershipChanged);
     root.addEventListener('childremoved', this.sourceMembershipChanged);
   }
@@ -230,6 +233,7 @@ export class VoxelFaceArena {
    * Only the selected layout is allocated. Old GPU maps are retired
    * immediately; a reference toggle must not accumulate hidden allocations. */
   setCompactMapsEnabled(enabled: boolean) {
+    if (enabled && this.pageFaces > PAGE_FACES) throw new Error('Compact maps require 256K-face pages for exact Float32 addresses');
     if (this.compactMaps === enabled) return;
     this.compactMaps = enabled;
     for (const page of this.pages) {
@@ -252,7 +256,7 @@ export class VoxelFaceArena {
       const oldOpaque = page.mesh.userData.opaqueMaterial ?? page.mesh.material, oldMasked = page.mesh.userData.maskedMaterial;
       const variants = page.varyingMaterials ??= new Map([[previous, [oldOpaque, oldMasked]]]);
       if (!variants.has(enabled)) {
-        const replacement = this.createDrawingMesh(page.data, page.map);
+        const replacement = this.createDrawingMesh(page.data, page.map, page.baked);
         variants.set(enabled, [replacement.userData.opaqueMaterial ?? replacement.material, replacement.userData.maskedMaterial]);
         replacement.geometry.dispose();
       }
@@ -274,7 +278,7 @@ export class VoxelFaceArena {
     for (const page of this.pages) {
       const oldOpaque = page.mesh.userData.opaqueMaterial ?? page.mesh.material;
       const oldMasked = page.mesh.userData.maskedMaterial;
-      const replacement = this.createDrawingMesh(page.data, page.map);
+      const replacement = this.createDrawingMesh(page.data, page.map, page.baked);
       const opaque = replacement.userData.opaqueMaterial ?? replacement.material;
       const masked = replacement.userData.maskedMaterial;
       for (const mesh of page.runs) mesh.material = oldMasked && mesh.material === oldMasked ? masked : opaque;
@@ -521,6 +525,7 @@ export class VoxelFaceArena {
       } else {
         map[dst] = entry.start + offset; map[dst + 1] = count; map[dst + 2] = entry.origin.x;
         map[dst + 3] = entry.origin.y; map[dst + 4] = entry.origin.z;
+        map[dst + 5] = entry.geometry.userData.voxelBakeLayer ?? 0;
       }
       result.faces += count;
     }
@@ -535,7 +540,7 @@ export class VoxelFaceArena {
       && (!range || (range.x === 0 && range.y === 1))
       && (mesh.material === mesh.userData.opaqueMaterial || mesh.material === mesh.userData.maskedMaterial);
   }
-  private createDrawingMesh(data: THREE.StorageBufferAttribute, map: THREE.StorageBufferAttribute) {
+  private createDrawingMesh(data: THREE.StorageBufferAttribute, map: THREE.StorageBufferAttribute, baked = false) {
     const capacity = data.count;
     const records = storage(data, 'uvec4' as 'vec4', capacity).toReadOnly();
     const remap = storage(map, 'vec4', capacity / BLOCK * this.mapStride / 4).toReadOnly();
@@ -554,25 +559,27 @@ export class VoxelFaceArena {
     const face = blockStart.add(uint(min(float(local), float(blockFaces).sub(1))));
     const record = records.element(face);
     const surface = varying(uint(record.w).bitAnd(uint(0xffffff)).bitOr(uint(record.z).bitAnd(uint(0xff000000))));
-    return this.make({ origin,
+    return this.make({ origin, baked,
       offset: vec3(float(uint(record.x).bitAnd(65535)), float(uint(record.x).shiftRight(16)), float(uint(record.y).bitAnd(65535))),
       span: vec3(float(uint(record.y).shiftRight(16)), float(uint(record.z).bitAnd(65535)), 0).xy,
       direction: float(uint(record.z).shiftRight(16).bitAnd(255)),
       emission: this.packedVaryings ? float(surface.shiftRight(24)) : varying(float(uint(record.z).shiftRight(24))),
       color: this.packedVaryings ? unpackColor(surface) : varying(unpackColor(uint(record.w))), valid,
+      bakeLayer: this.compactMaps ? float(0) : remap.element(blockIndex.add(1)).y,
+      bakeDescriptor: vec3(float(uint(record.w).bitAnd(255)), float(uint(record.w).shiftRight(8).bitAnd(255)), float(uint(record.w).shiftRight(16).bitAnd(255))),
       quad: vec2(float(corner.equal(1).or(corner.equal(2))), float(corner.greaterThanEqual(2))) });
   }
-  private createPage(capacity: number) {
+  private createPage(capacity: number, baked: boolean) {
     const data = new THREE.StorageBufferAttribute(new Uint32Array(capacity * 4), 4);
     // Address/count plus the original xyz origin fit in one vec4. Position
     // arithmetic stays local offset + origin, including nonzero origin.y.
     const map = this.createMap(capacity);
-    const mesh = this.createDrawingMesh(data, map);
+    const mesh = this.createDrawingMesh(data, map, baked);
     mesh.geometry.setIndex(this.blockInstancing ? blockIndex(this.instanceFaces) : pageIndex(capacity));
     mesh.geometry.deleteAttribute('position'); mesh.geometry.deleteAttribute('normal');
     this.updateDrawRange(mesh);
     mesh.userData.voxelArena = true; mesh.name = 'DistantVoxelArena'; mesh.visible = false;
-    const page: Page = { mesh, runs: [mesh], entries: new Set(), free: [{ start: 0, count: capacity }],
+    const page: Page = { baked, mesh, runs: [mesh], entries: new Set(), free: [{ start: 0, count: capacity }],
       map, data, release: new Set(), releaseMap: new Set() };
     const renderers = new WeakSet<object>();
     mesh.onBeforeRender = renderer => {
@@ -595,8 +602,9 @@ export class VoxelFaceArena {
     if (!Number.isFinite(count) || count > 256 * 1024) return null;
     const attributes = names.map(name => mesh.geometry.getAttribute(name) as THREE.BufferAttribute);
     if (attributes.some(a => !a || a.count < count)) return null;
-    let page = this.pages.find(p => p.free.some(range => range.count >= allocated));
-    if (!page) page = this.createPage(Math.max(PAGE_FACES, allocated));
+    const baked = this.unifiedBaked || (mesh.geometry.userData.voxelBakeLayer ?? 0) > 0;
+    let page = this.pages.find(p => p.baked === baked && p.free.some(range => range.count >= allocated));
+    if (!page) page = this.createPage(Math.max(this.pageFaces, allocated), baked);
     const index = page.free.findIndex(range => range.count >= allocated), range = page.free[index];
     const entry: Entry = { mesh, geometry: mesh.geometry, page, start: range.start, count, allocated, copied: 0, attributes,
       versions: attributes.map(a => a.version), origin: mesh.userData.voxelOrigin.clone(), invalid: false,

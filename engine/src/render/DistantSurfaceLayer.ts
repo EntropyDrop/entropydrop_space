@@ -1,6 +1,7 @@
 import { attribute, positionGeometry, vec2, vec3, uniform, mix, varying, screenCoordinate } from 'three/tsl';
 import { terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
 import { DistantVoxelLayer, voxelFaceBudget } from './DistantVoxelLayer.ts';
+import { DEFAULT_VOXEL_TEXTURE_BAKE, type VoxelTextureBakeSettings } from './VoxelTextureBake.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
 import { TerrainHandoff } from './TerrainHandoff.ts';
 import { DistantChunkLayer } from './DistantChunkLayer.ts';
@@ -39,7 +40,8 @@ const LOD_SAMPLE_SIZES = [1, 2, 4, 8, 16, 32, 64] as const;
 const FINE_WORLD_Z_AXIS = TORUS_SIZE_Z / FINE_SAMPLE_SIZE;
 const WORLD_CHUNKS_X = TORUS_SIZE_X / CHUNK_SIZE;
 const WORLD_CHUNKS_Z = TORUS_SIZE_Z / CHUNK_SIZE;
-export interface DistantSurfaceSettings {
+export interface DistantSurfaceSettings extends VoxelTextureBakeSettings {
+  textureProxyBatching: number;
   subdivisionSizePx2: number;
   renderDistanceChunks: number;
   dataBudgetMiB: number;
@@ -49,13 +51,20 @@ export interface DistantSurfaceSettings {
 export type DistantSurfaceSettingKey = keyof DistantSurfaceSettings;
 export const DEFAULT_DISTANT_SURFACE_SETTINGS: Readonly<DistantSurfaceSettings> = Object.freeze({
   subdivisionSizePx2: 64, renderDistanceChunks: 2048, dataBudgetMiB: 512, geometryBudgetMiB: 160,
-  torusBackfaceCulling: false,
+  torusBackfaceCulling: false, textureProxyBatching: 1,
+  ...DEFAULT_VOXEL_TEXTURE_BAKE,
 });
 export const DISTANT_SURFACE_SETTING_LIMITS = Object.freeze({
   subdivisionSizePx2: Object.freeze({ min: 1, max: 256, step: 1 }),
   renderDistanceChunks: Object.freeze({ min: 32, max: 2048, step: 1 }),
   dataBudgetMiB: Object.freeze({ min: 4, max: 1024, step: 4 }),
   geometryBudgetMiB: Object.freeze({ min: 16, max: 512, step: 16 }),
+  textureProxyBatching: Object.freeze({ min: 0, max: 2, step: 1 }),
+  textureProxyEdge: Object.freeze({ min: 8, max: 32, step: 8 }),
+  textureProxyLodBias: Object.freeze({ min: 0, max: 2, step: 1 }),
+  textureProxyDensity: Object.freeze({ min: 1, max: 2, step: 1 }),
+  textureProxyDistance: Object.freeze({ min: 256, max: 2048, step: 64 }),
+  textureProxyBudgetMiB: Object.freeze({ min: 8, max: 64, step: 8 }),
 });
 /** Old pixel-error/metre distance settings have different semantics. Migrate
  * them to the new defaults while retaining the user's independent cache budget. */
@@ -64,6 +73,8 @@ export function normalizeDistantSurfaceSettings(
 ): DistantSurfaceSettings {
   const normalized = { ...DEFAULT_DISTANT_SURFACE_SETTINGS };
   normalized.torusBackfaceCulling = value?.torusBackfaceCulling === true;
+  normalized.textureProxyEnabled = value?.textureProxyEnabled === undefined ? DEFAULT_VOXEL_TEXTURE_BAKE.textureProxyEnabled : value.textureProxyEnabled === true;
+  normalized.textureProxyLinear = value?.textureProxyLinear === undefined ? DEFAULT_VOXEL_TEXTURE_BAKE.textureProxyLinear : value.textureProxyLinear === true;
   for (const key of Object.keys(DISTANT_SURFACE_SETTING_LIMITS) as (keyof typeof DISTANT_SURFACE_SETTING_LIMITS)[]) {
     const limits = DISTANT_SURFACE_SETTING_LIMITS[key];
     const candidate = value?.[key];
@@ -1557,6 +1568,8 @@ export class DistantSurfaceLayer {
       || next.renderDistanceChunks !== this.settings.renderDistanceChunks;
     this.settings = next;
     this.voxels.setTorusBackfaceCullingEnabled(next.torusBackfaceCulling);
+    this.voxels.setTextureBakeSettings(next);
+    this.voxels.setTextureBatching(next.textureProxyEnabled ? next.textureProxyBatching : 0);
     if (geometryChanged) { this.geometryAreaScale = 1; this.rootCache.clear(); }
     if (geometryChanged && this.enabled && this.zones.size > 0) {
       if (this.connectionsReady) this.requestRebuild();

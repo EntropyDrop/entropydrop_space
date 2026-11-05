@@ -1,0 +1,498 @@
+{
+  "capture": "bake-1793864380251",
+  "worlds": [
+    {
+      "world": "copper-metropolis",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "device": "",
+        "description": ""
+      },
+      "framebuffer": [
+        2560,
+        1440
+      ],
+      "quality": "medium",
+      "shadows": false,
+      "rows": [
+        {
+          "config": "off",
+          "view": "across",
+          "block": 0,
+          "fps": 119.99600013332895,
+          "frameMeanMs": 8.333611111111107,
+          "frameP95Ms": 9.099999999998545,
+          "cpuMeanMs": 2.007777758439382,
+          "gpuMeanMs": 2.730666666666667,
+          "gpuP50Ms": 2.62144,
+          "gpuChangePercent": -3.8644886544206614,
+          "triangles": 1329871,
+          "residentFaces": 2831558,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 17716.199999809265
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 1,
+          "fps": 119.99866853072362,
+          "frameMeanMs": 8.33342579750347,
+          "frameP95Ms": 8.900000000001455,
+          "cpuMeanMs": 2.6156726723405095,
+          "gpuMeanMs": 3.7312190413223147,
+          "gpuP50Ms": 3.735552,
+          "gpuChangePercent": 2.997682589519335,
+          "triangles": 2623495,
+          "residentFaces": 2831558,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 17716.199999809265
+        },
+        {
+          "config": "off",
+          "view": "sweep",
+          "block": 2,
+          "fps": 119.99866853072362,
+          "frameMeanMs": 8.33342579750347,
+          "frameP95Ms": 9.10000000000582,
+          "cpuMeanMs": 2.211650483320556,
+          "gpuMeanMs": 3.442535669421488,
+          "gpuP50Ms": 3.473408,
+          "gpuChangePercent": 8.012575409975353,
+          "triangles": 1347122.095700416,
+          "residentFaces": 2831558,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 17716.199999809265
+        },
+        {
+          "config": "edge8",
+          "view": "across",
+          "block": 3,
+          "fps": 120.00066574571836,
+          "frameMeanMs": 8.33328710124827,
+          "frameP95Ms": 9.10000000000582,
+          "cpuMeanMs": 2.1994452588931863,
+          "gpuMeanMs": 3.1316458842975172,
+          "gpuP50Ms": 3.145728,
+          "gpuChangePercent": 10.252335854573037,
+          "triangles": 1330575,
+          "residentFaces": 2588941,
+          "residentReductionPercent": 8.568321750781728,
+          "texture": {
+            "bytes": 33554432,
+            "used": 126,
+            "uploadedBytes": 33030144,
+            "misses": 0
+          },
+          "settleMs": 15158.699999809265
+        },
+        {
+          "config": "edge8",
+          "view": "near",
+          "block": 4,
+          "fps": 119.99866853072378,
+          "frameMeanMs": 8.333425797503459,
+          "frameP95Ms": 9.099999999991269,
+          "cpuMeanMs": 2.778085993000935,
+          "gpuMeanMs": 3.6721824793388445,
+          "gpuP50Ms": 3.60448,
+          "gpuChangePercent": 1.36801973536671,
+          "triangles": 2487559,
+          "residentFaces": 2588941,
+          "residentReductionPercent": 8.568321750781728,
+          "texture": {
+            "bytes": 33554432,
+            "used": 126,
+            "uploadedBytes": 33030144,
+            "misses": 0
+          },
+          "settleMs": 15158.699999809265
+        },
+        {
+          "config": "edge8",
+          "view": "sweep",
+          "block": 5,
+          "fps": 119.99866853072378,
+          "frameMeanMs": 8.333425797503459,
+          "frameP95Ms": 9.099999999991269,
+          "cpuMeanMs": 2.5324549311242386,
+          "gpuMeanMs": 3.3168798677685922,
+          "gpuP50Ms": 3.2768,
+          "gpuChangePercent": 4.0700144447275655,
+          "triangles": 1347894.8363384188,
+          "residentFaces": 2588941,
+          "residentReductionPercent": 8.568321750781728,
+          "texture": {
+            "bytes": 33554432,
+            "used": 126,
+            "uploadedBytes": 33030144,
+            "misses": 0
+          },
+          "settleMs": 15158.699999809265
+        },
+        {
+          "config": "edge16",
+          "view": "across",
+          "block": 6,
+          "fps": 119.99866853072378,
+          "frameMeanMs": 8.333425797503459,
+          "frameP95Ms": 9.099999999991269,
+          "cpuMeanMs": 2.2923716837424015,
+          "gpuMeanMs": 2.6333556363636355,
+          "gpuP50Ms": 2.490368,
+          "gpuChangePercent": -7.290408695099537,
+          "triangles": 1330639,
+          "residentFaces": 2468673,
+          "residentReductionPercent": 12.815736071802164,
+          "texture": {
+            "bytes": 33554432,
+            "used": 128,
+            "uploadedBytes": 33554432,
+            "misses": 296
+          },
+          "settleMs": 19024.400000572205
+        },
+        {
+          "config": "edge16",
+          "view": "near",
+          "block": 7,
+          "fps": 119.99866853072378,
+          "frameMeanMs": 8.333425797503459,
+          "frameP95Ms": 8.900000000008731,
+          "cpuMeanMs": 2.827184462844912,
+          "gpuMeanMs": 3.75017573553719,
+          "gpuP50Ms": 3.735552,
+          "gpuChangePercent": 3.520968827091253,
+          "triangles": 2423111,
+          "residentFaces": 2468673,
+          "residentReductionPercent": 12.815736071802164,
+          "texture": {
+            "bytes": 33554432,
+            "used": 128,
+            "uploadedBytes": 33554432,
+            "misses": 296
+          },
+          "settleMs": 19024.400000572205
+        },
+        {
+          "config": "edge16",
+          "view": "sweep",
+          "block": 8,
+          "fps": 119.99866853072378,
+          "frameMeanMs": 8.333425797503459,
+          "frameP95Ms": 9.10000000000582,
+          "cpuMeanMs": 2.481692111773233,
+          "gpuMeanMs": 3.3190463471074376,
+          "gpuP50Ms": 3.2768,
+          "gpuChangePercent": 4.137989633783623,
+          "triangles": 1347882.9084604715,
+          "residentFaces": 2468673,
+          "residentReductionPercent": 12.815736071802164,
+          "texture": {
+            "bytes": 33554432,
+            "used": 128,
+            "uploadedBytes": 33554432,
+            "misses": 296
+          },
+          "settleMs": 19024.400000572205
+        },
+        {
+          "config": "smooth",
+          "view": "across",
+          "block": 9,
+          "fps": 119.84021304926763,
+          "frameMeanMs": 8.344444444444445,
+          "frameP95Ms": 9,
+          "cpuMeanMs": 2.3479167064030966,
+          "gpuMeanMs": 3.124974933333331,
+          "gpuP50Ms": 3.2768,
+          "gpuChangePercent": 10.017479183880894,
+          "triangles": 1330319,
+          "residentFaces": 2588941,
+          "residentReductionPercent": 8.568321750781728,
+          "texture": {
+            "bytes": 33554432,
+            "used": 126,
+            "uploadedBytes": 33030144,
+            "misses": 0
+          },
+          "settleMs": 17825.5
+        },
+        {
+          "config": "smooth",
+          "view": "near",
+          "block": 10,
+          "fps": 119.99267728460433,
+          "frameMeanMs": 8.333841886269047,
+          "frameP95Ms": 8.799999999988358,
+          "cpuMeanMs": 2.9485436808550407,
+          "gpuMeanMs": 3.557359074380166,
+          "gpuP50Ms": 3.473408,
+          "gpuChangePercent": -1.8015997607834233,
+          "triangles": 2487687,
+          "residentFaces": 2588941,
+          "residentReductionPercent": 8.568321750781728,
+          "texture": {
+            "bytes": 33554432,
+            "used": 126,
+            "uploadedBytes": 33030144,
+            "misses": 0
+          },
+          "settleMs": 17825.5
+        },
+        {
+          "config": "smooth",
+          "view": "sweep",
+          "block": 11,
+          "fps": 119.83422931611294,
+          "frameMeanMs": 8.344861111111095,
+          "frameP95Ms": 9,
+          "cpuMeanMs": 2.6822221928172643,
+          "gpuMeanMs": 2.8344319999999983,
+          "gpuP50Ms": 2.883584,
+          "gpuChangePercent": -11.067210468179189,
+          "triangles": 1347650.1555555556,
+          "residentFaces": 2588941,
+          "residentReductionPercent": 8.568321750781728,
+          "texture": {
+            "bytes": 33554432,
+            "used": 126,
+            "uploadedBytes": 33030144,
+            "misses": 0
+          },
+          "settleMs": 17825.5
+        },
+        {
+          "config": "detail2",
+          "view": "across",
+          "block": 12,
+          "fps": 119.99866853072378,
+          "frameMeanMs": 8.333425797503459,
+          "frameP95Ms": 9.10000000000582,
+          "cpuMeanMs": 2.201386922606152,
+          "gpuMeanMs": 3.0070733223140484,
+          "gpuP50Ms": 2.883584,
+          "gpuChangePercent": 5.866649717154937,
+          "triangles": 1330383,
+          "residentFaces": 2640063,
+          "residentReductionPercent": 6.762884602752262,
+          "texture": {
+            "bytes": 33554432,
+            "used": 109,
+            "uploadedBytes": 28573696,
+            "misses": 0
+          },
+          "settleMs": 18539.5
+        },
+        {
+          "config": "detail2",
+          "view": "near",
+          "block": 13,
+          "fps": 120.00466037516067,
+          "frameMeanMs": 8.333009708737832,
+          "frameP95Ms": 8.89999999999418,
+          "cpuMeanMs": 2.847988902447789,
+          "gpuMeanMs": 3.581731966942149,
+          "gpuP50Ms": 3.538944,
+          "gpuChangePercent": -1.1288031696194967,
+          "triangles": 2515335,
+          "residentFaces": 2640063,
+          "residentReductionPercent": 6.762884602752262,
+          "texture": {
+            "bytes": 33554432,
+            "used": 109,
+            "uploadedBytes": 28573696,
+            "misses": 0
+          },
+          "settleMs": 18539.5
+        },
+        {
+          "config": "detail2",
+          "view": "sweep",
+          "block": 14,
+          "fps": 119.9986685307232,
+          "frameMeanMs": 8.3334257975035,
+          "frameP95Ms": 9.10000000000582,
+          "cpuMeanMs": 2.469209427641764,
+          "gpuMeanMs": 2.9372043636363623,
+          "gpuP50Ms": 2.818048,
+          "gpuChangePercent": -7.842637437335442,
+          "triangles": 1347740.7031900138,
+          "residentFaces": 2640063,
+          "residentReductionPercent": 6.762884602752262,
+          "texture": {
+            "bytes": 33554432,
+            "used": 109,
+            "uploadedBytes": 28573696,
+            "misses": 0
+          },
+          "settleMs": 18539.5
+        },
+        {
+          "config": "off",
+          "view": "across",
+          "block": 15,
+          "fps": 120.00066574571865,
+          "frameMeanMs": 8.333287101248251,
+          "frameP95Ms": 9.10000000000582,
+          "cpuMeanMs": 2.1084604620437517,
+          "gpuMeanMs": 2.950203239669423,
+          "gpuP50Ms": 2.883584,
+          "gpuChangePercent": 3.8644886544206614,
+          "triangles": 1329871,
+          "residentFaces": 2831558,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 17128.5
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 16,
+          "fps": 119.99866853072378,
+          "frameMeanMs": 8.333425797503459,
+          "frameP95Ms": 9,
+          "cpuMeanMs": 2.6937586735422503,
+          "gpuMeanMs": 3.514029487603306,
+          "gpuP50Ms": 3.473408,
+          "gpuChangePercent": -2.997682589519335,
+          "triangles": 2623623,
+          "residentFaces": 2831558,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 17128.5
+        },
+        {
+          "config": "off",
+          "view": "sweep",
+          "block": 17,
+          "fps": 119.9986685307232,
+          "frameMeanMs": 8.3334257975035,
+          "frameP95Ms": 9.10000000000582,
+          "cpuMeanMs": 2.40929265227298,
+          "gpuMeanMs": 2.9317881652892575,
+          "gpuP50Ms": 2.752512,
+          "gpuChangePercent": -8.012575409975343,
+          "triangles": 1347085.7572815535,
+          "residentFaces": 2831558,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 17128.5
+        }
+      ],
+      "images": [
+        {
+          "config": "off",
+          "view": "across",
+          "block": 0,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "edge8",
+          "view": "across",
+          "block": 3,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "edge16",
+          "view": "across",
+          "block": 6,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "smooth",
+          "view": "across",
+          "block": 9,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "detail2",
+          "view": "across",
+          "block": 12,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "off",
+          "view": "across",
+          "block": 15,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 1,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "edge8",
+          "view": "near",
+          "block": 4,
+          "changedOver2Percent": 0.00146484375,
+          "meanMaxRgb": 0.0002775065104166667,
+          "maxRgb": 130,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "edge16",
+          "view": "near",
+          "block": 7,
+          "changedOver2Percent": 0.0032009548611111114,
+          "meanMaxRgb": 0.0008306206597222222,
+          "maxRgb": 130,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "smooth",
+          "view": "near",
+          "block": 10,
+          "changedOver2Percent": 0.008083767361111112,
+          "meanMaxRgb": 0.0009334309895833333,
+          "maxRgb": 130,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "detail2",
+          "view": "near",
+          "block": 13,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 16,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        }
+      ]
+    }
+  ]
+}

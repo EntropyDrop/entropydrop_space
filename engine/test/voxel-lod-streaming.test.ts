@@ -11,6 +11,7 @@ import type { SurfaceZoneSnapshot } from '../src/voxel/SurfaceZoneSnapshot.ts';
 import { createCooperativeVoxelLodPort, createWorkerVoxelLodPort, type VoxelLodPort, type VoxelLodCommand, type VoxelLodResponse } from '../src/render/VoxelLodService.ts';
 import { NodeVoxelLodWorker } from './helpers/voxel-lod-worker.ts';
 import type { VoxelLodTile } from '../src/render/VoxelLodPlanner.ts';
+import { DEFAULT_VOXEL_TEXTURE_BAKE } from '../src/render/VoxelTextureBake.ts';
 
 function source(revision = 1, tint = 128, count = 128): SurfaceZoneSnapshot {
   return { zoneX: 16, zoneZ: 2, seed: 42, terrainGeneratorVersion: 3, sourceTerrainRevision: revision,
@@ -29,6 +30,41 @@ function source(revision = 1, tint = 128, count = 128): SurfaceZoneSnapshot {
     }) };
 }
 const camera = bendPoint(8200, 120, 1032), frustum = new THREE.Frustum();
+
+for (const backend of ['worker', 'synchronous'] as const) test(`${backend} baked colors survive updates, arena switches, pool changes and disable`, async t => {
+  setWorldProjection('flat');t.after(()=>setWorldProjection('torus'));
+  const handoff=new TerrainHandoff(),layer=new DistantVoxelLayer(handoff.texture,backend==='worker'?{workerFactory:()=>new NodeVoxelLodWorker()}:{synchronous:true});
+  const snapshot=source(1,128,64); snapshot.voxelMips=snapshot.voxelMips!.slice(0,1);
+  const faces=snapshot.voxelMips[0].faces, data=new DataView(faces.buffer);
+  for(let i=0;i<64;i++){
+    data.setUint16(i*16,(i%8)*8,true);data.setUint16(i*16+4,Math.floor(i/8)*8,true);
+    faces.set([i*3,128,240],i*16+12);
+  }
+  const visible=new THREE.Frustum();visible.planes.forEach(p=>p.setComponents(0,0,0,1));
+  const update=()=>layer.updateView(visible,new THREE.Vector3(10000,1000,3000),720,1,32768,100000);
+  const settle=async()=>{const deadline=performance.now()+10000;do{update();await delay(4);assert.ok(performance.now()<deadline);}
+    while(layer.hasPendingWork||layer.hasPendingTransitions);};
+  let config={...DEFAULT_VOXEL_TEXTURE_BAKE,textureProxyEnabled:true};
+  try{
+    layer.setTextureBakeSettings(config);layer.setMergedBuffersEnabled(true);update();layer.install(snapshot);await settle();
+    assert.equal(layer.group.userData.voxelTextureStats.used,1);
+    assert.equal(layer.group.userData.voxelArenaStats.residentFaces,1);
+    layer.setMergedBuffersEnabled(false);assert.equal(layer.group.userData.voxelTextureStats.used,1);
+    const mesh=layer.group.children.find(m=>m.userData.voxelArenaCompatible) as THREE.Mesh;
+    assert.equal(mesh.geometry.userData.voxelBakeLayer,1);assert.equal(mesh.geometry.getAttribute('voxelDirection').getX(0),131);
+    layer.setMergedBuffersEnabled(true);await settle();
+    for(const patch of [{textureProxyEdge:16},{textureProxyBudgetMiB:8},{textureProxyLinear:true}]){
+      config={...config,...patch};layer.setTextureBakeSettings(config);await settle();assert.equal(layer.group.userData.voxelTextureStats.used,1);
+    }
+    layer.setTextureBakeSettings({...config,textureProxyEnabled:false});await settle();
+    assert.equal(layer.group.userData.voxelTextureStats,null);assert.equal(layer.group.userData.voxelArenaStats.residentFaces,64);
+    layer.setTextureBakeSettings(config);await settle();assert.equal(layer.group.userData.voxelTextureStats!.used,1);
+    layer.install({...snapshot,sourceTerrainRevision:2});update();
+    layer.setTextureBakeSettings({...config,textureProxyEnabled:false});update();
+    layer.setTextureBakeSettings(config);await settle();assert.equal(layer.group.userData.voxelTextureStats!.used,1);
+    layer.removeZone(16,2);assert.equal(layer.group.userData.voxelTextureStats!.used,0);
+  }finally{layer.dispose();handoff.texture.dispose();}
+});
 for (const backend of ['worker', 'cooperative'] as const) test(`${backend} switches projection with resident terrain and fresh culling metadata`, async t => {
   t.after(() => setWorldProjection('torus'));
   const handoff = new TerrainHandoff();

@@ -18,7 +18,7 @@ export function* voxelFaceVisibility(faces: Faces, originX: number, originZ: num
     let flatMinX = Infinity, flatMaxX = -Infinity, flatMinZ = Infinity, flatMaxZ = -Infinity, deviation = 0;
     reference.set(0, 0, 0);
     for (let i = first; i < Math.min(faces.count, first + VOXEL_FACE_BLOCK); i++) {
-      const dir = faces.direction[i], axis = dir >> 1;
+      const dir = faces.direction[i] & 7, axis = dir >> 1;
       const x = faces.offset[i * 3] / 8 + originX, y = faces.offset[i * 3 + 1] / 8, z = faces.offset[i * 3 + 2] / 8 + originZ;
       const w = faces.span[i * 2] / 8, h = faces.span[i * 2 + 1] / 8;
       for (let c = 0; c < 4; c++) {

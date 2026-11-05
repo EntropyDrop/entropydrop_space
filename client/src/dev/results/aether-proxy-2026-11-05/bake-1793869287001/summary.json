@@ -1,0 +1,412 @@
+{
+  "capture": "bake-1793869287001",
+  "worlds": [
+    {
+      "world": "aether-archipelago",
+      "adapter": {
+        "vendor": "",
+        "architecture": "",
+        "device": "",
+        "description": ""
+      },
+      "framebuffer": [
+        2560,
+        1440
+      ],
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:159.0) Gecko/20100101 Firefox/159.0",
+      "control": false,
+      "quality": "medium",
+      "shadows": false,
+      "rows": [
+        {
+          "config": "off",
+          "view": "horizon",
+          "block": 0,
+          "fps": 106.23020478822814,
+          "frameMeanMs": 9.413518518518517,
+          "frameP95Ms": 16.679999999996653,
+          "cpuMeanMs": 3.8055555555555554,
+          "gpuMeanMs": 3.5576805555555557,
+          "gpuP50Ms": 3.561792,
+          "gpuChangePercent": -3.1760819141845587,
+          "triangles": 1908719,
+          "residentFaces": 2089207,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 24094
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 1,
+          "fps": 86.28042128647051,
+          "frameMeanMs": 11.590114942528778,
+          "frameP95Ms": 16.74000000000524,
+          "cpuMeanMs": 4.7701149425287355,
+          "gpuMeanMs": 3.453183266666666,
+          "gpuP50Ms": 3.603583,
+          "gpuChangePercent": -3.533667628140391,
+          "triangles": 1959577,
+          "residentFaces": 2089207,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 24094
+        },
+        {
+          "config": "proxy32",
+          "view": "horizon",
+          "block": 2,
+          "fps": 105,
+          "frameMeanMs": 9.523809523809524,
+          "frameP95Ms": 16.680000000007567,
+          "cpuMeanMs": 4.114285714285714,
+          "gpuMeanMs": 3.81169438888889,
+          "gpuP50Ms": 3.792875,
+          "gpuChangePercent": 3.7370217799974847,
+          "triangles": 1830511,
+          "residentFaces": 1820761,
+          "residentReductionPercent": 12.849181531557186,
+          "texture": {
+            "bytes": 33554432,
+            "used": 128,
+            "uploadedBytes": 33554432,
+            "misses": 1175
+          },
+          "settleMs": 38120
+        },
+        {
+          "config": "proxy32",
+          "view": "near",
+          "block": 3,
+          "fps": 83.30523434555714,
+          "frameMeanMs": 12.00404761904775,
+          "frameP95Ms": 33.33999999999651,
+          "cpuMeanMs": 5.142857142857143,
+          "gpuMeanMs": 4.082559357142857,
+          "gpuP50Ms": 3.975083,
+          "gpuChangePercent": 14.04825561261025,
+          "triangles": 1813273,
+          "residentFaces": 1820761,
+          "residentReductionPercent": 12.849181531557186,
+          "texture": {
+            "bytes": 33554432,
+            "used": 128,
+            "uploadedBytes": 33554432,
+            "misses": 1175
+          },
+          "settleMs": 38120
+        },
+        {
+          "config": "proxynear",
+          "view": "horizon",
+          "block": 4,
+          "fps": 105.12327191225066,
+          "frameMeanMs": 9.512641509434067,
+          "frameP95Ms": 16.679999999993015,
+          "cpuMeanMs": 4.084905660377358,
+          "gpuMeanMs": 3.5685532777777778,
+          "gpuP50Ms": 3.737459,
+          "gpuChangePercent": -2.8801757614608903,
+          "triangles": 1808687,
+          "residentFaces": 1790041,
+          "residentReductionPercent": 14.319595904091841,
+          "texture": {
+            "bytes": 33554432,
+            "used": 128,
+            "uploadedBytes": 33554432,
+            "misses": 1205
+          },
+          "settleMs": 46770
+        },
+        {
+          "config": "proxynear",
+          "view": "near",
+          "block": 5,
+          "fps": 106,
+          "frameMeanMs": 9.433962264150944,
+          "frameP95Ms": 16.679999999993015,
+          "cpuMeanMs": 4.122641509433962,
+          "gpuMeanMs": 3.5986296666666666,
+          "gpuP50Ms": 3.736083,
+          "gpuChangePercent": 0.5294473823276746,
+          "triangles": 1780249,
+          "residentFaces": 1790041,
+          "residentReductionPercent": 14.319595904091841,
+          "texture": {
+            "bytes": 33554432,
+            "used": 128,
+            "uploadedBytes": 33554432,
+            "misses": 1205
+          },
+          "settleMs": 46770
+        },
+        {
+          "config": "off",
+          "view": "horizon",
+          "block": 6,
+          "fps": 109.09018783346924,
+          "frameMeanMs": 9.166727272727242,
+          "frameP95Ms": 16.68000000002212,
+          "cpuMeanMs": 3.7181818181818183,
+          "gpuMeanMs": 3.791083315789474,
+          "gpuP50Ms": 3.804458,
+          "gpuChangePercent": 3.1760819141845475,
+          "triangles": 1908207,
+          "residentFaces": 2089207,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 30305
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 7,
+          "fps": 107.65219452455061,
+          "frameMeanMs": 9.289174311926777,
+          "frameP95Ms": 16.660000000003492,
+          "cpuMeanMs": 3.871559633027523,
+          "gpuMeanMs": 3.7061710526315785,
+          "gpuP50Ms": 3.629125,
+          "gpuChangePercent": 3.53366762814038,
+          "triangles": 1959449,
+          "residentFaces": 2089207,
+          "residentReductionPercent": 0.0,
+          "texture": {},
+          "settleMs": 30305
+        }
+      ],
+      "images": [
+        {
+          "config": "off",
+          "view": "horizon",
+          "block": 0,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "proxy32",
+          "view": "horizon",
+          "block": 2,
+          "changedOver2Percent": 2.894992404513889,
+          "meanMaxRgb": 2.1379383680555555,
+          "maxRgb": 222,
+          "p99Rgb": 70.0
+        },
+        {
+          "config": "proxynear",
+          "view": "horizon",
+          "block": 4,
+          "changedOver2Percent": 2.710720486111111,
+          "meanMaxRgb": 1.7345258246527777,
+          "maxRgb": 225,
+          "p99Rgb": 51.0
+        },
+        {
+          "config": "off",
+          "view": "horizon",
+          "block": 6,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 1,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        },
+        {
+          "config": "proxy32",
+          "view": "near",
+          "block": 3,
+          "changedOver2Percent": 6.660183376736111,
+          "meanMaxRgb": 4.92947021484375,
+          "maxRgb": 221,
+          "p99Rgb": 185.0
+        },
+        {
+          "config": "proxynear",
+          "view": "near",
+          "block": 5,
+          "changedOver2Percent": 7.781195746527778,
+          "meanMaxRgb": 5.721728786892361,
+          "maxRgb": 225,
+          "p99Rgb": 190.0
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "block": 7,
+          "changedOver2Percent": 0.0,
+          "meanMaxRgb": 0.0,
+          "maxRgb": 0,
+          "p99Rgb": 0.0
+        }
+      ],
+      "pooled": [
+        {
+          "config": "off",
+          "view": "all",
+          "blocks": 4,
+          "frames": 414,
+          "fps": 102.32682297459579,
+          "blockFps": [
+            106.23020478822814,
+            86.28042128647051,
+            109.09018783346924,
+            107.65219452455061
+          ],
+          "frameMeanMs": 9.772608695652218,
+          "frameP95Ms": 16.68000000000029,
+          "cpuMeanMs": 4.002415458937198,
+          "gpuMeanMs": 3.6378004507042254,
+          "drawCalls": 237.35265700483092,
+          "triangles": 1932626.961352657
+        },
+        {
+          "config": "proxy32",
+          "view": "all",
+          "blocks": 2,
+          "frames": 189,
+          "fps": 94.10757142714827,
+          "blockFps": [
+            105,
+            83.30523434555714
+          ],
+          "frameMeanMs": 10.626137566137624,
+          "frameP95Ms": 17.087999999997553,
+          "cpuMeanMs": 4.571428571428571,
+          "gpuMeanMs": 3.9301978125,
+          "drawCalls": 273.77777777777777,
+          "triangles": 1822849.6666666667
+        },
+        {
+          "config": "proxynear",
+          "view": "all",
+          "blocks": 2,
+          "frames": 212,
+          "fps": 105.55981556907636,
+          "blockFps": [
+            105.12327191225066,
+            106
+          ],
+          "frameMeanMs": 9.473301886792505,
+          "frameP95Ms": 16.679999999993015,
+          "cpuMeanMs": 4.10377358490566,
+          "gpuMeanMs": 3.5835914722222224,
+          "drawCalls": 281,
+          "triangles": 1794468
+        },
+        {
+          "config": "off",
+          "view": "horizon",
+          "blocks": 2,
+          "frames": 218,
+          "fps": 107.65432098765451,
+          "blockFps": [
+            106.23020478822814,
+            109.09018783346924
+          ],
+          "frameMeanMs": 9.288990825688057,
+          "frameP95Ms": 16.68000000000029,
+          "cpuMeanMs": 3.761467889908257,
+          "gpuMeanMs": 3.677536027027027,
+          "drawCalls": 208.40366972477065,
+          "triangles": 1908460.6513761468
+        },
+        {
+          "config": "proxy32",
+          "view": "horizon",
+          "blocks": 1,
+          "frames": 105,
+          "fps": 105.0,
+          "blockFps": [
+            105
+          ],
+          "frameMeanMs": 9.523809523809524,
+          "frameP95Ms": 16.680000000007567,
+          "cpuMeanMs": 4.114285714285714,
+          "gpuMeanMs": 3.811694388888889,
+          "drawCalls": 256,
+          "triangles": 1830511
+        },
+        {
+          "config": "proxynear",
+          "view": "horizon",
+          "blocks": 1,
+          "frames": 106,
+          "fps": 105.12327191225066,
+          "blockFps": [
+            105.12327191225066
+          ],
+          "frameMeanMs": 9.512641509434067,
+          "frameP95Ms": 16.674999999995634,
+          "cpuMeanMs": 4.084905660377358,
+          "gpuMeanMs": 3.5685532777777778,
+          "drawCalls": 271,
+          "triangles": 1808687
+        },
+        {
+          "config": "off",
+          "view": "near",
+          "blocks": 2,
+          "frames": 196,
+          "fps": 96.98841087457707,
+          "blockFps": [
+            86.28042128647051,
+            107.65219452455061
+          ],
+          "frameMeanMs": 10.310510204081748,
+          "frameP95Ms": 16.68000000000029,
+          "cpuMeanMs": 4.270408163265306,
+          "gpuMeanMs": 3.594558794117647,
+          "drawCalls": 269.55102040816325,
+          "triangles": 1959505.8163265307
+        },
+        {
+          "config": "proxy32",
+          "view": "near",
+          "blocks": 1,
+          "frames": 84,
+          "fps": 83.30523434555714,
+          "blockFps": [
+            83.30523434555714
+          ],
+          "frameMeanMs": 12.00404761904775,
+          "frameP95Ms": 32.088999999996986,
+          "cpuMeanMs": 5.142857142857143,
+          "gpuMeanMs": 4.082559357142857,
+          "drawCalls": 296,
+          "triangles": 1813273
+        },
+        {
+          "config": "proxynear",
+          "view": "near",
+          "blocks": 1,
+          "frames": 106,
+          "fps": 106.0,
+          "blockFps": [
+            106
+          ],
+          "frameMeanMs": 9.433962264150944,
+          "frameP95Ms": 16.674999999995634,
+          "cpuMeanMs": 4.122641509433962,
+          "gpuMeanMs": 3.5986296666666666,
+          "drawCalls": 291,
+          "triangles": 1780249
+        }
+      ],
+      "totals": {
+        "blocks": 8,
+        "frames": 815,
+        "gpuSamples": 139
+      }
+    }
+  ]
+}

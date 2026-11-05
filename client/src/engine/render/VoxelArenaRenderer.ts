@@ -7,6 +7,34 @@ export function installVoxelArenaSupport(renderer: any) {
   const backend = renderer.backend, objects = renderer._objects, geometries = renderer._geometries;
   if (REVISION !== '183' || !backend?.isWebGPUBackend || typeof backend.createNodeBuilder !== 'function'
     || typeof objects?.createRenderObject !== 'function' || typeof geometries?.delete !== 'function') return false;
+  // r183's WebGPU array uploader ignores DataArrayTexture.layerUpdates. Honor
+  // immutable baked-layer updates without re-uploading the entire texture pool.
+  const uploadTexture = backend.updateTexture;
+  const initializedTextures = new WeakMap<object, object>();
+  backend.updateTexture = function(texture: any, options: any) {
+    const active = texture.userData?.voxelBakeLayers, data = backend.get(texture);
+    if (!(active instanceof Set) || !texture.isDataArrayTexture || !data.texture) return uploadTexture.call(this, texture, options);
+    const initialized = initializedTextures.get(texture) === data.texture;
+    const layers = initialized ? texture.layerUpdates : active;
+    const { width, height } = texture.image, stride = width * height * 4;
+    const regions = texture.userData.voxelBakeRegions;
+    if (initialized && regions instanceof Map) for (const {layer,x,y,size} of regions.values()) {
+      const offset = layer * stride + (y * width + x) * 4;
+      backend.device.queue.writeTexture({ texture: data.texture, origin: [x, y, layer] },
+        texture.image.data.subarray(offset, offset + ((size - 1) * width + size) * 4),
+        { bytesPerRow: width * 4, rowsPerImage: size }, { width: size, height: size, depthOrArrayLayers: 1 });
+      if (texture.userData.voxelBakeStats) texture.userData.voxelBakeStats.uploadedBytes += size * size * 4;
+    }
+    else for (const layer of layers) {
+      backend.device.queue.writeTexture({ texture: data.texture, origin: [0, 0, layer] },
+      texture.image.data.subarray(layer * stride, (layer + 1) * stride),
+      { bytesPerRow: width * 4, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
+      if (texture.userData.voxelBakeStats) texture.userData.voxelBakeStats.uploadedBytes += stride;
+    }
+    regions?.clear();
+    texture.clearLayerUpdates(); data.version = texture.version;
+    initializedTextures.set(texture, data.texture);
+  };
   const build = backend.createNodeBuilder;
   backend.createNodeBuilder = function(...args: any[]) {
     const builder = build.apply(this, args), builtins = builder.getBuiltins;
