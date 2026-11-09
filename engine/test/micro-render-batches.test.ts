@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { MicroVoxelLayer } from '../src/voxel/MicroVoxelLayer.ts';
+import { MAX_MICRO_BATCH_VERTICES } from '../src/render/MicroRenderBatches.ts';
 import { World, terrainRenderDistanceZ } from '../src/voxel/World.ts';
 import { Chunk } from '../src/voxel/Chunk.ts';
 import { TerrainGenerator } from '../src/worldgen/TerrainGenerator.ts';
@@ -89,6 +90,40 @@ test('dense authored geometry falls back to bounded partitions and can return to
   assert.equal(layer.renderMeshes.size, 2);
   layer.setRenderBatchingEnabled(true);
   assert.equal(layer.renderMeshes.size, 1);
+});
+
+test('dense chunks split into bounded batches and an edit rebuilds only its own batch', () => {
+  const layer = new MicroVoxelLayer();
+  // 40 sparse 2 m partitions in one standard chunk: too dense for one bounded
+  // batch, far too many separate partition draws.
+  for (let px = 0; px < 8; px++) for (let pz = 0; pz < 5; pz++) {
+    for (let x = 0; x < 16; x += 4) for (let y = 0; y < 16; y += 4) for (let z = 0; z < 16; z += 4) {
+      layer.set(px * 16 + x, y, pz * 16 + z, 0x3355aa + px * 16 + pz);
+    }
+  }
+  layer.updateMesh();
+  assert.equal(layer.meshChunks.size, 40);
+  const vertices = [...layer.meshChunks.values()].reduce((sum, mesh) => sum + mesh.geometry.getAttribute('position').count, 0);
+  assert.ok(vertices > MAX_MICRO_BATCH_VERTICES);
+  assert.equal(layer.renderMeshes.size, Math.ceil(vertices / MAX_MICRO_BATCH_VERTICES));
+  for (const mesh of layer.renderMeshes.values()) {
+    assert.equal(mesh.userData.microRenderBatch, true);
+    assert.ok(mesh.geometry.getAttribute('position').count <= MAX_MICRO_BATCH_VERTICES);
+  }
+  assert.equal(layer.group.children.length, layer.renderMeshes.size);
+  assert.deepEqual(triangles(layer.renderMeshes.values()), triangles(layer.meshChunks.values()));
+  const before = new Set(layer.renderMeshes.values());
+  layer.delete(4, 4, 4);
+  layer.updateMesh();
+  const after = [...layer.renderMeshes.values()];
+  assert.equal(after.filter(mesh => before.has(mesh)).length, after.length - 1, 'only the edited batch is replaced');
+  assert.deepEqual(triangles(layer.renderMeshes.values()), triangles(layer.meshChunks.values()));
+  layer.setRenderBatchingEnabled(false);
+  assert.equal(layer.renderMeshes.size, 40);
+  assert.equal(layer.group.children.length, 40);
+  layer.setRenderBatchingEnabled(true);
+  assert.deepEqual(triangles(layer.renderMeshes.values()), triangles(layer.meshChunks.values()));
+  assert.equal(layer.group.children.length, layer.renderMeshes.size);
 });
 
 test('real Copper detail uses one draw mesh per standard chunk without removing triangles', () => {

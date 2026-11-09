@@ -2,6 +2,7 @@ import { WebGPURenderer } from 'three/webgpu';
 import { installOpaqueTerrainBundles } from './OpaqueTerrainBundles.ts';
 import { installVoxelArenaSupport } from './VoxelArenaRenderer.ts';
 import { trackRenderObjectLifetime } from './RenderObjectLifetime.ts';
+import { installUniformRangeCoalescing } from './UniformRangeCoalescing.ts';
 
 /** WebGPU only: never silently render the production game with WebGL. */
 export class SpaceRenderer extends WebGPURenderer {
@@ -23,6 +24,7 @@ export class SpaceRenderer extends WebGPURenderer {
     catch (cause) { throw new Error('Unable to initialize WebGPU. Check browser GPU acceleration and reload Space.', { cause }); }
     if (!(this.backend as any).isWebGPUBackend) throw new Error('Space requires the WebGPU backend.');
     this.retireRenderObjects ??= trackRenderObjectLifetime((this as any)._objects);
+    installUniformRangeCoalescing(this);
     if (!this.terrainMergedBuffers) this.terrainMergedBuffers = installVoxelArenaSupport(this);
   }
   override dispose() {

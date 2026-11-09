@@ -18,7 +18,7 @@ import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 // the CPU bends one camera, frustum-culls chunk spheres, and unbends ray samples.
 // =============================================================================
 import * as THREE from 'three/webgpu';
-import { Fn, If, uniform, reference, vec3, vec4, mat3, sin, cos, float, int, uint, storage, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty } from 'three/tsl';
+import { Fn, If, uniform, reference, vec3, vec4, mat3, sin, cos, float, int, uint, storage, min, smoothstep, positionLocal, normalLocal, modelWorldMatrix, modelWorldMatrixInverse, cameraViewMatrix, varyingProperty, renderGroup } from 'three/tsl';
 import { asNodeMaterial } from '../render/NodeMaterials.ts';
 import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
 import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
@@ -486,7 +486,12 @@ export function computeChunkBentSphere(
 const hookedMaterials = new WeakSet<THREE.NodeMaterial>();
 const torusEnabledNode = reference('torus', 'bool', projectionState);
 const viewEnabledNode = reference('value', 'float', _viewEnabled);
-const viewOriginNode = uniform(_viewOrigin), viewMatrixNode = uniform(_viewMatrix);
+// The camera-local view correction is global per rendered view, not per
+// object. TSL places plain uniforms in the per-object group, so every terrain
+// and entity object would copy and upload it again whenever the camera moves
+// (hundreds of tiny writeBuffer calls per frame, each a separate GPU-process
+// message in Firefox). The shared render group uploads it once per render.
+const viewOriginNode = uniform(_viewOrigin).setGroup(renderGroup), viewMatrixNode = uniform(_viewMatrix).setGroup(renderGroup);
 
 // Natural surface vertices lie on the metre lattice. Reuse immutable angular
 // coordinates instead of evaluating four transcendental functions per vertex.

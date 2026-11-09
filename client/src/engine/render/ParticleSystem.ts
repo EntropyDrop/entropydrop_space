@@ -27,6 +27,10 @@ export class ParticleSystem {
 
     this.instancedMesh = new THREE.InstancedMesh(this.geometry, this.material, this.maxParticles);
     this.instancedMesh.count = 0;
+    // An idle zero-count instanced mesh still makes r183 upload its 38 KB
+    // uniform matrix array and color attribute every frame. Show it only
+    // while particles are alive.
+    this.instancedMesh.visible = false;
     this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.maxParticles * 3), 3);
     this.instancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -46,11 +50,11 @@ export class ParticleSystem {
 
   setEnabled(enabled: boolean): boolean {
     this.enabled = Boolean(enabled);
-    this.instancedMesh.visible = this.enabled;
     if (!this.enabled) {
       this.particles.length = 0;
       this.instancedMesh.count = 0;
     }
+    this.instancedMesh.visible = this.enabled && this.particles.length > 0;
     return this.enabled;
   }
 
@@ -134,6 +138,7 @@ export class ParticleSystem {
     // Draw and update only live instances. With no particles, avoid uploading
     // all 600 hidden matrices on every animation frame.
     this.instancedMesh.count = this.particles.length;
+    this.instancedMesh.visible = this.particles.length > 0;
     if (this.particles.length === 0) return;
     for (let i = 0; i < this.particles.length; i++) {
       const p = this.particles[i];
