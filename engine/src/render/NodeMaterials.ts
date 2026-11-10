@@ -42,21 +42,26 @@ export function discardWhen(material: THREE.NodeMaterial, rejected: ReturnType<t
 
 /** Keep source RGB8 and RGB16 data compact on disk/worker; GPU strides are 4-byte aligned. */
 export function alignedInstanceAttribute(array: THREE.TypedArray, itemSize: number, normalized = false) {
+  // Every published terrain mesh passes through here on the main thread, so
+  // the conversions are plain loops and typed-array constructors: a subarray
+  // per element or TypedArray.from costs many times more.
   if (normalized && array.BYTES_PER_ELEMENT === 1 && itemSize === 3) {
-    const signed = array instanceof Int8Array;
-    const padded = signed ? new Int8Array(array.length / 3 * 4) : new Uint8Array(array.length / 3 * 4);
-    for (let i = 0; i < array.length / 3; i++) {
-      padded.set(array.subarray(i * 3, i * 3 + 3), i * 4); padded[i * 4 + 3] = signed ? 0 : 255;
+    const signed = array instanceof Int8Array, count = Math.floor(array.length / 3), fill = signed ? 0 : 255;
+    const padded = signed ? new Int8Array(count * 4) : new Uint8Array(count * 4);
+    for (let i = 0, from = 0, to = 0; i < count; i++, from += 3, to += 4) {
+      padded[to] = array[from]; padded[to + 1] = array[from + 1]; padded[to + 2] = array[from + 2]; padded[to + 3] = fill;
     }
     return new THREE.InstancedBufferAttribute(padded, 4, true);
   }
   // r183 expands non-normalized integer attributes itself. Make the uploaded
   // format explicit so CPU capacity/accounting and updates agree with the GPU.
-  if (!normalized && array.BYTES_PER_ELEMENT < 4) array = Float32Array.from(array);
+  if (!normalized && array.BYTES_PER_ELEMENT < 4) array = new Float32Array(array);
   if (normalized && array.BYTES_PER_ELEMENT * itemSize % 4 !== 0) {
     const signed = array instanceof Int8Array || array instanceof Int16Array;
     const limit = 2 ** (array.BYTES_PER_ELEMENT * 8 - (signed ? 1 : 0)) - 1;
-    array = Float32Array.from(array, value => Math.max(-1, value / limit));
+    const scaled = new Float32Array(array.length);
+    for (let i = 0; i < array.length; i++) scaled[i] = Math.max(-1, array[i] / limit);
+    array = scaled;
     normalized = false;
   }
   return new THREE.InstancedBufferAttribute(array, itemSize, normalized);

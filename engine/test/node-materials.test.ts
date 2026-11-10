@@ -36,3 +36,30 @@ test('voxel budget covers publication attributes and indexed resident pages', ()
   assert.ok(faces * VOXEL_RESIDENT_BYTES_PER_FACE <= budget);
   assert.ok((faces + 1) * VOXEL_RESIDENT_BYTES_PER_FACE > budget);
 });
+
+test('aligned uploads keep every value for each source type the meshers and far tiles publish', () => {
+  let seed = 7; const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff);
+  for (const count of [0, 1, 5, 4097]) {
+    const rgb = Uint8Array.from({ length: count * 3 }, () => next() & 255);
+    const colors = alignedInstanceAttribute(rgb, 3, true);
+    assert.ok(colors.array instanceof Uint8Array); assert.equal(colors.itemSize, 4); assert.equal(colors.normalized, true);
+    const normals = Int8Array.from({ length: count * 3 }, () => (next() % 255) - 127);
+    const packed = alignedVertexAttribute(normals, 3, true);
+    assert.ok(packed.array instanceof Int8Array); assert.equal(packed.count, count);
+    for (let i = 0; i < count; i++) {
+      assert.deepEqual(Array.from(colors.array.subarray(i * 4, i * 4 + 4)), [rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], 255]);
+      assert.deepEqual(Array.from(packed.array.subarray(i * 4, i * 4 + 4)), [normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2], 0]);
+    }
+    for (const source of [Uint16Array.from({ length: count * 3 }, () => next() & 65535),
+      Uint8Array.from({ length: count }, () => next() & 255), Int16Array.from({ length: count * 2 }, () => (next() & 65535) - 32768)]) {
+      const floats = alignedInstanceAttribute(source, source instanceof Uint8Array ? 1 : source instanceof Int16Array ? 2 : 3);
+      assert.ok(floats.array instanceof Float32Array); assert.equal(floats.normalized, false);
+      assert.deepEqual(Array.from(floats.array), Array.from(source));
+    }
+    const sides = Int8Array.from({ length: count * 2 }, () => (next() % 255) - 127), scaled = alignedInstanceAttribute(sides, 2, true);
+    assert.ok(scaled.array instanceof Float32Array); assert.equal(scaled.normalized, false);
+    assert.deepEqual(Array.from(scaled.array), Array.from(sides, value => Math.fround(Math.max(-1, value / 127))));
+    const kept = new Float32Array(count * 3);
+    assert.equal(alignedInstanceAttribute(kept, 3).array, kept, 'already aligned data is adopted, not copied');
+  }
+});
