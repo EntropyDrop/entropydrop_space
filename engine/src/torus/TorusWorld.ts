@@ -531,27 +531,22 @@ export const torusBendNode = (p: ReturnType<typeof vec3>) => {
     frame: mat3(vec3(st.negate(), 0, ct), vec3(cp.mul(ct), sp, cp.mul(st)), vec3(sp.mul(ct).negate(), cp, sp.mul(st).negate())) };
 };
 
-function hookMaterialForTorus(source: THREE.Material) {
-  const material = asNodeMaterial(source);
-  // NodeMaterial.clone shares the already deformed nodes. Material variants
-  // must not wrap that deformation again during the periodic scene scan.
-  if (hookedMaterials.has(material) || material.userData.torusNode) return material;
-  hookedMaterials.add(material);
-  const flatPosition = material.positionNode ?? (('isSpriteNodeMaterial' in material && material.isSpriteNodeMaterial) ? vec3(0) : positionLocal);
-  const flatNormal = material.userData.flatNormalNode ?? normalLocal;
+type TorusNodes = { position: any; normal: any };
+
+function torusDeformationNodes(flatPosition: any, flatNormal: any, usesNormal: boolean,
+  naturalVoxel: () => boolean): TorusNodes {
   const bentNormal = varyingProperty('vec3', 'spaceTorusNormal');
-  const usesNormal = material.lights && !('flatShading' in material && material.flatShading);
-  material.positionNode = Fn(() => {
+  const position = Fn(() => {
     // Instanced callers supply explicit flat attributes: automatic instance
     // transforms can be emitted after this position node by the shader builder.
-    const naturalVoxel = material.userData.voxelIntegerCoordinates === true;
-    const world = (naturalVoxel ? vec3(flatPosition) : modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz).toVar();
+    const natural = naturalVoxel();
+    const world = (natural ? vec3(flatPosition) : modelWorldMatrix.mul(vec4(flatPosition, 1)).xyz).toVar();
     const projected = world.toVar();
-    const worldNormal = naturalVoxel ? flatNormal : modelWorldMatrix.mul(vec4(flatNormal, 0)).xyz.normalize();
+    const worldNormal = natural ? flatNormal : modelWorldMatrix.mul(vec4(flatNormal, 0)).xyz.normalize();
     // A uniform branch skips torus lookup/trigonometry and view deformation in
     // flat mode. It also reaches existing clones and cached command bundles.
     If(torusEnabledNode, () => {
-      const torus = naturalVoxel ? voxelTorusBendNode(world) : torusBendNode(world);
+      const torus = natural ? voxelTorusBendNode(world) : torusBendNode(world);
       if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(torus.frame.mul(worldNormal), 0)).xyz.normalize());
       const delta = torus.position.sub(viewOriginNode);
       const blend = smoothstep(VIEW_FLAT_RADIUS, VIEW_TORUS_RADIUS, delta.length()).oneMinus().mul(viewEnabledNode);
@@ -559,9 +554,39 @@ function hookMaterialForTorus(source: THREE.Material) {
     }).Else(() => {
       if (usesNormal) bentNormal.assign(cameraViewMatrix.mul(vec4(worldNormal, 0)).xyz.normalize());
     });
-    return naturalVoxel ? projected : modelWorldMatrixInverse.mul(vec4(projected, 1)).xyz;
+    return natural ? projected : modelWorldMatrixInverse.mul(vec4(projected, 1)).xyz;
   })();
-  if (usesNormal) material.normalNode = bentNormal.normalize();
+  return { position, normal: usesNormal ? bentNormal.normalize() : null };
+}
+
+// Ordinary meshes (default local position/normal) share one deformation graph
+// per lighting variant. A separate Fn per material gives every material a
+// distinct program cache key, so three rebuilt the same shader for each of the
+// hundreds of avatar, tool and gizmo materials: about 1.7 s of startup CPU.
+const sharedTorusNodes = new Map<boolean, TorusNodes>();
+
+function hookMaterialForTorus(source: THREE.Material) {
+  const material = asNodeMaterial(source);
+  // NodeMaterial.clone shares the already deformed nodes. Material variants
+  // must not wrap that deformation again during the periodic scene scan.
+  if (hookedMaterials.has(material) || material.userData.torusNode) return material;
+  hookedMaterials.add(material);
+  const sprite = 'isSpriteNodeMaterial' in material && material.isSpriteNodeMaterial;
+  const usesNormal = material.lights && !('flatShading' in material && material.flatShading);
+  let nodes: TorusNodes;
+  if (!material.positionNode && !sprite && !material.userData.flatNormalNode
+    && material.userData.voxelIntegerCoordinates !== true) {
+    nodes = sharedTorusNodes.get(usesNormal)
+      ?? torusDeformationNodes(positionLocal, normalLocal, usesNormal, () => false);
+    sharedTorusNodes.set(usesNormal, nodes);
+  } else {
+    const flatPosition = material.positionNode ?? (sprite ? vec3(0) : positionLocal);
+    const flatNormal = material.userData.flatNormalNode ?? normalLocal;
+    nodes = torusDeformationNodes(flatPosition, flatNormal, usesNormal,
+      () => material.userData.voxelIntegerCoordinates === true);
+  }
+  material.positionNode = nodes.position;
+  if (nodes.normal) material.normalNode = nodes.normal;
   material.userData.torusNode = true;
   material.needsUpdate = true;
   return material;

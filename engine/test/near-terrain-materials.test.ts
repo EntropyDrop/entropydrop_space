@@ -120,3 +120,28 @@ test('shadow-free views cull nearby terrain behind the camera and restore it for
   camera.rotation.y = Math.PI; camera.updateMatrixWorld(true); cullChunks(camera, world, false);
   assert.equal(front.visible, false); assert.equal(back.visible, true); assert.equal(micro.visible, true);
 });
+
+test('plain hooked materials share one torus deformation program per lighting variant', async () => {
+  const { MeshStandardNodeMaterial, MeshBasicNodeMaterial, Mesh, BoxGeometry, Group } = await import('three/webgpu');
+  const { positionLocal } = await import('three/tsl');
+  const root = new Group();
+  const litA = new MeshStandardNodeMaterial({ color: 0xff0000 }), litB = new MeshStandardNodeMaterial({ color: 0x00ff00 });
+  const basic = new MeshBasicNodeMaterial({ color: 0x0000ff });
+  // Flat shading needs no bent normal varying: a separate, still shared, variant.
+  const flatA = new MeshStandardNodeMaterial({ flatShading: true }), flatB = new MeshStandardNodeMaterial({ flatShading: true, color: 0xffffff });
+  const custom = new MeshStandardNodeMaterial(); custom.positionNode = positionLocal.add(1);
+  for (const material of [litA, litB, basic, flatA, flatB, custom]) root.add(new Mesh(new BoxGeometry(), material));
+  hookSceneMaterials(root);
+  // Identical deformation must not give every material its own shader build.
+  assert.equal(litA.positionNode, litB.positionNode);
+  assert.equal(litA.normalNode, litB.normalNode);
+  assert.equal(litA.customProgramCacheKey(), litB.customProgramCacheKey());
+  assert.equal(basic.positionNode, litA.positionNode);
+  assert.equal(flatA.positionNode, flatB.positionNode);
+  assert.equal(flatA.customProgramCacheKey(), flatB.customProgramCacheKey());
+  assert.notEqual(litA.positionNode, flatA.positionNode);
+  // A material with its own flat position keeps a private graph around it.
+  assert.notEqual(custom.positionNode, litA.positionNode);
+  hookSceneMaterials(root);
+  assert.equal(litA.positionNode, litB.positionNode, 'periodic rescans do not wrap twice');
+});
