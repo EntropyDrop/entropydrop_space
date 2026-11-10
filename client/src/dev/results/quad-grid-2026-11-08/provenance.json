@@ -1,0 +1,17 @@
+{
+  "baseCommit": "77eea4a3fdec49b1e988ac81a60e02a884f852f7",
+  "sourceHashCount": 67,
+  "date": "2026-11-08",
+  "unrelatedPreexistingChanges": [
+    "engine/src/scripting/AssemblyScriptCompilerDirect.ts",
+    "engine/src/scripting/EntityScriptModule.ts",
+    "engine/test/entity-script-sandbox.test.ts",
+    "client/scifi-city-production.html",
+    "client/scifi-city-review.html"
+  ],
+  "verifiedAfterMeasurement": true,
+  "acceptedSessions": {
+    "stationary": "partial-export-limit: blocks 0 through 17, six repetitions per mode",
+    "moving": "accepted-moving: all 18 blocks, six repetitions per mode"
+  }
+}

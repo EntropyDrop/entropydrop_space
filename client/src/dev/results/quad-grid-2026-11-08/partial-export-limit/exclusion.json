@@ -1,0 +1,6 @@
+{
+  "reason": "Full result JSON exceeded the 64 MiB receiver payload limit at block 31; the browser console reported Capture failed: 500. Partial results are excluded from primary tables.",
+  "savedBlocks": 31,
+  "rerun": "Browser gzip transport, same geometry/shaders/timing.",
+  "acceptedSubset": "The complete stationary workload, blocks 0\u201317, is retained in the final comparison. It completed before the later export failure and before DevTools was opened. Moving blocks remain supplementary only."
+}

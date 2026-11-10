@@ -128,3 +128,69 @@ The next CPU experiment uses the same native Firefox/Aether fixture and keeps al
 After timing, the harness waits for near readiness and ownership fades to settle, then checks the reference and optimized picking results, full/incremental upload pixels and ordinary/bundled near pixels. Keep the tab visible throughout timing and stop other builds or benchmarks. `python3 tools/minecraft-torus/make-picking-report.py` validates the archived `archipelago-picking-2026-10-29` results and writes `client/docs/performance-archipelago-picking-2026-10-29.html`. The test shows reduced picking CPU cost; FPS block ranges overlap, so do not describe the average FPS difference as a proven stable gain.
 
 `client/tools/terrain-coverage-probe.html` is a native Firefox GPU regression check for the production coverage shader. It renders known ownership masks and compares every pixel against independent flat-coordinate chunk ownership, including both periodic seams and side-face offsets. The legacy shader is kept only inside this DEV probe to reproduce the failure. It must fail at least one case while the production shader must pass all cases. The output is `firefox/aether-archipelago/coverage-probe.json` under the active receiver root.
+
+## Quad-perimeter grid / Firefox (2026-11-08)
+
+This local-only experiment compares current PBR terrain, unlit solid terrain,
+and native one-pixel quad edges after an opaque depth fill. Both near terrain
+and selected far LOD quads participate. Original triangle winding, face/corner
+IDs, culling, ownership and source data are retained. The line index buffer has
+four perimeter segments per original quad, with no triangle diagonal; coincident
+edges from adjacent faces are not globally deduplicated.
+
+Start Vite in `client` (`npm run dev -- --host 127.0.0.1`) and the loopback receiver:
+
+```sh
+node client/tools/torus-stress-receiver.mjs client/src/dev/results/quad-grid-2026-11-08/accepted
+```
+
+Open this repository's `client/tools/torus-stress.html` through Vite's
+`/space/app/@fs/` path in native Firefox, with:
+
+```text
+?autorun=1&experiment=quad-grid&run=paired
+```
+
+The host's iframe is 1280 × 720 CSS pixels, DPR 2, no MSAA. Keep the tab visible.
+The default experiment uses adaptive production LOD, eight generated comparison
+zones, 8 × 8 near chunks and a 576-chunk far radius. Texture proxies, fog and
+shadows are disabled in every role. Add `phase=preview` to run only the two-pose
+image/occlusion checks; add `lod=fixed` for an optional fixed-1m stress reference
+(which is not interchangeable with the default adaptive result).
+
+The child first verifies original/grid restoration and the visible effect of
+disabling depth. It then warms each variant along the moving path for 18 seconds.
+Each of stationary and moving uses ABC CBA BCA ACB CAB BAC, six blocks per variant,
+six seconds settling and six seconds sampling per block. A is current PBR, B is
+unlit solid, C is depth-hidden quad grid. Do not run builds/tests during timing.
+Exports and screenshots are outside timed blocks. The full run takes about ten
+minutes including scene preparation. GPU timestamp spans are not busy counters.
+
+The edge-cache collection hook runs in all three roles; raw frames include its
+CPU cost separately. The grid cost includes filled depth geometry plus edge
+geometry, rather than pretending that hidden-line rendering is free. Native
+lines are one physical framebuffer pixel, not one CSS pixel. Transparent terrain
+is rejected by this opaque-depth fixture. The production renderer has no new
+setting or default change.
+
+After successful capture, run `python3 tools/minecraft-torus/make-quad-grid-report.py`
+to audit the complete permutation order, source zones, frame settings, streaming,
+near/far participation, pixel restoration and occlusion checks, then generate
+`client/docs/performance-quad-grid-2026-11-08.html` and the machine-readable summary.
+
+The retained report uses the complete stationary blocks 0–17 from
+`partial-export-limit` and a fresh complete moving-only session in
+`accepted-moving`. Use `&workload=move` and the latter output directory to repeat
+that moving session. Both workloads retain all six permutations. The initial
+session's later moving export exceeded 64 MiB; gzip transport now avoids that
+limit while preserving a bounded 128 MiB decoded JSON limit. The separate
+`excluded-wasm-memory` session is not used: Firefox logged repeated WASM memory
+reservation and terrain-connection rebuild failures. The benchmark now captures
+caught `console.error` messages and requires window focus during sampling. Close
+Developer Tools with its close button and verify it is gone before timing;
+opening/focusing the console shortcut does not reliably close the toolbox.
+
+Static source hashes omit the host/receiver transport files, which changed after
+that session. The final source hashes include the capture/error guards and gzip
+transport. The terrain drawing implementation is unchanged across accepted
+workloads. See the report for the two-session scope and quality tradeoffs.

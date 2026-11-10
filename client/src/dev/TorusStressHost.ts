@@ -7,14 +7,19 @@ if (run && !/^(baseline|seam|optimized|repeat|cache|workers|batch|paired)$/.test
 (window as any).torusStressFocus = query.get('focus') === '1';
 (window as any).torusStressPaired = query.get('paired') === '1';
 (window as any).torusStressPicking = query.get('experiment') === 'picking';
+(window as any).quadGridOptions = { preview: query.get('phase') === 'preview', fixedLod: query.get('lod') === 'fixed', movingOnly: query.get('workload') === 'move' };
 (window as any).torusStressNear = query.get('near');
 (window as any).torusStressMapUploads = query.get('maps') !== 'full';
 const frame = document.querySelector<HTMLIFrameElement>('#fixture')!;
 const status = document.querySelector('#status')!, button = document.querySelector<HTMLButtonElement>('#run')!;
 let completeWorld: (() => void) | undefined, failWorld: ((error: Error) => void) | undefined, world = '';
 async function save(name: string, body: BodyInit) {
+  // Long GPU timelines are highly repetitive. Compress only this experiment's
+  // JSON transport, outside sampling, instead of exceeding the receiver limit.
+  if (name === 'result.json' && query.get('experiment') === 'quad-grid')
+    body = await new Response(new Blob([body as string]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
   const response = await fetch(`http://127.0.0.1:54388/firefox/${world}/${run ? run + '/' : ''}${name}`, { method: 'POST', body });
-  if (!response.ok) throw Error(`Capture failed: ${response.status}`);
+  if (!response.ok) throw Error(`Capture failed: ${response.status} ${await response.text()}`);
 }
 (window as any).torusStressHost = {
   async status(value: any) {
@@ -43,7 +48,7 @@ button.onclick = async () => {
         failWorld = error => { clearTimeout(timer); reject(error); };
         frame.onload = () => {
           const script = frame.contentDocument!.createElement('script'); script.type = 'module';
-          script.src = new URL('../src/dev/TorusStressChild.ts', location.href).href;
+          script.src = new URL(query.get('experiment') === 'quad-grid' ? '../src/dev/QuadGridChild.ts' : '../src/dev/TorusStressChild.ts', location.href).href;
           script.onerror = () => failWorld?.(Error('Benchmark module failed to load'));
           frame.contentDocument!.body.append(script);
         };

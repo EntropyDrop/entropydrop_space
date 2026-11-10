@@ -1,0 +1,8 @@
+{
+  "reason": "Firefox DevTools console showed repeated WebAssembly.Memory reservation failures and Failed to rebuild distant surface connections: out of memory. All timings from this session are excluded. DevTools was found still open; its close button was explicitly used and closure verified before the replacement moving run. The exact retention cause is not proven.",
+  "consoleErrors": [
+    "Failed to rebuild distant surface connections: out of memory",
+    "WebAssembly.Memory failed to reserve a large virtual memory region. This may be due to low configured virtual memory limits on this system."
+  ],
+  "rawErrorsLimitation": "The earlier harness tracked uncaught errors and WebGPU errors, but not caught console.error messages."
+}

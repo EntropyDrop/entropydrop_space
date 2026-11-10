@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-08",
+  "quadPerimeterTests": {
+    "passed": 1,
+    "covers": [
+      "packed face/corner IDs",
+      "all four perimeter edges",
+      "no diagonals",
+      "nonstandard index ordering",
+      "reject malformed quads"
+    ]
+  },
+  "clientTypecheck": "passed, including inventory",
+  "productionBuild": "passed; DEV exclusion, four independent import orders, compiler worker preload/transfer/fuel/error recovery",
+  "documentationLinks": "passed",
+  "changedSourceEnglishCheck": "passed, 9 files",
+  "repositoryEnglishCheck": {
+    "status": "failed on pre-existing unrelated files",
+    "files": [
+      "client/scifi-city-production.html",
+      "client/scifi-city-review.html",
+      "native-space/MIGRATION.md",
+      "native-space/README.md",
+      "native-space/RENDERING.md",
+      "native-space/tests/ui_logic.rs"
+    ]
+  },
+  "gitDiffCheck": "passed",
+  "sourceHashesVerifiedAfterMoving": 67,
+  "productionDefaultsChanged": false,
+  "acceptedData": {
+    "stationary": "partial-export-limit: blocks 0 through 17, six repetitions per mode",
+    "moving": "accepted-moving: all 18 blocks, six repetitions per mode"
+  },
+  "excluded": "Entire excluded-wasm-memory session; incomplete moving workload from partial-export-limit",
+  "pixelRestoration": "0 changed RGBA pixels at both final frozen poses; depth on/off restoration also 0",
+  "gpuErrors": 0,
+  "movingConsoleErrors": 0,
+  "movingFocus": "true throughout all sampled frames",
+  "scope": "Native Firefox 159, Aether Archipelago only. Separate internally interleaved stationary and moving sessions; no cross-device guarantee."
+}
