@@ -165,9 +165,23 @@ function meshChunkKey(mx: number, my: number, mz: number) {
   return `${Math.floor(wrapMicroX(mx) / MICRO_MESH_CHUNK_SIZE)},${Math.floor(wrapMicroZ(mz) / MICRO_MESH_CHUNK_SIZE)},${Math.floor(my / MICRO_MESH_CHUNK_SIZE)}`;
 }
 
+// Progress and publication checks map every dirty mesh key on each call, and
+// a loading AOI holds thousands of them. Parsing the key each time cost more
+// than a third of the entry screen's main-thread time.
+const STANDARD_KEY_CACHE_LIMIT = 1 << 16;
+const standardKeyByMeshKey = new Map<string, string>();
+
 function standardChunkKeyForMeshChunk(meshKey: string): string {
-  const [meshCx, meshCz] = meshKey.split(',').map(Number);
-  return `${Math.floor(meshCx / MICRO_MESH_CHUNKS_PER_STANDARD_AXIS)},${Math.floor(meshCz / MICRO_MESH_CHUNKS_PER_STANDARD_AXIS)}`;
+  let standardKey = standardKeyByMeshKey.get(meshKey);
+  if (standardKey !== undefined) return standardKey;
+  const first = meshKey.indexOf(',');
+  const second = meshKey.indexOf(',', first + 1);
+  const meshCx = Number(meshKey.slice(0, first));
+  const meshCz = Number(meshKey.slice(first + 1, second < 0 ? undefined : second));
+  standardKey = `${Math.floor(meshCx / MICRO_MESH_CHUNKS_PER_STANDARD_AXIS)},${Math.floor(meshCz / MICRO_MESH_CHUNKS_PER_STANDARD_AXIS)}`;
+  if (standardKeyByMeshKey.size >= STANDARD_KEY_CACHE_LIMIT) standardKeyByMeshKey.clear();
+  standardKeyByMeshKey.set(meshKey, standardKey);
+  return standardKey;
 }
 
 export class MicroVoxelLayer {

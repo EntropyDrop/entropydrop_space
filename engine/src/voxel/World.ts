@@ -42,8 +42,9 @@ import {
 // while the already-present distant surface prevents visible holes.
 const STREAM_WORK_BUDGET_MS = 3;
 // Behind the entry gate only the progress text repaints, so each loading turn
-// may publish several finished chunks instead of one per animation frame.
-const LOADING_TURN_BUDGET_MS = 8;
+// may publish several finished chunks instead of one per animation frame. The
+// loading screen stays near 60 Hz while most of each frame publishes terrain.
+const LOADING_TURN_BUDGET_MS = 12;
 const BACKGROUND_MAIN_THREAD_BUDGET_MS = 1;
 // Detailed terrain must progress even when a fully drawn torus leaves no idle
 // time. Generation stays in the worker; timeout slices only service its queue.
@@ -1895,6 +1896,7 @@ export class World {
         && !this.pendingRemoteChunkUpdates.has(key)
         && this.pendingRemoteChunkApply?.key !== key
         && !this.pendingTerrainSnapshots.has(key)
+        && !this.pendingProceduralMicroChunks.has(key)
         && !pendingMicro.has(key)
       ) readyChunks++;
     }

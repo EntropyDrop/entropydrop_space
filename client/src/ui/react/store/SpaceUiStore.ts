@@ -55,6 +55,23 @@ import { entityDisplayName, entityRunStatus } from '../utils/entityNameplate.ts'
 import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
 import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
 import type { TerrainAoiLoadProgress } from '@entropydrop/space-engine/voxel/World.ts';
+
+/** Background far-terrain streaming after entry, shown beside the chunk bar. */
+export type DistantTerrainProgress = {
+  /** Snapshot files downloaded or installed in the current streaming pass. */
+  completedFiles: number;
+  totalFiles: number;
+  /** Installed snapshots are still being connected, meshed or uploaded. */
+  building: boolean;
+};
+
+export const IDLE_DISTANT_TERRAIN_PROGRESS: DistantTerrainProgress = Object.freeze({
+  completedFiles: 0, totalFiles: 0, building: false,
+});
+
+function sameDistantTerrainProgress(a: DistantTerrainProgress, b: DistantTerrainProgress) {
+  return a.completedFiles === b.completedFiles && a.totalFiles === b.totalFiles && a.building === b.building;
+}
 import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
 import { SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from '../../../bootstrap/SpaceFeatures.ts';
 import { RESOLUTION_SCALE_PRESETS } from '../../../engine/render/AdaptiveResolution.ts';
@@ -257,6 +274,7 @@ export interface SpaceUiSnapshot {
   pingClass: string;
   positionText: string;
   terrainLoadProgress: TerrainAoiLoadProgress;
+  distantTerrainProgress: DistantTerrainProgress;
   networkRates: NetworkRates;
   nearbyEntities: NearbyEntityItem[];
   entityOutput: EntityOutputView[];
@@ -452,6 +470,7 @@ export class SpaceUiStore {
     agentConfig: SPACE_LOCAL_SESSION ? normalizeAgentConfig() : loadAgentConfig(),
     fpsText: '60 FPS',
     terrainLoadProgress: { readyChunks: 0, totalChunks: 0, ready: false },
+    distantTerrainProgress: IDLE_DISTANT_TERRAIN_PROGRESS,
     networkRates: { downloadBytesPerSecond: 0, uploadBytesPerSecond: 0 },
     pingText: '-- ms',
     pingClass: 'hud-ping ping-unknown',
@@ -2365,7 +2384,8 @@ export class SpaceUiStore {
     return view;
   }
 
-  updateHUD(fps: number, playerPos: any, _raycast: any, _hoveredContraption: any, pingMs: number | null = null): void {
+  updateHUD(fps: number, playerPos: any, _raycast: any, _hoveredContraption: any, pingMs: number | null = null,
+    distantTerrain: DistantTerrainProgress = IDLE_DISTANT_TERRAIN_PROGRESS): void {
     const { contraptions, sceneRenderer, controller, editingContraption, activeModal } = this.snapshot;
     const isEntity = Boolean(controller?.selectedBlockSelection || controller?.selectedSubtree);
     if (isEntity && controller) {
@@ -2447,6 +2467,8 @@ export class SpaceUiStore {
       fpsText: `${Math.round(fps)} FPS`,
       terrainLoadProgress: this.snapshot.world?.getTerrainAoiLoadProgress?.()
         ?? { readyChunks: 0, totalChunks: 0, ready: false },
+      distantTerrainProgress: sameDistantTerrainProgress(this.snapshot.distantTerrainProgress, distantTerrain)
+        ? this.snapshot.distantTerrainProgress : { ...distantTerrain },
       networkRates: networkTraffic.sample(),
       pingText: SPACE_TUTORIAL ? 'Local tutorial' : roundedPing === null ? '-- ms' : `${roundedPing} ms`,
       pingClass: roundedPing === null ? 'hud-ping ping-unknown' : `hud-ping ${roundedPing < 80 ? 'ping-good' : roundedPing < 180 ? 'ping-medium' : 'ping-poor'}`,

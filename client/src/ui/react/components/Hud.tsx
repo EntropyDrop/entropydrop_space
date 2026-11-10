@@ -821,10 +821,16 @@ function BulkEditProgressPanel() {
 }
 
 function HudMetrics() {
-  const state = useSpaceUiFields('fpsText', 'pingClass', 'pingText', 'positionText', 'terrainLoadProgress', 'networkRates');
+  const state = useSpaceUiFields('fpsText', 'pingClass', 'pingText', 'positionText', 'terrainLoadProgress',
+    'distantTerrainProgress', 'networkRates');
   const terrain = state.terrainLoadProgress;
   const terrainPercent = terrain.totalChunks > 0
     ? Math.floor(terrain.readyChunks / terrain.totalChunks * 100) : 0;
+  const distant = state.distantTerrainProgress;
+  const distantLoading = distant.totalFiles > 0 && distant.completedFiles < distant.totalFiles;
+  const distantActive = distantLoading || distant.building;
+  // Meshing after the last file has arrived is shown as an almost-full bar.
+  const distantPercent = distantLoading ? Math.floor(distant.completedFiles / distant.totalFiles * 100) : 99;
   return <>
     <div className="hud-metrics-row"><span id="fps-val">{state.fpsText}</span><span className="hud-metric-sep">·</span><span id="ping-val" className={state.pingClass}>{state.pingText}</span></div>
     <div id="pos-val">{state.positionText}</div>
@@ -841,6 +847,25 @@ function HudMetrics() {
         <div className="hud-terrain-fill" style={{ width: `${terrainPercent}%` }} />
       </div>
     </div>
+    {distantActive ? (
+      <div className="hud-terrain hud-terrain-distant">
+        <div className="hud-terrain-label">
+          <span>Loading far terrain</span>
+          <span>{distantLoading
+            ? `${distant.completedFiles}/${distant.totalFiles} · ${distantPercent}%`
+            : 'Building meshes…'}</span>
+        </div>
+        <div id="distant-terrain-progress" className="hud-terrain-track" role="progressbar"
+          aria-label="Far terrain loaded" aria-valuemin={0} aria-valuemax={100}
+          aria-valuenow={distantPercent}
+          aria-valuetext={distantLoading
+            ? `${distant.completedFiles} of ${distant.totalFiles} far terrain files ready`
+            : 'Building far terrain meshes'}
+          title="Far terrain detail streamed in the background after entry">
+          <div className="hud-terrain-fill" style={{ width: `${distantPercent}%` }} />
+        </div>
+      </div>
+    ) : null}
     <div id="network-bandwidth" className="hud-bandwidth"
       title="Live application data over the last second. Downloads count response-body bytes after decompression; uploads count transfer progress and drained realtime messages. Excludes protocol overhead and browser-cache hits when timing is available.">
       <span aria-label={`Download ${formatByteRate(state.networkRates.downloadBytesPerSecond)}`}>

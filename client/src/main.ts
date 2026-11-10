@@ -27,7 +27,7 @@ import {
 import { MultiplayerSync, type RemotePlayerInfo } from './engine/network/MultiplayerSync.ts';
 import { SpaceEntitySync } from './engine/network/SpaceEntitySync.ts';
 import { mountSpaceUi, mountAdminMonitoring } from './ui/react/mountSpaceUi.tsx';
-import { spaceUiStore, type SpaceUiStore } from './ui/react/store/SpaceUiStore.ts';
+import { spaceUiStore, type DistantTerrainProgress, type SpaceUiStore } from './ui/react/store/SpaceUiStore.ts';
 import {
   createSpacePersistentStorage,
   type SpaceStorage,
@@ -95,6 +95,9 @@ class Game {
   terrainAreaRetryAt: number;
   started: boolean;
   surfaceSnapshotRemote: ReadySpaceSession['surface_snapshot_remote'];
+  /** Background far-terrain refinement after entry, for the HUD. */
+  distantTerrainProgress: DistantTerrainProgress = { completedFiles: 0, totalFiles: 0, building: false };
+  distantTerrainInstalled = false;
   linkedWorldSnapshots: LinkedWorldSnapshots;
   readonly offline: boolean;
 
@@ -449,17 +452,27 @@ class Game {
       // Keep the retry timer alive so manually re-enabling resumes streaming.
       if (!this.world.distantSurface.isEnabled()) return;
       await this.surfaceSnapshotRemote.loadAll(
-        zone => this.world.installSurfaceZone(zone),
+        zone => {
+          this.distantTerrainInstalled = true;
+          this.world.installSurfaceZone(zone);
+        },
         (x, z) => this.world.removeSurfaceZone(x, z),
         {
           getDataBudgetBytes: () => this.world.getDistantSurfaceSettings().dataBudgetMiB * 1024 * 1024,
           getZoneDemand: (x, z) => this.world.distantSurface.getZoneDemand(x, z),
+          onProgress: ({ details }) => {
+            // Each pass reports an overview and a detail phase; show the one in flight.
+            if (!details || details.phase === 'manifest' || details.phase === 'complete') return;
+            this.distantTerrainProgress.completedFiles = details.completedFiles;
+            this.distantTerrainProgress.totalFiles = details.totalFiles;
+          },
         },
       );
       await this.world.finalizeSurfaceConnections(false);
     } catch (error) {
       console.warn('Space far-surface snapshots are temporarily unavailable.', error);
     } finally {
+      this.distantTerrainProgress.completedFiles = this.distantTerrainProgress.totalFiles = 0;
       window.setTimeout(() => { void this.syncSurfaceSnapshots(); }, 1000);
     }
   }
@@ -707,12 +720,18 @@ class Game {
     );
 
     // 7. Update UI HUD
+    // Report far-terrain meshing only after this session installed snapshots,
+    // not for camera-driven LOD fades that never stop while moving.
+    if (this.distantTerrainInstalled && !this.world.distantSurface.hasPendingWork
+      && this.distantTerrainProgress.totalFiles === 0) this.distantTerrainInstalled = false;
+    this.distantTerrainProgress.building = this.distantTerrainInstalled;
     this.uiStore.updateHUD(
       this.currentFps,
       playerPos,
       this.controller.currentRaycast,
       this.controller.hoveredContraption,
-      this.latencyMonitor?.getPing() ?? null
+      this.latencyMonitor?.getPing() ?? null,
+      this.distantTerrainProgress,
     );
 
     // 7b. Minimap (bottom-right)
