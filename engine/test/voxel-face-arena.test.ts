@@ -170,6 +170,29 @@ test('unmerged draws split runs to preserve coplanar ordering', () => {
   assert.equal(middle.renderOrder,0);
 });
 
+test('visibility-only syncs still retire residents whose fade coverage, material or count changed', () => {
+  const group = new THREE.BundleGroup(), a = source(64, 0), b = source(64, 512);
+  const coverage = new THREE.Vector2(0, 1); a.userData.terrainCoverage = coverage;
+  group.add(a, b); const before = snapshot(a), arena = new VoxelFaceArena(group, make);
+  try {
+    settle(arena);
+    const passes = arena.stats.maintenancePasses;
+    arena.restoreSources(); arena.sync(Infinity, undefined, true);
+    assert.equal(arena.stats.maintenancePasses, passes, 'an unchanged frame skips maintenance');
+    // A fading generation keeps its scene membership; only its coverage moves.
+    arena.restoreSources(); coverage.set(0.25, 1); arena.sync(Infinity, undefined, true);
+    assert.equal(arena.stats.maintenancePasses, passes + 1);
+    assert.deepEqual(snapshot(a), before, 'the fading source draws itself again');
+    assert.equal(a.visible, true); assert.equal(arena.stats.residentFaces, 64);
+    coverage.set(0, 1); settle(arena); assert.equal(arena.stats.residentFaces, 128);
+    arena.restoreSources(); b.material = new THREE.MeshStandardNodeMaterial(); arena.sync(Infinity, undefined, true);
+    assert.equal(b.visible, true); assert.equal(arena.stats.residentFaces, 64);
+    b.material = b.userData.opaqueMaterial; settle(arena);
+    arena.restoreSources(); b.geometry.instanceCount = 0; arena.sync(Infinity, undefined, true);
+    assert.equal(arena.stats.residentFaces, 64);
+  } finally { arena.dispose(); }
+});
+
 test('fades restore attributes, replacements invalidate records, removed ranges are reused', () => {
   const group=new THREE.BundleGroup(), a=source(64,0), b=source(64,512); group.add(a,b);
   const before=snapshot(a), arena=new VoxelFaceArena(group,make);

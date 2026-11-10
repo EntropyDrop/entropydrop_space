@@ -655,13 +655,26 @@ export class VoxelFaceArena {
     for (const release of page.release) release(); page.release.clear(); page.releaseMap.clear();
     this.pages.splice(this.pages.indexOf(page), 1);
   }
+  /** Cheap check for the visibility-only path: a resident source whose fade
+   * coverage, material, count or origin changed without a membership event
+   * must leave the arena before the next draw. */
+  private residentEntryStale() {
+    for (const entry of this.entries.values()) {
+      const mesh = entry.mesh;
+      if (entry.invalid || !this.eligible(mesh) || entry.count !== mesh.geometry.instanceCount
+        || !entry.origin.equals(mesh.userData.voxelOrigin)) return true;
+    }
+    return false;
+  }
+
   restoreSources() {
     for (const mesh of this.hidden) mesh.visible = true;
     this.hidden.length = 0;
   }
   idle() { this.stats.copyFaces = this.stats.copyMs = this.stats.mapUploadBytes = 0; }
-  /** visibilityOnly is used by the owner only when no geometry, origin, material
-   * eligibility or transition changed. Public/default calls validate everything. */
+  /** visibilityOnly skips source adoption and bookkeeping. It still validates
+   * resident entries (eligibility, count, origin), while membership changes and
+   * geometry disposal mark maintenance dirty. Public/default calls validate everything. */
   sync(budgetMs = ARENA_COPY_MS, budgetFaces = ARENA_COPY_FACES, visibilityOnly = false) {
     this.stats.mapUploadBytes = 0;
     if (this.sourcesDirty || !this.incrementalMaintenance) {
@@ -670,7 +683,8 @@ export class VoxelFaceArena {
       this.stats.sourceListBuilds++;
     }
     const sources = this.sources, sourceSet = this.sourceSet;
-    if (!this.incrementalMaintenance || !visibilityOnly || this.maintenanceDirty || this.hasPendingWork) {
+    if (!this.incrementalMaintenance || !visibilityOnly || this.maintenanceDirty || this.hasPendingWork
+      || this.residentEntryStale()) {
       this.maintenanceDirty = false; this.stats.maintenancePasses++;
       for (const [mesh, order] of this.orders) if (!sourceSet.has(mesh)) { mesh.renderOrder = order; this.orders.delete(mesh); }
       for (const mesh of sources) {

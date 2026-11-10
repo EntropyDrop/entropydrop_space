@@ -686,7 +686,10 @@ export class DistantVoxelLayer {
     catch (error) { this.fail(String(error)); }
     for (const [key, tile] of this.synchronousPending) if (this.publish(tile, true)) this.synchronousPending.delete(key);
     if (arenaWork || this.arenaDirty) {
-      this.arena?.sync(undefined, undefined, !maintenanceWork && !this.arenaDirty);
+      // Fade progress, mask edits and publication packets alone change no
+      // arena membership: the arena revalidates its resident entries itself,
+      // and child add/remove (new generations, finished fades) sets arenaDirty.
+      this.arena?.sync(undefined, undefined, !this.arenaDirty);
       this.arenaDirty = false;
     }
     else this.arena?.idle();
