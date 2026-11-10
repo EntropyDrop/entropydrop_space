@@ -9,6 +9,12 @@ interface InitialDistantTerrainOptions {
   preparePipelines(): Promise<void>;
   waitForGpu(): Promise<void>;
   reportProgress?: (value: number, message: string) => void;
+  /**
+   * Overlap with another entry stage (the near AOI): manifests, cache reads
+   * and downloads start at once, while loading frames, shader preparation and
+   * progress messages wait for this promise. A rejection cancels the preload.
+   */
+  framesAfter?: Promise<unknown>;
 }
 
 // Entry needs complete world coverage, but fine sources can stream during play.
@@ -61,10 +67,12 @@ function describeProgress(progress: SurfaceStreamProgress, pass: number): string
 
 /** Prepare overview coverage and bounded initial detail behind the entry gate. */
 export async function preloadInitialDistantTerrain({
-  remote, world, drawFrame, preparePipelines, waitForGpu, reportProgress,
+  remote, world, drawFrame, preparePipelines, waitForGpu, reportProgress, framesAfter,
 }: InitialDistantTerrainOptions): Promise<void> {
   if (!remote || !world.distantSurface.isEnabled()) return;
-  reportProgress?.(94, 'Loading all distant terrain…');
+  // The overlapped stage owns the progress line until it finishes.
+  let reporting = !framesAfter;
+  if (reporting) reportProgress?.(94, 'Loading all distant terrain…');
   // Establish camera demand before the first snapshot pass selects its mips.
   drawFrame();
   let prepared = false, stopped = false, failed = false;
@@ -74,7 +82,7 @@ export async function preloadInitialDistantTerrain({
   let lastDataSummary = '';
   let latestProgress: SurfaceStreamProgress | undefined;
   const report = (force = false) => {
-    if (stopped || (!force && performance.now() - lastReportAt < 150)) return;
+    if (stopped || !reporting || (!force && performance.now() - lastReportAt < 150)) return;
     lastReportAt = performance.now();
     reportProgress?.(value, `${message}\nElapsed: ${Math.floor((lastReportAt - startedAt) / 1000)}s`);
   };
@@ -137,6 +145,13 @@ export async function preloadInitialDistantTerrain({
 
   let settledFrames = 0;
   try {
+    if (framesAfter) {
+      await framesAfter;
+      if (failed) throw failure;
+      reporting = true;
+      value = Math.max(value, 94);
+      report(true);
+    }
     while (true) {
       await nextLoadingFrame();
       if (failed) throw failure;

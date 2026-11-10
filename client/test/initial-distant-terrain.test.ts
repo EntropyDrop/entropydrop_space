@@ -260,3 +260,42 @@ test('hidden tabs continue preparing distant terrain without animation callbacks
   assert.ok(frames >= 3);
   assert.equal(gpuWaits, 1);
 });
+
+test('an overlapped preload downloads at once but leaves frames, shaders and progress to the near AOI', async t => {
+  const { world, frame } = fixture(t);
+  world.distantSurface.hasPendingWork = false;
+  const near = deferred();
+  let downloads = 0, drawings = 0, pipelines = 0, entered = false;
+  const messages: string[] = [];
+  const remote: SpaceSurfaceSnapshotRemote = { async loadAll(onZone, _remove, options) {
+    downloads++;
+    onZone({ zoneX: 0, zoneZ: 0 } as any);
+    options!.onProgress!({ loadedZones: 128, totalZones: 128 });
+    return { loaded: 0, complete: true };
+  } };
+  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame: () => { drawings++; },
+    preparePipelines: async () => { pipelines++; }, async waitForGpu() {},
+    reportProgress: (_value, message) => messages.push(message), framesAfter: near.promise })
+    .then(() => { entered = true; });
+  await delay(20);
+  assert.equal(downloads, 1, 'manifests and downloads start immediately');
+  assert.equal(drawings, 1, 'only the camera-demand frame runs before the near AOI');
+  assert.equal(pipelines, 0);
+  assert.deepEqual(messages, [], 'the near AOI owns the progress line');
+  near.resolve();
+  await yieldTask();
+  assert.ok(messages.length > 0);
+  for (let i = 0; i < 4 && !entered; i++) await frame();
+  await entering;
+  assert.equal(pipelines, 1);
+});
+
+test('a failed overlapped stage cancels the distant preload', async t => {
+  const { world } = fixture(t);
+  const near = deferred();
+  const remote: SpaceSurfaceSnapshotRemote = { async loadAll() { return { loaded: 0, complete: true }; } };
+  const entering = preloadInitialDistantTerrain({ remote, world, drawFrame() {}, async preparePipelines() {},
+    async waitForGpu() {}, framesAfter: near.promise });
+  near.reject(new Error('near terrain failed'));
+  await assert.rejects(entering, /near terrain failed/);
+});

@@ -428,8 +428,10 @@ class Game {
     );
   }
 
-  async preloadInitialDistantTerrain(reportProgress?: (value: number, message: string) => void) {
+  async preloadInitialDistantTerrain(reportProgress?: (value: number, message: string) => void,
+    framesAfter?: Promise<unknown>) {
     await preloadInitialDistantTerrain({
+      framesAfter,
       remote: this.surfaceSnapshotRemote,
       world: this.world,
       drawFrame: () => this.sceneRenderer.prepareInitialTerrainFrame(
@@ -777,8 +779,13 @@ window.addEventListener('DOMContentLoaded', () => {
       const persistentStorage = await createSpacePersistentStorage();
       const game = new Game(session, persistentStorage);
       await game.sceneRenderer.ready;
-      await game.preloadInitialTerrain(reportProgress);
-      await game.preloadInitialDistantTerrain(reportProgress);
+      // Distant terrain manifests, cache reads and downloads overlap the near
+      // AOI; its loading frames and shader preparation follow the near AOI.
+      const nearTerrain = game.preloadInitialTerrain(reportProgress);
+      const distantTerrain = game.preloadInitialDistantTerrain(reportProgress, nearTerrain);
+      void distantTerrain.catch(() => {});
+      await nearTerrain;
+      await distantTerrain;
       reportProgress(99, 'Preparing character animations…');
       await game.sceneRenderer.preparePlayerPipelines();
       game.start();
