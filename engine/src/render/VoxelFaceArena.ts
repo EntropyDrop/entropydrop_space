@@ -13,6 +13,7 @@ export type VoxelFaceMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.Mesh
 export type ArenaInputs = { origin: any; offset: any; span: any; direction: any; emission: any; color: any; valid: any; quad: any; bakeLayer?: any; bakeDescriptor?: any; baked?: boolean };
 const BLOCK = VOXEL_FACE_BLOCK;
 const PAGE_FACES = 256 * 1024;
+let arenaSerial = 0;
 /** World coordinates fit Float64 squared distance. Share one distance between
  * the normal cone and frustum guards; retain view-local flattened geometry. */
 function blockFacing(data: Float32Array, at: number, dx: number, dy: number, dz: number, distance: number, padding: number, viewFlattening: boolean) {
@@ -130,12 +131,14 @@ export class VoxelFaceArena {
   // Keep the original layout until the full-frame regression is resolved.
   private compactMaps = false;
   private packedVaryings = true;
+  private programSharing = true;
   private emptyFrustum = false;
   readonly stats = { residentFaces: 0, bytes: 0, visibleFaces: 0, paddedFaces: 0, draws: 0,
     sourceDraws: 0, mapUploadBytes: 0, copyFaces: 0, copyMs: 0, maxCopyMs: 0, pendingSources: 0,
     releasedSourceBytes: 0, pages: 0, backFaces: 0, outsideFaces: 0, coveredFaces: 0,
     maintenancePasses: 0, sourceListBuilds: 0, blockCacheBytes: 0,
     positionBlockTests: 0, coverageBlockTests: 0, drawnFaces: 0, instancePaddingFaces: 0, tightIdle: false };
+  private readonly id = ++arenaSerial;
   private readonly root: THREE.BundleGroup;
   private readonly make: (inputs: ArenaInputs) => VoxelFaceMesh;
   private readonly pageFaces: number;
@@ -267,6 +270,14 @@ export class VoxelFaceArena {
     this.root.needsUpdate = true;
   }
   getPackedVaryingsEnabled() { return this.packedVaryings; }
+  /** Reference switch: off compiles one program per page, as before sharing. */
+  setProgramSharingEnabled(enabled: boolean) {
+    if (enabled === this.programSharing) return;
+    this.programSharing = enabled;
+    this.rebuildDrawingMaterials();
+    this.root.needsUpdate = true;
+  }
+  getProgramSharingEnabled() { return this.programSharing; }
   private get mapStride() { return this.compactMaps ? 4 : 8; }
   private createMap(capacity: number) {
     return new THREE.StorageBufferAttribute(new Float32Array(capacity / BLOCK * this.mapStride), 4);
@@ -542,8 +553,13 @@ export class VoxelFaceArena {
   }
   private createDrawingMesh(data: THREE.StorageBufferAttribute, map: THREE.StorageBufferAttribute, baked = false) {
     const capacity = data.count;
+    // Pages whose make() names a program share one compiled node program (see
+    // below), so its storage bindings resolve the page of the object being
+    // drawn. Three rebinds a render object's buffers when the node value differs.
     const records = storage(data, 'uvec4' as 'vec4', capacity).toReadOnly();
+    (records as any).onObjectUpdate(({ object }: { object?: THREE.Object3D }) => object?.userData.voxelArenaPage?.data ?? data);
     const remap = storage(map, 'vec4', capacity / BLOCK * this.mapStride / 4).toReadOnly();
+    (remap as any).onObjectUpdate(({ object }: { object?: THREE.Object3D }) => object?.userData.voxelArenaPage?.map ?? map);
     const base = uniform(uint(0)).onObjectUpdate(({ object }) => object?.userData.voxelArenaBase ?? 0);
     const runFaces = uniform(uint(0)).onObjectUpdate(({ object }) => object?.userData.voxelArenaFaces ?? 0);
     const faceIndex = this.blockInstancing ? vertexIndex.div(uint(4)).add(instanceIndex.mul(uint(this.instanceFaces))) : vertexIndex.div(uint(4));
@@ -559,7 +575,7 @@ export class VoxelFaceArena {
     const face = blockStart.add(uint(min(float(local), float(blockFaces).sub(1))));
     const record = records.element(face);
     const surface = varying(uint(record.w).bitAnd(uint(0xffffff)).bitOr(uint(record.z).bitAnd(uint(0xff000000))));
-    return this.make({ origin, baked,
+    const mesh = this.make({ origin, baked,
       offset: vec3(float(uint(record.x).bitAnd(65535)), float(uint(record.x).shiftRight(16)), float(uint(record.y).bitAnd(65535))),
       span: vec3(float(uint(record.y).shiftRight(16)), float(uint(record.z).bitAnd(65535)), 0).xy,
       direction: float(uint(record.z).shiftRight(16).bitAnd(255)),
@@ -568,6 +584,22 @@ export class VoxelFaceArena {
       bakeLayer: this.compactMaps ? float(0) : remap.element(blockIndex.add(1)).y,
       bakeDescriptor: vec3(float(uint(record.w).bitAnd(255)), float(uint(record.w).shiftRight(8).bitAnd(255)), float(uint(record.w).shiftRight(16).bitAnd(255))),
       quad: vec2(float(corner.equal(1).or(corner.equal(2))), float(corner.greaterThanEqual(2))) });
+    // Every page used to compile its own, textually identical program: an
+    // 8-12 ms node build whenever streaming opened a page. A make() that
+    // captures no per-page state opts in by naming its program; pages of the
+    // same layout then reuse one build and its pipelines.
+    const program = mesh.userData.voxelArenaProgram;
+    if (this.programSharing && typeof program === 'string') {
+      const key = `VoxelArena:${this.id}:${program}:${baked}:${capacity}:${this.blockInstancing}:${this.instanceFaces}:${this.compactMaps}:${this.packedVaryings}:`;
+      const opaque = mesh.userData.opaqueMaterial ?? mesh.material, masked = mesh.userData.maskedMaterial;
+      opaque.customProgramCacheKey = () => `${key}opaque`;
+      if (masked && masked !== opaque) masked.customProgramCacheKey = () => `${key}masked`;
+    }
+    return mesh;
+  }
+  /** Names the storage a drawing mesh reads. Hidden from userData cloning. */
+  private bindPage(mesh: VoxelFaceMesh, page: Page) {
+    Object.defineProperty(mesh.userData, 'voxelArenaPage', { value: page, configurable: true, enumerable: false });
   }
   private createPage(capacity: number, baked: boolean) {
     const data = new THREE.StorageBufferAttribute(new Uint32Array(capacity * 4), 4);
@@ -581,6 +613,7 @@ export class VoxelFaceArena {
     mesh.userData.voxelArena = true; mesh.name = 'DistantVoxelArena'; mesh.visible = false;
     const page: Page = { baked, mesh, runs: [mesh], entries: new Set(), free: [{ start: 0, count: capacity }],
       map, data, release: new Set(), releaseMap: new Set() };
+    this.bindPage(mesh, page);
     const renderers = new WeakSet<object>();
     mesh.onBeforeRender = renderer => {
       if (renderers.has(renderer)) return;
@@ -806,6 +839,7 @@ export class VoxelFaceArena {
           const clone = new THREE.Mesh(runGeometry, drawMaterial);
           this.updateDrawRange(clone);
           clone.userData.voxelArena = true; clone.frustumCulled = false; clone.matrixAutoUpdate = false; clone.name = page.mesh.name;
+          this.bindPage(clone, page);
           clone.onBeforeRender = page.mesh.onBeforeRender; page.runs.push(clone); this.root.add(clone);
         }
         run = page.runs[index]; runs.set(page, index + 1); active.add(run);

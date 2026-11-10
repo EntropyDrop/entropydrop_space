@@ -3,12 +3,14 @@ import { installOpaqueTerrainBundles } from './OpaqueTerrainBundles.ts';
 import { installVoxelArenaSupport } from './VoxelArenaRenderer.ts';
 import { trackRenderObjectLifetime } from './RenderObjectLifetime.ts';
 import { installUniformRangeCoalescing } from './UniformRangeCoalescing.ts';
+import { installProgramRetention } from './ProgramRetention.ts';
 
 /** WebGPU only: never silently render the production game with WebGL. */
 export class SpaceRenderer extends WebGPURenderer {
   readonly terrainCommandCaching: boolean;
   terrainMergedBuffers = false;
   private retireRenderObjects: (() => void) | null = null;
+  private releaseRetainedPrograms: (() => void) | null = null;
   constructor(options: ConstructorParameters<typeof WebGPURenderer>[0] = {}) {
     super(options);
     // r183 installs its fallback unconditionally in WebGPURenderer. Disable
@@ -25,9 +27,14 @@ export class SpaceRenderer extends WebGPURenderer {
     if (!(this.backend as any).isWebGPUBackend) throw new Error('Space requires the WebGPU backend.');
     this.retireRenderObjects ??= trackRenderObjectLifetime((this as any)._objects);
     installUniformRangeCoalescing(this);
+    this.releaseRetainedPrograms ??= installProgramRetention(this);
     if (!this.terrainMergedBuffers) this.terrainMergedBuffers = installVoxelArenaSupport(this);
   }
   override dispose() {
+    // Before Three clears its maps: retained programs must not leave material
+    // dispose listeners pointing at this renderer.
+    this.releaseRetainedPrograms?.();
+    this.releaseRetainedPrograms = null;
     this.retireRenderObjects?.();
     this.retireRenderObjects = null;
     super.dispose();

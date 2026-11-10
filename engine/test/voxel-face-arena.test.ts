@@ -48,6 +48,45 @@ test('larger shared pages reduce draw boundaries and retain all packed face reco
   assert.deepEqual(run(1024*1024),{faces:300000,draws:1,pages:1});
 });
 
+test('pages of a named program share one compiled program and resolve their own storage per draw', () => {
+  const group = new THREE.BundleGroup(), meshes = [source(100000, 0), source(100000, 128), source(100000, 256)];
+  meshes.forEach((mesh, j) => { mesh.userData.voxelTile = j; group.add(mesh); });
+  const named = () => {
+    const mesh = make(); mesh.userData.opaqueMaterial = mesh.material;
+    mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial();
+    mesh.userData.voxelArenaProgram = 'test';
+    return mesh;
+  };
+  const arena = new VoxelFaceArena(group, named);
+  try {
+    settle(arena);
+    assert.equal(arena.pages.length, 2);
+    const [a, b] = arena.pages;
+    assert.notEqual(a.mesh.material, b.mesh.material, 'pages keep their own material lifetime');
+    assert.equal(a.mesh.material.customProgramCacheKey(), b.mesh.material.customProgramCacheKey());
+    assert.equal(a.mesh.userData.maskedMaterial.customProgramCacheKey(), b.mesh.userData.maskedMaterial.customProgramCacheKey());
+    assert.notEqual(a.mesh.material.customProgramCacheKey(), a.mesh.userData.maskedMaterial.customProgramCacheKey());
+    for (const page of arena.pages) for (const run of page.runs) {
+      assert.equal(run.userData.voxelArenaPage, page, 'every draw names the page whose buffers it reads');
+      assert.doesNotThrow(() => JSON.stringify(run.userData), 'the page link stays out of userData cloning');
+    }
+    const other = new VoxelFaceArena(new THREE.BundleGroup(), named);
+    const foreign = (other as any).createDrawingMesh(a.data, a.map, false);
+    assert.notEqual(foreign.material.customProgramCacheKey(), a.mesh.material.customProgramCacheKey(), 'arenas never share programs');
+    const layout = a.mesh.material.customProgramCacheKey();
+    arena.setPackedVaryingsEnabled(false);
+    assert.notEqual(arena.pages[0].mesh.userData.opaqueMaterial.customProgramCacheKey(), layout, 'a layout switch is a different program');
+    arena.setPackedVaryingsEnabled(true);
+    foreign.geometry.dispose(); other.dispose();
+  } finally { arena.dispose(); }
+  const plain = new VoxelFaceArena(new THREE.BundleGroup(), make);
+  const mesh = (plain as any).createDrawingMesh(new THREE.StorageBufferAttribute(new Uint32Array(64), 4),
+    new THREE.StorageBufferAttribute(new Float32Array(32), 4), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(mesh.material, 'customProgramCacheKey'), false,
+    'an unnamed make keeps one program per page');
+  plain.dispose();
+});
+
 test('larger pages reject compact Float32 maps that cannot represent their face addresses', () => {
   const arena=new VoxelFaceArena(new THREE.BundleGroup(),make,1024*1024);
   assert.throws(()=>arena.setCompactMapsEnabled(true),/exact Float32/);arena.dispose();

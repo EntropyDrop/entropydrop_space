@@ -35,7 +35,8 @@ const opaqueMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMat
 const voxelMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMaterial>();
 const bakedMaterials = new WeakMap<THREE.DataArrayTexture, { opaque: typeof opaqueMaterials; masked: typeof voxelMaterials }>();
 export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THREE.Vector3,
-  optimized: { value: boolean }, solid = false, arena?: ArenaInputs, bakedTexture?: THREE.DataArrayTexture) {
+  optimized: { value: boolean }, solid = false, arena?: ArenaInputs, bakedTexture?: THREE.DataArrayTexture,
+  sharedEmissionMask?: { value: number }) {
   let cache = solid ? opaqueMaterials : voxelMaterials;
   if (bakedTexture) {
     let caches = bakedMaterials.get(bakedTexture);
@@ -45,7 +46,7 @@ export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: TH
   const cached = cache.get(mask);
   if (cached && !arena) return cached;
   const result = new THREE.MeshStandardNodeMaterial({ vertexColors: !arena, roughness: .65, metalness: .15 });
-  const emissionMask = createVoxelEmissionMaskUniform(result);
+  const emissionMask = createVoxelEmissionMaskUniform(result, sharedEmissionMask);
   const rawDir = arena?.direction ?? attribute<'float'>('voxelDirection', 'float');
   const dir = bakedTexture ? float(uint(rawDir).bitAnd(7)) : rawDir;
   const corner = arena?.quad ?? positionGeometry.xy;
@@ -104,6 +105,8 @@ export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: TH
   result.outputNode = emission.select(vec4(voxelEmissionColor(surfaceColor),
     reference('value', 'float', emissionMask).add(1)), output);
   result.userData.sharedTerrainMaterial = true;
+  // Source tiles draw with these only while they fade; keep their programs.
+  result.userData.retainProgram = true;
   result.userData.voxelArenaPosition = true;
   result.userData.voxelIntegerCoordinates = true;
   if (!arena) {
@@ -253,15 +256,22 @@ export class DistantVoxelLayer {
       this.arena?.dispose(); this.arena = null;
       this.group.userData.voxelArenaStats = null;
     } else {
+      // Page materials differ only in the arena inputs, which resolve their
+      // page per object, so all pages can share one compiled program. Nothing
+      // else in their graphs may be per material: the emission mask holder is
+      // shared, and the textures they sample name the program.
+      const emissionMask = { value: 0 };
       this.arena = new VoxelFaceArena(this.group, inputs => {
+        const baked = inputs.baked ? this.texturePool?.texture : undefined;
         const mesh = new THREE.Mesh(geometry(), material(this.mask, new THREE.Vector2(0, 1),
-          new THREE.Vector3(), this.drawOptimizations, true, inputs, inputs.baked ? this.texturePool?.texture : undefined));
+          new THREE.Vector3(), this.drawOptimizations, true, inputs, baked, emissionMask));
         mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
         this.group.registerStaticLeaf(mesh);
         mesh.userData.opaqueMaterial = mesh.material;
-        mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs, inputs.baked ? this.texturePool?.texture : undefined);
+        mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs, baked, emissionMask);
         hookSceneMaterials(mesh); mesh.userData.maskedMaterial = mesh.material;
         mesh.material = mesh.userData.opaqueMaterial;
+        mesh.userData.voxelArenaProgram = `${this.mask.id}:${baked?.id ?? 0}`;
         return mesh;
       }, this.arenaPageFaces, this.unifiedBakedArena);
       this.arena.setTorusBackfaceCullingEnabled(this.torusBackfaceCulling);
@@ -391,6 +401,35 @@ export class DistantVoxelLayer {
     mesh.userData.opaqueMaterial = mesh.material; mesh.material = mesh.userData.maskedMaterial;
     return mesh;
   };
+
+  /** Tiles draw as ordinary instanced meshes while they fade. The entry gate
+   * draws one empty face with each of those shared materials, so the first
+   * LOD change during play does not compile them mid-movement. Returns the
+   * function that removes the warm-up draws again. */
+  beginProgramWarmup(): () => void {
+    const meshes: FaceMesh[] = [];
+    for (const solid of [true, false]) for (const bakeLayer of this.texturePool ? [0, 1] : [0]) {
+      const coverage = new THREE.Vector2(0, 1);
+      const mesh = this.make(coverage, new THREE.Vector3(), { value: solid ? 0 : 1 });
+      for (const [name, array, size, normalized] of [
+        ['voxelOffset', new Uint16Array(3), 3, false], ['voxelSpan', new Uint16Array(2), 2, false],
+        ['voxelDirection', new Uint8Array(1), 1, false], ['voxelEmission', new Uint8Array(1), 1, false],
+        ['color', new Uint8Array(3), 3, true],
+      ] as const) mesh.geometry.setAttribute(name, alignedInstanceAttribute(array, size, normalized));
+      // A zero span collapses the face: it reaches the pipeline, never a pixel.
+      mesh.geometry.instanceCount = 1;
+      mesh.geometry.userData = { voxelBakeLayer: bakeLayer };
+      Object.assign(mesh.userData, { terrainCoverage: coverage, voxelArenaCompatible: false });
+      mesh.name = 'DistantVoxelWarmup';
+      this.bindSourceMaterials(mesh);
+      mesh.material = solid ? mesh.userData.opaqueMaterial : mesh.userData.maskedMaterial;
+      this.group.add(mesh); meshes.push(mesh);
+    }
+    return () => {
+      for (const mesh of meshes) { this.group.remove(mesh); mesh.geometry.dispose(); }
+      meshes.length = 0;
+    };
+  }
 
   install(snapshot: SurfaceZoneSnapshot) {
     const key = `${snapshot.zoneX},${snapshot.zoneZ}`, previous = this.zones.get(key);

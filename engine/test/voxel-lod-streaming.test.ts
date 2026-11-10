@@ -214,6 +214,37 @@ for (const backend of ['worker', 'cooperative'] as const) test(`${backend} prese
   } finally { layer.dispose(); reference.dispose(); handoff.texture.dispose(); }
 });
 
+test('entry warm-up draws one empty face with each source material and leaves no trace', () => {
+  const handoff = new TerrainHandoff();
+  const layer = new DistantVoxelLayer(handoff.texture, { synchronous: true });
+  const view = new THREE.Frustum();
+  for (const plane of view.planes) plane.set(new THREE.Vector3(), 1);
+  try {
+    layer.updateView(view, camera, 720, 1, 32768, 100000); layer.setMergedBuffersEnabled(true); layer.install(source());
+    for (let i = 0; i < 20; i++) layer.updateView(view, camera, 720, 1, 32768, 100000);
+    const before = [...layer.group.children], stats = { ...layer.group.userData.voxelArenaStats };
+    const end = layer.beginProgramWarmup();
+    const warm = layer.group.children.filter(mesh => !before.includes(mesh)) as THREE.Mesh<THREE.InstancedBufferGeometry>[];
+    assert.equal(warm.length, 2);
+    const real = before.find(mesh => mesh.userData.opaqueMaterial && !mesh.userData.voxelArena)!;
+    assert.deepEqual(new Set(warm.map(mesh => mesh.material)),
+      new Set([real.userData.opaqueMaterial, real.userData.maskedMaterial]), 'the materials fading tiles draw with');
+    for (const mesh of warm) {
+      assert.equal(mesh.geometry.instanceCount, 1);
+      assert.deepEqual(Array.from(mesh.geometry.getAttribute('voxelSpan').array), [0, 0], 'a collapsed face covers no pixel');
+      assert.equal(mesh.userData.voxelArenaCompatible, false, 'shared storage never adopts it');
+      assert.equal((mesh.material as THREE.Material).userData.retainProgram, true);
+    }
+    layer.updateView(view, camera, 720, 1, 32768, 100000);
+    assert.equal(layer.group.userData.voxelArenaStats.residentFaces, stats.residentFaces);
+    end(); end();
+    layer.updateView(view, camera, 720, 1, 32768, 100000);
+    assert.deepEqual(new Set(layer.group.children.filter(mesh => !mesh.userData.voxelArena)),
+      new Set(before.filter(mesh => !mesh.userData.voxelArena)));
+    assert.equal(layer.group.userData.voxelArenaStats.residentFaces, stats.residentFaces);
+  } finally { layer.dispose(); handoff.texture.dispose(); }
+});
+
 test('replacement retains coverage, rejects stale revisions and remove/reinstall cannot resurrect old output', async () => {
   const handoff = new TerrainHandoff();
   const layer = new DistantVoxelLayer(handoff.texture, { workerFactory: () => new NodeVoxelLodWorker() });

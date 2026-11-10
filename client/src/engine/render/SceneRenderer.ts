@@ -2416,6 +2416,28 @@ export class SceneRenderer {
     // the canvas would leave its HDR pipeline cold when the camera first turns.
     const target = this.lightingQuality === 'ultra' ? this.cinematicEffects?.sceneTarget ?? null : null;
     await warmTerrainPipelines(this.renderer, this.scene, this.camera, roots, target);
+    this.warmTransientTerrainPrograms();
+  }
+
+  /** Programs first needed mid-movement: the faded/far variants of near
+   * terrain and the materials far tiles draw with while they change detail.
+   * Draw each once behind the entry gate instead of compiling them in play. */
+  private warmTransientTerrainPrograms() {
+    if (!this.world) return;
+    const handoff = this.world.distantSurface.handoff;
+    const endFarWarmup = this.world.distantSurface.isEnabled()
+      ? this.world.distantSurface.voxels.beginProgramWarmup() : null;
+    try {
+      for (const variant of ['masked', 'farMasked', 'farOpaque'] as const) {
+        handoff.forceVariant(variant);
+        this.render(false, true);
+      }
+    } finally {
+      handoff.forceVariant(null);
+      endFarWarmup?.();
+    }
+    // Restore the classified materials before the next presented frame.
+    this.render(false, true);
   }
 
   /** Hidden third-person skin/tool pipelines must be ready before the first F3. */

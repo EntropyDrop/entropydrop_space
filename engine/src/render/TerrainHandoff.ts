@@ -27,6 +27,7 @@ export class TerrainHandoff {
   private readonly materials = new WeakMap<THREE.Material, NearMaterial>();
   private opaqueFastPath = true;
   private readonly ready = new Set<number>();
+  private forced: 'masked' | 'farOpaque' | 'farMasked' | null = null;
 
   constructor() {
     this.texture.userData.voxelVisibilityVersion = 0;
@@ -86,6 +87,11 @@ export class TerrainHandoff {
     return this.enabled.value && this.data[this.index(cx, cz)] > 0;
   }
 
+  /** Entry warm-up: draw hooked terrain with one variant, so its program and
+   * pipelines exist before the first fade or far handoff needs them mid-play.
+   * Pass null to return to classification by coverage. */
+  forceVariant(variant: 'masked' | 'farOpaque' | 'farMasked' | null) { this.forced = variant; }
+
   getOpaqueFastPathEnabled() { return this.opaqueFastPath; }
   setOpaqueFastPathEnabled(enabled: boolean) { this.opaqueFastPath = enabled; }
 
@@ -114,6 +120,7 @@ export class TerrainHandoff {
     // Reclassify on every culling pass: a reversal must return to the masked
     // shader before the next draw. Do not allocate materials/arrays per frame.
     for (const draw of draws) {
+      if (this.forced) { draw.mesh.material = draw[this.forced]; continue; }
       const opaque = this.opaqueFastPath && (!this.enabled.value || this.data[draw.index] === 255);
       const near = !this.enabled.value || this.ready.has(draw.index);
       draw.mesh.material = near ? (opaque ? draw.opaque : draw.masked)
@@ -135,6 +142,9 @@ export class TerrainHandoff {
       makeVoxelMaterialOpaque(farMasked);
     }
     const pair = { opaque: mat, masked, farOpaque, farMasked };
+    // Variants are drawn only while chunks fade or hand off. A renderer that
+    // honours this flag keeps their compiled programs between those uses.
+    for (const material of [mat, masked, farOpaque, farMasked]) material.userData.retainProgram = true;
     this.materials.set(mat, pair); this.materials.set(masked, pair);
     this.materials.set(farOpaque, pair); this.materials.set(farMasked, pair);
     const dispose = () => {

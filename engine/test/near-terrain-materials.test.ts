@@ -145,3 +145,22 @@ test('plain hooked materials share one torus deformation program per lighting va
   hookSceneMaterials(root);
   assert.equal(litA.positionNode, litB.positionNode, 'periodic rescans do not wrap twice');
 });
+
+test('entry warm-up draws each handoff variant once and restores classification by coverage', () => {
+  const handoff = new TerrainHandoff(); handoff.enabled.value = true;
+  const source = new THREE.MeshStandardNodeMaterial({ vertexColors: true });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), source);
+  handoff.setReady(0, 0, true, false); handoff.hook(mesh);
+  assert.equal(materialOf(mesh), source, 'a settled chunk draws its original material');
+  const seen = new Set<THREE.Material>([source]);
+  for (const variant of ['masked', 'farMasked', 'farOpaque'] as const) {
+    handoff.forceVariant(variant); handoff.hook(mesh);
+    seen.add(materialOf(mesh));
+  }
+  assert.equal(seen.size, 2, 'an opaque source has one extra (masked) program to warm');
+  for (const material of seen) assert.equal(material.userData.retainProgram, true,
+    'variants keep their compiled program between fades');
+  handoff.forceVariant(null); handoff.hook(mesh);
+  assert.equal(materialOf(mesh), source);
+  handoff.texture.dispose();
+});

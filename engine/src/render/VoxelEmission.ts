@@ -8,8 +8,11 @@ export function voxelEmissionColor(tint: any) {
 }
 
 /** HDR alpha > 1 carries emission coverage to the atmosphere and bloom passes. */
-export function createVoxelEmissionMaskUniform(material: THREE.Material): { value: number } {
-  const mask = { value: 0 }, previous = material.onBeforeRender;
+export function createVoxelEmissionMaskUniform(material: THREE.Material,
+  mask: { value: number } = { value: 0 }): { value: number } {
+  // Materials that share one compiled program pass one holder: the program's
+  // graph reads a single object, whichever of them is being rendered.
+  const previous = material.onBeforeRender;
   material.onBeforeRender = (...args) => {
     previous.apply(material, args);
     mask.value = args[0].getRenderTarget()?.texture.userData.voxelEmissionMask === true ? 1 : 0;
