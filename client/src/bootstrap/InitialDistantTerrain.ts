@@ -19,7 +19,11 @@ function nextLoadingFrame(): Promise<void> {
   return new Promise(resolve => {
     if (typeof requestAnimationFrame === 'function'
       && (typeof document === 'undefined' || document.visibilityState !== 'hidden')) {
-      requestAnimationFrame(() => resolve());
+      // Occluded windows can pause frames while still reporting visible.
+      let settled = false;
+      const finish = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(); } };
+      const timer = setTimeout(finish, 100);
+      requestAnimationFrame(finish);
     } else {
       setTimeout(resolve, 16);
     }

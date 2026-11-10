@@ -1,3 +1,4 @@
+import { nextLoadingTurn } from './LoadingYield.ts';
 import { NearTerrainBatches } from '../render/NearTerrainBatches.ts';
 import type { PackedStandardEdit, GenerateRequest, TerrainWorkerRequest, TerrainWorkerResult, TerrainWorkerSuccess } from './TerrainStreamProtocol.ts';
 import { captureDistantChunk } from '../render/DistantChunkLayer.ts';
@@ -40,6 +41,9 @@ import {
 // rendering. Missing detailed chunks may take a few more frames to stream in,
 // while the already-present distant surface prevents visible holes.
 const STREAM_WORK_BUDGET_MS = 3;
+// Behind the entry gate only the progress text repaints, so each loading turn
+// may publish several finished chunks instead of one per animation frame.
+const LOADING_TURN_BUDGET_MS = 8;
 const BACKGROUND_MAIN_THREAD_BUDGET_MS = 1;
 // Detailed terrain must progress even when a fully drawn torus leaves no idle
 // time. Generation stays in the worker; timeout slices only service its queue.
@@ -231,6 +235,7 @@ export class World {
   private readonly streamCandidateKeys = new Set<string>();
   private readonly nearStreamStats = { generated: 0, prefetched: 0, cacheHits: 0, evicted: 0, dispatched: 0 };
   private completedTerrainWorkerJobs: CompletedTerrainWorkerJob[];
+  private terrainResultWaiters: (() => void)[] = [];
   private nextTerrainWorkerRequestId: number;
   private pendingTerrainSnapshots: Map<string, PendingTerrainSnapshot>;
   private pendingRemoteChunkUpdates: Map<string, TerrainEditChunk>;
@@ -380,6 +385,7 @@ export class World {
           this.completedTerrainWorkerJobs.push({ job, result });
           this.initializeTerrainWorker();
           this.dispatchTerrainWorkerJob();
+          for (const wake of this.terrainResultWaiters.splice(0)) wake();
         };
         worker.onerror = event => {
           this.disableTerrainWorker(event.message || 'Terrain worker stopped unexpectedly.', this.getTerrainWorkerJob(worker), worker);
@@ -1871,7 +1877,7 @@ export class World {
     let lastReadyChunks = -1;
 
     while (true) {
-      const progress = this.getTerrainAoiLoadProgress();
+      let progress = this.getTerrainAoiLoadProgress();
       if (progress.readyChunks !== lastReadyChunks || progress.ready) {
         onProgress?.(progress);
         lastReadyChunks = progress.readyChunks;
@@ -1881,20 +1887,26 @@ export class World {
       if (this.requireOffThreadTerrainStreaming && !this.terrainWorker) {
         throw new Error('The terrain worker stopped before the initial AOI finished loading.');
       }
-      this.updateChunksAround(
-        playerX,
-        playerZ,
-        true,
-        STREAM_WORK_BUDGET_MS,
-        this.requireOffThreadTerrainStreaming,
-      );
-      await new Promise<void>(resolve => {
-        if (typeof globalThis.requestAnimationFrame === 'function') {
-          globalThis.requestAnimationFrame(() => resolve());
-        } else {
-          globalThis.setTimeout(resolve, 0);
-        }
-      });
+      // Each normal pass publishes at most one finished chunk. Repeat passes
+      // within the loading budget while they still make progress.
+      const turnStarted = performance.now();
+      for (;;) {
+        this.updateChunksAround(
+          playerX,
+          playerZ,
+          true,
+          STREAM_WORK_BUDGET_MS,
+          this.requireOffThreadTerrainStreaming,
+        );
+        if (performance.now() - turnStarted >= LOADING_TURN_BUDGET_MS) break;
+        const next = this.getTerrainAoiLoadProgress();
+        if (next.ready || next.readyChunks === progress.readyChunks) break;
+        progress = next;
+      }
+      const waitingForWorker = this.terrainWorker !== null && this.completedTerrainWorkerJobs.length === 0;
+      await nextLoadingTurn(waitingForWorker
+        ? () => new Promise<void>(resolve => { this.terrainResultWaiters.push(resolve); })
+        : undefined);
     }
   }
 

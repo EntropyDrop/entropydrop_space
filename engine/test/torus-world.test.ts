@@ -399,6 +399,45 @@ test('initial AOI preload waits until every active terrain chunk is published', 
   }
 });
 
+test('initial AOI preload keeps progressing while animation frames are paused', async () => {
+  const previousFrame = globalThis.requestAnimationFrame;
+  const previousDocument = (globalThis as any).document;
+  try {
+    // Background tabs and occluded windows stop delivering frames.
+    globalThis.requestAnimationFrame = (() => 0) as typeof requestAnimationFrame;
+    for (const visibilityState of ['visible', 'hidden']) {
+      (globalThis as any).document = { visibilityState };
+      const world = new World(new THREE.Scene()) as any;
+      world.renderDistance = 1;
+      const started = performance.now();
+      const complete = await world.preloadTerrainAoi(TORUS_SPAWN_X, TORUS_SPAWN_Z);
+      assert.equal(complete.ready, true, visibilityState);
+      assert.ok(performance.now() - started < 5000, `${visibilityState} preload must not wait for a frame`);
+    }
+  } finally {
+    globalThis.requestAnimationFrame = previousFrame;
+    if (previousDocument === undefined) delete (globalThis as any).document;
+    else (globalThis as any).document = previousDocument;
+  }
+});
+
+test('initial AOI preload publishes several finished chunks per loading turn', async () => {
+  const world = new World(new THREE.Scene()) as any;
+  world.renderDistance = 1;
+  let turns = 0;
+  const previousFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    turns++;
+    return setTimeout(() => callback(performance.now()), 0) as unknown as number;
+  }) as typeof requestAnimationFrame;
+  try {
+    await world.preloadTerrainAoi(TORUS_SPAWN_X, TORUS_SPAWN_Z);
+  } finally {
+    globalThis.requestAnimationFrame = previousFrame;
+  }
+  assert.ok(turns < 9, `nine chunks should not need one frame each (took ${turns})`);
+});
+
 test('AOI progress counts a chunk only after its standard and micro meshes are published', async () => {
   const world = new World(new THREE.Scene()) as any;
   world.renderDistance = 1;
