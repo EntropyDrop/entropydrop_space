@@ -9,22 +9,28 @@ export class NearTerrainBatches {
   private readonly regions = new Map<string, StaticTerrainGroup>();
   private readonly members = new Map<THREE.Object3D, { region: StaticTerrainGroup; visible: boolean; leaves: { mesh: THREE.Mesh; visible: boolean; castShadow: boolean; geometry: THREE.BufferGeometry; materials: { material: THREE.Material; version: number; visible: boolean }[] }[] }>();
   private readonly root: THREE.Group;
+  private readonly label: string;
+  /** The region is kept right after this sibling (or first when absent). */
+  private readonly after: THREE.Object3D | null;
 
-  constructor(root: THREE.Group) { this.root = root; }
+  constructor(root: THREE.Group, label = 'NearTerrain', after: THREE.Object3D | null = null) {
+    this.root = root; this.label = label; this.after = after;
+  }
 
   add(mesh: THREE.Object3D) {
     const key = 'opaque';
     let region = this.regions.get(key);
     if (!region) {
       region = new StaticTerrainGroup();
-      region.name = `NearTerrain:${key}`;
+      region.name = `${this.label}:${key}`;
       region.userData.spaceOpaqueTerrain = true;
       this.regions.set(key, region);
       this.root.add(region);
       // Ordinary near meshes precede far terrain bundles. Preserve that depth
       // tie order when near draws become bundles as well.
       this.root.children.splice(this.root.children.indexOf(region), 1);
-      this.root.children.unshift(region);
+      const anchor = this.after ? this.root.children.indexOf(this.after) : -1;
+      this.root.children.splice(anchor + 1, 0, region);
     }
     const leaves: { mesh: THREE.Mesh; visible: boolean; castShadow: boolean; geometry: THREE.BufferGeometry; materials: { material: THREE.Material; version: number; visible: boolean }[] }[] = [];
     mesh.traverse(child => {

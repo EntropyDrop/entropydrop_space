@@ -20,6 +20,11 @@ interface MicroBatchBin {
   outputKey: string;
 }
 
+export interface MicroRenderSink {
+  add(mesh: THREE.Mesh): void;
+  remove(mesh: THREE.Mesh): void;
+}
+
 const vertexCount = (mesh: THREE.Mesh) => mesh.geometry.getAttribute('position').count;
 
 /** Edit/collision partitions stay independent; only published render data is
@@ -33,12 +38,14 @@ export class MicroRenderBatches {
   private enabled = true;
   private binSerial = 0;
 
-  private readonly group: THREE.Group;
   private readonly materials: THREE.Material[];
+  /** Where published draw meshes live: the group itself, or a command cache
+   * (NearTerrainBatches) that keeps opaque meshes in a reusable bundle. */
+  private readonly sink: MicroRenderSink;
 
-  constructor(group: THREE.Group, materials: THREE.Material[]) {
-    this.group = group;
+  constructor(group: THREE.Group, materials: THREE.Material[], sink?: MicroRenderSink) {
     this.materials = materials;
+    this.sink = sink ?? { add: mesh => group.add(mesh), remove: mesh => { group.remove(mesh); } };
   }
 
   setEnabled(enabled: boolean) {
@@ -77,7 +84,7 @@ export class MicroRenderBatches {
       for (const key of this.published.get(chunk) ?? []) {
         const old = this.meshes.get(key)!;
         if (next.get(key) === old) continue;
-        this.group.remove(old);
+        this.sink.remove(old);
         if (old.userData.microRenderBatch) old.geometry.dispose();
         this.meshes.delete(key);
       }
@@ -90,7 +97,7 @@ export class MicroRenderBatches {
       for (const [key, mesh] of next) {
         if (this.meshes.get(key) === mesh) continue;
         this.meshes.set(key, mesh);
-        this.group.add(mesh);
+        this.sink.add(mesh);
         rebuilt.push(mesh);
       }
     }

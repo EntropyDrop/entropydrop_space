@@ -7,6 +7,13 @@ import { World, terrainRenderDistanceZ } from '../src/voxel/World.ts';
 import { Chunk } from '../src/voxel/Chunk.ts';
 import { TerrainGenerator } from '../src/worldgen/TerrainGenerator.ts';
 
+/** Published draw meshes, whether in the layer group or its command bundle. */
+function drawMeshCount(layer: MicroVoxelLayer) {
+  let count = 0;
+  layer.group.traverse(object => { if ((object as THREE.Mesh).isMesh) count++; });
+  return count;
+}
+
 function triangles(meshes: Iterable<THREE.Mesh>) {
   const result: string[] = [];
   for (const mesh of meshes) {
@@ -40,7 +47,7 @@ test('render batches preserve every published triangle, color, normal and materi
   layer.updateMesh();
   assert.deepEqual(triangles(layer.renderMeshes.values()), triangles(layer.meshChunks.values()));
   assert.ok(layer.renderMeshes.size < layer.meshChunks.size / 2);
-  assert.equal(layer.group.children.length, layer.renderMeshes.size);
+  assert.equal(drawMeshCount(layer), layer.renderMeshes.size);
   for (const mesh of layer.renderMeshes.values()) assert.ok(mesh.geometry.groups.length <= 2);
 });
 
@@ -70,7 +77,7 @@ test('local edits replace only their chunk batch and fully empty batches are rem
   layer.updateMesh();
   assert.equal(layer.renderMeshes.get('1,0'), far);
   assert.equal(layer.renderMeshes.size, 1);
-  assert.equal(layer.group.children.length, 1);
+  assert.equal(drawMeshCount(layer), 1);
 });
 
 test('dense authored geometry falls back to bounded partitions and can return to batching', () => {
@@ -110,7 +117,7 @@ test('dense chunks split into bounded batches and an edit rebuilds only its own 
     assert.equal(mesh.userData.microRenderBatch, true);
     assert.ok(mesh.geometry.getAttribute('position').count <= MAX_MICRO_BATCH_VERTICES);
   }
-  assert.equal(layer.group.children.length, layer.renderMeshes.size);
+  assert.equal(drawMeshCount(layer), layer.renderMeshes.size);
   assert.deepEqual(triangles(layer.renderMeshes.values()), triangles(layer.meshChunks.values()));
   const before = new Set(layer.renderMeshes.values());
   layer.delete(4, 4, 4);
@@ -120,10 +127,10 @@ test('dense chunks split into bounded batches and an edit rebuilds only its own 
   assert.deepEqual(triangles(layer.renderMeshes.values()), triangles(layer.meshChunks.values()));
   layer.setRenderBatchingEnabled(false);
   assert.equal(layer.renderMeshes.size, 40);
-  assert.equal(layer.group.children.length, 40);
+  assert.equal(drawMeshCount(layer), 40);
   layer.setRenderBatchingEnabled(true);
   assert.deepEqual(triangles(layer.renderMeshes.values()), triangles(layer.meshChunks.values()));
-  assert.equal(layer.group.children.length, layer.renderMeshes.size);
+  assert.equal(drawMeshCount(layer), layer.renderMeshes.size);
 });
 
 test('real Copper detail uses one draw mesh per standard chunk without removing triangles', () => {
@@ -170,4 +177,29 @@ test('near AOI never publishes unsynchronized edge chunks, including torus seams
   world.setTerrainDataWindow(null);
   world.updateChunksAround(1, 1, false);
   assert.equal(world.activeChunkKeys.size, 33 * 13);
+});
+
+test('opaque micro draw meshes replay from one command bundle that re-records only on change', () => {
+  const layer = new MicroVoxelLayer();
+  for (const x of [1, 20, 129, 148]) layer.set(x, 1, 1, 0xabcdef);
+  layer.updateMesh();
+  const region = layer.group.children.find(child => (child as { isBundleGroup?: boolean }).isBundleGroup) as THREE.Group & { version: number };
+  assert.ok(region, 'opaque meshes are grouped for command reuse');
+  assert.equal(region.userData.spaceOpaqueTerrain, true);
+  for (const mesh of layer.renderMeshes.values()) assert.equal(mesh.parent, region);
+  layer.syncRenderCommands();
+  const version = region.version;
+  layer.syncRenderCommands();
+  assert.equal(region.version, version, 'an unchanged frame replays the recorded commands');
+  const mesh = layer.renderMeshes.values().next().value!;
+  mesh.visible = false; layer.syncRenderCommands();
+  assert.ok(region.version > version, 'culling changes re-record');
+  const culled = region.version;
+  mesh.castShadow = !mesh.castShadow; layer.syncRenderCommands();
+  assert.ok(region.version > culled, 'shadow caster changes re-record');
+  layer.setRenderCommandCachingEnabled(false);
+  for (const draw of layer.renderMeshes.values()) assert.equal(draw.parent, layer.group);
+  layer.setRenderCommandCachingEnabled(true);
+  layer.delete(129, 1, 1); layer.delete(148, 1, 1); layer.updateMesh();
+  assert.equal(drawMeshCount(layer), layer.renderMeshes.size, 'retired batches leave the bundle');
 });

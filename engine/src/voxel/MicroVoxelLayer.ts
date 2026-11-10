@@ -20,6 +20,8 @@ import {
 } from '../torus/TorusWorld.ts';
 
 import { MICRO_DIVISIONS, MICRO_SIZE } from './MicroGrid.ts';
+import { EpochMap, EpochSet, type MutationEpoch } from './MutationEpoch.ts';
+import { NearTerrainBatches } from '../render/NearTerrainBatches.ts';
 export { MICRO_DIVISIONS, MICRO_SIZE } from './MicroGrid.ts';
 const STANDARD_CHUNK_MICRO_SIZE = 16 * MICRO_DIVISIONS;
 // Bound both meshing and cold collision builds in all three dimensions. A local
@@ -124,6 +126,8 @@ function standardChunkKeyForMeshChunk(meshKey: string): string {
 }
 
 export class MicroVoxelLayer {
+  /** Advanced by every write that can change a published-collision read. */
+  private readonly collisionReadEpoch: MutationEpoch = { value: 0 };
   cells: Map<string, number>;
   parts: Map<string, string>;
   materials: Map<string, number>;
@@ -150,13 +154,15 @@ export class MicroVoxelLayer {
   private collisionRevisions = new Map<string, number>();
   private publishedCollisionRevisions = new Map<string, number>();
   // Fully enclosed solid partitions can have no visible mesh and still collide.
-  private publishedCollisionPartitions = new Set<string>();
+  private publishedCollisionPartitions: Set<string> = new EpochSet<string>(this.collisionReadEpoch);
   private detachedCollisionCells = new Map<string, Set<number>>();
   private standardChunkPartitions = new Map<string, Set<string>>();
   private chunkRevisions = new Map<string, number>();
   private horizontalColumnPartitions = new Map<string, Set<string>>();
   renderMaterials: [THREE.MeshStandardNodeMaterial, THREE.MeshBasicNodeMaterial, THREE.MeshStandardNodeMaterial];
   private renderBatches: MicroRenderBatches;
+  /** Opaque published micro meshes replay as one cached command bundle. */
+  private readonly renderCommands: NearTerrainBatches;
   private meshWorker: Worker | null = null;
   private meshWorkerAttempted = false;
   private nextMeshRequestId = 1;
@@ -169,13 +175,20 @@ export class MicroVoxelLayer {
   /** Published draw objects, distinct from the small edit/collision meshes. */
   get renderMeshes() { return this.renderBatches.meshes; }
 
+  /** Call after micro culling so visibility/material changes re-record. */
+  syncRenderCommands() { this.renderCommands.sync(); }
+
+  setRenderCommandCachingEnabled(enabled: boolean) { this.renderCommands.setEnabled(enabled); }
+
+  getRenderCommandStats() { return this.renderCommands.getStats(); }
+
   setRenderBatchingEnabled(enabled: boolean) {
     this.renderBatches.setEnabled(enabled);
     this.recentlyRebuiltMeshes.push(...this.renderBatches.flush());
   }
 
   constructor() {
-    this.cells = new Map();
+    this.cells = new EpochMap(this.collisionReadEpoch);
     this.parts = new Map();
     this.materials = new Map();
     this.dirty = false;
@@ -184,11 +197,11 @@ export class MicroVoxelLayer {
     this.mesh = null;
     this.meshChunks = new Map();
     this.chunkCells = new Map();
-    this.packedColors = new Map();
+    this.packedColors = new EpochMap(this.collisionReadEpoch);
     this.packedMaterials = new Map();
     this.dirtyMeshChunks = new Set();
     this.meshChunkRevisions = new Map();
-    this.publishedCollisionSnapshots = new Map();
+    this.publishedCollisionSnapshots = new EpochMap(this.collisionReadEpoch);
     this.activeMeshBuild = null;
     this.deferredPublicationChunkKeys = null;
     this.deferredMeshPublications = new Map();
@@ -204,7 +217,8 @@ export class MicroVoxelLayer {
       createVoxelEmissiveMaterial(),
       createVoxelTranslucentMaterial(),
     ];
-    this.renderBatches = new MicroRenderBatches(this.group, this.renderMaterials);
+    this.renderCommands = new NearTerrainBatches(this.group, 'MicroVoxelCommands');
+    this.renderBatches = new MicroRenderBatches(this.group, this.renderMaterials, this.renderCommands);
   }
 
   get(mx: number, my: number, mz: number) {
@@ -345,7 +359,10 @@ export class MicroVoxelLayer {
   }
 
   private addChunkCell(packedKey: number, mx: number, my: number, mz: number) {
-    const chunkKey = meshChunkKey(mx, my, mz);
+    this.addChunkCellAt(meshChunkKey(mx, my, mz), packedKey);
+  }
+
+  private addChunkCellAt(chunkKey: string, packedKey: number) {
     let cells = this.chunkCells.get(chunkKey);
     if (!cells) {
       cells = new Set();
@@ -364,17 +381,19 @@ export class MicroVoxelLayer {
 
   /** Journal one cell before mutation so picking stays on the rendered mesh. */
   private preservePublishedCollisionCell(mx: number, my: number, mz: number) {
-    const chunkKey = meshChunkKey(mx, my, mz);
+    this.preservePublishedCollisionCellAt(meshChunkKey(mx, my, mz), packedMicroKey(mx, my, mz));
+  }
+
+  private preservePublishedCollisionCellAt(chunkKey: string, packedKey: number) {
     // Cells first become pickable when their partition publishes. The presence
     // set also includes completely enclosed solids that emit no visible mesh.
     if (!this.publishedCollisionPartitions.has(chunkKey)) return;
     let snapshot = this.publishedCollisionSnapshots.get(chunkKey);
     if (!snapshot) {
-      snapshot = new Map();
+      snapshot = new EpochMap(this.collisionReadEpoch);
       this.publishedCollisionSnapshots.set(chunkKey, snapshot);
     }
 
-    const packedKey = packedMicroKey(mx, my, mz);
     if (!snapshot.has(packedKey)) {
       snapshot.set(packedKey, this.packedColors.get(packedKey) ?? null);
     }
@@ -422,9 +441,21 @@ export class MicroVoxelLayer {
     packed: Uint32Array,
     include: (localMx: number, my: number, localMz: number) => boolean,
   ) {
-    const dirtyPartitions = new Set<string>();
-    const collisionPartitions = new Set<string>();
+    // Bulk path (chunk streaming): identical effects to per-cell set(), but
+    // mesh-chunk keys are built once per partition instead of several times
+    // per cell. Partitions are tracked by a numeric id in first-seen order.
+    const size = MICRO_MESH_CHUNK_SIZE;
+    const keys = new Map<number, string>();
+    const partitionId = (cx: number, cy: number, cz: number) => {
+      // cx < 8192 and cz < 1024 after wrapping, so this mixed radix is injective.
+      const id = ((cy + 1) * 1024 + cz) * 8192 + cx;
+      if (!keys.has(id)) keys.set(id, `${cx},${cz},${cy}`);
+      return id;
+    };
+    const dirtyPartitions = new Set<number>();
+    const collisionPartitions = new Set<number>();
     const standardChunks = new Set<string>();
+    let lastStandardId = NaN;
     let changed = 0;
     for (let offset = 0; offset + 3 < packed.length; offset += 4) {
       const localMx = packed[offset];
@@ -437,11 +468,14 @@ export class MicroVoxelLayer {
       const material = normalizeVoxelMaterialId(packed[offset + 3] >>> 24);
       const cellKey = `${mx},${my},${mz}`;
       const packedKey = packedMicroKey(mx, my, mz);
-      const isNew = !this.cells.has(cellKey);
-      if (this.cells.get(cellKey) === normalized
+      const previous = this.cells.get(cellKey);
+      const isNew = previous === undefined;
+      if (previous === normalized
         && !this.parts.has(cellKey)
-        && this.getMaterial(mx, my, mz) === material) continue;
-      this.preservePublishedCollisionCell(mx, my, mz);
+        && (this.materials.get(cellKey) ?? VoxelMaterialIds.DEFAULT) === material) continue;
+      const cx = Math.floor(mx / size), cy = Math.floor(my / size), cz = Math.floor(mz / size);
+      const id = partitionId(cx, cy, cz), chunkKey = keys.get(id)!;
+      this.preservePublishedCollisionCellAt(chunkKey, packedKey);
       this.cells.set(cellKey, normalized);
       this.packedColors.set(packedKey, normalized);
       if (material === VoxelMaterialIds.DEFAULT) {
@@ -453,20 +487,34 @@ export class MicroVoxelLayer {
       }
       this.parts.delete(cellKey);
       if (isNew) {
-        this.addChunkCell(packedKey, mx, my, mz);
-        collisionPartitions.add(meshChunkKey(mx, my, mz));
+        this.addChunkCellAt(chunkKey, packedKey);
+        collisionPartitions.add(id);
       }
-      standardChunks.add(standardChunkKeyForMeshChunk(meshChunkKey(mx, my, mz)));
-      for (const partition of this.affectedMeshChunkKeys(mx, my, mz)) {
-        dirtyPartitions.add(partition);
+      const standardId = Math.floor(cx / MICRO_MESH_CHUNKS_PER_STANDARD_AXIS) * 1024
+        + Math.floor(cz / MICRO_MESH_CHUNKS_PER_STANDARD_AXIS);
+      if (standardId !== lastStandardId) {
+        lastStandardId = standardId;
+        standardChunks.add(standardChunkKeyForMeshChunk(chunkKey));
+      }
+      // affectedMeshChunkKeys(): the partition and any face-adjacent partition.
+      dirtyPartitions.add(id);
+      const lx = mx - cx * size, ly = my - cy * size, lz = mz - cz * size;
+      if (lx === 0 || lx === size - 1) {
+        dirtyPartitions.add(partitionId(Math.floor(wrapMicroX(mx + (lx === 0 ? -1 : 1)) / size), cy, cz));
+      }
+      if (ly === 0 || ly === size - 1) {
+        dirtyPartitions.add(partitionId(cx, Math.floor((my + (ly === 0 ? -1 : 1)) / size), cz));
+      }
+      if (lz === 0 || lz === size - 1) {
+        dirtyPartitions.add(partitionId(cx, cy, Math.floor(wrapMicroZ(mz + (lz === 0 ? -1 : 1)) / size)));
       }
       changed++;
     }
-    for (const chunkKey of collisionPartitions) this.invalidateCollisionPartition(chunkKey);
+    for (const id of collisionPartitions) this.invalidateCollisionPartition(keys.get(id)!);
     for (const standardKey of standardChunks) {
       this.chunkRevisions.set(standardKey, (this.chunkRevisions.get(standardKey) ?? 0) + 1);
     }
-    for (const chunkKey of dirtyPartitions) this.invalidateMeshChunk(chunkKey);
+    for (const id of dirtyPartitions) this.invalidateMeshChunk(keys.get(id)!);
     return changed;
   }
 
@@ -858,11 +906,39 @@ export class MicroVoxelLayer {
     }
   }
 
+  // Consecutive cells of a ray share a mesh chunk. Remember that chunk's
+  // published state until the next write (the read epoch) or chunk change.
+  private readChunkX = NaN;
+  private readChunkY = NaN;
+  private readChunkZ = NaN;
+  private readChunkEpoch = -1;
+  private readChunkSnapshot: Map<number, number | null> | undefined;
+  private readChunkPublished = false;
+
+  /**
+   * Unchanged while no cell, published snapshot or published partition has
+   * been written, so callers can reuse lookups made through
+   * getPublishedCollisionColor and get.
+   */
+  get collisionReadRevision() { return this.collisionReadEpoch.value; }
+
   getPublishedCollisionColor(mx: number, my: number, mz: number) {
-    const chunkKey = meshChunkKey(mx, my, mz);
-    const snapshot = this.publishedCollisionSnapshots.get(chunkKey);
+    const cx = Math.floor(wrapMicroX(mx) / MICRO_MESH_CHUNK_SIZE);
+    const cy = Math.floor(my / MICRO_MESH_CHUNK_SIZE);
+    const cz = Math.floor(wrapMicroZ(mz) / MICRO_MESH_CHUNK_SIZE);
+    if (cx !== this.readChunkX || cy !== this.readChunkY || cz !== this.readChunkZ
+      || this.readChunkEpoch !== this.collisionReadEpoch.value) {
+      const chunkKey = `${cx},${cz},${cy}`; // meshChunkKey(mx, my, mz)
+      this.readChunkX = cx; this.readChunkY = cy; this.readChunkZ = cz;
+      this.readChunkEpoch = this.collisionReadEpoch.value;
+      this.readChunkSnapshot = this.publishedCollisionSnapshots.get(chunkKey);
+      this.readChunkPublished = this.publishedCollisionPartitions.has(chunkKey);
+    }
+    const snapshot = this.readChunkSnapshot;
     if (!snapshot) {
-      return this.publishedCollisionPartitions.has(chunkKey) ? this.get(mx, my, mz) : null;
+      if (!this.readChunkPublished) return null;
+      // packedColors mirrors `cells` with numeric keys (same as get()).
+      return this.packedColors.get(packedMicroKey(mx, my, mz)) ?? null;
     }
     const packedKey = packedMicroKey(mx, my, mz);
     return snapshot.has(packedKey)
@@ -1602,7 +1678,7 @@ export class MicroVoxelLayer {
         (this.collisionPublicationVersions.get(job.standardChunkKey) ?? 0) + 1);
     }
     if (!previous) return;
-    this.group.remove(previous);
+    this.renderCommands.remove(previous);
     previous.geometry.dispose();
   }
 

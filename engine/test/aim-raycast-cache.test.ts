@@ -82,3 +82,24 @@ test('entity movement remains freshly queried when the terrain result is reused'
   assert.equal(query().kind, 'world'); assert.equal(calls, 3);
   assert.ok(world.getAimRaycastCacheStats().standard.hits >= 1);
 });
+
+test('an unchanged micro layer reuses the aim result without re-reading recorded cells', () => {
+  const world = new World(new THREE.Scene());
+  world.setMicroBlock(80, 1600, 80, 0xff0000); world.microVoxels.updateMesh();
+  const origin = bendPoint(10.0625, 210, 10.0625), direction = bendPoint(10.0625, 200, 10.0625).sub(origin).normalize();
+  const query = () => world.raycastMicroBent(origin, direction, 16, true);
+  const layer = world.microVoxels as any, read = layer.getPublishedCollisionColor.bind(layer);
+  let reads = 0;
+  layer.getPublishedCollisionColor = (x: number, y: number, z: number) => { reads++; return read(x, y, z); };
+  query(); query(); reads = 0;
+  assert.equal(query().color, 0xff0000); assert.equal(reads, 0, 'no validation reads while nothing was written');
+  world.setMicroBlock(400, 1600, 400, 0x0000ff); world.microVoxels.updateMesh();
+  assert.equal(query().color, 0xff0000); assert.ok(reads > 0, 'an unrelated write falls back to validating cells');
+  reads = 0; assert.equal(query().color, 0xff0000); assert.equal(reads, 0);
+  world.setMicroBlock(80, 1601, 80, 0x00ff00);
+  assert.equal(query().color, 0xff0000, 'a pending edit above keeps the published surface');
+  world.microVoxels.updateMesh();
+  assert.equal(query().color, 0x00ff00, 'publication exposes the new occluder');
+  world.removeMicroBlock(80, 1601, 80); world.microVoxels.updateMesh();
+  assert.equal(query().color, 0xff0000);
+});

@@ -43,6 +43,7 @@ interface CullingWorld {
   microVoxels?: {
     renderMeshes?: ReadonlyMap<string, THREE.Object3D>;
     meshChunks?: ReadonlyMap<string, THREE.Object3D>;
+    syncRenderCommands?(): void;
   };
 }
 
@@ -728,4 +729,5 @@ export function cullChunks(camera: THREE.Camera, world: CullingWorld | null | un
     mesh.visible = isBentSphereVisible(camera, projectedCullingBounds(bs), retainLocalShadowCasters);
     mesh.castShadow = mesh.visible && isLocalShadowCaster(camera, bs);
   }
+  world.microVoxels?.syncRenderCommands?.();
 }

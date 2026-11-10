@@ -8,11 +8,19 @@ export class BentRayCache<Value, Result> {
   private values: Value[] = [];
   private valid = false;
   private result!: Result;
+  private epoch: number | undefined;
 
+  /**
+   * `epoch`, when given, must change whenever anything `read` can observe
+   * changes. An unchanged epoch reuses the result without re-reading cells.
+   */
   run(key: readonly number[], read: (x: number, y: number, z: number) => Value,
     compute: (read: (x: number, y: number, z: number) => Value) => Result,
-    clone: (result: Result) => Result): Result {
+    clone: (result: Result) => Result, epoch?: number): Result {
     const sameRay = key.length === this.key.length && key.every((v, i) => v === this.key[i]);
+    if (sameRay && this.valid && epoch !== undefined && epoch === this.epoch) {
+      this.stats.hits++; return clone(this.result);
+    }
     // Moving rays use the original path without recording thousands of cells.
     // Admit a ray only after it repeats; still evaluate the first two queries.
     if (!sameRay) {
@@ -26,14 +34,14 @@ export class BentRayCache<Value, Result> {
         unchanged = false; break;
       }
     }
-    if (unchanged) { this.stats.hits++; return clone(this.result); }
+    if (unchanged) { this.stats.hits++; this.epoch = epoch; return clone(this.result); }
     this.stats.misses++; this.valid = false;
     this.coordinates.length = this.values.length = 0;
     const result = compute((x, y, z) => {
       const value = read(x, y, z);
       this.coordinates.push(x, y, z); this.values.push(value); return value;
     });
-    this.key = key.slice(); this.result = clone(result); this.valid = true;
+    this.key = key.slice(); this.result = clone(result); this.valid = true; this.epoch = epoch;
     return result;
   }
 }

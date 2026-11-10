@@ -369,3 +369,36 @@ test('standard entities solidify without losing blocks above the legacy y=32 bou
   assert.equal(world.getBlock(3, 40, 3), BlockTypes.COLOR_BLOCK);
   assert.equal(world.getBlockColor(3, 40, 3), 0x48dbfb);
 });
+
+test('bulk terrain cells mark exactly the partitions, cells and materials of per-cell edits', () => {
+  const cells: number[] = [];
+  const add = (x: number, y: number, z: number, color: number, material = 0) => cells.push(x, y, z, (material << 24) | color);
+  // Partition faces on every axis, the world seam (x = z = 0) and the floor.
+  for (const x of [0, 1, 15, 16, 127]) for (const y of [0, 15, 16, 31, 700]) for (const z of [0, 15, 16, 127]) {
+    add(x, y, z, 0x204060 + x, (x + y + z) % 3 === 0 ? 2 : 0);
+  }
+  add(40, 40, 40, 0x111111); add(41, 40, 40, 0x222222);
+  const packed = new Uint32Array(cells);
+  const prepare = () => {
+    const layer = new MicroVoxelLayer();
+    layer.set(40, 40, 40, 0x111111); layer.set(41, 40, 40, 0x999999, 'part');
+    layer.updateMesh();
+    return layer;
+  };
+  const bulk = prepare(), single = prepare();
+  const skip = (x: number, y: number, z: number) => !(x === 16 && y === 16 && z === 16);
+  bulk.setPackedTerrainCells(0, 0, packed, skip);
+  for (let i = 0; i < packed.length; i += 4) {
+    if (!skip(packed[i], packed[i + 1], packed[i + 2])) continue;
+    single.set(packed[i], packed[i + 1], packed[i + 2], packed[i + 3] & 0xffffff, null, packed[i + 3] >>> 24);
+  }
+  const state = (layer: any) => ({
+    cells: [...layer.cells].sort(), materials: [...layer.materials].sort(), parts: [...layer.parts].sort(),
+    dirty: [...layer.dirtyMeshChunks].sort(), collision: [...layer.collisionRevisions.keys()].sort(),
+    chunkCells: [...layer.chunkCells].map(([key, set]: [string, Set<number>]) => [key, [...set].sort()]).sort(),
+    revised: [...layer.chunkRevisions.keys()].sort(),
+    published: [...layer.publishedCollisionSnapshots].map(([key, map]: [string, Map<number, number | null>]) => [key, [...map].sort()]).sort(),
+  });
+  assert.deepEqual(state(bulk), state(single));
+  assert.equal(bulk.getPublishedCollisionColor(41, 40, 40), 0x999999, 'published picking keeps the old value');
+});

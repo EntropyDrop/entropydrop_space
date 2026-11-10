@@ -193,6 +193,7 @@ export class World {
   private terrainDetailsEnabled: boolean;
   /** Chunks whose deterministic detail cells are currently installed in microVoxels. */
   private proceduralMicroChunks: Set<string>;
+  private readonly pendingProceduralMicroChunks = new Map<string, Chunk>();
   /** Generated parent cells currently contributing at least one live detail cell. */
   private proceduralMicroParentsByChunk: Map<string, Set<string>>;
   /** Session-local suppression; persistence stores the same intent as an AIR edit. */
@@ -289,12 +290,15 @@ export class World {
     this.terrainVersion = 0;
     this.worldGroup = new THREE.Group();
     this.worldGroup.name = 'VoxelWorld';
-    this.nearTerrainBatches = new NearTerrainBatches(this.worldGroup);
     this.scene.add(this.worldGroup);
+    this.microVoxels = new MicroVoxelLayer();
+    // Opaque draw order (and so depth-tie resolution): micro detail, near
+    // terrain, then far terrain. Each is a cached command bundle, executed in
+    // scene order, so keep the micro layer first and near terrain right after.
+    this.worldGroup.add(this.microVoxels.group);
+    this.nearTerrainBatches = new NearTerrainBatches(this.worldGroup, 'NearTerrain', this.microVoxels.group);
     this.distantSurface = new DistantSurfaceLayer();
     this.worldGroup.add(this.distantSurface.mesh);
-    this.microVoxels = new MicroVoxelLayer();
-    this.worldGroup.add(this.microVoxels.group);
     const remote = persistenceOptions?.remote;
     this.editPersistence = persistenceOptions?.worldId
       ? new WorldEditPersistence(remote ? {
@@ -545,6 +549,9 @@ export class World {
     const originMz = chunk.cz * CHUNK_SIZE_Z * MICRO_DIVISIONS;
     const activeParents = new Set<string>();
     if (this.terrainDetailsEnabled) {
+      // The answer depends only on the 1 m parent, and generated details list
+      // a parent's cells together: decide each parent once.
+      let lastParent = -1, lastIncluded = false;
       this.microVoxels.setPackedTerrainCells(
         originMx,
         originMz,
@@ -555,14 +562,16 @@ export class World {
             Math.floor(my / MICRO_DIVISIONS),
             Math.floor(localMz / MICRO_DIVISIONS),
           );
+          if (parent === lastParent) return lastIncluded;
+          lastParent = parent;
           const wx = Math.floor((originMx + localMx) / MICRO_DIVISIONS);
           const wy = Math.floor(my / MICRO_DIVISIONS);
           const wz = Math.floor((originMz + localMz) / MICRO_DIVISIONS);
           const parentKey = `${wrapX(wx)},${wy},${wrapZ(wz)}`;
-          if (suppressedParents.has(parent) || this.proceduralMicroTombstones.has(parentKey)
-            || chunk.blocks[parent] !== BlockTypes.AIR) return false;
-          activeParents.add(parentKey);
-          return true;
+          lastIncluded = !(suppressedParents.has(parent) || this.proceduralMicroTombstones.has(parentKey)
+            || chunk.blocks[parent] !== BlockTypes.AIR);
+          if (lastIncluded) activeParents.add(parentKey);
+          return lastIncluded;
         },
       );
     }
@@ -579,6 +588,25 @@ export class World {
     }
     this.proceduralMicroChunks.add(key);
     this.proceduralMicroParentsByChunk.set(key, activeParents);
+  }
+
+  /** Re-entered cached chunks, nearest first; at least one per frame. */
+  private processPendingProceduralMicroChunks(frameWorkStartedAt: number, workBudgetMs: number) {
+    if (!this.pendingProceduralMicroChunks.size) return;
+    const [centerCx, centerCz] = (this.lastStreamCenterKey || '0,0').split(',').map(Number);
+    const distance = (chunk: Chunk) => Math.max(
+      Math.abs(World._wrappedDelta(centerCx, chunk.cx, TORUS_SIZE_X / CHUNK_SIZE_X)),
+      Math.abs(World._wrappedDelta(centerCz, chunk.cz, TORUS_SIZE_Z / CHUNK_SIZE_Z)));
+    const queue = [...this.pendingProceduralMicroChunks].sort((a, b) => distance(a[1]) - distance(b[1]));
+    let rebuilt = 0;
+    for (const [key, chunk] of queue) {
+      if (rebuilt > 0 && performance.now() - frameWorkStartedAt >= workBudgetMs) break;
+      this.pendingProceduralMicroChunks.delete(key);
+      // Left again, evicted or replaced: its next activation queues it anew.
+      if (!this.activeChunkKeys.has(key) || this.chunks.get(key) !== chunk || this.proceduralMicroChunks.has(key)) continue;
+      this.ensureProceduralMicroChunk(chunk);
+      rebuilt++;
+    }
   }
 
   private ensureProceduralMicroChunk(chunk: Chunk) {
@@ -631,21 +659,25 @@ export class World {
     const originMx = job.cx * CHUNK_SIZE_X * MICRO_DIVISIONS;
     const originMz = job.cz * CHUNK_SIZE_Z * MICRO_DIVISIONS;
     const activeParents = new Set<string>();
+    let lastParent = -1, lastIncluded = false;
     this.microVoxels.setPackedTerrainCells(originMx, originMz, details, (localMx, my: number, localMz) => {
       const parent = Chunk.getIndex(
         Math.floor(localMx / MICRO_DIVISIONS),
         Math.floor(my / MICRO_DIVISIONS),
         Math.floor(localMz / MICRO_DIVISIONS),
       );
+      // Decided once per 1 m parent (see rebuildMicroChunk).
+      if (parent === lastParent) return lastIncluded;
+      lastParent = parent;
       const parentKey = this.proceduralParentKey(
         Math.floor((originMx + localMx) / MICRO_DIVISIONS),
         Math.floor(my / MICRO_DIVISIONS),
         Math.floor((originMz + localMz) / MICRO_DIVISIONS),
       );
-      if (suppressedParents.has(parent) || this.proceduralMicroTombstones.has(parentKey)
-        || result.blocks![parent] !== BlockTypes.AIR) return false;
-      activeParents.add(parentKey);
-      return true;
+      lastIncluded = !(suppressedParents.has(parent) || this.proceduralMicroTombstones.has(parentKey)
+        || result.blocks![parent] !== BlockTypes.AIR);
+      if (lastIncluded) activeParents.add(parentKey);
+      return lastIncluded;
     });
     for (const edit of overlay) {
       this.microVoxels.set(edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material);
@@ -1395,6 +1427,8 @@ export class World {
         : this.microVoxels.get(mx, my, mz),
       value => value !== null && value !== undefined,
       this.microAimCache, usePublishedCollision ? 1 : 0,
+      // Every value the reader observes lives in the micro layer's own maps.
+      this.microVoxels.collisionReadRevision,
     );
     if (!result) return { hit: false as const };
 
@@ -1431,7 +1465,7 @@ export class World {
   raycastBentVoxelFaces<T>(
     originBent: THREE.Vector3, dirBent: THREE.Vector3, maxDistance: number, divisions: number,
     getValue: (x: number, y: number, z: number) => T, isOccupied: (value: T) => boolean,
-    cache?: BentRayCache<T, BentRayHit<T> | null>, policy = 0,
+    cache?: BentRayCache<T, BentRayHit<T> | null>, policy = 0, readRevision?: number,
   ): BentRayHit<T> | null {
     if (!cache || !this.aimRaycastCachingEnabled) {
       return this.computeBentVoxelFaces(originBent, dirBent, maxDistance, divisions, getValue, isOccupied);
@@ -1440,7 +1474,8 @@ export class World {
       maxDistance, divisions, getWorldProjectionRevision(), getTorusViewCorrectionRevision(),
       getGeometryKernels() ? 1 : 0, policy, this.aimRaycastDiscoveryOptimized === false ? 0 : 1], getValue,
     read => this.computeBentVoxelFaces(originBent, dirBent, maxDistance, divisions, read, isOccupied),
-    hit => hit ? { ...hit, cell: { ...hit.cell }, normal: { ...hit.normal }, entry: { ...hit.entry } } : null);
+    hit => hit ? { ...hit, cell: { ...hit.cell }, normal: { ...hit.normal }, entry: { ...hit.entry } } : null,
+    readRevision);
   }
 
   private computeBentVoxelFaces<T>(
@@ -1693,7 +1728,13 @@ export class World {
             this.distantSurface.setDetailChunkReady(cx, cz, false);
             pending.push({ cx, cz, distanceSq: dx * dx + dz * dz });
           } else {
-            this.ensureProceduralMicroChunk(chunk);
+            // A cached chunk re-entering the window lost its generated micro
+            // details (several ms each to rebuild). Rebuild the ring around the
+            // player now; farther chunks are rebuilt nearest-first within the
+            // stream budget. Their micro meshes and collision publish later
+            // anyway, so this only delays an existing pop-in by a few frames.
+            if (Math.max(Math.abs(dx), Math.abs(dz)) <= 1) this.ensureProceduralMicroChunk(chunk);
+            else if (!this.proceduralMicroChunks.has(key)) this.pendingProceduralMicroChunks.set(key, chunk);
             if (chunk.mesh) {
               chunk.mesh.visible = true;
               this.distantSurface.setDetailChunkReady(cx, cz, true);
@@ -1763,6 +1804,7 @@ export class World {
       offThreadStreaming,
     );
     this.processPendingChunkEvictions(frameWorkStartedAt, boundedWorkBudgetMs);
+    this.processPendingProceduralMicroChunks(frameWorkStartedAt, boundedWorkBudgetMs);
 
     // Player-authored and remote micro edits are visible work; service one
     // dirty micro mesh before spending the remaining frame budget on new
