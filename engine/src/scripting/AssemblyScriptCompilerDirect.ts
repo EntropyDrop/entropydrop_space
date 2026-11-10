@@ -1,5 +1,5 @@
 import { ENTITY_SCRIPT_SDK } from './EntityScriptSDK.generated.ts';
-import { ENTITY_FUEL, MAX_SCRIPT_SOURCE_BYTES, MEMORY_PAGES_SECTION, INSTANCE_POLICY_SECTION } from './EntityScriptModule.ts';
+import { ENTITY_FUEL, MAX_SCRIPT_SOURCE_BYTES, MEMORY_PAGES_SECTION, INSTANCE_POLICY_SECTION, getRequestedInitialMemoryPages } from './EntityScriptModule.ts';
 
 type CompilerDependencies = [typeof import('assemblyscript/asc'), typeof import('binaryen')];
 let compiler: Promise<CompilerDependencies> | null = null;
@@ -120,7 +120,7 @@ export function compileEntityScriptDirect(source: string): Promise<WebAssembly.M
     let bytes: Uint8Array | null = null;
     const errors = asc.createMemoryStream();
     const output = await asc.main(['entity.ts', '--outFile', 'entity.wasm', '--runtime', 'stub',
-      '--exportRuntime', '--importMemory', '--initialMemory', '0', '--maximumMemory', '64', '--stackSize', '16384',
+      '--exportRuntime', '--importMemory', '--initialMemory', String(getRequestedInitialMemoryPages(source)), '--maximumMemory', '64', '--stackSize', '16384',
       '--optimizeLevel', '2', '--shrinkLevel', '0', '--disable', 'simd,threads,exception-handling,tail-calls'], {
       readFile: (name: string) => files[name] ?? null,
       listFiles: () => [],

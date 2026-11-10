@@ -7,6 +7,16 @@ export const ENTITY_INITIALIZATION_LIMIT_MS = 250;
 export const SCRIPT_EXECUTION_LIMIT_MS = 50;
 export const ENTITY_EXECUTION_LIMIT_MS = 250;
 export const ENTITY_TICK_LIMIT_MS = 500;
+/** Optional bounded scratch reservation; the existing aggregate memory budget still applies. */
+export function getRequestedInitialMemoryPages(source: string): number {
+  const directive = source.match(/^\s*\/\/\s*@space-initial-memory-pages:\s*(\S+)\s*$/m);
+  if (!directive) return 0;
+  const pages = Number(directive[1]);
+  if (!/^\d+$/.test(directive[1]) || !Number.isInteger(pages) || pages < 1 || pages > 16) {
+    throw new Error('Initial script memory reservation must be 1..16 pages');
+  }
+  return pages;
+}
 const memoryPages = new WeakMap<WebAssembly.Module, number>();
 const instancePolicies = new WeakMap<WebAssembly.Module, { explicitStart: boolean; resettable: boolean }>();
 

@@ -21,6 +21,29 @@ function fixture() {
   return { service, send, set, tick };
 }
 
+test('an explicit scratch reservation reuses instances for bounded allocation-heavy scripts', async () => {
+  const f = fixture();
+  const code = '// @space-initial-memory-pages: 4\nconst scratch = new Uint8Array(190000); scratch[0] = 7; self.state.setNumber("value", scratch[0]);';
+  assert.equal(getEntityScriptMemoryPages(await compileEntityScript(code)), 4);
+  await f.set(code);
+  const first = f.tick();
+  const second = f.tick({ states: first.states });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(second.ok, true, second.error);
+  assert.equal(first.instancesCreated, 1);
+  assert.equal(second.instancesCreated, 0);
+  assert.equal(second.instancesReused, 1);
+  assert.equal(second.states.root.value, 7);
+});
+
+test('scratch reservations remain bounded and do not change the default layout', async () => {
+  const basic = 'self.state.setNumber("value", 1);';
+  assert.equal(getEntityScriptMemoryPages(await compileEntityScript(basic)), 1);
+  for (const pages of ['0', '17', '-1', '1.5', 'NaN']) {
+    await assert.rejects(compileEntityScript(`// @space-initial-memory-pages: ${pages}\n${basic}`), /1\.\.16 pages/);
+  }
+});
+
 test('typed clickedBlock SDK is shared across components and null in subsequent frames', async () => {
   const f = fixture();
   const code = `const click = ctx.clickedBlock;
