@@ -402,3 +402,26 @@ test('bulk terrain cells mark exactly the partitions, cells and materials of per
   assert.deepEqual(state(bulk), state(single));
   assert.equal(bulk.getPublishedCollisionColor(41, 40, 40), 0x999999, 'published picking keeps the old value');
 });
+
+test('string-keyed cell and material maps keep their exact historical key semantics', () => {
+  const layer = new MicroVoxelLayer(), periodX = 1024 * 16 * 8;
+  layer.set(-1, 40, 3, 0x112233, null, 2);            // stored wrapped, like before
+  layer.set(5, 0, 6, 0x445566);
+  layer.set(7, 8, 9, 0x778899, 'wheel');
+  assert.equal(layer.cells.size, 3);
+  assert.equal(layer.cells.get(`${periodX - 1},40,3`), 0x112233);
+  assert.equal(layer.materials.get(`${periodX - 1},40,3`), 2);
+  assert.equal(layer.materials.has('5,0,6'), false, 'default materials are not stored');
+  for (const alias of ['-1,40,3', `${periodX - 1},40,3.0`, ` ${periodX - 1},40,3`, `${periodX - 1},40`, `${periodX - 1},40,3,0`, '5,0,6,', '05,0,6'])
+    assert.equal(layer.cells.has(alias), false, `only the canonical key matches (${alias})`);
+  assert.deepEqual([...layer.cells].sort(), [[`${periodX - 1},40,3`, 0x112233], ['5,0,6', 0x445566], ['7,8,9', 0x778899]].sort());
+  assert.deepEqual([...layer.cells.keys()].sort(), [`${periodX - 1},40,3`, '5,0,6', '7,8,9'].sort());
+  assert.deepEqual([...layer.cells.values()].sort(), [0x112233, 0x445566, 0x778899].sort());
+  const visited: string[] = []; layer.cells.forEach((_color, cellKey) => visited.push(cellKey));
+  assert.equal(visited.length, 3);
+  assert.equal(layer.parts.get('7,8,9'), 'wheel');
+  layer.set(7, 8, 9, 0x778899); assert.equal(layer.parts.has('7,8,9'), false, 'clearing a part');
+  layer.delete(-1, 40, 3);
+  assert.equal(layer.cells.has(`${periodX - 1},40,3`), false); assert.equal(layer.materials.size, 0);
+  assert.equal(layer.get(-1, 40, 3), null); assert.equal(layer.get(5, 0, 6), 0x445566);
+});

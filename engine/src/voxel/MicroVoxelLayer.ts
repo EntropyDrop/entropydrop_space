@@ -86,6 +86,8 @@ type DeferredMeshPublication = {
 export type MicroChunkClearCursor = {
   targetMeshChunks: string[];
   cellIterators: Iterator<number>[];
+  /** The mesh chunk whose cells each iterator walks. */
+  iteratorKeys?: string[];
   iteratorIndex: number;
   removed: number;
   complete: boolean;
@@ -101,11 +103,54 @@ function packedMicroKey(mx: number, my: number, mz: number): number {
 }
 
 function unpackMicroKey(value: number): [number, number, number] {
-  const mx = value % MICRO_WORLD_SIZE_X;
+  // Floor-modulo, so a (layer-level) negative my also round-trips.
+  const mx = (value % MICRO_WORLD_SIZE_X + MICRO_WORLD_SIZE_X) % MICRO_WORLD_SIZE_X;
   const plane = (value - mx) / MICRO_WORLD_SIZE_X;
-  const mz = plane % MICRO_WORLD_SIZE_Z;
+  const mz = (plane % MICRO_WORLD_SIZE_Z + MICRO_WORLD_SIZE_Z) % MICRO_WORLD_SIZE_Z;
   const my = (plane - mz) / MICRO_WORLD_SIZE_Z;
   return [mx, my, mz];
+}
+
+/**
+ * The historical string-keyed ("mx,my,mz", wrapped) maps of cells and
+ * materials, as read-only views over the numeric maps that are the actual
+ * storage. Keys behave exactly as before: only the canonical string of a
+ * stored cell matches.
+ */
+class PackedCellMap<V> implements ReadonlyMap<string, V> {
+  private readonly packed: ReadonlyMap<number, V>;
+  constructor(packed: ReadonlyMap<number, V>) { this.packed = packed; }
+  private static packedKeyOf(cellKey: string): number | undefined {
+    if (typeof cellKey !== 'string') return undefined;
+    const first = cellKey.indexOf(','), second = cellKey.indexOf(',', first + 1);
+    if (first < 0 || second < 0 || cellKey.indexOf(',', second + 1) >= 0) return undefined;
+    const mx = Number(cellKey.slice(0, first)), my = Number(cellKey.slice(first + 1, second)), mz = Number(cellKey.slice(second + 1));
+    if (!(mx >= 0 && mx < MICRO_WORLD_SIZE_X && mz >= 0 && mz < MICRO_WORLD_SIZE_Z)
+      || !Number.isInteger(mx) || !Number.isInteger(my) || !Number.isInteger(mz)
+      || `${mx},${my},${mz}` !== cellKey) return undefined;
+    return packedMicroKey(mx, my, mz);
+  }
+  get size() { return this.packed.size; }
+  get(cellKey: string) {
+    const packed = PackedCellMap.packedKeyOf(cellKey);
+    return packed === undefined ? undefined : this.packed.get(packed);
+  }
+  has(cellKey: string) {
+    const packed = PackedCellMap.packedKeyOf(cellKey);
+    return packed !== undefined && this.packed.has(packed);
+  }
+  *entries(): MapIterator<[string, V]> {
+    for (const [packed, value] of this.packed) {
+      const [mx, my, mz] = unpackMicroKey(packed);
+      yield [`${mx},${my},${mz}`, value];
+    }
+  }
+  *keys(): MapIterator<string> { for (const [cellKey] of this.entries()) yield cellKey; }
+  *values(): MapIterator<V> { yield* this.packed.values(); }
+  forEach(visit: (value: V, key: string, map: ReadonlyMap<string, V>) => void, thisArg?: unknown) {
+    for (const [cellKey, value] of this.entries()) visit.call(thisArg, value, cellKey, this);
+  }
+  [Symbol.iterator]() { return this.entries(); }
 }
 
 function unpackMicroY(value: number): number {
@@ -128,9 +173,10 @@ function standardChunkKeyForMeshChunk(meshKey: string): string {
 export class MicroVoxelLayer {
   /** Advanced by every write that can change a published-collision read. */
   private readonly collisionReadEpoch: MutationEpoch = { value: 0 };
-  cells: Map<string, number>;
+  /** Read-only, string-keyed views of packedColors/packedMaterials. */
+  readonly cells: ReadonlyMap<string, number>;
   parts: Map<string, string>;
-  materials: Map<string, number>;
+  readonly materials: ReadonlyMap<string, number>;
   dirty: boolean;
   group: THREE.Group;
   /** Compatibility alias for callers that only need to know whether a mesh exists. */
@@ -188,9 +234,7 @@ export class MicroVoxelLayer {
   }
 
   constructor() {
-    this.cells = new EpochMap(this.collisionReadEpoch);
     this.parts = new Map();
-    this.materials = new Map();
     this.dirty = false;
     this.group = new THREE.Group();
     this.group.name = 'MicroVoxelLayer';
@@ -198,7 +242,9 @@ export class MicroVoxelLayer {
     this.meshChunks = new Map();
     this.chunkCells = new Map();
     this.packedColors = new EpochMap(this.collisionReadEpoch);
+    this.cells = new PackedCellMap(this.packedColors);
     this.packedMaterials = new Map();
+    this.materials = new PackedCellMap(this.packedMaterials);
     this.dirtyMeshChunks = new Set();
     this.meshChunkRevisions = new Map();
     this.publishedCollisionSnapshots = new EpochMap(this.collisionReadEpoch);
@@ -222,15 +268,20 @@ export class MicroVoxelLayer {
   }
 
   get(mx: number, my: number, mz: number) {
-    return this.cells.get(key(mx, my, mz)) ?? null;
+    return this.packedColors.get(packedMicroKey(mx, my, mz)) ?? null;
   }
 
   getMaterial(mx: number, my: number, mz: number) {
-    return this.materials.get(key(mx, my, mz)) ?? VoxelMaterialIds.DEFAULT;
+    return this.packedMaterials.get(packedMicroKey(mx, my, mz)) ?? VoxelMaterialIds.DEFAULT;
   }
 
   has(mx: number, my: number, mz: number) {
-    return this.cells.has(key(mx, my, mz));
+    return this.packedColors.has(packedMicroKey(mx, my, mz));
+  }
+
+  /** Parts are rare: skip building the string key while there are none. */
+  private partOf(mx: number, my: number, mz: number) {
+    return this.parts.size ? this.parts.get(key(mx, my, mz)) ?? null : null;
   }
 
   private trackPartition(chunkKey: string) {
@@ -403,29 +454,23 @@ export class MicroVoxelLayer {
     mx = wrapMicroX(mx);
     mz = wrapMicroZ(mz);
     const normalized = normalizeColor(color);
-    const cellKey = key(mx, my, mz);
     const packedKey = packedMicroKey(mx, my, mz);
     const normalizedMaterial = normalizeVoxelMaterialId(materialId);
-    const isNew = !this.cells.has(cellKey);
-    const currentPart = this.parts.get(cellKey) ?? null;
-    if (this.cells.get(cellKey) === normalized && currentPart === part
-      && this.getMaterial(mx, my, mz) === normalizedMaterial) return false;
+    const previous = this.packedColors.get(packedKey);
+    const isNew = previous === undefined;
+    const currentPart = this.partOf(mx, my, mz);
+    if (previous === normalized && currentPart === part
+      && (this.packedMaterials.get(packedKey) ?? VoxelMaterialIds.DEFAULT) === normalizedMaterial) return false;
     this.preservePublishedCollisionCell(mx, my, mz);
-    this.cells.set(cellKey, normalized);
     this.packedColors.set(packedKey, normalized);
-    if (normalizedMaterial === VoxelMaterialIds.DEFAULT) {
-      this.materials.delete(cellKey);
-      this.packedMaterials.delete(packedKey);
-    } else {
-      this.materials.set(cellKey, normalizedMaterial);
-      this.packedMaterials.set(packedKey, normalizedMaterial);
-    }
+    if (normalizedMaterial === VoxelMaterialIds.DEFAULT) this.packedMaterials.delete(packedKey);
+    else this.packedMaterials.set(packedKey, normalizedMaterial);
     if (isNew) {
       this.addChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
     }
-    if (part) this.parts.set(cellKey, part);
-    else this.parts.delete(cellKey);
+    if (part) this.parts.set(key(mx, my, mz), part);
+    else if (currentPart !== null) this.parts.delete(key(mx, my, mz));
     this.markMeshChunkDirty(mx, my, mz);
     return true;
   }
@@ -466,26 +511,22 @@ export class MicroVoxelLayer {
       const mz = wrapMicroZ(originMz + localMz);
       const normalized = normalizeColor(packed[offset + 3] & 0xffffff);
       const material = normalizeVoxelMaterialId(packed[offset + 3] >>> 24);
-      const cellKey = `${mx},${my},${mz}`;
       const packedKey = packedMicroKey(mx, my, mz);
-      const previous = this.cells.get(cellKey);
+      const previous = this.packedColors.get(packedKey);
       const isNew = previous === undefined;
-      if (previous === normalized
-        && !this.parts.has(cellKey)
-        && (this.materials.get(cellKey) ?? VoxelMaterialIds.DEFAULT) === material) continue;
+      // Parts and materials only ever hold keys of stored cells: every removal
+      // path deletes from all of them. A new cell has neither to compare or clear.
+      const cellKey = !isNew && this.parts.size ? `${mx},${my},${mz}` : null;
+      if (!isNew && previous === normalized
+        && !(cellKey !== null && this.parts.has(cellKey))
+        && (this.packedMaterials.get(packedKey) ?? VoxelMaterialIds.DEFAULT) === material) continue;
       const cx = Math.floor(mx / size), cy = Math.floor(my / size), cz = Math.floor(mz / size);
       const id = partitionId(cx, cy, cz), chunkKey = keys.get(id)!;
       this.preservePublishedCollisionCellAt(chunkKey, packedKey);
-      this.cells.set(cellKey, normalized);
       this.packedColors.set(packedKey, normalized);
-      if (material === VoxelMaterialIds.DEFAULT) {
-        this.materials.delete(cellKey);
-        this.packedMaterials.delete(packedKey);
-      } else {
-        this.materials.set(cellKey, material);
-        this.packedMaterials.set(packedKey, material);
-      }
-      this.parts.delete(cellKey);
+      if (material !== VoxelMaterialIds.DEFAULT) this.packedMaterials.set(packedKey, material);
+      else if (!isNew) this.packedMaterials.delete(packedKey);
+      if (cellKey !== null) this.parts.delete(cellKey);
       if (isNew) {
         this.addChunkCellAt(chunkKey, packedKey);
         collisionPartitions.add(id);
@@ -521,12 +562,10 @@ export class MicroVoxelLayer {
   delete(mx: number, my: number, mz: number) {
     mx = wrapMicroX(mx);
     mz = wrapMicroZ(mz);
-    const cellKey = key(mx, my, mz);
     const packedKey = packedMicroKey(mx, my, mz);
-    if (this.cells.has(cellKey)) this.preservePublishedCollisionCell(mx, my, mz);
-    const removed = this.cells.delete(cellKey);
-    this.parts.delete(cellKey);
-    this.materials.delete(cellKey);
+    const removed = this.packedColors.has(packedKey);
+    if (removed) this.preservePublishedCollisionCell(mx, my, mz);
+    if (this.parts.size) this.parts.delete(key(mx, my, mz));
     if (removed) {
       this.packedColors.delete(packedKey);
       this.packedMaterials.delete(packedKey);
@@ -599,7 +638,7 @@ export class MicroVoxelLayer {
         || this.publishedCollisionPartitions.has(chunkKey)
         || this.detachedCollisionCells.has(chunkKey));
     this.chunkRevisions.set(standardKey, (this.chunkRevisions.get(standardKey) ?? 0) + 1);
-    const cellIterators: Iterator<number>[] = [];
+    const cellIterators: Iterator<number>[] = [], iteratorKeys: string[] = [];
     for (const targetKey of targetMeshChunks) {
       const cellKeys = this.chunkCells.get(targetKey);
       if (!cellKeys?.size) continue;
@@ -609,12 +648,13 @@ export class MicroVoxelLayer {
         this.detachedCollisionCells.set(targetKey, cellKeys);
       }
       this.invalidateCollisionPartition(targetKey);
-      cellIterators.push(cellKeys.values());
+      cellIterators.push(cellKeys.values()); iteratorKeys.push(targetKey);
       this.chunkCells.delete(targetKey);
     }
     return {
       targetMeshChunks,
       cellIterators,
+      iteratorKeys,
       iteratorIndex: 0,
       removed: 0,
       complete: false,
@@ -638,14 +678,13 @@ export class MicroVoxelLayer {
         continue;
       }
       const packedKey = next.value;
-      const [mx, my, mz] = unpackMicroKey(packedKey);
-      const cellKey = `${mx},${my},${mz}`;
-      this.preservePublishedCollisionCell(mx, my, mz);
-      if (this.cells.delete(cellKey)) cursor.removed++;
-      this.packedColors.delete(packedKey);
+      // Every cell an iterator yields belongs to that iterator's mesh chunk.
+      const chunkKey = cursor.iteratorKeys?.[cursor.iteratorIndex];
+      if (chunkKey !== undefined) this.preservePublishedCollisionCellAt(chunkKey, packedKey);
+      else { const [mx, my, mz] = unpackMicroKey(packedKey); this.preservePublishedCollisionCell(mx, my, mz); }
+      if (this.packedColors.delete(packedKey)) cursor.removed++;
       this.packedMaterials.delete(packedKey);
-      this.parts.delete(cellKey);
-      this.materials.delete(cellKey);
+      if (this.parts.size) { const [mx, my, mz] = unpackMicroKey(packedKey); this.parts.delete(`${mx},${my},${mz}`); }
       remaining--;
     }
     if (cursor.iteratorIndex < cursor.cellIterators.length) return false;
@@ -682,7 +721,7 @@ export class MicroVoxelLayer {
     const maxMy = (maxY + 1) * MICRO_DIVISIONS - 1;
     const maxMz = (maxZ + 1) * MICRO_DIVISIONS - 1;
 
-    for (const [cellKey, color] of this.cells) {
+    for (const [cellKey, color] of [...this.cells]) {
       const [mx, my, mz] = cellKey.split(',').map(Number);
       const extractedMx = unwrapPeriodicNear(mx, minMx, TORUS_SIZE_X * MICRO_DIVISIONS);
       const extractedMz = unwrapPeriodicNear(mz, minMz, TORUS_SIZE_Z * MICRO_DIVISIONS);
@@ -691,14 +730,12 @@ export class MicroVoxelLayer {
       extracted.push({ mx: extractedMx, my, mz: extractedMz, color,
         part: this.parts.get(cellKey) ?? null, materialId: this.getMaterial(mx, my, mz) });
       this.preservePublishedCollisionCell(mx, my, mz);
-      this.cells.delete(cellKey);
       const packedKey = packedMicroKey(mx, my, mz);
       this.packedColors.delete(packedKey);
       this.packedMaterials.delete(packedKey);
       this.removeChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
       this.parts.delete(cellKey);
-      this.materials.delete(cellKey);
       this.markMeshChunkDirty(mx, my, mz);
     }
 
@@ -721,10 +758,10 @@ export class MicroVoxelLayer {
     let candidates: Iterable<[string, number]> = this.cells;
     if (minMx === maxMx && minMy === maxMy && minMz === maxMz) {
       if (![minMx, minMy, minMz].every(Number.isSafeInteger)) return extracted;
-      const cellKey = key(minMx, minMy, minMz), color = this.cells.get(cellKey);
-      candidates = color === undefined ? [] : [[cellKey, color]];
+      const color = this.packedColors.get(packedMicroKey(minMx, minMy, minMz));
+      candidates = color === undefined ? [] : [[key(minMx, minMy, minMz), color]];
     }
-    for (const [cellKey, color] of candidates) {
+    for (const [cellKey, color] of candidates === this.cells ? [...this.cells] : candidates) {
       const [mx, my, mz] = cellKey.split(',').map(Number);
       const extractedMx = unwrapPeriodicNear(mx, minMx, TORUS_SIZE_X * MICRO_DIVISIONS);
       const extractedMz = unwrapPeriodicNear(mz, minMz, TORUS_SIZE_Z * MICRO_DIVISIONS);
@@ -733,14 +770,12 @@ export class MicroVoxelLayer {
       extracted.push({ mx: extractedMx, my, mz: extractedMz, color,
         part: this.parts.get(cellKey) ?? null, materialId: this.getMaterial(mx, my, mz) });
       this.preservePublishedCollisionCell(mx, my, mz);
-      this.cells.delete(cellKey);
       const packedKey = packedMicroKey(mx, my, mz);
       this.packedColors.delete(packedKey);
       this.packedMaterials.delete(packedKey);
       this.removeChunkCell(packedKey, mx, my, mz);
       this.invalidateCollisionPartition(meshChunkKey(mx, my, mz));
       this.parts.delete(cellKey);
-      this.materials.delete(cellKey);
       this.markMeshChunkDirty(mx, my, mz);
     }
     return extracted;
@@ -767,7 +802,7 @@ export class MicroVoxelLayer {
             size: MICRO_SIZE,
             color,
             materialId: this.getMaterial(mx, my, mz),
-            part: this.parts.get(key(mx, my, mz)) ?? null,
+            part: this.partOf(mx, my, mz),
             micro: true
           });
         }
@@ -797,7 +832,7 @@ export class MicroVoxelLayer {
             z: mz * MICRO_SIZE,
             size: MICRO_SIZE,
             color,
-            part: this.parts.get(key(mx, my, mz)) ?? null,
+            part: this.partOf(mx, my, mz),
             micro: true,
           });
         }

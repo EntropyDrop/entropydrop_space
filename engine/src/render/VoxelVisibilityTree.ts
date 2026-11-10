@@ -1,6 +1,8 @@
 import type * as THREE from 'three';
 import { VOXEL_VISIBILITY_STRIDE as STRIDE } from './VoxelFaceVisibility.ts';
 
+const up = (length: number) => length * (1 + 1e-12) + 1e-12;
+
 type Node = { x: number; y: number; z: number; radius: number; ax: number; ay: number; az: number;
   axisDeviation: number; coneDeviation: number; normalLength: number; deviation: number;
   start: number; end: number; right: number };
@@ -39,13 +41,19 @@ export class VoxelVisibilityTree {
     const node: Node = { x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: (z0 + z1) / 2, radius: 0,
       ax: data[start * STRIDE + 4], ay: data[start * STRIDE + 5], az: data[start * STRIDE + 6],
       axisDeviation: 0, coneDeviation: 0, normalLength: 0, deviation: 0, start, end, right: 0 };
+    // Math.hypot is an order of magnitude slower than sqrt in V8, and this
+    // runs on the main thread for every published far tile. Every field below
+    // is conservative when larger, so round each length up by far more than
+    // sqrt's last-bit error to stay a strict bound.
     for (let i = start; i < end; i++) {
       const at = i * STRIDE, ax = data[at + 4], ay = data[at + 5], az = data[at + 6];
-      node.radius = Math.max(node.radius, Math.hypot(node.x - data[at], node.y - data[at + 1], node.z - data[at + 2]) + data[at + 3] + .001);
-      const deviation = Math.hypot(ax - node.ax, ay - node.ay, az - node.az);
+      const cx = node.x - data[at], cy = node.y - data[at + 1], cz = node.z - data[at + 2];
+      node.radius = Math.max(node.radius, up(Math.sqrt(cx * cx + cy * cy + cz * cz)) + data[at + 3] + .001);
+      const dx = ax - node.ax, dy = ay - node.ay, dz = az - node.az;
+      const deviation = up(Math.sqrt(dx * dx + dy * dy + dz * dz));
       node.axisDeviation = Math.max(node.axisDeviation, deviation);
       node.coneDeviation = Math.max(node.coneDeviation, deviation + data[at + 7]);
-      node.normalLength = Math.max(node.normalLength, Math.hypot(ax, ay, az));
+      node.normalLength = Math.max(node.normalLength, up(Math.sqrt(ax * ax + ay * ay + az * az)));
       node.deviation = Math.max(node.deviation, data[at + 7]);
     }
     const index = this.nodes.length; this.nodes.push(node);

@@ -49,3 +49,25 @@ test('hierarchy matches ordered linear visibility through motion, nonunit planes
     assert.equal(tree.back + tree.outside + tree.count, distances.length - prefix[distances.length]);
   }
 });
+
+test('node bounds enclose every block at least as widely as exact lengths would', () => {
+  let seed = 11; const random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (const count of [1, 17, 33, 1000]) {
+    const data = new Float32Array(count * 12);
+    for (let i = 0; i < count; i++) {
+      const nx = random() * 2 - 1, ny = random() * 2 - 1, nz = random() * 2 - 1, l = Math.hypot(nx, ny, nz) || 1;
+      data.set([random() * 20000, random() * 256, random() * 2000, random() * 20, nx / l, ny / l, nz / l, random(), 5, 6, 5, 6], i * 12);
+    }
+    const tree = new VoxelVisibilityTree(data) as unknown as { nodes: { x: number; y: number; z: number; radius: number; ax: number; ay: number; az: number;
+      axisDeviation: number; coneDeviation: number; normalLength: number; deviation: number; start: number; end: number }[] };
+    for (const node of tree.nodes) for (let i = node.start; i < node.end; i++) {
+      const at = i * 12, d = data.subarray(at, at + 12);
+      assert.ok(node.radius >= Math.hypot(node.x - d[0], node.y - d[1], node.z - d[2]) + d[3] + .001);
+      const deviation = Math.hypot(d[4] - node.ax, d[5] - node.ay, d[6] - node.az);
+      assert.ok(node.axisDeviation >= deviation);
+      assert.ok(node.coneDeviation >= deviation + d[7]);
+      assert.ok(node.normalLength >= Math.hypot(d[4], d[5], d[6]));
+      assert.ok(node.deviation >= d[7]);
+    }
+  }
+});
