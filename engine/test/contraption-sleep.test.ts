@@ -208,7 +208,7 @@ test('a settled dynamic stack sleeps together and wakes when the ground changes'
 
 test('a disturbed stack that keeps buzzing in place still falls asleep', () => {
   const { manager, physics, tick } = setup(true);
-  const blocks = [];
+  const blocks: { localX: number; localY: number; localZ: number; entityId: string; block: number }[] = [];
   for (let x = 0; x < 2; x++) for (let y = 0; y < 2; y++) for (let z = 0; z < 2; z++) {
     blocks.push({ localX: x, localY: y, localZ: z, entityId: 'root', block: BlockTypes.COLOR_BLOCK });
   }
