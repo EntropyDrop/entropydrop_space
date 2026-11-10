@@ -374,20 +374,58 @@ function readOverlayVoxels(imageData: ImageData, uvMap: UvMap, targetBoxHeight?:
   return [...cells.values()];
 }
 
-function createVoxelGroup(imageData: ImageData, uvMap: UvMap, extra: number, size: [number, number, number]) {
+/**
+ * The raised skin layer as ONE mesh per body part: every overlay voxel is a
+ * box whose six faces carry their own colour (in FACE_ORDER on BoxGeometry's
+ * +x, -x, +y, -y, +z, -z groups). Colours are vertex colours of a single
+ * unlit material, so a character costs a draw per part instead of six per
+ * voxel. `taperHeight` applies the body's taper per voxel, as a per-voxel
+ * x scale of its centre and size.
+ */
+function createVoxelGroup(imageData: ImageData, uvMap: UvMap, extra: number, size: [number, number, number],
+  taperHeight?: number) {
   const group = new THREE.Group();
   group.userData.cuteCharacterOverlay = true;
   const scaleX = (size[0] + extra) / size[0];
   const scaleY = (size[1] + extra) / size[1];
   const scaleZ = (size[2] + extra) / size[2];
+  const cells = readOverlayVoxels(imageData, uvMap, size[1]);
+  if (!cells.length) return group;
 
-  for (const cell of readOverlayVoxels(imageData, uvMap, size[1])) {
+  const box = new THREE.BoxGeometry(scaleX, scaleY, scaleZ);
+  const boxPositions = box.getAttribute('position'), boxNormals = box.getAttribute('normal');
+  const boxIndex = box.getIndex()!, perBox = boxPositions.count;
+  const positions = new Float32Array(cells.length * perBox * 3);
+  const normals = new Float32Array(cells.length * perBox * 3);
+  const colors = new Float32Array(cells.length * perBox * 3);
+  const indices = new (cells.length * perBox > 65535 ? Uint32Array : Uint16Array)(cells.length * boxIndex.count);
+  const color = new THREE.Color();
+  // BoxGeometry groups cover contiguous vertices: face f owns perBox / 6.
+  const faceVertices = perBox / 6;
+  cells.forEach((cell, n) => {
     const fallback = cell.left ?? cell.right ?? cell.top ?? cell.bottom ?? cell.front ?? cell.back ?? 0xffffff;
-    const materials = FACE_ORDER.map(face => new THREE.MeshBasicNodeMaterial({ color: cell[face] ?? fallback }));
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(scaleX, scaleY, scaleZ), materials);
-    mesh.position.set((cell.x - 0.5) * scaleX, (cell.y - 0.5) * scaleY, (cell.z - 0.5) * scaleZ);
-    group.add(mesh);
-  }
+    const cx = (cell.x - 0.5) * scaleX, cy = (cell.y - 0.5) * scaleY, cz = (cell.z - 0.5) * scaleZ;
+    const taper = taperHeight === undefined ? 1
+      : 1 - CUTE_BODY_TAPER * THREE.MathUtils.clamp((cy + taperHeight / 2) / taperHeight, 0, 1);
+    for (let v = 0; v < perBox; v++) {
+      const at = (n * perBox + v) * 3;
+      positions[at] = (cx + boxPositions.getX(v)) * taper;
+      positions[at + 1] = cy + boxPositions.getY(v);
+      positions[at + 2] = cz + boxPositions.getZ(v);
+      normals[at] = boxNormals.getX(v); normals[at + 1] = boxNormals.getY(v); normals[at + 2] = boxNormals.getZ(v);
+      if (v % faceVertices === 0) color.setHex(cell[FACE_ORDER[v / faceVertices]] ?? fallback);
+      colors[at] = color.r; colors[at + 1] = color.g; colors[at + 2] = color.b;
+    }
+    for (let i = 0; i < boxIndex.count; i++) indices[n * boxIndex.count + i] = boxIndex.getX(i) + n * perBox;
+  });
+  box.dispose();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+  group.add(new THREE.Mesh(geometry, new THREE.MeshBasicNodeMaterial({ vertexColors: true })));
   return group;
 }
 
@@ -475,16 +513,6 @@ function taperGeometry(geometry: THREE.BufferGeometry, height = CUTE_SOURCE_SIDE
   geometry.computeVertexNormals();
 }
 
-function taperVoxelGroup(group: THREE.Group, height = CUTE_SOURCE_SIDE_ROWS) {
-  for (const child of group.children) {
-    if (!(child instanceof THREE.Mesh)) continue;
-    const t = THREE.MathUtils.clamp((child.position.y + height / 2) / height, 0, 1);
-    const scale = 1 - CUTE_BODY_TAPER * t;
-    child.position.x *= scale;
-    child.scale.x *= scale;
-  }
-}
-
 function addSkinnedPart(parent: THREE.Object3D, geometry: THREE.BufferGeometry, materials: THREE.Material[], overlay: THREE.Group | null) {
   const mesh = new THREE.Mesh(geometry, materials);
   parent.add(mesh);
@@ -556,7 +584,8 @@ export class CuteCharacter {
 
     const overlays = showOverlay ? {
       head: createVoxelGroup(overlayPixels, shiftUvMap(uv.head, 32, 0), 1, [8, 8, 8]),
-      body: createVoxelGroup(overlayPixels, shiftUvMap(uv.body, 0, 16), 0.5, [CUTE_BODY_WIDTH, CUTE_SIDE_ROWS, 4]),
+      body: createVoxelGroup(overlayPixels, shiftUvMap(uv.body, 0, 16), 0.5, [CUTE_BODY_WIDTH, CUTE_SIDE_ROWS, 4],
+        CUTE_SIDE_ROWS),
       leftArm: createVoxelGroup(overlayPixels, shiftUvMap(uv.leftArm, 16, 0), 0.5, [uv.armWidth, CUTE_SIDE_ROWS, 4]),
       rightArm: createVoxelGroup(overlayPixels, shiftUvMap(uv.rightArm, 0, 16), 0.5, [uv.armWidth, CUTE_SIDE_ROWS, 4]),
       leftLeg: createVoxelGroup(overlayPixels, shiftUvMap(uv.leftLeg, -16, 0), 0.5, [4, CUTE_SIDE_ROWS, 4]),
@@ -566,7 +595,6 @@ export class CuteCharacter {
 
     const bodyGeometry = new THREE.BoxGeometry(CUTE_BODY_WIDTH, CUTE_SIDE_ROWS, 4, 8, CUTE_SIDE_ROWS, 4);
     taperGeometry(bodyGeometry, CUTE_SIDE_ROWS);
-    if (overlays) taperVoxelGroup(overlays.body, CUTE_SIDE_ROWS);
 
     const body = new THREE.Group();
     body.position.y = 8.5;

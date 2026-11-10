@@ -554,3 +554,29 @@ test('the first-person arm root and raised skin layer remain fully outside the v
 
   character.dispose();
 });
+
+test('each raised skin layer part is one vertex-coloured draw', () => {
+  const data = new Uint8ClampedArray(64 * 64 * 4);
+  for (let i = 0; i < data.length; i += 4) data.set([0x12, 0x34, 0x56, 255], i);
+  const character = new CuteCharacter(new THREE.Texture(), { width: 64, height: 64, data } as ImageData,
+    { model: 'strong', showOverlay: true, castShadow: false, createFirstPersonHand: false });
+  const overlays: THREE.Group[] = [];
+  character.object3d.traverse(object => {
+    if (object instanceof THREE.Group && object.userData.cuteCharacterOverlay) overlays.push(object);
+  });
+  assert.equal(overlays.length, 6);
+  const expected = new THREE.Color(0x123456);
+  for (const overlay of overlays) {
+    assert.equal(overlay.children.length, 1);
+    const mesh = overlay.children[0] as THREE.Mesh;
+    assert.ok(!Array.isArray(mesh.material) && (mesh.material as THREE.MeshBasicMaterial).vertexColors);
+    const colors = mesh.geometry.getAttribute('color'), positions = mesh.geometry.getAttribute('position');
+    assert.equal(positions.count % 24, 0, 'six four-vertex faces per voxel');
+    assert.equal(mesh.geometry.getIndex()!.count, positions.count / 24 * 36);
+    for (let i = 0; i < colors.count; i++) {
+      assert.ok(Math.abs(colors.getX(i) - expected.r) < 1e-6 && Math.abs(colors.getY(i) - expected.g) < 1e-6
+        && Math.abs(colors.getZ(i) - expected.b) < 1e-6);
+    }
+  }
+  character.dispose();
+});
