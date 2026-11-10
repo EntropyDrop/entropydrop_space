@@ -796,3 +796,165 @@ test('hierarchical lists count partial tail blocks exactly through coverage and 
     }
   } finally { for (const f of [candidate, reference]) { f.arena.dispose(); f.coverage.dispose(); } }
 });
+
+/** Many small tiles on a ring around the origin, each a separate arena entry. */
+function ringFixture(tiles: number, blocksPerTile = 4) {
+  const group = new THREE.BundleGroup(), meshes: VoxelFaceMesh[] = [], required: { mesh: VoxelFaceMesh; bounds: Float32Array }[] = [];
+  for (let t = 0; t < tiles; t++) {
+    const mesh = source(16 * blocksPerTile, t * 128), bounds = new Float32Array(blocksPerTile * 12);
+    for (let b = 0; b < blocksPerTile; b++) {
+      const angle = (t + b / blocksPerTile) * Math.PI * 2 / tiles;
+      bounds.set([Math.sin(angle) * 900, (b - 1.5) * 40, Math.cos(angle) * 900, 20,
+        Math.sin(angle), 0, Math.cos(angle), b % 2 ? 2 : .01, 5, 6, 5, 6], b * 12);
+    }
+    mesh.geometry.userData.voxelVisibility = bounds; mesh.userData.voxelTile = t;
+    // Alternate materials so the page holds several runs with their own map bases.
+    if (t % 3 === 1) { mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); mesh.material = mesh.userData.maskedMaterial; }
+    group.add(mesh); meshes.push(mesh); required.push({ mesh, bounds });
+  }
+  const paged = () => {
+    const mesh = make(); mesh.userData.opaqueMaterial = mesh.material;
+    mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); return mesh;
+  };
+  const arena = new VoxelFaceArena(group, paged);
+  const camera = new THREE.PerspectiveCamera(75, 16 / 9, .1, 10000), frustum = new THREE.Frustum();
+  camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+  const coverage = new THREE.DataTexture(new Uint8Array(1024 * 128 * 2), 1024, 128, THREE.RGFormat);
+  const tick = () => {
+    camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), THREE.WebGPUCoordinateSystem);
+    arena.setView(camera.position, frustum, coverage, true); arena.restoreSources(); arena.sync(Infinity);
+  };
+  /** Every block the exact tests require at the current view must be in a drawn run's map. */
+  const assertConservative = (label: string) => {
+    const entries = (arena as any).entries as Map<VoxelFaceMesh, { start: number; page: { map: THREE.StorageBufferAttribute } }>;
+    const drawn = new Set<string>();
+    for (const page of arena.pages) for (const run of page.runs) if (run.visible) {
+      const base = run.userData.voxelArenaBase, blocks = Math.ceil(run.userData.voxelArenaFaces / 16);
+      for (let i = 0; i < blocks; i++) drawn.add(`${arena.pages.indexOf(page)}:${page.map.array[(base + i) * 8]}`);
+    }
+    let checked = 0;
+    for (const { mesh, bounds } of required) {
+      const entry = entries.get(mesh)!, page = arena.pages.findIndex(p => p.map === entry.page.map);
+      for (let block = 0; block * 12 < bounds.length; block++) {
+        const at = block * 12, sphere = new THREE.Sphere(new THREE.Vector3(bounds[at], bounds[at + 1], bounds[at + 2]), bounds[at + 3]);
+        const near = sphere.center.distanceTo(camera.position) - sphere.radius <= 256;
+        const facing = !voxelBlockBackFacing(bounds, at, camera.position.x, camera.position.y, camera.position.z);
+        if (near || (facing && frustum.intersectsSphere(sphere))) {
+          checked++; assert.ok(drawn.has(`${page}:${entry.start + block * 16}`), `${label}: required block ${block} of tile ${mesh.userData.voxelTile}`);
+        }
+      }
+    }
+    return checked;
+  };
+  const current = () => {
+    const epoch = (arena as any).viewEpoch; let count = 0;
+    for (const entry of ((arena as any).entries as Map<unknown, { visibility?: { view: number } }>).values()) if (entry.visibility?.view === epoch) count++;
+    return count;
+  };
+  /** What a recorded command bundle depends on: ordered draws, pipelines, counts. */
+  const commands = () => group.children.filter(mesh => mesh.visible).sort((a, b) => a.renderOrder - b.renderOrder)
+    .map(mesh => { const m = mesh as VoxelFaceMesh; return `${m.id}/${(m.material as unknown as { id: number }).id}/${m.geometry.instanceCount}/${m.geometry.drawRange.count}`; }).join(' ');
+  return { arena, group, meshes, camera, coverage, tick, assertConservative, current, commands,
+    dispose() { arena.dispose(); coverage.dispose(); } };
+}
+
+test('approaching a guard refreshes entries in bounded slices that stay conservative', () => {
+  const f = ringFixture(256);
+  try {
+    settle(f.arena); f.tick(); assert.equal(f.current(), 256);
+    let checked = 0, largest = 0, spread = 0, started = -1, finished = -1;
+    for (let x = 1; x <= 40; x++) {
+      const before = (f.arena as any).viewEpoch, fresh = f.current();
+      f.camera.position.x = x; f.tick();
+      const epoch = (f.arena as any).viewEpoch, refreshed = epoch === before ? f.current() - fresh : f.current();
+      if (epoch !== before && started < 0) started = x;
+      if (started >= 0 && finished < 0) { largest = Math.max(largest, refreshed); spread++; if (f.current() === 256) finished = x; }
+      checked += f.assertConservative(`x=${x}`);
+    }
+    assert.equal(started, 24, 'the refresh starts once three quarters of the 32 m guard are used');
+    assert.ok(finished < 32, `finished at ${finished}, before the old guard ran out`);
+    assert.ok(spread >= 4 && largest <= 64, `spread over ${spread} syncs, at most ${largest} entries in one`);
+    assert.ok(checked > 1000);
+
+    f.arena.setProgressiveRefreshEnabled(false); f.camera.position.x = 0; f.tick();
+    const reference = (f.arena as any).viewEpoch;
+    for (let x = 1; x < 32; x++) { f.camera.position.x = x; f.tick(); }
+    assert.equal((f.arena as any).viewEpoch, reference, 'the reference path waits for the guard');
+    f.camera.position.x = 32; f.tick(); assert.equal(f.current(), 256, 'and then refreshes everything at once');
+  } finally { f.dispose(); }
+});
+
+test('a view that outruns a migration refreshes the remaining entries at once', () => {
+  const f = ringFixture(256);
+  try {
+    settle(f.arena); f.tick();
+    for (let x = 1; x <= 24; x++) { f.camera.position.x = x; f.tick(); }
+    assert.ok(f.current() < 256, 'a migration is under way');
+    // Jump past the previous query's guard (32 m from x=0) but not the new one's.
+    f.camera.position.x = 40; f.tick();
+    assert.equal(f.current(), 256); f.assertConservative('after the jump');
+    // A teleport crosses both guards.
+    f.camera.position.set(-500, 30, 200); f.camera.rotation.y = 2; f.tick();
+    assert.equal(f.current(), 256); f.assertConservative('after the teleport');
+    // Quick turns have no room to spread: they keep one refresh at the guard.
+    for (let i = 0; i < 40; i++) {
+      const before = (f.arena as any).viewEpoch;
+      f.camera.rotation.y += .05; f.tick();
+      if ((f.arena as any).viewEpoch !== before) assert.equal(f.current(), 256, 'no partial migration during a quick turn');
+      f.assertConservative(`turn ${i}`);
+    }
+  } finally { f.dispose(); }
+});
+
+test('command bundles re-record only when the ordered draws, pipelines or counts change', () => {
+  // Soundness over a moving view: a frame without a new recording replays identical commands.
+  const f = ringFixture(96, 6);
+  try {
+    settle(f.arena); f.tick();
+    let recorded = 0, replayed = 0, version = f.group.version, commands = f.commands();
+    for (let frame = 1; frame <= 400; frame++) {
+      f.camera.rotation.y = frame * .021; f.camera.position.x = Math.sin(frame * .05) * 20; f.tick();
+      const next = f.commands();
+      if (f.group.version !== version) recorded++;
+      else { replayed++; assert.equal(next, commands, `frame ${frame}: an unrecorded frame must replay identical commands`); }
+      f.assertConservative(`frame ${frame}`);
+      version = f.group.version; commands = next;
+    }
+    assert.ok(recorded > 0 && replayed > recorded, `${recorded} recordings, ${replayed} replays`);
+  } finally { f.dispose(); }
+
+  // A block leaving one run moves the next run's map base. Its draw count and
+  // order are unchanged, so the recorded commands are reused; the base reaches
+  // the shader as a per-object uniform that replays refresh.
+  const group = new THREE.BundleGroup(), a = source(64, 0), b = source(32, 512);
+  const near = (x: number) => [0, 0, 0, 1, 0, 0, 1, 0, x, x + 1, x, x + 1];
+  a.geometry.userData.voxelVisibility = new Float32Array([...near(5), ...near(5), ...near(5), ...near(165)]);
+  b.geometry.userData.voxelVisibility = new Float32Array([...near(5), ...near(5)]);
+  a.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); a.material = a.userData.maskedMaterial;
+  group.add(a, b);
+  const data = new Uint8Array(1024 * 128 * 2), coverage = new THREE.DataTexture(data, 1024, 128, THREE.RGFormat);
+  const paged = () => {
+    const mesh = make(); mesh.userData.opaqueMaterial = mesh.material;
+    mesh.userData.maskedMaterial = new THREE.MeshStandardNodeMaterial(); return mesh;
+  };
+  const arena = new VoxelFaceArena(group, paged), camera = new THREE.Vector3(0, 0, 100), frustum = new THREE.Frustum();
+  const tick = () => { arena.setView(camera, frustum, coverage, true); arena.restoreSources(); arena.sync(Infinity); };
+  try {
+    settle(arena); tick();
+    const page = arena.pages[0], second = page.runs.find(run => run.visible && run.material === page.mesh.userData.opaqueMaterial)!;
+    const start = ((arena as any).entries.get(b) as { start: number }).start;
+    assert.equal(second.userData.voxelArenaBase, 4); assert.equal(page.map.array[4 * 8], start);
+    const version = group.version, uploads = page.map.version;
+    data[(10 * 1024 + 10) * 2] = 255; coverage.needsUpdate = true; tick(); // covers only a's last block
+    assert.equal(arena.stats.coveredFaces, 16);
+    assert.equal(second.userData.voxelArenaBase, 3); assert.equal(page.map.array[3 * 8], start, 'the map follows the moved base');
+    assert.ok(page.map.version > uploads, 'the moved map span is uploaded');
+    assert.equal(group.version, version, 'same draws and counts: the recorded commands are reused');
+    data[(10 * 1024 + 10) * 2] = 0; coverage.needsUpdate = true; tick();
+    assert.equal(second.userData.voxelArenaBase, 4); assert.equal(group.version, version);
+    data[0] = 255; coverage.needsUpdate = true; tick(); // covers a's first three blocks: its draw count changes
+    assert.equal(arena.stats.coveredFaces, 48);
+    assert.ok(group.version > version, 'a changed draw count records new commands');
+  } finally { arena.dispose(); coverage.dispose(); }
+});

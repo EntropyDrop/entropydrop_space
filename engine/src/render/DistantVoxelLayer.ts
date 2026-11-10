@@ -144,6 +144,7 @@ export class DistantVoxelLayer {
   private opaqueFastPath = true;
   private arena: VoxelFaceArena | null = null;
   private arenaDirty = true;
+  private membershipDirty = false;
   private torusBackfaceCulling = false;
   private flatBlockCulling = true;
   private maskVersion = -1;
@@ -183,8 +184,11 @@ export class DistantVoxelLayer {
     this.group.name = 'DistantVoxelTerrain';
     this.group.userData.spaceOpaqueTerrain = true;
     this.setCommandCachingEnabled(false);
-    this.group.addEventListener('childadded', () => { this.group.needsUpdate = true; this.arenaDirty = true; });
-    this.group.addEventListener('childremoved', () => { this.group.needsUpdate = true; this.arenaDirty = true; });
+    // Publications and finished fades change the arena's sources. They do not
+    // call for re-culling every batch: publish() culls the new tile itself and
+    // transitioning batches are culled each frame.
+    this.group.addEventListener('childadded', () => { this.group.needsUpdate = true; this.membershipDirty = true; });
+    this.group.addEventListener('childremoved', () => { this.group.needsUpdate = true; this.membershipDirty = true; });
     this.group.userData.voxelLodWorkStats = { backend: this.synchronous ? 'synchronous' : 'starting',
       publications: 0, pendingTiles: 0, queuedSources: 0, workMs: 0, publicationBytes: 0,
       sourceBytes: 0, oversizedTiles: 0, error: '' };
@@ -245,7 +249,7 @@ export class DistantVoxelLayer {
   private refreshMaterials() {
     this.arena?.restoreSources();
     for (const mesh of this.group.children) if (!mesh.userData.voxelArena) this.selectMaterial(mesh as FaceMesh);
-    this.arena?.sync(); this.arenaDirty = false;
+    this.arena?.sync(); this.arenaDirty = this.membershipDirty = false;
   }
 
   /** Primary shared storage, with incremental publication and ordinary draws
@@ -703,7 +707,7 @@ export class DistantVoxelLayer {
     const maskChanged = this.maskVersion !== maskVersion;
     this.maskVersion = maskVersion;
     const maintenanceDue = !this.idleMaintenanceEnabled || now >= this.nextBatchUpdate;
-    const maintenanceWork = maskChanged || this.arenaDirty || this.arena?.hasPendingWork || !!this.packet
+    const maintenanceWork = maskChanged || this.arenaDirty || this.membershipDirty || this.arena?.hasPendingWork || !!this.packet
       || (this.idleMaintenanceEnabled ? maintenanceDue
         : [...this.zones.values()].some(zone => [...zone.batches.values()].some(batch => batch.transitioning)));
     const visitBatches = !this.idleMaintenanceEnabled || maintenanceWork || (cullChanged && !this.allBatchesUseArena);
@@ -724,12 +728,12 @@ export class DistantVoxelLayer {
     try { this.processPending(); }
     catch (error) { this.fail(String(error)); }
     for (const [key, tile] of this.synchronousPending) if (this.publish(tile, true)) this.synchronousPending.delete(key);
-    if (arenaWork || this.arenaDirty) {
+    if (arenaWork || this.arenaDirty || this.membershipDirty) {
       // Fade progress, mask edits and publication packets alone change no
       // arena membership: the arena revalidates its resident entries itself,
-      // and child add/remove (new generations, finished fades) sets arenaDirty.
-      this.arena?.sync(undefined, undefined, !this.arenaDirty);
-      this.arenaDirty = false;
+      // and child add/remove (new generations, finished fades) is flagged above.
+      this.arena?.sync(undefined, undefined, !this.arenaDirty && !this.membershipDirty);
+      this.arenaDirty = this.membershipDirty = false;
     }
     else this.arena?.idle();
   }

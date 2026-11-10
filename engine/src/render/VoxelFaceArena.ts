@@ -14,6 +14,12 @@ export type ArenaInputs = { origin: any; offset: any; span: any; direction: any;
 const BLOCK = VOXEL_FACE_BLOCK;
 const PAGE_FACES = 256 * 1024;
 let arenaSerial = 0;
+// Every sync visits each source several times. Its entry lives on the mesh
+// (set by allocate, cleared by remove), so those visits are property reads
+// instead of Map lookups; the Map stays for iteration.
+const ENTRY = Symbol('VoxelFaceArena.entry');
+const entryOf = (mesh: VoxelFaceMesh): Entry | undefined => (mesh as VoxelFaceMesh & { [ENTRY]?: Entry })[ENTRY];
+const setEntry = (mesh: VoxelFaceMesh, entry: Entry | undefined) => { (mesh as VoxelFaceMesh & { [ENTRY]?: Entry })[ENTRY] = entry; };
 /** World coordinates fit Float64 squared distance. Share one distance between
  * the normal cone and frustum guards; retain view-local flattened geometry. */
 function blockFacing(data: Float32Array, at: number, dx: number, dy: number, dz: number, distance: number, padding: number, viewFlattening: boolean) {
@@ -50,6 +56,9 @@ function pageIndex(capacity: number) {
   return new THREE.BufferAttribute(quadIndices, 1);
 }
 export const ARENA_COPY_FACES = 16 * 1024;
+// Start re-querying once this share of a reuse guard is used, and spread the
+// entries over at most this many syncs (fewer when the view changes quickly).
+const REFRESH_AHEAD = .75, REFRESH_SLICES = 8, REFRESH_MIN_SLICES = 2, REFRESH_MIN_ENTRIES = 32;
 export const ARENA_COPY_MS = .75;
 const names = ['voxelOffset', 'voxelSpan', 'voxelDirection', 'voxelEmission', 'color'] as const;
 const unpackColor = wgslFn('fn voxelArenaColor(value: u32) -> vec3<f32> { return unpack4x8unorm(value).xyz; }');
@@ -84,7 +93,10 @@ export class VoxelFaceArena {
   private sources: VoxelFaceMesh[] = [];
   private sourceSet = new Set<VoxelFaceMesh>();
   private sourcesDirty = true;
+  private ordersDirty = true;
   private maintenanceDirty = true;
+  /** Faces whose only copy is the arena (settled entries); kept incrementally. */
+  private residentFaces = 0;
   private readonly sourceMembershipChanged = (event: { child: THREE.Object3D }) => {
     if (!event.child.userData.voxelArena) this.sourcesDirty = this.maintenanceDirty = true;
   };
@@ -110,6 +122,21 @@ export class VoxelFaceArena {
   private viewEpoch = 0;
   private positionEpoch = 0;
   private resetView = true;
+  // Progressive refresh: the query before the current one. Entries still on it
+  // keep drawing their (conservative) lists while a bounded slice migrates each
+  // sync, instead of every entry recomputing in the frame a guard is crossed.
+  private progressiveRefresh = true;
+  private readonly staleCamera = new THREE.Vector3();
+  private readonly staleFrustum = new THREE.Frustum();
+  private staleEpoch = -1;
+  private staleUse = 0;
+  private guardUsed = 0;
+  private refreshSlices = 0;
+  private refreshBudget = Infinity;
+  private refreshPending = 0;
+  // The draws last handed to the command bundle, in order, with their counts.
+  private stream: (VoxelFaceMesh | THREE.Material)[] = [];
+  private streamCounts: number[] = [];
   // Slack covers the accepted translation, clip-plane offset and rounding.
   // The angular term bounds delta-normal dot (block-center - query-camera).
   private readonly viewReuse = { translation: 32, normal: .12, padding: 34, angular: .121 };
@@ -326,25 +353,79 @@ export class VoxelFaceArena {
     // camera translations, rotations and clip-plane offset changes.
     const empty = frustum.planes.some(p => p.normal.x === 0 && p.normal.y === 0 && p.normal.z === 0 && p.constant < 0);
     if (this.resetView || !this.coverage || empty !== this.emptyFrustum
-      || camera.distanceToSquared(this.camera) >= this.viewReuse.translation ** 2 || frustum.planes.some((p, i) => {
-      const old = this.frustum.planes[i];
-      return p.normal.distanceToSquared(old.normal) >= this.viewReuse.normal ** 2
-        || Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(this.camera)) >= (this.idleTight ? .0001 : 1);
-    })
+      || this.outsideGuard(camera, frustum, this.camera, this.frustum)
       || enabled !== this.visibilityEnabled) {
       if (!this.camera.equals(camera)) this.positionEpoch++;
       this.resetView = false;
       this.camera.copy(camera); this.frustum.copy(frustum); this.viewEpoch++;
       this.emptyFrustum = empty;
       this.visibilityEnabled = enabled; this.visibilityDirty = true;
+      // A crossed guard, teleport or reset: nothing older may be drawn.
+      this.staleEpoch = -1; this.guardUsed = 0;
+    } else if (this.staleEpoch >= 0) {
+      // Entries still on the previous query are conservative only inside its guard.
+      if (this.outsideGuard(camera, frustum, this.staleCamera, this.staleFrustum)) this.staleEpoch = -1;
+      else {
+        // Finish before that guard runs out at the pace the view is changing.
+        const use = this.guardUse(camera, frustum, this.staleCamera, this.staleFrustum), rate = use - this.staleUse;
+        this.staleUse = use;
+        if (rate > 0) this.refreshSlices = Math.max(1, Math.min(this.refreshSlices, Math.floor((1 - use) / rate) - 1));
+      }
+    } else if (this.progressiveRefresh && enabled && !this.idleTight && this.refreshPending === 0) {
+      const use = this.guardUse(camera, frustum, this.camera, this.frustum), rate = use - this.guardUsed;
+      this.guardUsed = use;
+      // Most of the guard is used, and at this pace it lasts long enough to
+      // spread the work: re-query now and migrate entries over the next few
+      // syncs while the old lists are still valid. A view changing too fast
+      // for that (a quick turn) keeps the single refresh at the guard.
+      if (use >= REFRESH_AHEAD && (rate <= 0 || (1 - use) / rate >= REFRESH_MIN_SLICES + 1)) {
+        this.staleCamera.copy(this.camera); this.staleFrustum.copy(this.frustum); this.staleEpoch = this.viewEpoch;
+        this.staleUse = use; this.refreshSlices = REFRESH_SLICES; this.guardUsed = 0;
+        if (!this.camera.equals(camera)) this.positionEpoch++;
+        this.camera.copy(camera); this.frustum.copy(frustum); this.viewEpoch++;
+        this.visibilityDirty = true;
+      }
     }
+    if (this.staleEpoch >= 0 || this.refreshPending > 0) this.visibilityDirty = true;
     const version = coverage.userData.voxelVisibilityVersion ?? coverage.version;
     if (coverage !== this.coverage || version !== this.coverageVersion) {
       this.coverage = coverage; this.coverageVersion = version; this.visibilityDirty = true;
       this.coverageEpoch++;
     }
-    return oldEpoch !== this.viewEpoch;
+    return oldEpoch !== this.viewEpoch || this.refreshPending > 0;
   }
+
+  /** Whether a view left the reuse guard of a query: its block lists no longer
+   * cover every translation, rotation and clip-plane offset since then. */
+  private outsideGuard(camera: THREE.Vector3, frustum: THREE.Frustum, queryCamera: THREE.Vector3, queryFrustum: THREE.Frustum) {
+    if (camera.distanceToSquared(queryCamera) >= this.viewReuse.translation ** 2) return true;
+    const offset = this.idleTight ? .0001 : 1;
+    for (let i = 0; i < 6; i++) {
+      const p = frustum.planes[i], old = queryFrustum.planes[i];
+      if (p.normal.distanceToSquared(old.normal) >= this.viewReuse.normal ** 2
+        || Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(queryCamera)) >= offset) return true;
+    }
+    return false;
+  }
+
+  /** The largest share of a query's reuse guard that a view has used (>= 1 is outside). */
+  private guardUse(camera: THREE.Vector3, frustum: THREE.Frustum, queryCamera: THREE.Vector3, queryFrustum: THREE.Frustum) {
+    let use = camera.distanceTo(queryCamera) / this.viewReuse.translation;
+    const offset = this.idleTight ? .0001 : 1;
+    for (let i = 0; i < 6; i++) {
+      const p = frustum.planes[i], old = queryFrustum.planes[i];
+      use = Math.max(use, p.normal.distanceTo(old.normal) / this.viewReuse.normal,
+        Math.abs(p.constant + p.normal.dot(camera) - old.constant - old.normal.dot(queryCamera)) / offset);
+    }
+    return use;
+  }
+
+  /** Reference switch: off recomputes every entry in the frame a guard is crossed. */
+  setProgressiveRefreshEnabled(enabled: boolean) {
+    if (enabled === this.progressiveRefresh) return;
+    this.progressiveRefresh = enabled; this.resetView = true;
+  }
+  getProgressiveRefreshEnabled() { return this.progressiveRefresh; }
 
   private visibilityData(entry: Entry): Float32Array | undefined {
     const mode = entry.geometry.userData.voxelProjection ?? 'torus';
@@ -490,8 +571,12 @@ export class VoxelFaceArena {
 
   private visibleBlocks(entry: Entry, masked: boolean) {
     const cached = entry.visibility;
-    if (cached && cached.view === this.viewEpoch && cached.masked === masked
-      && (!masked || cached.mask === this.coverageEpoch)) return cached;
+    if (cached && cached.masked === masked && (!masked || cached.mask === this.coverageEpoch)) {
+      if (cached.view === this.viewEpoch) return cached;
+      // Still conservative inside the previous query's guard: wait for a later slice.
+      if (cached.view === this.staleEpoch && this.refreshBudget <= 0) { this.refreshPending++; return cached; }
+    }
+    this.refreshBudget--;
     const result = cached ?? { map: new Float32Array(Math.ceil(entry.count / BLOCK) * this.mapStride),
       blocks: 0, faces: 0, view: 0, mask: -1, masked, back: 0, outside: 0, covered: 0, revision: 0 };
     const previousBlocks = result.blocks;
@@ -646,7 +731,7 @@ export class VoxelFaceArena {
       } };
     range.start += allocated; range.count -= allocated;
     if (!range.count) page.free.splice(index, 1);
-    page.entries.add(entry); this.entries.set(mesh, entry);
+    page.entries.add(entry); this.entries.set(mesh, entry); setEntry(mesh, entry);
     mesh.geometry.addEventListener('dispose', entry.onDispose);
     return entry;
   }
@@ -660,7 +745,7 @@ export class VoxelFaceArena {
       offset[i * 3] = a & 65535; offset[i * 3 + 1] = a >>> 16; offset[i * 3 + 2] = b & 65535;
       span[i * 2] = b >>> 16; span[i * 2 + 1] = c & 65535;
       direction[i] = (c >>> 16) & 255; emission[i] = c >>> 24;
-      color.set([rgb & 255, (rgb >>> 8) & 255, (rgb >>> 16) & 255, 255], i * 4);
+      color[i * 4] = rgb & 255; color[i * 4 + 1] = (rgb >>> 8) & 255; color[i * 4 + 2] = (rgb >>> 16) & 255; color[i * 4 + 3] = 255;
     }
     const arrays = [offset, span, direction, emission, color], sizes = [3, 2, 1, 1, 4];
     names.forEach((name, i) => entry.mesh.geometry.setAttribute(name, new THREE.InstancedBufferAttribute(arrays[i], sizes[i], i === 4)));
@@ -670,6 +755,8 @@ export class VoxelFaceArena {
     if (restore) this.restoreAttributes(entry);
     entry.geometry.removeEventListener('dispose', entry.onDispose);
     this.entries.delete(entry.mesh); entry.page.entries.delete(entry);
+    if (entryOf(entry.mesh) === entry) setEntry(entry.mesh, undefined);
+    if (!entry.attributes) this.residentFaces -= entry.count;
     if (entry.blockTests) {
       const cache = entry.blockTests;
       this.stats.blockCacheBytes -= cache.distance.byteLength + cache.facing.byteLength + cache.covered.byteLength + (cache.clusters?.bytes ?? 0) + (cache.tree?.bytes ?? 0) + (cache.coveredPrefix?.byteLength ?? 0);
@@ -712,30 +799,41 @@ export class VoxelFaceArena {
     this.stats.mapUploadBytes = 0;
     if (this.sourcesDirty || !this.incrementalMaintenance) {
       this.sources = (this.root.children as VoxelFaceMesh[]).filter(mesh => !mesh.userData.voxelArena).sort((a, b) => a.id - b.id);
-      this.sourceSet = new Set(this.sources); this.sourcesDirty = false;
+      this.sourceSet = new Set(this.sources); this.sourcesDirty = false; this.ordersDirty = true;
       this.stats.sourceListBuilds++;
     }
     const sources = this.sources, sourceSet = this.sourceSet;
     if (!this.incrementalMaintenance || !visibilityOnly || this.maintenanceDirty || this.hasPendingWork
       || this.residentEntryStale()) {
       this.maintenanceDirty = false; this.stats.maintenancePasses++;
-      for (const [mesh, order] of this.orders) if (!sourceSet.has(mesh)) { mesh.renderOrder = order; this.orders.delete(mesh); }
-      for (const mesh of sources) {
-        if (!this.orders.has(mesh)) { this.orders.set(mesh, mesh.renderOrder); mesh.renderOrder = mesh.id; }
+      // Original render orders only change hands when the source list does.
+      if (this.ordersDirty || !this.incrementalMaintenance) {
+        this.ordersDirty = false;
+        for (const [mesh, order] of this.orders) if (!sourceSet.has(mesh)) { mesh.renderOrder = order; this.orders.delete(mesh); }
+        for (const mesh of sources) {
+          if (!this.orders.has(mesh)) { this.orders.set(mesh, mesh.renderOrder); mesh.renderOrder = mesh.id; }
+        }
       }
       for (const entry of this.entries.values()) {
-        const mesh = entry.mesh;
-        const replaced = entry.attributes ? names.some((name, i) => mesh.geometry.getAttribute(name) !== entry.attributes![i]
-          || entry.attributes![i].version !== entry.versions[i]) : names.some(name => !!mesh.geometry.getAttribute(name));
-        if (!sourceSet.has(mesh) || entry.invalid || replaced || !this.eligible(mesh)
+        const mesh = entry.mesh, attributes = mesh.geometry.attributes, pending = entry.attributes;
+        // Pending entries must still own the attributes being copied; resident
+        // ones must not have received new ones. The fresh source list holds
+        // exactly the root's non-arena children.
+        let replaced = false;
+        for (let i = 0; i < names.length && !replaced; i++) {
+          const attribute = attributes[names[i]];
+          replaced = pending ? attribute !== pending[i] || pending[i].version !== entry.versions[i] : !!attribute;
+        }
+        const member = mesh.parent === this.root;
+        if (!member || entry.invalid || replaced || !this.eligible(mesh)
           || entry.count !== mesh.geometry.instanceCount || !entry.origin.equals(mesh.userData.voxelOrigin)) {
-          this.remove(entry, sourceSet.has(mesh) && !replaced && entry.count === mesh.geometry.instanceCount);
+          this.remove(entry, member && !replaced && entry.count === mesh.geometry.instanceCount);
         }
       }
       const started = performance.now(); let copied = 0, pending = 0;
       for (const mesh of sources) {
         if (!this.eligible(mesh)) continue;
-        let entry = this.entries.get(mesh);
+        let entry = entryOf(mesh);
         if (entry && !entry.attributes) continue;
         // Firefox's coarse clock can exhaust the soft time budget while merely
         // scanning settled/hidden sources. Always permit one bounded copy so a
@@ -746,12 +844,24 @@ export class VoxelFaceArena {
         const [offset, span, direction, emission, colors] = entry.attributes!;
         const out = entry.page.data.array as Uint32Array, from = entry.copied;
         const until = Math.min(entry.count, from + Math.min(4096, budgetFaces - copied));
-        for (let i = from; i < until; i++) {
-          const at = (entry.start + i) * 4, c = i * colors.itemSize;
+        const packed = colors.array, colorSize = colors.itemSize;
+        if ([offset, span, direction, emission].every(a => !a.normalized && !(a as { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute)) {
+          // Plain attributes: the accessors below reduce to these array reads.
+          const o = offset.array, s = span.array, d = direction.array, e = emission.array;
+          const offsetSize = offset.itemSize, spanSize = span.itemSize, directionSize = direction.itemSize, emissionSize = emission.itemSize;
+          for (let i = from; i < until; i++) {
+            const at = (entry.start + i) * 4, c = i * colorSize, oi = i * offsetSize, si = i * spanSize;
+            out[at] = o[oi] | (o[oi + 1] << 16);
+            out[at + 1] = o[oi + 2] | (s[si] << 16);
+            out[at + 2] = s[si + 1] | (d[i * directionSize] << 16) | (e[i * emissionSize] << 24);
+            out[at + 3] = packed[c] | (packed[c + 1] << 8) | (packed[c + 2] << 16) | 0xff000000;
+          }
+        } else for (let i = from; i < until; i++) {
+          const at = (entry.start + i) * 4, c = i * colorSize;
           out[at] = offset.getX(i) | (offset.getY(i) << 16);
           out[at + 1] = offset.getZ(i) | (span.getX(i) << 16);
           out[at + 2] = span.getY(i) | (direction.getX(i) << 16) | (emission.getX(i) << 24);
-          out[at + 3] = colors.array[c] | (colors.array[c + 1] << 8) | (colors.array[c + 2] << 16) | 0xff000000;
+          out[at + 3] = packed[c] | (packed[c + 1] << 8) | (packed[c + 2] << 16) | 0xff000000;
         }
         entry.copied = until; copied += until - from;
         entry.page.data.addUpdateRange((entry.start + from) * 4, (until - from) * 4); entry.page.data.needsUpdate = true;
@@ -760,32 +870,30 @@ export class VoxelFaceArena {
           // buffers and invalidates cached bindings. No second terrain copy stays.
           entry.releasing = true; mesh.geometry.dispose(); entry.releasing = false;
           names.forEach(name => mesh.geometry.deleteAttribute(name)); entry.attributes = undefined;
+          this.residentFaces += entry.count;
           // The renderer adapter drops cached CPU arrays after geometry disposal.
           (mesh.geometry as any).dispatchEvent({ type: 'voxelarenaretire' });
           this.root.needsUpdate = true;
         } else pending++;
       }
       Object.assign(this.stats, { copyFaces: copied, copyMs: performance.now() - started, pendingSources: pending,
-        residentFaces: 0, bytes: 0, mapUploadBytes: 0, releasedSourceBytes: 0 });
+        residentFaces: this.residentFaces, bytes: 0, mapUploadBytes: 0, releasedSourceBytes: this.residentFaces * 32 });
       this.stats.maxCopyMs = Math.max(this.stats.maxCopyMs, this.stats.copyMs);
       for(const page of [...this.pages]) {
         if(!page.entries.size) {this.disposePage(page);continue;}
         this.stats.bytes += page.data.array.byteLength + page.map.array.byteLength + (page.mesh.geometry.index?.array.byteLength ?? 0);
-        for(const entry of page.entries) if(!entry.attributes) {
-          this.stats.residentFaces += entry.count; this.stats.releasedSourceBytes += entry.count * 32;
-        }
       }
       this.stats.pages = this.pages.length;
     } else this.idle();
     const drawing = this.incrementalMaintenance ? this.nextDrawing : sources.filter(mesh => mesh.visible).map(mesh => {
-      const entry = this.entries.get(mesh); return entry && !entry.attributes ? entry : mesh;
+      const entry = entryOf(mesh); return entry && !entry.attributes ? entry : mesh;
     });
     const materials = this.incrementalMaintenance ? this.nextMaterials
       : drawing.map(item => 'page' in item ? item.mesh.material : item.material);
     if (this.incrementalMaintenance) {
       drawing.length = materials.length = 0;
       for (const mesh of sources) if (mesh.visible) {
-        const entry = this.entries.get(mesh);
+        const entry = entryOf(mesh);
         drawing.push(entry && !entry.attributes ? entry : mesh); materials.push(mesh.material);
       }
     }
@@ -800,13 +908,19 @@ export class VoxelFaceArena {
     }
     this.visibilityDirty = false;
     Object.assign(this.stats,{visibleFaces:0,paddedFaces:0,drawnFaces:0,instancePaddingFaces:0,draws:0,sourceDraws:0,backFaces:0,outsideFaces:0,coveredFaces:0});
+    // A migration refreshes the stale entries in at most refreshSlices syncs.
+    this.refreshBudget = this.staleEpoch >= 0
+      ? Math.max(REFRESH_MIN_ENTRIES, Math.ceil((this.refreshPending || this.entries.size) / this.refreshSlices)) : Infinity;
+    if (this.staleEpoch >= 0) this.refreshSlices = Math.max(1, this.refreshSlices - 1);
+    this.refreshPending = 0;
+    const stream: (VoxelFaceMesh | THREE.Material)[] = [], streamCounts: number[] = [];
     const previousPass = this.mapPass++;
     const blocks = new Map<Page, number>(), runs = new Map<Page, number>(), changed = new Map<Page, Range>();
     let lastPage: Page | null = null, run: VoxelFaceMesh | null = null;
     let lastMaterial: THREE.Material | null = null;
     const active = new Set<VoxelFaceMesh>();
     const pageFor = (mesh: VoxelFaceMesh) => {
-      const entry = this.entries.get(mesh); return entry && !entry.attributes ? entry.page : mesh;
+      const entry = entryOf(mesh); return entry && !entry.attributes ? entry.page : mesh;
     };
     if (this.groupPageDraws && (sources.length !== this.groupedSources.length
       || sources.some((mesh, i) => mesh !== this.groupedSources[i] || pageFor(mesh) !== this.groupedPages[i]))) {
@@ -819,8 +933,8 @@ export class VoxelFaceArena {
       const mesh = drawSources[drawIndex], drawOrder = ordered ? sources[0].id + drawIndex : mesh.id;
       mesh.renderOrder = drawOrder;
       if (!mesh.visible) continue;
-      const entry = this.entries.get(mesh);
-      if (!entry || entry.attributes) { lastPage = null; continue; }
+      const entry = entryOf(mesh);
+      if (!entry || entry.attributes) { lastPage = null; stream.push(mesh); continue; }
       const page = entry.page, at = blocks.get(page) ?? 0;
       const masked = mesh.material === mesh.userData.maskedMaterial;
       const visible = this.visibleBlocks(entry, masked);
@@ -843,7 +957,7 @@ export class VoxelFaceArena {
           clone.onBeforeRender = page.mesh.onBeforeRender; page.runs.push(clone); this.root.add(clone);
         }
         run = page.runs[index]; runs.set(page, index + 1); active.add(run);
-        if (run.userData.voxelArenaBase !== at || run.renderOrder !== drawOrder || !run.visible || run.material !== drawMaterial) this.root.needsUpdate = true;
+        stream.push(run, drawMaterial);
         run.material = drawMaterial;
         run.userData.voxelArenaBase = at; run.renderOrder = drawOrder; run.visible = true;
         // Remember the old count before assembling this run.
@@ -871,11 +985,13 @@ export class VoxelFaceArena {
     for (const page of [...this.pages]) {
       if (!page.entries.size) { this.disposePage(page); continue; }
       for (const mesh of page.runs) {
-        if (!active.has(mesh)) { if (mesh.visible) this.root.needsUpdate = true; mesh.visible = false; }
-        else if (mesh.userData.voxelArenaFaces !== mesh.userData.voxelArenaOldCount) this.root.needsUpdate = true;
+        if (!active.has(mesh)) mesh.visible = false;
         this.updateDrawRange(mesh);
-        if (active.has(mesh)) this.stats.drawnFaces += this.blockInstancing
-          ? mesh.geometry.instanceCount * this.instanceFaces : mesh.userData.voxelArenaFaces;
+        if (active.has(mesh)) {
+          streamCounts.push(mesh.geometry.instanceCount, mesh.geometry.drawRange.count);
+          this.stats.drawnFaces += this.blockInstancing
+            ? mesh.geometry.instanceCount * this.instanceFaces : mesh.userData.voxelArenaFaces;
+        }
       }
       const range = changed.get(page);
       if (range) {
@@ -888,6 +1004,16 @@ export class VoxelFaceArena {
     }
     this.stats.instancePaddingFaces = this.stats.drawnFaces - this.stats.paddedFaces;
     this.stats.pages = this.pages.length;
+    // Recorded commands hold the ordered draws, their pipelines and counts.
+    // A run's map base, face count and absolute render order reach the GPU
+    // through per-object uniforms and sorting, which replays refresh anyway.
+    if (stream.length !== this.stream.length || streamCounts.length !== this.streamCounts.length
+      || stream.some((item, i) => item !== this.stream[i]) || streamCounts.some((count, i) => count !== this.streamCounts[i])) {
+      this.root.needsUpdate = true;
+    }
+    this.stream = stream; this.streamCounts = streamCounts;
+    if (this.refreshPending === 0) this.staleEpoch = -1;
+    else this.visibilityDirty = true;
   }
   dispose(restore = true) {
     this.root.removeEventListener('childadded', this.sourceMembershipChanged);
@@ -898,6 +1024,8 @@ export class VoxelFaceArena {
     for (const [mesh, order] of this.orders) mesh.renderOrder = order;
     this.orders.clear(); this.root.needsUpdate = true;
     this.sources = []; this.sourceSet.clear(); this.sourcesDirty = this.maintenanceDirty = true;
+    this.stream = []; this.streamCounts = []; this.staleEpoch = -1; this.refreshPending = 0;
+    this.ordersDirty = true;
     this.surfaceProxies = new WeakMap();
   }
 }
