@@ -2098,6 +2098,7 @@ export class ContraptionManager {
           }
         }
         for (const frame of frames) this.physics.finishContraptionFrame(frame);
+        this.physics.commitSleep?.(frames.map(frame => frame.contraption));
       } else {
         this.physics.resolveContraptionPairs?.(this.contraptions, dt);
       }

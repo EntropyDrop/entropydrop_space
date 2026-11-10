@@ -194,6 +194,38 @@ function cloneScriptData(value: any, fallback: any = null, maxBytes = SCRIPT_STA
   }
 }
 
+/** Physics records several contacts per body and substep. Its flat payloads
+ * (strings, finite numbers, numeric arrays) are copied directly with the same
+ * result as the JSON round trip; any other shape still uses cloneScriptData. */
+function cloneScriptContact(contact: unknown): ScriptContact | null {
+  if (!contact || typeof contact !== 'object' || Array.isArray(contact)) return cloneScriptData(contact, null, 16 * 1024);
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(contact)) {
+    const value = (contact as Record<string, unknown>)[key];
+    switch (typeof value) {
+      case 'undefined': case 'function': case 'symbol': continue;
+      case 'boolean': out[key] = value; continue;
+      case 'string':
+        if (value.length > 1024) return cloneScriptData(contact, null, 16 * 1024);
+        out[key] = value; continue;
+      case 'number': out[key] = Number.isFinite(value) ? value || 0 : null; continue;
+      case 'object': {
+        if (value === null) { out[key] = null; continue; }
+        if (!Array.isArray(value) || value.length > 16) return cloneScriptData(contact, null, 16 * 1024);
+        const copy = new Array<number | null>(value.length);
+        for (let i = 0; i < value.length; i++) {
+          const item = value[i];
+          if (typeof item !== 'number') return cloneScriptData(contact, null, 16 * 1024);
+          copy[i] = Number.isFinite(item) ? item || 0 : null;
+        }
+        out[key] = copy; continue;
+      }
+      default: return cloneScriptData(contact, null, 16 * 1024);
+    }
+  }
+  return out as ScriptContact;
+}
+
 function scriptInputCodes(inputState: ScriptInputState | null | undefined, phase: keyof ScriptInputState): string[] {
   const values = inputState?.[phase];
   if (values instanceof Set) return [...values].map(String);
@@ -4863,7 +4895,7 @@ export class Contraption {
   /** Record one bounded physics observation for the next script snapshot. */
   recordScriptContact(contact: ScriptContact) {
     if (!this.isPhysicsSimulationEnabled()) return false;
-    const normalized: ScriptContact | null = cloneScriptData(contact, null, 16 * 1024);
+    const normalized: ScriptContact | null = cloneScriptContact(contact);
     if (!normalized || typeof normalized !== 'object') return false;
     const position = Array.isArray(normalized.position) ? normalized.position : [0, 0, 0];
     const normal = Array.isArray(normalized.normal) ? normalized.normal : [0, 0, 0];

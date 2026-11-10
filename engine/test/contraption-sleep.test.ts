@@ -206,6 +206,25 @@ test('a settled dynamic stack sleeps together and wakes when the ground changes'
 });
 
 
+test('a disturbed stack that keeps buzzing in place still falls asleep', () => {
+  const { manager, physics, tick } = setup(true);
+  const blocks = [];
+  for (let x = 0; x < 2; x++) for (let y = 0; y < 2; y++) for (let z = 0; z < 2; z++) {
+    blocks.push({ localX: x, localY: y, localZ: z, entityId: 'root', block: BlockTypes.COLOR_BLOCK });
+  }
+  const stack = [0, 1, 2].map(level => {
+    const entity = new Contraption(`stack_${level}`, blocks, new THREE.Vector3(0, 1 + level * 2.02, 0), new THREE.Scene()) as any;
+    entity.useGravity = true;
+    entity.velocity.set(0.2, -0.3, -0.1);
+    manager.registerContraption(entity);
+    return entity;
+  });
+  tick(300);
+  assert.ok(stack.every(entity => physics.isSleeping(entity)), JSON.stringify(stack.map(entity => ({
+    id: entity.id, sleeping: physics.isSleeping(entity), velocity: entity.velocity.toArray() }))));
+  assert.ok(stack.every(entity => entity.velocity.lengthSq() === 0 && entity.angularVelocity.lengthSq() === 0));
+});
+
 test('adding or moving a stopped collider into a sleeper wakes it before collision resolution', () => {
   for (const newlyAdded of [false, true]) {
     const { physics, add, tick } = setup();

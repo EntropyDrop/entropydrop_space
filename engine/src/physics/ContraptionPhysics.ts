@@ -201,7 +201,11 @@ export class ContraptionPhysics {
     if (!frame) return;
     for (let step = 0; step < frame.subSteps; step++) this.stepContraptionFrame(frame);
     this.finishContraptionFrame(frame);
+    this.commitSleep([contraption]);
   }
+
+  /** Call once after every entity of an update ran finishContraptionFrame. */
+  commitSleep(contraptions: Iterable<Contraption>) { this.sleep.commit(contraptions); }
 
   /**
    * Begin one fixed entity update: snapshot the accumulated script forces and
@@ -1204,6 +1208,7 @@ export class ContraptionPhysics {
     if (bestSweep || contactGroups.size > 0) {
       if (this.isSleeping(a)) this.sleep.wake(a);
       if (this.isSleeping(b)) this.sleep.wake(b);
+      this.sleep.recordTouch(a, b);
     }
 
     const sweepVerticalSeparation = bestSweep

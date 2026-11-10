@@ -13,11 +13,19 @@ type SleepWorld = Partial<Pick<World, 'terrainVersion' | 'activeChunkKeys' | 'ge
 const SETTLE_SECONDS = 1;
 const MAX_SPEED_SQ = 0.02 ** 2;
 const MAX_POSE_DRIFT = 0.002;
+// Contact solvers can leave a supported stack buzzing in place: brief speeds
+// above MAX_SPEED_SQ with no net motion. A body whose whole pose stays inside
+// this envelope (metres; quaternion/matrix components) for SETTLE_SECONDS is
+// at rest as well.
+const SETTLED_POSE_ENVELOPE = 0.025;
 
 type Pose = { shape: unknown; values: unknown[] };
 type SleepState = {
   sleeping: boolean;
   quietTime: number;
+  /** Pose at the start of the current at-rest envelope window. */
+  envelopePose: Pose | null;
+  envelopeTime: number;
   epoch: number;
   pose: Pose | null;
   startPose: Pose | null;
@@ -27,6 +35,10 @@ type SleepState = {
   chunkWindow: unknown;
   supports: Map<SleepEntity, { pose: Pose; epoch: number }>;
   pendingSupports: Set<SleepEntity>;
+  /** Settled long enough; sleeps once its whole contact island has settled. */
+  ready: boolean;
+  /** Simulated entities touched during this update (contact islands). */
+  touching: Set<SleepEntity>;
 };
 
 /** Whole contraptions sleep together, including their constrained bodies.
@@ -47,8 +59,9 @@ export class ContraptionSleep {
   private state(entity: SleepEntity): SleepState {
     let state = this.states.get(entity);
     if (!state) {
-      state = { sleeping: false, quietTime: 0, epoch: 0, pose: null, startPose: null,
-        terrainVersion: 0, terrainStamp: null, restingContacts: [], chunkWindow: null, supports: new Map(), pendingSupports: new Set() };
+      state = { sleeping: false, quietTime: 0, envelopePose: null, envelopeTime: 0, epoch: 0, pose: null, startPose: null,
+        terrainVersion: 0, terrainStamp: null, restingContacts: [], chunkWindow: null, supports: new Map(), pendingSupports: new Set(),
+        ready: false, touching: new Set() };
       this.states.set(entity, state);
     }
     return state;
@@ -60,7 +73,10 @@ export class ContraptionSleep {
     const state = this.states.get(entity);
     if (!state) return;
     state.sleeping = false;
+    state.ready = false;
     state.quietTime = 0;
+    state.envelopePose = null;
+    state.envelopeTime = 0;
     state.epoch++;
     state.supports.clear();
     state.restingContacts = [];
@@ -153,6 +169,8 @@ export class ContraptionSleep {
     if (!state.sleeping) {
       state.startPose = this.pose(entity);
       state.pendingSupports.clear();
+      state.touching.clear();
+      state.ready = false;
     }
     if (state.sleeping) {
       for (const contact of state.restingContacts) entity.recordScriptContact?.(contact);
@@ -171,22 +189,70 @@ export class ContraptionSleep {
     this.state(entity).pendingSupports.add(support);
   }
 
+  /** Bodies in contact sleep together. Otherwise the first settled body of a
+   * stack is woken by its still-settling neighbour, which then is woken by it,
+   * and the stack never sleeps (each body settles on a different tick). */
+  recordTouch(a: SleepEntity, b: SleepEntity) {
+    this.state(a).touching.add(b);
+    this.state(b).touching.add(a);
+  }
+
   finish(entity: SleepEntity, dt: number, frameInputs: ReadonlyMap<unknown, { force: Vector3; torque: Vector3 }>) {
     const state = this.state(entity);
     if (state.sleeping || !this.eligible(entity)) return;
     const bodies = entity.getRigidBodies?.() || [];
     const pose = this.pose(entity);
-    const quiet = bodies.length > 0
-      && this.samePose(state.startPose, pose, MAX_POSE_DRIFT)
-      && bodies.every(body => (
-        body.velocity.lengthSq() <= MAX_SPEED_SQ && body.angularVelocity.lengthSq() <= MAX_SPEED_SQ
-        && (body.type !== 'dynamic' || body.simulationEnabled === false
-          || entity.getNodeGravityEnabled?.(body.id) === false || body.isOnGround)
-      ))
+    const supported = bodies.length > 0
+      && bodies.every(body => body.type !== 'dynamic' || body.simulationEnabled === false
+        || entity.getNodeGravityEnabled?.(body.id) === false || body.isOnGround)
       && [...frameInputs.values()].every(input => input.force.lengthSq() <= 1e-12 && input.torque.lengthSq() <= 1e-12);
+    const quiet = supported
+      && this.samePose(state.startPose, pose, MAX_POSE_DRIFT)
+      && bodies.every(body => body.velocity.lengthSq() <= MAX_SPEED_SQ && body.angularVelocity.lengthSq() <= MAX_SPEED_SQ);
     state.quietTime = quiet ? state.quietTime + dt : 0;
-    if (state.quietTime + 1e-9 < SETTLE_SECONDS) return;
+    if (supported && this.samePose(state.envelopePose, pose, SETTLED_POSE_ENVELOPE)) state.envelopeTime += dt;
+    else {
+      state.envelopePose = supported ? pose : null;
+      state.envelopeTime = 0;
+    }
+    state.ready = Math.max(state.quietTime, state.envelopeTime) + 1e-9 >= SETTLE_SECONDS;
+  }
+
+  /** After every entity of one update finished: put each contact island to
+   * sleep at once, but only when all of its simulated members have settled.
+   * Entities outside this update (stopped or kinematic-only colliders) are
+   * static supports and do not hold an island awake. */
+  commit(entities: Iterable<SleepEntity>) {
+    const members = new Set(entities);
+    const visited = new Set<SleepEntity>();
+    for (const start of members) {
+      if (visited.has(start)) continue;
+      const island: SleepEntity[] = [];
+      const queue = [start];
+      visited.add(start);
+      let settled = true;
+      while (queue.length) {
+        const entity = queue.pop()!;
+        const state = this.states.get(entity);
+        if (!state || state.sleeping) continue;
+        island.push(entity);
+        if (!state.ready) settled = false;
+        for (const other of state.touching) {
+          if (!members.has(other) || visited.has(other)) continue;
+          visited.add(other);
+          queue.push(other);
+        }
+      }
+      if (!settled) continue;
+      for (const entity of island) this.fallAsleep(entity, this.states.get(entity)!);
+    }
+  }
+
+  private fallAsleep(entity: SleepEntity, state: SleepState) {
+    const bodies = entity.getRigidBodies?.() || [];
+    const pose = this.pose(entity);
     state.sleeping = true;
+    state.ready = false;
     for (const body of bodies) {
       body.velocity.set(0, 0, 0);
       body.angularVelocity.set(0, 0, 0);
