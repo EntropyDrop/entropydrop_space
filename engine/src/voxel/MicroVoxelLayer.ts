@@ -254,6 +254,14 @@ export class MicroVoxelLayer {
   private publishedCollisionIndexes = new Map<string, CollisionBoxIndex<CollisionBounds>>();
   private collisionPublicationVersions = new Map<string, number>();
   private collisionRevisions = new Map<string, number>();
+  /**
+   * Source of partition mesh and collision revisions. A single increasing
+   * counter means a forgotten partition that is filled again can never reuse
+   * a revision an earlier build or publication observed.
+   */
+  private partitionRevisionCounter = 0;
+  /** Partitions published empty since the last prune; see pruneSettledPartitions. */
+  private readonly pruneCandidates = new Set<string>();
   private publishedCollisionRevisions = new Map<string, number>();
   // Fully enclosed solid partitions can have no visible mesh and still collide.
   private publishedCollisionPartitions: Set<string> = new EpochSet<string>(this.collisionReadEpoch);
@@ -362,7 +370,7 @@ export class MicroVoxelLayer {
 
   private invalidateCollisionPartition(chunkKey: string) {
     this.collisionIndexes.delete(chunkKey);
-    this.collisionRevisions.set(chunkKey, (this.collisionRevisions.get(chunkKey) ?? 0) + 1);
+    this.collisionRevisions.set(chunkKey, ++this.partitionRevisionCounter);
   }
 
   /**
@@ -383,6 +391,35 @@ export class MicroVoxelLayer {
       && !this.publishedCollisionSnapshots.has(chunkKey);
   }
 
+  /**
+   * Forget the bookkeeping of partitions that were published empty and have
+   * nothing left: no cells, mesh, collision data, queued or outstanding build.
+   * Their revision, index and membership entries otherwise accumulated for
+   * every partition ever loaded (tens of thousands after a few teleports), and
+   * every one of them is a string-keyed object the garbage collector traces.
+   * Rebuilding such a partition yields exactly the forgotten state, and later
+   * revisions come from a counter that never repeats.
+   */
+  private pruneSettledPartitions() {
+    if (this.pruneCandidates.size === 0) return;
+    for (const chunkKey of this.pruneCandidates) {
+      if (!this.isSettledEmptyPartition(chunkKey)) continue;
+      this.meshChunkRevisions.delete(chunkKey);
+      this.collisionRevisions.delete(chunkKey);
+      this.publishedCollisionRevisions.delete(chunkKey);
+      this.collisionIndexes.delete(chunkKey);
+      this.publishedCollisionIndexes.delete(chunkKey);
+      this.interactiveMeshChunks.delete(chunkKey);
+      const standardKey = standardChunkKeyForMeshChunk(chunkKey);
+      const standard = this.standardChunkPartitions.get(standardKey);
+      if (standard?.delete(chunkKey) && standard.size === 0) this.standardChunkPartitions.delete(standardKey);
+      const columnKey = chunkKey.slice(0, chunkKey.lastIndexOf(','));
+      const column = this.horizontalColumnPartitions.get(columnKey);
+      if (column?.delete(chunkKey) && column.size === 0) this.horizontalColumnPartitions.delete(columnKey);
+    }
+    this.pruneCandidates.clear();
+  }
+
   private invalidateMeshChunk(chunkKey: string) {
     if (this.isSettledEmptyPartition(chunkKey)) return;
     if (!this.meshChunkRevisions.has(chunkKey)) this.trackPartition(chunkKey);
@@ -397,7 +434,7 @@ export class MicroVoxelLayer {
     }
     if (!this.dirtyMeshChunks.has(chunkKey)) this.meshQueueNeedsSort = true;
     this.dirtyMeshChunks.add(chunkKey);
-    this.meshChunkRevisions.set(chunkKey, (this.meshChunkRevisions.get(chunkKey) ?? 0) + 1);
+    this.meshChunkRevisions.set(chunkKey, ++this.partitionRevisionCounter);
     this.dirty = true;
   }
 
@@ -1351,6 +1388,7 @@ export class MicroVoxelLayer {
     for (const mesh of this.renderBatches.flush()) {
       if (mesh.userData.microRenderBatch) this.recentlyRebuiltMeshes.push(mesh);
     }
+    this.pruneSettledPartitions();
     return completed > 0 || emptied > 0;
   }
 
@@ -1863,6 +1901,7 @@ export class MicroVoxelLayer {
 
   private publishMeshChunk(job: MicroMeshBuildJob, mesh: THREE.Mesh | null) {
     const previous = this.meshChunks.get(job.chunkKey);
+    if (!mesh) this.pruneCandidates.add(job.chunkKey);
     if (mesh) {
       this.meshChunks.set(job.chunkKey, mesh);
       this.recentlyRebuiltMeshes.push(mesh);
@@ -1957,6 +1996,7 @@ export class MicroVoxelLayer {
       this.deferredMeshPublications.delete(chunkKey);
       published++;
     }
+    this.pruneSettledPartitions();
     this.mesh = this.meshChunks.values().next().value || null;
     for (const mesh of this.renderBatches.flush()) {
       if (mesh.userData.microRenderBatch) {

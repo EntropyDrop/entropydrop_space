@@ -215,6 +215,26 @@ test('emptying a partition with an outstanding worker snapshot discards the stal
   assert.equal(layer.getPublishedCollisionColor(8, 8, 8), null);
 });
 
+test('a forgotten partition that is filled again never reuses a stale revision', () => {
+  const layer = new MicroVoxelLayer() as any;
+  layer.set(8, 8, 8, 0x112233);
+  const worker = attachWorker(layer);
+  layer.updateMesh();
+  assert.equal(worker.requests.length, 1);
+  const firstRevision = layer.meshChunkRevisions.get('0,0,0');
+  layer.delete(8, 8, 8);
+  worker.complete();                       // stale result for the emptied partition
+  for (let turn = 0; turn < 10 && layer.dirty; turn++) layer.updateMesh();
+  assert.equal(layer.meshChunkRevisions.has('0,0,0'), false, 'the settled empty partition is forgotten');
+  layer.set(9, 9, 9, 0x445566);            // same partition, new content
+  const refilledRevision = layer.meshChunkRevisions.get('0,0,0');
+  assert.ok(refilledRevision > firstRevision, 'revisions keep increasing after a partition is forgotten');
+  drain(layer, worker);
+  assert.equal(layer.meshChunks.size, 1);
+  assert.equal(layer.getPublishedCollisionColor(9, 9, 9), 0x445566);
+  assert.equal(layer.getPublishedCollisionColor(8, 8, 8), null);
+});
+
 test('micro worker lookahead is bounded and a direct edit bypasses a full background queue', () => {
   const layer = new MicroVoxelLayer();
   for (let i = 0; i < 40; i++) layer.set(i * 16 + 1, 1, 1, 1);

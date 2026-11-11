@@ -96,6 +96,25 @@ test('repeated snapshot clears do not spread work through empty vertical partiti
     layer.continueClearChunk(cursor);
     layer.updateMesh();
   }
-  assert.ok(layer.standardChunkPartitions.get('0,0').size <= 7,
+  assert.ok((layer.standardChunkPartitions.get('0,0')?.size ?? 0) <= 7,
     'empty boundary companions must not propagate into more empty heights on each clear');
+  assert.equal(layer.standardChunkPartitions.has('0,0'), false,
+    'a cleared, settled chunk keeps no partition bookkeeping');
+  assert.equal(layer.meshChunkRevisions.size, 0);
+});
+
+test('partition bookkeeping does not grow with the number of chunks ever visited', () => {
+  const layer = new MicroVoxelLayer() as any;
+  const sizes = () => [layer.meshChunkRevisions.size, layer.collisionRevisions.size, layer.publishedCollisionRevisions.size,
+    layer.horizontalColumnPartitions.size, layer.standardChunkPartitions.size];
+  for (let chunk = 0; chunk < 40; chunk++) {
+    const base = chunk * 128; // one standard chunk is 128 micro cells wide
+    for (let i = 0; i < 24; i++) layer.set(base + (i * 7) % 128, 8 + (i % 3) * 20, (i * 13) % 128, 0x405060 + i);
+    layer.updateMesh();
+    assert.ok(layer.meshChunks.size > 0);
+    layer.clearChunk(chunk, 0);
+    layer.updateMesh();
+  }
+  assert.equal(layer.meshChunks.size, 0);
+  assert.deepEqual(sizes(), [0, 0, 0, 0, 0], 'visited-and-cleared chunks leave no partition bookkeeping');
 });
