@@ -35,12 +35,33 @@ const MICRO_WORLD_SIZE_Z = TORUS_SIZE_Z * MICRO_DIVISIONS;
 const POSITIVE_QUAD = [[0, 0], [1, 0], [1, 1], [0, 1]] as const;
 const NEGATIVE_QUAD = [[0, 0], [0, 1], [1, 1], [1, 0]] as const;
 const MESH_TIME_CHECK_INTERVAL = 256;
+// Outstanding snapshots per mesh worker; the queue bound scales with the pool.
 const MAX_PENDING_MICRO_BUILDS = 16;
+// Empty-to-empty partitions allowed per counted build in one updateMesh call.
+const EMPTY_PARTITIONS_PER_COUNTED_BUILD = 16;
+/** Browser mesh workers: enough to overlap snapshot packing without starving
+ * terrain generation, rendering or the page on small devices. */
+export function defaultMicroMeshWorkerCount(hardwareConcurrency = globalThis.navigator?.hardwareConcurrency ?? 1) {
+  return Math.max(1, Math.min(MAX_MICRO_MESH_WORKERS, Math.floor((Number(hardwareConcurrency) || 1) / 4)));
+}
+// A third worker measured no faster than two: with two, the outstanding
+// queue never reached its bound and snapshot packing on the main thread
+// became the limit (client/docs/performance-streaming-2026-11-11.md).
+const MAX_MICRO_MESH_WORKERS = 2;
+// A loading AOI keeps tens of thousands of dirty partitions while new ones
+// arrive almost every slice, roughly nearest-first from the terrain worker.
+// Re-sorting the whole queue on each arrival cost more main-thread time than
+// packing and publishing combined, so arrivals alone re-sort at most this
+// often. Focus changes still re-sort at once; direct edits are moved to the
+// front by prioritizeMeshAt and never wait for a sort.
+export const MESH_QUEUE_RESORT_INTERVAL_MS = 100;
 
 type MeshBuildPhase = 'scan' | 'mask' | 'greedy' | 'write' | 'wasm-pack' | 'wasm-mesh' | 'worker-pack';
 
 type MicroMeshBuildJob = {
   chunkKey: string;
+  /** Pool worker that owns this snapshot while it is outstanding. */
+  worker?: Worker;
   standardChunkKey: string;
   revision: number;
   collisionRevision: number;
@@ -171,6 +192,26 @@ function meshChunkKey(mx: number, my: number, mz: number) {
 const STANDARD_KEY_CACHE_LIMIT = 1 << 16;
 const standardKeyByMeshKey = new Map<string, string>();
 
+const meshCenterByKey = new Map<string, number>();
+
+/** Packed horizontal partition coordinates (cx * 2^20 + cz), cached per key. */
+function meshChunkColumn(meshKey: string): number {
+  let packed = meshCenterByKey.get(meshKey);
+  if (packed !== undefined) return packed;
+  const first = meshKey.indexOf(',');
+  const second = meshKey.indexOf(',', first + 1);
+  const cx = Number(meshKey.slice(0, first));
+  const cz = Number(meshKey.slice(first + 1, second < 0 ? undefined : second));
+  packed = cx * 1048576 + cz;
+  if (meshCenterByKey.size >= STANDARD_KEY_CACHE_LIMIT) meshCenterByKey.clear();
+  meshCenterByKey.set(meshKey, packed);
+  return packed;
+}
+
+function createMicroMeshWorker() {
+  return new Worker(new URL('./MicroMeshWorker.ts', import.meta.url), { type: 'module', name: 'space-micro-mesh' });
+}
+
 function standardChunkKeyForMeshChunk(meshKey: string): string {
   let standardKey = standardKeyByMeshKey.get(meshKey);
   if (standardKey !== undefined) return standardKey;
@@ -223,13 +264,22 @@ export class MicroVoxelLayer {
   private renderBatches: MicroRenderBatches;
   /** Opaque published micro meshes replay as one cached command bundle. */
   private readonly renderCommands: NearTerrainBatches;
+  /** Primary mesh worker; non-null whenever background meshing is available. */
   private meshWorker: Worker | null = null;
+  /** Additional pool workers, used only while the primary is attached. */
+  private extraMeshWorkers: Worker[] = [];
+  /** Pool workers that may receive new snapshots (primary first). */
+  meshWorkerLimit = defaultMicroMeshWorkerCount();
+  private readonly workerOutstanding = new Map<Worker, number>();
+  private readonly workerChunkKeys = new Set<string>();
   private meshWorkerAttempted = false;
   private nextMeshRequestId = 1;
   private workerBuilds = new Map<number, MicroMeshBuildJob>();
   private workerResults = new Map<number, MicroMeshResult>();
   private interactiveMeshChunks = new Set<string>();
   private meshFocus: { x: number; z: number } | null = null;
+  private meshQueueSortedAt = Number.NEGATIVE_INFINITY;
+  private meshQueueFocusChanged = false;
   private meshQueueNeedsSort = false;
 
   /** Published draw objects, distinct from the small edit/collision meshes. */
@@ -391,22 +441,36 @@ export class MicroVoxelLayer {
     if (this.meshFocus?.x === x && this.meshFocus?.z === z) return;
     this.meshFocus = { x, z };
     this.meshQueueNeedsSort = true;
+    this.meshQueueFocusChanged = true;
   }
 
-  private sortMeshQueue() {
+  private sortMeshQueue(now = performance.now()) {
     if (!this.meshQueueNeedsSort || !this.meshFocus) return;
+    if (!this.meshQueueFocusChanged && now - this.meshQueueSortedAt < MESH_QUEUE_RESORT_INTERVAL_MS) return;
     const { x, z } = this.meshFocus;
-    const ranked = [...this.dirtyMeshChunks].map(key => {
-      const [cx, cz] = key.split(',').map(Number);
-      const px = (cx + 0.5) * MICRO_MESH_CHUNK_SIZE * MICRO_SIZE;
-      const pz = (cz + 0.5) * MICRO_MESH_CHUNK_SIZE * MICRO_SIZE;
-      const dx = unwrapPeriodicNear(px, x, TORUS_SIZE_X) - x;
-      const dz = unwrapPeriodicNear(pz, z, TORUS_SIZE_Z) - z;
-      return { key, distance: this.interactiveMeshChunks.has(key) ? -1 : dx * dx + dz * dz };
-    });
-    ranked.sort((a, b) => a.distance - b.distance);
-    this.dirtyMeshChunks = new Set(ranked.map(({ key }) => key));
+    const keys = [...this.dirtyMeshChunks];
+    const distances = new Float64Array(keys.length);
+    const order = new Uint32Array(keys.length);
+    const span = MICRO_MESH_CHUNK_SIZE * MICRO_SIZE;
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      order[i] = i;
+      if (this.interactiveMeshChunks.has(key)) { distances[i] = -1; continue; }
+      const column = meshChunkColumn(key);
+      const cx = Math.floor(column / 1048576);
+      const cz = column - cx * 1048576;
+      const dx = unwrapPeriodicNear((cx + 0.5) * span, x, TORUS_SIZE_X) - x;
+      const dz = unwrapPeriodicNear((cz + 0.5) * span, z, TORUS_SIZE_Z) - z;
+      distances[i] = dx * dx + dz * dz;
+    }
+    // Stable on ties, like the previous Array.prototype.sort of records.
+    order.sort((a, b) => distances[a] - distances[b] || a - b);
+    const sorted = new Set<string>();
+    for (let i = 0; i < order.length; i++) sorted.add(keys[order[i]]);
+    this.dirtyMeshChunks = sorted;
     this.meshQueueNeedsSort = false;
+    this.meshQueueFocusChanged = false;
+    this.meshQueueSortedAt = now;
   }
 
   /** A standard cell can touch two micro partitions on either horizontal axis. */
@@ -1092,19 +1156,52 @@ export class MicroVoxelLayer {
     this.meshWorkerAttempted = true;
     if (!getTerrainKernels()) return;
     try {
-      this.attachMeshWorker(new Worker(new URL('./MicroMeshWorker.ts', import.meta.url), {
-        type: 'module', name: 'space-micro-mesh',
-      }));
+      this.attachMeshWorker(createMicroMeshWorker());
+      this.ensureMeshWorkers(this.meshWorkerLimit);
     } catch (error) {
       this.disableMeshWorker(String(error));
     }
   }
 
-  private attachMeshWorker(worker: Worker) {
+  /** Grow the pool to `count` workers (bounded) while background meshing is active. */
+  ensureMeshWorkers(count: number) {
+    if (!this.meshWorker || typeof Worker === 'undefined') return;
+    const target = Math.max(1, Math.min(MAX_MICRO_MESH_WORKERS, Math.floor(count)));
+    while (1 + this.extraMeshWorkers.length < target) this.attachMeshWorker(createMicroMeshWorker(), true);
+  }
+
+  private isPoolWorker(worker: Worker) {
+    return worker === this.meshWorker || this.extraMeshWorkers.includes(worker);
+  }
+
+  /** Least-loaded worker among the first `meshWorkerLimit`, or null when all are full. */
+  private nextMeshWorker(): Worker | null {
+    if (!this.meshWorker) return null;
+    const pool = [this.meshWorker, ...this.extraMeshWorkers].slice(0, Math.max(1, this.meshWorkerLimit));
+    let best: Worker | null = null;
+    let bestLoad = MAX_PENDING_MICRO_BUILDS;
+    for (const worker of pool) {
+      const load = this.workerOutstanding.get(worker) ?? 0;
+      if (load < bestLoad) { best = worker; bestLoad = load; }
+    }
+    return best;
+  }
+
+  private releaseWorkerBuild(requestId: number) {
+    const job = this.workerBuilds.get(requestId);
+    if (!job) return;
+    this.workerBuilds.delete(requestId);
+    this.workerChunkKeys.delete(job.chunkKey);
+    if (job.worker) this.workerOutstanding.set(job.worker, Math.max(0, (this.workerOutstanding.get(job.worker) ?? 1) - 1));
+  }
+
+  private attachMeshWorker(worker: Worker, extra = false) {
     this.meshWorkerAttempted = true;
-    this.meshWorker = worker;
+    if (extra) this.extraMeshWorkers.push(worker);
+    else this.meshWorker = worker;
+    this.workerOutstanding.set(worker, 0);
     worker.onmessage = (event: MessageEvent<MicroMeshResult>) => {
-      if (this.meshWorker !== worker || !this.workerBuilds.has(event.data.requestId)) return;
+      if (!this.isPoolWorker(worker) || !this.workerBuilds.has(event.data.requestId)) return;
       if (!event.data.mesh || event.data.error) {
         this.disableMeshWorker(event.data.error ?? 'Missing micro mesh result');
         return;
@@ -1116,8 +1213,14 @@ export class MicroVoxelLayer {
   }
 
   private disableMeshWorker(message: string) {
+    // One failed worker disables the whole pool: every worker runs the same
+    // kernel, and local meshing is the established fallback.
     this.meshWorker?.terminate();
     this.meshWorker = null;
+    for (const worker of this.extraMeshWorkers) worker.terminate();
+    this.extraMeshWorkers = [];
+    this.workerOutstanding.clear();
+    this.workerChunkKeys.clear();
     for (const job of this.workerBuilds.values()) {
       if ((this.meshChunkRevisions.get(job.chunkKey) ?? 0) === job.revision) {
         this.dirtyMeshChunks.add(job.chunkKey);
@@ -1126,6 +1229,7 @@ export class MicroVoxelLayer {
     this.workerBuilds.clear();
     this.workerResults.clear();
     this.meshQueueNeedsSort = true;
+    this.meshQueueFocusChanged = true;
     this.dirty = true;
     console.warn(`Micro mesh worker disabled; using budgeted local meshing: ${message}`);
   }
@@ -1165,7 +1269,7 @@ export class MicroVoxelLayer {
     for (const [requestId, result] of this.workerResults) {
       const job = this.workerBuilds.get(requestId)!;
       this.workerResults.delete(requestId);
-      this.workerBuilds.delete(requestId);
+      this.releaseWorkerBuild(requestId);
       if ((this.meshChunkRevisions.get(job.chunkKey) ?? 0) === job.revision) {
         if ((activeChunkKeys && !activeChunkKeys.has(job.standardChunkKey))
           || blockedChunkKeys?.has(job.standardChunkKey)
@@ -1184,7 +1288,14 @@ export class MicroVoxelLayer {
       if (completed >= limit || performance.now() >= deadline) break;
     }
 
-    while (completed + submitted < limit && (completed === 0 || performance.now() < deadline)) {
+    // Partitions that were empty and stay empty publish no geometry, so they
+    // do not consume the per-call publication count. Loading dirties
+    // thousands of them; counting them let empty bookkeeping use most of the
+    // limit. The time budget and a separate bound still apply.
+    let emptied = 0;
+    const emptyLimit = Number.isFinite(limit) ? limit * EMPTY_PARTITIONS_PER_COUNTED_BUILD : Infinity;
+    while (completed + submitted < limit && emptied < emptyLimit
+      && (completed + emptied === 0 || performance.now() < deadline)) {
       const activeJob = this.activeMeshBuild;
       if (activeJob && (
         (activeChunkKeys && !activeChunkKeys.has(activeJob.standardChunkKey))
@@ -1207,6 +1318,7 @@ export class MicroVoxelLayer {
       if (result === 'pending') break;
       this.activeMeshBuild = null;
       if (result === 'complete') completed++;
+      if (result === 'empty') emptied++;
       if (result === 'submitted') submitted++;
       if (performance.now() >= deadline) break;
     }
@@ -1216,7 +1328,7 @@ export class MicroVoxelLayer {
     for (const mesh of this.renderBatches.flush()) {
       if (mesh.userData.microRenderBatch) this.recentlyRebuiltMeshes.push(mesh);
     }
-    return completed > 0;
+    return completed > 0 || emptied > 0;
   }
 
   private nextBuildableMeshChunk(
@@ -1234,8 +1346,8 @@ export class MicroVoxelLayer {
       if (blockedChunkKeys?.has(standardChunkKey)) continue;
       if (this.isOutsidePublicationCompanion(chunkKey)) continue;
       if (this.meshWorker && !empty && !this.interactiveMeshChunks.has(chunkKey)) {
-        if (this.workerBuilds.size >= MAX_PENDING_MICRO_BUILDS) continue;
-        if ([...this.workerBuilds.values()].some(job => job.chunkKey === chunkKey)) continue;
+        if (!this.nextMeshWorker()) continue;
+        if (this.workerChunkKeys.has(chunkKey)) continue;
       }
       return chunkKey;
     }
@@ -1287,7 +1399,7 @@ export class MicroVoxelLayer {
   private advanceMeshBuild(
     job: MicroMeshBuildJob,
     deadline: number,
-  ): 'pending' | 'complete' | 'stale' | 'submitted' {
+  ): 'pending' | 'complete' | 'empty' | 'stale' | 'submitted' {
     if ((this.meshChunkRevisions.get(job.chunkKey) ?? 0) !== job.revision) return 'stale';
 
     if (job.phase === 'scan') {
@@ -1307,8 +1419,11 @@ export class MicroVoxelLayer {
       }
 
       if (!Number.isFinite(job.minMicroY) || !Number.isFinite(job.maxMicroY)) {
+        // Removing a previously published mesh is real publication work.
+        const unchangedEmpty = !this.meshChunks.has(job.chunkKey)
+          && !this.deferredMeshPublications.get(job.chunkKey)?.mesh;
         this.replaceMeshChunk(job, null);
-        return 'complete';
+        return unchangedEmpty ? 'empty' : 'complete';
       }
       job.dimensions = [
         MICRO_MESH_CHUNK_SIZE,
@@ -1354,9 +1469,13 @@ export class MicroVoxelLayer {
           cells: new Uint32Array(job.snapshotCells), linear: linearSrgbLookup()! };
         job.snapshotCells = [];
         job.snapshotIterator = null;
+        const worker = this.nextMeshWorker() ?? this.meshWorker;
+        job.worker = worker;
         this.workerBuilds.set(requestId, job);
+        this.workerChunkKeys.add(job.chunkKey);
+        this.workerOutstanding.set(worker, (this.workerOutstanding.get(worker) ?? 0) + 1);
         try {
-          this.meshWorker.postMessage(request, [request.cells.buffer]);
+          worker.postMessage(request, [request.cells.buffer]);
         } catch (error) {
           this.disableMeshWorker(String(error));
         }

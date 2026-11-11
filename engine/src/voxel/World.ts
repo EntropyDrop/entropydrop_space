@@ -46,6 +46,18 @@ const STREAM_WORK_BUDGET_MS = 3;
 // loading screen stays near 60 Hz while most of each frame publishes terrain.
 const LOADING_TURN_BUDGET_MS = 12;
 const BACKGROUND_MAIN_THREAD_BUDGET_MS = 1;
+// Keep a margin before the browser's next-frame deadline when an idle slice
+// reports spare time; the rest (capped by STREAM_WORK_BUDGET_MS) may publish
+// several finished worker results instead of one.
+const IDLE_DEADLINE_MARGIN_MS = 1;
+
+/** Main-thread budget for one idle streaming slice. */
+export function idleStreamingBudgetMs(deadline: Pick<IdleDeadline, 'didTimeout' | 'timeRemaining'> | undefined) {
+  if (!deadline || deadline.didTimeout) return BACKGROUND_MAIN_THREAD_BUDGET_MS;
+  const remaining = Number(deadline.timeRemaining()) - IDLE_DEADLINE_MARGIN_MS;
+  if (!Number.isFinite(remaining)) return BACKGROUND_MAIN_THREAD_BUDGET_MS;
+  return Math.max(BACKGROUND_MAIN_THREAD_BUDGET_MS, Math.min(STREAM_WORK_BUDGET_MS, remaining));
+}
 // Detailed terrain must progress even when a fully drawn torus leaves no idle
 // time. Generation stays in the worker; timeout slices only service its queue.
 const STREAM_MAX_WAIT_MS = 50;
@@ -228,6 +240,8 @@ export class World {
   private terrainWorkerJob: TerrainWorkerJob | null;
   private readonly extraTerrainWorkers: { worker: Worker; job: TerrainWorkerJob | null }[] = [];
   private terrainWorkerLimit = typeof window === 'undefined' ? 1 : 2;
+  /** Moving average of one worker-result publication on the main thread. */
+  private terrainPublicationCostMs = BACKGROUND_MAIN_THREAD_BUDGET_MS;
   private terrainWorkerWarmed = false;
   private parallelTerrainPrefetch = false;
   private nearCacheEnabled = true;
@@ -1795,7 +1809,12 @@ export class World {
     }
 
     if (offThreadStreaming) {
-      this.publishCompletedTerrainWorkerJob();
+      // Publish as many finished results as this slice's budget allows; the
+      // worker queue is otherwise capped at one publication per slice.
+      this.publishCompletedTerrainWorkerJob(
+        Math.max(BACKGROUND_MAIN_THREAD_BUDGET_MS, boundedWorkBudgetMs - (performance.now() - frameWorkStartedAt)),
+        Infinity,
+      );
       this.dispatchTerrainWorkerJob();
     }
 
@@ -1931,7 +1950,7 @@ export class World {
       if (this.requireOffThreadTerrainStreaming && !this.terrainWorker) {
         throw new Error('The terrain worker stopped before the initial AOI finished loading.');
       }
-      // Each normal pass publishes at most one finished chunk. Repeat passes
+      // Each pass publishes what fits its streaming budget. Repeat passes
       // within the loading budget while they still make progress.
       const turnStarted = performance.now();
       for (;;) {
@@ -2005,20 +2024,35 @@ export class World {
     });
   }
 
-  private publishCompletedTerrainWorkerJob() {
+  /**
+   * Publish finished worker results. The first publication is always allowed;
+   * later ones start only while the running cost estimate still fits the
+   * budget, so one slice does not overrun it by a whole publication.
+   */
+  private publishCompletedTerrainWorkerJob(budgetMs = BACKGROUND_MAIN_THREAD_BUDGET_MS, maxPublications = 1) {
     const started = performance.now();
-    const attempts = this.completedTerrainWorkerJobs.length;
-    for (let i = 0; i < attempts; i++) {
+    let attempts = this.completedTerrainWorkerJobs.length;
+    let published = 0;
+    while (attempts-- > 0 && this.completedTerrainWorkerJobs.length > 0) {
       const next = this.completedTerrainWorkerJobs[0];
-      if (this.publishNextTerrainWorkerJob()) return true;
+      const publicationStarted = performance.now();
+      if (this.publishNextTerrainWorkerJob()) {
+        const cost = performance.now() - publicationStarted;
+        this.terrainPublicationCostMs = this.terrainPublicationCostMs * 0.8 + cost * 0.2;
+        published++;
+        if (published >= maxPublications) break;
+        attempts = this.completedTerrainWorkerJobs.length;
+        if (performance.now() - started + this.terrainPublicationCostMs > budgetMs) break;
+        continue;
+      }
       // A micro publication barrier belongs to one chunk. Independent ready
       // results may pass it, without releasing its geometry/collision barrier.
       if (this.completedTerrainWorkerJobs[0] === next) {
         this.completedTerrainWorkerJobs.push(this.completedTerrainWorkerJobs.shift()!);
       }
-      if (performance.now() - started >= BACKGROUND_MAIN_THREAD_BUDGET_MS) break;
+      if (performance.now() - started >= budgetMs) break;
     }
-    return false;
+    return published > 0;
   }
 
   private publishNextTerrainWorkerJob() {
@@ -2514,7 +2548,7 @@ export class World {
       // Timeout callbacks normally have no idle budget. Some browsers also
       // exhaust a normal callback's budget before dispatch. Both must still
       // publish completed chunks and launch the next nearest worker job.
-      requestIdle(() => run(BACKGROUND_MAIN_THREAD_BUDGET_MS), { timeout: STREAM_MAX_WAIT_MS });
+      requestIdle(deadline => run(idleStreamingBudgetMs(deadline)), { timeout: STREAM_MAX_WAIT_MS });
       return;
     }
     // Older browsers still run the work after the submitted render, using a

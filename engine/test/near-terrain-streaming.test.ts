@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { World } from '../src/voxel/World.ts';
 import { Chunk } from '../src/voxel/Chunk.ts';
-import { MicroVoxelLayer } from '../src/voxel/MicroVoxelLayer.ts';
+import { MicroVoxelLayer, MESH_QUEUE_RESORT_INTERVAL_MS, defaultMicroMeshWorkerCount } from '../src/voxel/MicroVoxelLayer.ts';
 import { buildMicroMeshSnapshot, type MicroMeshSnapshot } from '../src/voxel/MicroMeshSnapshot.ts';
 
 class MicroWorker {
@@ -81,6 +81,124 @@ test('micro background queue follows wrapped player distance while direct edits 
   layer.updateMesh(1);
   assert.ok(layer.meshChunks.has('10,0,0'), 'movement must not displace a direct edit');
   assert.equal(layer.meshChunks.has('50,50,0'), false);
+});
+
+test('arrivals alone re-sort the micro queue at a bounded rate; focus changes re-sort at once', () => {
+  const layer = new MicroVoxelLayer() as any;
+  const realNow = performance.now;
+  let now = 1000;
+  (performance as any).now = () => now;
+  try {
+    layer.setMeshFocus(0, 0);
+    layer.set(808, 8, 808, 1);            // far, inside partition 50,50
+    layer.set(24, 8, 8, 2);               // near, inside partition 1,0
+    layer.sortMeshQueue();
+    const order = () => [...layer.dirtyMeshChunks];
+    assert.deepEqual(order(), ['1,0,0', '50,50,0'], 'the first sort ranks by distance');
+
+    now += MESH_QUEUE_RESORT_INTERVAL_MS / 2;
+    layer.set(8, 8, 8, 3);                // nearest, arrives within the interval
+    layer.sortMeshQueue();
+    assert.deepEqual(order(), ['1,0,0', '50,50,0', '0,0,0'], 'an arrival does not force a full re-sort');
+
+    now += MESH_QUEUE_RESORT_INTERVAL_MS;
+    layer.sortMeshQueue();
+    assert.deepEqual(order(), ['0,0,0', '1,0,0', '50,50,0'], 'the next interval restores distance order');
+
+    layer.set(168, 8, 8, 4);
+    layer.setMeshFocus(101, 101);          // focus jumps to the far partition (metres)
+    layer.sortMeshQueue();
+    assert.equal(order()[0], '50,50,0', 'a focus change re-sorts without waiting');
+
+    layer.prioritizeMeshAt(8, 8, 8);
+    layer.set(812, 8, 812, 5);
+    now += MESH_QUEUE_RESORT_INTERVAL_MS;
+    layer.sortMeshQueue();
+    assert.equal(order()[0], '0,0,0', 'a direct edit stays first through later sorts');
+  } finally {
+    (performance as any).now = realNow;
+  }
+});
+
+test('the default micro mesh pool scales with cores within fixed bounds', () => {
+  assert.deepEqual([0, 1, 4, 7, 8, 10, 12, 64, Number.NaN].map(defaultMicroMeshWorkerCount),
+    [1, 1, 1, 1, 2, 2, 2, 2, 1]);
+});
+
+test('a micro mesh pool balances snapshots and matches local meshing', () => {
+  const build = (layer: MicroVoxelLayer) => {
+    for (let i = 0; i < 40; i++) layer.set(i * 16 + 8, 1, 8, 0x336699 + i);
+  };
+  const local = new MicroVoxelLayer();
+  build(local);
+  local.updateMesh();
+
+  const pooled = new MicroVoxelLayer() as any;
+  build(pooled);
+  const primary = attachWorker(pooled);
+  const extra = new MicroWorker();
+  pooled.attachMeshWorker(extra, true);
+  pooled.meshWorkerLimit = 1;
+  pooled.updateMesh();
+  assert.deepEqual([primary.requests.length, extra.requests.length], [16, 0], 'a limit of one uses only the primary');
+  pooled.meshWorkerLimit = 2;
+  pooled.updateMesh();
+  assert.deepEqual([primary.requests.length, extra.requests.length], [16, 16], 'the queue bound grows with the pool');
+  assert.equal(new Set([...primary.requests, ...extra.requests].map(request => request.requestId)).size, 32);
+
+  for (let turn = 0; turn < 1000 && pooled.dirty; turn++) {
+    while (extra.requests.length) extra.complete(extra.requests.length - 1);
+    while (primary.requests.length) primary.complete(0);
+    pooled.updateMesh();
+  }
+  assert.equal(pooled.dirty, false);
+  assert.deepEqual(meshData(pooled), meshData(local), 'results arriving from either worker publish identically');
+});
+
+test('a failing pool worker disables the whole pool without losing partitions', () => {
+  const layer = new MicroVoxelLayer() as any;
+  for (let i = 0; i < 20; i++) layer.set(i * 16 + 8, 1, 8, 0x445566);
+  const primary = attachWorker(layer);
+  const extra = new MicroWorker();
+  layer.attachMeshWorker(extra, true);
+  layer.meshWorkerLimit = 2;
+  layer.updateMesh();
+  assert.ok(extra.requests.length > 0);
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    extra.onerror!({ message: 'boom' });
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(primary.terminated, true);
+  assert.equal(extra.terminated, true);
+  for (let turn = 0; turn < 100 && layer.dirty; turn++) layer.updateMesh();
+  assert.equal(layer.dirty, false);
+  assert.equal(layer.meshChunks.size, 20, 'every partition is rebuilt by local meshing');
+});
+
+test('empty-to-empty micro partitions do not consume the per-call build count', () => {
+  const layer = new MicroVoxelLayer() as any;
+  // Thirty partitions, nearer the focus than the real work, that are dirtied
+  // and emptied before any mesh exists; the queue reaches them first.
+  for (let i = 0; i < 30; i++) { layer.set(i * 16 + 8, 8, 8, 1); layer.delete(i * 16 + 8, 8, 8); }
+  for (let i = 0; i < 3; i++) layer.set(i * 16 + 8, 8, 1608, 0x226644);
+  layer.setMeshFocus(0, 0);
+  layer.updateMesh(3);
+  assert.equal(layer.meshChunks.size, 3, 'the counted builds are not crowded out by empty partitions');
+  assert.equal(layer.dirty, false, 'the empty partitions were retired in the same call');
+
+  // Removing an existing mesh still counts as publication work.
+  const removal = new MicroVoxelLayer() as any;
+  for (let i = 0; i < 4; i++) removal.set(i * 16 + 8, 8, 8, 0x226644);
+  removal.updateMesh();
+  assert.equal(removal.meshChunks.size, 4);
+  for (let i = 0; i < 4; i++) removal.delete(i * 16 + 8, 8, 8);
+  removal.updateMesh(2);
+  assert.equal(removal.meshChunks.size, 2, 'two removals fill a limit of two');
+  removal.updateMesh(2);
+  assert.equal(removal.meshChunks.size, 0);
 });
 
 test('micro worker lookahead is bounded and a direct edit bypasses a full background queue', () => {

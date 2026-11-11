@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { World } from '../src/voxel/World.ts';
+import { World, idleStreamingBudgetMs } from '../src/voxel/World.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 import { CHUNK_SIZE_Y } from '../src/voxel/Chunk.ts';
 import {
@@ -780,6 +780,70 @@ for (const didTimeout of [true, false]) {
     }
   });
 }
+
+test('idle streaming budget follows the browser deadline within fixed bounds', () => {
+  const at = (didTimeout: boolean, remaining: number) => idleStreamingBudgetMs({ didTimeout, timeRemaining: () => remaining });
+  assert.equal(idleStreamingBudgetMs(undefined), 1);
+  assert.equal(at(true, 40), 1, 'a timed-out slice keeps the minimal background budget');
+  assert.equal(at(false, 0), 1, 'no idle time still services the queue');
+  assert.equal(at(false, 2.5), 1.5, 'leave a margin before the next frame');
+  assert.equal(at(false, 49), 3, 'never exceed the per-frame streaming budget');
+  assert.equal(at(false, Number.NaN), 1);
+});
+
+test('one idle slice publishes several finished results only while the budget allows', () => {
+  const world = new World(new THREE.Scene()) as any;
+  const queue = (count: number) => {
+    world.completedTerrainWorkerJobs = Array.from({ length: count }, (_, index) => ({ job: { key: `${index},0` }, result: {} }));
+  };
+  const published: string[] = [];
+  world.publishNextTerrainWorkerJob = () => { published.push(world.completedTerrainWorkerJobs.shift().job.key); return true; };
+  const realNow = performance.now;
+  let now = 0;
+  (performance as any).now = () => now;
+  try {
+    // Each publication costs 0.6 ms of the clock.
+    const publish = world.publishNextTerrainWorkerJob;
+    world.publishNextTerrainWorkerJob = () => { now += 0.6; return publish(); };
+    world.terrainPublicationCostMs = 0.6;
+
+    queue(4);
+    assert.equal(world.publishCompletedTerrainWorkerJob(), true);
+    assert.deepEqual(published.splice(0), ['0,0'], 'the default call keeps the one-result cap');
+
+    queue(4);
+    world.publishCompletedTerrainWorkerJob(1, Infinity);
+    assert.deepEqual(published.splice(0), ['0,0'], 'a second result would overrun a 1 ms budget');
+
+    queue(6);
+    world.publishCompletedTerrainWorkerJob(3, Infinity);
+    assert.deepEqual(published.splice(0), ['0,0', '1,0', '2,0', '3,0'],
+      'stop before a publication that is projected to exceed the budget');
+
+    queue(2);
+    world.publishCompletedTerrainWorkerJob(3, Infinity);
+    assert.deepEqual(published.splice(0), ['0,0', '1,0'], 'an empty queue ends the slice');
+  } finally {
+    (performance as any).now = realNow;
+  }
+});
+
+test('blocked results rotate behind independent ready ones within one slice', () => {
+  const world = new World(new THREE.Scene()) as any;
+  world.completedTerrainWorkerJobs = ['blocked', 'a', 'b'].map(key => ({ job: { key }, result: {} }));
+  const published: string[] = [];
+  world.publishNextTerrainWorkerJob = () => {
+    const next = world.completedTerrainWorkerJobs[0];
+    if (next.job.key === 'blocked') return false;
+    published.push(world.completedTerrainWorkerJobs.shift().job.key);
+    return true;
+  };
+  world.terrainPublicationCostMs = 0;
+  world.publishCompletedTerrainWorkerJob(3, Infinity);
+  assert.deepEqual(published, ['a', 'b']);
+  assert.deepEqual(world.completedTerrainWorkerJobs.map((entry: any) => entry.job.key), ['blocked'],
+    'the barrier-held result stays queued without spinning');
+});
 
 test('torus projection culls distant terrain with occupied-height bounds', () => {
     const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 90);
