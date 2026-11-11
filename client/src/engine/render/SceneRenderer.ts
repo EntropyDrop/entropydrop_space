@@ -22,7 +22,7 @@ import * as THREE from 'three/webgpu';
 import {
   applyCameraBend, hookSceneMaterials, cullChunks,
   bendPoint, bendPointForView, bendDirection, unbendPoint, unbendDirection,
-  setTorusViewCorrection, getWorldProjection,
+  setTorusViewCorrection, getWorldProjection, getWorldProjectionRevision, getTorusViewCorrectionRevision,
   TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear, wrapX, wrapZ,
 } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { CuteCharacter, loadCuteCharacter, type SkinModel } from './CuteCharacter.ts';
@@ -38,6 +38,7 @@ import {
 } from './RemotePlayerMotion.ts';
 import { AdaptiveResolutionController, MIN_RESOLUTION_SCALE, MAX_RESOLUTION_SCALE } from './AdaptiveResolution.ts';
 import { CinematicEffects } from './CinematicEffects.ts';
+import { ShadowMapCache, snapShadowToTexels } from './ShadowMapCache.ts';
 import { createSkyMaterial } from './CinematicSky.ts';
 import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, normalizeLightingQuality,
@@ -174,6 +175,11 @@ export function createEntityPreviewCamera() {
 
 export class SceneRenderer {
   nearFrustumCullingEnabled = true;
+  /** Reuses the sun shadow map while every shadow-pass input is unchanged. */
+  private shadowCacheState?: ShadowMapCache;
+  get shadowCache() { return this.shadowCacheState ??= new ShadowMapCache(); }
+  private shadowDecisionPending = false;
+  private shadowCacheExtras?: number[];
   private worldOverlayListeners = new Set<(camera: THREE.PerspectiveCamera) => void>();
 
   subscribeWorldOverlay(listener: (camera: THREE.PerspectiveCamera) => void): () => void {
@@ -386,6 +392,9 @@ export class SceneRenderer {
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.layers.enable(ENTITY_PREVIEW_LAYER);
     this.scene.add(this.sunLight);
+    // Runs after Three's world-matrix update and before the shadow node's
+    // updateBefore, so the cache compares this frame's final transforms.
+    this.scene.onBeforeRender = (_renderer, _scene, camera) => this.decideShadowUpdate(camera);
 
     // A shadow-free cool bounce light lifts faces turned away from the sun.
     // It is omitted from rendering at Low/Medium and during adaptive fallback.
@@ -1038,7 +1047,16 @@ export class SceneRenderer {
       this.previewRenderer.toneMappingExposure = this.renderer.toneMappingExposure;
       // The main camera's first-person viewmodel is not a world-space object.
       if (this.playerFirstPersonHand) this.playerFirstPersonHand.visible = false;
-      this.previewRenderer.render(this.scene, this.previewCamera);
+      // The preview renderer owns a separate shadow map; the main cache's
+      // reuse decision must not suppress it.
+      const shadow = this.sunLight?.shadow;
+      const autoUpdate = shadow?.autoUpdate;
+      if (shadow) shadow.autoUpdate = !!this.renderer?.shadowMap?.enabled;
+      try {
+        this.previewRenderer.render(this.scene, this.previewCamera);
+      } finally {
+        if (shadow) shadow.autoUpdate = autoUpdate!;
+      }
     } finally {
       setTorusViewCorrection(this.camera.position);
       if (skyPosition) this.skyDome.position.copy(skyPosition);
@@ -1853,9 +1871,10 @@ export class SceneRenderer {
     if (this.sunLight) {
       this.sunLight.castShadow = true;
       this.sunLight.shadow.intensity = enabled ? 1 : 0;
-      this.sunLight.shadow.autoUpdate = enabled;
+      this.sunLight.shadow.autoUpdate = enabled && !this.shadowCache.enabled;
       this.sunLight.shadow.needsUpdate = enabled;
     }
+    this.shadowCache.invalidate();
     if (!enabled) this.releaseSunShadowMap();
     if (this.renderer.shadowMap.enabled === enabled) return;
     this.renderer.shadowMap.enabled = enabled;
@@ -2240,6 +2259,10 @@ export class SceneRenderer {
     // follow the local surface instead of pointing at a stale flat-world target.
     this.sunLight.target.position.copy(this.bentLightTarget);
     this.sunLight.position.copy(this.bentLightTarget).addScaledVector(this.bentLightDirection, sunDist);
+    // Snap in the shadow camera's own basis (its up is the bent surface up).
+    bendDirection(playerPos.x, playerPos.y, playerPos.z, this.bentSurfaceUp.set(0, 1, 0), this.bentSurfaceUp);
+    snapShadowToTexels(this.sunLight, this.bentSurfaceUp, this.sunLight.shadow.camera.right,
+      this.sunLight.shadow.mapSize.x);
     this.sunLight.target.updateMatrixWorld();
 
     // Hemisphere and bounce lighting must follow the same local surface as
@@ -2459,6 +2482,28 @@ export class SceneRenderer {
 
   render(cleanScreenshot = false, preparingTerrain = false) {
     if (!preparingTerrain) this.updateAdaptiveResolution();
+    this.shadowDecisionPending = true;
+    try {
+      this.renderFrame(cleanScreenshot);
+    } finally {
+      this.shadowDecisionPending = false;
+    }
+  }
+
+  /** Decide once per presented frame whether the sun shadow map is redrawn. */
+  private decideShadowUpdate(camera: THREE.Camera) {
+    if (!this.shadowDecisionPending || !this.sunLight || camera === this.sunLight.shadow.camera) return;
+    this.shadowDecisionPending = false;
+    const shadow = this.sunLight.shadow;
+    if (!this.renderer.shadowMap.enabled || !this.shadowCache.enabled || shadow.autoUpdate) return;
+    const extras = this.shadowCacheExtras ??= [0, 0, 0];
+    extras[0] = getWorldProjectionRevision();
+    extras[1] = getTorusViewCorrectionRevision();
+    extras[2] = this.world?.distantSurface?.handoff?.texture.version ?? -1;
+    if (this.shadowCache.needsRender(this.scene, shadow, this.sunLight, extras)) shadow.needsUpdate = true;
+  }
+
+  private renderFrame(cleanScreenshot: boolean) {
     if (!this.world) {
       if (cleanScreenshot) this.renderWorldForScreenshot();
       else {

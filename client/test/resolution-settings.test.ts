@@ -227,7 +227,8 @@ test('renderer combines the manual shadow preference with the selected lighting 
   renderer.setShadowsEnabled(true);
   assert.equal(renderer.renderer.shadowMap.enabled, true);
   assert.equal(renderer.sunLight.shadow.intensity, 1);
-  assert.equal(renderer.sunLight.shadow.autoUpdate, true);
+  // The shadow cache decides per frame; the first frame always redraws.
+  assert.equal(renderer.sunLight.shadow.autoUpdate, !renderer.shadowCache.enabled);
   assert.equal(renderer.sunLight.shadow.needsUpdate, true);
 
   renderer.lightingQuality = 'low';

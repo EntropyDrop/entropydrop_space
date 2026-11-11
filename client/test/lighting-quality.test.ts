@@ -91,7 +91,8 @@ test('quality switches resize shadow storage without invalidating WebGPU depth s
   renderer.setLightingQuality('medium');
   assert.equal(renderer.renderer.shadowMap.enabled, true);
   assert.equal(renderer.sunLight.castShadow, true);
-  assert.equal(shadow.autoUpdate, true);
+  // The shadow cache decides per frame; the first frame always redraws.
+  assert.equal(shadow.autoUpdate, !renderer.shadowCache.enabled);
   assert.equal(shadow.needsUpdate, true);
   assert.equal(shadow.mapSize.x, 1024);
   assert.equal(renderer.sunLight.intensity, originalSunIntensity);
