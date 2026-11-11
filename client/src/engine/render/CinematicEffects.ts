@@ -55,20 +55,30 @@ export class CinematicEffects {
     this.displayTarget.texture.name = 'Space.Ultra.Display';
     const colorAt = (point: any) => texture(this.sceneTarget.texture, point);
     const depthAt = (point: any) => texture(this.sceneTarget.depthTexture!, point).r;
-    const positionAt = (point: any) => {
+    // Depth is point-sampled, so positions are reconstructed per depth texel.
+    // The half-resolution AO pass sits exactly on full-resolution texel
+    // borders: offsetting its UV by one texel let float rounding pick the same
+    // texel as the centre for some rows, giving a zero tangent, a broken
+    // normal and false occlusion in a three-row cycle (stripes on flat roofs
+    // and ground). Neighbours are therefore taken as integer texel offsets.
+    const texelOf = (point: any) => clamp(floor(point.mul(this.resolution)), vec2(0), this.resolution.sub(1));
+    const positionAtTexel = (texelIndex: any) => {
+      const point = texelIndex.add(.5).div(this.resolution);
       // Texture UV is top-left in WebGPU; the camera projection's Y points up.
       const clip = vec4(point.x.mul(2).sub(1), point.y.mul(-2).add(1), depthAt(point), 1);
       const p = this.inverseProjection.mul(clip);
       return p.xyz.div(p.w);
     };
+    const positionAt = (point: any) => positionAtTexel(texelOf(point));
     const inBounds = (point: any) => point.x.greaterThanEqual(0).and(point.y.greaterThanEqual(0))
       .and(point.x.lessThanEqual(1)).and(point.y.lessThanEqual(1));
     const contact = (center: any) => Fn(() => {
       const result = float(1).toVar();
       If(center.z.negate().greaterThanEqual(.8).and(center.z.negate().lessThanEqual(180)), () => {
-        const texel = vec2(1).div(this.resolution);
-        const l = positionAt(uv().sub(vec2(texel.x,0))), r = positionAt(uv().add(vec2(texel.x,0)));
-        const b = positionAt(uv().add(vec2(0,texel.y))), t = positionAt(uv().sub(vec2(0,texel.y)));
+        const texel = vec2(1).div(this.resolution), centerTexel = texelOf(uv());
+        const neighbor = (offset: any) => positionAtTexel(clamp(centerTexel.add(offset), vec2(0), this.resolution.sub(1)));
+        const l = neighbor(vec2(-1,0)), r = neighbor(vec2(1,0));
+        const b = neighbor(vec2(0,1)), t = neighbor(vec2(0,-1));
         const dx = abs(l.z.sub(center.z)).lessThan(abs(r.z.sub(center.z))).select(center.sub(l),r.sub(center));
         const dy = abs(b.z.sub(center.z)).lessThan(abs(t.z.sub(center.z))).select(center.sub(b),t.sub(center));
         const normal = cross(dx,dy).add(vec3(0,0,.0000001)).normalize();
