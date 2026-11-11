@@ -321,6 +321,54 @@ test('an empty boundary companion is not queued for a rebuild', () => {
   assert.equal(layer.dirty, false);
 });
 
+test('precomputed boundary companions match the per-barrier rule, including torus wraps', async () => {
+  const { TORUS_SIZE_X, TORUS_SIZE_Z } = await import('../src/torus/TorusWorld.ts');
+  const worldX = TORUS_SIZE_X * 8 / 16, worldZ = TORUS_SIZE_Z * 8 / 16, span = 8;
+  const standardX = worldX / span, standardZ = worldZ / span;
+  // The previous implementation, kept here as the reference.
+  const participant = (barrierKey: string, meshKey: string) => {
+    const [sx, sz] = barrierKey.split(',').map(Number); const [mx, mz] = meshKey.split(',').map(Number);
+    const dx = ((mx - sx * span) % worldX + worldX) % worldX, dz = ((mz - sz * span) % worldZ + worldZ) % worldZ;
+    const insideX = dx < span, insideZ = dz < span;
+    const edgeX = dx === worldX - 1 || dx === span, edgeZ = dz === worldZ - 1 || dz === span;
+    return (insideX && insideZ) || (edgeX && insideZ) || (insideX && edgeZ);
+  };
+  const reference = (barriers: Set<string>, meshKey: string) => {
+    const [mx, mz] = meshKey.split(',').map(Number);
+    if (barriers.has(`${Math.floor(mx / span)},${Math.floor(mz / span)}`)) return false;
+    for (const barrier of barriers) if (participant(barrier, meshKey)) return true;
+    return false;
+  };
+  let companions = 0;
+  let seed = 7; const random = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  for (let round = 0; round < 40; round++) {
+    const layer = new MicroVoxelLayer() as any;
+    const barriers = new Set<string>();
+    // Mix seam-adjacent, clustered and random barriers.
+    barriers.add(`${round % 2 ? 0 : standardX - 1},${round % 3 ? 0 : standardZ - 1}`);
+    for (let i = 0; i < 1 + random(6); i++) barriers.add(`${(10 + random(4)) % standardX},${(20 + random(4)) % standardZ}`);
+    barriers.add(`${random(standardX)},${random(standardZ)}`);
+    layer.updateMesh(0, null, null, 0, barriers);
+    const probes: string[] = [];
+    for (const barrier of barriers) {
+      const [sx, sz] = barrier.split(',').map(Number);
+      for (let dx = -2; dx < span + 2; dx++) for (let dz = -2; dz < span + 2; dz++) {
+        probes.push(`${((sx * span + dx) % worldX + worldX) % worldX},${((sz * span + dz) % worldZ + worldZ) % worldZ},${random(20)}`);
+      }
+    }
+    for (let i = 0; i < 200; i++) probes.push(`${random(worldX)},${random(worldZ)},${random(20)}`);
+    for (const probe of probes) {
+      const expected = reference(barriers, probe);
+      if (expected) companions++;
+      assert.equal(layer.isOutsidePublicationCompanion(probe), expected, `${[...barriers]} ${probe}`);
+    }
+  }
+  assert.ok(companions > 1000, `the probes must exercise real companions (${companions})`);
+  const layer = new MicroVoxelLayer() as any;
+  layer.updateMesh(0, null, null, 0, null);
+  assert.equal(layer.isOutsidePublicationCompanion('8,0,0'), false, 'no barriers, no companions');
+});
+
 test('a newer inactive boundary companion cannot hold the target barrier', () => {
   const layer = new MicroVoxelLayer();
   const deferredChunks = new Set(['0,0']);

@@ -246,6 +246,7 @@ export class MicroVoxelLayer {
   private publishedCollisionSnapshots: Map<string, Map<number, number | null>>;
   private activeMeshBuild: MicroMeshBuildJob | null;
   private deferredPublicationChunkKeys: Set<string> | null;
+  private publicationCompanionColumns: Set<number> | null = null;
   private deferredMeshPublications: Map<string, DeferredMeshPublication>;
   private recentlyRebuiltMeshes: THREE.Mesh[];
   private meshTempColor: THREE.Color;
@@ -1195,11 +1196,13 @@ export class MicroVoxelLayer {
 
   /** Least-loaded worker among the first `meshWorkerLimit`, or null when all are full. */
   private nextMeshWorker(): Worker | null {
-    if (!this.meshWorker) return null;
-    const pool = [this.meshWorker, ...this.extraMeshWorkers].slice(0, Math.max(1, this.meshWorkerLimit));
+    const primary = this.meshWorker;
+    if (!primary) return null;
+    const count = Math.min(Math.max(1, this.meshWorkerLimit), 1 + this.extraMeshWorkers.length);
     let best: Worker | null = null;
     let bestLoad = MAX_PENDING_MICRO_BUILDS;
-    for (const worker of pool) {
+    for (let index = 0; index < count; index++) {
+      const worker = index === 0 ? primary : this.extraMeshWorkers[index - 1];
       const load = this.workerOutstanding.get(worker) ?? 0;
       if (load < bestLoad) { best = worker; bestLoad = load; }
     }
@@ -1273,6 +1276,7 @@ export class MicroVoxelLayer {
     deferredPublicationChunkKeys: Set<string> | null = null,
   ) {
     this.deferredPublicationChunkKeys = deferredPublicationChunkKeys;
+    this.publicationCompanionColumns = this.buildPublicationCompanionColumns(deferredPublicationChunkKeys);
     if (!this.dirty && !this.activeMeshBuild && this.workerBuilds.size === 0) return false;
     this.recentlyRebuiltMeshes.length = 0;
     const limit = Number.isFinite(maxChunks) ? Math.max(1, Math.floor(maxChunks)) : Infinity;
@@ -1354,6 +1358,8 @@ export class MicroVoxelLayer {
     activeChunkKeys: Set<string> | null,
     blockedChunkKeys: Set<string> | null,
   ): string | null {
+    // Worker capacity cannot change during one scan; test it once, not per entry.
+    const workerAvailable = this.meshWorker !== null && this.nextMeshWorker() !== null;
     for (const chunkKey of this.dirtyMeshChunks) {
       const standardChunkKey = standardChunkKeyForMeshChunk(chunkKey);
       // Eviction clears cells only after the outgoing terrain fade. Retire
@@ -1365,7 +1371,7 @@ export class MicroVoxelLayer {
       if (blockedChunkKeys?.has(standardChunkKey)) continue;
       if (this.isOutsidePublicationCompanion(chunkKey)) continue;
       if (this.meshWorker && !empty && !this.interactiveMeshChunks.has(chunkKey)) {
-        if (!this.nextMeshWorker()) continue;
+        if (!workerAvailable) continue;
         if (this.workerChunkKeys.has(chunkKey)) continue;
       }
       return chunkKey;
@@ -1816,31 +1822,43 @@ export class MicroVoxelLayer {
   }
 
   private isOutsidePublicationCompanion(meshKey: string) {
-    const ownerKey = standardChunkKeyForMeshChunk(meshKey);
+    const columns = this.publicationCompanionColumns;
+    if (!columns) return false;
     // An adjacent conversion owns this partition through its own barrier. That
     // unique ownership avoids assigning one staged mesh to whichever barrier
     // happens to appear first in a Set.
-    if (this.deferredPublicationChunkKeys?.has(ownerKey)) return false;
-    for (const barrierKey of this.deferredPublicationChunkKeys ?? []) {
-      if (this.isPublicationBarrierParticipant(barrierKey, meshKey)) return true;
-    }
-    return false;
+    if (this.deferredPublicationChunkKeys?.has(standardChunkKeyForMeshChunk(meshKey))) return false;
+    return columns.has(meshChunkColumn(meshKey));
   }
 
-  private isPublicationBarrierParticipant(barrierKey: string, meshKey: string) {
-    const [standardCx, standardCz] = barrierKey.split(',').map(Number);
-    const [meshCx, meshCz] = meshKey.split(',').map(Number);
-    const meshWorldX = MICRO_WORLD_SIZE_X / MICRO_MESH_CHUNK_SIZE;
-    const meshWorldZ = MICRO_WORLD_SIZE_Z / MICRO_MESH_CHUNK_SIZE;
-    const baseX = standardCx * MICRO_MESH_CHUNKS_PER_STANDARD_AXIS;
-    const baseZ = standardCz * MICRO_MESH_CHUNKS_PER_STANDARD_AXIS;
-    const dx = ((meshCx - baseX) % meshWorldX + meshWorldX) % meshWorldX;
-    const dz = ((meshCz - baseZ) % meshWorldZ + meshWorldZ) % meshWorldZ;
-    const insideX = dx < MICRO_MESH_CHUNKS_PER_STANDARD_AXIS;
-    const insideZ = dz < MICRO_MESH_CHUNKS_PER_STANDARD_AXIS;
-    const edgeX = dx === meshWorldX - 1 || dx === MICRO_MESH_CHUNKS_PER_STANDARD_AXIS;
-    const edgeZ = dz === meshWorldZ - 1 || dz === MICRO_MESH_CHUNKS_PER_STANDARD_AXIS;
-    return (insideX && insideZ) || (edgeX && insideZ) || (insideX && edgeZ);
+  /**
+   * Mesh columns that share a face with a deferred standard chunk but belong
+   * to a chunk that is not deferred itself: the face-adjacent column strip
+   * along each of the barrier's four sides, wrapped around the torus. Columns
+   * inside a barrier are owned by that barrier, so a partition there never
+   * reaches the companion test. Rebuilt once per updateMesh call instead of
+   * re-parsing every barrier key for every queued partition and result.
+   */
+  private buildPublicationCompanionColumns(barriers: Set<string> | null) {
+    if (!barriers?.size) return null;
+    const columns = new Set<number>();
+    const worldX = MICRO_WORLD_SIZE_X / MICRO_MESH_CHUNK_SIZE;
+    const worldZ = MICRO_WORLD_SIZE_Z / MICRO_MESH_CHUNK_SIZE;
+    const span = MICRO_MESH_CHUNKS_PER_STANDARD_AXIS;
+    const add = (cx: number, cz: number) => columns.add(
+      (((cx % worldX) + worldX) % worldX) * 1048576 + (((cz % worldZ) + worldZ) % worldZ));
+    for (const barrierKey of barriers) {
+      const comma = barrierKey.indexOf(',');
+      const baseX = Number(barrierKey.slice(0, comma)) * span;
+      const baseZ = Number(barrierKey.slice(comma + 1)) * span;
+      for (let i = 0; i < span; i++) {
+        add(baseX - 1, baseZ + i);
+        add(baseX + span, baseZ + i);
+        add(baseX + i, baseZ - 1);
+        add(baseX + i, baseZ + span);
+      }
+    }
+    return columns;
   }
 
   private publishMeshChunk(job: MicroMeshBuildJob, mesh: THREE.Mesh | null) {
