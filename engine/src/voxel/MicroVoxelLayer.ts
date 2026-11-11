@@ -364,7 +364,26 @@ export class MicroVoxelLayer {
     this.collisionRevisions.set(chunkKey, (this.collisionRevisions.get(chunkKey) ?? 0) + 1);
   }
 
+  /**
+   * True when rebuilding the partition must yield exactly its current state:
+   * it holds no cells, has no published or staged mesh or collision data, and
+   * no build that a newer revision would need to supersede. Neighbor halos and
+   * evictions invalidate tens of thousands of such partitions per teleport.
+   */
+  private isSettledEmptyPartition(chunkKey: string) {
+    return !this.chunkCells.has(chunkKey)
+      && !this.meshChunks.has(chunkKey)
+      && !this.deferredMeshPublications.has(chunkKey)
+      && !this.dirtyMeshChunks.has(chunkKey)
+      && !this.workerChunkKeys.has(chunkKey)
+      && this.activeMeshBuild?.chunkKey !== chunkKey
+      && !this.publishedCollisionPartitions.has(chunkKey)
+      && !this.detachedCollisionCells.has(chunkKey)
+      && !this.publishedCollisionSnapshots.has(chunkKey);
+  }
+
   private invalidateMeshChunk(chunkKey: string) {
+    if (this.isSettledEmptyPartition(chunkKey)) return;
     if (!this.meshChunkRevisions.has(chunkKey)) this.trackPartition(chunkKey);
     // A staged mesh is immutable for the revision that produced it. Retire it
     // as soon as a newer edit invalidates that revision; otherwise an inactive

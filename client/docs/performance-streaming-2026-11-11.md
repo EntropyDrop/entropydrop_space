@@ -1,8 +1,8 @@
 # Teleport streaming and shadow-caster experiments, 2026-11-11
 
-Five experiments follow the sun shadow-map reuse change (`5e8d234`). Four are
+Six experiments follow the sun shadow-map reuse change (`5e8d234`). Five are
 retained; one is rejected. Together the retained changes bring the measured
-teleport from about 3.86 s to about 2.2 s to a ready detailed AOI.
+teleport from about 3.86 s to about 2.1 s to a ready detailed AOI.
 
 All measurements use Chrome on an Apple M1 Pro
 (10 cores), the offline Aether world (`?dev_offline=1`), Medium lighting, a
@@ -151,14 +151,58 @@ frames. A third uncounted trial is excluded: the browser pane was hidden
 during it, throttling animation frames to 1 Hz (1,000 ms frame intervals),
 so it measured the throttle rather than the change.
 
+## Retained: settled empty partitions are not queued
+
+Counting invalidations during one teleport found 69,164 partition
+invalidations, 64,332 of them for partitions with no cells. Cell installs on
+a partition face invalidate the face neighbour, and clearing an evicted
+chunk invalidates the six neighbours of every cleared partition. A partition
+without cells always meshes to nothing, because faces belong to the
+partition that holds the cell. When the detailed AOI became ready, about
+40,000 such partitions were still queued; the main thread kept retiring them
+for about 2.4 s afterwards, and every queue sort and progress check scanned
+them.
+
+`invalidateMeshChunk` now returns early for a settled empty partition: no
+cells, no published or staged mesh, no published, detached or snapshotted
+collision data, not already queued, no outstanding worker snapshot and not
+the active build. Rebuilding such a partition would publish exactly its
+current state. Any partition that fails one of these conditions is
+invalidated as before; in particular, emptying a partition whose snapshot is
+still in a worker bumps its revision so the stale result is discarded.
+
+The barrier test that used an empty outside companion now gives the
+companion a cell of its own, which keeps testing that the companion does not
+publish before the target's atomic commit; a separate test checks that an
+empty companion is not queued.
+
+The baseline below disables the early return at runtime. "Drained" is the
+time until the micro layer has no queued or outstanding work.
+
+| Variant | Ready (ms) | Drained (ms) | Queued at ready | Frames > 20 ms |
+|---|---|---|---|---|
+| Empty partitions queued | 2203, 2315, 2255 | 4514, 4634, 4632 | 41,103 / 39,781 / 41,062 | 0, 0, 0 |
+| Settled empty skipped | 2024, 2108, 2095 | 3092, 3137, 3114 | 7,912 / 7,890 / 7,713 | 0, 0, 0 |
+
+Mean time to a ready AOI falls from 2,258 to 2,076 ms (-8%), and background
+micro work ends about 1.5 s sooner (4,593 to 3,114 ms, -32%).
+
 ## Remaining opportunities
 
+- About 7,900 partitions are still queued at ready. Classifying them in one
+  trial showed all 7,912 belonged to the previous AOI and had no cells, a
+  published mesh and published, detached and snapshotted collision data:
+  evicted partitions whose meshes are retired. Each retirement counts toward
+  the 64 builds per call, so they drain over about 1,050 ms (126 calls) after
+  the AOI is ready. That tail cost 89 ms of main-thread time in `updateMesh`
+  (at most 1.4 ms per call), including 42 ms of render-batch flushing that
+  rebuilt 418 merged batches, with no frame above 17.7 ms. It does not delay
+  readiness and spreads about 1.4 ms over each of roughly 60 frames, so it is
+  left as is; collapsing repeated batch rebuilds could save at most about
+  40 ms in total.
 - Snapshot packing still runs on the main thread inside the idle streaming
   budget. Moving halo gathering into the workers would need a shared or
   transferred copy of the cell data; re-measure which limit applies first.
-- Partitions that never contain cells could avoid entering the dirty queue
-  at all, which would also shrink the 45,000-entry queue that sorting and
-  progress checks scan.
 - The benchmark's 20 ms progress polling calls `getPendingStandardChunkKeys`,
   which costs about 1.4 ms per call with a large dirty queue. Any UI that
   polls loading progress per frame should be checked for the same cost.
@@ -171,5 +215,6 @@ New tests cover the idle budget bounds, budgeted multi-publication, barrier
 rotation without spinning, the bounded re-sort with immediate focus and
 direct-edit priority, the default pool size, balanced pool dispatch with
 output identical to local meshing, whole-pool fallback after a worker
-failure, and empty partitions that do not consume the build count while mesh
-removals still do.
+failure, empty partitions that do not consume the build count while mesh
+removals still do, empty boundary companions that are not queued, and an
+emptied partition whose outstanding worker snapshot is discarded.

@@ -201,6 +201,20 @@ test('empty-to-empty micro partitions do not consume the per-call build count', 
   assert.equal(removal.meshChunks.size, 0);
 });
 
+test('emptying a partition with an outstanding worker snapshot discards the stale result', () => {
+  const layer = new MicroVoxelLayer() as any;
+  layer.set(8, 8, 8, 0x226644);
+  const worker = attachWorker(layer);
+  layer.updateMesh();
+  assert.equal(worker.requests.length, 1);
+  layer.delete(8, 8, 8);
+  assert.equal(layer.dirtyMeshChunks.has('0,0,0'), true, 'an in-flight build must be superseded');
+  worker.complete();
+  for (let turn = 0; turn < 10 && layer.dirty; turn++) layer.updateMesh();
+  assert.equal(layer.meshChunks.size, 0, 'the stale snapshot never publishes');
+  assert.equal(layer.getPublishedCollisionColor(8, 8, 8), null);
+});
+
 test('micro worker lookahead is bounded and a direct edit bypasses a full background queue', () => {
   const layer = new MicroVoxelLayer();
   for (let i = 0; i < 40; i++) layer.set(i * 16 + 1, 1, 1, 1);

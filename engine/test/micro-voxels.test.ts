@@ -286,21 +286,39 @@ test('cross-layer conversion can prepare a micro mesh without publishing it earl
 test('a cross-layer barrier also defers the adjacent boundary-face partition', () => {
   const layer = new MicroVoxelLayer();
   const deferredChunks = new Set(['0,0']);
+  // The outside companion holds its own cell; an empty companion has no
+  // geometry to defer and is not queued at all (checked below).
+  layer.set(129, 100, 5, 0x22c55e);
+  layer.updateMesh();
+  assert.equal(layer.meshChunks.size, 1);
   layer.set(127, 100, 5, 0x48dbfb);
   layer.updateMesh(Infinity, new Set(['0,0', '1,0']), null, Infinity, deferredChunks);
 
-  assert.equal(layer.meshChunks.size, 0,
+  assert.equal(layer.meshChunks.size, 1,
     'neither side of a 16 m boundary may publish before the shared commit');
+  const companionBefore = layer.meshChunks.get('8,0,6');
+  assert.ok(companionBefore, 'the companion keeps its previous mesh');
   assert.equal(layer.publishDeferredForStandardChunk('0,0', () => {}), 1,
     'only partitions owned by the target standard chunk join its atomic commit');
-  assert.equal(layer.meshChunks.size, 1,
+  assert.equal(layer.meshChunks.size, 2,
     'the occupied target publishes while its outside companion keeps the old view');
+  assert.equal(layer.meshChunks.get('8,0,6'), companionBefore);
   deferredChunks.delete('0,0');
   assert.equal(
     layer.updateMesh(Infinity, new Set(['0,0', '1,0']), null, Infinity, deferredChunks),
     true,
     'the outside companion should rebuild after the target commit instead of publishing early',
   );
+});
+
+test('an empty boundary companion is not queued for a rebuild', () => {
+  const layer = new MicroVoxelLayer() as any;
+  layer.set(127, 100, 5, 0x48dbfb);
+  assert.deepEqual([...layer.dirtyMeshChunks], ['7,0,6'],
+    'a partition without cells, mesh or collision data cannot change');
+  layer.updateMesh();
+  assert.equal(layer.meshChunks.size, 1);
+  assert.equal(layer.dirty, false);
 });
 
 test('a newer inactive boundary companion cannot hold the target barrier', () => {
