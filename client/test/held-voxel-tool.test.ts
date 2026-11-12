@@ -105,20 +105,36 @@ test('held tools exit at the same palm opening with their heel inside the fist',
   }
 });
 
-test('the brush has matte wood and bristles in both views', () => {
+test('the brush has a lacquered colored handle and rainbow paint in both views', () => {
   const rig = character();
   rig.setHeldTool('brush');
   rig.update(0);
   rig.firstPersonHand.updateMatrixWorld(true);
   for (const root of [rig.object3d, rig.firstPersonHand]) {
     const brush = visibleTools(root)[0];
-    assert.deepEqual(brush.material.map(material => material.name), ['ToolSilver', 'BrushWood', 'BrushBristles']);
+    assert.deepEqual(brush.material.map(material => material.name), ['ToolSilver', 'BrushHandle', 'BrushBristles']);
     assert.deepEqual(brush.geometry.groups.map(group => group.materialIndex), [0, 1, 2]);
-    for (const material of brush.material.slice(1)) {
+    const [, handle, bristles] = brush.material;
+    for (const material of [handle, bristles]) {
       assert.equal(material.metalness, 0);
-      assert.ok(material.roughness >= 0.85);
       assert.equal(material.envMap, null);
     }
+    assert.ok(handle.roughness < bristles.roughness, 'the lacquered handle is glossier than the bristles');
+    const colors = brush.geometry.getAttribute('color');
+    const hues = (group: THREE.GeometryGroup) => {
+      const result = new Set<number>();
+      const index = brush.geometry.getIndex()!;
+      const color = new THREE.Color();
+      const hsl = { h: 0, s: 0, l: 0 };
+      for (let i = group.start; i < group.start + group.count; i++) {
+        color.fromBufferAttribute(colors, index.getX(i)).getHSL(hsl);
+        if (hsl.s > 0.5) result.add(Math.round(hsl.h * 12) % 12);
+      }
+      return result;
+    };
+    const [, handleGroup, bristleGroup] = brush.geometry.groups;
+    assert.ok(hues(handleGroup).size >= 2, 'the handle needs a body color and contrasting trim');
+    assert.ok(hues(bristleGroup).size >= 6, 'the bristle tip needs a rainbow of saturated paint');
   }
   rig.dispose();
 });

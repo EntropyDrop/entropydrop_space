@@ -17,11 +17,17 @@ const CELL = 0.4;
 // Normalize silhouettes to the same overall length, then reduce the former
 // typical 24-cell tool to two thirds. The grip remains at the origin.
 export const HELD_TOOL_LENGTH = 24 * CELL * (2 / 3);
-const TOOL_COLORS = [
-  0xbac5cf, 0xe6edf2, 0x778996, 0x9caab6, 0xf7fafc, // silver
-  0x714727, 0x9e6638, 0xc38b50, // wooden brush handle
-  0xd9bd8b, 0xa98653, 0xefdbb4 // natural bristles
-];
+const SILVER_TONES = [0xbac5cf, 0xe6edf2, 0x778996, 0x9caab6, 0xf7fafc];
+// Lacquered brush handle: shade, cobalt body and highlight, then two trim rings.
+const HANDLE_TONES = [0x1f4fb8, 0x3577e6, 0x86b6ff, 0xffc93c, 0xe8433f];
+// Cream bristle roots and their lit strands.
+const BRISTLE_TONES = [0xf3e6c8, 0xfff8e8];
+// The bristle tip is dipped in a rainbow of paint, red to violet across its width.
+const PAINT_COLORS = [0xe8433f, 0xf5892a, 0xf7cf3b, 0x5cc25a, 0x2fb7c8, 0x3a6fe0, 0x9056d6];
+const HANDLE_TONE = SILVER_TONES.length;
+const BRISTLE_TONE = HANDLE_TONE + HANDLE_TONES.length;
+// Each paint has a base, a lit strand and a deeper drip shade at the tip.
+const PAINT_TONE = BRISTLE_TONE + BRISTLE_TONES.length;
 export type HeldVoxelToolMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial[]>;
 type Voxel = { x: number; y: number; z: number; tone: number };
 
@@ -157,27 +163,42 @@ function toolVoxels(tool: HeldTool) {
         box(-halfWidth, halfWidth, y, y, 0, 0, 1);
       }
       break;
-    case 'brush':
-      box(-1, 1, -4, 10, -1, 1, 6);
-      box(-2, 2, -2, 3, -1, 1, 6);
-      box(0, 0, -2, 7, 1, 1, 5);
-      box(-1, -1, -3, 8, 1, 1, 7);
+    case 'brush': {
+      const [shade, lacquer, gloss, gold, cherry] = HANDLE_TONES.map((_, index) => HANDLE_TONE + index);
+      const [cream, creamStrand] = [BRISTLE_TONE, BRISTLE_TONE + 1];
+      box(-1, 1, -4, 10, -1, 1, lacquer);
+      box(-2, 2, -2, 3, -1, 1, lacquer);
+      box(0, 0, -2, 7, 1, 1, shade);
+      box(-1, -1, -3, 8, 1, 1, gloss);
+      // A cherry end cap and two trim rings above the fist, like a painted toy brush.
+      box(-1, 1, -4, -4, -1, 1, cherry);
+      box(-1, 1, 5, 5, -1, 1, gold);
+      box(-1, 1, 8, 8, -1, 1, cherry);
+      box(-1, 1, 9, 9, -1, 1, gold);
       box(-3, 3, 10, 11, -1, 1, 3);
       // A short polished ferrule sits between the narrow handle and a much
       // longer, slightly fanned bristle bundle, like a flat painter's brush.
       box(-4, 4, 12, 14, -1, 1, 1);
       box(-4, 4, 12, 12, 2, 2, 4);
       for (const x of [-3, 3]) box(x, x, 13, 13, 2, 2, 3);
-      box(-4, 4, 15, 16, -1, 1, 8);
+      box(-4, 4, 15, 16, -1, 1, cream);
       for (let x = -5; x <= 5; x++) {
         const tip = 23 - Math.floor((x + 5) / 4);
-        box(x, x, 17, tip, -1, 1, 8);
+        // A slightly uneven dip line keeps the paint from reading as a stripe.
+        const dip = (x + 5) % 3 === 1 ? 19 : 18;
+        const paint = PAINT_TONE + Math.round((x + 5) * (PAINT_COLORS.length - 1) / 10) * 3;
+        box(x, x, 17, dip - 1, -1, 1, cream);
+        box(x, x, dip, tip, -1, 1, paint);
         // Fine tonal strands on a continuous surface suggest packed hairs;
         // deep grooves would turn the small silhouette into a comb.
-        if (x % 3 === 0) box(x, x, 15, tip - 1, 1, 1, 9);
-        box(x, x, tip, tip, -1, 1, 10);
+        if (x % 3 === 0) {
+          box(x, x, 15, dip - 1, 1, 1, creamStrand);
+          box(x, x, dip, tip - 1, 1, 1, paint + 1);
+        }
+        box(x, x, tip, tip, -1, 1, paint + 2);
       }
       break;
+    }
   }
   return cells;
 }
@@ -189,7 +210,12 @@ export function createHeldVoxelTool(tool: HeldTool): HeldVoxelToolMesh {
   const normals: number[] = [];
   const colors: number[] = [];
   const materialIndices: number[][] = [[], [], []];
-  const palette = TOOL_COLORS.map(hex => new THREE.Color(hex));
+  const white = new THREE.Color(0xffffff);
+  const palette = [...SILVER_TONES, ...HANDLE_TONES, ...BRISTLE_TONES].map(hex => new THREE.Color(hex));
+  for (const hex of PAINT_COLORS) {
+    const paint = new THREE.Color(hex);
+    palette.push(paint, paint.clone().lerp(white, 0.3), paint.clone().multiplyScalar(0.6));
+  }
   const faces = [
     { n: [1, 0, 0], u: [0, 0, -1], v: [0, 1, 0] },
     { n: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
@@ -212,7 +238,7 @@ export function createHeldVoxelTool(tool: HeldTool): HeldVoxelToolMesh {
         normals.push(...n);
         colors.push(color.r, color.g, color.b);
       }
-      const materialIndex = tone < 5 ? 0 : tone < 8 ? 1 : 2;
+      const materialIndex = tone < HANDLE_TONE ? 0 : tone < BRISTLE_TONE ? 1 : 2;
       materialIndices[materialIndex].push(start, start + 1, start + 2, start, start + 2, start + 3);
     }
   }
@@ -251,15 +277,16 @@ export function createHeldVoxelTool(tool: HeldTool): HeldVoxelToolMesh {
   const materials = [material];
   material.name = 'ToolSilver';
   if (tool === 'brush') {
-    const wood = new THREE.MeshStandardNodeMaterial({
-      name: 'BrushWood', vertexColors: true, metalness: 0, roughness: 0.85,
-      emissive: 0x2a1a0f, emissiveIntensity: 0.12, flatShading: true
+    // Neutral emissive lifts keep the handle and paint saturated in shadow.
+    const handle = new THREE.MeshStandardNodeMaterial({
+      name: 'BrushHandle', vertexColors: true, metalness: 0, roughness: 0.4,
+      emissive: 0x404040, emissiveIntensity: 0.1, flatShading: true
     });
     const bristles = new THREE.MeshStandardNodeMaterial({
-      name: 'BrushBristles', vertexColors: true, metalness: 0, roughness: 1,
-      emissive: 0x4a3820, emissiveIntensity: 0.08, flatShading: true
+      name: 'BrushBristles', vertexColors: true, metalness: 0, roughness: 0.9,
+      emissive: 0x404040, emissiveIntensity: 0.1, flatShading: true
     });
-    materials.push(wood, bristles);
+    materials.push(handle, bristles);
   }
   const mesh = new THREE.Mesh(geometry, materials);
   mesh.name = `HeldVoxelTool:${tool}`;
