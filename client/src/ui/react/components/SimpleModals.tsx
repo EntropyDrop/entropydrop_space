@@ -622,7 +622,7 @@ export function GlobalSettingsModal() {
           {tab === 'sound' ? <div className="settings-section">
             <div className="settings-section-title">AUDIO &amp; SOUND</div>
             <div className="settings-row">
-              <div className="settings-label-group"><span className="settings-label">Background Music</span><span className="settings-desc">Play the Space soundtrack; disabled by default</span></div>
+              <div className="settings-label-group"><span className="settings-label">Background Music</span><span className="settings-desc">Play the Space soundtrack; enabled by default</span></div>
               <div className="settings-segmented-control" id="setting-music-group">
                 {([
                   [false, 'Off'],

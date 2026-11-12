@@ -512,7 +512,7 @@ export class SpaceUiStore {
     apiWorldId: null,
     toast: null,
     isAdmin: false,
-    musicEnabled: false,
+    musicEnabled: true,
     effectsEnabled: true,
     sessionMode: 'online',
     queuePosition: null,
@@ -699,8 +699,8 @@ export class SpaceUiStore {
 
       const legacyEnabled = savedMuted === 'true' ? false : savedMuted === 'false' ? true : null;
       const musicEnabled = savedMusicEnabled === null
-        ? (legacyEnabled ?? false)
-        : storedBoolean(savedMusicEnabled, false);
+        ? (legacyEnabled ?? true)
+        : storedBoolean(savedMusicEnabled, true);
       const effectsEnabled = savedEffectsEnabled === null
         ? (legacyEnabled ?? true)
         : storedBoolean(savedEffectsEnabled, true);

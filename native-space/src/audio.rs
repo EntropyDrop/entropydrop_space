@@ -52,7 +52,7 @@ impl Audio {
             self.loading = Some(rx);
             std::thread::spawn(move || {
                 let result = (|| -> Result<_> {
-                    let bytes = include_bytes!("../../client/src/assets/audio/bwv1043-ii-8bit.ogg");
+                    let bytes = include_bytes!("../../client/src/assets/audio/orbital-drift.ogg");
                     let mut reader = lewton::inside_ogg::OggStreamReader::new(Cursor::new(bytes))?;
                     let channels = u16::from(reader.ident_hdr.audio_channels);
                     let rate = reader.ident_hdr.audio_sample_rate;

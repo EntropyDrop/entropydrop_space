@@ -22,6 +22,16 @@ type ActiveBlockBreakVoice = {
   startedAt: number;
 };
 
+/**
+ * True while the page handles a user gesture. Browsers without the User
+ * Activation API count as active so a settings click still starts playback;
+ * a context they create early resumes on the first gesture.
+ */
+function hasActiveUserGesture(): boolean {
+  const activation = (globalThis as any).navigator?.userActivation;
+  return activation ? Boolean(activation.isActive) : true;
+}
+
 export class SoundManager {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -33,18 +43,54 @@ export class SoundManager {
   private blockBreakSerial = 0;
   private blockBreakBuffers = new Map<string, AudioBuffer>();
   private activeBlockBreakVoices = new Set<ActiveBlockBreakVoice>();
-  private musicEnabled = false;
+  private musicEnabled = true;
   private effectsEnabled = true;
 
   constructor() {
     this.ctx = null;
     this.masterGain = null;
+    this.armGestureUnlock();
+  }
+
+  /**
+   * Browsers keep Web Audio silent until the page receives a user gesture.
+   * Music is on by default, so the first click, tap or key press anywhere on
+   * the page creates or resumes the context and starts the soundtrack.
+   */
+  private armGestureUnlock(): void {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+    const events = ['pointerdown', 'keydown', 'touchend'] as const;
+    const disarm = () => {
+      for (const type of events) window.removeEventListener(type, unlock, true);
+    };
+    const running = () => this.ctx?.state === 'running';
+    const unlock = () => {
+      if (running()) {
+        disarm();
+        return;
+      }
+      if (!this.ctx && !this.musicEnabled && !this.effectsEnabled) return;
+      if (this.ctx) this.init();
+      else this.ensureContext();
+      if (running()) disarm();
+    };
+    for (const type of events) window.addEventListener(type, unlock, { capture: true, passive: true });
+  }
+
+  private resumeSuspendedContext(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'suspended') return;
+    try {
+      void ctx.resume()?.catch?.(() => { });
+    } catch { }
   }
 
   init() {
-    // requestLock calls init on every user gesture. Re-entering lets an enabled
-    // soundtrack retry a transient load failure without duplicating its source.
+    // requestLock and the first page gesture call init. Re-entering resumes a
+    // context the browser started suspended, and lets an enabled soundtrack
+    // retry a transient load failure without duplicating its source.
     if (this.ctx) {
+      this.resumeSuspendedContext();
       if (this.musicEnabled) void this.startBackgroundMusic();
       return;
     }
@@ -125,7 +171,7 @@ export class SoundManager {
     }
     if (this.musicStartPromise) return;
 
-    const musicUrl = new URL('../../assets/audio/bwv1043-ii-8bit.ogg', import.meta.url).href;
+    const musicUrl = new URL('../../assets/audio/orbital-drift.ogg', import.meta.url).href;
     this.musicStartPromise = (async () => {
       const response = await fetch(musicUrl);
       if (!response.ok) throw new Error(`Background music request failed: ${response.status}`);
@@ -147,9 +193,7 @@ export class SoundManager {
 
   ensureContext() {
     if (!this.ctx) this.init();
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
-    }
+    this.resumeSuspendedContext();
   }
 
   setMusicEnabled(enabled: boolean): void {
@@ -158,11 +202,15 @@ export class SoundManager {
       if (this.musicGain) this.rampBus(this.musicGain, 0, 0.2);
       return;
     }
-    // This setter is normally reached from a settings click, so use that
-    // gesture to create or resume Web Audio and start playback immediately.
-    // Keeping this inside the enabled branch preserves default-off lazy load.
-    if (typeof window !== 'undefined') this.ensureContext();
-    if (this.ctx) void this.startBackgroundMusic();
+    if (this.ctx) {
+      this.resumeSuspendedContext();
+      void this.startBackgroundMusic();
+      return;
+    }
+    // A settings click can create Web Audio and start playback immediately.
+    // Restoring the saved preference at load is not a gesture: leave creation
+    // to the first-gesture unlock so the browser never blocks a new context.
+    if (typeof window !== 'undefined' && hasActiveUserGesture()) this.ensureContext();
   }
 
   getMusicEnabled(): boolean {

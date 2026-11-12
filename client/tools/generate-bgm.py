@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
-"""Render an 8-bit arrangement of Bach's BWV 1043, movement II.
+"""Render "Orbital Drift", the original 8-bit background music for Space.
 
-The notes and rhythms come from the public-domain 1874 Bach-Gesellschaft
-score distributed by the Mutopia Project.  This renderer uses no third-party
-recording or samples: it reads the bundled MIDI score and synthesizes every
-sound with pulse, triangle, and deterministic LFSR-noise channels.
+Every melody, chord, bass line and drum pattern in this file was composed for
+Space. The renderer emulates a Famicom-style sound chip instead of using any
+recording or sample: two 2A03 pulse channels plus one expansion pulse, the
+4-bit stepped triangle, and the 15-bit LFSR noise channel. A 60 Hz driver tick
+updates volumes, duty cycles, vibrato, chord arpeggios and drum macros the way
+console music engines did. Pitches go through the 2A03 period registers, so
+tuning and vibrato step like the hardware. The render is deterministic.
 
-The Largo ma non tanto keeps the public-domain score's pitches and relative
-rhythms, transposed one octave down, while using a dotted-quarter pulse of
-48 BPM. Bars 1-49 form the loop;
-their closing dominant resolves into the opening F-major chord, which replaces
-the score's redundant final tonic bar. A short copy of the loop tail primes the
-Vorbis decoder; playback starts after that hidden codec-preroll.
+The piece loops every 96 bars (3:25) at 112.5 BPM, i.e. driver speed 8 with
+one sixteenth note per row. Twelve eight-bar sections move from a shimmering
+launch through the main theme, a B-minor verse and a catchy hook, into a
+deep-space breakdown, an ignition build, a final hook and a wind-down that
+leads straight back into the launch. Every channel is rendered with
+continuous phase across the loop point, and the loop is mastered as a circular
+signal, so it repeats without a seam. A short copy of the loop tail primes the
+Vorbis decoder; playback starts after that hidden codec preroll.
+
+Usage:
+    python3 client/tools/generate-bgm.py orbital-drift.wav
+    ffmpeg -i orbital-drift.wav -c:a vorbis -strict experimental \\
+        -metadata title="Orbital Drift" -metadata artist="Space" -metadata album="Space" \\
+        client/src/assets/audio/orbital-drift.ogg
+
+The loop is mastered to -19.6 LUFS integrated (BS.1770), matching the
+previous soundtrack so the in-game music and effect buses keep their balance.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import math
-import struct
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,601 +40,747 @@ import numpy as np
 
 
 SAMPLE_RATE = 48_000
-FRAMES_PER_BEAT = 40_000
-BPM = 60.0 * SAMPLE_RATE / FRAMES_PER_BEAT
-BEAT_SECONDS = FRAMES_PER_BEAT / SAMPLE_RATE
-TICKS_PER_QUARTER = 384
-TICKS_PER_EIGHTH = TICKS_PER_QUARTER // 2
-PICKUP_TICKS = 0
-TICKS_PER_BAR = TICKS_PER_QUARTER * 6
-BAR_COUNT = 49
-SCORE_END_TICK = BAR_COUNT * TICKS_PER_BAR
-SCORE_FRAME_COUNT = round(SCORE_END_TICK * FRAMES_PER_BEAT / TICKS_PER_QUARTER)
+CPU_CLOCK = 1_789_773  # NTSC 2A03
+TICK_RATE = 60
+FRAMES_PER_TICK = SAMPLE_RATE // TICK_RATE
+TICKS_PER_STEP = 8  # driver speed 8: one sixteenth note per row
+STEPS_PER_BAR = 16
+TICKS_PER_BAR = TICKS_PER_STEP * STEPS_PER_BAR
+BARS_PER_SECTION = 8
+BAR_COUNT = 96
+LOOP_TICKS = TICKS_PER_BAR * BAR_COUNT
+LOOP_FRAMES = LOOP_TICKS * FRAMES_PER_TICK
+BPM = TICK_RATE * 60 / (TICKS_PER_STEP * 4)
 CODEC_PREROLL_FRAMES = 8_192
-FRAME_COUNT = CODEC_PREROLL_FRAMES + SCORE_FRAME_COUNT
+FRAME_COUNT = CODEC_PREROLL_FRAMES + LOOP_FRAMES
+# The loop end keeps playing into a short continuation of the opening, which is
+# crossfaded over the first frames so every oscillator meets its own phase.
+SEAM_TICKS = 6
+SEAM_FRAMES = SEAM_TICKS * FRAMES_PER_TICK
+assert SAMPLE_RATE % TICK_RATE == 0
 assert FRAME_COUNT % 64 == 0
+LOOP_SECONDS = LOOP_FRAMES / SAMPLE_RATE
 DURATION_SECONDS = FRAME_COUNT / SAMPLE_RATE
-LOOP_DURATION_SECONDS = SCORE_FRAME_COUNT / SAMPLE_RATE
-RNG_SEED = 0x0B1043
-SOURCE_MIDI = Path(__file__).with_name("sources") / "bwv1043-ii.mid"
-SOURCE_SHA256 = "563120106bd3d51335a51f156c810f4fd3ed631d521f353adf50036541854ebd"
-PITCH_TRANSPOSE = -12
+TITLE = "Orbital Drift"
+
+# Linearized 2A03 mixer weight per DAC step for each channel family.
+PULSE_UNIT = 0.00752
+TRIANGLE_UNIT = 0.00851
+NOISE_UNIT = 0.00494
+NOISE_PERIODS = (4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068)
+
+
+# ---------------------------------------------------------------------------
+# Composition
+# ---------------------------------------------------------------------------
+
+PITCH_CLASSES = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6,
+                 "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
+
+
+def note(name: str) -> int:
+    return (int(name[-1]) + 1) * 12 + PITCH_CLASSES[name[:-1]]
+
+
+# (step, length in steps, MIDI note) relative to an eight-bar phrase.
+Note = tuple[int, int, int]
+
+
+def phrase(*bars: str) -> tuple[Note, ...]:
+    """Parse bars written as "NOTE:steps" tokens; "r" is a rest."""
+    notes: list[Note] = []
+    for bar, text in enumerate(bars):
+        step = 0
+        for token in text.split():
+            name, length = token.split(":")
+            if name != "r":
+                notes.append((bar * STEPS_PER_BAR + step, int(length), note(name)))
+            step += int(length)
+        if step != STEPS_PER_BAR:
+            raise ValueError(f"Bar {bar + 1} lasts {step} steps: {text}")
+    return tuple(notes)
+
+
+# name -> (triangle bass root, arpeggio chord tones)
+CHORDS: dict[str, tuple[int, tuple[int, ...]]] = {
+    "D": (38, (62, 66, 69)),
+    "E/D": (38, (64, 68, 71)),
+    "Bm": (35, (59, 62, 66)),
+    "G": (43, (62, 67, 71)),
+    "Em": (40, (64, 67, 71)),
+    "A": (33, (61, 64, 69)),
+    "F#m": (42, (61, 66, 69)),
+    "F#": (42, (61, 66, 70)),
+    "Gmaj7": (43, (62, 66, 67, 71)),
+    "F#sus4": (42, (61, 66, 71)),
+    "C": (36, (60, 64, 67)),
+}
+
+# Home: D with the bright Lydian E-over-D lift.
+HOME = ("D", "D", "E/D", "E/D", "Bm", "G", "Em", "A")
+# Verse: B minor with a major dominant for the classic console drama.
+MINOR = ("Bm", "G", "A", "F#m", "Bm", "G", "Em", "F#")
+HOOK_CHORDS = ("G", "A", "F#m", "Bm", "G", "A", "D", "D")
+DEEP = ("Bm", "Bm", "Gmaj7", "Gmaj7", "Em", "Em", "F#sus4", "F#")
+# Ignition climbs through the flat-seven C before the dominant.
+IGNITION = ("G", "G", "A", "A", "Bm", "Bm", "C", "A")
+
+THEME_A_OPENING = (
+    "D5:3 A5:3 F#5:2 E5:4 D5:2 E5:2",
+    "F#5:6 A4:2 D5:4 E5:4",
+    "E5:3 B5:3 G#5:2 F#5:4 E5:2 F#5:2",
+    "G#5:6 B4:2 E5:4 F#5:4",
+)
+THEME_A = phrase(
+    *THEME_A_OPENING,
+    "F#5:3 D5:3 B4:2 C#5:2 D5:2 F#5:4",
+    "G5:3 D5:3 B4:2 A4:2 B4:2 D5:4",
+    "E5:2 G5:2 B5:4 A5:2 G5:2 F#5:2 G5:2",
+    "A5:8 r:4 C#5:2 E5:2",
+)
+THEME_A_ANSWER = phrase(
+    *THEME_A_OPENING,
+    "D5:3 F#5:3 B5:2 A5:2 F#5:2 D5:4",
+    "B4:3 D5:3 G5:2 F#5:2 G5:2 B5:4",
+    "A5:2 G5:2 F#5:2 E5:2 F#5:2 G5:2 E5:4",
+    "C#5:2 D5:2 E5:4 A4:6 r:2",
+)
+THEME_B = phrase(
+    "B4:4 F#5:4 D5:2 C#5:2 B4:4",
+    "D5:4 G5:4 F#5:2 E5:2 D5:4",
+    "C#5:4 E5:4 A5:6 G5:2",
+    "F#5:8 E5:2 C#5:2 A4:4",
+    "B4:2 D5:2 F#5:4 B5:4 A5:2 F#5:2",
+    "G5:4 B5:4 D6:4 B5:4",
+    "E5:4 G5:2 B5:2 A5:2 G5:2 F#5:2 E5:2",
+    "A#4:4 C#5:4 F#5:8",
+)
+THEME_B_DRIVE = phrase(
+    "F#5:3 D5:3 B4:2 F#5:3 D5:3 B4:2",
+    "G5:3 D5:3 B4:2 G5:3 D5:3 B4:2",
+    "A5:3 E5:3 C#5:2 A5:3 E5:3 C#5:2",
+    "F#5:3 C#5:3 A4:2 C#5:2 E5:2 F#5:4",
+    "B5:6 A5:2 F#5:4 D5:4",
+    "G5:6 F#5:2 D5:4 B4:4",
+    "E5:2 F#5:2 G5:2 A5:2 B5:4 G5:4",
+    "F#5:4 A#5:4 C#6:6 r:2",
+)
+HOOK_OPENING = (
+    "B5:2 B5:2 A5:2 B5:4 D6:2 B5:2 A5:2",
+    "A5:2 A5:2 G5:2 A5:4 C#6:2 A5:2 E5:2",
+    "F#5:2 F#5:2 E5:2 F#5:4 A5:2 C#6:2 A5:2",
+    "B5:8 A5:4 F#5:4",
+    "B5:2 B5:2 A5:2 B5:4 D6:4 B5:2",
+    "C#6:4 B5:2 A5:2 E5:4 A5:4",
+)
+# The first hook lifts into its repeat; the second lands and winds down.
+HOOK = phrase(*HOOK_OPENING, "D6:6 C#6:2 A5:4 F#5:4", "D6:8 r:4 A5:2 B5:2")
+HOOK_LANDING = phrase(*HOOK_OPENING, "F#5:2 A5:2 D6:4 C#6:2 A5:2 F#5:4", "D6:4 A5:4 F#5:4 D5:4")
+DEEP_LEAD = phrase(
+    "F#5:8 D5:4 B4:4",
+    "D5:8 E5:4 F#5:4",
+    "F#5:12 E5:2 D5:2",
+    "B4:12 r:4",
+    "G5:8 E5:4 B4:4",
+    "D5:8 E5:4 G5:4",
+    "F#5:8 C#5:4 B4:4",
+    "A#4:12 r:4",
+)
+IGNITION_LEAD = phrase(
+    "G5:4 D5:2 G5:2 A5:4 B5:4",
+    "B5:6 A5:2 G5:4 D5:4",
+    "A5:4 E5:2 A5:2 B5:4 C#6:4",
+    "C#6:6 B5:2 A5:4 E5:4",
+    "B5:4 F#5:2 B5:2 C#6:2 D6:6",
+    "D6:6 C#6:2 B5:4 F#5:4",
+    "C6:4 G5:2 C6:2 D6:4 E6:4",
+    "A5:2 r:2 A5:2 r:2 A5:2 C#6:2 E6:4",
+)
+OUTRO_LEAD = phrase(
+    THEME_A_OPENING[0],
+    "F#5:8 r:8",
+    THEME_A_OPENING[2],
+    "G#5:8 r:8",
+    "r:16", "r:16", "r:16", "r:16",
+)
 
 
 @dataclass(frozen=True)
-class MidiNote:
-    track: int
-    channel: int
-    pitch: int
-    velocity: int
-    start_tick: int
-    end_tick: int
+class Section:
+    name: str
+    chords: tuple[str, ...]
+    lead: tuple[Note, ...]
+    voice: str
+    level: float
+    second: str  # what pulse 2 plays: echo, harmony or none
+    arp: str  # expansion pulse: pad, broken16, broken8 or stab ("a|b" splits halves)
+    bass: str
+    drums: str
+    crash: bool = False
+    echo_steps: int = 3
+
+
+SECTIONS: tuple[Section, ...] = (
+    Section("launch", HOME, (), "lead50", 0.0, "none", "pad", "hold", "intro"),
+    Section("theme", HOME, THEME_A, "lead50", 1.0, "echo", "broken16", "octaves", "groove",
+            crash=True),
+    Section("answer", HOME, THEME_A_ANSWER, "lead50", 1.0, "echo", "broken16", "octaves", "groove"),
+    Section("nebula", MINOR, THEME_B, "lead25", 0.95, "echo", "pad", "drive", "half"),
+    Section("current", MINOR, THEME_B_DRIVE, "lead25", 1.0, "harmony", "broken16", "drive", "groove"),
+    Section("hook", HOOK_CHORDS, HOOK, "lead25", 1.0, "harmony", "stab", "gallop", "drive",
+            crash=True),
+    Section("hook-landing", HOOK_CHORDS, HOOK_LANDING, "lead25", 1.0, "harmony", "stab",
+            "gallop", "drive"),
+    Section("deep-space", DEEP, DEEP_LEAD, "lead12", 1.0, "echo", "pad", "hold", "none",
+            echo_steps=6),
+    Section("ignition", IGNITION, IGNITION_LEAD, "lead25", 0.95, "echo", "broken16", "pulse",
+            "build"),
+    Section("return", HOME, THEME_A_ANSWER, "lead50", 1.0, "harmony", "broken16", "octaves",
+            "groove", crash=True),
+    Section("finale", HOOK_CHORDS, HOOK_LANDING, "lead25", 1.0, "harmony", "stab", "gallop",
+            "drive", crash=True),
+    Section("orbit", HOME, OUTRO_LEAD, "lead50", 0.75, "echo", "broken8|pad", "octaves|hold",
+            "light|none"),
+)
+assert all(len(section.chords) == BARS_PER_SECTION for section in SECTIONS)
+assert len(SECTIONS) * BARS_PER_SECTION == BAR_COUNT
+
+PATTERN_16 = (0, 1, 2, 3, 2, 1, 2, 3, 0, 1, 2, 3, 2, 3, 2, 1)
+PATTERN_8 = (0, 1, 2, 3, 2, 1, 2, 3)
+
+# (step, length, interval above the root) for the triangle bass.
+BASS_PATTERNS: dict[str, tuple[tuple[int, int, int], ...]] = {
+    "hold": ((0, 16, 0),),
+    "octaves": ((0, 3, 0), (3, 3, 12), (6, 2, 0), (8, 3, 0), (11, 3, 12), (14, 2, 0)),
+    "drive": ((0, 2, 0), (2, 2, 0), (4, 2, 7), (6, 2, 0), (8, 2, 0), (10, 2, 0), (12, 2, 7),
+              (14, 2, 12)),
+    "gallop": ((0, 2, 0), (2, 1, 12), (3, 1, 12), (4, 2, 0), (6, 2, 12), (8, 2, 0),
+               (10, 1, 12), (11, 1, 12), (12, 2, 0), (14, 2, 12)),
+    "pulse": tuple((step, 2, 0) for step in range(0, 16, 2)),
+    "pulse16": tuple((step, 1, 0) for step in range(16)),
+}
+
+
+def section_spans() -> list[tuple[Section, int]]:
+    return [(section, index * BARS_PER_SECTION) for index, section in enumerate(SECTIONS)]
+
+
+def bar_chords() -> list[str]:
+    return [chord for section in SECTIONS for chord in section.chords]
+
+
+def half_mode(spec: str, bar: int) -> str:
+    parts = spec.split("|")
+    return parts[0] if len(parts) == 1 or bar < BARS_PER_SECTION // 2 else parts[1]
+
+
+def harmonize(notes: tuple[Note, ...], chords: tuple[str, ...]) -> list[Note]:
+    """Shadow each melody note with the nearest chord tone a third to a sixth below."""
+    voices = []
+    for step, length, midi in notes:
+        tones = {tone % 12 for tone in CHORDS[chords[step // STEPS_PER_BAR]][1]}
+        below = [midi - interval for interval in range(3, 10) if (midi - interval) % 12 in tones]
+        if below:
+            voices.append((step, length, below[0]))
+    return voices
+
+
+# ---------------------------------------------------------------------------
+# Driver: instruments, events and per-tick channel registers
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class MidiScore:
-    ticks_per_quarter: int
-    tracks: tuple[tuple[MidiNote, ...], ...]
-    tempos: tuple[tuple[int, int], ...]
-    time_signatures: tuple[tuple[int, int, int], ...]
+class Instrument:
+    attack: tuple[int, ...]
+    sustain: int
+    release: tuple[int, ...] = ()
+    fade_every: int = 0
+    floor: int = 0
+    duty: tuple[float, ...] = (0.5,)
+    vibrato: tuple[int, float, int] | None = None  # delay ticks, depth cents, period ticks
 
 
-def read_vlq(data: bytes, position: int) -> tuple[int, int]:
-    value = 0
-    while True:
-        byte = data[position]
-        position += 1
-        value = (value << 7) | (byte & 0x7F)
-        if not byte & 0x80:
-            return value, position
+INSTRUMENTS = {
+    "lead50": Instrument((14, 13, 12, 11), 10, (6, 3, 1), 24, 8, (0.5,), (14, 18.0, 9)),
+    "lead25": Instrument((14, 13, 12, 11), 10, (6, 3, 1), 24, 8, (0.5, 0.25), (14, 15.0, 9)),
+    "lead12": Instrument((11, 10, 9), 8, (4, 2, 1), 20, 5, (0.25, 0.125), (12, 22.0, 10)),
+    "pluck16": Instrument((11, 9, 8, 7, 6, 5, 4, 3), 3, duty=(0.25,)),
+    "pluck8": Instrument((11, 10, 9, 8, 7, 6, 6, 5, 5, 4, 4, 4, 3), 3, duty=(0.25,)),
+    "pad": Instrument((10, 9, 8, 8), 8, (3, 1), 16, 6, (0.25,)),
+    "stab": Instrument((11, 10, 8, 6, 3), 0, duty=(0.125,)),
+    "bass": Instrument((15,), 15),
+}
+
+# Triangle kick: a fast pitch drop that briefly takes over the bass channel.
+TRIANGLE_KICK = (55, 47, 40, 35)
+
+# name -> (volumes, noise periods, short mode, priority); the last period holds.
+NOISE_KIT: dict[str, tuple[tuple[int, ...], tuple[int, ...], bool, int]] = {
+    "kick": ((12, 9, 5, 2), (11, 12, 13, 14), False, 2),
+    "snare": ((15, 13, 11, 9, 8, 7, 6, 5, 4, 3, 3, 2, 2, 1, 1), (5, 6, 6, 6, 7), False, 3),
+    "hat": ((8, 5, 3, 1), (3,), False, 1),
+    "open": ((8, 7, 6, 5, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1), (3,), False, 1),
+    "crash": (tuple(max(0, 15 - i // 3) for i in range(46)), (2, 2, 3), False, 4),
+}
 
 
-def read_midi(path: Path) -> MidiScore:
-    """Read the small subset of Standard MIDI needed by the bundled score."""
-    data = path.read_bytes()
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != SOURCE_SHA256:
-        raise ValueError(f"Unexpected score checksum: {digest}")
-    if data[:4] != b"MThd":
-        raise ValueError("Source is not a Standard MIDI file")
+@dataclass
+class Event:
+    start: int
+    pitch: np.ndarray
+    volume: np.ndarray
+    duty: np.ndarray
+    priority: int = 0
+    period: np.ndarray | None = None
+    short: bool = False
 
-    header_length = struct.unpack(">I", data[4:8])[0]
-    midi_format, track_count, division = struct.unpack(">HHH", data[8:14])
-    if midi_format != 1 or division & 0x8000:
-        raise ValueError("Expected format-1 MIDI with ticks-per-quarter timing")
 
-    position = 8 + header_length
-    all_tracks: list[tuple[MidiNote, ...]] = []
-    tempos: list[tuple[int, int]] = []
-    signatures: list[tuple[int, int, int]] = []
+@dataclass
+class Registers:
+    pitch: np.ndarray
+    volume: np.ndarray
+    duty: np.ndarray
+    period: np.ndarray
+    short: np.ndarray
 
-    for track_index in range(track_count):
-        if data[position : position + 4] != b"MTrk":
-            raise ValueError(f"Missing MTrk chunk at track {track_index}")
-        chunk_length = struct.unpack(">I", data[position + 4 : position + 8])[0]
-        track_data = data[position + 8 : position + 8 + chunk_length]
-        position += 8 + chunk_length
 
-        cursor = 0
-        absolute_tick = 0
-        running_status: int | None = None
-        active: dict[tuple[int, int], list[tuple[int, int]]] = {}
-        notes: list[MidiNote] = []
+def tone_event(start: int, gate: int, instrument: Instrument, tones: tuple[int, ...],
+               level: float, arp_ticks: int = 2) -> Event:
+    gate = max(1, gate)
+    length = gate + len(instrument.release)
+    volume = np.empty(length)
+    for tick in range(gate):
+        if tick < len(instrument.attack):
+            volume[tick] = instrument.attack[tick]
+        elif instrument.fade_every:
+            faded = instrument.sustain - (tick - len(instrument.attack)) // instrument.fade_every
+            volume[tick] = max(instrument.floor, faded)
+        else:
+            volume[tick] = instrument.sustain
+    held = volume[gate - 1]
+    for offset, value in enumerate(instrument.release):
+        volume[gate + offset] = min(value, held)
+    volume = np.floor(volume * level + 0.5)
 
-        while cursor < len(track_data):
-            delta, cursor = read_vlq(track_data, cursor)
-            absolute_tick += delta
-            status = track_data[cursor]
-            if status < 0x80:
-                if running_status is None:
-                    raise ValueError("Invalid MIDI running status")
-                status = running_status
-            else:
-                cursor += 1
-                if status < 0xF0:
-                    running_status = status
+    ticks = np.arange(length)
+    pitch = np.asarray(tones, dtype=np.float64)[(ticks // arp_ticks) % len(tones)]
+    if instrument.vibrato and len(tones) == 1:
+        delay, cents, period = instrument.vibrato
+        phase = ticks - delay
+        pitch = pitch + np.where(phase >= 0, cents / 100.0 * np.sin(2.0 * math.pi * phase / period), 0.0)
+    duty = np.asarray(instrument.duty)[np.minimum(ticks, len(instrument.duty) - 1)]
+    return Event(start, pitch, volume, duty)
 
-            if status == 0xFF:
-                meta_type = track_data[cursor]
-                cursor += 1
-                payload_length, cursor = read_vlq(track_data, cursor)
-                payload = track_data[cursor : cursor + payload_length]
-                cursor += payload_length
-                if meta_type == 0x51 and payload_length == 3:
-                    tempos.append((absolute_tick, int.from_bytes(payload, "big")))
-                elif meta_type == 0x58 and payload_length >= 2:
-                    signatures.append((absolute_tick, payload[0], 2 ** payload[1]))
-                continue
 
-            if status in (0xF0, 0xF7):
-                payload_length, cursor = read_vlq(track_data, cursor)
-                cursor += payload_length
-                running_status = None
-                continue
+def noise_event(start: int, kind: str, level: float) -> Event:
+    volumes, periods, short, priority = NOISE_KIT[kind]
+    volume = np.floor(np.asarray(volumes, dtype=np.float64) * level + 0.5)
+    period = np.asarray(periods)[np.minimum(np.arange(len(volumes)), len(periods) - 1)]
+    return Event(start, np.zeros(len(volumes)), volume, np.zeros(len(volumes)), priority,
+                 period, short)
 
-            message_type = status & 0xF0
-            channel = status & 0x0F
-            payload_length = 1 if message_type in (0xC0, 0xD0) else 2
-            payload = track_data[cursor : cursor + payload_length]
-            cursor += payload_length
 
-            if message_type == 0x90 and payload[1] > 0:
-                key = (channel, payload[0])
-                active.setdefault(key, []).append((absolute_tick, payload[1]))
-            elif message_type == 0x80 or (message_type == 0x90 and payload[1] == 0):
-                key = (channel, payload[0])
-                starts = active.get(key)
-                if starts:
-                    start_tick, velocity = starts.pop()
-                    if absolute_tick > start_tick:
-                        notes.append(
-                            MidiNote(
-                                track_index,
-                                channel,
-                                payload[0],
-                                velocity,
-                                start_tick,
-                                absolute_tick,
-                            )
-                        )
+def riser_event(start: int, ticks: int) -> Event:
+    progress = np.arange(ticks) / (ticks - 1)
+    volume = np.floor(2.0 + 10.0 * progress ** 1.5 + 0.5)
+    period = np.round(14.0 - 13.0 * progress).astype(int)
+    return Event(start, np.zeros(ticks), volume, np.zeros(ticks), 3, period, False)
 
-        dangling = sum(len(starts) for starts in active.values())
-        if dangling:
-            raise ValueError(f"Track {track_index} has {dangling} unterminated notes")
-        notes.sort(key=lambda note: (note.start_tick, note.pitch, note.end_tick))
-        all_tracks.append(tuple(notes))
 
-    score = MidiScore(division, tuple(all_tracks), tuple(tempos), tuple(signatures))
-    expected_counts = (0, 575, 624, 218, 217, 212, 387)
-    actual_counts = tuple(len(track) for track in score.tracks)
-    if score.ticks_per_quarter != TICKS_PER_QUARTER or actual_counts != expected_counts:
-        raise ValueError(
-            f"Unexpected score structure: division={score.ticks_per_quarter}, notes={actual_counts}"
-        )
-    if (0, 1_250_000) not in score.tempos or (0, 12, 8) not in score.time_signatures:
-        raise ValueError("Expected Mutopia tempo marker and 12/8 time signature")
-    if max(note.end_tick for track in score.tracks for note in track) != 113_472:
-        raise ValueError("Unexpected source-score ending")
-    first_solo_one = score.tracks[1][0]
-    first_solo_two = score.tracks[2][0]
-    if (first_solo_one.start_tick, first_solo_one.end_tick, first_solo_one.pitch) != (4_608, 5_376, 84):
-        raise ValueError("Unexpected Solo Violin I entrance")
-    if (first_solo_two.start_tick, first_solo_two.end_tick, first_solo_two.pitch) != (0, 768, 77):
-        raise ValueError("Unexpected Solo Violin II opening")
-    if any((track[-1].start_tick, track[-1].end_tick) != (112_896, 113_472) for track in score.tracks[1:]):
-        raise ValueError("Unexpected final tonic chord")
+def resolve(events: list[Event]) -> Registers:
+    """Play events monophonically: each one runs until the next one starts."""
+    registers = Registers(np.full(LOOP_TICKS, np.nan), np.zeros(LOOP_TICKS),
+                          np.full(LOOP_TICKS, 0.5), np.zeros(LOOP_TICKS, dtype=np.int64),
+                          np.zeros(LOOP_TICKS, dtype=bool))
+    chosen: dict[int, Event] = {}
+    for event in events:
+        start = event.start % LOOP_TICKS
+        if start not in chosen or event.priority > chosen[start].priority:
+            chosen[start] = event
+    starts = sorted(chosen)
+    for index, start in enumerate(starts):
+        event = chosen[start]
+        span = (starts[(index + 1) % len(starts)] - start) % LOOP_TICKS or LOOP_TICKS
+        count = min(len(event.volume), span)
+        ticks = (start + np.arange(count)) % LOOP_TICKS
+        registers.pitch[ticks] = event.pitch[:count]
+        registers.volume[ticks] = event.volume[:count]
+        registers.duty[ticks] = event.duty[:count]
+        if event.period is not None:
+            registers.period[ticks] = event.period[:count]
+            registers.short[ticks] = event.short
+    return registers
+
+
+# ---------------------------------------------------------------------------
+# Arrangement
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Score:
+    lead: list[Event]
+    second: list[Event]
+    arp: list[Event]
+    bass: list[Event]
+    kicks: list[int]
+    noise: list[Event]
+
+
+def add_melody(score: Score, section: Section, first_bar: int) -> None:
+    if not section.lead:
+        return
+    instrument = INSTRUMENTS[section.voice]
+    base = first_bar * TICKS_PER_BAR
+    end = base + BARS_PER_SECTION * TICKS_PER_BAR
+    for step, steps, midi in section.lead:
+        gate = steps * TICKS_PER_STEP - 2
+        score.lead.append(tone_event(base + step * TICKS_PER_STEP, gate, instrument, (midi,),
+                                     section.level))
+    if section.second == "echo":
+        for step, steps, midi in section.lead:
+            start = base + (step + section.echo_steps) * TICKS_PER_STEP
+            if start < end:
+                score.second.append(tone_event(start, steps * TICKS_PER_STEP - 2, instrument,
+                                               (midi,), section.level * 0.42))
+    elif section.second == "harmony":
+        # A contrasting duty keeps the harmony distinct from the lead.
+        voice = INSTRUMENTS["lead25" if instrument.duty[-1] == 0.5 else "lead50"]
+        for step, steps, midi in harmonize(section.lead, section.chords):
+            score.second.append(tone_event(base + step * TICKS_PER_STEP,
+                                           steps * TICKS_PER_STEP - 2, voice, (midi,),
+                                           section.level * 0.62))
+
+
+def add_arpeggios(score: Score, section: Section, first_bar: int) -> None:
+    for bar, chord in enumerate(section.chords):
+        tones = CHORDS[chord][1]
+        broken = tones + (tones[0] + 12,)
+        base = (first_bar + bar) * TICKS_PER_BAR
+        mode = half_mode(section.arp, bar)
+        if mode == "pad":
+            for half in (0, TICKS_PER_BAR // 2):
+                score.arp.append(tone_event(base + half, TICKS_PER_BAR // 2, INSTRUMENTS["pad"],
+                                            tones, 1.0, arp_ticks=2))
+        elif mode == "broken16":
+            for step, index in enumerate(PATTERN_16):
+                accent = 1.0 if step % 4 == 0 else 0.85
+                score.arp.append(tone_event(base + step * TICKS_PER_STEP, TICKS_PER_STEP,
+                                            INSTRUMENTS["pluck16"], (broken[index],), accent))
+        elif mode == "broken8":
+            for step, index in enumerate(PATTERN_8):
+                score.arp.append(tone_event(base + step * 2 * TICKS_PER_STEP, 2 * TICKS_PER_STEP,
+                                            INSTRUMENTS["pluck8"], (broken[index],), 1.0))
+        elif mode == "stab":
+            # Off-beat chord stabs, each a 60 Hz arpeggio across the triad.
+            for step in range(0, STEPS_PER_BAR, 2):
+                accent = 1.0 if step % 4 == 2 else 0.75
+                score.arp.append(tone_event(base + step * TICKS_PER_STEP, 5, INSTRUMENTS["stab"],
+                                            tones, accent, arp_ticks=1))
+
+
+def add_bass(score: Score, section: Section, first_bar: int) -> None:
+    for bar, chord in enumerate(section.chords):
+        root = CHORDS[chord][0]
+        mode = half_mode(section.bass, bar)
+        if mode == "pulse" and bar == BARS_PER_SECTION - 1:
+            mode = "pulse16"
+        base = (first_bar + bar) * TICKS_PER_BAR
+        for step, steps, interval in BASS_PATTERNS[mode]:
+            score.bass.append(tone_event(base + step * TICKS_PER_STEP,
+                                         steps * TICKS_PER_STEP - 1, INSTRUMENTS["bass"],
+                                         (root + interval,), 1.0))
+
+
+def drum_bar(mode: str, bar: int) -> list[tuple[int, str, float]]:
+    last = bar == BARS_PER_SECTION - 1
+    hits: list[tuple[int, str, float]] = []
+
+    def fill(start: int, levels: tuple[float, ...]) -> None:
+        nonlocal hits
+        hits = [hit for hit in hits if hit[0] < start]
+        hits += [(start + offset, "snare", level) for offset, level in enumerate(levels)]
+
+    if mode == "intro":
+        if bar >= BARS_PER_SECTION // 2:
+            hits += [(0, "kick", 0.85)] + [(step, "hat", 0.6) for step in (2, 6, 10, 14)]
+            if last:
+                fill(12, (0.55, 0.65, 0.8, 0.95))
+    elif mode == "light":
+        hits += [(0, "kick", 0.9), (8, "kick", 0.75)]
+        hits += [(step, "hat", 0.6) for step in (2, 6, 10, 14)]
+    elif mode == "groove":
+        hits += [(0, "kick", 1.0), (8, "kick", 0.9), (11, "kick", 0.7)]
+        hits += [(4, "snare", 1.0), (12, "snare", 1.0)]
+        hits += [(step, "hat", 0.7) for step in (2, 6, 10, 14)]
+        if last:
+            fill(12, (0.8, 0.7, 0.85, 1.0))
+        elif bar == BARS_PER_SECTION // 2 - 1:
+            fill(14, (0.55, 0.7))
+    elif mode == "half":
+        hits += [(0, "kick", 1.0), (10, "kick", 0.8), (8, "snare", 1.0)]
+        hits += [(step, "hat", 0.6) for step in (2, 4, 6, 12, 14)]
+        if last:
+            fill(12, (0.6, 0.0, 0.8, 0.95))
+    elif mode == "drive":
+        hits += [(step, "kick", 1.0) for step in (0, 4, 8, 12)]
+        hits += [(4, "snare", 1.0), (12, "snare", 1.0)]
+        hits += [(step, "open" if step % 4 == 2 else "hat", 0.75 if step % 4 == 2 else 0.45)
+                 for step in range(STEPS_PER_BAR) if step % 4]
+        if last:
+            hits = [hit for hit in hits if hit[0] < 13 or hit[1] == "kick"]
+            hits += [(13, "snare", 0.7), (14, "snare", 0.85), (15, "snare", 1.0)]
+    elif mode == "build":
+        if bar < 2:
+            hits += [(0, "kick", 0.9), (8, "kick", 0.8)]
+        elif bar < 4:
+            hits += [(0, "kick", 0.95), (8, "kick", 0.85), (12, "snare", 0.7)]
+            hits += [(step, "hat", 0.5) for step in (2, 6, 10, 14)]
+        elif bar < 6:
+            hits += [(step, "kick", 1.0) for step in (0, 4, 8, 12)]
+            hits += [(4, "snare", 0.9), (12, "snare", 0.9)]
+            hits += [(step, "hat", 0.6) for step in (2, 6, 10, 14)]
+        elif bar == 6:
+            # The noise channel sweeps up while the triangle keeps the beat.
+            hits += [(0, "riser", 1.0)] + [(step, "tkick", 1.0) for step in (0, 4, 8, 12)]
+        else:
+            hits += [(step, "tkick", 1.0) for step in (0, 4, 8, 12)]
+            hits += [(step, "snare", 0.35 + 0.65 * step / 15.0) for step in range(STEPS_PER_BAR)]
+    return [hit for hit in hits if hit[2] > 0.0]
+
+
+def add_drums(score: Score, section: Section, first_bar: int) -> None:
+    for bar in range(BARS_PER_SECTION):
+        hits = drum_bar(half_mode(section.drums, bar), bar)
+        if section.crash and bar == 0:
+            hits = [hit for hit in hits if not 1 <= hit[0] <= 3 or hit[1] == "kick"]
+            hits.append((0, "crash", 1.0))
+        base = (first_bar + bar) * TICKS_PER_BAR
+        for step, kind, level in hits:
+            start = base + step * TICKS_PER_STEP
+            if kind in ("kick", "tkick"):
+                score.kicks.append(start)
+            if kind == "riser":
+                score.noise.append(riser_event(start, TICKS_PER_BAR))
+            elif kind != "tkick":
+                score.noise.append(noise_event(start, kind, level))
+
+
+def compose() -> Score:
+    score = Score([], [], [], [], [], [])
+    for section, first_bar in section_spans():
+        add_melody(score, section, first_bar)
+        add_arpeggios(score, section, first_bar)
+        add_bass(score, section, first_bar)
+        add_drums(score, section, first_bar)
     return score
 
 
-def midi_frequency(note: float) -> float:
-    return 440.0 * (2.0 ** ((note - 69.0) / 12.0))
+# ---------------------------------------------------------------------------
+# Sound chip
+# ---------------------------------------------------------------------------
 
 
-def tick_to_frame(tick: int) -> int:
-    return round(tick * FRAMES_PER_BEAT / TICKS_PER_QUARTER)
+def lfsr_sequence(short_mode: bool) -> np.ndarray:
+    tap = 6 if short_mode else 1
+    register = 1
+    bits = []
+    for _ in range(40_000):
+        bits.append(register & 1)
+        feedback = (register & 1) ^ ((register >> tap) & 1)
+        register = (register >> 1) | (feedback << 14)
+        if register == 1:
+            break
+    return np.asarray(bits, dtype=np.float64)
 
 
-def equal_power_pan(pan: float) -> tuple[float, float]:
-    angle = (np.clip(pan, -1.0, 1.0) + 1.0) * math.pi / 4.0
-    return math.cos(angle), math.sin(angle)
+LONG_NOISE = lfsr_sequence(False)
+SHORT_NOISE = lfsr_sequence(True)
 
 
-def wrapped_add(
-    destination: np.ndarray,
-    mono: np.ndarray,
-    start_frame: int,
-    gain: float = 1.0,
-    pan: float = 0.0,
-) -> None:
-    """Add an event and fold any tail crossing the loop boundary."""
-    left, right = equal_power_pan(pan)
-    loop_frames = len(destination)
-    offset = start_frame % loop_frames
-    consumed = 0
-    remaining = len(mono)
-    while remaining:
-        count = min(remaining, loop_frames - offset)
-        part = mono[consumed : consumed + count] * gain
-        destination[offset : offset + count, 0] += part * left
-        destination[offset : offset + count, 1] += part * right
-        consumed += count
-        remaining -= count
-        offset = 0
+def period_hz(midi: np.ndarray, divider: int) -> np.ndarray:
+    """Round to the nearest 11-bit period register, as the hardware plays it."""
+    frequency = 440.0 * np.power(2.0, (midi - 69.0) / 12.0)
+    timer = np.clip(np.round(CPU_CLOCK / (divider * frequency) - 1.0), 8, 2047)
+    return CPU_CLOCK / (divider * (timer + 1.0))
 
 
-def raised_cosine_envelope(
-    length: int,
-    attack_seconds: float,
-    release_seconds: float,
-) -> np.ndarray:
-    envelope = np.ones(length, dtype=np.float32)
-    attack = min(length, max(1, round(attack_seconds * SAMPLE_RATE)))
-    release = min(length, max(1, round(release_seconds * SAMPLE_RATE)))
-    envelope[:attack] *= np.sin(np.linspace(0.0, math.pi / 2.0, attack)) ** 2
-    envelope[-release:] *= np.sin(np.linspace(math.pi / 2.0, 0.0, release)) ** 2
-    return envelope
+def with_seam(values: np.ndarray) -> np.ndarray:
+    return np.concatenate((values, values[:SEAM_TICKS]))
 
 
-def normalize_peak(values: np.ndarray) -> np.ndarray:
-    peak = float(np.max(np.abs(values)))
-    return (values / max(peak, 1e-9)).astype(np.float32)
+def per_sample(values: np.ndarray) -> np.ndarray:
+    return np.repeat(values, FRAMES_PER_TICK)
 
 
-def poly_blep(phase: np.ndarray, phase_increment: float) -> np.ndarray:
-    """Return a PolyBLEP correction for one discontinuity in a unit phase."""
+def smooth_steps(level: np.ndarray, width: int = 24) -> np.ndarray:
+    """Soften the 60 Hz volume steps just enough to keep them click-free."""
+    return np.convolve(level, np.ones(width) / width, mode="same")
+
+
+def fold_seam(signal: np.ndarray) -> np.ndarray:
+    """Crossfade the loop end's continuation into the opening frames."""
+    loop = signal[:LOOP_FRAMES].copy()
+    continuation = signal[LOOP_FRAMES:]
+    weight = np.sin(np.linspace(0.0, math.pi / 2.0, SEAM_FRAMES)) ** 2
+    loop[:SEAM_FRAMES] = continuation * (1.0 - weight) + loop[:SEAM_FRAMES] * weight
+    return loop
+
+
+def poly_blep(phase: np.ndarray, increment: np.ndarray) -> np.ndarray:
     correction = np.zeros_like(phase)
-    leading = phase < phase_increment
-    x = phase[leading] / phase_increment
+    leading = phase < increment
+    x = phase[leading] / increment[leading]
     correction[leading] = x + x - x * x - 1.0
-    trailing = phase > 1.0 - phase_increment
-    x = (phase[trailing] - 1.0) / phase_increment
+    trailing = phase > 1.0 - increment
+    x = (phase[trailing] - 1.0) / increment[trailing]
     correction[trailing] = x * x + x + x + 1.0
     return correction
 
 
-def pulse_wave(frequency: float, length: int, duty: float) -> np.ndarray:
-    """Generate an anti-aliased, phase-reset pulse wave with no DC offset."""
-    phase_increment = frequency / SAMPLE_RATE
-    phase = np.mod(np.arange(length, dtype=np.float64) * phase_increment, 1.0)
+def render_pulse(registers: Registers) -> np.ndarray:
+    pitch = with_seam(registers.pitch)
+    active = ~np.isnan(pitch)
+    hz = np.zeros_like(pitch)
+    hz[active] = period_hz(pitch[active], 16)
+    increment = per_sample(hz / SAMPLE_RATE)
+    phase = np.mod(np.cumsum(increment) - increment, 1.0)
+    duty = per_sample(with_seam(registers.duty))
     wave = np.where(phase < duty, 1.0, -1.0)
-    wave += poly_blep(phase, phase_increment)
-    wave -= poly_blep(np.mod(phase - duty, 1.0), phase_increment)
-    wave -= np.mean(wave)
-
-    # Equal-RMS duty normalization keeps the two soloists balanced. The 0.55
-    # scale leaves headroom for the taller peaks of the narrow pulse channel.
-    rms = math.sqrt(float(np.mean(np.square(wave, dtype=np.float64))))
-    return (wave * (0.55 / max(rms, 1e-9))).astype(np.float32)
+    safe = np.maximum(increment, 1e-12)
+    wave += poly_blep(phase, safe)
+    wave -= poly_blep(np.mod(phase - duty, 1.0), safe)
+    wave -= 2.0 * duty - 1.0  # zero-mean, so volume steps never thump
+    level = smooth_steps(per_sample(np.where(active, with_seam(registers.volume), 0.0)))
+    return fold_seam(wave * level * 0.5 * PULSE_UNIT)
 
 
-def triangle_wave(frequency: float, length: int) -> np.ndarray:
-    """Generate the console-style triangle channel and quantize it to 32 levels."""
-    phase = np.mod(np.arange(length, dtype=np.float64) * frequency / SAMPLE_RATE, 1.0)
-    wave = 1.0 - 4.0 * np.abs(phase - 0.5)
-    wave = np.round((wave + 1.0) * 15.5) / 15.5 - 1.0
-    return wave.astype(np.float32)
+def render_triangle(registers: Registers) -> np.ndarray:
+    pitch = with_seam(registers.pitch)
+    active = ~np.isnan(pitch) & (with_seam(registers.volume) > 0)
+    hz = np.zeros_like(pitch)
+    hz[active] = period_hz(pitch[active], 32)
+    # A halted triangle holds its current step, so gaps never click.
+    increment = per_sample(hz / SAMPLE_RATE)
+    phase = np.mod(np.cumsum(increment) - increment, 1.0)
+    step = np.floor(phase * 32.0)
+    level = np.where(step < 16, 15.0 - step, step - 16.0)
+    return fold_seam((level - 7.5) * TRIANGLE_UNIT)
 
 
-def stepped_envelope(length: int, profile: str) -> np.ndarray:
-    """Create a 240 Hz, 4-bit APU envelope with click-safe short slews."""
-    control_frames = SAMPLE_RATE // 240
-    if profile == "pulse25":
-        attack_levels, sustain_level, release_levels = (15, 14, 13, 12), 10, (8, 5, 2, 0)
-        attack_seconds, release_seconds = 0.0010, 0.012
-    elif profile == "pulse50":
-        attack_levels, sustain_level, release_levels = (14, 13, 12), 11, (8, 4, 0)
-        attack_seconds, release_seconds = 0.0010, 0.010
-    elif profile == "pulse12":
-        attack_levels, sustain_level, release_levels = (15, 13), 9, (6, 2, 0)
-        attack_seconds, release_seconds = 0.0008, 0.007
-    else:  # triangle
-        attack_levels, sustain_level, release_levels = (15, 14), 13, (9, 5, 2, 0)
-        attack_seconds, release_seconds = 0.0012, 0.014
-
-    control_count = max(1, math.ceil(length / control_frames))
-    levels = np.full(control_count, sustain_level, dtype=np.float32)
-    attack_count = min(control_count, len(attack_levels))
-    levels[:attack_count] = attack_levels[:attack_count]
-    release_count = min(control_count, len(release_levels))
-    levels[-release_count:] = release_levels[-release_count:]
-    envelope = np.repeat(levels / 15.0, control_frames)[:length]
-
-    # Smooth only the first 12 samples after each control step. The levels stay
-    # audibly discrete, while their edges do not become louder than the notes.
-    for boundary in np.flatnonzero(np.diff(envelope)) + 1:
-        end = min(length, boundary + 12)
-        envelope[boundary:end] = np.linspace(
-            envelope[boundary - 1], envelope[boundary], end - boundary, endpoint=False
-        )
-    envelope *= raised_cosine_envelope(length, attack_seconds, release_seconds)
-    return envelope.astype(np.float32)
+def render_noise(registers: Registers) -> np.ndarray:
+    rate = CPU_CLOCK / np.asarray(NOISE_PERIODS, dtype=np.float64)[with_seam(registers.period)]
+    clocks = np.floor(np.cumsum(per_sample(rate / SAMPLE_RATE))).astype(np.int64)
+    short = per_sample(with_seam(registers.short))
+    bits = np.where(short, SHORT_NOISE[clocks % len(SHORT_NOISE)],
+                    LONG_NOISE[clocks % len(LONG_NOISE)])
+    level = smooth_steps(per_sample(with_seam(registers.volume)))
+    return fold_seam((2.0 * bits - 1.0) * level * 0.5 * NOISE_UNIT)
 
 
-def chip_note(frequency: float, score_seconds: float, profile: str) -> np.ndarray:
-    """Synthesize one retriggered pulse or triangle-channel score note."""
-    gate = 0.985 if profile in ("pulse25", "pulse50", "triangle") else 1.0
-    length = max(16, round(score_seconds * gate * SAMPLE_RATE))
-    if profile == "triangle":
-        tone = triangle_wave(frequency, length)
-        if frequency < 65.0:
-            # Preserve the low-octave fundamental while giving phone speakers
-            # a quiet octave harmonic to reproduce below-bass continuo notes.
-            tone = normalize_peak(tone + 0.18 * triangle_wave(frequency * 2.0, length))
-    else:
-        duty = {"pulse25": 0.25, "pulse50": 0.50, "pulse12": 0.125}[profile]
-        tone = pulse_wave(frequency, length, duty)
-    return tone * stepped_envelope(length, profile)
+# ---------------------------------------------------------------------------
+# Mix and master
+# ---------------------------------------------------------------------------
 
 
-def lfsr_noise(length: int, hold_frames: int, seed: int, short_mode: bool) -> np.ndarray:
-    """Generate a deterministic 15-bit console noise channel."""
-    count = math.ceil(length / hold_frames)
-    register = seed & 0x7FFF or 1
-    values = np.empty(count, dtype=np.float32)
-    tap = 6 if short_mode else 1
-    for index in range(count):
-        feedback = (register & 1) ^ ((register >> tap) & 1)
-        register = (register >> 1) | (feedback << 14)
-        values[index] = 1.0 - 2.0 * (register & 1)
-    return np.repeat(values, hold_frames)[:length]
+def equal_power_pan(pan: float) -> tuple[float, float]:
+    angle = (pan + 1.0) * math.pi / 4.0
+    return math.cos(angle), math.sin(angle)
 
 
-def stepped_decay(length: int, levels: tuple[int, ...]) -> np.ndarray:
-    positions = np.minimum(
-        np.arange(length, dtype=np.int64) * len(levels) // max(length, 1),
-        len(levels) - 1,
-    )
-    return np.asarray(levels, dtype=np.float32)[positions] / 15.0
+def spectral_filter(signal: np.ndarray, response) -> np.ndarray:
+    """Zero-phase circular filter; preserves the loop boundary exactly."""
+    frequencies = np.fft.rfftfreq(len(signal), d=1.0 / SAMPLE_RATE)
+    gains = response(np.maximum(frequencies, 1e-9))
+    if signal.ndim == 1:
+        return np.fft.irfft(np.fft.rfft(signal) * gains, n=len(signal))
+    out = np.empty_like(signal)
+    for channel in range(signal.shape[1]):
+        out[:, channel] = np.fft.irfft(np.fft.rfft(signal[:, channel]) * gains, n=len(signal))
+    return out
 
 
-def chip_kick(seed: int) -> np.ndarray:
-    length = round(0.115 * SAMPLE_RATE)
-    step_frames = round(0.0065 * SAMPLE_RATE)
-    frequencies = np.asarray((145.0, 110.0, 82.0, 62.0, 52.0), dtype=np.float64)
-    indices = np.minimum(np.arange(length) // step_frames, len(frequencies) - 1)
-    phase = np.mod(np.cumsum(frequencies[indices]) / SAMPLE_RATE, 1.0)
-    body = 1.0 - 4.0 * np.abs(phase - 0.5)
-    click = lfsr_noise(length, 4, seed, False)
-    click *= (np.arange(length) < round(0.006 * SAMPLE_RATE)) * 0.055
-    sound = (body + click) * stepped_decay(length, (15, 15, 12, 8, 4, 0))
-    return (normalize_peak(sound) * raised_cosine_envelope(length, 0.0008, 0.012)).astype(np.float32)
+def lowpass(cutoff: float, order: int = 2):
+    return lambda f: 1.0 / np.sqrt(1.0 + np.power(f / cutoff, 2 * order))
 
 
-def chip_snare(seed: int) -> np.ndarray:
-    length = round(0.092 * SAMPLE_RATE)
-    noise = lfsr_noise(length, 5, seed, False)
-    body = pulse_wave(180.0, length, 0.5) * 0.17
-    sound = (noise + body) * stepped_decay(length, (15, 12, 9, 6, 3, 0))
-    return (normalize_peak(sound) * raised_cosine_envelope(length, 0.0007, 0.010)).astype(np.float32)
+def highpass(cutoff: float, order: int = 2):
+    return lambda f: 1.0 / np.sqrt(1.0 + np.power(cutoff / f, 2 * order))
 
 
-def chip_hat(seed: int) -> np.ndarray:
-    length = round(0.028 * SAMPLE_RATE)
-    noise = lfsr_noise(length, 2, seed, True)
-    smooth = np.convolve(noise, np.ones(17) / 17.0, mode="same")
-    sound = (noise - smooth) * stepped_decay(length, (10, 7, 4, 1, 0))
-    return (normalize_peak(sound) * raised_cosine_envelope(length, 0.0004, 0.004)).astype(np.float32)
+def k_weighting(f: np.ndarray) -> np.ndarray:
+    """BS.1770 K-weighting magnitude from the standard 48 kHz biquads."""
+    z = np.exp(-2j * math.pi * f / SAMPLE_RATE)
+
+    def biquad(b: tuple[float, ...], a: tuple[float, ...]) -> np.ndarray:
+        return np.abs((b[0] + b[1] * z + b[2] * z * z) / (a[0] + a[1] * z + a[2] * z * z))
+
+    shelf = biquad((1.53512485958697, -2.69169618940638, 1.19839281085285),
+                   (1.0, -1.69065929318241, 0.73248077421585))
+    rlb = biquad((1.0, -2.0, 1.0), (1.0, -1.99004745483398, 0.99007225036621))
+    return shelf * rlb
 
 
-def metric_accent(start_tick: int) -> float:
-    position = start_tick % TICKS_PER_BAR
-    if position == 0:
-        return 1.12
-    if position % (3 * TICKS_PER_EIGHTH) == 0:
-        return 1.02
-    return 0.90
-
-
-def velocity_gain(velocity: int) -> float:
-    if velocity < 72:
-        return 0.60
-    if velocity < 88:
-        return 0.73
-    if velocity < 100:
-        return 0.86
-    return 1.00
-
-
-def add_score_notes(leads: np.ndarray, bass: np.ndarray, score: MidiScore) -> None:
-    # The two printed solo parts remain note-for-note intact on separate pulse
-    # channels. Continuo occupies the console triangle channel.
-    track_settings = {
-        1: (leads, "pulse25", 0.115, -0.28),
-        2: (leads, "pulse50", 0.105, 0.28),
-        6: (bass, "triangle", 0.075, -0.02),
-    }
-    for track_index, (destination, profile, track_gain, pan) in track_settings.items():
-        notes = score.tracks[track_index]
-        for note in notes:
-            if note.start_tick >= SCORE_END_TICK:
-                continue
-            score_seconds = (
-                (note.end_tick - note.start_tick) * BEAT_SECONDS / TICKS_PER_QUARTER
-            )
-            sound = chip_note(
-                midi_frequency(note.pitch + PITCH_TRANSPOSE), score_seconds, profile
-            )
-            wrapped_add(
-                destination,
-                sound,
-                tick_to_frame(note.start_tick),
-                track_gain * velocity_gain(note.velocity) * metric_accent(note.start_tick),
-                pan,
-            )
-
-
-def pitch_at_or_above(pitch_class: int, floor: int) -> int:
-    return floor + ((pitch_class - floor) % 12)
-
-
-def add_support_arpeggio(mix: np.ndarray, score: MidiScore) -> None:
-    """Reduce the ripieno harmony to one fast 12.5%-pulse game channel."""
-    accompaniment = tuple(
-        note
-        for track in score.tracks[3:]
-        for note in track
-        if note.start_tick < SCORE_END_TICK
-    )
-
-    dotted_quarter_ticks = 3 * TICKS_PER_EIGHTH
-    thirty_second_ticks = TICKS_PER_QUARTER // 8
-    for group_tick in range(0, SCORE_END_TICK, dotted_quarter_ticks):
-        active = [
-            note
-            for note in accompaniment
-            if note.start_tick <= group_tick < note.end_tick
-        ]
-        if not active:
-            continue
-        bass_notes = [note.pitch for note in active if note.track == 6]
-        root_class = (min(bass_notes) if bass_notes else min(note.pitch for note in active)) % 12
-        pitch_classes = {note.pitch % 12 for note in active}
-        intervals = sorted((pitch_class - root_class) % 12 for pitch_class in pitch_classes)
-        if 0 not in intervals:
-            intervals.insert(0, 0)
-
-        non_root = [interval for interval in intervals if interval]
-        third = min(non_root, key=lambda interval: abs(interval - 4), default=0)
-        remaining = [interval for interval in non_root if interval != third]
-        fifth = min(remaining, key=lambda interval: abs(interval - 7), default=third)
-        chord_intervals = [0]
-        for interval in (fifth, third):
-            if interval not in chord_intervals:
-                chord_intervals.append(interval)
-        if len(chord_intervals) == 1:
-            chord_intervals.append(12)
-
-        root_pitch = pitch_at_or_above(root_class, 52)
-        chord = tuple(root_pitch + interval for interval in chord_intervals)
-        pattern = (0, len(chord) - 1, min(1, len(chord) - 1), len(chord) - 1)
-        exposed = sum(
-            group_tick <= note.start_tick < group_tick + dotted_quarter_ticks
-            for note in accompaniment
-        ) < 7
-        step_ticks = thirty_second_ticks * (2 if exposed else 1)
-        gate_seconds = 0.074 if not exposed else 0.115
-        for step, note_tick in enumerate(
-            range(group_tick, min(group_tick + dotted_quarter_ticks, SCORE_END_TICK), step_ticks)
-        ):
-            pitch = chord[pattern[step % len(pattern)]]
-            wrapped_add(
-                mix,
-                chip_note(
-                    midi_frequency(pitch + PITCH_TRANSPOSE), gate_seconds, "pulse12"
-                ),
-                tick_to_frame(note_tick),
-                0.0185 if not exposed else 0.015,
-                0.05,
-            )
-
-
-def add_chip_percussion(mix: np.ndarray, score: MidiScore, rng: np.random.Generator) -> None:
-    accompaniment = tuple(
-        note
-        for track in score.tracks[3:]
-        for note in track
-        if note.start_tick < SCORE_END_TICK
-    )
-    solo_notes = tuple(
-        note
-        for track in score.tracks[1:3]
-        for note in track
-        if note.start_tick < SCORE_END_TICK
-    )
-
-    for bar in range(BAR_COUNT):
-        start_tick = PICKUP_TICKS + bar * TICKS_PER_BAR
-        end_tick = start_tick + TICKS_PER_BAR
-        ensemble_density = sum(start_tick <= note.start_tick < end_tick for note in accompaniment)
-        solo_density = sum(start_tick <= note.start_tick < end_tick for note in solo_notes)
-        active = ensemble_density + solo_density > 0
-        if not active:
-            continue
-
-        # The long/short LFSR modes articulate the four 12/8 triplet groups.
-        # Full textures get a busier kick/snare grid; duet passages stay light.
-        tutti = ensemble_density >= 16
-        seed = int(rng.integers(1, 0x7FFF))
-        wrapped_add(mix, chip_kick(seed), tick_to_frame(start_tick), 0.052, 0.0)
-        if tutti:
-            wrapped_add(
-                mix,
-                chip_kick(seed ^ 0x2D31),
-                tick_to_frame(start_tick + 6 * TICKS_PER_EIGHTH),
-                0.038,
-                0.0,
-            )
-        snare_indices = (3, 9) if tutti else (6,)
-        for eighth_index in snare_indices:
-            wrapped_add(
-                mix,
-                chip_snare(seed ^ (eighth_index * 0x191)),
-                tick_to_frame(start_tick + eighth_index * TICKS_PER_EIGHTH),
-                0.020 if tutti else 0.016,
-                0.02,
-            )
-        hat_indices = (2, 5, 8, 11) if tutti else (5, 11)
-        hat_weights = (1.0, 0.55, 0.72, 0.50)
-        for eighth_index in hat_indices:
-            weight = hat_weights[(eighth_index - 2) // 3] if tutti else 0.58
-            wrapped_add(
-                mix,
-                chip_hat(seed ^ (eighth_index * 0x3D5)),
-                tick_to_frame(start_tick + eighth_index * TICKS_PER_EIGHTH),
-                0.0085 * weight,
-                -0.12 if eighth_index % 2 else 0.12,
-            )
-
-
-def chip_colour(bus: np.ndarray, amount: float = 0.24) -> np.ndarray:
-    """Blend in a 24 kHz sample-held, 10-bit copy without quantizing silence."""
-    held = np.repeat(bus[::2], 2, axis=0)[: len(bus)]
-    coloured = np.round(held * 511.0) / 511.0
-    return (bus * (1.0 - amount) + coloured * amount).astype(np.float32)
-
-
-def retro_echo(mix: np.ndarray, source: np.ndarray) -> np.ndarray:
-    """Add two circular, tempo-synced chip echoes instead of diffuse reverb."""
-    filtered = (
-        np.roll(source, -2, axis=0)
-        + 2.0 * np.roll(source, -1, axis=0)
-        + 3.0 * source
-        + 2.0 * np.roll(source, 1, axis=0)
-        + np.roll(source, 2, axis=0)
-    ) / 9.0
-    mix += np.roll(filtered[:, ::-1], 10_000, axis=0) * 0.078
-    mix += np.roll(filtered, 20_000, axis=0) * 0.035
-    return mix
+def integrated_loudness(mix: np.ndarray) -> float:
+    weighted = spectral_filter(mix.astype(np.float64), k_weighting)
+    block = round(0.4 * SAMPLE_RATE)
+    hop = round(0.1 * SAMPLE_RATE)
+    power = np.sum(np.square(weighted), axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(power)))
+    starts = np.arange(0, len(power) - block, hop)
+    blocks = (cumulative[starts + block] - cumulative[starts]) / block
+    loud = -0.691 + 10.0 * np.log10(np.maximum(blocks, 1e-12))
+    gated = blocks[loud > -70.0]
+    relative = -0.691 + 10.0 * np.log10(np.mean(gated)) - 10.0
+    gated = blocks[(loud > -70.0) & (loud > relative)]
+    return float(-0.691 + 10.0 * np.log10(np.mean(gated)))
 
 
 def master(mix: np.ndarray) -> np.ndarray:
-    mix -= np.mean(mix, axis=0, keepdims=True)
-    mix = np.tanh(mix * 0.22) / np.tanh(0.22)
-
-    # Periodic filtering preserves the exact loop boundary and catches the
-    # images created by the held/quantized chip channels.
-    loop_frames = len(mix)
-    frequencies = np.fft.rfftfreq(loop_frames, d=1.0 / SAMPLE_RATE)
-    safe = np.maximum(frequencies, 1e-9)
-    highpass = 1.0 / np.sqrt(1.0 + np.power(30.0 / safe, 4.0))
-    lowpass = 1.0 / np.sqrt(1.0 + np.power(frequencies / 12_400.0, 6.0))
-    presence_dip = 1.0 - 0.055 * np.exp(-0.5 * np.square(np.log(safe / 3_400.0) / 0.55))
-    response = highpass * lowpass * presence_dip
-    response[0] = 0.0
-    for channel in range(2):
-        spectrum = np.fft.rfft(mix[:, channel])
-        mix[:, channel] = np.fft.irfft(spectrum * response, n=loop_frames).astype(np.float32)
-
-    rms = math.sqrt(float(np.mean(np.square(mix, dtype=np.float64))))
-    peak = float(np.max(np.abs(mix)))
-    target_rms = 10.0 ** (-22.0 / 20.0)
-    peak_limit = 10.0 ** (-2.2 / 20.0)
-    gain = min(target_rms / max(rms, 1e-9), peak_limit / max(peak, 1e-9))
-    mix *= gain
-    mix -= np.mean(mix, axis=0, keepdims=True)
-    return np.clip(mix, -1.0, 1.0).astype(np.float32)
+    mix = mix - np.mean(mix, axis=0, keepdims=True)
+    # A console-style output stage: DC blocking and the gentle analog top end.
+    mix = spectral_filter(mix, lambda f: highpass(30.0, 2)(f) * lowpass(14_000.0, 1)(f))
+    gain = 10.0 ** ((-19.6 - integrated_loudness(mix)) / 20.0)
+    peak_limit = 10.0 ** (-1.0 / 20.0)
+    gain = min(gain, peak_limit / max(float(np.max(np.abs(mix))), 1e-9))
+    return np.clip(mix * gain, -1.0, 1.0).astype(np.float32)
 
 
-def render(score_path: Path = SOURCE_MIDI) -> tuple[np.ndarray, int]:
-    score = read_midi(score_path)
-    rng = np.random.default_rng(RNG_SEED)
-    leads = np.zeros((SCORE_FRAME_COUNT, 2), dtype=np.float32)
-    bass = np.zeros_like(leads)
-    support = np.zeros_like(leads)
-    percussion = np.zeros_like(leads)
-    add_score_notes(leads, bass, score)
-    add_support_arpeggio(support, score)
-    add_chip_percussion(percussion, score, rng)
-    leads = chip_colour(leads)
-    support = chip_colour(support)
-    mix = leads + bass + support + percussion
-    mix = retro_echo(mix, leads + support)
-    mix = master(mix)
+# Pulse 1 leads in the centre; its echo/harmony and the expansion arpeggios
+# sit to either side, as many modern chip releases widen the mono console.
+PANS = {"lead": 0.0, "second": 0.45, "arp": -0.45, "triangle": 0.0, "noise": 0.1}
+# The hardware triangle has no volume control; trim it and lift the noise
+# slightly so bass, lead and drums balance on small speakers.
+MIX_GAINS = {"lead": 1.0, "second": 1.0, "arp": 1.0, "triangle": 0.75, "noise": 1.3}
+
+
+def render() -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    score = compose()
+    triangle = resolve(score.bass)
+    for start in score.kicks:
+        ticks = (start + np.arange(len(TRIANGLE_KICK))) % LOOP_TICKS
+        triangle.pitch[ticks] = TRIANGLE_KICK
+        triangle.volume[ticks] = 15
+    voices = {
+        "lead": render_pulse(resolve(score.lead)),
+        "second": render_pulse(resolve(score.second)),
+        "arp": render_pulse(resolve(score.arp)),
+        "triangle": render_triangle(triangle),
+        "noise": render_noise(resolve(score.noise)),
+    }
+    stems = {}
+    for name, mono in voices.items():
+        left, right = equal_power_pan(PANS[name])
+        stems[name] = np.stack((mono * left, mono * right), axis=1) * MIX_GAINS[name]
+    mix = master(sum(stems.values()))
     audio = np.concatenate((mix[-CODEC_PREROLL_FRAMES:], mix), axis=0)
-    rendered_note_count = sum(
-        note.start_tick < SCORE_END_TICK for track in score.tracks for note in track
-    )
-    return audio, rendered_note_count
+    return audio, stems
+
+
+def rms_db(values: np.ndarray) -> float:
+    rms = math.sqrt(float(np.mean(np.square(values, dtype=np.float64))))
+    return 20.0 * math.log10(max(rms, 1e-12))
 
 
 def write_pcm24(path: Path, stereo: np.ndarray) -> None:
@@ -640,24 +798,23 @@ def write_pcm24(path: Path, stereo: np.ndarray) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("output", type=Path, help="24-bit stereo WAV destination")
-    parser.add_argument("--midi", type=Path, default=SOURCE_MIDI, help="bundled BWV 1043 II MIDI")
+    parser.add_argument("--stems", action="store_true", help="print pre-master channel levels")
     args = parser.parse_args()
 
-    audio, note_count = render(args.midi)
+    audio, stems = render()
     write_pcm24(args.output, audio)
+    if args.stems:
+        for name, stem in stems.items():
+            print(f"  {name:>8}: {rms_db(stem):6.1f} dBFS RMS")
+    loop = audio[CODEC_PREROLL_FRAMES:]
     peak_db = 20.0 * math.log10(max(float(np.max(np.abs(audio))), 1e-9))
-    rms_db = 20.0 * math.log10(
-        max(math.sqrt(float(np.mean(np.square(audio, dtype=np.float64)))), 1e-9)
-    )
     print(
-        f"Rendered BWV 1043 II octave-down 8-bit arrangement: "
-        f"{DURATION_SECONDS:.6f}s file / "
-        f"{LOOP_DURATION_SECONDS:.6f}s loop / {FRAME_COUNT} frames / "
-        f"{note_count} score notes at {SAMPLE_RATE} Hz, "
-        f"dotted-quarter {BPM / 1.5:.1f} BPM (peak {peak_db:.2f} dBFS, "
-        f"RMS {rms_db:.2f} dBFS) -> {args.output}"
+        f"Rendered {TITLE}: {DURATION_SECONDS:.6f}s file / {LOOP_SECONDS:.6f}s loop / "
+        f"{FRAME_COUNT} frames, {BAR_COUNT} bars at {BPM:g} BPM, "
+        f"{integrated_loudness(loop):.1f} LUFS (peak {peak_db:.2f} dBFS) -> {args.output}"
     )
 
 

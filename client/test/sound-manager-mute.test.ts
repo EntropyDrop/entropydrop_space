@@ -4,11 +4,15 @@ import assert from 'node:assert/strict';
 import { SoundManager } from '../src/engine/audio/SoundManager.ts';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
-test('SoundManager defaults to music off and effects on with independent controls', () => {
+test('SoundManager defaults to music and effects on with independent controls', () => {
   const sound = new SoundManager();
-  assert.equal(sound.getMusicEnabled(), false);
+  assert.equal(sound.getMusicEnabled(), true);
   assert.equal(sound.getEffectsEnabled(), true);
   assert.equal(sound.getMuted(), false);
+
+  sound.setMusicEnabled(false);
+  assert.equal(sound.getMusicEnabled(), false);
+  assert.equal(sound.getEffectsEnabled(), true);
 
   sound.setMusicEnabled(true);
   assert.equal(sound.getMusicEnabled(), true);
@@ -78,22 +82,23 @@ test('SpaceUiStore controls and persists music and effects independently', () =>
     const ui = new SpaceUiStore();
     ui.setController(uiStub('controller', controller));
 
-    assert.equal(ui.getSnapshot().musicEnabled, false);
-    assert.equal(ui.getSnapshot().effectsEnabled, true);
-    assert.equal(sound.getMusicEnabled(), false);
-    assert.equal(sound.getEffectsEnabled(), true);
-    assert.equal(musicSetCalls, 1);
-    assert.equal(effectsSetCalls, 1);
-
-    ui.setMusicEnabled(true);
     assert.equal(ui.getSnapshot().musicEnabled, true);
     assert.equal(ui.getSnapshot().effectsEnabled, true);
     assert.equal(sound.getMusicEnabled(), true);
-    assert.equal(values.get('space_setting_music_enabled'), 'true');
+    assert.equal(sound.getEffectsEnabled(), true);
+    assert.equal(musicSetCalls, 1);
+    assert.equal(effectsSetCalls, 1);
+    assert.equal(values.has('space_setting_music_enabled'), false, 'defaults are not persisted');
+
+    ui.setMusicEnabled(false);
+    assert.equal(ui.getSnapshot().musicEnabled, false);
+    assert.equal(ui.getSnapshot().effectsEnabled, true);
+    assert.equal(sound.getMusicEnabled(), false);
+    assert.equal(values.get('space_setting_music_enabled'), 'false');
     assert.equal(musicSetCalls, 2, 'one shared manager must receive one music call');
 
     ui.setEffectsEnabled(false);
-    assert.equal(ui.getSnapshot().musicEnabled, true);
+    assert.equal(ui.getSnapshot().musicEnabled, false);
     assert.equal(ui.getSnapshot().effectsEnabled, false);
     assert.equal(sound.getEffectsEnabled(), false);
     assert.equal(values.get('space_setting_effects_enabled'), 'false');
@@ -101,8 +106,9 @@ test('SpaceUiStore controls and persists music and effects independently', () =>
 
     ui.toggleMusic();
     ui.toggleEffects();
-    assert.equal(ui.getSnapshot().musicEnabled, false);
+    assert.equal(ui.getSnapshot().musicEnabled, true);
     assert.equal(ui.getSnapshot().effectsEnabled, true);
+    assert.equal(values.get('space_setting_music_enabled'), 'true');
   } finally {
     if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
     else delete (globalThis as any).localStorage;
@@ -134,7 +140,7 @@ test('SpaceUiStore migrates the legacy mute preference and prioritizes valid new
 
   try {
     let loaded = load();
-    assert.equal(loaded.state.musicEnabled, false, 'music defaults off with no preference');
+    assert.equal(loaded.state.musicEnabled, true, 'music defaults on with no preference');
     assert.equal(loaded.state.effectsEnabled, true, 'effects default on with no preference');
 
     values.clear();
@@ -164,7 +170,7 @@ test('SpaceUiStore migrates the legacy mute preference and prioritizes valid new
     values.set('space_setting_music_enabled', 'invalid');
     values.set('space_setting_effects_enabled', 'invalid');
     loaded = load();
-    assert.equal(loaded.sound.getMusicEnabled(), false, 'invalid music state falls back off');
+    assert.equal(loaded.sound.getMusicEnabled(), true, 'invalid music state falls back on');
     assert.equal(loaded.sound.getEffectsEnabled(), true, 'invalid effects state falls back on');
   } finally {
     if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
@@ -265,7 +271,115 @@ test('enabling music before init creates and resumes Web Audio immediately', asy
   }
 });
 
-test('SoundManager lazily starts one sample-accurate music source and reuses it across toggles', async () => {
+test('default-on music waits for the first page gesture, then starts once', async () => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const previousFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const listeners = new Map<string, (event?: unknown) => void>();
+  const removed: string[] = [];
+  let contextCount = 0;
+  let resumeCount = 0;
+  let fetchCount = 0;
+  let sourceCount = 0;
+
+  class FakeAudioContext {
+    currentTime = 5;
+    state = 'suspended';
+    destination = {};
+
+    constructor() {
+      contextCount++;
+    }
+
+    createGain() {
+      const param: any = {
+        value: 1,
+        setValueAtTime(value: number) { this.value = value; },
+        cancelScheduledValues() {},
+        cancelAndHoldAtTime() {},
+        linearRampToValueAtTime(value: number) { this.value = value; }
+      };
+      return { gain: param, connect() {} };
+    }
+
+    createBufferSource() {
+      sourceCount++;
+      return { buffer: null, loop: false, connect() {}, disconnect() {}, start() {} };
+    }
+
+    async decodeAudioData() {
+      return { duration: 30 };
+    }
+
+    async resume() {
+      resumeCount++;
+      // Browsers settle resume after the gesture handler returns.
+      await Promise.resolve();
+      this.state = 'running';
+    }
+  }
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      AudioContext: FakeAudioContext,
+      addEventListener(type: string, listener: () => void, options: any) {
+        assert.equal(options?.capture, true, 'unlock must see gestures before UI handlers');
+        listeners.set(type, listener);
+      },
+      removeEventListener(type: string, listener: () => void, capture: boolean) {
+        assert.equal(listeners.get(type), listener);
+        assert.equal(capture, true);
+        removed.push(type);
+        listeners.delete(type);
+      }
+    }
+  });
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { userActivation: { isActive: false } }
+  });
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async () => {
+      fetchCount++;
+      return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(8) };
+    }
+  });
+
+  try {
+    const sound = new SoundManager();
+    assert.deepEqual([...listeners.keys()].sort(), ['keydown', 'pointerdown', 'touchend']);
+
+    // Restoring the stored preference at load is not a gesture.
+    sound.setMusicEnabled(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(contextCount, 0, 'no AudioContext before a user gesture');
+    assert.equal(fetchCount, 0);
+
+    listeners.get('pointerdown')!();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(contextCount, 1);
+    assert.equal(resumeCount, 1);
+    assert.equal(fetchCount, 1);
+    assert.equal(sourceCount, 1);
+
+    // Once audio runs, the next gesture removes the unlock listeners.
+    listeners.get('keydown')!();
+    assert.deepEqual(removed.sort(), ['keydown', 'pointerdown', 'touchend']);
+    assert.equal(contextCount, 1);
+    assert.equal(sourceCount, 1);
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+    else delete (globalThis as any).window;
+    if (previousFetch) Object.defineProperty(globalThis, 'fetch', previousFetch);
+    else delete (globalThis as any).fetch;
+    if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator);
+    else delete (globalThis as any).navigator;
+  }
+});
+
+test('SoundManager starts one sample-accurate music source and reuses it across toggles', async () => {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const previousFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
   const gainNodes: any[] = [];
@@ -346,23 +460,27 @@ test('SoundManager lazily starts one sample-accurate music source and reuses it 
   });
 
   try {
+    // Music switched off before Web Audio starts never downloads the track.
+    const silent = new SoundManager();
+    silent.setMusicEnabled(false);
+    silent.init();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requestedUrls.length, 0, 'music turned off before init must not download');
+    assert.equal(sources.length, 0);
+    gainNodes.length = 0;
+
     const sound = new SoundManager();
     sound.init();
     await new Promise(resolve => setImmediate(resolve));
 
-    assert.equal(sound.getMusicEnabled(), false);
+    assert.equal(sound.getMusicEnabled(), true);
     assert.equal(sound.getEffectsEnabled(), true);
-    assert.equal(requestedUrls.length, 0, 'default-off music must not download');
     assert.equal(gainNodes.length, 3);
-    assert.equal(sources.length, 0);
     assert.deepEqual(gainNodes[1].events[0], ['set', 1, 12]);
     assert.deepEqual(gainNodes[2].events[0], ['set', 0, 12]);
 
-    sound.setMusicEnabled(true);
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.equal(requestedUrls.length, 1);
-    assert.match(requestedUrls[0], /bwv1043-ii-8bit\.ogg$/);
+    assert.equal(requestedUrls.length, 1, 'default-on music loads once Web Audio starts');
+    assert.match(requestedUrls[0], /orbital-drift\.ogg$/);
     assert.equal(sources.length, 1);
     assert.equal(sources[0].loop, true);
     assert.equal(sources[0].loopStart, codecPreroll);
@@ -525,11 +643,12 @@ test('disabling effects gates every procedural sound without changing the music 
   });
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
-    value: () => assert.fail('disabled-by-default music must not load')
+    value: () => assert.fail('music turned off before init must not load')
   });
 
   try {
     const sound = new SoundManager();
+    sound.setMusicEnabled(false);
     sound.init();
     const musicEvents = gainNodes[2].events.length;
     sound.setEffectsEnabled(false);
@@ -636,7 +755,7 @@ test('SoundManager plays cached, place-matched triangle fractures with bounded p
     configurable: true,
     value: { AudioContext: FakeAudioContext }
   });
-  // Music is disabled by default, so this test should never request it.
+  // Music is turned off before init, so this test should never request it.
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: () => new Promise(() => {})
@@ -644,6 +763,7 @@ test('SoundManager plays cached, place-matched triangle fractures with bounded p
 
   try {
     const sound = new SoundManager();
+    sound.setMusicEnabled(false);
     sound.init();
     sound.playBlockBreak({ kind: 'standard', count: 1 });
 

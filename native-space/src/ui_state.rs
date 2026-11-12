@@ -27,7 +27,7 @@ impl Default for Preferences {
             fov: 70.0,
             camera_distance: 4.0,
             minimap: true,
-            music: false,
+            music: true,
             effects: true,
             particles: true,
             shadows: true,
