@@ -21,7 +21,8 @@ export function createCollisionSampleTemplate(cells: readonly (CollisionEntry | 
     const [spanX, spanY, spanZ] = collisionShapeSpans(cell);
     const sx = spanX * 0.125, sy = spanY * 0.125, sz = spanZ * 0.125;
     const nx = Math.max(1, Math.round(sx / 0.5)), nz = Math.max(1, Math.round(sz / 0.5)), ny = Math.max(1, Math.round(sy / 0.5));
-    const adaptive = hasMicro && (nx > 1 || nz > 1);
+    // Merged boxes (micro models and decoration footprints) can be large.
+    const adaptive = (hasMicro || !('span' in cell)) && (nx > 1 || nz > 1);
     const count = adaptive ? 8 + 2 * ((nx + 1) * (nz + 1) - 4) + Math.max(0, ny - 1) * 4 : 10;
     if (!Number.isFinite(count) || owners.length + count > 262144) return null;
     const push = (x: number, y: number, z: number) => {

@@ -6,7 +6,8 @@ import { CHUNK_SIZE_Y } from '../voxel/Chunk.ts';
 import type { PlayerTerrain } from './PhysicsTerrain.ts';
 
 const AXIS_SUFFIX = { x: 'X', y: 'Y', z: 'Z' } as const;
-type SolidBlock = { x: number; y: number; z: number; size?: number; block?: number };
+/** Cubic voxels use `size`; decoration footprints give per-axis sizes. */
+type SolidBlock = { x: number; y: number; z: number; size?: number; sizeX?: number; sizeY?: number; sizeZ?: number; block?: number };
 export interface PlayerMoveInput {
   forward?: boolean; backward?: boolean; right?: boolean; left?: boolean;
   jump?: boolean;
@@ -183,7 +184,7 @@ export class PlayerPhysics {
     for (let attempt = 0; attempt < CHUNK_SIZE_Y + 2; attempt++) {
       const overlaps = this.getIntersectingSolidBlocks(this.getAABB());
       if (overlaps.length === 0) break;
-      const nextY = Math.max(...overlaps.map(block => block.y + (block.size || 1)));
+      const nextY = Math.max(...overlaps.map(block => this.getBlockAABB(block).maxY));
       if (!(nextY > this.position.y + COLLISION_EPSILON)) break;
       this.position.y = nextY;
       adjusted = true;
@@ -530,7 +531,7 @@ export class PlayerPhysics {
       const center = typeof c.getWorldCenter === 'function'
         ? c.getWorldCenter()
         : (c.localCenter ? c.localToWorld(c.localCenter.clone()) : c.position);
-      const radius = Math.max(1.0, Number(c.boundingRadius) || 1.0);
+      const radius = Math.max(1.0, Number(c.getCollisionRadius?.() ?? c.boundingRadius) || 1.0);
       const dist = Math.min(
         this.position.distanceTo(center),
         this.position.distanceTo(c.position)
@@ -615,11 +616,11 @@ export class PlayerPhysics {
     const size = block.size || 1;
     return {
       minX: block.x,
-      maxX: block.x + size,
+      maxX: block.x + (block.sizeX ?? size),
       minY: block.y,
-      maxY: block.y + size,
+      maxY: block.y + (block.sizeY ?? size),
       minZ: block.z,
-      maxZ: block.z + size
+      maxZ: block.z + (block.sizeZ ?? size)
     };
   }
 
@@ -917,6 +918,10 @@ export class PlayerPhysics {
       }
     }
     solidBlocks.push(...this.world.getMicroBlocksInAABB(aabb, true));
+    for (const box of this.world.getTerrainDecorationCollisionBoxesInAABB?.(aabb) ?? []) {
+      solidBlocks.push({ x: box.minX, y: box.minY, z: box.minZ,
+        sizeX: box.maxX - box.minX, sizeY: box.maxY - box.minY, sizeZ: box.maxZ - box.minZ });
+    }
 
     // Integer scan bounds include cells that merely touch the player's AABB.
     // Filter those out so walking parallel to an adjacent block cannot be

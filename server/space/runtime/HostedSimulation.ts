@@ -2,6 +2,7 @@ import type { Contraption } from '@entropydrop/space-engine/contraption/Contrapt
 import type { RuntimeVoxel } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
 import type { EntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+import { parseStoredTerrainDecoration, type TerrainDecoration } from '@entropydrop/space-engine/voxel/TerrainDecorationLayer.ts';
 import {
   THREE, World, ContraptionManager, ContraptionPhysics,
   portableEntityToRuntime, runtimeEntityToPortable, decodeInventoryResource, encodeInventoryResource,
@@ -13,6 +14,8 @@ interface HostedChunk {
   chunk_x: number; chunk_z: number; revision: number;
   standard: Array<[number, number, number, number, number, number?]>;
   micro: Array<[number, number, number, number, (string | null)?, number?]>;
+  /** Stored terrain decorations; their footprints collide. */
+  decorations?: unknown[];
 }
 interface HostedInput {
   world_id: string; world_slug?: string; world_name?: string; steps: number;
@@ -114,6 +117,7 @@ export class HostedSimulation {
       if (!this.allowed.has(key)) {
         const [cx, cz] = key.split(',').map(Number);
         this.world.microVoxels.clearChunk(cx, cz);
+        this.world.terrainDecorations.replaceChunk(key, []);
         this.world.chunks.delete(key);
         this.revisions.delete(key);
       }
@@ -147,6 +151,8 @@ export class HostedSimulation {
           );
         }
       }
+      this.world.terrainDecorations.replaceChunk(key, (Array.isArray(chunk.decorations) ? chunk.decorations : [])
+        .map(parseStoredTerrainDecoration).filter((value): value is TerrainDecoration => value !== null));
       this.revisions.set(key, chunk.revision);
     }
     this.dirty.clear();

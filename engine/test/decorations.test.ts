@@ -38,16 +38,19 @@ test('decorations reject malformed transforms and duplicate component-local iden
   assert.throws(() => normalizeDecorations([decoration, decoration]), /unique/);
 });
 
-test('visual edits preserve every physical body and collision index, while picking works outside voxel bounds', () => {
+test('decoration edits keep bodies, mass and voxel collision, add a footprint, and picking works outside voxel bounds', () => {
   const entity = new Contraption(1, [block(0)], new THREE.Vector3(), new THREE.Scene(), { rootComponentId: 'base' });
   try {
     const body = entity.getRigidBody('base');
     const collision = entity.collisionCells;
-    const physical = [entity.mass, entity.boundingRadius, entity.voxelVolume, requireValue(body).mass, requireValue(body).inverseInertia, entity.collisionPoseVersion];
+    const version = entity.collisionPoseVersion;
+    const physical = [entity.mass, entity.boundingRadius, entity.voxelVolume, requireValue(body).mass, requireValue(body).inverseInertia];
     assert.equal(entity.setComponentDecorations('base', [decoration]), true);
     assert.equal(entity.getRigidBody('base'), body);
     assert.equal(entity.collisionCells, collision);
-    assert.deepEqual([entity.mass, entity.boundingRadius, entity.voxelVolume, requireValue(body).mass, requireValue(body).inverseInertia, entity.collisionPoseVersion], physical);
+    assert.deepEqual([entity.mass, entity.boundingRadius, entity.voxelVolume, requireValue(body).mass, requireValue(body).inverseInertia], physical);
+    assert.ok(entity.collisionPoseVersion > version, 'the decoration footprint invalidates cached collision poses');
+    assert.equal(entity.getDecorationCollisionBoxes().length, 1);
     const origin = new THREE.Vector3(4, 1, 4), direction = new THREE.Vector3(0, 0, -1);
     assert.equal(entity.raycastCollisionCells(origin, direction, 8), null);
     assert.equal(entity.raycastDecorations(origin, direction, 8, false)?.decorationId, 'trim');

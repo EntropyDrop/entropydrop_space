@@ -9,7 +9,8 @@ export type TerrainRayHit = { hit: false; distance?: number } | {
 export interface PhysicsTerrain extends Pick<World, 'getBlock'>,
   Partial<Pick<World, 'getMicroCollisionBlock' | 'getMicroBlock' | 'getMicroBlocksInAABB'
     | 'getMicroCollisionBoxesInAABB' | 'getStandardCollisionBoxesInAABB' | 'hasTerrainCollisionInAABB'
-    | 'prepareTerrainCollisionQuery'
+    | 'prepareTerrainCollisionQuery' | 'getTerrainDecorationCollisionBoxesInAABB'
+    | 'hasTerrainDecorationCollisionAt' | 'raycastTerrainDecorations'
     | 'terrainVersion' | 'activeChunkKeys' | 'getTerrainCollisionStamp'>> {
   raycast(origin: THREE.Vector3, direction: THREE.Vector3, distance: number): TerrainRayHit;
   raycastMicro(origin: THREE.Vector3, direction: THREE.Vector3, distance: number): TerrainRayHit;
@@ -17,4 +18,4 @@ export interface PhysicsTerrain extends Pick<World, 'getBlock'>,
   microVoxels?: Pick<MicroVoxelLayer, 'get'>;
 }
 export type PlayerTerrain = Pick<World, 'getBlock' | 'getMicroBlocksInAABB'>
-  & Partial<Pick<World, 'preparePlayerSpawnArea'>>;
+  & Partial<Pick<World, 'preparePlayerSpawnArea' | 'getTerrainDecorationCollisionBoxesInAABB'>>;

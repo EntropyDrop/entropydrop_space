@@ -24,7 +24,7 @@ export const SpecialTool = {
   SHOVEL: 'shovel',         // 4. Shovel (remove / place 1x1x1 standard blocks)
   SPOON: 'spoon',           // 5. Spoon (carve 8x8x8 micro voxels)
   BRUSH: 'brush',           // 6. Brush (repaint block colors)
-  MODELING: 'modeling',     // 7. Modeling (visual-only decoration cubes)
+  MODELING: 'modeling',     // 7. Modeling (massless colliding decoration cubes)
   PIPETTE: 'pipette',       // Legacy alias; color sampling is part of Brush
   SUPER_GLUE: 'selector'    // alias for backwards compatibility
 };

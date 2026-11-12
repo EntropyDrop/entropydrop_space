@@ -16,7 +16,7 @@ function fixture() {
   });
 }
 
-test('compiled decoration commands animate both component types without changing authored data or physics', async () => {
+test('compiled decoration commands animate both component types and their footprints without changing authored data, bodies or mass', async () => {
   const entity = fixture();
   try {
     const original = entity.serializeSubtree();
@@ -46,6 +46,8 @@ test('compiled decoration commands animate both component types without changing
     assert.equal((material as THREE.MeshStandardNodeMaterial).color.getHex(), 0x00ff00);
     assert.equal(entity.collisionCells, collision);
     assert.deepEqual(entity.getRigidBodies().map(body => [body, body.mass, body.inverseInertia]), bodies);
+    assert.ok(entity.getDecorationCollisionBoxes().some(box => box.entityId === 'base' && box.x === 20 && box.spanX === 24),
+      'the collision footprint follows the animated decoration');
     assert.deepEqual(requireValue(entity.serializeSubtree()).decorations, requireValue(original).decorations);
     assert.deepEqual(requireValue(entity.serializeSubtree()).childEntities[0].decorations, requireValue(original).childEntities[0].decorations);
     const command = entity.getComponentState('base').command;

@@ -29,6 +29,7 @@ import {
   normalizeWorldTerrainDecoration, parseStoredTerrainDecoration, TerrainDecorationLayer, type TerrainDecoration,
 } from './TerrainDecorationLayer.ts';
 import { TerrainDecorationMeshes } from './TerrainDecorationMeshes.ts';
+import { TerrainDecorationCollision } from './TerrainDecorationCollision.ts';
 import { MAX_TERRAIN_DECORATIONS_PER_CHUNK } from '../constants/SpaceConstants.ts';
 import {
   DistantSurfaceLayer,
@@ -232,6 +233,8 @@ export class World {
   editPersistence: WorldEditPersistence | null;
   /** Visual cubes bound to standard voxels; removed with their anchor voxel. */
   readonly terrainDecorations: TerrainDecorationLayer;
+  /** Collision footprints of terrain decorations; they add solid space, never mass. */
+  readonly terrainDecorationCollision: TerrainDecorationCollision;
   readonly terrainDecorationMeshes: TerrainDecorationMeshes;
   dirtyChunks: Set<Chunk>;
   /** Locally edited chunks that must bypass idle-only terrain streaming. */
@@ -324,6 +327,9 @@ export class World {
     this.worldGroup.add(this.distantSurface.mesh);
     const remote = persistenceOptions?.remote;
     this.terrainDecorations = new TerrainDecorationLayer();
+    this.terrainDecorationCollision = new TerrainDecorationCollision(this.terrainDecorations);
+    // Decorations collide, so a change is a terrain collision change.
+    this.terrainDecorations.onChange(() => { this.terrainVersion++; });
     this.editPersistence = persistenceOptions?.worldId
       ? new WorldEditPersistence(remote ? {
         ...persistenceOptions,
@@ -927,7 +933,8 @@ export class World {
     // Pathological teleports keep the ordinary solver; never scan an unbounded region.
     if (!Object.values(bounds).every(Number.isFinite) || columns > 4096) return true;
     if (this.visitStandardCollisionCells(bounds, () => true)) return true;
-    return this.getMicroCollisionBoxesInAABB(bounds).length > 0;
+    return this.getMicroCollisionBoxesInAABB(bounds).length > 0
+      || this.terrainDecorationCollision.boxesInAABB(bounds).length > 0;
   }
 
   /** Coarse standard regions plus exact published micro geometry, shared by
@@ -946,7 +953,9 @@ export class World {
           minY: occupied.min, maxY: occupied.max + 1 });
       }
     }
-    const microBoxes = this.getMicroCollisionBoxesInAABB(bounds);
+    // Micro-grid colliders: published micro voxels and decoration footprints.
+    const microBoxes = [...this.getMicroCollisionBoxesInAABB(bounds),
+      ...this.terrainDecorationCollision.boxesInAABB(bounds)];
     regions.push(...microBoxes);
     return { regions, microBoxes };
   }
@@ -1358,6 +1367,20 @@ export class World {
     );
   }
 
+  /** Terrain decoration footprints overlapping `bounds`, in its frame. */
+  getTerrainDecorationCollisionBoxesInAABB(bounds: CollisionBounds): CollisionBounds[] {
+    return this.terrainDecorationCollision.boxesInAABB(bounds);
+  }
+
+  /** Whether a terrain decoration footprint fills this micro cell. */
+  hasTerrainDecorationCollisionAt(mx: number, my: number, mz: number): boolean {
+    return this.terrainDecorationCollision.hasMicroCell(mx, my, mz);
+  }
+
+  raycastTerrainDecorations(origin: THREE.Vector3, direction: THREE.Vector3, maxDistance = 10) {
+    return this.terrainDecorationCollision.raycast(origin, direction, maxDistance);
+  }
+
   getMicroCollisionBoxesInAABB(aabb: CollisionBounds) {
     return this.microVoxels.getCollisionBoxesInAABB(aabb, true,
       (mx: number, mz: number) => this.isMicroCollisionReady(mx, mz));
@@ -1372,7 +1395,7 @@ export class World {
         const chunk = this.getChunk(cx, cz);
         stamp.push(key, chunk, chunk?.dataVersion, chunk?.publishedDataVersion,
           !!chunk?.mesh, this.activeChunkKeys.has(key),
-          ...this.microVoxels.getCollisionStamp(cx, cz));
+          ...this.microVoxels.getCollisionStamp(cx, cz), this.terrainDecorationCollision.stamp(cx, cz));
       }
     }
     return stamp;

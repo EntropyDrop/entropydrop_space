@@ -47,7 +47,8 @@ import {
 } from '../scripting/EntityScriptRuntime.ts';
 import { PLAYER_MASS_KG } from '../physics/PlayerPhysics.ts';
 import { buildEntityVoxelIndexes, transformVoxelBounds, type ChunkedVoxelIndex, type IndexedVoxel } from '../physics/EntityVoxelIndex.ts';
-import { collisionShapeSpans, collisionBoundsOverlap, type CollisionBounds, mergeCollisionCells, type CollisionBox } from '../physics/CollisionGeometry.ts';
+import { collisionShapeSpans, collisionBoundsOverlap, type CollisionBounds, mergeCollisionCells, type CollisionBox, CollisionBoxIndex } from '../physics/CollisionGeometry.ts';
+import { decorationColumnBudget, isRotatedDecoration, splitCollisionBoxes, voxelizeDecoration } from '../physics/DecorationCollision.ts';
 import { createCollisionSampleTemplate, type CollisionSampleTemplate } from '../physics/CollisionSamples.ts';
 import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 export * from '../constants/SpaceConstants.ts';
@@ -349,6 +350,7 @@ export interface EntityHierarchyTree {
 }
 
 type VoxelIndexCache<T> = { shape: object; indexes: Map<string, ChunkedVoxelIndex<T>> };
+type DecorationIndexBox = CollisionBounds & { box: CollisionBox };
 type VoxelBoundsTest = (bounds: CollisionBounds, node: EntityNode, transformed: CollisionBounds) => boolean;
 export type EntityCollisionBounds = CollisionBounds & {
   currentMinX: number; currentMinY: number; currentMinZ: number;
@@ -488,8 +490,19 @@ export class Contraption {
   private _collisionEntriesDirty: boolean = false;
   private _collisionSurfaceEntries: Array<{ x: number; y: number; z: number; span: number; entityId: string }> | null = null;
   private _collisionSurfaceEntriesDirty: boolean = false;
-  collisionPhysicsBoxes!:  CollisionBox[];
-  collisionTerrainBoxes!:  CollisionBox[];
+  /** Voxel boxes merged per collision region; decoration footprints are kept apart. */
+  private voxelPhysicsBoxes!: CollisionBox[];
+  private voxelTerrainBoxes!: CollisionBox[];
+  /** Decoration footprints on the micro grid, per component (see DecorationCollision). */
+  private decorationCollisionNodes = new Map<string, { values: DecorationDefinition[]; rotated: number;
+    boxes: CollisionBox[]; index: CollisionBoxIndex<DecorationIndexBox> | null }>();
+  private decorationCollisionDirty = new Set<string>();
+  private decorationCollisionAllDirty = true;
+  private decorationCollisionBudget = -1;
+  private decorationCollision: { physics: CollisionBox[]; terrain: CollisionBox[] } = { physics: [], terrain: [] };
+  private composedCollisionBoxes: { voxelPhysics: CollisionBox[]; voxelTerrain: CollisionBox[];
+    decoration: object; physics: CollisionBox[]; terrain: CollisionBox[] } | null = null;
+  private collisionRadiusCache: { decoration: object; base: number; center: number[]; value: number } | null = null;
   collisionCellCount!:  number;
   collisionPoseVersion: number;
   collisionCellMap!:  Map<string, { x: number; y: number; z: number; span: number }>;
@@ -500,6 +513,97 @@ export class Contraption {
   collisionRegionEntries!:  Map<string, Map<string, CollisionEntry>>;
   collisionRegionSurfaceEntries!:  Map<string, Map<string, CollisionEntry>>;
   lastBlocksSet!:  Set<RuntimeVoxel>;
+
+  /** Entity-entity colliders: merged voxel boxes, then decoration footprints. */
+  get collisionPhysicsBoxes(): CollisionBox[] { return this.composeCollisionBoxes().physics; }
+  set collisionPhysicsBoxes(value: CollisionBox[]) { this.voxelPhysicsBoxes = value; }
+  /** Terrain colliders: merged surface voxel boxes, then decoration footprints
+   * split into the same bounded pieces. */
+  get collisionTerrainBoxes(): CollisionBox[] { return this.composeCollisionBoxes().terrain; }
+  set collisionTerrainBoxes(value: CollisionBox[]) { this.voxelTerrainBoxes = value; }
+
+  /** Decoration footprints in construction coordinates; they add no mass. */
+  getDecorationCollisionBoxes(): CollisionBox[] {
+    this.flushDecorationCollision();
+    return this.decorationCollision.physics;
+  }
+
+  private composeCollisionBoxes() {
+    this.flushDecorationCollision();
+    const decoration = this.decorationCollision;
+    let composed = this.composedCollisionBoxes;
+    if (!composed || composed.voxelPhysics !== this.voxelPhysicsBoxes
+      || composed.voxelTerrain !== this.voxelTerrainBoxes || composed.decoration !== decoration) {
+      // Without decorations the voxel arrays pass through unchanged.
+      composed = this.composedCollisionBoxes = {
+        voxelPhysics: this.voxelPhysicsBoxes, voxelTerrain: this.voxelTerrainBoxes, decoration,
+        physics: decoration.physics.length ? [...(this.voxelPhysicsBoxes || []), ...decoration.physics] : this.voxelPhysicsBoxes,
+        terrain: decoration.terrain.length ? [...(this.voxelTerrainBoxes || []), ...decoration.terrain] : this.voxelTerrainBoxes,
+      };
+    }
+    return composed;
+  }
+
+  /** Decorations changed: their footprints rebuild on the next collision query. */
+  private markDecorationCollisionDirty(nodeId: string | null = null) {
+    if (nodeId === null) this.decorationCollisionAllDirty = true;
+    else this.decorationCollisionDirty.add(nodeId);
+    this.invalidateCollisionPoseCache?.();
+  }
+
+  private flushDecorationCollision() {
+    if (!this.decorationCollisionAllDirty && this.decorationCollisionDirty.size === 0) return;
+    // Called before the hierarchy exists while the constructor builds voxel collision.
+    if (!this.entityNodes) return;
+    const nodes = this.decorationCollisionNodes;
+    const dirty = this.decorationCollisionAllDirty ? new Set(this.entityNodes.keys()) : this.decorationCollisionDirty;
+    if (this.decorationCollisionAllDirty) nodes.clear();
+    for (const id of dirty) {
+      if (!this.entityNodes.has(id)) { nodes.delete(id); continue; }
+      const values = this.getRuntimeComponentDecorations(id);
+      nodes.set(id, { values, rotated: values.filter(isRotatedDecoration).length, boxes: [], index: null });
+    }
+    let rotated = 0;
+    for (const node of nodes.values()) rotated += node.rotated;
+    const budget = decorationColumnBudget(rotated);
+    const rebuild = budget === this.decorationCollisionBudget ? dirty : nodes.keys();
+    this.decorationCollisionBudget = budget;
+    for (const id of rebuild) {
+      const node = nodes.get(id);
+      if (!node) continue;
+      node.boxes = node.values.flatMap(value => voxelizeDecoration(value, id, budget));
+      node.index = node.boxes.length ? new CollisionBoxIndex(node.boxes.map(box => ({
+        minX: box.x * MICRO_SIZE, maxX: (box.x + box.spanX) * MICRO_SIZE,
+        minY: box.y * MICRO_SIZE, maxY: (box.y + box.spanY) * MICRO_SIZE,
+        minZ: box.z * MICRO_SIZE, maxZ: (box.z + box.spanZ) * MICRO_SIZE, box,
+      }))) : null;
+    }
+    this.decorationCollisionAllDirty = false;
+    this.decorationCollisionDirty = new Set();
+    // Component order keeps solver contact order stable across hosts.
+    const physics = [...this.entityNodes.keys()].flatMap(id => nodes.get(id)?.boxes ?? []);
+    this.decorationCollision = { physics, terrain: splitCollisionBoxes(physics, 4 * MICRO_DIVISIONS) };
+  }
+
+  /** Bounding radius about `localCenter` that also covers decoration
+   * footprints; physics broadphase uses it, gameplay limits keep voxel bounds. */
+  getCollisionRadius(): number {
+    const base = this.boundingRadius;
+    const boxes = this.getDecorationCollisionBoxes();
+    if (!boxes.length || !this.localCenter) return base;
+    const center = this.localCenter.toArray();
+    const cached = this.collisionRadiusCache;
+    if (cached && cached.decoration === this.decorationCollision && cached.base === base
+      && cached.center.every((value, axis) => value === center[axis])) return cached.value;
+    let value = base;
+    for (const box of boxes) {
+      const reach = (min: number, span: number, axis: number) => Math.max(
+        Math.abs(min * MICRO_SIZE - center[axis]), Math.abs((min + span) * MICRO_SIZE - center[axis]));
+      value = Math.max(value, Math.hypot(reach(box.x, box.spanX, 0), reach(box.y, box.spanY, 1), reach(box.z, box.spanZ, 2)));
+    }
+    this.collisionRadiusCache = { decoration: this.decorationCollision, base, center, value };
+    return value;
+  }
 
   get collisionCells(): Array<{ x: number; y: number; z: number; span: number }> {
     if (this._collisionCellsDirty || !this._collisionCells) {
@@ -1050,6 +1154,7 @@ export class Contraption {
     if (group) {
       const pivot = this.entityNodes.get(nodeId)!.pivotLocal;
       editDecorationGroup(group, id, next, pivot);
+      this.markDecorationCollisionDirty(nodeId);
       if (this.selectedDecoration?.componentId === nodeId && this.selectedDecoration.decorationId === id) {
         this.setDecorationSelection(this.selectedDecoration);
       }
@@ -1084,7 +1189,8 @@ export class Contraption {
     for (const id of changed) this.rebuildDecorationMeshes(id);
   }
 
-  /** Visual edits never invalidate collision indexes, bodies, mass or inertia. */
+  /** Decorations rebuild their own collision footprints; voxel collision
+   * indexes, bodies, mass and inertia stay unchanged. */
   setComponentDecorations(nodeId: string, values: unknown): boolean {
     if (!this.entityNodes.has(nodeId)) return false;
     const decorations = normalizeDecorations(values);
@@ -1106,6 +1212,7 @@ export class Contraption {
       previous.removeFromParent();
     }
     this.decorationGroups.delete(nodeId);
+    this.markDecorationCollisionDirty(nodeId);
     const node = this.entityNodes.get(nodeId);
     if (!node) return;
     const group = createDecorationGroup(this.getRuntimeComponentDecorations(nodeId), node.pivotLocal);
@@ -2924,6 +3031,7 @@ export class Contraption {
 
     this.disposeGroupChildren(this.meshGroup);
     this.decorationGroups.clear();
+    this.markDecorationCollisionDirty();
     this.entityNodes = new Map();
     this.childScriptApis.clear();
 
@@ -5311,9 +5419,11 @@ export class Contraption {
     const hasMicro = (this.collisionSurfaceEntries || this.collisionEntries || []).some(
       (cell) => (cell.span ?? MICRO_DIVISIONS) < MICRO_DIVISIONS
     );
+    this.flushDecorationCollision();
+    const decorationBoxes = this.decorationCollision.terrain;
     const sourceEntries: (CollisionEntry | CollisionBox)[] = hasMicro && this.collisionTerrainBoxes?.length
       ? this.collisionTerrainBoxes
-      : (this.collisionSurfaceEntries || this.collisionEntries);
+      : [...(this.collisionSurfaceEntries || this.collisionEntries), ...decorationBoxes];
 
     for (const cell of sourceEntries) {
       if (bodyId && cell.entityId !== bodyId && (!attached || !attached.has(cell.entityId))) continue;
@@ -5348,7 +5458,7 @@ export class Contraption {
       // top/bottom faces and edges with ~0.5m spacing so large surfaces don't miss terrain features.
       const nx = Math.max(1, Math.round(sx / 0.5));
       const nz = Math.max(1, Math.round(sz / 0.5));
-      if (hasMicro && (nx > 1 || nz > 1)) {
+      if ((hasMicro || !('span' in cell)) && (nx > 1 || nz > 1)) {
         for (const dy of [low, high]) {
           for (let ix = 0; ix <= nx; ix++) {
             for (let iz = 0; iz <= nz; iz++) {
@@ -5417,7 +5527,11 @@ export class Contraption {
     if (!this.collisionSampleTemplate || this.collisionSampleTemplate.surface !== surface
       || this.collisionSampleTemplate.terrain !== terrain) {
       const hasMicro = surface.some(cell => (cell.span ?? MICRO_DIVISIONS) < MICRO_DIVISIONS);
-      const source = hasMicro && terrain?.length ? terrain : surface;
+      // Standard-only models keep authored-cell probes; decoration footprints
+      // are merged boxes in either case.
+      const decorations = this.decorationCollision.terrain;
+      const source = hasMicro && terrain?.length ? terrain
+        : decorations.length ? [...surface, ...decorations] : surface;
       this.collisionSampleTemplate = { surface, terrain, data: createCollisionSampleTemplate(source, hasMicro) };
     }
     const template = this.collisionSampleTemplate.data;
@@ -5444,9 +5558,9 @@ export class Contraption {
       const { positions, owners } = template;
       // Micro models sample merged terrain boxes. Standard-only models retain
       // their authored-cell probes; a merged-box selection must not remove them.
-      const filterCells = terrainCells && template.ranges[0] && 'spanX' in template.ranges[0].cell;
+      // Merged boxes (including decoration footprints) are the selected shapes.
       for (const range of template.ranges) {
-        if (filterCells && !terrainCells!.has(range.cell)) continue;
+        if (terrainCells && 'spanX' in range.cell && !terrainCells.has(range.cell)) continue;
         for (let i = range.start; i < range.end; i++) {
           const m = owners[i] * 20;
           if (!matrices[m + 19]) continue;
@@ -5489,10 +5603,11 @@ export class Contraption {
     ) {
       return this.collisionWorldAabbCache[cacheKey]!;
     }
-    const entries: (CollisionEntry | CollisionBox)[] = merged ? this.collisionPhysicsBoxes : surfaceOnly
+    const voxels: (CollisionEntry | CollisionBox)[] = merged ? this.collisionPhysicsBoxes : surfaceOnly
       ? (this.collisionSurfaceEntries || this.collisionEntries)
       : this.collisionEntries;
-    const boxes = this.buildCollisionWorldAABBs(entries);
+    const decorations = merged ? [] : this.getDecorationCollisionBoxes();
+    const boxes = this.buildCollisionWorldAABBs(decorations.length ? [...voxels, ...decorations] : voxels);
     if (this.collisionWorldAabbCache?.version !== this.collisionPoseVersion) {
       this.collisionWorldAabbCache = { version: this.collisionPoseVersion };
     }
@@ -5589,9 +5704,20 @@ export class Contraption {
 
   /** Query only the authored cells intersecting a player's swept bounds. */
   queryCollisionWorldAABBs(bounds: CollisionBounds) {
-    const matches = this.queryIndexedVoxels(true, (local, node, transformed) => (
+    const matches: (CollisionEntry | CollisionBox)[] = this.queryIndexedVoxels(true, (local, node, transformed) => (
       collisionBoundsOverlap(bounds, transformVoxelBounds(local, node, transformed, true))
     ));
+    this.flushDecorationCollision();
+    const transformed = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+    for (const [id, decoration] of this.decorationCollisionNodes) {
+      if (!decoration.index || !this.isNodeCollisionEnabled(id)) continue;
+      const node = this.entityNodes.get(id);
+      if (!node) continue;
+      node.group.updateWorldMatrix(true, false);
+      for (const match of decoration.index.queryMatchingBounds(local => (
+        collisionBoundsOverlap(bounds, transformVoxelBounds(local, node, transformed, true))
+      ))) matches.push(match.box);
+    }
     // Player Y/X/Z sweeps and post-physics recovery query the same pose. Reuse
     // transformed candidates instead of transforming sixteen corners per voxel
     // again for each pass; the local voxel tree still prunes distant geometry.

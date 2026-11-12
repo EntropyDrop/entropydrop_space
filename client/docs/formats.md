@@ -166,7 +166,7 @@ authenticated manifest's length, SHA-256 and identity checks before installation
 Entry progress reports uncompressed data sizes, including bytes read from cache,
 rather than compressed network transfer or physical disk usage.
 
-## Visual decorations
+## Decorations
 
 Inventory v8 Component field 14 stores `decorations`: component-local ids, optional
 construction-frame position, unit quaternion, positive XYZ scale, RGB and material.
@@ -174,7 +174,31 @@ Default transforms are omitted. Each centered 1m cube follows its owner; dimensi
 may vary independently from physical voxels. The aggregate limit is 1024 per Entity
 or Item. Decorations are preserved by backpack copies, binary export, market
 validation, entity checkpoints and hosted simulation, without entering physical
-bounds, mass, collision or construction-grid validation.
+bounds, mass or construction-grid validation.
+
+### Decoration collision
+
+Decorations collide with zero mass: they never change mass, inertia, centre of mass,
+seats or constraints, and the stored format is unchanged. Collision uses each cube's
+footprint on the 0.125 m construction grid (the owner's construction frame for entity
+decorations, world space for terrain decorations):
+
+- A cube rotated by quarter turns (or not at all) becomes one box whose faces round to
+  the nearest grid plane, ties downward. A cube thinner than one cell keeps the single
+  cell holding its centre.
+- A rotated cube fills every cell whose centre lies inside it, with each half extent
+  raised to at least half a cell so thin panels have no holes. Slopes therefore become
+  0.125 m steps.
+- A rotated cube that would need more than 4096 scan columns (about 8 m across) is
+  sampled on a coarser grid of 2, 4, 8 … cells. Rotated cubes of one entity, or of one
+  terrain chunk, share 65,536 columns: with more than 16 of them each gets an equal
+  share, but never fewer than 256.
+
+Entity footprints join the merged voxel boxes used against terrain, other entities and
+players, follow runtime decoration edits, and are ignored for components with collision
+disabled. Terrain footprints collide like terrain for entities and players, and their
+changes wake sleeping bodies nearby. Hosted simulation loads chunk decorations, so it
+uses the same footprints.
 
 Tool 7 (Modeling, the triangular trowel) adds a cube with RMB at an entity or component
 surface, or at a standard (1 m) terrain block. LMB selects a decoration and releases the
@@ -190,8 +214,8 @@ the cube centre relative to the anchor's centre; offsets and dimensions are limi
 16 m per axis. It belongs to the anchor's chunk, which holds at most 256, and its id is
 unique within that chunk. Removing the anchor voxel removes its decorations; that includes
 subdividing it into micro voxels, while repainting it does not. Micro voxels cannot carry
-decorations. Decorations stay visual-only, render only inside the near-terrain window and
-are not part of distant surface snapshots.
+decorations. Decorations render only inside the near-terrain window and are not part of
+distant surface snapshots; their collision does not depend on rendering.
 
 Chunk snapshots carry an optional `decorations` list of
 `{id, x, y, z, color, material?, position?, rotation?, scale?}`; it is omitted from stored
