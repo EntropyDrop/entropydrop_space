@@ -202,7 +202,10 @@ standard voxel in the BlockSet's `decorations` field (inventory v8, field 3, at 
 and placing it rebinds them to the rebuilt voxels, rotated with the placement. Disassembling
 an entity binds each authored decoration to the nearest standard voxel it wrote, keeping its
 world pose; decorations without a standard voxel within the 16 m bound are dropped and
-reported.
+reported. Assembling a box or connected-cell selection does the reverse: the decorations of
+every assembled standard voxel move to the new entity's root component, keeping their world
+pose; ones beyond the entity's 1024-decoration limit are dropped and reported. A micro
+selection subdivides its blocks, which removes their decorations as usual.
 
 ## Local terrain outbox (v3)
 

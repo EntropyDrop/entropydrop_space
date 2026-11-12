@@ -1,6 +1,6 @@
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import type { ScriptClickedBlock } from '@entropydrop/space-engine/scripting/ScriptProtocol.ts';
-import type { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
+import type { ContraptionManager, LiftedTerrainDecoration } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
 import type { ContraptionOptions, RuntimeVoxel } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
 import type { CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
 import type { PlayerPhysics } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
@@ -36,7 +36,7 @@ type WorldSelectionCapture = NonNullable<ReturnType<PlayerController['captureWor
 type EntityHit = NonNullable<ReturnType<ContraptionManager['raycastContraptionHit']>>;
 
 import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
-import { BULK_EDIT_MAX_OPERATIONS_PER_FRAME, BULK_EDIT_THRESHOLD, MAX_BLOCKSET_DECORATIONS, MAX_ENTITY_BLOCKS, MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_INVENTORY_BLOCKS, MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES, MAX_MICRO_MATERIALIZE_BLOCKS, MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { BULK_EDIT_MAX_OPERATIONS_PER_FRAME, BULK_EDIT_THRESHOLD, MAX_BLOCKSET_DECORATIONS, MAX_ENTITY_BLOCKS, MAX_ENTITY_DECORATIONS, MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_INVENTORY_BLOCKS, MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES, MAX_MICRO_MATERIALIZE_BLOCKS, MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import { BodyType, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import { offsetDecorations, type AnchoredDecorationDefinition } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { PLAYER_GRAVITY_MPS2, PLAYER_MASS_KG } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
@@ -6460,7 +6460,8 @@ export class PlayerController {
     );
   }
 
-  private finishPreparedWorldAssembly(rawBlocks: RuntimeVoxel[], origin: Point3, mode: string, customOptions: ContraptionOptions) {
+  private finishPreparedWorldAssembly(rawBlocks: RuntimeVoxel[], origin: Point3, mode: string, customOptions: ContraptionOptions,
+    decorations: LiftedTerrainDecoration[] = []) {
     if (rawBlocks.length === 0) {
       this.ui?.showToast?.('Selection region is empty (no blocks to assemble)');
       return null;
@@ -6470,12 +6471,10 @@ export class PlayerController {
       action: 'assemble',
       mode,
       options: customOptions,
-      prepared: { blocks: rawBlocks, origin }
+      prepared: { blocks: rawBlocks, origin, decorations }
     });
     const contraption = actionResult.entity;
-    if (contraption) {
-      this.ui?.showToast?.(`${contraption.blocks.length} blocks assembled into a contraption · aim at it and press C to open the editor`);
-    }
+    if (contraption) this.showAssemblyToast(contraption);
     return contraption || null;
   }
 
@@ -6504,6 +6503,7 @@ export class PlayerController {
       : { x: bounds!.minX, y: bounds!.minY, z: bounds!.minZ };
     const total = microCells ? scanTotal * 2 : scanTotal;
     const rawBlocks: any[] = [];
+    const liftedDecorations: LiftedTerrainDecoration[] = [];
     const cellAt = (index: number) => sparseCells?.[index] || {
       x: bounds!.minX + Math.floor(index / (sizeY * sizeZ)),
       y: bounds!.minY + Math.floor(index / sizeZ) % sizeY,
@@ -6588,6 +6588,8 @@ export class PlayerController {
           maxY: cell.y + 1 - 1e-6,
           maxZ: cell.z + 1 - 1e-6
         }) || [];
+        // Clearing the voxel removes its decorations, so read them first.
+        const decorations = block !== BlockTypes.AIR ? manager.terrainDecorationsAt?.(cell.x, cell.y, cell.z) ?? [] : [];
         const result = this.performBasicAction({
           domain: ActionDomain.WORLD,
           action: 'clear-cell',
@@ -6602,6 +6604,7 @@ export class PlayerController {
             block,
             color
           });
+          liftedDecorations.push(...decorations);
         }
         for (const micro of micros) {
           rawBlocks.push({
@@ -6616,7 +6619,7 @@ export class PlayerController {
         }
         return result.removed || 0;
       },
-      finish: () => this.finishPreparedWorldAssembly(rawBlocks, origin, finalMode, customOptions)
+      finish: () => this.finishPreparedWorldAssembly(rawBlocks, origin, finalMode, customOptions, liftedDecorations)
     });
     if (started) manager.clearSelection?.();
     return started;
@@ -6672,10 +6675,16 @@ export class PlayerController {
       options: customOptions
     });
     const contraption = actionResult.entity;
-    if (contraption && this.ui) {
-      this.ui.showToast(`${contraption.blocks.length} blocks assembled into a contraption · aim at it and press C to open the editor`);
-    }
+    if (contraption) this.showAssemblyToast(contraption);
     return contraption || null;
+  }
+
+  private showAssemblyToast(contraption: Contraption) {
+    const decorations = this.contraptions.lastAssemblyDecorations ?? { placed: 0, skipped: 0 };
+    this.ui?.showToast?.(`${contraption.blocks.length} blocks assembled into a contraption · aim at it and press C to open the editor`
+      + (decorations.placed ? ` · ${decorations.placed} decoration(s) carried over` : '')
+      + (decorations.skipped ? ` · ${decorations.skipped} decoration(s) dropped (entity limit ${MAX_ENTITY_DECORATIONS})` : ''),
+      decorations.skipped ? { tone: 'warning' } : undefined);
   }
 
   toggleDriveVehicle() {

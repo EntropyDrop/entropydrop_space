@@ -136,3 +136,78 @@ test('disassembly binds each decoration to the nearest written standard voxel, p
   assert.equal(bound.color, 7);
   assert.ok(Math.abs(bound.position[0] - 0.7) < 1e-6 && Math.abs(bound.position[1]) < 1e-6);
 });
+
+test('assembly carries terrain decorations onto the entity and disassembly puts them back', () => {
+  const scene = new THREE.Scene();
+  const world = new World(scene) as any;
+  const manager = new ContraptionManager(scene, world, null, null);
+  // x = 15 and 16 sit in different chunks, so the shared id must not collide on the entity.
+  for (const x of [15, 16]) world.setBlock(x, 40, 3, BlockTypes.COLOR_BLOCK, false, 0x48dbfb);
+  const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 6);
+  world.setTerrainDecoration({
+    id: 'd_wing', x: 16, y: 40, z: 3, color: 7, materialId: 1,
+    position: [0.7, 0.25, 0], rotation: tilt.toArray(), scale: [0.4, 1, 2],
+  });
+  world.setTerrainDecoration({ id: 'd_wing', x: 15, y: 40, z: 3, color: 9 });
+  manager.setCornerA({ x: 15, y: 40, z: 3 });
+  manager.setCornerB({ x: 16, y: 40, z: 3 });
+
+  const entity = manager.assembleSelection() as any;
+  assert.ok(entity);
+  assert.deepEqual(manager.lastAssemblyDecorations, { placed: 2, skipped: 0 });
+  assert.equal(world.terrainDecorations.size, 0, 'the terrain no longer holds them');
+  const decorations = entity.getComponentDecorations(entity.rootComponentId);
+  assert.equal(decorations.length, 2);
+  assert.equal(new Set(decorations.map((value: any) => value.id)).size, 2, 'ids stay unique within the component');
+  const wing = decorations.find((value: any) => value.color === 7);
+  assert.equal(wing.materialId, 1);
+  assert.deepEqual(wing.scale, [0.4, 1, 2]);
+  const center = entity.entityLocalToWorld(entity.rootComponentId, new THREE.Vector3().fromArray(wing.position));
+  assert.ok(center.distanceTo(new THREE.Vector3(17.2, 40.75, 3.5)) < 1e-6, 'world position is kept');
+  const worldRotation = entity.getEntityNodeWorldQuaternion(entity.rootComponentId)
+    .multiply(new THREE.Quaternion().fromArray(wing.rotation));
+  assert.ok(worldRotation.angleTo(tilt) < 1e-6, 'world rotation is kept');
+
+  assert.equal(manager.disassembleContraption(entity), true);
+  assert.deepEqual(manager.lastDisassemblyDecorations, { placed: 2, skipped: 0 });
+  const [back] = world.terrainDecorations.atAnchor(16, 40, 3);
+  assert.equal(back.color, 7);
+  assert.ok(back.position.every((value: number, axis: number) => Math.abs(value - [0.7, 0.25, 0][axis]) < 1e-6));
+  assert.ok(new THREE.Quaternion().fromArray(back.rotation).angleTo(tilt) < 1e-6);
+  assert.equal(world.terrainDecorations.atAnchor(15, 40, 3)[0].color, 9);
+});
+
+test('connected-cell assembly carries only the decorations of the selected voxels', () => {
+  const scene = new THREE.Scene();
+  const world = new World(scene) as any;
+  const manager = new ContraptionManager(scene, world, null, null);
+  for (const x of [3, 4, 5]) world.setBlock(x, 40, 3, BlockTypes.COLOR_BLOCK, false, 0x48dbfb);
+  world.setTerrainDecoration(trim({ id: 'd_in', x: 4 }));
+  world.setTerrainDecoration(trim({ id: 'd_out', x: 5 }));
+  manager.setConnectedSelection([{ x: 3, y: 40, z: 3 }, { x: 4, y: 40, z: 3 }]);
+
+  const entity = manager.assembleSelection() as any;
+  assert.ok(entity);
+  assert.deepEqual(entity.getComponentDecorations(entity.rootComponentId).map((value: any) => value.id), ['d_in']);
+  assert.deepEqual(world.terrainDecorations.atAnchor(5, 40, 3).map((value: any) => value.id), ['d_out'],
+    'unselected voxels keep their decorations');
+});
+
+test('assembly skips decorations beyond the entity limit and reports them', () => {
+  const scene = new THREE.Scene();
+  const world = new World(scene) as any;
+  const manager = new ContraptionManager(scene, world, null, null);
+  // Five chunks of 256 decorations: 1,280 in all, against an entity limit of 1,024.
+  for (const x of [0, 16, 32, 48, 64]) {
+    world.setBlock(x, 40, 3, BlockTypes.COLOR_BLOCK, false, 0x48dbfb);
+    for (let index = 0; index < 256; index++) world.setTerrainDecoration(trim({ id: `d_${index}`, x }));
+  }
+  manager.setCornerA({ x: 0, y: 40, z: 3 });
+  manager.setCornerB({ x: 64, y: 40, z: 3 });
+
+  const entity = manager.assembleSelection() as any;
+  assert.ok(entity);
+  assert.deepEqual(manager.lastAssemblyDecorations, { placed: 1024, skipped: 256 });
+  assert.equal(entity.getDecorationCount(), 1024);
+  assert.equal(world.terrainDecorations.size, 0);
+});

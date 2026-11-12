@@ -1,5 +1,5 @@
 import type { BodyTypeValue, Contraption } from '../contraption/Contraption.ts';
-import type { ContraptionManager } from '../contraption/ContraptionManager.ts';
+import type { ContraptionManager, LiftedTerrainDecoration } from '../contraption/ContraptionManager.ts';
 import type { ConstraintInput, ContraptionOptions, EntityNode, RuntimeConstraint, RuntimeVoxel } from '../contraption/EntityTypes.ts';
 import type { CollisionBounds } from '../physics/CollisionGeometry.ts';
 import type { World } from '../voxel/World.ts';
@@ -50,7 +50,7 @@ type SelectionInputs = {
   delete: { selection?: EntityActionSelection };
   paint: { selection?: EntityActionSelection; fromColor?: number } & Appearance;
   fill: { selection?: EntityActionSelection } & Appearance;
-  assemble: { mode?: string; options?: ContraptionOptions; prepared?: { blocks: RuntimeVoxel[]; origin: { x: number; y: number; z: number } } };
+  assemble: { mode?: string; options?: ContraptionOptions; prepared?: { blocks: RuntimeVoxel[]; origin: { x: number; y: number; z: number }; decorations?: LiftedTerrainDecoration[] } };
   'create-child': { selection?: EntityActionSelection; id?: string };
 };
 export type SelectionActionCommand = Commands<'selection', SelectionInputs>;

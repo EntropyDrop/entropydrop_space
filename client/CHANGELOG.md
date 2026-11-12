@@ -16,6 +16,10 @@ migration readers; breaking versions and unsupported formats are called out expl
   `blocksets/build`. Placement rebinds them to the rebuilt voxels with the same rotation.
 - Disassembling an entity keeps its authored decorations, binding each to the nearest
   standard voxel it wrote; ones beyond the 16 m bound are dropped and reported.
+- Assembling terrain into an entity carries the decorations of every assembled standard
+  voxel onto the entity's root component, keeping their world pose; ones beyond the
+  1024-decoration entity limit are dropped and reported. Micro selections subdivide their
+  blocks, which still removes those decorations.
 
 ## 2026-10 — Unified Items and shared backpack
 

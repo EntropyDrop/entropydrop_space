@@ -630,7 +630,8 @@ export function executeSelectionAction(context: BasicActionContext, command: any
               Number(prepared.origin?.z) || 0
             ),
             mode,
-            command.options || {}
+            command.options || {},
+            prepared.decorations || []
           )
         : manager?.assembleSelection?.(mode, command.options || {});
       return actionResult(command.action, entity ? 1 : 0, entity ? 'assembled' : 'empty', {

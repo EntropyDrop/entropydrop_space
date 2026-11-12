@@ -46,6 +46,24 @@ import {
 } from '../torus/TorusWorld.ts';
 import { ActionDomain, executeBasicAction } from '../actions/BasicActions.ts';
 import type { SpaceStorage } from '../storage/SpaceStorage.ts';
+import type { TerrainDecoration } from '../voxel/TerrainDecorationLayer.ts';
+import { MAX_ENTITY_DECORATIONS } from '../constants/SpaceConstants.ts';
+import { anchoredDecorationCenter, normalizeDecoration, type DecorationDefinition } from './Decorations.ts';
+
+/**
+ * A terrain decoration lifted with its standard voxel during assembly. `cell` is
+ * that voxel in the selection's own (unwrapped) coordinates, so the decoration's
+ * world pose is computed in the same frame as the assembled blocks.
+ */
+export interface LiftedTerrainDecoration { cell: { x: number; y: number; z: number }; value: TerrainDecoration }
+
+/** Drop float noise from a transform component; never emit -0. */
+const cleanTransform = (value: number) => {
+  const rounded = Math.round(value * 1e9) / 1e9;
+  return rounded === 0 ? 0 : rounded;
+};
+
+const newDecorationId = () => `d_${globalThis.crypto.randomUUID().replaceAll('-', '')}`;
 
 export const ENTITY_STORAGE_PREFIX = 'entropydrop_space_entities';
 export const ENTITY_STORAGE_VERSION = 4;
@@ -1484,6 +1502,9 @@ export class ContraptionManager {
 
     let rawBlocks: RuntimeVoxel[] = [];
     let originPos = new THREE.Vector3(0, 0, 0);
+    // Read before the voxels are cleared: clearing a standard voxel removes its decorations.
+    // Micro selections subdivide their blocks, which removes decorations by the terrain rule.
+    const liftedDecorations: LiftedTerrainDecoration[] = [];
 
     if (this.microSelection !== null) {
       // Sparse micro selection (Selector micro mode): extract exactly the
@@ -1564,6 +1585,7 @@ export class ContraptionManager {
             color: this.world.getBlockColor(b.x, b.y, b.z),
             materialId: this.world.getBlockMaterial?.(b.x, b.y, b.z) ?? 0,
           });
+          liftedDecorations.push(...this.terrainDecorationsAt(b.x, b.y, b.z));
           this.world.setBlock(b.x, b.y, b.z, BlockTypes.AIR, false);
           const { cx, cz } = this.world.worldToChunkCoords(b.x, b.z);
           const chunk = this.world.getChunk(cx, cz);
@@ -1593,6 +1615,14 @@ export class ContraptionManager {
       const bounds = this.getSelectionBounds();
       if (!bounds) return null;
       originPos.set(bounds.minX, bounds.minY, bounds.minZ);
+
+      if (this.world.terrainDecorations?.size) {
+        for (let x = bounds.minX; x <= bounds.maxX; x++) {
+          for (let y = bounds.minY; y <= bounds.maxY; y++) {
+            for (let z = bounds.minZ; z <= bounds.maxZ; z++) liftedDecorations.push(...this.terrainDecorationsAt(x, y, z));
+          }
+        }
+      }
 
       const extracted = this.world.extractRegion(
         bounds.minX, bounds.minY, bounds.minZ,
@@ -1632,7 +1662,57 @@ export class ContraptionManager {
       }
     }
 
-    return this.commitPreparedAssembly(rawBlocks, originPos, finalMode, customOptions);
+    return this.commitPreparedAssembly(rawBlocks, originPos, finalMode, customOptions, liftedDecorations);
+  }
+
+  /** Decorations bound to one standard terrain voxel, tagged with the selection's cell. */
+  terrainDecorationsAt(x: number, y: number, z: number): LiftedTerrainDecoration[] {
+    const values = this.world?.terrainDecorations?.atAnchor(x, y, z) ?? [];
+    return values.map(value => ({ cell: { x, y, z }, value }));
+  }
+
+  /** Outcome of the latest assembly's decoration transfer, for player feedback. */
+  lastAssemblyDecorations = { placed: 0, skipped: 0 };
+
+  /**
+   * Move decorations lifted from the assembled terrain onto the new entity's root
+   * component, keeping their world pose. Ones beyond the entity decoration limit
+   * are skipped; the terrain already removed them with their voxels.
+   */
+  private adoptTerrainDecorations(contraption: Contraption, lifted: LiftedTerrainDecoration[]) {
+    const result = { placed: 0, skipped: 0 };
+    if (!lifted.length) return result;
+    const rootId = contraption.rootComponentId;
+    const existing = contraption.getComponentDecorations(rootId);
+    const ids = new Set(existing.map(value => value.id));
+    const room = MAX_ENTITY_DECORATIONS - contraption.getDecorationCount();
+    const inverseRotation = contraption.getEntityNodeWorldQuaternion(rootId).invert();
+    const adopted: DecorationDefinition[] = [];
+    for (const { cell, value } of lifted) {
+      if (adopted.length >= room) { result.skipped++; continue; }
+      const center = new THREE.Vector3(...anchoredDecorationCenter([cell.x, cell.y, cell.z], value.position));
+      const local = contraption.worldToEntityLocal(rootId, center);
+      const rotation = inverseRotation.clone()
+        .multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1])).normalize();
+      // Terrain ids are unique per chunk; a selection spanning chunks may repeat one.
+      const id = ids.has(value.id) ? newDecorationId() : value.id;
+      try {
+        adopted.push(normalizeDecoration({
+          id, color: value.color, materialId: value.materialId ?? 0,
+          position: local.toArray().map(cleanTransform),
+          rotation: rotation.toArray().map(cleanTransform),
+          ...(value.scale ? { scale: [...value.scale] } : {}),
+        }));
+        ids.add(id);
+      } catch {
+        result.skipped++;
+      }
+    }
+    if (adopted.length) {
+      contraption.setComponentDecorations(rootId, [...existing, ...adopted]);
+      result.placed = adopted.length;
+    }
+    return result;
   }
 
   /**
@@ -1640,7 +1720,8 @@ export class ContraptionManager {
    * prepare/extract their blocks through BulkEditJob, then use this same commit
    * path so no partially constructed entity is ever registered.
    */
-  commitPreparedAssembly(rawBlocks: RuntimeVoxel[], originPos: THREE.Vector3 | SelectionPoint, mode = ContraptionMode.PROGRAMMABLE, customOptions: ContraptionOptions = {}) {
+  commitPreparedAssembly(rawBlocks: RuntimeVoxel[], originPos: THREE.Vector3 | SelectionPoint, mode = ContraptionMode.PROGRAMMABLE, customOptions: ContraptionOptions = {}, liftedDecorations: LiftedTerrainDecoration[] = []) {
+    this.lastAssemblyDecorations = { placed: 0, skipped: 0 };
     const finalMode = this.normalizeAssemblyMode(mode);
     if (!finalMode || !Array.isArray(rawBlocks) || rawBlocks.length === 0) {
       this.clearSelection();
@@ -1670,6 +1751,7 @@ export class ContraptionManager {
     // callers' opt-in to running physics and the separate restoration path.
     if (customOptions.physicsSimulationEnabled !== true) contraption.stopAllNodeScripts();
 
+    this.lastAssemblyDecorations = this.adoptTerrainDecorations(contraption, liftedDecorations);
     this.registerContraption(contraption);
     this.activeProgrammingContraption = contraption;
     this.sound?.playAssemblyClack?.();
@@ -1919,10 +2001,6 @@ export class ContraptionManager {
     const world = this.world as unknown as { setTerrainDecoration?: (value: unknown) => unknown };
     const result = { placed: 0, skipped: 0 };
     if (typeof world?.setTerrainDecoration !== 'function') return result;
-    const clean = (value: number) => {
-      const rounded = Math.round(value * 1e9) / 1e9;
-      return rounded === 0 ? 0 : rounded;
-    };
     for (const nodeId of contraption.entityNodes.keys()) {
       const decorations = contraption.getComponentDecorations(nodeId);
       if (!decorations.length) continue;
@@ -1942,10 +2020,10 @@ export class ContraptionManager {
         const rotation = nodeRotation.clone().multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1])).normalize();
         try {
           world.setTerrainDecoration({
-            id: `d_${globalThis.crypto.randomUUID().replaceAll('-', '')}`,
+            id: newDecorationId(),
             x: anchor.x, y: anchor.y, z: anchor.z, color: value.color, materialId: value.materialId ?? 0,
-            position: center.clone().sub(anchor).subScalar(0.5).toArray().map(clean),
-            rotation: rotation.toArray().map(clean),
+            position: center.clone().sub(anchor).subScalar(0.5).toArray().map(cleanTransform),
+            rotation: rotation.toArray().map(cleanTransform),
             ...(value.scale ? { scale: value.scale } : {}),
           });
           result.placed++;

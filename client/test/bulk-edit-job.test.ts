@@ -213,6 +213,30 @@ test('large world assembly extracts through BulkEditJob and commits one complete
   assert.equal(controller.__progress.at(-1).phase, 'complete');
 });
 
+test('large world assembly carries the decorations of the extracted voxels', () => {
+  const scene = new THREE.Scene();
+  const world = new World(scene) as any;
+  const manager = new ContraptionManager(scene, world, null, null);
+  const controller = makeController(manager, world);
+  clearRegion(world, 20, 80, 20, 27, 87, 24);
+  world.setBlock(20, 80, 20, BlockTypes.COLOR_BLOCK, false, 0xff0000);
+  world.setBlock(27, 87, 24, BlockTypes.COLOR_BLOCK, false, 0x00ff00);
+  world.setTerrainDecoration({ id: 'd_eave', x: 20, y: 80, z: 20, color: 7, position: [0.5, 0, 0] });
+  manager.setCornerA({ x: 20, y: 80, z: 20 });
+  manager.setCornerB({ x: 27, y: 87, z: 24 });
+
+  assert.equal(controller.assembleSelection(), true);
+  while (controller.bulkEditJob) controller.processBulkEditFrame(128, Infinity);
+
+  const entity = manager.contraptions[0] as any;
+  const [eave] = entity.getComponentDecorations(entity.rootComponentId);
+  assert.equal(eave.id, 'd_eave');
+  const center = entity.entityLocalToWorld(entity.rootComponentId, new THREE.Vector3().fromArray(eave.position));
+  assert.ok(center.distanceTo(new THREE.Vector3(21, 80.5, 20.5)) < 1e-6);
+  assert.equal(world.terrainDecorations.size, 0);
+  assert.match(controller.__toasts.at(-1), /2 blocks assembled.*1 decoration\(s\) carried over/);
+});
+
 test('large entity block selection creates its child through BulkEditJob', () => {
   const scene = new THREE.Scene();
   const total = BULK_EDIT_THRESHOLD + 44;
