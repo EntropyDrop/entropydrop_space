@@ -79,7 +79,7 @@ const FIRST_PERSON_TOOL_POSITION = new THREE.Vector3(
   -1.12 * FIRST_PERSON_TOOL_DEPTH * FIRST_PERSON_REFERENCE_TAN,
   -FIRST_PERSON_TOOL_DEPTH
 );
-const TOOL_USE_DURATION = 0.36;
+const TOOL_USE_DURATION = 0.24;
 
 function damp(current: number, target: number, responsiveness: number, dt: number) {
   return THREE.MathUtils.lerp(current, target, 1 - Math.exp(-responsiveness * dt));
