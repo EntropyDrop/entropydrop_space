@@ -315,7 +315,7 @@ test('subdivision size and geometry budget persist independently of near detail 
       renderDistanceChunks: 128, dataBudgetMiB: 32 }));
     const restored = new SpaceUiStore(); restored.setWorld(uiStub('world', world));
     assert.deepEqual(restored.getSnapshot().distantSurfaceSettings,
-      { subdivisionSizePx2: savedArea, renderDistanceChunks: 128, dataBudgetMiB: 32, geometryBudgetMiB: 160, torusBackfaceCulling: false });
+      normalizeDistantSurfaceSettings({ subdivisionSizePx2: savedArea, renderDistanceChunks: 128, dataBudgetMiB: 32 }));
     restored.resetDistantSurfaceSettings();
     assert.equal(applied.subdivisionSizePx2, 64);
     assert.equal(applied.dataBudgetMiB, 512);
