@@ -304,6 +304,8 @@ def remote_deploy(environment, branch="main", quiesce=False):
             tag = f"entropydrop-space-{environment}:{release}"
             # DS exposes the FRP HTTP proxy only on loopback. Host networking
             # makes it reachable from RUN steps; daemon pulls have separate config.
+            # DOCKER_BUILDKIT enables parallel stage evaluation and layer cache reuse.
+            build_env = {**os.environ, "DOCKER_BUILDKIT": "1"}
             run(["docker", "build", "--target", "runtime", "--network", "host",
                  "--build-arg", "HTTP_PROXY=http://127.0.0.1:19100",
                  "--build-arg", "HTTPS_PROXY=http://127.0.0.1:19100",
@@ -312,7 +314,7 @@ def remote_deploy(environment, branch="main", quiesce=False):
                  "--build-arg", "NO_PROXY=localhost,127.0.0.1,::1",
                  "--build-arg", "no_proxy=localhost,127.0.0.1,::1",
                  "--label", f"entropydrop.space.commit={sources['space']['commit']}",
-                 "-f", "deploy/Dockerfile", "-t", tag, "."], cwd=build_context)
+                 "-f", "deploy/Dockerfile", "-t", tag, "."], cwd=build_context, env=build_env)
             verify_repositories(sources)
             image = run(["docker", "image", "inspect", "--format", "{{.Id}}", tag], capture_output=True, text=True).stdout.strip()
             state["image"], state["tag"] = image, tag

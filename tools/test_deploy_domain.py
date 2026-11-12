@@ -86,6 +86,18 @@ class FakeS3:
         self.writes.append(key)
         self.seed(key, kwargs['Body'], ContentType=kwargs.get('ContentType'), CacheControl=kwargs.get('CacheControl'))
 
+    def copy_object(self, **kwargs):
+        source = kwargs['CopySource']
+        source_key = source['Key'] if isinstance(source, dict) else source
+        if isinstance(source_key, str) and '/' in source_key and not source_key.startswith('space-app/'):
+            source_key = source_key.split('/', 1)[1]
+        dest_key = kwargs['Key']
+        if source_key not in self.objects:
+            raise self.exceptions.NoSuchKey()
+        item = dict(self.objects[source_key])
+        self.writes.append(dest_key)
+        self.objects[dest_key] = item
+
 
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
@@ -186,6 +198,26 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'staged mismatch'):
             deploy.prepare('new')
         self.cf.update_distribution.assert_not_called()
+
+    def test_prepare_auto_generates_release_id_when_omitted(self):
+        self.mock('validate_production_build')
+        self.mock('distribution', return_value={'Id': 'space-distribution'})
+        self.mock('finish_space_release')
+        recorded = []
+        def switch(**kwargs):
+            origin = kwargs['DistributionConfig']['Origins']['Items'][0]['OriginPath']
+            recorded.append(origin)
+            return {'Distribution': {'Id': 'space-distribution'}}
+        self.cf.update_distribution.side_effect = switch
+        deploy.prepare()
+        self.cf.update_distribution.assert_called_once()
+        self.assertTrue(recorded[0].startswith('/space-app/space-'))
+
+    def test_retain_assets_detects_conflicts(self):
+        self.s3.seed('space-app/old/assets/chunk.js', b'original content')
+        self.s3.seed('space-app/new/assets/chunk.js', b'conflicting content')
+        with self.assertRaisesRegex(RuntimeError, 'Conflicting retained asset'):
+            deploy.retain_assets('space-app/old/', 'space-app/new/')
 
     def test_missing_router_on_specific_behavior_blocks_main_upload(self):
         self.mock('validate_production_build')

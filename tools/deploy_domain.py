@@ -69,8 +69,11 @@ def publish_function(name, code, comment, backup_dir=None):
         result = cf.create_function(Name=name, FunctionConfig={'Comment': comment, 'Runtime': 'cloudfront-js-2.0'}, FunctionCode=code.encode())
     return cf.publish_function(Name=name, IfMatch=result['ETag'])['FunctionSummary']['FunctionMetadata']['FunctionARN']
 
-def prepare(release, timeout=900):
-    if not release or any(c not in '0123456789abcdefghijklmnopqrstuvwxyz-_' for c in release):
+def prepare(release=None, timeout=900):
+    if not release:
+        release = f"space-{time.strftime('%Y%m%d-%H%M', time.gmtime())}"
+        print(f"No release identifier specified; using default: {release}", flush=True)
+    elif any(c not in '0123456789abcdefghijklmnopqrstuvwxyz-_' for c in release):
         raise ValueError('Use a literal release identifier')
     cf = client('cloudfront')
     build = ROOT / 'client/dist'
@@ -195,27 +198,42 @@ def retain_assets(old_prefix, prefix):
     if not old_prefix.startswith('space-app/') or not prefix.startswith('space-app/'):
         raise RuntimeError('Expected isolated Space release prefixes')
     s3 = client('s3', 'us-east-2')
-    for page in s3.get_paginator('list_objects_v2').paginate(Bucket=BUCKET, Prefix=old_prefix + 'assets/'):
-        for item in page.get('Contents', []):
-            key = prefix + item['Key'][len(old_prefix):]
-            for attempt in range(5):
-                try:
-                    old = s3.get_object(Bucket=BUCKET, Key=item['Key'])
-                    body = old['Body'].read()
-                    # Existing retry targets must contain the same immutable bytes.
-                    try:
-                        current = s3.get_object(Bucket=BUCKET, Key=key)
-                    except s3.exceptions.NoSuchKey:
-                        metadata = {k: old[k] for k in ('ContentType', 'CacheControl', 'ContentEncoding') if k in old}
-                        s3.put_object(Bucket=BUCKET, Key=key, Body=body, IfNoneMatch='*', **metadata)
-                    else:
-                        if current['Body'].read() != body:
-                            raise RuntimeError(f'Conflicting retained asset: {key}')
-                    break
-                except Exception:
-                    if attempt == 4:
-                        raise
-                    time.sleep(1 + attempt)
+    existing_targets = {
+        o['Key']: o['ETag'].strip('"')
+        for page in s3.get_paginator('list_objects_v2').paginate(Bucket=BUCKET, Prefix=prefix + 'assets/')
+        for o in page.get('Contents', [])
+    }
+    old_items = [
+        item
+        for page in s3.get_paginator('list_objects_v2').paginate(Bucket=BUCKET, Prefix=old_prefix + 'assets/')
+        for item in page.get('Contents', [])
+    ]
+
+    def copy_one(item):
+        key = prefix + item['Key'][len(old_prefix):]
+        source_etag = item['ETag'].strip('"')
+        if key in existing_targets:
+            if existing_targets[key] != source_etag:
+                raise RuntimeError(f'Conflicting retained asset: {key}')
+            return 0
+        for attempt in range(5):
+            try:
+                s3.copy_object(
+                    Bucket=BUCKET,
+                    Key=key,
+                    CopySource={'Bucket': BUCKET, 'Key': item['Key']},
+                    MetadataDirective='COPY',
+                )
+                return 1
+            except Exception:
+                if attempt == 4:
+                    raise
+                time.sleep(1 + attempt)
+        return 0
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        copied = sum(pool.map(copy_one, old_items))
+    print(f'Retained {len(old_items)} assets from previous release ({copied} copied via S3 server-side copy).', flush=True)
 
 
 def verify_objects(directory, prefix, aliases=()):

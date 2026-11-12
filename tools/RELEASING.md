@@ -4,10 +4,34 @@ Use the existing account virtualenv and the DS proxy described in
 [deployment setup](../deploy/README.md). All publication and verification HTTP
 requests use `http://127.0.0.1:19100`.
 
+### Quick Release Commands
+
 ```sh
-../entropydrop_backend/venv/bin/python tools/build_prod_domain.py
+# 1. Space client release (Fastest, ~1.5 min): builds Space & switches CloudFront
+../entropydrop_backend/venv/bin/python tools/release_space.py client
+
+# 2. Space backend release (DS API & worker migration/deployment)
+../entropydrop_backend/venv/bin/python tools/release_space.py server
+
+# 3. Full release (backend deploy + Space client build & CDN switch)
+../entropydrop_backend/venv/bin/python tools/release_space.py full
+
+# 4. Main site release (entropydrop.com frontend, only needed for main site changes)
+../entropydrop_backend/venv/bin/python tools/release_space.py main-site
+```
+
+Or execute the underlying pipeline steps directly:
+
+```sh
+# Client only:
+../entropydrop_backend/venv/bin/python tools/build_prod_domain.py --target space
+../entropydrop_backend/venv/bin/python tools/deploy_domain.py prepare
+
+# Backend only:
 ../entropydrop_backend/venv/bin/python tools/deploy_space.py prod
-../entropydrop_backend/venv/bin/python tools/deploy_domain.py prepare --release <new-release-id>
+
+# Main site (only if pages under entropydrop_frontend changed):
+../entropydrop_backend/venv/bin/python tools/build_prod_domain.py --target frontend
 ../entropydrop_backend/venv/bin/python tools/deploy_domain.py upload-main
 ```
 
