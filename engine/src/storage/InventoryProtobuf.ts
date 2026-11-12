@@ -18,7 +18,9 @@ import type {
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import { parseVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import { normalizeGradientStops, normalizePaletteEntry } from '../voxel/Palette.ts';
-import { normalizeDecorations } from '../contraption/Decorations.ts';
+import {
+  normalizeAnchoredDecorations, normalizeDecorations, type AnchoredDecorationDefinition,
+} from '../contraption/Decorations.ts';
 import { createFileRegistry, fromBinary, ScalarType, type DescField, type DescMessage } from '@bufbuild/protobuf';
 import { FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
 import { BinaryReader, configureTextEncoding, WireType } from '@bufbuild/protobuf/wire';
@@ -265,6 +267,31 @@ function compareVoxels(left: any, right: any): number {
 
 function canonicalVoxelMessages(blocks: any[]): Voxel[] {
   return [...blocks].sort(compareVoxels).map(block => voxelMessage(block));
+}
+
+/** Each anchored decoration must sit on a standard voxel of its BlockSet. */
+export function validateAnchoredDecorations(decorations: unknown, blocks: any[]): AnchoredDecorationDefinition[] {
+  const values = normalizeAnchoredDecorations(decorations);
+  if (!values.length) return values;
+  const standard = new Set<string>();
+  for (const block of blocks || []) {
+    const micro = block?.mx !== undefined || (Number(block?.size ?? 1) < 1);
+    if (!micro) standard.add(`${Number(block?.dx)},${Number(block?.dy)},${Number(block?.dz)}`);
+  }
+  for (const value of values) {
+    if (!standard.has(`${value.dx},${value.dy},${value.dz}`)) {
+      throw new Error('Each BlockSet decoration must be anchored to one of its standard voxels.');
+    }
+  }
+  return values;
+}
+
+function anchoredDecorationMessages(decorations: unknown, blocks: any[]) {
+  return validateAnchoredDecorations(decorations, blocks).map(value => ({
+    dx: value.dx, dy: value.dy, dz: value.dz,
+    position: vector3(value.position), rotation: quaternion(value.rotation), scale: vector3(value.scale),
+    colorRgb: value.color, materialId: value.materialId ?? 0,
+  }));
 }
 
 function vector3(value: unknown): Vector3 | undefined {
@@ -566,6 +593,7 @@ function resourceMessage(category: InventoryKind, portable: any, includeNames = 
         value: {
           name: includeNames ? String(portable.name || '') : '',
           blocks: canonicalVoxelMessages(portable.blocks || []),
+          decorations: anchoredDecorationMessages(portable.decorations, portable.blocks || []),
         },
       },
     };
@@ -670,6 +698,11 @@ function portableResource(message: any, allowLegacyV7 = false): DecodedInventory
   if (content?.$case === 'blockSet') {
     const blockSet = content.value;
     const blocks = (blockSet.blocks || []).map(block => portableVoxel(block));
+    const decorations = validateAnchoredDecorations((blockSet.decorations || []).map(value => ({
+      dx: value.dx, dy: value.dy, dz: value.dz,
+      position: vectorArray(value.position), rotation: quaternionArray(value.rotation),
+      scale: vectorArray(value.scale), color: value.colorRgb, materialId: value.materialId,
+    })), blocks);
     return {
       category: 'blockset',
       portable: {
@@ -677,6 +710,7 @@ function portableResource(message: any, allowLegacyV7 = false): DecodedInventory
         version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
         name: blockSet.name ?? '',
         blocks,
+        ...(decorations.length ? { decorations } : {}),
       },
     };
   }
@@ -1008,6 +1042,7 @@ export function inventoryResourcePreviewItem(category: InventoryKind, portable: 
 
   if (category === 'blockset') {
     const blocks = (portable?.blocks || []).map((block: any) => previewVoxel(block, false));
+    const anchoredDecorations = normalizeAnchoredDecorations(portable?.decorations);
     return {
       type: 'space-blockset',
       version: INVENTORY_PROTOBUF_SCHEMA_VERSION,
@@ -1015,6 +1050,7 @@ export function inventoryResourcePreviewItem(category: InventoryKind, portable: 
       kind: 'blockset',
       blockCount: blocks.length,
       blocks,
+      ...(anchoredDecorations.length ? { anchoredDecorations } : {}),
     };
   }
 

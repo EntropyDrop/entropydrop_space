@@ -85,6 +85,15 @@ export const MAX_ENTITY_COMPONENTS = 64;
 /** Visual-only cubes across one entity or one portable Item. */
 export const MAX_ENTITY_DECORATIONS = 1024;
 
+/** Terrain decorations bound to standard voxels in one 16×16 m chunk. */
+export const MAX_TERRAIN_DECORATIONS_PER_CHUNK = 256;
+
+/** Anchored decorations carried by one portable BlockSet. */
+export const MAX_BLOCKSET_DECORATIONS = 4096;
+
+/** Per-axis bound for an anchored decoration's offset and dimensions, in metres. */
+export const MAX_TERRAIN_DECORATION_EXTENT = 16;
+
 /** Maximum hierarchy nesting depth in an entity tree. */
 export const MAX_ENTITY_HIERARCHY_DEPTH = 16;
 

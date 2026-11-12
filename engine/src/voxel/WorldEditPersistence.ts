@@ -10,6 +10,13 @@ import {
 } from '../torus/TorusWorld.ts';
 import type { SpaceStorage } from '../storage/SpaceStorage.ts';
 import { normalizeVoxelMaterialId, VoxelMaterialIds } from './VoxelMaterials.ts';
+import { MAX_TERRAIN_DECORATIONS_PER_CHUNK } from '../constants/SpaceConstants.ts';
+import {
+  parseStoredTerrainDecoration,
+  storedTerrainDecoration,
+  type TerrainDecoration,
+  type TerrainDecorationLayer,
+} from './TerrainDecorationLayer.ts';
 
 const STORAGE_SCHEMA_VERSION = 3;
 const STORAGE_PREFIX = 'space.world-edits.v3';
@@ -35,7 +42,21 @@ export type TerrainMutation =
   | { kind: 'set_standard'; x: number; y: number; z: number; block: number; color: number; material?: number }
   | { kind: 'set_micro'; mx: number; my: number; mz: number; color: number; part?: string | null; material?: number }
   | { kind: 'remove_micro'; mx: number; my: number; mz: number }
-  | { kind: 'clear_micro_cell'; x: number; y: number; z: number };
+  | { kind: 'clear_micro_cell'; x: number; y: number; z: number }
+  | {
+    kind: 'set_decoration'; x: number; y: number; z: number; id: string; color: number; material?: number;
+    position?: number[]; rotation?: number[]; scale?: number[];
+  }
+  | { kind: 'remove_decoration'; x: number; y: number; z: number; id: string };
+
+/** Server rejections of one decoration edit; the batch is split and the edit dropped. */
+export const TERRAIN_DECORATION_REJECTIONS = new Set([
+  'TERRAIN_DECORATION_ANCHOR_EMPTY', 'TERRAIN_DECORATION_LIMIT', 'INVALID_TERRAIN_DECORATION',
+]);
+const SPLITTABLE_REJECTIONS = new Set([
+  'TERRAIN_BATCH_TOO_MANY_CHUNKS', 'TERRAIN_BATCH_TOO_MANY_ZONES', 'TERRAIN_EVENT_TOO_LARGE',
+  'STANDARD_CELL_OCCUPIED', ...TERRAIN_DECORATION_REJECTIONS,
+]);
 
 export interface TerrainEditChunk {
   chunk_x: number;
@@ -43,6 +64,8 @@ export interface TerrainEditChunk {
   revision: number;
   standard: unknown[];
   micro: unknown[];
+  /** Server object form; omitted or empty means the chunk has no decorations. */
+  decorations?: unknown[];
 }
 
 export interface WorldEditRemote {
@@ -89,6 +112,8 @@ export interface WorldEditPersistenceOptions {
   remote?: WorldEditRemote | null;
   onSyncStatus?: (status: WorldEditSyncStatus) => void;
   onResyncRequired?: () => void;
+  /** Terrain decorations are stored here and replayed with the outbox. */
+  decorations?: TerrainDecorationLayer | null;
 }
 
 export interface PersistedStandardEdit {
@@ -122,6 +147,7 @@ export interface RemoteChunkReplacementCursor {
   previousMicroIterator: Iterator<[string, PersistedMicroEdit]> | null;
   standard: unknown[];
   micro: unknown[];
+  decorations: unknown[];
   standardIndex: number;
   microIndex: number;
   standardLimit: number;
@@ -282,6 +308,7 @@ export class WorldEditPersistence {
   private readonly remote: WorldEditRemote | null;
   private readonly onSyncStatus: ((status: WorldEditSyncStatus) => void) | null;
   private readonly onResyncRequired: (() => void) | null;
+  private readonly decorations: TerrainDecorationLayer | null;
   private readonly standardEdits = new Map<string, PersistedStandardEdit>();
   private readonly standardEditsByChunk = new Map<string, Map<string, PersistedStandardEdit>>();
   private readonly microEdits = new Map<string, PersistedMicroEdit>();
@@ -312,6 +339,7 @@ export class WorldEditPersistence {
     this.remote = options.remote ?? null;
     this.onSyncStatus = options.onSyncStatus ?? null;
     this.onResyncRequired = options.onResyncRequired ?? null;
+    this.decorations = options.decorations ?? null;
     const configuredSaveDelay = Number(options.saveDelayMs);
     this.saveDelayMs = Number.isFinite(configuredSaveDelay)
       ? Math.max(0, configuredSaveDelay)
@@ -397,6 +425,7 @@ export class WorldEditPersistence {
       previousMicroIterator: previousMicro?.entries() ?? null,
       standard,
       micro,
+      decorations: Array.isArray(chunk.decorations) ? chunk.decorations : [],
       standardIndex: 0,
       microIndex: 0,
       standardLimit: Math.min(standard.length, MAX_STORED_STANDARD_EDITS),
@@ -523,6 +552,7 @@ export class WorldEditPersistence {
   private finishRemoteChunkReplacement(cursor: RemoteChunkReplacementCursor, unchanged = false) {
     cursor.unchanged = unchanged;
     cursor.complete = true;
+    this.replaceRemoteChunkDecorations(cursor);
     if (this.activeRemoteReplacements.get(cursor.chunkKey) === cursor) {
       this.activeRemoteReplacements.delete(cursor.chunkKey);
     }
@@ -574,7 +604,35 @@ export class WorldEditPersistence {
     return this.finishRemoteChunkReplacement(cursor, true);
   }
 
+  /** Small per-chunk sets: install the snapshot, then replay unacknowledged edits in order. */
+  private replaceRemoteChunkDecorations(cursor: RemoteChunkReplacementCursor) {
+    const layer = this.decorations;
+    if (!layer) return;
+    const snapshot = cursor.decorations.map(parseStoredTerrainDecoration)
+      .filter((value): value is TerrainDecoration => value !== null);
+    layer.replaceChunk(cursor.chunkKey, snapshot);
+    for (const batch of cursor.pendingBatches) {
+      if (batch.state === 'resolved') continue;
+      for (const mutation of batch.mutations) this.applyDecorationMutation(mutation);
+    }
+    for (const mutation of cursor.localMutations) this.applyDecorationMutation(mutation);
+  }
+
+  private applyDecorationMutation(mutation: TerrainMutation) {
+    const layer = this.decorations;
+    if (!layer) return;
+    if (mutation.kind === 'set_standard') {
+      if (Number(mutation.block) === 0) layer.removeAtAnchor(mutation.x, Math.floor(mutation.y), mutation.z);
+    } else if (mutation.kind === 'set_decoration') {
+      const value = parseStoredTerrainDecoration(mutation);
+      if (value) layer.upsert(value);
+    } else if (mutation.kind === 'remove_decoration') {
+      layer.remove(mutation.x, mutation.z, mutation.id);
+    }
+  }
+
   private applyMutationToReplacementBaseline(cursor: RemoteChunkReplacementCursor, mutation: TerrainMutation) {
+    if (mutation.kind === 'set_decoration' || mutation.kind === 'remove_decoration') return;
     if (mutation.kind === 'set_micro') {
       const edit = this.normalizeMicroEdit(mutation.mx, mutation.my, mutation.mz, mutation.color, mutation.part, mutation.material);
       if (edit) (cursor.previousMicro ??= new Map()).set(microKey(edit.mx, edit.my, edit.mz), edit);
@@ -659,6 +717,15 @@ export class WorldEditPersistence {
     return removed;
   }
 
+  /** Queue a terrain decoration that the caller already stored in the layer. */
+  recordDecoration(value: TerrainDecoration) {
+    this.enqueueMutation({ kind: 'set_decoration', ...storedTerrainDecoration(value) });
+  }
+
+  recordDecorationRemoval(value: Pick<TerrainDecoration, 'x' | 'y' | 'z' | 'id'>) {
+    this.enqueueMutation({ kind: 'remove_decoration', x: value.x, y: value.y, z: value.z, id: value.id });
+  }
+
   removeMicroStandardCell(
     wx: number,
     wy: number,
@@ -694,7 +761,7 @@ export class WorldEditPersistence {
       // copied into every player's IndexedDB or synchronously JSON-stringified
       // after every local edit.
       const hasLocalOverlay = !this.remote && (
-        this.standardEdits.size > 0 || this.microEdits.size > 0
+        this.standardEdits.size > 0 || this.microEdits.size > 0 || (this.decorations?.size ?? 0) > 0
       );
       if (!hasLocalOverlay && this.pendingBatches.length === 0) {
         this.storage.removeItem(this.storageKey);
@@ -713,6 +780,9 @@ export class WorldEditPersistence {
                 ? [edit.mx, edit.my, edit.mz, edit.color, edit.part, edit.material]
                 : [edit.mx, edit.my, edit.mz, edit.color]
             )),
+            ...(this.decorations?.size
+              ? { decorations: [...this.decorations.all()].map(storedTerrainDecoration) }
+              : {}),
           } : {}),
           pendingBatches: this.pendingBatches,
           savedAt: Date.now(),
@@ -944,15 +1014,7 @@ export class WorldEditPersistence {
     } catch (error) {
       this.sendingBatchId = null;
       this.blockedCode = typeof (error as any)?.code === 'string' ? (error as any).code : null;
-      if (
-        (
-          this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_CHUNKS'
-          || this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_ZONES'
-          || this.blockedCode === 'TERRAIN_EVENT_TOO_LARGE'
-          || this.blockedCode === 'STANDARD_CELL_OCCUPIED'
-        )
-        && this.splitRejectedBatch(batch)
-      ) {
+      if (this.blockedCode && SPLITTABLE_REJECTIONS.has(this.blockedCode) && this.splitRejectedBatch(batch)) {
         this.remoteFailureCount = 0;
         this.currentRetryDelayMs = 0;
         this.dirty = true;
@@ -962,12 +1024,7 @@ export class WorldEditPersistence {
         this.notifySyncStatus();
         return;
       }
-      if (
-        this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_CHUNKS'
-        || this.blockedCode === 'TERRAIN_BATCH_TOO_MANY_ZONES'
-        || this.blockedCode === 'TERRAIN_EVENT_TOO_LARGE'
-        || this.blockedCode === 'STANDARD_CELL_OCCUPIED'
-      ) {
+      if (this.blockedCode && SPLITTABLE_REJECTIONS.has(this.blockedCode)) {
         (error as any).permanent = true;
       }
       if ((error as any)?.permanent === true) {
@@ -1075,6 +1132,17 @@ export class WorldEditPersistence {
   private loadRemoteChunks(chunks: TerrainEditChunk[]) {
     for (const chunk of Array.isArray(chunks) ? chunks : []) {
       this.loadPackedEdits(chunk.standard, chunk.micro);
+      this.loadStoredDecorations(chunk.decorations);
+    }
+  }
+
+  private loadStoredDecorations(values: unknown) {
+    if (!this.decorations || !Array.isArray(values)) return;
+    for (const stored of values) {
+      const value = parseStoredTerrainDecoration(stored);
+      if (value && this.decorations.countInChunkOf(value.x, value.z) < MAX_TERRAIN_DECORATIONS_PER_CHUNK) {
+        this.decorations.upsert(value);
+      }
     }
   }
 
@@ -1136,7 +1204,10 @@ export class WorldEditPersistence {
       if (currentRaw) {
         const payload = JSON.parse(currentRaw);
         if (payload?.version !== STORAGE_SCHEMA_VERSION || payload?.worldId !== this.worldId) return;
-        if (!this.remote) this.loadPackedEdits(payload.standard, payload.micro);
+        if (!this.remote) {
+          this.loadPackedEdits(payload.standard, payload.micro);
+          this.loadStoredDecorations(payload.decorations);
+        }
         this.loadPendingBatches(payload.pendingBatches);
         this.replayPendingBatches();
         return;
@@ -1149,6 +1220,7 @@ export class WorldEditPersistence {
         this.standardEditsByChunk.clear();
         this.microEdits.clear();
         this.microEditsByChunk.clear();
+        this.decorations?.clear();
       }
       this.pendingBatches.length = 0;
     }
@@ -1245,6 +1317,18 @@ export class WorldEditPersistence {
         mz: Math.floor(wrapMicroZ(Number(mutation.mz))),
       };
     }
+    if (mutation?.kind === 'set_decoration') {
+      const value = parseStoredTerrainDecoration(mutation);
+      return value ? { kind: 'set_decoration', ...storedTerrainDecoration(value) } : null;
+    }
+    if (mutation?.kind === 'remove_decoration') {
+      if (![mutation.x, mutation.y, mutation.z].every(value => Number.isSafeInteger(Number(value)))
+        || typeof mutation.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(mutation.id)) return null;
+      return {
+        kind: 'remove_decoration', x: Math.floor(wrapX(Number(mutation.x))), y: Number(mutation.y),
+        z: Math.floor(wrapZ(Number(mutation.z))), id: mutation.id,
+      };
+    }
     if (mutation?.kind === 'clear_micro_cell') {
       if (![mutation.x, mutation.y, mutation.z].every(value => Number.isFinite(Number(value)))) return null;
       const y = Math.floor(Number(mutation.y));
@@ -1273,6 +1357,10 @@ export class WorldEditPersistence {
   }
 
   private applyMutationLocally(mutation: TerrainMutation) {
+    if (mutation.kind === 'set_decoration' || mutation.kind === 'remove_decoration') {
+      this.applyDecorationMutation(mutation);
+      return;
+    }
     if (mutation.kind === 'set_standard') {
       const edit = this.normalizeStandardEdit(
         mutation.x, mutation.y, mutation.z, mutation.block, mutation.color, mutation.material
@@ -1280,6 +1368,7 @@ export class WorldEditPersistence {
       if (!edit) return;
       this.addStandardEdit(edit);
       if (edit.block !== 0) this.removeMicroStandardCellLocal(edit.x, edit.y, edit.z);
+      else this.applyDecorationMutation(mutation);
       return;
     }
     if (mutation.kind === 'set_micro') {

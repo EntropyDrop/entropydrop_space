@@ -14,10 +14,14 @@ export interface EntityLabelView {
 
 export interface ModelingView {
   selection: {
-    contraption: Contraption;
-    componentId: string;
+    /** Null for a decoration bound to a terrain voxel. */
+    contraption: Contraption | null;
+    componentId: string | null;
+    terrain: { x: number; y: number; z: number } | null;
     decorationId?: string;
-    componentName: string;
+    /** Stable React key for the owner and decoration. */
+    key: string;
+    ownerLabel: string;
     value: DecorationDefinition;
   } | null;
   editable: boolean;

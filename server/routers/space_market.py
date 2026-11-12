@@ -192,11 +192,23 @@ class MarketVoxel(StrictResourceModel):
                 raise ValueError("micro coordinates must be between 0 and 7")
         return self
 
+class AnchoredDecorationPayload(StrictResourceModel):
+    dx: StrictInt
+    dy: StrictInt
+    dz: StrictInt
+    position: Vector3 | None = None
+    rotation: Quaternion | None = None
+    scale: Vector3 | None = None
+    color: StrictInt = Field(default=0, ge=0, le=0xFFFFFF)
+    materialId: StrictInt = Field(default=0, ge=0, le=101)
+
+
 class BlockSetPayload(StrictResourceModel):
     type: Literal["space-blockset"]
     version: Literal[8]
     name: StrictStr = Field(min_length=1, max_length=80)
     blocks: list[MarketVoxel] = Field(min_length=1, max_length=SPACE_MARKET_MAX_BLOCKS)
+    decorations: list[AnchoredDecorationPayload] | None = None
 
     @model_validator(mode="after")
     def validate_shape(self):
@@ -205,6 +217,13 @@ class BlockSetPayload(StrictResourceModel):
             raise ValueError("resource name may not be blank")
         _validate_voxel_collection(self.blocks, lambda _block: "blockset")
         self.blocks.sort(key=_voxel_sort_key)
+        if self.decorations is not None:
+            from space.decorations import normalize_anchored_decorations
+            canonical = normalize_anchored_decorations(
+                [decoration.model_dump(exclude_none=True) for decoration in self.decorations],
+                [block.model_dump(exclude_none=True) for block in self.blocks],
+            )
+            self.decorations = [AnchoredDecorationPayload.model_validate(value) for value in canonical] or None
         return self
 
 

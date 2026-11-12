@@ -25,6 +25,7 @@ import {
   encodeInventoryResource,
   INVENTORY_PROTOBUF_SCHEMA_VERSION,
   portableEntityToRuntime,
+  validateAnchoredDecorations,
   wrapLegacyInventoryResource,
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import type {
@@ -229,13 +230,20 @@ function parseBlockset(data: PortableBlockSet): InventoryImportResult<InventoryB
   if (!validateVoxelOccupancy(blocks, ['dx', 'dy', 'dz'])) {
     return fail('Block set contains duplicate voxels or standard/micro overlap');
   }
+  let anchoredDecorations;
+  try {
+    anchoredDecorations = validateAnchoredDecorations(data.decorations, data.blocks);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : 'Invalid block set decorations');
+  }
   return {
     ok: true,
     item: {
       kind: 'blockset',
       name: truncateInventoryName(trimInventoryName(data.name)),
       blocks,
-      blockCount: blocks.length
+      blockCount: blocks.length,
+      ...(anchoredDecorations.length ? { anchoredDecorations } : {}),
     }
   };
 }

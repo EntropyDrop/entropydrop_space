@@ -121,6 +121,8 @@ Entity IDs. Component code still uses [entityAPI](entityAPI.md) for one runtime 
 
 All keys can create entities (stopped or running), read their account's position, read world-entity configurations, edit stopped/unoccupied entities, start/stop unoccupied entities, and stamp blocksets through `POST /space/api/v2/worlds/{world_id}/blocksets/build`. World terrain stores `material_id` independently from color: `0` is the default lit material, `1` is emissive, and `2`–`101` encode 1%–100% transparency inside the AOI (`transparency = material_id - 1`); outside the AOI they render opaque. Detailed nearby terrain uses the stored material; distant LOD intentionally renders the default material for performance.
 
+A blockset may carry `decorations`: visual-only cubes, each anchored to one of its standard (non-micro) voxels by `dx/dy/dz`, with `position` as the cube centre relative to that voxel's centre and offsets/dimensions of at most 16 m per axis. Building stamps them onto the built voxels, rotated with `yaw_quarter_turns` (at most 1024 per build). Like any terrain decoration they have no collision, and removing their voxel later removes them too.
+
 Creation and blockset building are free within quotas. `running` uses an exclusive browser execution lease; it does not buy hosting and needs an online endpoint. Any nearby world participant may claim available running intent, regardless of author. Ordinary nearby browsers discover entities through a roughly two-second poll. Creation can succeed before the object is visible or simulating.
 
 ## Program entity communication

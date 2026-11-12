@@ -1,4 +1,6 @@
-import { MAX_ENTITY_BOUNDS, MAX_ENTITY_DECORATIONS, MAX_IMPORT_COORDINATE } from '../constants/SpaceConstants.ts';
+import {
+  MAX_BLOCKSET_DECORATIONS, MAX_ENTITY_BOUNDS, MAX_ENTITY_DECORATIONS, MAX_IMPORT_COORDINATE, MAX_TERRAIN_DECORATION_EXTENT,
+} from '../constants/SpaceConstants.ts';
 
 export interface DecorationDefinition {
   id: string;
@@ -87,4 +89,78 @@ export function offsetDecorations(values: unknown, offset: number[]): Decoration
   return normalizeDecorations(values).map(value => normalizeDecoration({
     ...value, position: (value.position || [0, 0, 0]).map((component, axis) => component + offset[axis]),
   }));
+}
+
+/**
+ * A visual cube bound to one standard 1 m voxel of a BlockSet. `dx/dy/dz` is the
+ * anchor cell in BlockSet coordinates; `position` is the cube centre relative to
+ * that cell's centre. Like voxels, anchored decorations have positional identity.
+ */
+export interface AnchoredDecorationDefinition extends Omit<DecorationDefinition, 'id'> {
+  dx: number;
+  dy: number;
+  dz: number;
+}
+
+/** A placed terrain decoration: world anchor cell plus an id unique in its chunk. */
+export interface TerrainDecorationDefinition extends DecorationDefinition {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Shared transform validation, with the tighter terrain offset/dimension bound. */
+function normalizeAnchoredValue(value: any, id: string): DecorationDefinition {
+  const result = normalizeDecoration({ ...value, id });
+  if (result.position?.some(component => Math.abs(component) > MAX_TERRAIN_DECORATION_EXTENT)) {
+    throw new Error(`Anchored decoration offset must be within ±${MAX_TERRAIN_DECORATION_EXTENT}.`);
+  }
+  if (result.scale?.some(component => component > MAX_TERRAIN_DECORATION_EXTENT)) {
+    throw new Error(`Anchored decoration dimensions must be at most ${MAX_TERRAIN_DECORATION_EXTENT}.`);
+  }
+  return result;
+}
+
+function integerCell(values: unknown[], label: string) {
+  if (!values.every(Number.isSafeInteger)) throw new Error(`${label} must be an integer voxel cell.`);
+  return values as number[];
+}
+
+export function normalizeAnchoredDecoration(value: any): AnchoredDecorationDefinition {
+  const [dx, dy, dz] = integerCell([value?.dx, value?.dy, value?.dz], 'Anchored decoration anchor');
+  const { id: _id, ...rest } = normalizeAnchoredValue(value, 'anchored');
+  return { dx: dx === 0 ? 0 : dx, dy: dy === 0 ? 0 : dy, dz: dz === 0 ? 0 : dz, ...rest };
+}
+
+const anchoredSortKey = (value: AnchoredDecorationDefinition) => [
+  value.dx, value.dy, value.dz,
+  ...(value.position || [0, 0, 0]), ...(value.rotation || [0, 0, 0, 1]), ...(value.scale || [1, 1, 1]),
+  value.color, value.materialId || 0,
+];
+
+/** Canonical order: anchor, then position, rotation (x,y,z,w), scale, colour and material. */
+export function compareAnchoredDecorations(left: AnchoredDecorationDefinition, right: AnchoredDecorationDefinition) {
+  const a = anchoredSortKey(left), b = anchoredSortKey(right);
+  for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  return 0;
+}
+
+export function normalizeAnchoredDecorations(values: unknown): AnchoredDecorationDefinition[] {
+  if (values === undefined) return [];
+  if (!Array.isArray(values) || values.length > MAX_BLOCKSET_DECORATIONS) {
+    throw new Error(`At most ${MAX_BLOCKSET_DECORATIONS} anchored decorations are allowed.`);
+  }
+  return values.map(normalizeAnchoredDecoration).sort(compareAnchoredDecorations);
+}
+
+/** Validate a terrain decoration; callers wrap x/z onto the torus. */
+export function normalizeTerrainDecoration(value: any): TerrainDecorationDefinition {
+  const [x, y, z] = integerCell([value?.x, value?.y, value?.z], 'Terrain decoration anchor');
+  return { x, y, z, ...normalizeAnchoredValue(value, value?.id) };
+}
+
+/** Cube centre in the anchor's coordinate frame (BlockSet or world). */
+export function anchoredDecorationCenter(anchor: [number, number, number], position?: [number, number, number]) {
+  const offset = position || [0, 0, 0];
+  return anchor.map((component, axis) => component + 0.5 + offset[axis]) as [number, number, number];
 }

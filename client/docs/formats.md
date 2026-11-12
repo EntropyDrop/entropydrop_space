@@ -177,15 +177,46 @@ validation, entity checkpoints and hosted simulation, without entering physical
 bounds, mass, collision or construction-grid validation.
 
 Tool 7 (Modeling, the triangular trowel) adds a cube with RMB at an entity or component
-surface. LMB selects a decoration and releases the cursor for local position,
-Euler-angle input (stored as a quaternion), XYZ dimensions and appearance controls.
-Entities must be stopped and editable. Duplicate/Delete and Ctrl/Cmd+Z,
-Ctrl/Cmd+Shift+Z provide decoration-only undo/redo during the current session.
+surface, or at a standard (1 m) terrain block. LMB selects a decoration and releases the
+cursor for local position, Euler-angle input (stored as a quaternion), XYZ dimensions and
+appearance controls. Entities must be stopped and editable; terrain decorations follow the
+ordinary terrain edit rules. Duplicate/Delete and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z provide
+decoration-only undo/redo during the current session.
+
+### Terrain decorations
+
+A terrain decoration is bound to one standard terrain voxel, its anchor. Its position is
+the cube centre relative to the anchor's centre; offsets and dimensions are limited to
+16 m per axis. It belongs to the anchor's chunk, which holds at most 256, and its id is
+unique within that chunk. Removing the anchor voxel removes its decorations; that includes
+subdividing it into micro voxels, while repainting it does not. Micro voxels cannot carry
+decorations. Decorations stay visual-only, render only inside the near-terrain window and
+are not part of distant surface snapshots.
+
+Chunk snapshots carry an optional `decorations` list of
+`{id, x, y, z, color, material?, position?, rotation?, scale?}`; it is omitted from stored
+overlays when empty, so chunks without decorations keep their previous bytes and hashes.
+
+Copying (`R`/`X`) or `T` a world selection carries the decorations of every selected
+standard voxel in the BlockSet's `decorations` field (inventory v8, field 3, at most 4096),
+and placing it rebinds them to the rebuilt voxels, rotated with the placement. Disassembling
+an entity binds each authored decoration to the nearest standard voxel it wrote, keeping its
+world pose; decorations without a standard voxel within the 16 m bound are dropped and
+reported.
 
 ## Local terrain outbox (v3)
 
 `space.world-edits.v3.*` stores unacknowledged terrain mutations and the last published
 revision. Mutations are a discriminated JSON union (`set_standard`, `set_micro`,
-`remove_micro`, `clear_micro_cell`) sent in idempotent batches of at most 256 through
+`remove_micro`, `clear_micro_cell`, `set_decoration`, `remove_decoration`) sent in
+idempotent batches of at most 256 through
 `POST /space/api/v2/worlds/{world_id}/terrain-edits/batches`. Obsolete v1/v2 overlays are
 ignored, never uploaded.
+
+`set_decoration` carries `x/y/z` (the anchoring standard voxel), `id`, `color`, and optional
+`material`, `position`, `rotation` and `scale`; `remove_decoration` carries `x/y/z` and `id`.
+A `set_standard` with `block: 0` also removes the decorations on that cell, on the client and
+on the server. The server rejects a decoration on an authored AIR cell
+(`409 TERRAIN_DECORATION_ANCHOR_EMPTY`), a 257th decoration in a chunk
+(`409 TERRAIN_DECORATION_LIMIT`) and malformed values (`422 INVALID_TERRAIN_DECORATION`); the
+client splits the batch and drops only the rejected edit.

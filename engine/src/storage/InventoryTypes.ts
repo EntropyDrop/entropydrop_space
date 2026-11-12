@@ -1,4 +1,4 @@
-import type { DecorationDefinition } from '../contraption/Decorations.ts';
+import type { AnchoredDecorationDefinition, DecorationDefinition } from '../contraption/Decorations.ts';
 import type { GradientStop, PaletteEntry } from '../voxel/Palette.ts';
 
 /** Data contracts shared by the codec and the browser. No engine instances or DOM. */
@@ -105,6 +105,8 @@ export interface PortableBlockSet {
   version: number;
   name: string;
   blocks: PortableVoxel[];
+  /** Visual cubes bound to standard voxels in `blocks`; omitted when empty. */
+  decorations?: AnchoredDecorationDefinition[];
 }
 
 export interface PortableColorSet {
@@ -166,6 +168,8 @@ export interface InventoryInput extends ComponentProperties {
   constraints?: InventoryConstraint[];
   mode?: string;
   blockSet?: InventoryBlockSet;
+  /** BlockSet decorations, each bound to a standard voxel cell in `blocks`. */
+  anchoredDecorations?: AnchoredDecorationDefinition[];
   entityList?: InventoryEntity[];
   itemPosition?: number[];
   itemRotation?: number[];

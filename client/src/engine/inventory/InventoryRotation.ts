@@ -1,5 +1,10 @@
+import * as THREE from 'three';
 import type { InventoryVoxel } from '@entropydrop/space-engine/storage/InventoryTypes.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
+import {
+  normalizeAnchoredDecoration,
+  type AnchoredDecorationDefinition,
+} from '@entropydrop/space-engine/contraption/Decorations.ts';
 
 interface RotatableChild { position?: { x: number; y: number; z: number } }
 
@@ -214,4 +219,39 @@ export function rotateChildDefinitionsY90<T extends RotatableChild>(childEntitie
       }
     };
   });
+}
+
+const cleanComponent = (value: number) => {
+  const rounded = Math.round(value * 1e9) / 1e9;
+  return rounded === 0 ? 0 : rounded;
+};
+
+/** Rotate one anchored decoration's offset and orientation by a placement rotation. */
+export function rotateAnchoredDecorationPose(value: AnchoredDecorationDefinition, rotation: THREE.Quaternion) {
+  const offset = new THREE.Vector3().fromArray(value.position || [0, 0, 0]).applyQuaternion(rotation);
+  const orientation = rotation.clone().multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1])).normalize();
+  return {
+    position: offset.toArray().map(cleanComponent) as [number, number, number],
+    rotation: orientation.toArray().map(cleanComponent) as [number, number, number, number],
+  };
+}
+
+/**
+ * Rotate BlockSet decorations with their blocks. Anchors are rotated as proxy
+ * voxels in the same call, so they receive the blocks' exact grid correction;
+ * rotateBlocksX90 turns +90° about X and rotateBlocksY90 −90° about Y per step.
+ */
+export function rotateAnchoredDecorations(blocks: InventoryVoxel[], decorations: AnchoredDecorationDefinition[] | undefined,
+  turnsX: number, turnsY: number) {
+  if (!decorations?.length || (!normalizeQuarterTurns(turnsX) && !normalizeQuarterTurns(turnsY))) return decorations;
+  let all: InventoryVoxel[] = [...blocks, ...decorations.map(value => ({ dx: value.dx, dy: value.dy, dz: value.dz, size: 1 }))];
+  if (normalizeQuarterTurns(turnsX)) all = rotateBlocksX90(all, turnsX);
+  if (normalizeQuarterTurns(turnsY)) all = rotateBlocksY90(all, turnsY);
+  const anchors = all.slice(blocks.length);
+  const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -normalizeQuarterTurns(turnsY) * Math.PI / 2)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), normalizeQuarterTurns(turnsX) * Math.PI / 2));
+  return decorations.map((value, index) => normalizeAnchoredDecoration({
+    ...value, ...rotateAnchoredDecorationPose(value, rotation),
+    dx: Math.round(Number(anchors[index].dx)), dy: Math.round(Number(anchors[index].dy)), dz: Math.round(Number(anchors[index].dz)),
+  }));
 }

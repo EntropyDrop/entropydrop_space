@@ -85,6 +85,15 @@ preview bounds include them. Ids are unique within each component and sorted;
 default transforms are omitted and quaternion signs are canonicalized. The limit
 is 1024 decorations per Entity and per aggregate Item.
 
+`BlockSet.decorations` (field 3) adds the same visual cubes to static terrain without an id.
+Each `AnchoredDecoration` names one of the set's standard voxels (`dx/dy/dz`, never a micro
+voxel); its position is the cube centre relative to that voxel's centre, and offsets and
+dimensions are at most 16 per axis. At most 4096 per BlockSet, counted separately from the
+Item's 1024 entity decorations. Canonical encoders sort by anchor, position, rotation
+(x,y,z,w), scale, colour and material, with absent transforms compared as defaults. Placing
+the set into terrain assigns fresh chunk-unique ids; removing the anchor voxel later removes
+the decoration.
+
 `inventory.proto` adds `Item` as an additive v8 resource alternative. An Item contains
 `id`, `name`, an optional original `BlockSet`, and `entity_list` of original `Entity`
 messages. Existing standalone resource tags and runtime entity APIs remain compatible.

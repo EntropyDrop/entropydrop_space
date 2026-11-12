@@ -26,6 +26,11 @@ import {
   type WorldEditPersistenceOptions,
 } from './WorldEditPersistence.ts';
 import {
+  normalizeWorldTerrainDecoration, parseStoredTerrainDecoration, TerrainDecorationLayer, type TerrainDecoration,
+} from './TerrainDecorationLayer.ts';
+import { TerrainDecorationMeshes } from './TerrainDecorationMeshes.ts';
+import { MAX_TERRAIN_DECORATIONS_PER_CHUNK } from '../constants/SpaceConstants.ts';
+import {
   DistantSurfaceLayer,
   type DistantSurfaceSettings,
 } from '../render/DistantSurfaceLayer.ts';
@@ -225,6 +230,9 @@ export class World {
   microVoxels: MicroVoxelLayer;
   /** Browser-local sparse overlay that survives a page refresh for this world. */
   editPersistence: WorldEditPersistence | null;
+  /** Visual cubes bound to standard voxels; removed with their anchor voxel. */
+  readonly terrainDecorations: TerrainDecorationLayer;
+  readonly terrainDecorationMeshes: TerrainDecorationMeshes;
   dirtyChunks: Set<Chunk>;
   /** Locally edited chunks that must bypass idle-only terrain streaming. */
   private interactiveDirtyChunks: Set<Chunk>;
@@ -315,9 +323,11 @@ export class World {
     this.distantSurface = new DistantSurfaceLayer();
     this.worldGroup.add(this.distantSurface.mesh);
     const remote = persistenceOptions?.remote;
+    this.terrainDecorations = new TerrainDecorationLayer();
     this.editPersistence = persistenceOptions?.worldId
       ? new WorldEditPersistence(remote ? {
         ...persistenceOptions,
+        decorations: this.terrainDecorations,
         remote: {
           ...remote,
           sendBatch: async (batchId, mutations, metadata) => {
@@ -326,8 +336,10 @@ export class World {
             return result;
           },
         },
-      } : persistenceOptions)
+      } : { ...persistenceOptions, decorations: this.terrainDecorations })
       : null;
+    this.terrainDecorationMeshes = new TerrainDecorationMeshes(this.terrainDecorations);
+    this.worldGroup.add(this.terrainDecorationMeshes.group);
 
     // Restore the sparse authored overlay immediately. When a generated chunk
     // arrives, rebuildMicroChunk composes its deterministic micro layer below
@@ -1003,6 +1015,10 @@ export class World {
     }
     if (changed || clearedMicro > 0) {
       this.terrainVersion++;
+    }
+    if (changed && blockType === BlockTypes.AIR) {
+      // The server applies the same rule when it receives this AIR edit.
+      this.terrainDecorations.removeAtAnchor(wrapX(wx), wy, wrapZ(wz));
     }
     if (changed) {
       const parentKey = this.proceduralParentKey(wx, wy, wz);
@@ -2480,6 +2496,7 @@ export class World {
    * too busy to grant requestIdleCallback time.
    */
   processInteractiveTerrainWork() {
+    this.terrainDecorationMeshes.sync(this.activeChunkKeys);
     // The layer's dirty queue is the single source of truth. Priority markers
     // only reorder work; losing or invalidating one can never make a dirty
     // partition ineligible for these guaranteed foreground slices.
@@ -2974,6 +2991,7 @@ export class World {
         revision,
         standard: Array.isArray(update.standard) ? update.standard : [],
         micro: Array.isArray(update.micro) ? update.micro : [],
+        decorations: Array.isArray(update.decorations) ? update.decorations : [],
       });
     }
   }
@@ -3016,6 +3034,8 @@ export class World {
     const persistenceCursor = this.editPersistence
       ? this.editPersistence.beginRemoteChunkReplacement(update)
       : null;
+    // Persistence replays the outbox over decorations when its cursor completes.
+    if (!persistenceCursor) this.replaceTerrainDecorationsFromSnapshot(key, update.decorations);
     // Compare the canonical snapshot (including the pending local outbox)
     // before touching the rendered cells. Echoes of our own edits commonly
     // advance the server revision without changing any local geometry.
@@ -3276,6 +3296,36 @@ export class World {
     return { done: true, value: undefined };
   }
 
+  private replaceTerrainDecorationsFromSnapshot(chunkKey: string, values: unknown) {
+    const parsed = (Array.isArray(values) ? values : []).map(parseStoredTerrainDecoration)
+      .filter((value): value is TerrainDecoration => value !== null);
+    this.terrainDecorations.replaceChunk(chunkKey, parsed);
+  }
+
+  /**
+   * Add or replace a terrain decoration on an existing standard voxel. Throws
+   * when the value is invalid, the anchor is empty or the chunk is full.
+   */
+  setTerrainDecoration(value: unknown): TerrainDecoration {
+    const candidate = normalizeWorldTerrainDecoration(value);
+    if (this.getBlock(candidate.x, candidate.y, candidate.z) === BlockTypes.AIR) {
+      throw new Error('Decorations attach to standard terrain blocks.');
+    }
+    if (!this.terrainDecorations.get(candidate.x, candidate.z, candidate.id)
+      && this.terrainDecorations.countInChunkOf(candidate.x, candidate.z) >= MAX_TERRAIN_DECORATIONS_PER_CHUNK) {
+      throw new Error(`A chunk may contain at most ${MAX_TERRAIN_DECORATIONS_PER_CHUNK} terrain decorations.`);
+    }
+    const stored = this.terrainDecorations.upsert(candidate);
+    this.editPersistence?.recordDecoration(stored);
+    return stored;
+  }
+
+  removeTerrainDecoration(value: Pick<TerrainDecoration, 'x' | 'y' | 'z' | 'id'>) {
+    const removed = this.terrainDecorations.remove(value.x, value.z, value.id);
+    if (removed) this.editPersistence?.recordDecorationRemoval(removed);
+    return removed;
+  }
+
   applyRemoteChunkUpdates(updates: TerrainEditChunk[]) {
     if (!Array.isArray(updates) || updates.length === 0) return;
     for (const update of updates) this.applyRemoteChunkUpdate(update);
@@ -3293,7 +3343,9 @@ export class World {
       revision,
       standard: update.standard,
       micro: update.micro,
+      decorations: update.decorations,
     });
+    if (!this.editPersistence) this.replaceTerrainDecorationsFromSnapshot(key, update.decorations);
 
     this.microVoxels.clearChunk(cx, cz);
     this.proceduralMicroChunks.delete(key);

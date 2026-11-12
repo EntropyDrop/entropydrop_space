@@ -4,6 +4,7 @@ import binascii
 import datetime as dt
 import hashlib
 import json
+import math
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,6 +24,7 @@ from space_quota import bucket_start, usage
 
 router = APIRouter(prefix="/space/api/v2/worlds/{world_id}", tags=["space-external"])
 MAX_BUILD_BLOCKS = 1024
+MAX_BUILD_DECORATIONS = 1024
 MAX_BUILD_BYTES = 1024 * 1024
 BUILD_RATE_LIMIT = "30/minute; 300/hour"
 BUILD_NAMESPACE = uuid.UUID("a80d5b20-f59d-47b1-8ae1-88e36c2fd349")
@@ -57,7 +59,45 @@ async def build_blockset_request(request: Request) -> BuildBlocksetRequest:
 
 class BuildTerrainBatch(space.TerrainMutationBatchRequest):
     # Each micro parent also needs a standard-air edit and a micro clear.
-    mutations: list[space.TerrainMutation] = Field(min_length=1, max_length=MAX_BUILD_BLOCKS * 3)
+    mutations: list[space.TerrainMutation] = Field(
+        min_length=1, max_length=MAX_BUILD_BLOCKS * 3 + MAX_BUILD_DECORATIONS)
+
+
+_YAW_QUARTER = (0.0, math.sqrt(0.5), 0.0, math.sqrt(0.5))
+
+
+def _multiply_quaternions(left, right):
+    lx, ly, lz, lw = left
+    rx, ry, rz, rw = right
+    return (
+        lw * rx + lx * rw + ly * rz - lz * ry,
+        lw * ry - lx * rz + ly * rw + lz * rx,
+        lw * rz + lx * ry - ly * rx + lz * rw,
+        lw * rw - lx * rx - ly * ry - lz * rz,
+    )
+
+
+def _build_decoration_mutations(payload, canonical, batch_id):
+    """Rotate anchored decorations with their voxels: (x, z) -> (z, -x) per quarter turn."""
+    origin = [getattr(payload.position, f"{axis}_cm") // 100 for axis in "xyz"]
+    mutations = []
+    for index, decoration in enumerate(canonical.get("decorations") or []):
+        x, y, z = decoration["dx"], decoration["dy"], decoration["dz"]
+        ox, oy, oz = decoration.get("position", (0, 0, 0))
+        rotation = tuple(decoration.get("rotation", (0, 0, 0, 1)))
+        for _ in range(payload.yaw_quarter_turns):
+            x, z = z, -x - 1
+            ox, oz = oz, -ox
+            rotation = _multiply_quaternions(_YAW_QUARTER, rotation)
+        length = math.sqrt(sum(component * component for component in rotation))
+        mutations.append(space.TerrainMutation(
+            kind="set_decoration", id=f"d_{uuid.uuid5(BUILD_NAMESPACE, f'{batch_id}:{index}').hex}",
+            x=x + origin[0], y=y + origin[1], z=z + origin[2],
+            position=[ox, oy, oz], rotation=[component / length for component in rotation],
+            scale=list(decoration.get("scale", (1, 1, 1))), color=decoration["color"],
+            material=decoration.get("materialId", 0),
+        ))
+    return mutations
 
 
 def _build_mutations(payload, canonical):
@@ -111,6 +151,8 @@ def build_blockset(request: Request, world_id: uuid.UUID,
         raise HTTPException(422, detail={"code": "BLOCKSET_DEFINITION_INVALID"}) from error
     if len(canonical["blocks"]) > MAX_BUILD_BLOCKS:
         raise HTTPException(413, detail={"code": "BLOCKSET_TOO_MANY_BLOCKS", "limit": MAX_BUILD_BLOCKS})
+    if len(canonical.get("decorations") or []) > MAX_BUILD_DECORATIONS:
+        raise HTTPException(413, detail={"code": "BLOCKSET_TOO_MANY_DECORATIONS", "limit": MAX_BUILD_DECORATIONS})
     definition_digest = hashlib.sha256(encode_inventory_resource("blockset", canonical)).hexdigest()
     digest = hashlib.sha256(json.dumps({
         "definition": definition_digest, "position": payload.position.model_dump(),
@@ -118,7 +160,8 @@ def build_blockset(request: Request, world_id: uuid.UUID,
     }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     batch_id = uuid.uuid5(BUILD_NAMESPACE, f"{world.id}:{creator.user.id}:{payload.operation_id}")
     batch = BuildTerrainBatch(batch_id=batch_id, dedupe_epoch=1, created_at_ms=payload.created_at_ms,
-                              mutations=_build_mutations(payload, canonical))
+                              mutations=[*_build_mutations(payload, canonical),
+                                         *_build_decoration_mutations(payload, canonical, batch_id)])
     # Validate the retry window even when a receipt exists, preventing replay after pruning.
     space._terrain_batch_client_created_at(batch, dt.datetime.now(dt.timezone.utc))
     receipt = db.query(models.SpaceTerrainMutationBatch).filter_by(world_id=world.id, batch_id=str(batch_id)).first()

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, defer
 
 from space import auth
 from space import models
+from space.decorations import MAX_TERRAIN_DECORATIONS_PER_CHUNK, normalize_terrain_decoration
 from space.worlds import find_world_spec, world_identity
 import space_surface
 from config import settings
@@ -118,7 +119,10 @@ class SpacePublicStatusResponse(BaseModel):
 
 
 class TerrainMutation(BaseModel):
-    kind: Literal["set_standard", "set_micro", "remove_micro", "clear_micro_cell"]
+    kind: Literal[
+        "set_standard", "set_micro", "remove_micro", "clear_micro_cell",
+        "set_decoration", "remove_decoration",
+    ]
     x: int | None = None
     y: int | None = None
     z: int | None = None
@@ -129,6 +133,12 @@ class TerrainMutation(BaseModel):
     color: int | None = None
     material: int | None = Field(default=0, ge=0, le=101)
     part: str | None = Field(default=None, max_length=64)
+    # Decorations: x/y/z is the anchoring standard voxel; position is the cube
+    # centre relative to that voxel's centre.
+    id: str | None = Field(default=None, max_length=64)
+    position: list[float] | None = Field(default=None, min_length=3, max_length=3)
+    rotation: list[float] | None = Field(default=None, min_length=4, max_length=4)
+    scale: list[float] | None = Field(default=None, min_length=3, max_length=3)
 
 
 class TerrainMutationBatchRequest(BaseModel):
@@ -212,6 +222,7 @@ def _decode_chunk_overlay(snapshot: models.SpaceChunkSnapshot | None) -> dict:
     return {
         "standard": payload.get("standard", []) if isinstance(payload.get("standard"), list) else [],
         "micro": payload.get("micro", []) if isinstance(payload.get("micro"), list) else [],
+        "decorations": payload.get("decorations", []) if isinstance(payload.get("decorations"), list) else [],
     }
 
 
@@ -486,6 +497,40 @@ def _overlay_maps(payload: dict) -> tuple[dict[str, list], dict[str, list]]:
         if isinstance(edit, list) and len(edit) >= 4
     }
     return standard, micro
+
+
+def _overlay_decorations(payload: dict) -> dict[str, dict]:
+    return {
+        decoration["id"]: decoration
+        for decoration in payload.get("decorations", [])
+        if isinstance(decoration, dict) and isinstance(decoration.get("id"), str)
+    }
+
+
+def _remove_anchored_decorations(decorations: dict[str, dict], x: int, y: int, z: int) -> int:
+    """Removing a standard voxel removes every decoration bound to it."""
+    anchored = [
+        identifier for identifier, decoration in decorations.items()
+        if (decoration.get("x"), decoration.get("y"), decoration.get("z")) == (x, y, z)
+    ]
+    for identifier in anchored:
+        decorations.pop(identifier)
+    return len(anchored)
+
+
+def _terrain_decoration(mutation: TerrainMutation, x: int, y: int, z: int) -> dict:
+    try:
+        return normalize_terrain_decoration({
+            "id": mutation.id, "x": x, "y": y, "z": z,
+            "color": mutation.color if mutation.color is not None else 0,
+            "material": mutation.material or 0,
+            **{field: getattr(mutation, field) for field in ("position", "rotation", "scale")
+               if getattr(mutation, field) is not None},
+        })
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "INVALID_TERRAIN_DECORATION", "message": str(exc),
+        }) from exc
 
 
 def _clear_micro_parent(micro: dict[str, list], x: int, y: int, z: int) -> int:
@@ -1052,6 +1097,7 @@ def space_heartbeat(
                 "terrain_revision": row.last_event_id,
                 "standard": overlay["standard"],
                 "micro": overlay["micro"],
+                "decorations": overlay["decorations"],
             })
         chunk_sizes = [len(JSONResponse(chunk).body) + 1 for chunk in event_chunks]
         if modified_chunks and (used_bytes + sum(chunk_sizes) > SPACE_TERRAIN_MAX_RESPONSE_BYTES
@@ -1193,6 +1239,7 @@ def list_terrain_edits(
             "revision": row.revision,
             "standard": overlay["standard"],
             "micro": overlay["micro"],
+            "decorations": overlay["decorations"],
         })
     next_cursor = None
     if has_more and rows:
@@ -1383,6 +1430,16 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
             mx, my, mz = _micro_cell(mutation, world)
             chunk = _chunk_for_micro(mx, mz)
             normalized.append((mutation.kind, chunk, mx, my, mz))
+        elif mutation.kind == "set_decoration":
+            x, y, z = _standard_cell(mutation, world)
+            chunk = _chunk_for_standard(x, z)
+            normalized.append((mutation.kind, chunk, _terrain_decoration(mutation, x, y, z)))
+        elif mutation.kind == "remove_decoration":
+            x, y, z = _standard_cell(mutation, world)
+            if not isinstance(mutation.id, str) or not mutation.id:
+                raise HTTPException(status_code=422, detail={"code": "INVALID_TERRAIN_DECORATION"})
+            chunk = _chunk_for_standard(x, z)
+            normalized.append((mutation.kind, chunk, mutation.id))
         else:
             x, y, z = _standard_cell(mutation, world)
             chunk = _chunk_for_standard(x, z)
@@ -1426,7 +1483,7 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
         models.SpaceChunkSnapshot.chunk_z,
     ).with_for_update().all()
     row_by_chunk = {(row.chunk_x, row.chunk_z): row for row in rows}
-    state_by_chunk: dict[tuple[int, int], tuple[models.SpaceChunkSnapshot, dict, dict]] = {}
+    state_by_chunk: dict[tuple[int, int], tuple[models.SpaceChunkSnapshot, dict, dict, dict]] = {}
     empty_encoded, empty_hash, empty_codec, empty_size = _encode_chunk_overlay(_empty_chunk_overlay())
     for chunk in touched_chunks:
         row = row_by_chunk.get(chunk) or models.SpaceChunkSnapshot(
@@ -1441,13 +1498,14 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
             content_hash=empty_hash,
             payload=empty_encoded,
         )
-        standard, micro = _overlay_maps(_decode_chunk_overlay(row))
-        state_by_chunk[chunk] = row, standard, micro
+        overlay = _decode_chunk_overlay(row)
+        standard, micro = _overlay_maps(overlay)
+        state_by_chunk[chunk] = row, standard, micro, _overlay_decorations(overlay)
 
     effective_changes = 0
     for mutation in normalized:
         kind, chunk, *values = mutation
-        _, standard, micro = state_by_chunk[chunk]
+        _, standard, micro, decorations = state_by_chunk[chunk]
         if kind == "set_standard":
             x, y, z, block, color, material = values
             key = f"{x},{y},{z}"
@@ -1457,6 +1515,8 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
             if standard.get(key) != packed:
                 standard[key] = packed
                 effective_changes += 1
+            if block == 0:
+                effective_changes += _remove_anchored_decorations(decorations, x, y, z)
             if block != 0:
                 effective_changes += _clear_micro_parent(micro, x, y, z)
         elif kind == "set_micro":
@@ -1479,6 +1539,25 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
             mx, my, mz = values
             if micro.pop(f"{mx},{my},{mz}", None) is not None:
                 effective_changes += 1
+        elif kind == "set_decoration":
+            decoration = values[0]
+            anchor = standard.get(f"{decoration['x']},{decoration['y']},{decoration['z']}")
+            # Generated terrain has no overlay entry; an authored air tombstone
+            # proves the anchor is gone. Clients only aim at visible voxels.
+            if anchor is not None and anchor[3] == 0:
+                raise HTTPException(status_code=409, detail={"code": "TERRAIN_DECORATION_ANCHOR_EMPTY"})
+            if decoration["id"] not in decorations and len(decorations) >= MAX_TERRAIN_DECORATIONS_PER_CHUNK:
+                raise HTTPException(status_code=409, detail={
+                    "code": "TERRAIN_DECORATION_LIMIT",
+                    "message": "A chunk may contain at most 256 terrain decorations.",
+                    "limit": MAX_TERRAIN_DECORATIONS_PER_CHUNK,
+                })
+            if decorations.get(decoration["id"]) != decoration:
+                decorations[decoration["id"]] = decoration
+                effective_changes += 1
+        elif kind == "remove_decoration":
+            if decorations.pop(values[0], None) is not None:
+                effective_changes += 1
         else:
             x, y, z = values
             effective_changes += _clear_micro_parent(micro, x, y, z)
@@ -1487,11 +1566,14 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
     changed_chunks: set[tuple[int, int]] = set()
     event_bytes = 0
     for chunk in sorted(touched_chunks):
-        row, standard, micro = state_by_chunk[chunk]
+        row, standard, micro, decorations = state_by_chunk[chunk]
         overlay = {
             "standard": sorted(standard.values(), key=lambda edit: (edit[0], edit[1], edit[2])),
             "micro": sorted(micro.values(), key=lambda edit: (edit[0], edit[1], edit[2])),
         }
+        # Omitted when empty, so chunks without decorations keep their hashes.
+        if decorations:
+            overlay["decorations"] = [decorations[identifier] for identifier in sorted(decorations)]
         encoded = _encode_chunk_overlay(overlay)
         encoded_by_chunk[chunk] = encoded
         if encoded[1] != bytes(row.content_hash):
@@ -1571,7 +1653,7 @@ def _apply_terrain_mutation_batch(request, world_id, batch_request, db, current_
         stream.last_event_id = terrain_revision + 1
         terrain_revision = stream.last_event_id
         for chunk in sorted(changed_chunks):
-            row, _standard, _micro = state_by_chunk[chunk]
+            row, _standard, _micro, _decorations = state_by_chunk[chunk]
             encoded, content_hash, codec, uncompressed_size = encoded_by_chunk[chunk]
             if chunk not in row_by_chunk:
                 db.add(row)

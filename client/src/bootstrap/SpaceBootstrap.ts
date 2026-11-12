@@ -1,8 +1,9 @@
 import { mainSiteUrl, spaceLoginUrl } from './SpaceSiteLinks.ts';
-import type {
-  TerrainEditChunk,
-  TerrainMutation,
-  WorldEditRemote,
+import {
+  TERRAIN_DECORATION_REJECTIONS,
+  type TerrainEditChunk,
+  type TerrainMutation,
+  type WorldEditRemote,
 } from '@entropydrop/space-engine/voxel/WorldEditPersistence.ts';
 import { CHUNK_SIZE_X, CHUNK_SIZE_Z } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import {
@@ -657,7 +658,8 @@ export async function loadTerrainEditRemote(
           detail?.message || `Space terrain batch was not accepted: ${code}`
         );
         error.code = code;
-        if (code === 'TERRAIN_BATCH_EXPIRED' || code === 'STANDARD_CELL_OCCUPIED') error.permanent = true;
+        if (code === 'TERRAIN_BATCH_EXPIRED' || code === 'STANDARD_CELL_OCCUPIED'
+          || TERRAIN_DECORATION_REJECTIONS.has(code)) error.permanent = true;
         const retryAfter = response.headers?.get?.('Retry-After');
         if (retryAfter) {
           const seconds = Number(retryAfter);

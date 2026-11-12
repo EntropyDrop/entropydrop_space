@@ -108,7 +108,10 @@ export function serializeInventoryItem(category: string, item: InventoryInput | 
           dz: Math.round(Number(b.dz)),
           ...shared
         };
-      })
+      }),
+      ...(item.anchoredDecorations?.length
+        ? { decorations: item.anchoredDecorations.map(value => structuredClone(value)) }
+        : {}),
     };
   }
   if (category === 'entity') {

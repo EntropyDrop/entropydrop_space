@@ -59,14 +59,15 @@ export function ModelingPanel() {
     </div>
     {creationDimensions && <div className="modeling-hint" role="status">Creating {creationDimensions.map((value: number) => Number(value.toFixed(3))).join(' × ')} m<br />{perspective === 'first_person' ? 'Wheel' : 'Shift+Wheel'}: thickness · release RMB: create · Esc: cancel</div>}
     {selection ? <>
-      <div className="modeling-owner">{selection.componentName || selection.componentId} · {selection.decorationId}</div>
-      <fieldset disabled={!editable} key={`${selection.contraption.id}:${selection.componentId}:${selection.decorationId}`}>
+      <div className="modeling-owner">{selection.ownerLabel} · {selection.decorationId}</div>
+      <fieldset disabled={!editable} key={selection.key}>
         {vectorField('position', position, 0.125)}
         {vectorField('rotation', rotation, 5)}
         {vectorField('scale', scale, 0.125)}
       </fieldset>
+      {selection.terrain && <div className="modeling-hint">Bound to this block: removing the block removes the decoration. Position is relative to the block centre.</div>}
       {!modelingView.canEdit && <div className="modeling-hint">Stop the entity and obtain edit access to change this decoration.</div>}
-    </> : <div className="modeling-hint">Select a decoration with LMB to inspect its position, rotation and dimensions.</div>}
+    </> : <div className="modeling-hint">Select a decoration with LMB to inspect its position, rotation and dimensions. RMB on an entity or a standard terrain block adds one.</div>}
   </aside>;
 }
 

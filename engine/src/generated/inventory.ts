@@ -48,6 +48,8 @@ export namespace ConstraintType {
  * Canonical encoders normalize every double -0.0 to +0.0; sort BlockSet.blocks
  * and Component.blocks by
  * (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb,material_id);
+ * sort BlockSet.decorations by (dx,dy,dz,position.xyz,rotation.xyzw,scale.xyz,
+ * color_rgb,material_id), comparing absent transforms as their defaults;
  * and sort Component.children, Component.decorations and Entity.constraints by Unicode code-point id
  * order. Color and seat order remains significant and is preserved.
  * Schema v8 adds portable palette gradients and per-entry materials. V7 entity
@@ -128,7 +130,53 @@ export interface Voxel {
 
 export interface BlockSet {
   name?: string | undefined;
-  blocks?: Voxel[] | undefined;
+  blocks?:
+    | Voxel[]
+    | undefined;
+  /**
+   * Visual-only cubes bound to standard voxels of this set. Each anchor must
+   * match a `blocks` entry with is_micro = false. Removing that standard voxel,
+   * including subdividing it into micro voxels, removes its decorations.
+   * At most 4096; order is non-semantic (see the canonical rule above).
+   */
+  decorations?: AnchoredDecoration[] | undefined;
+}
+
+/**
+ * Visual-only cube bound to one standard 1 m voxel. Like Voxel it has no id:
+ * identity is positional, and placement into terrain assigns fresh terrain ids.
+ * It never contributes collision, voxel counts, occupancy or physical bounds.
+ * Canonical encoders omit default transforms and choose the quaternion sign so
+ * the first nonzero component in (w,x,y,z) is positive.
+ */
+export interface AnchoredDecoration {
+  /** Anchor cell, in the same coordinates as the owning BlockSet's Voxel.dx/dy/dz. */
+  dx?: number | undefined;
+  dy?: number | undefined;
+  dz?:
+    | number
+    | undefined;
+  /**
+   * Cube centre relative to the anchor cell centre (dx+0.5, dy+0.5, dz+0.5);
+   * each component within ±16. Absent means (0,0,0).
+   */
+  position?:
+    | Vector3
+    | undefined;
+  /** Unit quaternion in BlockSet axes; absent means identity (0,0,0,1). */
+  rotation?:
+    | Quaternion
+    | undefined;
+  /**
+   * Positive dimensions along the cube's own XYZ axes, each at most 16;
+   * absent means (1,1,1).
+   */
+  scale?: Vector3 | undefined;
+  colorRgb?:
+    | number
+    | undefined;
+  /** Same presets as Voxel.material_id. */
+  materialId?: number | undefined;
 }
 
 export interface ColorSet {
@@ -704,7 +752,7 @@ export const Voxel: MessageFns<Voxel> = {
 };
 
 function createBaseBlockSet(): BlockSet {
-  return { name: "", blocks: [] };
+  return { name: "", blocks: [], decorations: [] };
 }
 
 export const BlockSet: MessageFns<BlockSet> = {
@@ -715,6 +763,11 @@ export const BlockSet: MessageFns<BlockSet> = {
     if (message.blocks !== undefined && message.blocks.length !== 0) {
       for (const v of message.blocks) {
         Voxel.encode(v!, writer.uint32(18).fork()).join();
+      }
+    }
+    if (message.decorations !== undefined && message.decorations.length !== 0) {
+      for (const v of message.decorations) {
+        AnchoredDecoration.encode(v!, writer.uint32(26).fork()).join();
       }
     }
     return writer;
@@ -752,6 +805,17 @@ export const BlockSet: MessageFns<BlockSet> = {
             }
             continue;
           }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            const el = AnchoredDecoration.decode(reader, reader.uint32());
+            if (el !== undefined) {
+              message.decorations!.push(el);
+            }
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -771,6 +835,161 @@ export const BlockSet: MessageFns<BlockSet> = {
     const message = createBaseBlockSet();
     message.name = object.name ?? "";
     message.blocks = object.blocks?.map((e) => Voxel.fromPartial(e)) || [];
+    message.decorations = object.decorations?.map((e) => AnchoredDecoration.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseAnchoredDecoration(): AnchoredDecoration {
+  return {
+    dx: 0,
+    dy: 0,
+    dz: 0,
+    position: undefined,
+    rotation: undefined,
+    scale: undefined,
+    colorRgb: 0,
+    materialId: 0,
+  };
+}
+
+export const AnchoredDecoration: MessageFns<AnchoredDecoration> = {
+  encode(message: AnchoredDecoration, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dx !== undefined && message.dx !== 0) {
+      writer.uint32(8).sint32(message.dx);
+    }
+    if (message.dy !== undefined && message.dy !== 0) {
+      writer.uint32(16).sint32(message.dy);
+    }
+    if (message.dz !== undefined && message.dz !== 0) {
+      writer.uint32(24).sint32(message.dz);
+    }
+    if (message.position !== undefined) {
+      Vector3.encode(message.position, writer.uint32(34).fork()).join();
+    }
+    if (message.rotation !== undefined) {
+      Quaternion.encode(message.rotation, writer.uint32(42).fork()).join();
+    }
+    if (message.scale !== undefined) {
+      Vector3.encode(message.scale, writer.uint32(50).fork()).join();
+    }
+    if (message.colorRgb !== undefined && message.colorRgb !== 0) {
+      writer.uint32(56).uint32(message.colorRgb);
+    }
+    if (message.materialId !== undefined && message.materialId !== 0) {
+      writer.uint32(64).uint32(message.materialId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AnchoredDecoration {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseAnchoredDecoration();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.dx = reader.sint32();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.dy = reader.sint32();
+            continue;
+          }
+          case 3: {
+            if (tag !== 24) {
+              break;
+            }
+
+            message.dz = reader.sint32();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.position = Vector3.decode(reader, reader.uint32());
+            continue;
+          }
+          case 5: {
+            if (tag !== 42) {
+              break;
+            }
+
+            message.rotation = Quaternion.decode(reader, reader.uint32());
+            continue;
+          }
+          case 6: {
+            if (tag !== 50) {
+              break;
+            }
+
+            message.scale = Vector3.decode(reader, reader.uint32());
+            continue;
+          }
+          case 7: {
+            if (tag !== 56) {
+              break;
+            }
+
+            message.colorRgb = reader.uint32();
+            continue;
+          }
+          case 8: {
+            if (tag !== 64) {
+              break;
+            }
+
+            message.materialId = reader.uint32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  create<I extends Exact<DeepPartial<AnchoredDecoration>, I>>(base?: I): AnchoredDecoration {
+    return AnchoredDecoration.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AnchoredDecoration>, I>>(object: I): AnchoredDecoration {
+    const message = createBaseAnchoredDecoration();
+    message.dx = object.dx ?? 0;
+    message.dy = object.dy ?? 0;
+    message.dz = object.dz ?? 0;
+    message.position = (object.position !== undefined && object.position !== null)
+      ? Vector3.fromPartial(object.position)
+      : undefined;
+    message.rotation = (object.rotation !== undefined && object.rotation !== null)
+      ? Quaternion.fromPartial(object.rotation)
+      : undefined;
+    message.scale = (object.scale !== undefined && object.scale !== null)
+      ? Vector3.fromPartial(object.scale)
+      : undefined;
+    message.colorRgb = object.colorRgb ?? 0;
+    message.materialId = object.materialId ?? 0;
     return message;
   },
 };

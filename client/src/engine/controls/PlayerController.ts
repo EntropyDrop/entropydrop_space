@@ -36,9 +36,9 @@ type WorldSelectionCapture = NonNullable<ReturnType<PlayerController['captureWor
 type EntityHit = NonNullable<ReturnType<ContraptionManager['raycastContraptionHit']>>;
 
 import { ActionDomain, executeBasicAction } from '@entropydrop/space-engine/actions/BasicActions.ts';
-import { BULK_EDIT_MAX_OPERATIONS_PER_FRAME, BULK_EDIT_THRESHOLD, MAX_ENTITY_BLOCKS, MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_INVENTORY_BLOCKS, MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES, MAX_MICRO_MATERIALIZE_BLOCKS, MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { BULK_EDIT_MAX_OPERATIONS_PER_FRAME, BULK_EDIT_THRESHOLD, MAX_BLOCKSET_DECORATIONS, MAX_ENTITY_BLOCKS, MAX_ENTITY_BOUNDS, MAX_ENTITY_COMPONENTS, MAX_INVENTORY_BLOCKS, MAX_INVENTORY_IMPORT_BYTES, MAX_INVENTORY_SCRIPT_BYTES, MAX_INVENTORY_TOTAL_SCRIPT_BYTES, MAX_MICRO_MATERIALIZE_BLOCKS, MAX_MICRO_SELECTION_CELLS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
 import { BodyType, ContraptionMode } from '@entropydrop/space-engine/contraption/Contraption.ts';
-import { offsetDecorations } from '@entropydrop/space-engine/contraption/Decorations.ts';
+import { offsetDecorations, type AnchoredDecorationDefinition } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { PLAYER_GRAVITY_MPS2, PLAYER_MASS_KG } from '@entropydrop/space-engine/physics/PlayerPhysics.ts';
 import { encodeInventoryResource, INVENTORY_PROTOBUF_SCHEMA_VERSION, MAX_BACKPACK_ITEM_SLOTS, MAX_BACKPACK_SLOTS_PER_CATEGORY, newItemTemplateId, type InventoryKind, } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { bendDirection, bendPointForView, TORUS_SIZE_X, TORUS_SIZE_Z, unbendPointForView, unwrapPeriodicNear, wrapMicroX, wrapMicroZ, } from '@entropydrop/space-engine/torus/TorusWorld.ts';
@@ -50,7 +50,7 @@ import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-e
 import * as THREE from 'three';
 import { STOPPED_GRID_EPSILON, validateVoxelOccupancy, withinEntityBounds } from '../inventory/InventoryGeometry.ts';
 import { parseInventoryImport } from '../inventory/InventoryImport.ts';
-import { rotateBlocksX90, rotateBlocksY90 } from '../inventory/InventoryRotation.ts';
+import { rotateAnchoredDecorationPose, rotateBlocksX90, rotateBlocksY90 } from '../inventory/InventoryRotation.ts';
 import { encodeInventoryItem, inventoryEntityRootId, inventoryItemName, serializeInventoryItem, } from '../inventory/InventorySerialization.ts';
 import { transformGizmoSize, transformScreenPoint, transformViewCamera, TRANSFORM_GIZMO_ROTATION_RADIUS as WRENCH_GIZMO_ROTATION_RADIUS, } from '../render/TransformGizmo.ts';
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
@@ -2517,9 +2517,12 @@ export class PlayerController {
       return null;
     }
     const name = `world selection (${blocks.length} voxels, ${capture.entityList.length} entities)`;
+    const anchoredDecorations = this.copiedAnchoredDecorations(blocks);
     const portable = {
       type: 'space-item', version: INVENTORY_PROTOBUF_SCHEMA_VERSION, id: newItemTemplateId(), name,
-      ...(blocks.length ? { blockSet: this.serializeInventoryItem('blockset', { name, blocks }) } : {}),
+      ...(blocks.length ? { blockSet: this.serializeInventoryItem('blockset', {
+        name, blocks, ...(anchoredDecorations.length ? { anchoredDecorations } : {}),
+      }) } : {}),
       entityList: capture.entityList,
     };
     const parsed = this.parseInventoryImport(encodeInventoryResource('item', portable), 'item');
@@ -2646,7 +2649,9 @@ export class PlayerController {
       return null;
     }
     const blocks = this.stripCopiedBottomGap(rawBlocks, 'dy');
-    const slot = { kind: 'blockset', name, blocks, blockCount: blocks.length };
+    const anchoredDecorations = this.copiedAnchoredDecorations(blocks);
+    const slot = { kind: 'blockset', name, blocks, blockCount: blocks.length,
+      ...(anchoredDecorations.length ? { anchoredDecorations } : {}) };
     const index = this.addInventoryItem('blockset', slot, 'hotbar-end');
     if (index === null) {
       this.ui?.showToast?.(`Item inventory is full (${this.inventories.item.items.length}) - delete one first`);
@@ -2809,7 +2814,8 @@ export class PlayerController {
           block: item.block,
           color: item.color,
           materialId: normalizeVoxelMaterialId(item.materialId),
-          part: item.part
+          part: item.part,
+          ...(item.size >= 1 ? { worldCell: { x: item.x, y: item.y, z: item.z } } : {}),
         });
         return 1;
       },
@@ -3049,8 +3055,59 @@ export class PlayerController {
       color: b.color == null ? undefined : normalizeColor(b.color),
       ...(normalizeVoxelMaterialId(b.materialId) === VoxelMaterialIds.DEFAULT
         ? {}
-        : { materialId: normalizeVoxelMaterialId(b.materialId) })
+        : { materialId: normalizeVoxelMaterialId(b.materialId) }),
+      // Standard voxels remember their source cell so bound decorations can follow.
+      ...(b.size >= 1 ? { worldCell: { x: b.x, y: b.y, z: b.z } } : {}),
     }));
+  }
+
+  /** Decorations bound to copied standard voxels, in the copy's final coordinates. */
+  private copiedAnchoredDecorations(blocks: Array<InventoryVoxel & { worldCell?: Point3 }>) {
+    const layer = this.world?.terrainDecorations;
+    const result: AnchoredDecorationDefinition[] = [];
+    if (!layer) return result;
+    for (const block of blocks) {
+      if ((block.size ?? 1) < 1 || !block.worldCell) continue;
+      const { x, y, z } = block.worldCell;
+      for (const { id: _id, x: _x, y: _y, z: _z, ...value } of layer.atAnchor(x, y, z)) {
+        result.push({ dx: Math.round(Number(block.dx)), dy: Math.round(Number(block.dy)), dz: Math.round(Number(block.dz)), ...value });
+      }
+    }
+    if (result.length > MAX_BLOCKSET_DECORATIONS) {
+      this.ui?.showToast?.(`Only the first ${MAX_BLOCKSET_DECORATIONS} decorations were copied`, { tone: 'warning' });
+      result.length = MAX_BLOCKSET_DECORATIONS;
+    }
+    return result;
+  }
+
+  /**
+   * Bind BlockSet decorations to the standard voxels just placed at `origin`.
+   * With `rotation`, anchors and poses follow the Item's continuous rotation.
+   */
+  private placeAnchoredDecorations(origin: Point3, decorations: AnchoredDecorationDefinition[] | undefined,
+    rotation: THREE.Quaternion | null = null) {
+    if (!decorations?.length || !this.world?.setTerrainDecoration) return 0;
+    let placed = 0;
+    for (const value of decorations) {
+      const cell = rotation
+        ? new THREE.Vector3(value.dx + 0.5, value.dy + 0.5, value.dz + 0.5).applyQuaternion(rotation).addScalar(-0.5)
+        : new THREE.Vector3(value.dx, value.dy, value.dz);
+      const pose = rotation ? rotateAnchoredDecorationPose(value, rotation) : {};
+      const { dx: _dx, dy: _dy, dz: _dz, ...appearance } = value;
+      try {
+        this.world.setTerrainDecoration({
+          ...appearance, ...pose, id: `d_${crypto.randomUUID().replaceAll('-', '')}`,
+          x: Math.round(origin.x) + Math.round(cell.x), y: Math.round(origin.y) + Math.round(cell.y),
+          z: Math.round(origin.z) + Math.round(cell.z),
+        });
+        placed++;
+      } catch { /* The anchor was not rebuilt as a standard voxel, or its chunk is full. */ }
+    }
+    if (placed < decorations.length) {
+      this.ui?.showToast?.(`${decorations.length - placed} decoration(s) were skipped: their block was not built or its chunk is full`,
+        { tone: 'warning' });
+    }
+    return placed;
   }
 
   private bulkEditProgress(job: BulkEditJob, phase: BulkEditPhase, detail = '') {
@@ -3285,6 +3342,7 @@ export class PlayerController {
     }
     const target = pose.position.clone?.() || { ...pose.position };
     const blocks = [...(pose.slot?.blocks || slot.blocks)];
+    const decorations = (pose.slot || slot).anchoredDecorations;
     let placed = 0;
 
     if (blocks.length > BULK_EDIT_THRESHOLD) {
@@ -3296,11 +3354,15 @@ export class PlayerController {
           placed += changed;
           return changed;
         },
-        finish: () => this.finishBlockSetPaste(target, blocks.length, placed, replace)
+        finish: () => {
+          this.placeAnchoredDecorations(target, decorations);
+          this.finishBlockSetPaste(target, blocks.length, placed, replace);
+        }
       });
     }
 
     for (const block of blocks) placed += this.applyBlockSetVoxel(target, block, replace);
+    this.placeAnchoredDecorations(target, decorations);
     this.finishBlockSetPaste(target, blocks.length, placed, replace);
     return placed > 0;
   }
@@ -5183,7 +5245,11 @@ export class PlayerController {
     }
     this.ui?.notifyContraptionRemoved?.(contraption);
     this.ui?.refresh?.();
-    this.ui?.showToast?.(`Entity #${contraption.id} aligned to the grid and disassembled`);
+    const decorations = this.contraptions.lastDisassemblyDecorations ?? { placed: 0, skipped: 0 };
+    this.ui?.showToast?.(`Entity #${contraption.id} aligned to the grid and disassembled`
+      + (decorations.placed ? ` · ${decorations.placed} decoration(s) bound to terrain` : '')
+      + (decorations.skipped ? ` · ${decorations.skipped} decoration(s) dropped (no standard block within 16 m, or chunk full)` : ''),
+      decorations.skipped ? { tone: 'warning' } : undefined);
     return true;
   }
 
@@ -6174,6 +6240,7 @@ export class PlayerController {
       this.ui?.showToast?.(`Built [${slot.name || 'Item'}] (${blocks.length} static voxels, ${created.length} entities)`);
       return true;
     };
+    const placeDecorations = () => this.placeAnchoredDecorations(origin, slot.blockSet?.anchoredDecorations, rotation);
     if (blocks.length > BULK_EDIT_THRESHOLD) {
       return this.startBulkEditJob({
         label: 'Building item', total: blocks.length,
@@ -6182,10 +6249,11 @@ export class PlayerController {
           placed += changed;
           return changed;
         },
-        finish: buildEntities,
+        finish: () => { placeDecorations(); return buildEntities(); },
       });
     }
     for (const block of blocks) placed += this.applyBlockSetVoxel(origin, block);
+    placeDecorations();
     return buildEntities();
   }
 

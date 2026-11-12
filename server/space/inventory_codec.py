@@ -8,7 +8,10 @@ from typing import Any, Literal
 from google.protobuf.message import DecodeError
 
 from space.contracts import inventory_pb2
-from space.decorations import normalize_decorations as _normalize_decorations
+from space.decorations import (
+    normalize_anchored_decorations as _normalize_anchored_decorations,
+    normalize_decorations as _normalize_decorations,
+)
 
 
 from space.voxel_grid import MICRO_DIVISIONS
@@ -24,6 +27,13 @@ class InventoryCodecError(ValueError):
 def normalize_decorations(value):
     try:
         return _normalize_decorations(value)
+    except (ValueError, TypeError) as error:
+        raise InventoryCodecError(str(error)) from error
+
+
+def normalize_anchored_decorations(value, blocks):
+    try:
+        return _normalize_anchored_decorations(value, blocks)
     except (ValueError, TypeError) as error:
         raise InventoryCodecError(str(error)) from error
 
@@ -151,11 +161,40 @@ def _encode_block_set(message, canonical: dict[str, Any], include_name: bool) ->
         message.name = canonical["name"]
     for block in sorted(canonical["blocks"], key=_voxel_sort_key):
         _encode_voxel(message.blocks.add(), block)
+    for decoration in normalize_anchored_decorations(canonical.get("decorations"), canonical["blocks"]):
+        encoded = message.decorations.add()
+        encoded.dx, encoded.dy, encoded.dz = decoration["dx"], decoration["dy"], decoration["dz"]
+        encoded.color_rgb = decoration["color"]
+        encoded.material_id = decoration.get("materialId", 0)
+        if "position" in decoration:
+            _set_vector(encoded.position, decoration["position"])
+        if "rotation" in decoration:
+            _set_quaternion(encoded.rotation, decoration["rotation"])
+        if "scale" in decoration:
+            _set_vector(encoded.scale, decoration["scale"])
+
+
+def _decode_anchored_decoration(message) -> dict[str, Any]:
+    decoded: dict[str, Any] = {
+        "dx": int(message.dx), "dy": int(message.dy), "dz": int(message.dz),
+        "color": int(message.color_rgb), "materialId": int(message.material_id),
+    }
+    if message.HasField("position"):
+        decoded["position"] = _vector(message.position)
+    if message.HasField("rotation"):
+        decoded["rotation"] = _quaternion(message.rotation)
+    if message.HasField("scale"):
+        decoded["scale"] = _vector(message.scale)
+    return decoded
 
 
 def _decode_block_set(message) -> dict[str, Any]:
     blocks = [_decode_voxel(block) for block in message.blocks]
+    decorations = normalize_anchored_decorations(
+        [_decode_anchored_decoration(decoration) for decoration in message.decorations], blocks,
+    )
     return {
+        **({"decorations": decorations} if decorations else {}),
         "type": "space-blockset",
         "version": SCHEMA_VERSION,
         "name": message.name,

@@ -3,6 +3,9 @@ import math
 import re
 
 MAX_DECORATIONS = 1024
+MAX_BLOCKSET_DECORATIONS = 4096
+MAX_TERRAIN_DECORATIONS_PER_CHUNK = 256
+MAX_ANCHORED_EXTENT = 16
 
 
 def normalize_decoration(value):
@@ -57,3 +60,69 @@ def normalize_decorations(values):
     if len({value["id"] for value in result}) != len(result):
         raise ValueError("decoration ids must be unique within a component")
     return sorted(result, key=lambda value: value["id"])
+
+
+def _bounded_anchored(result):
+    if any(abs(component) > MAX_ANCHORED_EXTENT for component in result.get("position", ())):
+        raise ValueError(f"anchored decoration offset must be within ±{MAX_ANCHORED_EXTENT}")
+    if any(component > MAX_ANCHORED_EXTENT for component in result.get("scale", ())):
+        raise ValueError(f"anchored decoration dimensions must be at most {MAX_ANCHORED_EXTENT}")
+    return result
+
+
+def _integer_cell(value, keys, label):
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    cell = tuple(value.get(key) for key in keys)
+    if any(type(component) is not int for component in cell):
+        raise ValueError(f"{label} must be an integer voxel cell")
+    return cell
+
+
+def normalize_anchored_decoration(value):
+    """A BlockSet decoration: standard anchor cell plus offset from its centre."""
+    dx, dy, dz = _integer_cell(value, ("dx", "dy", "dz"), "anchored decoration anchor")
+    result = _bounded_anchored(normalize_decoration({**value, "id": "anchored"}))
+    result.pop("id")
+    return {"dx": dx, "dy": dy, "dz": dz, **result}
+
+
+def anchored_sort_key(value):
+    return (
+        value["dx"], value["dy"], value["dz"],
+        *value.get("position", (0, 0, 0)), *value.get("rotation", (0, 0, 0, 1)), *value.get("scale", (1, 1, 1)),
+        value["color"], value.get("materialId", 0),
+    )
+
+
+def normalize_anchored_decorations(values, blocks):
+    """Canonical BlockSet decorations; each anchor must be one of its standard voxels."""
+    if values is None:
+        return []
+    if not isinstance(values, list) or len(values) > MAX_BLOCKSET_DECORATIONS:
+        raise ValueError(f"at most {MAX_BLOCKSET_DECORATIONS} anchored decorations are allowed")
+    result = sorted((normalize_anchored_decoration(value) for value in values), key=anchored_sort_key)
+    standard = {
+        (int(block["dx"]), int(block["dy"]), int(block["dz"]))
+        for block in blocks if block.get("mx") is None
+    }
+    for value in result:
+        if (value["dx"], value["dy"], value["dz"]) not in standard:
+            raise ValueError("each block-set decoration must be anchored to one of its standard voxels")
+    return result
+
+
+def normalize_terrain_decoration(value):
+    """Terrain overlay form: world anchor cell, chunk-unique id and terrain field names."""
+    x, y, z = _integer_cell(value, ("x", "y", "z"), "terrain decoration anchor")
+    portable = {key: item for key, item in value.items() if key not in ("x", "y", "z", "material", "kind")}
+    if value.get("material") is not None:
+        portable["materialId"] = value["material"]
+    result = _bounded_anchored(normalize_decoration(portable))
+    terrain = {"id": result["id"], "x": x, "y": y, "z": z, "color": result["color"]}
+    if result.get("materialId"):
+        terrain["material"] = result["materialId"]
+    for field in ("position", "rotation", "scale"):
+        if field in result:
+            terrain[field] = result[field]
+    return terrain

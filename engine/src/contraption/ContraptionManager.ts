@@ -1858,6 +1858,7 @@ export class ContraptionManager {
     }
 
     const affectedChunks = new Set<Chunk>();
+    const standardCells: THREE.Vector3[] = [];
 
     for (const b of contraption.blocks) {
       const blockSize = b.size || 1;
@@ -1878,6 +1879,7 @@ export class ContraptionManager {
 
       if (targetY >= 0 && targetY < CHUNK_SIZE_Y) {
         this.world.setBlock(targetX, targetY, targetZ, BlockTypes.COLOR_BLOCK, false, b.color, b.materialId);
+        standardCells.push(new THREE.Vector3(targetX, targetY, targetZ));
         const { cx, cz } = this.world.worldToChunkCoords(targetX, targetZ);
         const chunk = this.world.getChunk(cx, cz);
         if (chunk) affectedChunks.add(chunk);
@@ -1897,10 +1899,62 @@ export class ContraptionManager {
       this.particles.emitSteamPuff?.(contraption.position, 35);
     }
 
+    this.lastDisassemblyDecorations = this.bindDecorationsToTerrain(contraption, standardCells);
+
     this.removeContraption(contraption, {
       skipRemoteDelete: options.skipRemoteDelete === true
     });
     return true;
+  }
+
+  /** Outcome of the latest disassembly's decoration transfer, for player feedback. */
+  lastDisassemblyDecorations = { placed: 0, skipped: 0 };
+
+  /**
+   * Keep authored decorations when an entity becomes terrain: each one binds to
+   * the nearest standard voxel just written, preserving its world pose. Values
+   * beyond the terrain offset/dimension bound, or without a standard voxel, are skipped.
+   */
+  private bindDecorationsToTerrain(contraption: Contraption, cells: THREE.Vector3[]) {
+    const world = this.world as unknown as { setTerrainDecoration?: (value: unknown) => unknown };
+    const result = { placed: 0, skipped: 0 };
+    if (typeof world?.setTerrainDecoration !== 'function') return result;
+    const clean = (value: number) => {
+      const rounded = Math.round(value * 1e9) / 1e9;
+      return rounded === 0 ? 0 : rounded;
+    };
+    for (const nodeId of contraption.entityNodes.keys()) {
+      const decorations = contraption.getComponentDecorations(nodeId);
+      if (!decorations.length) continue;
+      const node = contraption.getEntityNode(nodeId);
+      if (!node) { result.skipped += decorations.length; continue; }
+      node.group.updateWorldMatrix(true, false);
+      const nodeRotation = node.group.getWorldQuaternion(new THREE.Quaternion());
+      for (const value of decorations) {
+        const center = contraption.entityLocalToWorld(nodeId, new THREE.Vector3().fromArray(value.position || [0, 0, 0]));
+        let anchor: THREE.Vector3 | null = null;
+        let nearest = Infinity;
+        for (const cell of cells) {
+          const distance = (cell.x + 0.5 - center.x) ** 2 + (cell.y + 0.5 - center.y) ** 2 + (cell.z + 0.5 - center.z) ** 2;
+          if (distance < nearest) { nearest = distance; anchor = cell; }
+        }
+        if (!anchor) { result.skipped++; continue; }
+        const rotation = nodeRotation.clone().multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1])).normalize();
+        try {
+          world.setTerrainDecoration({
+            id: `d_${globalThis.crypto.randomUUID().replaceAll('-', '')}`,
+            x: anchor.x, y: anchor.y, z: anchor.z, color: value.color, materialId: value.materialId ?? 0,
+            position: center.clone().sub(anchor).subScalar(0.5).toArray().map(clean),
+            rotation: rotation.toArray().map(clean),
+            ...(value.scale ? { scale: value.scale } : {}),
+          });
+          result.placed++;
+        } catch {
+          result.skipped++;
+        }
+      }
+    }
+    return result;
   }
 
   removeContraption(contraption: Contraption, options: { preserveDormant?: boolean; skipSave?: boolean; skipRemoteDelete?: boolean } = {}) {

@@ -3,6 +3,20 @@
 All notable Space wire-format and API changes. Supported legacy formats use explicit
 migration readers; breaking versions and unsupported formats are called out explicitly.
 
+## 2026-11 — Terrain decorations
+
+- The Modeling tool also adds decorations to standard terrain blocks. A terrain
+  decoration is bound to its block: it lives in that block's chunk (at most 256 per
+  chunk, offsets and dimensions at most 16 m) and is removed with the block, including
+  when the block is subdivided. Micro voxels cannot carry decorations.
+- Terrain batches accept `set_decoration` and `remove_decoration`; chunk snapshots gain
+  an optional `decorations` list. Chunks without decorations keep their stored bytes.
+- Additive inventory v8 field `BlockSet.decorations` (`AnchoredDecoration`, at most
+  4096) carries decorations through world Copy/Cut, backpack export, the market and
+  `blocksets/build`. Placement rebinds them to the rebuilt voxels with the same rotation.
+- Disassembling an entity keeps its authored decorations, binding each to the nearest
+  standard voxel it wrote; ones beyond the 16 m bound are dropped and reported.
+
 ## 2026-10 — Unified Items and shared backpack
 
 - Add `InventoryResource.item` within inventory v8. `Item` wraps a template `id`,

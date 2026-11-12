@@ -5,7 +5,9 @@ import { CHUNK_SIZE_Y } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import * as THREE from 'three';
 import { createEntityPlacementObb, ENTITY_PLACEMENT_EPSILON, entityPlacementObbsOverlap, getEntityPlacementShape, getRotatedEntityPlacementBounds, getRotatedEntityTerrainShape, type EntityPlacementObb, type EntityPlacementShape, } from '../inventory/InventoryPlacementGeometry.ts';
-import { normalizeQuarterTurns, rotateChildDefinitionsX90, rotateChildDefinitionsY90 } from '../inventory/InventoryRotation.ts';
+import {
+  normalizeQuarterTurns, rotateAnchoredDecorations, rotateChildDefinitionsX90, rotateChildDefinitionsY90,
+} from '../inventory/InventoryRotation.ts';
 import { InventoryThumbnailRenderer } from '../render/InventoryThumbnailRenderer.ts';
 import { toMicroPlacementItem } from '../inventory/InventoryMicroPlacement.ts';
 import type { Point3 } from '../render/PreviewTypes.ts';
@@ -214,7 +216,10 @@ export class PlacementSession {
       : {
         ...slot,
         blocks: rotatedBlocks,
-        childEntities: rotatedChildren
+        childEntities: rotatedChildren,
+        ...(slot.anchoredDecorations?.length
+          ? { anchoredDecorations: rotateAnchoredDecorations(slot.blocks || [], slot.anchoredDecorations, turnsX, turnsY) }
+          : {}),
       };
     this.hammerRotatedSlotSource = prepared;
     this.hammerRotatedSlotTurnsKey = cacheKey;

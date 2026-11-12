@@ -1,15 +1,22 @@
 import * as THREE from 'three/webgpu';
 import { normalizeDecoration, type DecorationDefinition } from '@entropydrop/space-engine/contraption/Decorations.ts';
 import { createDecorationGroup, syncDecorationMeshTransform } from '@entropydrop/space-engine/contraption/DecorationMeshes.ts';
-import { hookSceneMaterials } from '@entropydrop/space-engine/torus/TorusWorld.ts';
+import { hookSceneMaterials, TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import type { PlayerController } from './PlayerController.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
-import { MAX_ENTITY_BOUNDS } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import {
+  MAX_ENTITY_BOUNDS, MAX_TERRAIN_DECORATION_EXTENT, MAX_TERRAIN_DECORATIONS_PER_CHUNK,
+} from '@entropydrop/space-engine/constants/SpaceConstants.ts';
+import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
+import { normalizeWorldTerrainDecoration, type TerrainDecoration } from '@entropydrop/space-engine/voxel/TerrainDecorationLayer.ts';
 import { TransformGizmo, transformAxis, transformGizmoSize, transformScreenPoint, transformViewCamera, type TransformHandle } from '../render/TransformGizmo.ts';
 import { DecorationOwnershipLinks, type DecorationOwnershipEndpoints } from '../render/DecorationOwnershipLink.ts';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 
-type Target = { contraption: any; componentId: string; decorationId?: string };
+/** A decoration owner: an entity component, or one standard terrain voxel. */
+type TerrainAnchor = { x: number; y: number; z: number };
+type Target = { contraption: any; componentId: string; decorationId?: string; terrain?: undefined }
+  | { terrain: TerrainAnchor; decorationId?: string; contraption?: undefined; componentId?: undefined };
 type Edit = { target: Target; before: DecorationDefinition[]; after: DecorationDefinition[] };
 type PointerInput = Pick<MouseEvent, 'clientX' | 'clientY'> & Partial<Pick<MouseEvent, 'movementX' | 'movementY' | 'shiftKey'>>;
 type PointerGesture = { locked: boolean; startX: number; startY: number; delta: THREE.Vector2 };
@@ -18,6 +25,9 @@ type Drag = PointerGesture & { target: Target; before: DecorationDefinition[]; s
 type Creation = PointerGesture & { target: Target; start: DecorationDefinition; value: DecorationDefinition; anchor: THREE.Vector3;
   screenX: THREE.Vector2; screenZ: THREE.Vector2; thickness: number; drawing: boolean; shift: boolean; validPlane: boolean };
 const DRAG_THRESHOLD = 4;
+const IDENTITY = new THREE.Quaternion();
+const localTerrainValue = ({ x: _x, y: _y, z: _z, ...value }: TerrainDecoration): DecorationDefinition => value;
+const anchorCenter = (anchor: TerrainAnchor) => new THREE.Vector3(anchor.x + 0.5, anchor.y + 0.5, anchor.z + 0.5);
 export const MODELING_DIMENSIONS_STORAGE_KEY = 'space_modeling_dimensions';
 
 /** Editor-only state. Persisted decorations remain owned by their components. */
@@ -29,6 +39,7 @@ export class ModelingTool {
   private gizmo: TransformGizmo | null = null;
   private ownershipLink: DecorationOwnershipLinks | null = null;
   private focusedEntity: Contraption | null = null;
+  private focusedTerrain: TerrainAnchor | null = null;
   private hoveredHandle: TransformHandle | null = null;
   private drag: Drag | null = null;
   private creation: Creation | null = null;
@@ -62,14 +73,107 @@ export class ModelingTool {
   getSelection() {
     const target = this.selected;
     if (!target) return null;
-    if (!this.controller.contraptions?.contraptions?.includes(target.contraption)) {
+    if (!target.terrain && !this.controller.contraptions?.contraptions?.includes(target.contraption)) {
       this.clearSelection(false);
       return null;
     }
-    const value = target.contraption.getComponentDecorations(target.componentId)
-      .find((decoration: DecorationDefinition) => decoration.id === target.decorationId);
+    const value = this.decorationsOf(target).find(decoration => decoration.id === target.decorationId);
     if (!value) { this.clearSelection(false); return null; }
     return { ...target, value };
+  }
+
+  /** Terrain decorations follow terrain edit rules; entity ones need edit access. */
+  canEditTarget(target: Target | null | undefined) {
+    if (!target) return false;
+    if (target.terrain) return !!this.controller.world?.terrainDecorations;
+    return this.controller.canEditEntityInternals(target.contraption) === true;
+  }
+
+  private terrainWorld() {
+    return this.controller.world?.terrainDecorations ? this.controller.world : null;
+  }
+
+  /** The owner's decorations, sorted by id, in its local frame. */
+  private decorationsOf(target: Target): DecorationDefinition[] {
+    if (!target.terrain) return target.contraption.getComponentDecorations(target.componentId);
+    const { x, y, z } = target.terrain;
+    return (this.terrainWorld()?.terrainDecorations.atAnchor(x, y, z) || []).map(localTerrainValue)
+      .sort((left: DecorationDefinition, right: DecorationDefinition) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  }
+
+  /** Replace the owner's decorations; terrain edits become terrain mutations. */
+  private setDecorationsOf(target: Target, values: DecorationDefinition[]) {
+    if (!target.terrain) return target.contraption.setComponentDecorations(target.componentId, values);
+    const world = this.terrainWorld();
+    if (!world) return false;
+    const anchor = target.terrain;
+    const previous = new Map(this.decorationsOf(target).map(value => [value.id, value]));
+    const next = values.map(value => normalizeWorldTerrainDecoration({ ...value, ...anchor }));
+    if (next.length && world.getBlock(anchor.x, anchor.y, anchor.z) === BlockTypes.AIR) {
+      throw new Error('Decorations attach to standard terrain blocks.');
+    }
+    const added = next.filter(value => !previous.has(value.id)).length;
+    const removed = [...previous.keys()].filter(id => !next.some(value => value.id === id)).length;
+    if (world.terrainDecorations.countInChunkOf(anchor.x, anchor.z) + added - removed > MAX_TERRAIN_DECORATIONS_PER_CHUNK) {
+      throw new Error(`A chunk may contain at most ${MAX_TERRAIN_DECORATIONS_PER_CHUNK} terrain decorations.`);
+    }
+    for (const id of previous.keys()) {
+      if (!next.some(value => value.id === id)) world.removeTerrainDecoration({ ...anchor, id });
+    }
+    for (const value of next) {
+      const current = previous.get(value.id);
+      if (!current || JSON.stringify(current) !== JSON.stringify(localTerrainValue(value))) world.setTerrainDecoration(value);
+    }
+    return true;
+  }
+
+  private ownerExists(target: Target) {
+    if (!target.terrain) {
+      return this.controller.contraptions?.contraptions?.includes(target.contraption)
+        && !!target.contraption.getEntityNode(target.componentId);
+    }
+    const world = this.terrainWorld();
+    return !!world && world.getBlock(target.terrain.x, target.terrain.y, target.terrain.z) !== BlockTypes.AIR;
+  }
+
+  private ownerQuaternion(target: Target) {
+    return target.terrain ? IDENTITY.clone()
+      : target.contraption.getEntityNode(target.componentId).group.getWorldQuaternion(new THREE.Quaternion());
+  }
+
+  /** Terrain anchors are wrapped; express their world points near the viewer across the torus seam. */
+  private ownerLocalToWorld(target: Target, point: THREE.Vector3) {
+    if (!target.terrain) return target.contraption.entityLocalToWorld(target.componentId, point);
+    const world = point.clone().add(anchorCenter(target.terrain));
+    const viewer = this.controller.camera?.position;
+    if (viewer) {
+      world.x = unwrapPeriodicNear(world.x, viewer.x, TORUS_SIZE_X);
+      world.z = unwrapPeriodicNear(world.z, viewer.z, TORUS_SIZE_Z);
+    }
+    return world;
+  }
+
+  private ownerWorldToLocal(target: Target, point: THREE.Vector3) {
+    if (!target.terrain) return target.contraption.worldToEntityLocal(target.componentId, point);
+    const center = anchorCenter(target.terrain);
+    return new THREE.Vector3(unwrapPeriodicNear(point.x, center.x, TORUS_SIZE_X) - center.x, point.y - center.y,
+      unwrapPeriodicNear(point.z, center.z, TORUS_SIZE_Z) - center.z);
+  }
+
+  private ownerScene(target: Target): THREE.Object3D | null {
+    return target.terrain ? (this.terrainWorld()?.scene as unknown as THREE.Object3D | undefined) ?? null : target.contraption.scene;
+  }
+
+  private maxDimension(target: Target) {
+    return target.terrain ? MAX_TERRAIN_DECORATION_EXTENT : MAX_ENTITY_BOUNDS;
+  }
+
+  private setHighlight(target: Target | null) {
+    const meshes = this.terrainWorld()?.terrainDecorationMeshes;
+    if (target?.terrain && target.decorationId) {
+      meshes?.setSelection({ x: target.terrain.x, z: target.terrain.z, id: target.decorationId });
+    } else meshes?.setSelection(null);
+    if (target && !target.terrain) target.contraption.setDecorationSelection(target);
   }
 
   /** The inspector follows a drag preview without changing the saved definition. */
@@ -80,7 +184,8 @@ export class ModelingTool {
 
   clearSelection(refresh = true) {
     this.cancelDrag();
-    this.selected?.contraption.setDecorationSelection(null);
+    if (this.selected && !this.selected.terrain) this.selected.contraption.setDecorationSelection(null);
+    this.terrainWorld()?.terrainDecorationMeshes?.setSelection(null);
     this.selected = null;
     this.precisionOpen = false;
     this.hoveredHandle = null;
@@ -92,6 +197,7 @@ export class ModelingTool {
 
   deactivate() {
     this.focusedEntity = null;
+    this.focusedTerrain = null;
     this.clearSelection();
     this.clearPreview();
     if (this.gizmo && this.controller.sceneRenderer?.modelingGizmo === this.gizmo.group) this.controller.sceneRenderer.modelingGizmo = undefined;
@@ -145,14 +251,12 @@ export class ModelingTool {
       material.opacity = 0.55;
       material.depthWrite = false;
       (this.preview.children[0] as THREE.Mesh).castShadow = false;
-      target.contraption.scene.add(this.preview);
+      this.ownerScene(target)?.add(this.preview);
       hookSceneMaterials(this.preview);
       if (this.controller.sceneRenderer) this.controller.sceneRenderer.modelingPreview = this.preview;
     }
-    const node = target.contraption.getEntityNode(target.componentId);
-    const parentRotation = node.group.getWorldQuaternion(new THREE.Quaternion());
-    this.preview.position.copy(target.contraption.entityLocalToWorld(target.componentId,
-      new THREE.Vector3().fromArray(value.position || [0, 0, 0])));
+    const parentRotation = this.ownerQuaternion(target);
+    this.preview.position.copy(this.ownerLocalToWorld(target, new THREE.Vector3().fromArray(value.position || [0, 0, 0])));
     this.preview.quaternion.copy(parentRotation).multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1]));
     this.preview.scale.fromArray(value.scale || [1, 1, 1]);
     this.preview.visible = true;
@@ -170,9 +274,21 @@ export class ModelingTool {
         distance = hit.distance;
       }
     }
+    const terrainHit = this.terrainWorld()?.terrainDecorationMeshes?.raycast(origin, direction, distance, true);
+    if (terrainHit && (!this.hovered || terrainHit.distance < this.hovered.distance)) {
+      const { x, y, z, id } = terrainHit.decoration;
+      this.hovered = { terrain: { x, y, z }, decorationId: id, distance: terrainHit.distance,
+        point: terrainHit.point, worldNormal: terrainHit.worldNormal };
+    }
     const hit = this.hovered || (query.kind === 'entity' ? query.entityHit : null);
     this.focusedEntity = hit?.contraption ?? null;
+    this.focusedTerrain = hit?.terrain ?? null;
     this.placement = null;
+    if (!this.hovered && query.kind === 'world' && query.worldHit?.kind === 'standard' && this.terrainWorld()) {
+      this.placeOnTerrain(query.worldHit);
+    } else if (hit?.terrain && hit.point && hit.worldNormal) {
+      this.placeAt({ terrain: hit.terrain }, hit.point, hit.worldNormal);
+    }
     if (hit?.contraption && hit.point && hit.worldNormal) {
       const entity = hit.contraption;
       const componentId = hit.componentId || hit.entityId || entity.rootComponentId;
@@ -191,23 +307,47 @@ export class ModelingTool {
     }
   }
 
+  /** Aim at a standard voxel face: the new decoration is bound to that voxel. */
+  private placeOnTerrain(worldHit: any) {
+    const { x, y, z } = worldHit.hitPos;
+    const normal = new THREE.Vector3(worldHit.normal.x, worldHit.normal.y, worldHit.normal.z);
+    const entry = worldHit.entry;
+    const point = entry ? new THREE.Vector3(entry.x, entry.y, entry.z)
+      : anchorCenter({ x, y, z }).addScaledVector(normal, 0.5);
+    this.focusedTerrain = { x, y, z };
+    this.placeAt({ terrain: { x, y, z } }, point, normal);
+  }
+
+  private placeAt(target: Target, point: THREE.Vector3, worldNormal: THREE.Vector3) {
+    const normal = worldNormal.clone().applyQuaternion(this.ownerQuaternion(target).invert()).normalize();
+    const scale: [number, number, number] = [...this.creationSize];
+    if (target.terrain) for (let axis = 0; axis < 3; axis++) scale[axis] = Math.min(scale[axis], MAX_TERRAIN_DECORATION_EXTENT);
+    const position = this.ownerWorldToLocal(target, point.clone().addScaledVector(worldNormal, scale[1] / 2));
+    const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+    try {
+      this.placement = { target, value: normalizeDecoration({
+        id: 'preview', position: position.toArray(), rotation: rotation.toArray(), scale,
+        color: this.controller.selectedColor, materialId: this.controller.selectedMaterialId,
+      }) };
+      if (target.terrain) normalizeWorldTerrainDecoration({ ...this.placement.value, ...target.terrain });
+    } catch { this.placement = null; }
+  }
+
   private renderGizmo() {
     const selection = this.getSelection();
     this.updateOwnershipLink();
-    if (!selection || this.creation || !this.controller.camera || !this.controller.canEditEntityInternals(selection.contraption)) {
+    if (!selection || this.creation || !this.controller.camera || !this.canEditTarget(selection)) {
       if (this.gizmo) this.gizmo.group.visible = false;
       return;
     }
-    const node = selection.contraption.getEntityNode(selection.componentId);
-    if (!node) return;
-    if (!this.gizmo) {
-      this.gizmo = new TransformGizmo({ name: 'ModelingGizmo' });
-      selection.contraption.scene.add(this.gizmo.group);
-      if (this.controller.sceneRenderer) this.controller.sceneRenderer.modelingGizmo = this.gizmo.group;
-    }
+    if (!this.ownerExists(selection)) return;
+    if (!this.gizmo) this.gizmo = new TransformGizmo({ name: 'ModelingGizmo' });
+    const scene = this.ownerScene(selection);
+    if (scene && this.gizmo.group.parent !== scene) scene.add(this.gizmo.group);
+    if (this.controller.sceneRenderer) this.controller.sceneRenderer.modelingGizmo = this.gizmo.group;
     const value = this.drag?.value || selection.value;
-    const position = selection.contraption.entityLocalToWorld(selection.componentId, new THREE.Vector3().fromArray(value.position || [0, 0, 0]));
-    const rotation = node.group.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1]));
+    const position = this.ownerLocalToWorld(selection, new THREE.Vector3().fromArray(value.position || [0, 0, 0]));
+    const rotation = this.ownerQuaternion(selection).multiply(new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1]));
     const size = this.drag?.size || transformGizmoSize(position, this.controller.camera.position);
     this.gizmo.setPose(position, rotation, size, this.drag?.handle.key || this.hoveredHandle?.key);
   }
@@ -220,13 +360,15 @@ export class ModelingTool {
       ? this.focusedEntity : null;
     const entity: Contraption | null = this.drag?.target.contraption || this.creation?.target.contraption
       || focused || selection?.contraption || null;
-    if (this.controller.activeTool !== 'modeling' || this.controller.worldPickingSuspended || !entity || !camera) {
+    const terrain = this.drag?.target.terrain || this.creation?.target.terrain || this.focusedTerrain || selection?.terrain || null;
+    if (this.controller.activeTool !== 'modeling' || this.controller.worldPickingSuspended || (!entity && !terrain) || !camera) {
       if (this.ownershipLink) this.ownershipLink.group.visible = false;
       return;
     }
+    if (!entity && terrain) return this.updateTerrainOwnershipLink(terrain, selection, camera, seconds);
     const entries: DecorationOwnershipEndpoints[] = [];
-    for (const [componentId, group] of entity.decorationGroups) {
-      const node = entity.getEntityNode(componentId);
+    for (const [componentId, group] of entity!.decorationGroups) {
+      const node = entity!.getEntityNode(componentId);
       if (!node) continue;
       const pivot = node.group.getWorldPosition(new THREE.Vector3());
       for (const object of group.children) {
@@ -244,7 +386,30 @@ export class ModelingTool {
       this.ownershipLink = new DecorationOwnershipLinks();
       if (this.controller.sceneRenderer) this.controller.sceneRenderer.modelingOwnershipLink = this.ownershipLink.group;
     }
-    if (this.ownershipLink.group.parent !== entity.scene) entity.scene.add(this.ownershipLink.group);
+    if (this.ownershipLink.group.parent !== entity!.scene) entity!.scene.add(this.ownershipLink.group);
+    this.ownershipLink.setLinks(entries, camera, seconds);
+  }
+
+  /** Terrain decorations link to the centre of the standard voxel that owns them. */
+  private updateTerrainOwnershipLink(anchor: TerrainAnchor, selection: ReturnType<ModelingTool['getSelection']>, camera: any, seconds: number) {
+    const world = this.terrainWorld();
+    const pivot = this.ownerLocalToWorld({ terrain: anchor }, new THREE.Vector3());
+    const entries: DecorationOwnershipEndpoints[] = (world?.terrainDecorations.atAnchor(anchor.x, anchor.y, anchor.z) || [])
+      .map((value: TerrainDecoration) => {
+        const preview = this.drag?.target.terrain && this.drag.value.id === value.id ? this.drag.value : value;
+        return { center: pivot.clone().add(new THREE.Vector3().fromArray(preview.position || [0, 0, 0])), pivot,
+          selected: !!selection?.terrain && selection.decorationId === value.id };
+      });
+    const scene = world?.scene as unknown as THREE.Object3D | undefined;
+    if (!entries.length || !scene) {
+      if (this.ownershipLink) this.ownershipLink.group.visible = false;
+      return;
+    }
+    if (!this.ownershipLink) {
+      this.ownershipLink = new DecorationOwnershipLinks();
+      if (this.controller.sceneRenderer) this.controller.sceneRenderer.modelingOwnershipLink = this.ownershipLink.group;
+    }
+    if (this.ownershipLink.group.parent !== scene) scene.add(this.ownershipLink.group);
     this.ownershipLink.setLinks(entries, camera, seconds);
   }
 
@@ -361,7 +526,7 @@ export class ModelingTool {
       .sub(transformScreenPoint(origin, camera, width, height));
     // A camera-aligned axis has no stable projected direction. Numeric entry remains available.
     if (screenVector.length() < 2) return false;
-    this.drag = { target: selection, before: selection.contraption.getComponentDecorations(selection.componentId),
+    this.drag = { target: selection, before: this.decorationsOf(selection),
       start: selection.value, value: selection.value, handle, ...this.gesture(event), screenVector, size: group.scale.x };
     this.renderGizmo();
     return true;
@@ -377,8 +542,8 @@ export class ModelingTool {
     const height = this.controller.sceneRenderer?.renderer?.domElement?.getBoundingClientRect().height || globalThis.innerHeight || 1;
     const depth = group.position.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3()));
     const unitsPerPixel = 2 * Math.max(0.1, depth) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / height;
-    const inverseOwner = selection.contraption.getEntityNode(selection.componentId).group.getWorldQuaternion(new THREE.Quaternion()).invert();
-    this.drag = { target: selection, before: selection.contraption.getComponentDecorations(selection.componentId),
+    const inverseOwner = this.ownerQuaternion(selection).invert();
+    this.drag = { target: selection, before: this.decorationsOf(selection),
       start: selection.value, value: selection.value, ...this.gesture(event), size: group.scale.x, screenVector: new THREE.Vector2(),
       handle: { key: 'move-free', kind: 'move', axis: 'x', worldPoint: group.position.clone() }, freeMove: {
         x: new THREE.Vector3(unitsPerPixel, 0, 0).applyQuaternion(camera.quaternion).applyQuaternion(inverseOwner),
@@ -390,8 +555,8 @@ export class ModelingTool {
   updateDrag(event: PointerInput) {
     const drag = this.drag;
     if (!drag) return false;
-    if (!this.getSelection() || !this.controller.canEditEntityInternals(drag.target.contraption)
-      || JSON.stringify(drag.target.contraption.getComponentDecorations(drag.target.componentId)) !== JSON.stringify(drag.before)) {
+    if (!this.getSelection() || !this.canEditTarget(drag.target)
+      || JSON.stringify(this.decorationsOf(drag.target)) !== JSON.stringify(drag.before)) {
       this.cancelDrag();
       return false;
     }
@@ -412,9 +577,13 @@ export class ModelingTool {
       position.add(offset);
     } else if (drag.handle.kind === 'move') position.addScaledVector(axis.applyQuaternion(rotation), amount);
     if (drag.handle.kind === 'rotate') rotation.multiply(new THREE.Quaternion().setFromAxisAngle(axis, amount)).normalize();
-    if (drag.handle.kind === 'scale') scale[drag.handle.axis] = THREE.MathUtils.clamp(scale[drag.handle.axis] + amount, 0.01, MAX_ENTITY_BOUNDS);
+    if (drag.handle.kind === 'scale') {
+      scale[drag.handle.axis] = THREE.MathUtils.clamp(scale[drag.handle.axis] + amount, 0.01, this.maxDimension(drag.target));
+    }
     try {
-      drag.value = normalizeDecoration({ ...drag.start, position: position.toArray(), rotation: rotation.toArray(), scale: scale.toArray() });
+      const value = normalizeDecoration({ ...drag.start, position: position.toArray(), rotation: rotation.toArray(), scale: scale.toArray() });
+      if (drag.target.terrain) normalizeWorldTerrainDecoration({ ...value, ...drag.target.terrain });
+      drag.value = value;
     } catch { return false; }
     this.previewTransform(drag.target, drag.value);
     this.renderGizmo();
@@ -424,6 +593,12 @@ export class ModelingTool {
 
   /** Change only render objects while dragging; saving and mesh rebuilds happen once on release. */
   private previewTransform(target: Target, value: DecorationDefinition) {
+    if (target.terrain) {
+      const meshes = this.terrainWorld()?.terrainDecorationMeshes;
+      const stored = this.terrainWorld()?.terrainDecorations.get(target.terrain.x, target.terrain.z, value.id);
+      if (meshes && stored) meshes.previewTransform(stored, { ...value, ...target.terrain });
+      return;
+    }
     const node = target.contraption.getEntityNode(target.componentId);
     const group = target.contraption.decorationGroups.get(target.componentId);
     if (!node || !group) return;
@@ -445,8 +620,7 @@ export class ModelingTool {
     const drag = this.drag;
     if (!drag) return;
     this.drag = null;
-    const current = drag.target.contraption.getComponentDecorations(drag.target.componentId)
-      .find((value: DecorationDefinition) => value.id === drag.target.decorationId);
+    const current = this.decorationsOf(drag.target).find(value => value.id === drag.target.decorationId);
     if (current) this.previewTransform(drag.target, current);
     this.controller.ui?.refresh?.();
   }
@@ -455,7 +629,7 @@ export class ModelingTool {
     const drag = this.drag;
     if (!drag) return false;
     this.cancelDrag();
-    if (JSON.stringify(drag.before) !== JSON.stringify(drag.target.contraption.getComponentDecorations(drag.target.componentId))) {
+    if (JSON.stringify(drag.before) !== JSON.stringify(this.decorationsOf(drag.target))) {
       this.controller.ui?.showToast?.('Decoration changed elsewhere; drag cancelled', { tone: 'warning' });
       return false;
     }
@@ -466,15 +640,17 @@ export class ModelingTool {
   selectHovered() {
     this.clearSelection();
     if (!this.hovered) return false;
-    this.selected = { contraption: this.hovered.contraption, componentId: this.hovered.componentId,
-      decorationId: this.hovered.decorationId };
-    this.selected.contraption.setDecorationSelection(this.selected);
+    this.selected = this.hovered.terrain
+      ? { terrain: { ...this.hovered.terrain }, decorationId: this.hovered.decorationId }
+      : { contraption: this.hovered.contraption, componentId: this.hovered.componentId, decorationId: this.hovered.decorationId };
+    this.setHighlight(this.selected);
     this.renderGizmo();
     this.controller.ui?.refresh?.();
     return true;
   }
 
   private editable(target: Target) {
+    if (target.terrain) return this.ownerExists(target);
     if (!this.controller.contraptions?.contraptions?.includes(target.contraption)) return false;
     if (this.controller.handleRunningEntityInteraction(target.contraption)) return false;
     if (this.controller.canEditEntityInternals(target.contraption)) return true;
@@ -484,14 +660,14 @@ export class ModelingTool {
 
   private commit(target: Target, after: DecorationDefinition[], edited?: DecorationDefinition) {
     if (!this.editable(target)) return false;
-    const before = target.contraption.getComponentDecorations(target.componentId);
+    const before = this.decorationsOf(target);
     try {
-      if (!target.contraption.setComponentDecorations(target.componentId, after)) return false;
+      if (!this.setDecorationsOf(target, after)) return false;
     } catch (error) {
       this.controller.ui?.showToast?.((error as Error).message, { tone: 'warning' });
       return false;
     }
-    const committed = target.contraption.getComponentDecorations(target.componentId);
+    const committed = this.decorationsOf(target);
     this.undoStack.push({ target: { ...target, decorationId: edited?.id || target.decorationId }, before, after: committed });
     if (this.undoStack.length > 100) this.undoStack.shift();
     this.redoStack = [];
@@ -502,26 +678,26 @@ export class ModelingTool {
   }
 
   private save(target: Target) {
-    this.controller.contraptions.saveEntitiesToStorage?.();
-    this.controller.ui?.notifyContraptionStructureChanged?.(target.contraption);
+    if (!target.terrain) {
+      this.controller.contraptions.saveEntitiesToStorage?.();
+      this.controller.ui?.notifyContraptionStructureChanged?.(target.contraption);
+    }
     this.controller.ui?.refresh?.();
   }
 
   beginCreation(event: PointerInput | null = null) {
     if (this.isDragging) return true;
     if (!this.placement) {
-      this.controller.ui?.showToast?.('Modeling: point at an entity or component to add a decoration');
+      this.controller.ui?.showToast?.('Modeling: point at an entity, component or standard terrain block to add a decoration');
       return false;
     }
     const { target, value } = this.placement;
-    if (!this.editable(target)) return false;
-    const node = target.contraption.getEntityNode(target.componentId);
-    if (!node) return false;
+    if (!this.editable(target) || !this.ownerExists(target)) return false;
     const rotation = new THREE.Quaternion().fromArray(value.rotation || [0, 0, 0, 1]);
     const anchor = new THREE.Vector3().fromArray(value.position || [0, 0, 0])
       .addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(rotation), -(value.scale?.[1] ?? 1) / 2);
-    const origin = target.contraption.entityLocalToWorld(target.componentId, anchor);
-    const worldRotation = node.group.getWorldQuaternion(new THREE.Quaternion()).multiply(rotation);
+    const origin = this.ownerLocalToWorld(target, anchor);
+    const worldRotation = this.ownerQuaternion(target).multiply(rotation);
     const camera = transformViewCamera(this.controller.camera);
     const rect = this.controller.sceneRenderer?.renderer?.domElement?.getBoundingClientRect();
     const width = rect?.width || globalThis.innerWidth || 1, height = rect?.height || globalThis.innerHeight || 1;
@@ -538,9 +714,7 @@ export class ModelingTool {
   }
 
   private validCreationTarget(draft: Creation) {
-    return this.controller.contraptions?.contraptions?.includes(draft.target.contraption)
-      && !!draft.target.contraption.getEntityNode(draft.target.componentId)
-      && this.controller.canEditEntityInternals(draft.target.contraption);
+    return this.ownerExists(draft.target) && this.canEditTarget(draft.target);
   }
 
   updateCreation(event: PointerInput) {
@@ -564,15 +738,18 @@ export class ModelingTool {
     const determinant = x.x * z.y - x.y * z.x;
     let u = (delta.x * z.y - delta.y * z.x) / determinant;
     let v = (x.x * delta.y - x.y * delta.x) / determinant;
+    const limit = this.maxDimension(draft.target);
     const dimension = (value: number) => {
       const magnitude = draft.shift ? Math.round(Math.abs(value) / 0.125) * 0.125 : Math.abs(value);
-      return (value < 0 ? -1 : 1) * THREE.MathUtils.clamp(magnitude, 0.125, MAX_ENTITY_BOUNDS);
+      return (value < 0 ? -1 : 1) * THREE.MathUtils.clamp(magnitude, 0.125, limit);
     };
     u = dimension(u); v = dimension(v);
     const rotation = new THREE.Quaternion().fromArray(draft.start.rotation || [0, 0, 0, 1]);
     const position = new THREE.Vector3(u / 2, draft.thickness / 2, v / 2).applyQuaternion(rotation).add(draft.anchor);
     try {
-      draft.value = normalizeDecoration({ ...draft.start, position: position.toArray(), scale: [Math.abs(u), draft.thickness, Math.abs(v)] });
+      const value = normalizeDecoration({ ...draft.start, position: position.toArray(), scale: [Math.abs(u), draft.thickness, Math.abs(v)] });
+      if (draft.target.terrain) normalizeWorldTerrainDecoration({ ...value, ...draft.target.terrain });
+      draft.value = value;
     } catch { return false; }
     this.renderCreationPreview();
     this.controller.ui?.refresh?.();
@@ -584,7 +761,8 @@ export class ModelingTool {
     if (!draft) return false;
     event.preventDefault?.();
     if (draft.drawing && event.deltaY) {
-      draft.thickness = THREE.MathUtils.clamp(draft.thickness - Math.sign(event.deltaY) * (event.shiftKey ? 0.125 : 0.25), 0.125, MAX_ENTITY_BOUNDS);
+      draft.thickness = THREE.MathUtils.clamp(draft.thickness - Math.sign(event.deltaY) * (event.shiftKey ? 0.125 : 0.25), 0.125,
+        this.maxDimension(draft.target));
       this.resizeCreation();
     }
     return true;
@@ -602,16 +780,16 @@ export class ModelingTool {
 
   create(placement = this.placement) {
     if (!placement) {
-      this.controller.ui?.showToast?.('Modeling: point at an entity or component to add a decoration');
+      this.controller.ui?.showToast?.('Modeling: point at an entity, component or standard terrain block to add a decoration');
       return false;
     }
     const { target, value } = placement;
     const decoration = { ...value, id: `d_${crypto.randomUUID().replaceAll('-', '')}` };
-    if (!this.commit(target, [...target.contraption.getComponentDecorations(target.componentId), decoration], decoration)) return false;
+    if (!this.commit(target, [...this.decorationsOf(target), decoration], decoration)) return false;
     this.controller.toolUseSequence = (this.controller.toolUseSequence || 0) + 1;
     this.clearSelection();
-    this.selected = { ...target, decorationId: decoration.id };
-    target.contraption.setDecorationSelection(this.selected);
+    this.selected = { ...target, decorationId: decoration.id } as Target;
+    this.setHighlight(this.selected);
     this.renderGizmo();
     this.controller.ui?.refresh?.();
     return true;
@@ -623,8 +801,8 @@ export class ModelingTool {
     if (!selection) return false;
     try {
       const value = normalizeDecoration({ ...selection.value, ...patch, id: selection.value.id });
-      return this.commit(selection, selection.contraption.getComponentDecorations(selection.componentId)
-        .map((decoration: DecorationDefinition) => decoration.id === value.id ? value : decoration), value);
+      return this.commit(selection, this.decorationsOf(selection)
+        .map(decoration => decoration.id === value.id ? value : decoration), value);
     } catch (error) {
       this.controller.ui?.showToast?.((error as Error).message, { tone: 'warning' });
       return false;
@@ -636,9 +814,10 @@ export class ModelingTool {
     const selection = this.getSelection();
     if (!selection) return false;
     const value = { ...selection.value, id: `d_${crypto.randomUUID().replaceAll('-', '')}` };
-    if (!this.commit(selection, [...selection.contraption.getComponentDecorations(selection.componentId), value], value)) return false;
-    this.selected = { ...selection, decorationId: value.id };
-    selection.contraption.setDecorationSelection(this.selected);
+    if (!this.commit(selection, [...this.decorationsOf(selection), value], value)) return false;
+    const { value: _value, ...target } = selection;
+    this.selected = { ...target, decorationId: value.id } as Target;
+    this.setHighlight(this.selected);
     this.controller.ui?.refresh?.();
     return true;
   }
@@ -647,8 +826,8 @@ export class ModelingTool {
     this.cancelDrag();
     const selection = this.getSelection();
     if (!selection) return false;
-    if (!this.commit(selection, selection.contraption.getComponentDecorations(selection.componentId)
-      .filter((decoration: DecorationDefinition) => decoration.id !== selection.decorationId))) return false;
+    if (!this.commit(selection, this.decorationsOf(selection)
+      .filter(decoration => decoration.id !== selection.decorationId))) return false;
     this.clearSelection();
     return true;
   }
@@ -659,20 +838,19 @@ export class ModelingTool {
     const edit = source.at(-1);
     if (!edit || !this.editable(edit.target)) return false;
     const expected = redo ? edit.before : edit.after;
-    if (JSON.stringify(edit.target.contraption.getComponentDecorations(edit.target.componentId)) !== JSON.stringify(expected)) {
+    if (JSON.stringify(this.decorationsOf(edit.target)) !== JSON.stringify(expected)) {
       this.controller.ui?.showToast?.('Decoration changed elsewhere; this edit cannot be undone', { tone: 'warning' });
       return false;
     }
     try {
-      if (!edit.target.contraption.setComponentDecorations(edit.target.componentId, redo ? edit.after : edit.before)) return false;
+      if (!this.setDecorationsOf(edit.target, redo ? edit.after : edit.before)) return false;
     } catch (error) {
       this.controller.ui?.showToast?.((error as Error).message, { tone: 'warning' });
       return false;
     }
     source.pop();
     (redo ? this.undoStack : this.redoStack).push(edit);
-    const restored = edit.target.contraption.getComponentDecorations(edit.target.componentId)
-      .find((value: DecorationDefinition) => value.id === edit.target.decorationId);
+    const restored = this.decorationsOf(edit.target).find(value => value.id === edit.target.decorationId);
     if (restored) this.rememberSize(restored);
     this.getSelection();
     this.save(edit.target);

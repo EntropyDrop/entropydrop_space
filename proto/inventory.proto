@@ -14,6 +14,8 @@ package entropydrop.space.inventory.v8;
 // Canonical encoders normalize every double -0.0 to +0.0; sort BlockSet.blocks
 // and Component.blocks by
 // (dx,dy,dz,is_micro,micro_x,micro_y,micro_z,color_rgb,material_id);
+// sort BlockSet.decorations by (dx,dy,dz,position.xyz,rotation.xyzw,scale.xyz,
+// color_rgb,material_id), comparing absent transforms as their defaults;
 // and sort Component.children, Component.decorations and Entity.constraints by Unicode code-point id
 // order. Color and seat order remains significant and is preserved.
 // Schema v8 adds portable palette gradients and per-entry materials. V7 entity
@@ -71,6 +73,34 @@ message Voxel {
 message BlockSet {
   string name = 1;
   repeated Voxel blocks = 2;
+  // Visual-only cubes bound to standard voxels of this set. Each anchor must
+  // match a `blocks` entry with is_micro = false. Removing that standard voxel,
+  // including subdividing it into micro voxels, removes its decorations.
+  // At most 4096; order is non-semantic (see the canonical rule above).
+  repeated AnchoredDecoration decorations = 3;
+}
+
+// Visual-only cube bound to one standard 1 m voxel. Like Voxel it has no id:
+// identity is positional, and placement into terrain assigns fresh terrain ids.
+// It never contributes collision, voxel counts, occupancy or physical bounds.
+// Canonical encoders omit default transforms and choose the quaternion sign so
+// the first nonzero component in (w,x,y,z) is positive.
+message AnchoredDecoration {
+  // Anchor cell, in the same coordinates as the owning BlockSet's Voxel.dx/dy/dz.
+  sint32 dx = 1;
+  sint32 dy = 2;
+  sint32 dz = 3;
+  // Cube centre relative to the anchor cell centre (dx+0.5, dy+0.5, dz+0.5);
+  // each component within ±16. Absent means (0,0,0).
+  optional Vector3 position = 4;
+  // Unit quaternion in BlockSet axes; absent means identity (0,0,0,1).
+  optional Quaternion rotation = 5;
+  // Positive dimensions along the cube's own XYZ axes, each at most 16;
+  // absent means (1,1,1).
+  optional Vector3 scale = 6;
+  uint32 color_rgb = 7;
+  // Same presets as Voxel.material_id.
+  uint32 material_id = 8;
 }
 
 message ColorSet {

@@ -542,10 +542,20 @@ export class SpaceUiStore {
     })));
     const tool = next.controller?.modeling;
     const selection = tool?.getDisplaySelection?.();
-    const canEdit = !!selection && next.controller?.canEditEntityInternals(selection.contraption) === true;
+    // Terrain decorations follow terrain edit rules; entity ones need edit access.
+    const canEdit = !!selection && (selection.terrain ? true : next.controller?.canEditEntityInternals(selection.contraption) === true);
     next.modelingView = retainView(previous.modelingView, tool ? {
-      selection: selection ? { ...selection, componentName: selection.contraption.getComponentName(selection.componentId),
-        value: structuredClone(selection.value) } : null,
+      selection: selection ? {
+        contraption: selection.contraption ?? null, componentId: selection.componentId ?? null,
+        terrain: selection.terrain ? { ...selection.terrain } : null, decorationId: selection.decorationId,
+        key: selection.terrain
+          ? `terrain:${selection.terrain.x},${selection.terrain.y},${selection.terrain.z}:${selection.decorationId}`
+          : `${selection.contraption.id}:${selection.componentId}:${selection.decorationId}`,
+        ownerLabel: selection.terrain
+          ? `Terrain block ${selection.terrain.x}, ${selection.terrain.y}, ${selection.terrain.z}`
+          : selection.contraption.getComponentName(selection.componentId) || selection.componentId,
+        value: structuredClone(selection.value),
+      } : null,
       canEdit, editable: canEdit && !tool.isDragging, isDragging: !!tool.isDragging,
       canUndo: !!tool.canUndo, canRedo: !!tool.canRedo,
       creationDimensions: tool.creationDimensions ? [...tool.creationDimensions] : null,
