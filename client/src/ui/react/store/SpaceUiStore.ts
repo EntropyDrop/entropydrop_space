@@ -75,6 +75,7 @@ function sameDistantTerrainProgress(a: DistantTerrainProgress, b: DistantTerrain
 import { LINKED_WORLDS_OFF, LINKED_WORLDS_SETTING_KEY, type LinkedWorldState } from '../../../bootstrap/LinkedWorldSnapshots.ts';
 import { SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from '../../../bootstrap/SpaceFeatures.ts';
 import { RESOLUTION_SCALE_PRESETS } from '../../../engine/render/AdaptiveResolution.ts';
+import { DEFAULT_MUSIC_ENABLED } from '../../../engine/audio/SoundManager.ts';
 
 export type SpaceModal = 'inventory' | 'code' | 'settings' | 'agent-build' | 'monitoring' | 'help' | null;
 export type ResolutionScaleSetting = `${typeof RESOLUTION_SCALE_PRESETS[number]}`;
@@ -512,7 +513,7 @@ export class SpaceUiStore {
     apiWorldId: null,
     toast: null,
     isAdmin: false,
-    musicEnabled: true,
+    musicEnabled: DEFAULT_MUSIC_ENABLED,
     effectsEnabled: true,
     sessionMode: 'online',
     queuePosition: null,
@@ -709,8 +710,8 @@ export class SpaceUiStore {
 
       const legacyEnabled = savedMuted === 'true' ? false : savedMuted === 'false' ? true : null;
       const musicEnabled = savedMusicEnabled === null
-        ? (legacyEnabled ?? true)
-        : storedBoolean(savedMusicEnabled, true);
+        ? (legacyEnabled ?? DEFAULT_MUSIC_ENABLED)
+        : storedBoolean(savedMusicEnabled, DEFAULT_MUSIC_ENABLED);
       const effectsEnabled = savedEffectsEnabled === null
         ? (legacyEnabled ?? true)
         : storedBoolean(savedEffectsEnabled, true);

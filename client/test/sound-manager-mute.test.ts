@@ -4,15 +4,11 @@ import assert from 'node:assert/strict';
 import { SoundManager } from '../src/engine/audio/SoundManager.ts';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
-test('SoundManager defaults to music and effects on with independent controls', () => {
+test('SoundManager defaults to music off and effects on with independent controls', () => {
   const sound = new SoundManager();
-  assert.equal(sound.getMusicEnabled(), true);
-  assert.equal(sound.getEffectsEnabled(), true);
-  assert.equal(sound.getMuted(), false);
-
-  sound.setMusicEnabled(false);
   assert.equal(sound.getMusicEnabled(), false);
   assert.equal(sound.getEffectsEnabled(), true);
+  assert.equal(sound.getMuted(), false);
 
   sound.setMusicEnabled(true);
   assert.equal(sound.getMusicEnabled(), true);
@@ -80,11 +76,12 @@ test('SpaceUiStore controls and persists music and effects independently', () =>
 
   try {
     const ui = new SpaceUiStore();
+    assert.equal(ui.getSnapshot().musicEnabled, false);
     ui.setController(uiStub('controller', controller));
 
-    assert.equal(ui.getSnapshot().musicEnabled, true);
+    assert.equal(ui.getSnapshot().musicEnabled, false);
     assert.equal(ui.getSnapshot().effectsEnabled, true);
-    assert.equal(sound.getMusicEnabled(), true);
+    assert.equal(sound.getMusicEnabled(), false);
     assert.equal(sound.getEffectsEnabled(), true);
     assert.equal(musicSetCalls, 1);
     assert.equal(effectsSetCalls, 1);
@@ -140,7 +137,7 @@ test('SpaceUiStore migrates the legacy mute preference and prioritizes valid new
 
   try {
     let loaded = load();
-    assert.equal(loaded.state.musicEnabled, true, 'music defaults on with no preference');
+    assert.equal(loaded.state.musicEnabled, false, 'music defaults off with no preference');
     assert.equal(loaded.state.effectsEnabled, true, 'effects default on with no preference');
 
     values.clear();
@@ -170,7 +167,7 @@ test('SpaceUiStore migrates the legacy mute preference and prioritizes valid new
     values.set('space_setting_music_enabled', 'invalid');
     values.set('space_setting_effects_enabled', 'invalid');
     loaded = load();
-    assert.equal(loaded.sound.getMusicEnabled(), true, 'invalid music state falls back on');
+    assert.equal(loaded.sound.getMusicEnabled(), false, 'invalid music state falls back off');
     assert.equal(loaded.sound.getEffectsEnabled(), true, 'invalid effects state falls back on');
   } finally {
     if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
@@ -271,7 +268,7 @@ test('enabling music before init creates and resumes Web Audio immediately', asy
   }
 });
 
-test('default-on music waits for the first page gesture, then starts once', async () => {
+test('saved music opt-in waits for the first page gesture, then starts once', async () => {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const previousFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
   const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -460,26 +457,21 @@ test('SoundManager starts one sample-accurate music source and reuses it across 
   });
 
   try {
-    // Music switched off before Web Audio starts never downloads the track.
-    const silent = new SoundManager();
-    silent.setMusicEnabled(false);
-    silent.init();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(requestedUrls.length, 0, 'music turned off before init must not download');
-    assert.equal(sources.length, 0);
-    gainNodes.length = 0;
-
     const sound = new SoundManager();
     sound.init();
     await new Promise(resolve => setImmediate(resolve));
 
-    assert.equal(sound.getMusicEnabled(), true);
+    assert.equal(sound.getMusicEnabled(), false);
     assert.equal(sound.getEffectsEnabled(), true);
     assert.equal(gainNodes.length, 3);
     assert.deepEqual(gainNodes[1].events[0], ['set', 1, 12]);
     assert.deepEqual(gainNodes[2].events[0], ['set', 0, 12]);
+    assert.equal(requestedUrls.length, 0, 'default-off music must not download on init');
+    assert.equal(sources.length, 0);
 
-    assert.equal(requestedUrls.length, 1, 'default-on music loads once Web Audio starts');
+    sound.setMusicEnabled(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requestedUrls.length, 1, 'enabling music loads the track');
     assert.match(requestedUrls[0], /orbital-drift\.ogg$/);
     assert.equal(sources.length, 1);
     assert.equal(sources[0].loop, true);
