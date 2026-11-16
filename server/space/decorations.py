@@ -1,4 +1,5 @@
-"""Canonical visual-only decoration values; no physics dependencies."""
+"""Canonical decoration values. Validation only: the engine derives their massless
+collision footprints, so this module has no physics dependencies."""
 import math
 import re
 

@@ -49,7 +49,8 @@ During Hammer (`2`) component installation, the pending preview shows an animate
 yellow wave from the future component pivot to its parent pivot. It follows XYZ
 adjustments and the parent's rendered pose, and clears on confirmation or cancellation.
 
-Modeling (`7`) edits visual decoration cubes owned by an entity component.
+Modeling (`7`) edits decoration cubes owned by an entity component or a standard
+terrain block. Decorations collide as their 0.125 m grid footprint but add no mass.
 Focusing an entity shows white links from all its decorations to their owning
 component pivots. Selecting a decoration highlights its link with a yellow wave.
 Aim and left-click a decoration to select it while keeping pointer lock. Hold

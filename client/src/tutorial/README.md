@@ -93,8 +93,9 @@ green pad corners. Press `G` to assemble the pad; it starts stopped and kinemati
 Press `7`, aim at your assembled pad, then hold and drag RMB and release
 to create a panel. Creation selects it automatically; LMB selects it again later. Escape releases the cursor
 for the right properties panel: set Dimensions X/Y/Z to `4`, `0.25`, `3` and
-Rotation Z to `-30`. Lift it with the Y arrow to clear the base. Modeling produces
-visual decorations without collision; the example is not a drivable ramp.
+Rotation Z to `-30`. Lift it with the Y arrow to clear the base. Decorations collide
+as their 0.125 m grid footprint without adding mass, so the rotated panel is a stepped
+slope rather than a smooth drivable ramp.
 Run `node client/tools/refresh-tutorial-modeling.mjs` to rebuild the terrain pad and separate example.
 The finish sign is after this chapter. The fixed terrain window shifts one chunk
 forward to cover it while retaining the same 625 chunks and disabled distant terrain.

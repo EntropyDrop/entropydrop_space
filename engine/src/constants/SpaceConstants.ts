@@ -82,7 +82,7 @@ export const MAX_COMPONENT_ID_LENGTH = 64;
 /** Maximum component hierarchy nodes in a single entity. */
 export const MAX_ENTITY_COMPONENTS = 64;
 
-/** Visual-only cubes across one entity or one portable Item. */
+/** Decoration cubes (collision without mass) across one entity or one portable Item. */
 export const MAX_ENTITY_DECORATIONS = 1024;
 
 /** Terrain decorations bound to standard voxels in one 16×16 m chunk. */

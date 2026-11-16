@@ -134,7 +134,7 @@ export interface BlockSet {
     | Voxel[]
     | undefined;
   /**
-   * Visual-only cubes bound to standard voxels of this set. Each anchor must
+   * Decoration cubes bound to standard voxels of this set. Each anchor must
    * match a `blocks` entry with is_micro = false. Removing that standard voxel,
    * including subdividing it into micro voxels, removes its decorations.
    * At most 4096; order is non-semantic (see the canonical rule above).
@@ -143,9 +143,10 @@ export interface BlockSet {
 }
 
 /**
- * Visual-only cube bound to one standard 1 m voxel. Like Voxel it has no id:
+ * Decoration cube bound to one standard 1 m voxel. Like Voxel it has no id:
  * identity is positional, and placement into terrain assigns fresh terrain ids.
- * It never contributes collision, voxel counts, occupancy or physical bounds.
+ * Placed in terrain it collides as its footprint on the 0.125 m grid, without
+ * mass; it never contributes voxel counts, occupancy or physical bounds.
  * Canonical encoders omit default transforms and choose the quaternion sign so
  * the first nonzero component in (w,x,y,z) is positive.
  */
@@ -250,8 +251,9 @@ export interface Seat {
 }
 
 /**
- * Visual-only unit cube, centered at the origin. Decorations are editor-pickable
- * but never contribute collision, mass, inertia, seats, or physical constraints.
+ * Unit cube, centered at the origin. Decorations are editor-pickable and collide
+ * as their footprint on the 0.125 m construction grid, but never contribute mass,
+ * inertia, center of mass, seats, or physical constraints.
  * Canonical encoders omit default transforms and choose the quaternion sign so
  * the first nonzero component in (w,x,y,z) is positive.
  */

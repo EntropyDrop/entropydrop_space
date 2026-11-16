@@ -6,7 +6,7 @@ import type { ScriptContact } from '../scripting/ScriptProtocol.ts';
 type SleepEntity = Pick<Contraption, 'position'> & Partial<Pick<Contraption,
   'publicId' | 'isPhysicsSimulationEnabled' | 'physicsWakeVersion' | 'constraintDefinitions' |
   'getRigidBodies' | 'getNodeGravityEnabled' | 'getNodeCollisionEnabled' | 'entityNodes' |
-  'collisionEntries' | 'getPhysicsCollisionWorldAABBs' | 'getCollisionWorldAABBs' |
+  'collisionEntries' | 'getDecorationCollisionBoxes' | 'getPhysicsCollisionWorldAABBs' | 'getCollisionWorldAABBs' |
   'recordScriptContact' | 'pendingScriptContacts'>>;
 type SleepWorld = Partial<Pick<World, 'terrainVersion' | 'activeChunkKeys' | 'getTerrainCollisionStamp'>>;
 
@@ -101,6 +101,8 @@ export class ContraptionSleep {
     for (const node of entity.entityNodes?.values?.() || []) {
       values.push(node, ...node.group.matrixWorld.elements);
     }
+    // Decoration footprints are collision shape too; edits replace the array.
+    values.push(entity.getDecorationCollisionBoxes?.());
     return { shape: entity.collisionEntries, values };
   }
 

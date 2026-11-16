@@ -246,7 +246,7 @@ self.applyForce([dx, 0, dz]);`
           ]
         },
         {
-          id: 'self-decorations', title: 'Visual decorations',
+          id: 'self-decorations', title: 'Decorations',
           entries: [
             { signature: 'self.decorations.all(): Value', description: 'Read the sorted, frozen effective decoration list for this component.' },
             { signature: 'self.decorations.get(id: string): Value', description: 'Read one frozen decoration; isNull is true when absent.' },
@@ -254,7 +254,7 @@ self.applyForce([dx, 0, dz]);`
             { signature: 'self.decorations.remove(id: string): Value', description: 'Queue removal of an existing decoration. Missing IDs return decoration_not_found.' }
           ],
           facts: [
-            'Decorations are visual-only cubes. They never change collisions, mass, inertia, seats or constraints, and accept runtime edits on both dynamic and kinematic components.',
+            'Decorations are cubes that collide as their footprint on the 0.125 m construction grid (a rotated cube becomes 0.125 m steps; a very large rotated one coarser steps) but have zero mass: they never change mass, inertia, center of mass, seats or constraints. Runtime edits move the footprint on both dynamic and kinematic components; components with collision disabled ignore their decorations too.',
             'IDs are component-local, case-sensitive, 1-64 ASCII letters, digits, underscores or hyphens. Use self.child(id) or ctx.root to address another component. An entity may display at most 1024 decorations in total.',
             'position is [x,y,z] in component construction coordinates, independent of the pivot, each within ±512. rotation is a unit [x,y,z,w] quaternion. scale contains positive dimensions, each at most 256. color is an integer 0xRRGGBB; materialId is 0 (lit), 1 (emissive), or 2–101 (transparency = materialId - 1 percent in the AOI, opaque outside). Unknown/null fields and malformed transforms return invalid_decoration.',
             'New decorations default to position [0,0,0], rotation [0,0,0,1], scale [1,1,1], color 0 and materialId 0. Reads may omit default transform/material fields. Supply explicit identity values to reset a field.',

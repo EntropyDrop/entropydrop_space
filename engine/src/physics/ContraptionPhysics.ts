@@ -140,6 +140,11 @@ export class ContraptionPhysics {
       maxX: bounds.max.x, maxY: bounds.max.y, maxZ: bounds.max.z }, pad, delta };
   }
 
+  /** Voxel bounding radius extended over decoration footprints. */
+  collisionRadius(contraption: Contraption) {
+    return Number(contraption.getCollisionRadius?.() ?? contraption.boundingRadius);
+  }
+
   physicsBoxes(contraption: Contraption) {
     return contraption.getPhysicsCollisionWorldAABBs?.() || contraption.getCollisionWorldAABBs?.() || [];
   }
@@ -185,9 +190,11 @@ export class ContraptionPhysics {
     const microRaycast = this.world.raycastMicroCollision?.bind(this.world)
       ?? this.world.raycastMicro.bind(this.world);
     const microHit = microRaycast(worldPos, down, maxCheckDist);
+    const decorationHit = this.world.raycastTerrainDecorations?.(worldPos, down, maxCheckDist);
     const standardDistance = standardHit.hit ? standardHit.distance : maxCheckDist;
     const microDistance = microHit.hit ? microHit.distance : maxCheckDist;
-    return Math.max(0, Math.min(standardDistance, microDistance));
+    const decorationDistance = decorationHit?.hit ? decorationHit.distance : maxCheckDist;
+    return Math.max(0, Math.min(standardDistance, microDistance, decorationDistance));
   }
 
   /**
@@ -351,7 +358,7 @@ export class ContraptionPhysics {
         && this.contactBodyFor(contraption, contraption.getRigidBody(part.node.id)) === body
         && (!part.matrix || part.node.group.matrix.equals(part.matrix)))
       && support.position.distanceTo(body.position)
-        + support.quaternion.angleTo(body.quaternion) * Math.max(0.5, contraption.boundingRadius || 0)
+        + support.quaternion.angleTo(body.quaternion) * Math.max(0.5, this.collisionRadius(contraption) || 0)
         <= EXACT_TERRAIN_CONTACT_SLOP
       && support.manifold.every((point, i) => {
         // Verify the actual supporting cells, including micro geometry, even
@@ -609,7 +616,7 @@ export class ContraptionPhysics {
    * every box records both corner sets.
    */
   contraptionBroadphaseBounds(contraption: Contraption) {
-    const radius = Math.max(0.5, Number(contraption.boundingRadius) || 0.5) + 0.5;
+    const radius = Math.max(0.5, this.collisionRadius(contraption) || 0.5) + 0.5;
     const boxes = this.physicsBoxes(contraption);
     if (boxes.length === 0) {
       const center = typeof contraption.getWorldCenter === 'function'
@@ -636,7 +643,7 @@ export class ContraptionPhysics {
    */
   frameBroadphaseBounds(contraption: Contraption, dt: number) {
     const bounds = this.contraptionBroadphaseBounds(contraption);
-    const radius = Math.max(0.5, Number(contraption.boundingRadius) || 0.5);
+    const radius = Math.max(0.5, this.collisionRadius(contraption) || 0.5);
     let travel = 0;
     for (const body of contraption.getRigidBodies?.() || []) {
       travel = Math.max(
@@ -1375,7 +1382,7 @@ export class ContraptionPhysics {
       : (this.world.getMicroBlock?.(mx, my, mz)
         ?? this.world.microVoxels?.get(mx, my, mz)
         ?? null);
-    if (micro === null || micro === undefined) return null;
+    if ((micro === null || micro === undefined) && !this.world.hasTerrainDecorationCollisionAt?.(mx, my, mz)) return null;
     return {
       minX: mx / MICRO_DIVISIONS,
       maxX: (mx + 1) / MICRO_DIVISIONS,
@@ -1555,6 +1562,8 @@ export class ContraptionPhysics {
     };
     // Production worlds expose cached merged geometry. Small hosts and test
     // worlds can retain the cell reader without losing exact collision semantics.
+    // A prepared micro index already holds decoration footprints.
+    if (!microIndex) boxes.push(...(this.world.getTerrainDecorationCollisionBoxesInAABB?.(bounds) ?? []));
     const mergedMicro = microIndex ? microIndex.query(bounds) : this.world.getMicroCollisionBoxesInAABB?.(bounds);
     if (Array.isArray(mergedMicro)) {
       if (coverage) coverage.complete = true;
@@ -1714,7 +1723,8 @@ export class ContraptionPhysics {
     const direction = movement.divideScalar(distance);
     const hits = [
       this.world.raycast?.(start, direction, distance + 0.002),
-      this.world.raycastMicro?.(start, direction, distance + 0.002)
+      this.world.raycastMicro?.(start, direction, distance + 0.002),
+      this.world.raycastTerrainDecorations?.(start, direction, distance + 0.002)
     ].filter((hit): hit is Extract<NonNullable<typeof hit>, { hit: true }> => hit?.hit === true
       && Number.isFinite(hit.distance)
       && hit.distance >= 0
@@ -1880,8 +1890,8 @@ export class ContraptionPhysics {
 
     for (const other of contraptions || []) {
       if (!other || other === contraption) continue;
-      const broadphaseDistance = Math.max(0.5, Number(contraption.boundingRadius) || 0.5)
-        + Math.max(0.5, Number(other.boundingRadius) || 0.5)
+      const broadphaseDistance = Math.max(0.5, this.collisionRadius(contraption) || 0.5)
+        + Math.max(0.5, this.collisionRadius(other) || 0.5)
         + probeDistance;
       const centerA = typeof contraption.getWorldCenter === 'function'
         ? contraption.getWorldCenter()
@@ -2187,7 +2197,7 @@ export class ContraptionPhysics {
       ? body.position.distanceTo(previousPose.position)
       : 0;
     const rotationDistance = previousPose
-      ? body.quaternion.angleTo(previousPose.quaternion) * Math.max(0.5, contraption.boundingRadius || 0)
+      ? body.quaternion.angleTo(previousPose.quaternion) * Math.max(0.5, this.collisionRadius(contraption) || 0)
       : 0;
     const shouldSweep = translationDistance + rotationDistance >= TERRAIN_SWEEP_THRESHOLD;
     const inverseCurrentQuaternion = previousPose ? body.quaternion.clone().invert() : null;

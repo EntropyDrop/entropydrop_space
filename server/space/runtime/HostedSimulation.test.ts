@@ -54,6 +54,27 @@ test('hosted decoration animation is checkpointed independently from the authore
   assert.equal(second.entities[0].definition_base64, first.entities[0].definition_base64);
 });
 
+test('hosted physics collides with terrain decorations from the chunk snapshot', async () => {
+  const fall = async (decorations: unknown[]) => {
+    const input: any = inputFor('self.state.setNumber("ticks", self.state.getNumber("ticks") + 1);', 20);
+    const resource: any = decodeInventoryResource(Buffer.from(input.entities[0].definition_base64, 'base64'), 'entity').portable;
+    resource.root.body = { type: 'dynamic', useGravity: true };
+    input.entities[0].definition_base64 = Buffer.from(encodeInventoryResource('entity', resource)).toString('base64');
+    // A 16 m plate 15 m above its anchor voxel: its top face is y = 215.625.
+    input.chunks[0].standard = [[82, 200, 82, 1, 0x808080]];
+    input.chunks[0].decorations = decorations;
+    const result: any = await new HostedSimulation(1337).step(input);
+    assert.deepEqual(result.faults, []);
+    return result.entities[0].snapshot.position[1];
+  };
+  const plate = { id: 'd_plate', x: 82, y: 200, z: 82, color: 0, position: [0, 15, 0], scale: [16, 0.25, 16] };
+  // The snapshot reports the voxel's centre, half a metre above its bottom face.
+  const resting = await fall([plate]);
+  assert.ok(Math.abs(resting - 216.125) < 0.02, `the entity rests on the plate, y=${resting}`);
+  const falling = await fall([]);
+  assert.ok(falling < 215.5, `without the decoration the entity falls past it, y=${falling}`);
+});
+
 test('hosted AssemblyScript restores typed state across transaction batches', async () => {
   const input = inputFor('self.state.setNumber("count", self.state.getNumber("count") + 1);');
   const first: any = await new HostedSimulation(1337).step(input);

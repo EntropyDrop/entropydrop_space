@@ -3,6 +3,15 @@
 All notable Space wire-format and API changes. Supported legacy formats use explicit
 migration readers; breaking versions and unsupported formats are called out explicitly.
 
+## 2026-11 — Decoration collision
+
+- Decorations on entities and terrain now collide, with zero mass. Each cube collides as
+  its footprint on the 0.125 m construction grid; rotated cubes become 0.125 m steps,
+  and very large rotated cubes coarser steps. Mass, inertia, centre of mass, seats and
+  constraints still ignore decorations. Existing decorations, including the tutorial's
+  sloping panel, become solid; no stored format changes.
+- Hosted simulation now loads chunk decorations, so server physics matches clients.
+
 ## 2026-11 — Terrain decorations
 
 - The Modeling tool also adds decorations to standard terrain blocks. A terrain

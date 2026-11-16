@@ -15,10 +15,16 @@ export type CollisionBounds = {
 export function mergeCollisionCells(cells: readonly {
   x: number; y: number; z: number; span: number; entityId: string;
 }[], maxSpan = Infinity): CollisionBox[] {
-  let boxes: CollisionBox[] = cells.map(cell => ({
+  return mergeCollisionBoxes(cells.map(cell => ({
     x: cell.x, y: cell.y, z: cell.z,
     spanX: cell.span, spanY: cell.span, spanZ: cell.span, entityId: cell.entityId,
-  }));
+  })), maxSpan);
+}
+
+/** The same face-adjacent merge for boxes that may already be non-cubic.
+ * The input array and its boxes are consumed (boxes grow in place). */
+export function mergeCollisionBoxes(input: CollisionBox[], maxSpan = Infinity): CollisionBox[] {
+  let boxes = input;
   let previousCount: number;
   do {
     previousCount = boxes.length;

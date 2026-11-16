@@ -1,5 +1,7 @@
 // Procedural Web Audio sound generator and music player for Space.
 
+export const DEFAULT_MUSIC_ENABLED = false;
+
 const MUSIC_CODEC_PREROLL_SECONDS = 8_192 / 48_000;
 const BACKGROUND_MUSIC_GAIN = 0.5;
 const BLOCK_BREAK_VARIANT_COUNT = 6;
@@ -43,7 +45,7 @@ export class SoundManager {
   private blockBreakSerial = 0;
   private blockBreakBuffers = new Map<string, AudioBuffer>();
   private activeBlockBreakVoices = new Set<ActiveBlockBreakVoice>();
-  private musicEnabled = true;
+  private musicEnabled: boolean = DEFAULT_MUSIC_ENABLED;
   private effectsEnabled = true;
 
   constructor() {
@@ -54,8 +56,7 @@ export class SoundManager {
 
   /**
    * Browsers keep Web Audio silent until the page receives a user gesture.
-   * Music is on by default, so the first click, tap or key press anywhere on
-   * the page creates or resumes the context and starts the soundtrack.
+   * The first click, tap or key press unlocks audio for enabled sounds.
    */
   private armGestureUnlock(): void {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
