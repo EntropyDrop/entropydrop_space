@@ -1,3 +1,5 @@
+import './style.css';
+import type { SpaceEntryAuth } from './bootstrap/SpaceEntryAuth.ts';
 import { DEFAULT_PLAYER_SKIN_URL } from './bootstrap/SpaceBootstrap.ts';
 import * as THREE from 'three';
 import { SceneRenderer } from './engine/render/SceneRenderer.ts';
@@ -34,7 +36,6 @@ import {
 } from './engine/storage/BrowserStorage.ts';
 import { logConsoleSecurityWarning } from './bootstrap/ConsoleSecurityWarning.ts';
 import { isMonitoringRoute } from './bootstrap/MonitoringRoute.ts';
-import { installNetworkTrafficMonitor } from './bootstrap/NetworkTraffic.ts';
 import { preloadInitialDistantTerrain } from './bootstrap/InitialDistantTerrain.ts';
 import { LinkedWorldSnapshots } from './bootstrap/LinkedWorldSnapshots.ts';
 import { SPACE_OFFLINE_BUILD, SPACE_LOCAL_SESSION, SPACE_TUTORIAL, SPACE_TUTORIAL_AUTHORING } from './bootstrap/SpaceFeatures.ts';
@@ -43,22 +44,10 @@ import { captureTutorialLevel, tutorialDestination, type TutorialLevel } from '.
 import { rememberSpacePlayerName } from './bootstrap/SpacePlayerName.ts';
 import { configureTutorialTerrain } from './bootstrap/TutorialTerrain.ts';
 
-installNetworkTrafficMonitor();
 logConsoleSecurityWarning();
 
-if (!SPACE_LOCAL_SESSION && isMonitoringRoute()) {
-  const gate = typeof document !== 'undefined' ? document.getElementById('space-entry-gate') : null;
-  if (gate) {
-    gate.hidden = true;
-    gate.style.display = 'none';
-  }
-  mountAdminMonitoring();
-} else {
-  // Mount the 2D interface as soon as the module starts. The authentication gate
-  // remains above it until bootstrap succeeds, and every engine adapter created
-  // later can synchronously resolve the React-owned DOM.
-  mountSpaceUi();
-}
+// Engine constructors bind synchronously to the React-owned canvas and HUD.
+if (SPACE_LOCAL_SESSION || !isMonitoringRoute()) mountSpaceUi();
 
 class Game {
   canvasContainer: HTMLElement | null;
@@ -752,10 +741,9 @@ class Game {
   }
 }
 
-// Start Game on page load
-window.addEventListener('DOMContentLoaded', () => {
+export async function startSpaceGame(auth?: SpaceEntryAuth): Promise<void> {
   if (SPACE_TUTORIAL) {
-    void import('./bootstrap/TutorialSpace.ts').then(({ enterTutorialSpace }) =>
+    await import('./bootstrap/TutorialSpace.ts').then(({ enterTutorialSpace }) =>
       enterTutorialSpace(async (session, backpackStorage, storage, level, reportProgress) => {
         const game = new Game(session, backpackStorage, false, { storage, level });
         if (import.meta.env.DEV) (window as any).game = game;
@@ -775,7 +763,7 @@ window.addEventListener('DOMContentLoaded', () => {
     return;
   }
   if (SPACE_OFFLINE_BUILD) {
-    void import('./bootstrap/OfflineSpace.ts').then(({ enterOfflineSpace }) =>
+    await import('./bootstrap/OfflineSpace.ts').then(({ enterOfflineSpace }) =>
       enterOfflineSpace(async (session, storage, reportProgress) => {
         const game = new Game(session, storage);
         await game.sceneRenderer.ready;
@@ -786,14 +774,19 @@ window.addEventListener('DOMContentLoaded', () => {
       }));
     return;
   }
-  if (isMonitoringRoute()) return;
+  if (isMonitoringRoute()) {
+    await mountAdminMonitoring();
+    const gate = document.getElementById('space-entry-gate');
+    if (gate) gate.hidden = true;
+    return;
+  }
   // This import and its entire dev-only module disappear from production builds.
   if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('dev_offline') === '1') {
-    void import('./dev/OfflineEntry.ts').then(({ startOfflineSpace }) =>
+    await import('./dev/OfflineEntry.ts').then(({ startOfflineSpace }) =>
       startOfflineSpace((session, storage) => new Game(session, storage, true)));
     return;
   }
-  void enterSpace(
+  await enterSpace(
     async (session, reportProgress) => {
       const persistentStorage = await createSpacePersistentStorage();
       const game = new Game(session, persistentStorage);
@@ -844,6 +837,7 @@ window.addEventListener('DOMContentLoaded', () => {
           state.enterOnline
         );
       }
-    }
+    },
+    auth,
   );
-});
+}

@@ -28,7 +28,7 @@ export function NavigationPanel() {
     if (!navigating) return;
     const cancelOnInput = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (target?.isContentEditable || target?.closest('button, input, select, textarea, a[href], summary, [role="button"]')) return;
       const movementCodes = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
       if (movementCodes.includes(event.code)) {
         navigation.stopNavigation('cancelled');
@@ -52,8 +52,6 @@ export function NavigationPanel() {
       <div
         className="nav-header"
         id="nav-header-toggle"
-        role="button"
-        tabIndex={-1}
         title={expanded ? 'Collapse navigation' : 'Expand navigation'}
         onClick={() => setExpanded(val => !val)}
       >
@@ -67,7 +65,6 @@ export function NavigationPanel() {
             <button
               type="button"
               id="nav-mini-stop-btn"
-              tabIndex={-1}
               className="nav-mini-stop-btn"
               title="Stop navigation"
               onClick={(e) => {
@@ -79,9 +76,10 @@ export function NavigationPanel() {
           <button
             type="button"
             id="nav-toggle-btn"
-            tabIndex={-1}
             className={`nav-toggle-btn ${expanded ? 'expanded' : ''}`}
             aria-label={expanded ? 'Collapse navigation' : 'Expand navigation'}
+            aria-expanded={expanded}
+            aria-controls="nav-body"
             onClick={(e) => {
               e.stopPropagation();
               setExpanded(val => !val);
@@ -100,10 +98,8 @@ export function NavigationPanel() {
         <button
           type="button"
           id="nav-start-btn"
-          tabIndex={-1}
           className={`nav-action-btn ${navigating ? 'stop-btn' : 'start-btn'}`}
-          onClick={(e) => {
-            (e.currentTarget as HTMLElement)?.blur();
+          onClick={() => {
             if (navigating) navigation?.stopNavigation?.('cancelled');
             else start();
           }}

@@ -19,9 +19,15 @@ import {
   type LatencyMonitorOptions,
 } from './LatencyMonitor.ts';
 import {
-  ensureSpaceAccessToken,
-  installSpaceAuthFetchInterceptor,
-} from './SpaceAuthSession.ts';
+  authenticateSpace,
+  createEntryProgressReporter,
+  entryErrorFromResponse,
+  renderEntryError,
+  SpaceEntryError,
+  type SpaceEntryAuth,
+} from './SpaceEntryAuth.ts';
+
+export { entryErrorFromResponse, isNonPcDevice, resolveApiOrigin, SpaceEntryError } from './SpaceEntryAuth.ts';
 import {
   readJsonResponse,
   readResponseBytes,
@@ -44,8 +50,6 @@ export const TERRAIN_STREAM_SWITCH_DEBOUNCE_MS = 500;
 export const MAX_SKIN_PNG_BYTES = 256 * 1024;
 const MAX_SPACE_API_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_TERRAIN_PAGE_BYTES = 16 * 1024 * 1024;
-
-class SpaceLoginRedirect extends Error {}
 
 export interface TerrainStreamArea {
   centerChunkX: number;
@@ -196,66 +200,11 @@ export interface SpaceEntryHooks {
 
 export type SpaceEntryProgressReporter = (value: number, message: string) => void;
 
-export interface PreparedOnlineSpace {
+export interface PreparedOnlineSpace extends SpaceEntryAuth {
   payload: SpaceBootstrapPayload;
-  apiOrigin: string;
-  token: string;
   skinObjectUrl: string;
   entryWarning: string | null;
   latencyMonitor: LatencyMonitor;
-}
-
-export type SpaceEntryErrorCode =
-  | 'PC_ONLY_REQUIRED'
-  | 'LOGIN_REQUIRED'
-  | 'WORLD_UNAVAILABLE'
-  | 'BOOTSTRAP_FAILED';
-
-export interface SpaceEntryAction {
-  label: string;
-  url: string;
-  secondary?: boolean;
-  subtle?: boolean;
-}
-
-export class SpaceEntryError extends Error {
-  readonly code: SpaceEntryErrorCode;
-  readonly actionUrl: string;
-  readonly actionLabel: string;
-  readonly actions: SpaceEntryAction[];
-
-  constructor(
-    code: SpaceEntryErrorCode,
-    message: string,
-    actionUrl: string,
-    actionLabel: string,
-    actions?: SpaceEntryAction[]
-  ) {
-    super(message);
-    this.name = 'SpaceEntryError';
-    this.code = code;
-    this.actionUrl = actionUrl;
-    this.actionLabel = actionLabel;
-    this.actions = actions && actions.length > 0
-      ? actions
-      : [{ label: actionLabel, url: actionUrl }];
-  }
-}
-
-export function isNonPcDevice(
-  userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '',
-  platform = typeof navigator !== 'undefined' ? navigator.platform : '',
-  maxTouchPoints = typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0,
-  screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920,
-  screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080
-): boolean {
-  const ua = userAgent || '';
-  const isMobileUa = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS|Windows Phone/i.test(ua);
-  const isIPadOS = (platform === 'MacIntel' || ua.includes('Macintosh')) && maxTouchPoints > 1;
-  const isTouchScreen = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-  const isSmallScreen = screenWidth < 1024 || screenHeight < 550;
-
-  return isMobileUa || isIPadOS || Boolean(isTouchScreen && isSmallScreen);
 }
 
 export function isMacPlatform(
@@ -269,18 +218,6 @@ export function isMacPlatform(
 
 export function getAltKeyLabel(): string {
   return isMacPlatform() ? 'Opt' : 'Alt';
-}
-
-export function resolveApiOrigin(configuredBase: string | undefined, pageOrigin: string) {
-  const normalized = (configuredBase || '').trim().replace(/\/+$/, '');
-  if (!normalized) {
-    if (pageOrigin.includes('localhost')) return 'http://localhost:8000';
-    if (pageOrigin.includes('space.entropydrop.com') || pageOrigin.includes('entropydrop.com')) {
-      return 'https://api.entropydrop.com';
-    }
-    return pageOrigin;
-  }
-  return normalized.replace(/\/skin$/, '');
 }
 
 export function requestedSpaceWorld(
@@ -440,42 +377,6 @@ export function encodePlayerPosition(
     yaw_q15: Math.max(-32767, Math.min(32767, Math.round((normalizedYaw / Math.PI) * 32767))),
     pitch_q15: Math.max(-32767, Math.min(32767, Math.round((clampedPitch / Math.PI) * 32767))),
   };
-}
-
-export function entryErrorFromResponse(status: number, body: any) {
-  const detail = body?.detail;
-  if (status === 401 || (status === 403 && detail?.code === 'ACCOUNT_LOGIN_REQUIRED')) {
-    return new SpaceEntryError(
-      'LOGIN_REQUIRED',
-      'Please log in to EntropyDrop before entering Space.',
-      spaceLoginUrl({ reauthenticate: true }),
-      'Log In',
-      [
-        { label: 'Sign in on main site', url: spaceLoginUrl({ reauthenticate: true }) },
-        { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
-      ]
-    );
-  }
-  if (status === 404 && detail?.code === 'WORLD_NOT_FOUND') {
-    return new SpaceEntryError(
-      'WORLD_UNAVAILABLE',
-      'The selected world was not found or is unavailable on this server. Please choose another world.',
-      mainSiteUrl('/space/intro'),
-      'Choose World'
-    );
-  }
-  return new SpaceEntryError(
-    'BOOTSTRAP_FAILED',
-    typeof detail === 'string'
-      ? detail
-      : 'Could not load Space player profile. Please try again later.',
-    window.location.href,
-    'Retry',
-    [
-      { label: 'Retry', url: window.location.href },
-      { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
-    ]
-  );
 }
 
 async function downloadSkinPng(url: string) {
@@ -714,26 +615,10 @@ export function createPlayerPositionRemote(
 }
 
 async function prepareOnlineSpace(
+  auth: SpaceEntryAuth,
   reportProgress?: SpaceEntryProgressReporter
 ): Promise<PreparedOnlineSpace> {
-  const accountOrigin = resolveApiOrigin(import.meta.env?.VITE_API_BASE_URL, window.location.origin);
-  const apiOrigin = resolveApiOrigin(import.meta.env?.VITE_SPACE_API_BASE_URL || accountOrigin, window.location.origin);
-  installSpaceAuthFetchInterceptor(accountOrigin, apiOrigin);
-  reportProgress?.(14, 'Verifying EntropyDrop account…');
-  const token = await ensureSpaceAccessToken(accountOrigin);
-  if (!token) {
-    // Only another origin can have a main-site-only localStorage session. On a
-    // same-origin development site it is already shared, so silent handoff is
-    // redundant and can loop when the login page normalizes its destination.
-    const silentLogin = new URL(spaceLoginUrl({ silent: true }), window.location.href);
-    if (silentLogin.origin !== window.location.origin
-      && !new URL(window.location.href).searchParams.has('sso_attempted')) {
-      window.location.replace(silentLogin.href);
-      throw new SpaceLoginRedirect();
-    }
-    throw entryErrorFromResponse(401, null);
-  }
-
+  const { apiOrigin, token } = auth;
   const latencyMonitor = new LatencyMonitor({ apiOrigin });
 
   reportProgress?.(30, 'Loading Space profile and world…');
@@ -771,7 +656,7 @@ async function prepareOnlineSpace(
     entryWarning = '⚠ No character skin is configured, so the default skin is in use. Press O to open Settings and set one up.';
   }
   reportProgress?.(58, 'Character resources ready…');
-  return { payload, apiOrigin, token, skinObjectUrl, entryWarning, latencyMonitor };
+  return { ...auth, payload, skinObjectUrl, entryWarning, latencyMonitor };
 }
 
 export async function requestSpaceAdmission(
@@ -836,7 +721,7 @@ async function completeOnlineSpace(
   prepared: PreparedOnlineSpace,
   reportProgress?: SpaceEntryProgressReporter
 ): Promise<ReadySpaceSession> {
-  const { payload, apiOrigin, token, skinObjectUrl, entryWarning, latencyMonitor } = prepared;
+  const { payload, apiOrigin, accountOrigin, token, skinObjectUrl, entryWarning, latencyMonitor } = prepared;
   latencyMonitor.start();
   let terrainEditRemote: WorldEditRemote;
   try {
@@ -858,7 +743,7 @@ async function completeOnlineSpace(
     ...payload,
     mode: 'online',
     api_origin: apiOrigin,
-    account_api_origin: resolveApiOrigin(import.meta.env?.VITE_API_BASE_URL, typeof window === "undefined" ? "http://localhost" : window.location.origin),
+    account_api_origin: accountOrigin,
     token,
     skin_object_url: skinObjectUrl,
     entry_warning: entryWarning,
@@ -876,7 +761,9 @@ async function completeOnlineSpace(
 }
 
 export async function bootstrapSpace(): Promise<ReadySpaceSession> {
-  const prepared = await prepareOnlineSpace();
+  const auth = await authenticateSpace();
+  if (!auth) throw entryErrorFromResponse(401, null);
+  const prepared = await prepareOnlineSpace(auth);
   const admission = await requestSpaceAdmission(
     prepared.apiOrigin,
     prepared.token,
@@ -897,152 +784,63 @@ export async function bootstrapSpace(): Promise<ReadySpaceSession> {
   return completeOnlineSpace(prepared);
 }
 
-function renderEntryError(error: unknown) {
-  const entryError = error instanceof SpaceEntryError
-    ? error
-    : new SpaceEntryError(
-        'BOOTSTRAP_FAILED',
-        'Space initialization failed. Please check your network and try again.',
-        window.location.href,
-        'Retry',
-        [
-          { label: 'Retry', url: window.location.href },
-          { label: 'Back to Main Site', url: mainSiteUrl('/space/intro'), secondary: true }
-        ]
-      );
-  const gate = document.getElementById('space-entry-gate');
-  const status = document.getElementById('space-entry-status');
-  const actionContainer = document.getElementById('space-entry-actions');
-  const action = document.getElementById('space-entry-action') as HTMLAnchorElement | null;
-  const progress = document.getElementById('space-entry-progress');
-  if (gate) gate.hidden = false;
-  if (status) status.textContent = entryError.message;
-  if (progress) {
-    progress.hidden = entryError.code === 'LOGIN_REQUIRED';
-    progress.classList.add('failed');
-    progress.setAttribute('aria-invalid', 'true');
-    progress.setAttribute('aria-valuetext', entryError.message);
-  }
-  if (actionContainer) {
-    actionContainer.innerHTML = '';
-    if (entryError.code === 'LOGIN_REQUIRED') {
-      const login = document.createElement('div');
-      login.className = 'space-google-login';
-      actionContainer.appendChild(login);
-      const accountOrigin = resolveApiOrigin(import.meta.env?.VITE_API_BASE_URL, window.location.origin);
-      void import('./SpaceGoogleLogin.ts').then(({ mountSpaceGoogleLogin }) => {
-        if (login.isConnected) return mountSpaceGoogleLogin(login, accountOrigin);
-      }).catch(error => console.warn('Could not load Google sign-in.', error));
-    }
-    for (const act of entryError.actions) {
-      const a = document.createElement('a');
-      a.className = [
-        'space-entry-action',
-        act.secondary ? 'secondary' : '',
-        act.subtle ? 'subtle' : '',
-      ].filter(Boolean).join(' ');
-      a.href = act.url;
-      a.textContent = act.label;
-      actionContainer.appendChild(a);
-    }
-  } else if (action) {
-    action.href = entryError.actionUrl;
-    action.textContent = entryError.actionLabel;
-    action.hidden = false;
-  }
-}
-
 export async function enterSpace(
   startGame: (
     session: ReadySpaceSession,
     reportProgress: SpaceEntryProgressReporter,
   ) => void | Promise<void>,
-  hooks: SpaceEntryHooks = {}
+  hooks: SpaceEntryHooks = {},
+  entryAuth?: SpaceEntryAuth,
 ) {
   const gate = document.getElementById('space-entry-gate');
-  const status = document.getElementById('space-entry-status');
   const action = document.getElementById('space-entry-action') as HTMLAnchorElement | null;
-  const progress = document.getElementById('space-entry-progress');
-  const progressFill = document.getElementById('space-entry-progress-fill') as HTMLElement | null;
-  const progressValue = document.getElementById('space-entry-progress-value');
-  const reportProgress: SpaceEntryProgressReporter = (value, message) => {
-    const normalized = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
-    if (status) status.textContent = message;
-    if (progress) {
-      progress.hidden = false;
-      progress.classList.remove('failed');
-      progress.removeAttribute('aria-invalid');
-      progress.setAttribute('aria-valuenow', String(normalized));
-      progress.setAttribute('aria-valuetext', `${message} ${normalized}%`);
-    }
-    if (progressFill) progressFill.style.width = `${normalized}%`;
-    if (progressValue) progressValue.textContent = `${normalized}%`;
-  };
+  const reportProgress = createEntryProgressReporter();
   if (gate) gate.hidden = false;
-  reportProgress(5, 'Preparing to enter Space…');
   if (action) action.hidden = true;
 
   try {
-    const searchParams = new URLSearchParams(window.location.search);
-    const forcePc = searchParams.get('force_pc') === '1' || searchParams.get('force') === '1';
-    if (isNonPcDevice() && !forcePc) {
-      const pcError = new SpaceEntryError(
-        'PC_ONLY_REQUIRED',
-        'EntropyDrop Space is designed for desktop PC browsers only. It requires 3D GPU acceleration, voxel physics, and keyboard & mouse controls.',
-        '/space',
-        'Back to Main Site',
-        [
-          {
-            label: 'Back to Space Overview',
-            url: '/space',
-            subtle: true,
-          },
-          {
-            label: 'Try Anyway (Dev)',
-            url: window.location.search ? `${window.location.search}&force_pc=1` : '?force_pc=1',
-            secondary: true
-          }
-        ]
-      );
-      renderEntryError(pcError);
-      return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('mode')) {
+      url.searchParams.delete('mode');
+      window.history.replaceState(null, '', url);
     }
 
-    if (searchParams.has('mode')) {
-      const cleanUrl = new URL(window.location.href);
-      cleanUrl.searchParams.delete('mode');
-      window.history.replaceState(null, '', cleanUrl);
-    }
-
-    const prepared = await prepareOnlineSpace(reportProgress);
-    reportProgress(64, 'Joining shared world…');
-    const admission = await requestSpaceAdmission(
-      prepared.apiOrigin,
-      prepared.token,
-      prepared.payload.world.id
-    );
-    if (admission.state === 'admitted') {
-      const session = await completeOnlineSpace(prepared, reportProgress);
+    const auth = entryAuth ?? await authenticateSpace(reportProgress);
+    if (!auth) return;
+    const prepared = await prepareOnlineSpace(auth, reportProgress);
+    const enterAdmittedWorld = async () => {
       hooks.onStateChange?.({
         mode: 'online',
         queuePosition: null,
         onlineReady: false,
         cancelQueue: null,
-        enterOnline: null
+        enterOnline: null,
       });
-      reportProgress(92, 'Initializing donut world…');
-      await startGame(session, reportProgress);
+      const session = await completeOnlineSpace(prepared, reportProgress);
+      try {
+        reportProgress(92, 'Initializing Space scene…');
+        await startGame(session, reportProgress);
+      } catch (error) {
+        session.latency_monitor?.stop();
+        throw error;
+      }
       reportProgress(100, 'Space world ready');
       if (gate) gate.hidden = true;
+    };
+
+    reportProgress(64, 'Joining shared world…');
+    const admission = await requestSpaceAdmission(prepared.apiOrigin, prepared.token, prepared.payload.world.id);
+    if (admission.state === 'admitted') {
+      await enterAdmittedWorld();
       return;
     }
 
     let queueActive = true;
+    let cancelled = false;
     let queueCancelling = false;
     let pollAfterMs = admission.poll_after_ms;
     let pollController: AbortController | null = null;
     let currentPoll: Promise<SpaceAdmissionStatus> | null = null;
-    let cancelBeforeUnload: (() => void) | null = null;
     const worldId = prepared.payload.world.id;
     const cancelQueue = async () => {
       if (!queueActive || queueCancelling) return;
@@ -1055,6 +853,7 @@ export async function enterSpace(
         queueCancelling = false;
         throw error;
       }
+      cancelled = true;
       queueActive = false;
       window.location.href = mainSiteUrl('/space/intro');
     };
@@ -1068,9 +867,11 @@ export async function enterSpace(
     });
     reportProgress(72, `Space Queue #${admission.position}, please wait…`);
 
-    cancelBeforeUnload = () => {
+    const cancelBeforeUnload = () => {
       if (!queueActive) return;
+      cancelled = true;
       queueActive = false;
+      pollController?.abort();
       void cancelSpaceAdmission(
         prepared.apiOrigin,
         prepared.token,
@@ -1081,62 +882,43 @@ export async function enterSpace(
     };
     window.addEventListener('pagehide', cancelBeforeUnload, { once: true });
 
-    void (async () => {
+    try {
       while (queueActive) {
         await new Promise(resolve => setTimeout(resolve, pollAfterMs));
-        if (!queueActive) break;
-        if (queueCancelling) continue;
-        let poll: Promise<SpaceAdmissionStatus> | null = null;
+        if (!queueActive || queueCancelling) continue;
+        pollController = new AbortController();
+        currentPoll = requestSpaceAdmission(prepared.apiOrigin, prepared.token, worldId, fetch, pollController.signal);
+        let next: SpaceAdmissionStatus;
         try {
-          pollController = new AbortController();
-          poll = requestSpaceAdmission(
-            prepared.apiOrigin,
-            prepared.token,
-            worldId,
-            fetch,
-            pollController.signal
-          );
-          currentPoll = poll;
-          const next = await poll;
-          if (!queueActive || queueCancelling) continue;
-          pollAfterMs = next.poll_after_ms;
-          if (next.state === 'admitted') {
-            queueActive = false;
-            if (cancelBeforeUnload) {
-              window.removeEventListener('pagehide', cancelBeforeUnload);
-            }
-            reportProgress(92, 'Admitted! Initializing Space scene…');
-            const session = await completeOnlineSpace(prepared, reportProgress);
-            hooks.onStateChange?.({
-              mode: 'online',
-              queuePosition: null,
-              onlineReady: false,
-              cancelQueue: null,
-              enterOnline: null
-            });
-            await startGame(session, reportProgress);
-            reportProgress(100, 'Space world ready');
-            if (gate) gate.hidden = true;
-            return;
-          }
-          hooks.onStateChange?.({
-            mode: 'online',
-            queuePosition: next.position,
-            onlineReady: false,
-            cancelQueue,
-            enterOnline: null
-          });
-          reportProgress(72, `Space Queue #${next.position}, please wait…`);
-        } catch {
-          // Retry on temporary network glitch
+          next = await currentPoll;
+        } catch (error) {
+          if (error instanceof SpaceEntryError && error.code === 'LOGIN_REQUIRED') throw error;
+          continue;
         } finally {
-          if (currentPoll === poll) currentPoll = null;
+          currentPoll = null;
           pollController = null;
         }
+        if (!queueActive || queueCancelling) continue;
+        pollAfterMs = next.poll_after_ms;
+        if (next.state === 'admitted') {
+          queueActive = false;
+          break;
+        }
+        hooks.onStateChange?.({
+          mode: 'online',
+          queuePosition: next.position,
+          onlineReady: false,
+          cancelQueue,
+          enterOnline: null
+        });
+        reportProgress(72, `Space Queue #${next.position}, please wait…`);
       }
-    })();
+    } finally {
+      window.removeEventListener('pagehide', cancelBeforeUnload);
+    }
+    if (cancelled) return;
+    await enterAdmittedWorld();
   } catch (error) {
-    if (error instanceof SpaceLoginRedirect) return;
     renderEntryError(error);
   }
 }

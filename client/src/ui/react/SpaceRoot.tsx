@@ -24,7 +24,11 @@ function ModalChunkFallback() {
 }
 
 export function SpaceRoot() {
-  const { selectedColor, activeModal, apiDocsOpen } = useSpaceUiFields('selectedColor', 'activeModal', 'apiDocsOpen');
+  const { selectedColor, activeModal, apiDocsOpen, hasStarted, pointerLocked } = useSpaceUiFields(
+    'selectedColor', 'activeModal', 'apiDocsOpen', 'hasStarted', 'pointerLocked',
+  );
+  const pauseOpen = !hasStarted || activeModal === 'help';
+  const canResume = !pauseOpen && !pointerLocked && !activeModal && !apiDocsOpen;
 
   useEffect(() => {
     document.documentElement.style.setProperty('--build-color', colorToHex(selectedColor));
@@ -36,7 +40,7 @@ export function SpaceRoot() {
       // The first Escape dismisses code suggestions, leaving the editor open.
       if (event.key === 'Escape' && event.target instanceof HTMLElement
         && event.target.dataset.codeCompletionsOpen === 'true') return;
-      if (event.key === 'Escape' && spaceUiStore.handleEscape()) {
+      if (event.key === 'Escape' && spaceUiStore.getSnapshot().activeModal !== 'settings' && spaceUiStore.handleEscape()) {
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -50,45 +54,30 @@ export function SpaceRoot() {
       }
     };
 
-    // Prevent 2D UI buttons from retaining focus when clicked,
-    // so game controls (e.g. Space for jump/fly) are never intercepted by focused buttons.
-    const blurButton = (target: EventTarget | null) => {
-      const el = target as HTMLElement | null;
-      const btn = el?.closest?.('button, [role="button"]') as HTMLElement | null;
-      if (btn) btn.blur();
-    };
-    const handleFocusIn = (event: FocusEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === 'BUTTON' || target.getAttribute('role') === 'button')) {
-        target.blur();
-      }
-    };
-    const handlePointerDown = (event: PointerEvent) => {
-      blurButton(event.target);
-    };
-    const handleClick = (event: MouseEvent) => {
-      blurButton(event.target);
-    };
-
     window.addEventListener('keydown', handleGlobalKey, true);
-    window.addEventListener('focusin', handleFocusIn, true);
-    window.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('click', handleClick, true);
-    return () => {
-      window.removeEventListener('keydown', handleGlobalKey, true);
-      window.removeEventListener('focusin', handleFocusIn, true);
-      window.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('click', handleClick, true);
-    };
+    return () => window.removeEventListener('keydown', handleGlobalKey, true);
   }, []);
 
   return (
     <>
-      <div id="canvas-container" onClick={() => spaceUiStore.resumeFromCanvas()} />
-      <Hud />
-      <TextCreationPanel />
-      <NavigationPanel />
-      <MinimapCanvas />
+      <div inert={pauseOpen}>
+        <div
+          id="canvas-container"
+          role={canResume ? 'button' : undefined}
+          aria-label={canResume ? 'Resume game controls' : undefined}
+          tabIndex={canResume ? 0 : -1}
+          onClick={() => spaceUiStore.resumeFromCanvas()}
+          onKeyDown={event => {
+            if (!canResume || (event.key !== 'Enter' && event.key !== ' ')) return;
+            event.preventDefault();
+            if (!event.repeat) spaceUiStore.resumeFromCanvas();
+          }}
+        />
+        <Hud />
+        <TextCreationPanel />
+        <NavigationPanel />
+        <MinimapCanvas />
+      </div>
       <GlobalSettingsModal />
       {activeModal === 'inventory' ? (
         <React.Suspense fallback={<ModalChunkFallback />}><InventoryModal /></React.Suspense>

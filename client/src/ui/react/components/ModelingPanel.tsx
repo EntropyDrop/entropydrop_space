@@ -83,7 +83,7 @@ export function ModelingToolbar() {
         <span className="palette-title">Modeling</span>
         <span className="mode-badge std">DECORATION</span>
         <div className="selector-recent-color" title="Active palette · Click or press I to edit">
-          <button type="button" tabIndex={-1} className="selector-recent-color-chip" aria-label="Set color (I)"
+          <button type="button" className="selector-recent-color-chip" aria-label="Set color (I)"
             style={{ background: gradientCss(activeEntry.stops) }} onClick={() => spaceUiStore.openColorPicker()} />
         </div>
       </div>
@@ -91,13 +91,13 @@ export function ModelingToolbar() {
     </div>
     <div className="selector-toolbox-content" id="modeling-toolbox-content">
       <div className="wrench-action-buttons">
-        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!editable}
+        <button type="button" className="banner-btn secondary" disabled={!editable}
           title="Copy the selected decoration in its component (R or Ctrl/Cmd+D)" onClick={() => tool?.duplicate()}><b>R</b> Copy</button>
-        <button type="button" tabIndex={-1} className="banner-btn danger" disabled={!editable}
+        <button type="button" className="banner-btn danger" disabled={!editable}
           title="Delete only the selected decoration (Del)" onClick={() => tool?.remove()}><b>Del</b> Delete</button>
-        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!modelingView.canUndo || modelingView.isDragging}
+        <button type="button" className="banner-btn secondary" disabled={!modelingView.canUndo || modelingView.isDragging}
           title="Undo decoration edit (Ctrl/Cmd+Z)" onClick={() => tool?.undo()}>Undo</button>
-        <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!modelingView.canRedo || modelingView.isDragging}
+        <button type="button" className="banner-btn secondary" disabled={!modelingView.canRedo || modelingView.isDragging}
           title="Redo decoration edit (Ctrl/Cmd+Shift+Z)" onClick={() => tool?.undo(true)}>Redo</button>
       </div>
     </div>

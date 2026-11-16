@@ -98,11 +98,12 @@ test('index.html contains only the auth gate and React host', () => {
 test('Space entry progress follows real bootstrap stages and exposes percentage state', () => {
   const bootstrapSource = readFileSync(new URL('../src/bootstrap/SpaceBootstrap.ts', import.meta.url), 'utf8');
   const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-  const styleSource = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
-  assert.match(bootstrapSource, /prepareOnlineSpace\(reportProgress\)/);
+  const progressSource = readFileSync(new URL('../src/bootstrap/SpaceEntryAuth.ts', import.meta.url), 'utf8');
+  const styleSource = readFileSync(new URL('../src/entry.css', import.meta.url), 'utf8');
+  assert.match(bootstrapSource, /prepareOnlineSpace\(auth, reportProgress\)/);
   assert.match(bootstrapSource, /completeOnlineSpace\(prepared, reportProgress\)/);
-  assert.match(bootstrapSource, /progress\.setAttribute\('aria-valuenow'/);
-  assert.match(bootstrapSource, /progressFill\.style\.width/);
+  assert.match(progressSource, /progress\.setAttribute\('aria-valuenow'/);
+  assert.match(progressSource, /progressFill\.style\.width/);
   assert.match(mainSource, /await game\.preloadInitialTerrain\(reportProgress\)/);
   assert.match(mainSource, /game\.start\(\)/);
   assert.match(styleSource, /\.space-entry-progress-fill/);

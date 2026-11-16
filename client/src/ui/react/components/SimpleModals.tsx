@@ -58,16 +58,6 @@ function DistantTerrainDetailStatus({ layer }: { layer?: DistantSurfaceLayer }) 
   </div>;
 }
 
-function ModalBackdrop({ id, className = '', children, onClose }: { id: string; className?: string; children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div id={id} className={`custom-modal open ${className}`} onMouseDown={event => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
-      {children}
-    </div>
-  );
-}
-
 export function SpaceApiKeysSettings({ offlineFeature = 'api-keys' }: { offlineFeature?: 'api-keys' | 'agent-build' } = {}) {
   return SPACE_LOCAL_SESSION ? <OnlineSpaceNotice feature={offlineFeature} /> : <OnlineSpaceApiKeysSettings />;
 }
@@ -269,11 +259,37 @@ export function GlobalSettingsModal() {
   );
   const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>(() =>
     onlinePanelSettingsTab(typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('panel')) || 'character');
+  const openDialog = React.useCallback((dialog: HTMLDialogElement | null) => {
+    if (!dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
   if (state.activeModal !== 'settings') return null;
+
+  const closeSettings = (dialog: HTMLDialogElement | null) => {
+    dialog?.close();
+    spaceUiStore.closeAllModals(false);
+  };
+
   return (
-    <ModalBackdrop id="global-settings-modal" onClose={() => spaceUiStore.toggleGlobalSettingsModal(false)}>
+    <dialog
+      id="global-settings-modal"
+      aria-labelledby="global-settings-title"
+      ref={openDialog}
+      onCancel={event => {
+        event.preventDefault();
+        closeSettings(event.currentTarget);
+      }}
+      onMouseDown={event => {
+        if (event.target !== event.currentTarget) return;
+        const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) {
+          closeSettings(event.currentTarget);
+        }
+      }}
+    >
       <div className="modal-content settings-modal-content">
-        <div className="modal-header"><h2>Global Settings</h2><button id="close-global-settings-btn" tabIndex={-1} className="icon-btn" style={{ width: 28, height: 28, fontSize: 13 }} title="Close settings (ESC)" onClick={() => spaceUiStore.toggleGlobalSettingsModal(false)}>✕</button></div>
+        <div className="modal-header"><h2 id="global-settings-title">Global Settings</h2><button id="close-global-settings-btn" type="button" className="icon-btn" style={{ width: 28, height: 28, fontSize: 13 }} aria-label="Close settings" title="Close settings (ESC)" onClick={event => closeSettings(event.currentTarget.closest('dialog'))}>✕</button></div>
         <div className="modal-sub">Your character, world preferences, and external API</div>
         <div className="settings-tabs" role="tablist" aria-label="Settings categories">
           {(['character', 'graphics', 'sound', 'api'] as const).map((value, index, tabs) => <button
@@ -371,7 +387,7 @@ export function GlobalSettingsModal() {
                     ['first_person', '1st Person'],
                     ['third_person', '3rd Back'],
                     ['third_person_front', '3rd Front']
-                  ] as const).map(([value, label]) => <button key={value} tabIndex={-1} className={`segment-btn ${state.perspective === value ? 'active' : ''}`} onClick={() => spaceUiStore.setPerspective(value)}>{label}</button>)}
+                  ] as const).map(([value, label]) => <button key={value} className={`segment-btn ${state.perspective === value ? 'active' : ''}`} onClick={() => spaceUiStore.setPerspective(value)}>{label}</button>)}
                 </div>
               </div>
               <div className="settings-row" id="setting-cam-dist-row" style={{ display: state.perspective === 'first_person' ? 'none' : 'flex' }}>
@@ -387,7 +403,6 @@ export function GlobalSettingsModal() {
                   ] as const).map(([value, label]) => (
                     <button
                       key={String(value)}
-                      tabIndex={-1}
                       className={`segment-btn ${state.minimapEnabled === value ? 'active' : ''}`}
                       aria-pressed={state.minimapEnabled === value}
                       onClick={() => spaceUiStore.setMinimapEnabled(value)}
@@ -486,7 +501,6 @@ export function GlobalSettingsModal() {
                   ] as const).map(([value, label]) => (
                     <button
                       key={String(value)}
-                      tabIndex={-1}
                       className={`segment-btn ${state.shadowsEnabled === value ? 'active' : ''}`}
                       disabled={state.lightingQuality === 'low'}
                       aria-pressed={state.shadowsEnabled === value}
@@ -630,7 +644,6 @@ export function GlobalSettingsModal() {
                 ] as const).map(([value, label]) => (
                   <button
                     key={String(value)}
-                    tabIndex={-1}
                     className={`segment-btn ${state.musicEnabled === value ? 'active' : ''}`}
                     onClick={() => spaceUiStore.setMusicEnabled(value)}
                   >
@@ -648,7 +661,6 @@ export function GlobalSettingsModal() {
                 ] as const).map(([value, label]) => (
                   <button
                     key={String(value)}
-                    tabIndex={-1}
                     className={`segment-btn ${state.effectsEnabled === value ? 'active' : ''}`}
                     onClick={() => spaceUiStore.setEffectsEnabled(value)}
                   >
@@ -666,7 +678,7 @@ export function GlobalSettingsModal() {
           </div> : null}
         </div>
       </div>
-    </ModalBackdrop>
+    </dialog>
   );
 }
 
@@ -692,7 +704,6 @@ export function PauseScreen() {
           <button
             id="close-help-btn"
             type="button"
-            tabIndex={-1}
             className="icon-btn"
             style={{ position: 'absolute', top: 16, right: 16, width: 28, height: 28, fontSize: 13 }}
             title="Close (ESC)"
@@ -703,32 +714,9 @@ export function PauseScreen() {
         ) : null}
         <div className="hero-block-icon">■</div>
         <h1 className="game-logo">EntropyDrop · Space <span className="game-logo-beta">{SPACE_TUTORIAL ? 'TUTORIAL' : SPACE_LOCAL_SESSION ? 'OFFLINE' : 'BETA'}</span></h1>
-        <div className="controls-guide">
-          <span><kbd className="key-badge">W</kbd><kbd className="key-badge">A</kbd><kbd className="key-badge">S</kbd><kbd className="key-badge">D</kbd> Move / Drive</span>
-          <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
-          <span><kbd className="key-badge">Space ×2</kbd> Toggle flight · Land to stop flying</span>
-          <span><kbd className="key-badge">Shift</kbd> Sneak / Descend · <kbd className="key-badge">Ctrl</kbd> Sprint / Fly faster</span>
-          <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
-          <span><kbd className="key-badge">B</kbd> Backpack / Color sets</span>
-          <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy · X cut</span>
-          <span><kbd className="key-badge">2</kbd> Hammer: LMB preview · Drag XYZ on the current STD/MICRO grid · Enter build / attach · RMB cancel · Arrows rotate · T text · Tab standard/micro positioning</span>
-          <span><kbd className="key-badge">3</kbd> Wrench: drag pivot axes to move · drag arrows to rotate · hold to lift the entity · double LMB start/stop · RMB menu</span>
-          <span><kbd className="key-badge">4</kbd> Shovel: remove / place 1m blocks</span>
-          <span><kbd className="key-badge">5</kbd> Spoon: micro-carve 8x8x8</span>
-          <span><kbd className="key-badge">6</kbd> Brush: paint / right-click 2-point dye · Tab micro/standard</span>
-          <span><kbd className="key-badge">7</kbd> Modeling: LMB select / drag · RMB add / draw size · R copy · Del delete · right panel: properties</span>
-          <span><kbd className="key-badge">Shift+Click</kbd> Multi-select component blocks</span>
-          <span><kbd className="key-badge">C</kbd> Entity editor</span>
-          <span><kbd className="key-badge">G</kbd> Assemble contraption / sub-contraption</span>
-          <span><kbd className="key-badge">V</kbd> Mount / leave entity seat</span>
-          <span><kbd className="key-badge">F</kbd> Fill selection</span>
-          <span><kbd className="key-badge">F3</kbd> Cycle 1st / 3rd Back / 3rd Front</span>
-          <span><kbd className="key-badge">ESC</kbd> Settings / release cursor</span>
-        </div>
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+        <div className="hero-actions">
           <button
             id="start-btn"
-            tabIndex={-1}
             className="start-btn"
             onClick={() => {
               if (!hasStarted) {
@@ -740,7 +728,7 @@ export function PauseScreen() {
           >
             {hasStarted ? 'Resume' : 'Play'}
           </button>
-          <button id="tutorial-btn" type="button" tabIndex={-1} className="tutorial-btn"
+          <button id="tutorial-btn" type="button" className="tutorial-btn"
             title={SPACE_TUTORIAL ? 'Leave tutorial' : 'Open tutorial in a new tab'}
             aria-label={SPACE_TUTORIAL ? 'Leave tutorial' : 'Open tutorial in a new tab'}
             onClick={() => void spaceUiStore.navigateTutorial(!SPACE_TUTORIAL)}>
@@ -749,7 +737,6 @@ export function PauseScreen() {
           {isAdmin ? (
             <button
               type="button"
-              tabIndex={-1}
               className="start-btn"
               style={{
                 background: '#18181b',
@@ -766,6 +753,38 @@ export function PauseScreen() {
             </button>
           ) : null}
         </div>
+        {!hasStarted && (
+          <div className="quick-controls" aria-label="Basic controls">
+            <span><kbd className="key-badge">W A S D</kbd> Move</span>
+            <span><kbd className="key-badge">Mouse</kbd> Look</span>
+            <span><kbd className="key-badge">Esc</kbd> Release cursor</span>
+          </div>
+        )}
+        <details className="hero-controls" key={hasStarted ? 'help' : 'welcome'} open={hasStarted || undefined}>
+          <summary>Controls</summary>
+          <div className="controls-guide">
+            <span><kbd className="key-badge">W</kbd><kbd className="key-badge">A</kbd><kbd className="key-badge">S</kbd><kbd className="key-badge">D</kbd> Move / Drive</span>
+            <span><kbd className="key-badge">Space</kbd> Jump / Ascend</span>
+            <span><kbd className="key-badge">Space ×2</kbd> Toggle flight · Land to stop flying</span>
+            <span><kbd className="key-badge">Shift</kbd> Sneak / Descend · <kbd className="key-badge">Ctrl</kbd> Sprint / Fly faster</span>
+            <span><kbd className="key-badge">{altLabel}+1-9</kbd> Palette color · <kbd className="key-badge">I</kbd> Set color</span>
+            <span><kbd className="key-badge">B</kbd> Backpack / Color sets</span>
+            <span><kbd className="key-badge">1</kbd> Selector: select region · Arrows rotate · Tab standard/micro blocks · R copy · X cut</span>
+            <span><kbd className="key-badge">2</kbd> Hammer: LMB preview · Drag XYZ on the current STD/MICRO grid · Enter build / attach · RMB cancel · Arrows rotate · T text · Tab standard/micro positioning</span>
+            <span><kbd className="key-badge">3</kbd> Wrench: drag pivot axes to move · drag arrows to rotate · hold to lift the entity · double LMB start/stop · RMB menu</span>
+            <span><kbd className="key-badge">4</kbd> Shovel: remove / place 1m blocks</span>
+            <span><kbd className="key-badge">5</kbd> Spoon: micro-carve 8x8x8</span>
+            <span><kbd className="key-badge">6</kbd> Brush: paint / right-click 2-point dye · Tab micro/standard</span>
+            <span><kbd className="key-badge">7</kbd> Modeling: LMB select / drag · RMB add / draw size · R copy · Del delete · right panel: properties</span>
+            <span><kbd className="key-badge">Shift+Click</kbd> Multi-select component blocks</span>
+            <span><kbd className="key-badge">C</kbd> Entity editor</span>
+            <span><kbd className="key-badge">G</kbd> Assemble contraption / sub-contraption</span>
+            <span><kbd className="key-badge">V</kbd> Mount / leave entity seat</span>
+            <span><kbd className="key-badge">F</kbd> Fill selection</span>
+            <span><kbd className="key-badge">F3</kbd> Cycle 1st / 3rd Back / 3rd Front</span>
+            <span><kbd className="key-badge">ESC</kbd> Settings / release cursor</span>
+          </div>
+        </details>
       </div>
     </div>
   );

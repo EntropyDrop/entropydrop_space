@@ -81,13 +81,8 @@ function NearbyEntities() {
       <div
         className="hud-entities-header"
         id="hud-entities-toggle"
-        role="button"
-        tabIndex={-1}
         title="Toggle nearby entities list"
         onClick={() => setExpanded(value => !value)}
-        onKeyDown={event => {
-          if (event.key === 'Enter') setExpanded(value => !value);
-        }}
       >
         <div className="hud-entities-title">
           <span className="hud-entities-icon"><LiaShapesSolid size={14} /></span>
@@ -96,9 +91,10 @@ function NearbyEntities() {
         <button
           type="button"
           id="hud-entities-toggle-btn"
-          tabIndex={-1}
           className={`hud-entities-toggle-btn ${expanded ? 'expanded' : ''}`}
           aria-label="Toggle entities list"
+          aria-expanded={expanded}
+          aria-controls="hud-entities-body"
           onClick={event => {
             event.stopPropagation();
             setExpanded(value => !value);
@@ -120,7 +116,6 @@ function NearbyEntities() {
               </div>
               <button
                 type="button"
-                tabIndex={-1}
                 className="hud-entity-nav-btn"
                 title={`Navigate to ${item.name}`}
                 onClick={() => navigationSystem?.startNavigation?.(item.pos.x, Math.max(item.pos.y + 1.5, 20), item.pos.z)}
@@ -129,11 +124,11 @@ function NearbyEntities() {
           ))}
         </div>
         <div className="hud-entities-pagination" id="hud-entities-pagination" style={{ display: pageCount > 1 ? 'flex' : 'none' }}>
-          <button type="button" id="hud-entities-prev-btn" tabIndex={-1} className="hud-page-btn" disabled={currentPage <= 1} title="Previous page" onClick={() => setPage(value => Math.max(1, value - 1))}>
+          <button type="button" id="hud-entities-prev-btn" className="hud-page-btn" disabled={currentPage <= 1} title="Previous page" onClick={() => setPage(value => Math.max(1, value - 1))}>
             <LiaAngleLeftSolid />
           </button>
           <span id="hud-entities-page-info" className="hud-page-info">{currentPage} / {pageCount}</span>
-          <button type="button" id="hud-entities-next-btn" tabIndex={-1} className="hud-page-btn" disabled={currentPage >= pageCount} title="Next page" onClick={() => setPage(value => Math.min(pageCount, value + 1))}>
+          <button type="button" id="hud-entities-next-btn" className="hud-page-btn" disabled={currentPage >= pageCount} title="Next page" onClick={() => setPage(value => Math.min(pageCount, value + 1))}>
             <LiaAngleRightSolid />
           </button>
         </div>
@@ -392,7 +387,6 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
             <button
               id="brush-mode-toggle"
               type="button"
-              tabIndex={-1}
               className="selector-mode-btn"
               title="Click or press Tab to switch mode"
               onClick={() => controller?.toggleBrushMicroMode?.()}
@@ -424,7 +418,6 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
           return (
             <button
               type="button"
-              tabIndex={-1}
               key={`${item.hex}:${index}`}
               id={isActive ? 'active-palette-color-chip' : undefined}
               className={`color-chip ${isActive ? 'active' : ''}`}
@@ -461,10 +454,10 @@ function InventoryBar() {
     <div className="inventory-bar-wrapper" id="inventory-bar-wrapper">
       <div className="palette-info-row">
         <div className="palette-title-group">
-          <button type="button" tabIndex={-1} className="palette-title" id="backpack-bar-title" title="Click or press B to open full backpack" onClick={() => spaceUiStore.toggleInventoryModal(true)}>
+          <button type="button" className="palette-title" id="backpack-bar-title" title="Click or press B to open full backpack" onClick={() => spaceUiStore.toggleInventoryModal(true)}>
             <LiaBoxesSolid size={14} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />Backpack
           </button>
-          <button type="button" id="hammer-mode-toggle" tabIndex={-1} disabled={hammerPlacementActive} className="selector-mode-btn" title={hammerPlacementActive ? `Placement adjustment: ${hammerMicro ? 'MICRO' : 'STD'} grid` : `Positioning: ${hammerMicro ? 'MICRO' : 'STD'} · Click or press Tab to switch grid`} onClick={() => controller?.toggleHammerMicroMode?.()}>
+          <button type="button" id="hammer-mode-toggle" disabled={hammerPlacementActive} className="selector-mode-btn" title={hammerPlacementActive ? `Placement adjustment: ${hammerMicro ? 'MICRO' : 'STD'} grid` : `Positioning: ${hammerMicro ? 'MICRO' : 'STD'} · Click or press Tab to switch grid`} onClick={() => controller?.toggleHammerMicroMode?.()}>
             <span className={`mode-badge ${hammerMicro ? 'micro' : 'std'}`}>{hammerMicro ? 'MICRO' : 'STANDARD'}</span>
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
           </button>
@@ -482,7 +475,6 @@ function InventoryBar() {
           return (
             <button
               type="button"
-              tabIndex={-1}
               key={index}
               className={`inventory-slot ${selectedInventoryIndex === index ? 'active' : ''} ${item ? 'filled' : 'empty'}`}
               title={item ? `Slot ${index + 1}: "${name}" · ${count} blocks · Shift+${index + 1}` : `Slot ${index + 1}: empty · Shift+${index + 1}`}
@@ -528,7 +520,7 @@ function SelectorPanel() {
     <div className="selector-panel-wrapper" id="selector-panel-wrapper">
       <div className="palette-info-row">
         <div className="selector-title-group">
-          <button id="selector-mode-toggle" tabIndex={-1} className="selector-mode-btn" title="Click or press Tab to switch mode" onClick={() => controller?.toggleSelectorMicroMode?.()}>
+          <button id="selector-mode-toggle" className="selector-mode-btn" title="Click or press Tab to switch mode" onClick={() => controller?.toggleSelectorMicroMode?.()}>
             <span id="selector-mode-badge" className={`mode-badge ${selector.micro ? 'micro' : 'std'}`}>{selector.micro ? 'MICRO' : 'STANDARD'}</span>
             <span className="mode-tab-hint flex items-center gap-0.5">Tab <LiaExchangeAltSolid style={{ display: 'inline' }} /></span>
           </button>
@@ -548,7 +540,6 @@ function SelectorPanel() {
                 key={item.id}
                 type="button"
                 id={`selector-shape-${item.id}`}
-                tabIndex={-1}
                 className={`selector-shape-btn ${isActive ? 'active' : ''}`}
                 title={`${item.name} · ${item.shortcut}`}
                 aria-label={`${item.name} · ${item.shortcut}`}
@@ -560,18 +551,18 @@ function SelectorPanel() {
           })}
         </div>
         <div className="selector-action-buttons">
-          <button id="assemble-btn" tabIndex={-1} className="banner-btn primary" disabled={!selector.canAssemble} onClick={() => assembleCurrentSelection(controller)}>{selector.assembleLabel}</button>
-          <button id="fill-btn" tabIndex={-1} className="banner-btn secondary" title="Fill selection with the active color (F)" disabled={!selector.canModify} onClick={() => controller?.fillSelectionBlocks?.()}>
+          <button id="assemble-btn" className="banner-btn primary" disabled={!selector.canAssemble} onClick={() => assembleCurrentSelection(controller)}>{selector.assembleLabel}</button>
+          <button id="fill-btn" className="banner-btn secondary" title="Fill selection with the active color (F)" disabled={!selector.canModify} onClick={() => controller?.fillSelectionBlocks?.()}>
             <span className="btn-color-dot" style={{ background: activeBackground }} />
             Fill (F)
           </button>
-          <button id="paint-btn" tabIndex={-1} className="banner-btn secondary" title="Recolor selection with the active color (P)" disabled={!selector.canModify} onClick={() => controller?.paintSelectionBlocks?.()}>
+          <button id="paint-btn" className="banner-btn secondary" title="Recolor selection with the active color (P)" disabled={!selector.canModify} onClick={() => controller?.paintSelectionBlocks?.()}>
             <span className="btn-color-dot" style={{ background: activeBackground }} />
             Paint (P)
           </button>
-          <button id="copy-btn" tabIndex={-1} className="banner-btn secondary" title="Copy selected blocks and complete entities inside the world selection (R)" disabled={!selector.canCopy} onClick={() => controller?.copySelectionSmart?.()}>Copy (R)</button>
-          <button id="cut-btn" tabIndex={-1} className="banner-btn secondary" title="Cut selection to the hotbar (X)" disabled={!selector.canCopy} onClick={() => controller?.cutSelectionSmart?.()}>Cut (X)</button>
-          <button id="delete-btn" tabIndex={-1} className="banner-btn danger" title="Delete selection (Del)" disabled={!selector.canDelete} onClick={() => controller?.deleteSelectionBlocks?.()}>Delete (Del)</button>
+          <button id="copy-btn" className="banner-btn secondary" title="Copy selected blocks and complete entities inside the world selection (R)" disabled={!selector.canCopy} onClick={() => controller?.copySelectionSmart?.()}>Copy (R)</button>
+          <button id="cut-btn" className="banner-btn secondary" title="Cut selection to the hotbar (X)" disabled={!selector.canCopy} onClick={() => controller?.cutSelectionSmart?.()}>Cut (X)</button>
+          <button id="delete-btn" className="banner-btn danger" title="Delete selection (Del)" disabled={!selector.canDelete} onClick={() => controller?.deleteSelectionBlocks?.()}>Delete (Del)</button>
         </div>
       </div>
       <PaletteEditor />
@@ -734,12 +725,12 @@ function WrenchPanel() {
       </div>
       <div className="selector-toolbox-content" id="wrench-toolbox-content">
         <div className="wrench-action-buttons">
-          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Hold left-click on a stopped entity to lift it (LMB)" onClick={() => controller?.startWrenchGrab?.()}><b>LMB</b> Lift</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Double-click an entity with the Wrench to start or stop it" onClick={() => targetEntity && void spaceUiStore.toggleEntityRun(targetEntity)}><b>Double LMB</b> Start / Stop</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title={`When focused on an entity, use ${scrollShortcut} to move it closer or farther`}><b>{scrollShortcut}</b> Closer / Farther</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Open more actions for the focused entity (RMB)" onClick={event => targetEntity && spaceUiStore.showEntityContextMenu(targetEntity, { x: event.clientX, y: event.clientY })}><b>RMB</b> More Actions</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Point at an entity and press C to open its code editor" onClick={() => controller?.openCodeEditorForTarget?.()}><b>C</b> Code</button>
-          <button type="button" tabIndex={-1} className="banner-btn secondary" disabled={!hasTargetEntity} title="Point at a seat block and press V to mount/drive" onClick={() => controller?.toggleDriveVehicle?.()}><b>V</b> Drive</button>
+          <button type="button" className="banner-btn secondary" disabled={!hasTargetEntity} title="Hold left-click on a stopped entity to lift it (LMB)" onClick={() => controller?.startWrenchGrab?.()}><b>LMB</b> Lift</button>
+          <button type="button" className="banner-btn secondary" disabled={!hasTargetEntity} title="Double-click an entity with the Wrench to start or stop it" onClick={() => targetEntity && void spaceUiStore.toggleEntityRun(targetEntity)}><b>Double LMB</b> Start / Stop</button>
+          <button type="button" className="banner-btn secondary" disabled={!hasTargetEntity} title={`When focused on an entity, use ${scrollShortcut} to move it closer or farther`}><b>{scrollShortcut}</b> Closer / Farther</button>
+          <button type="button" className="banner-btn secondary" disabled={!hasTargetEntity} title="Open more actions for the focused entity (RMB)" onClick={event => targetEntity && spaceUiStore.showEntityContextMenu(targetEntity, { x: event.clientX, y: event.clientY })}><b>RMB</b> More Actions</button>
+          <button type="button" className="banner-btn secondary" disabled={!hasTargetEntity} title="Point at an entity and press C to open its code editor" onClick={() => controller?.openCodeEditorForTarget?.()}><b>C</b> Code</button>
+          <button type="button" className="banner-btn secondary" disabled={!hasTargetEntity} title="Point at a seat block and press V to mount/drive" onClick={() => controller?.toggleDriveVehicle?.()}><b>V</b> Drive</button>
         </div>
       </div>
     </div>
@@ -751,7 +742,7 @@ function Hotbar() {
   return (
     <div id="hotbar">
       {hotbarSlots.map((slot, index) => (
-        <button type="button" tabIndex={-1} key={slot.value} className={`hotbar-slot ${index === selectedHotbarIndex ? 'active' : ''}`} onClick={() => spaceUiStore.selectHotbarSlot(index)}>
+        <button type="button" key={slot.value} className={`hotbar-slot ${index === selectedHotbarIndex ? 'active' : ''}`} onClick={() => spaceUiStore.selectHotbarSlot(index)}>
           <span className="slot-num">{index + 1}</span>
           <span className="slot-icon">{getHotbarToolIcon(slot.value)}</span>
           <span className="slot-name">{slot.name}</span>
@@ -831,7 +822,8 @@ function HudMetrics() {
   const distantActive = distantLoading || distant.building;
   // Meshing after the last file has arrived is shown as an almost-full bar.
   const distantPercent = distantLoading ? Math.floor(distant.completedFiles / distant.totalFiles * 100) : 99;
-  return <>
+  return <details className="hud-diagnostics">
+    <summary>Diagnostics</summary>
     <div className="hud-metrics-row"><span id="fps-val">{state.fpsText}</span><span className="hud-metric-sep">·</span><span id="ping-val" className={state.pingClass}>{state.pingText}</span></div>
     <div id="pos-val">{state.positionText}</div>
     <div className={`hud-terrain ${terrain.ready ? 'is-ready' : ''}`}>
@@ -875,7 +867,7 @@ function HudMetrics() {
         <span className="hud-bandwidth-arrow" aria-hidden="true">↑</span> {formatByteRate(state.networkRates.uploadBytesPerSecond)}
       </span>
     </div>
-  </>;
+  </details>;
 }
 
 export function Hud() {
@@ -894,7 +886,7 @@ export function Hud() {
           </div>
           <div className={`hud-actions${SPACE_TUTORIAL ? ' tutorial-actions' : ''}`}>
             {SPACE_TUTORIAL_AUTHORING &&
-              <button id="save-tutorial-btn" type="button" tabIndex={-1} className="icon-btn tutorial-save-btn"
+              <button id="save-tutorial-btn" type="button" className="icon-btn tutorial-save-btn"
                 title="Save tutorial level"
                 disabled={state.tutorialSaving}
                 onClick={() => void spaceUiStore.saveTutorialLevel()}>{state.tutorialSaving ? 'Saving…' : 'Save Level'}</button>
@@ -902,7 +894,6 @@ export function Hud() {
             <button
               id="agent-build-btn"
               type="button"
-              tabIndex={-1}
               className="icon-btn agent-build-hud-btn"
               title="Agent Build (External Agent Construction)"
               onClick={() => spaceUiStore.toggleAgentBuild(true)}
@@ -914,7 +905,6 @@ export function Hud() {
             <button
               id="home-btn"
               type="button"
-              tabIndex={-1}
               className="icon-btn"
               title={SPACE_TUTORIAL ? 'Leave tutorial' : SPACE_OFFLINE_BUILD ? 'Open Space Online' : 'Home'}
               onClick={() => {
@@ -928,7 +918,6 @@ export function Hud() {
             <button
               id="help-btn"
               type="button"
-              tabIndex={-1}
               className="icon-btn"
               title="Help / Controls"
               onClick={() => spaceUiStore.toggleHelpModal(true)}
@@ -938,7 +927,6 @@ export function Hud() {
             <button
               id="discord-btn"
               type="button"
-              tabIndex={-1}
               className="icon-btn"
               title="Discord Community"
               aria-label="Discord Community"
@@ -949,7 +937,6 @@ export function Hud() {
             <button
               id="global-settings-btn"
               type="button"
-              tabIndex={-1}
               className="icon-btn"
               title="Global Settings (O)"
               onClick={() => spaceUiStore.toggleGlobalSettingsModal(true)}

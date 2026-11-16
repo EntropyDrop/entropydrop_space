@@ -4,6 +4,12 @@ import { resolve } from 'node:path';
 
 const assets = process.argv[2]
   ? pathToFileURL(`${resolve(process.argv[2])}/`) : new URL('../dist/assets/', import.meta.url);
+if (!process.argv.includes('--offline')) {
+  const index = await readFile(new URL('../index.html', assets), 'utf8');
+  if (/(?:main|three|world-simulation|script-runtime|react)-[\w-]+\.js/.test(index)) {
+    throw new Error('The online entry preloads the game before the device and account checks.');
+  }
+}
 for (const file of await readdir(assets)) {
   if (!file.endsWith('.js')) continue;
   const source = await readFile(new URL(file, assets), 'utf8');

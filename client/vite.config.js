@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
         "default-src 'self'", "script-src 'self' 'wasm-unsafe-eval'", "frame-src 'none'",
         "worker-src 'self' blob:", "style-src 'self' 'unsafe-inline'", "font-src 'self'",
         "img-src 'self' data: blob:", "connect-src 'self' blob:", "object-src 'none'", "base-uri 'none'",
-      ].join('; ')}`).replace('Verifying EntropyDrop account and downloading character skin…', 'Preparing your offline world…');
+      ].join('; ')}`).replace('Preparing Space…', 'Preparing your offline world…');
     },
   }] : [])],
   base: offline ? './' : process.env.VITE_SPACE_BASE_PATH || env.VITE_SPACE_BASE_PATH || '/space/app/',

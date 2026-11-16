@@ -9,14 +9,14 @@ export function HostedEntities({ defaultExpanded = false }: { defaultExpanded?: 
   const [expanded, setExpanded] = useState(defaultExpanded);
   const running = hosting.items.filter(entity => entity.enabled).length;
   return <section className="hud-entities-section hud-hosting-section" id="hud-hosted-entities" aria-label="Hosted entities">
-    <button type="button" tabIndex={-1} className="hud-entities-header hud-hosting-toggle" aria-expanded={expanded}
+    <button type="button" className="hud-entities-header hud-hosting-toggle" aria-expanded={expanded}
       title="Your server-hosted entities · includes entities outside the nearby area" onClick={() => setExpanded(value => !value)}>
       <span className="hud-entities-title"><LiaServerSolid size={14} aria-hidden="true" /> Hosted Entities ({running})</span>
       <LiaAngleDownSolid size={12} style={{ transform: expanded ? 'rotate(180deg)' : 'none' }} aria-hidden="true" />
     </button>
     {expanded && <div className="hud-entities-body">
       <div className="hud-hosting-capacity"><span>{hostingAvailabilityMessage(hosting)}</span>
-        <button type="button" tabIndex={-1} className="hud-entity-nav-btn" aria-label="Refresh hosted entities" title="Refresh hosting status"
+        <button type="button" className="hud-entity-nav-btn" aria-label="Refresh hosted entities" title="Refresh hosting status"
           onClick={() => void spaceUiStore.refreshHosting()}><LiaSyncSolid size={12} aria-hidden="true" /></button>
       </div>
       {hostingError && <div className="hud-hosting-error" role="status">{hostingError}</div>}
@@ -34,9 +34,9 @@ export function HostedEntities({ defaultExpanded = false }: { defaultExpanded?: 
                 {(entity.error || entity.reason || '').replaceAll('_', ' ')}</div>}
             </div>
             <div className="hud-hosting-row-actions">
-              <button type="button" tabIndex={-1} className="hud-entity-nav-btn" aria-label={`Teleport to ${entity.name}`} title="Teleport to entity"
+              <button type="button" className="hud-entity-nav-btn" aria-label={`Teleport to ${entity.name}`} title="Teleport to entity"
                 disabled={busy} onClick={() => void spaceUiStore.teleportToHostedEntity(entity.entity_id)}><LiaMapMarkerSolid size={12} aria-hidden="true" /> Teleport</button>
-              <button type="button" tabIndex={-1} className="hud-entity-nav-btn hud-hosting-stop" aria-label={`Stop hosting ${entity.name}`}
+              <button type="button" className="hud-entity-nav-btn hud-hosting-stop" aria-label={`Stop hosting ${entity.name}`}
                 title="Stop hosting early · preserve unused prepaid time" disabled={busy || !entity.can_manage}
                 onClick={() => void spaceUiStore.stopHostedEntity(entity.entity_id)}><FaStop size={10} aria-hidden="true" /> Stop</button>
             </div>

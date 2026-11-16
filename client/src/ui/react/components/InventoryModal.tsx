@@ -90,7 +90,6 @@ function ImportProtobufButton({ category }: { category: InventoryCategory | 'ite
       />
       <button
         type="button"
-        tabIndex={-1}
         className="backpack-section-btn"
         onClick={() => input.current?.click()}
       >
@@ -259,7 +258,6 @@ function Import3DModelPopover() {
     <div className="stl-import-anchor" ref={popoverRef}>
       <button
         type="button"
-        tabIndex={-1}
         className={`backpack-section-btn ${isOpen ? 'active' : ''}`}
         title="Import 3D Model (.zip / .fbx / .glb / .gltf / .stl)"
         onClick={() => setIsOpen(!isOpen)}
@@ -793,7 +791,6 @@ function ColorSetCard({
         <div className="inv-item-actions">
           <button
             type="button"
-            tabIndex={-1}
             className="backpack-pixel-btn publish"
             title={SPACE_LOCAL_SESSION ? 'Publish in Space Online' : 'Publish to market (AGPL-3.0)'}
             aria-label={SPACE_LOCAL_SESSION ? 'Publish color set online' : 'Publish color set to market'}
@@ -806,7 +803,6 @@ function ColorSetCard({
           </button>
           <button
             type="button"
-            tabIndex={-1}
             className="backpack-pixel-btn"
             title="Copy color set"
             aria-label="Copy color set"
@@ -819,7 +815,6 @@ function ColorSetCard({
           </button>
           <button
             type="button"
-            tabIndex={-1}
             className="backpack-pixel-btn"
             title="Export Protobuf"
             aria-label="Export Protobuf"
@@ -835,7 +830,6 @@ function ColorSetCard({
           </button>
           <button
             type="button"
-            tabIndex={-1}
             disabled={isOnlyColorSet}
             className={`backpack-pixel-btn danger ${isOnlyColorSet ? 'disabled' : ''}`}
             title={isOnlyColorSet ? 'Cannot delete the only color set' : 'Delete color set'}
@@ -1426,7 +1420,6 @@ export function InventoryModal() {
                 type="button"
                 id="backpack-tab-items"
                 role="tab"
-                tabIndex={-1}
                 aria-selected={activeCategory !== 'colorset'}
                 className={`backpack-tab-btn ${activeCategory !== 'colorset' ? 'active' : ''}`}
                 onClick={() => spaceUiStore.selectInventoryCategory('item')}
@@ -1437,7 +1430,6 @@ export function InventoryModal() {
                 type="button"
                 id="backpack-tab-colorset"
                 role="tab"
-                tabIndex={-1}
                 aria-selected={activeCategory === 'colorset'}
                 className={`backpack-tab-btn ${activeCategory === 'colorset' ? 'active' : ''}`}
                 onClick={() => spaceUiStore.selectInventoryCategory('colorset')}
@@ -1450,7 +1442,6 @@ export function InventoryModal() {
             <button
               type="button"
               id="toggle-market-sidebar-btn"
-              tabIndex={-1}
               className={`backpack-market-toggle-btn ${marketOpen ? 'active' : ''}`}
               title={marketOpen ? 'Collapse market sidebar' : 'Expand market sidebar'}
               aria-expanded={marketOpen}
@@ -1463,7 +1454,6 @@ export function InventoryModal() {
             <button
               type="button"
               id="close-inv-btn"
-              tabIndex={-1}
               className="icon-btn"
               style={{ width: 32, height: 32, fontSize: 16 }}
               title="Close backpack (ESC)"

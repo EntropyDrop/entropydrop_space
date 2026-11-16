@@ -131,3 +131,74 @@ test(`logged-out ${crossOrigin ? 'separate-origin' : 'same-origin'} entry ${afte
 
 }
 }
+
+test('terrain failure after queued admission shows the same retry action as direct entry', async t => {
+  const elements = new Map([
+    ['space-entry-gate', new FakeElement()],
+    ['space-entry-status', new FakeElement()],
+    ['space-entry-actions', new FakeElement()],
+    ['space-entry-progress', new FakeElement()],
+  ]);
+  const url = new URL('http://localhost:5173/space/app/');
+  const events = new EventTarget();
+  const restoreWindow = replaceGlobal('window', {
+    location: url,
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
+  });
+  const restoreDocument = replaceGlobal('document', {
+    getElementById: (id: string) => elements.get(id) ?? null,
+    createElement: () => new FakeElement(),
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  t.after(() => {
+    restoreDocument();
+    restoreWindow();
+  });
+  const payload = {
+    protocol_version: 2, max_online_players: 32, queue_enabled: true, websocket_url: '/space/ws/v2',
+    world: {
+      id: 'world-1', name: 'Test world', seed: 42, terrain_generator_version: 1,
+      terrain_revision: 0, surface_snapshot_url: '/space/api/v2/worlds/world-1/surface-zones',
+    },
+    player: {
+      user_id: 'user-1', username: 'Player', player_entity_id: 'entity-1', resumed: false,
+      start_x_cm: 0, start_y_cm: 3200, start_z_cm: 0, start_yaw_q15: 0,
+    },
+  };
+  const auth = { apiOrigin: url.origin, accountOrigin: url.origin, token: 'fixture' };
+  const failureStatuses = [];
+
+  for (const queued of [false, true]) {
+    let admissions = 0;
+    const restoreFetch = replaceGlobal('fetch', async (requestUrl: string) => {
+      const path = new URL(requestUrl).pathname;
+      if (path.endsWith('/bootstrap')) return Response.json(payload);
+      if (path.endsWith('/admission')) {
+        admissions++;
+        return Response.json(queued && admissions === 1
+          ? { state: 'queued', position: 1, poll_after_ms: 500 }
+          : { state: 'admitted' });
+      }
+      if (path.endsWith('/ping')) return Response.json({});
+      assert.ok(path.endsWith('/terrain-edits'));
+      return Response.json({}, { status: 503 });
+    });
+    try {
+      let gameStarts = 0;
+      await enterSpace(() => { gameStarts++; }, {}, auth);
+      assert.equal(gameStarts, 0);
+      assert.equal(admissions, queued ? 2 : 1);
+      assert.equal(elements.get('space-entry-gate')?.hidden, false);
+      assert.equal(elements.get('space-entry-progress')?.hidden, true);
+      assert.equal(elements.get('space-entry-actions')?.children[0]?.textContent, 'Retry');
+      failureStatuses.push(elements.get('space-entry-status')?.textContent);
+    } finally {
+      restoreFetch();
+    }
+  }
+
+  assert.match(failureStatuses[0] ?? '', /Could not load Space world edits/);
+  assert.equal(failureStatuses[1], failureStatuses[0]);
+});

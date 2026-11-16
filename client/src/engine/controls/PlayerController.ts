@@ -779,7 +779,10 @@ export class PlayerController {
   }
 
   applyPointerLockState(locked: boolean) {
-    if (locked && !this.isLocked) this.ignoreNextLockedMouseMove = true;
+    if (locked && !this.isLocked) {
+      this.ignoreNextLockedMouseMove = true;
+      if (typeof document !== 'undefined') (document.activeElement as HTMLElement | null)?.blur?.();
+    }
     this.isLocked = !!locked;
     if (this.ui) this.ui.setPointerLocked?.(this.isLocked);
     return this.isLocked;
@@ -970,9 +973,18 @@ export class PlayerController {
     document.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Keyboard controls
-    document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+    document.addEventListener('keydown', (e) => {
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229
+        || this.worldPickingSuspended || this.ui?.hasAnyModalOpen?.()) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.isContentEditable
+        || target?.closest?.('button, input, select, textarea, a[href], summary, [role="button"]')) return;
+      const toolHasInput = this.hammerPlacementActive || this.modeling?.capturesPointer();
+      if (this.isLocked && e.code === 'Tab') e.preventDefault();
+      if (this.isLocked || toolHasInput) this.handleKeyDown(e);
+    });
 
-    document.addEventListener('keyup', (e) => this.handleKeyUp(e));
+    document.addEventListener('keyup', (e) => this.handleKeyUp(e, this.isLocked && this.keys.jump && !e.defaultPrevented));
 
     window.addEventListener('blur', () => {
       this._textCreationGizmo?.endDrag();
@@ -1004,11 +1016,6 @@ export class PlayerController {
       if (e.code === 'Escape') { e.preventDefault(); this.cancelHammerPlacement(false); return; }
       // Rotation and grid selection belong to aiming; the pinned pose only translates.
       if (e.code === 'Tab' || e.code.startsWith('Arrow')) { e.preventDefault(); return; }
-    }
-
-    // Ensure any accidentally focused button or interactive 2D element is blurred
-    if (typeof document !== 'undefined' && document.activeElement && document.activeElement !== document.body && (document.activeElement.tagName === 'BUTTON' || document.activeElement.getAttribute('role') === 'button')) {
-      (document.activeElement as HTMLElement).blur();
     }
 
     // Digit 1..9 shortcuts:
@@ -1451,7 +1458,7 @@ export class PlayerController {
     this.physics.isSprinting = this.keys.sprint && (this.physics.isFlying || !this.keys.crouch);
   }
 
-  handleKeyUp(e: KeyboardEvent) {
+  handleKeyUp(e: KeyboardEvent, consumeSpace = true) {
     // Release input even if focus moved into an editor after keydown.
     this.recordEntityKeyUp(e.code);
     switch (e.code) {
@@ -1460,7 +1467,7 @@ export class PlayerController {
       case 'KeyA': this.keys.left = false; break;
       case 'KeyD': this.keys.right = false; break;
       case 'Space':
-        e.preventDefault();
+        if (consumeSpace) e.preventDefault();
         this.keys.jump = false;
         break;
       case 'ShiftLeft':

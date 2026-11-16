@@ -13,7 +13,7 @@ export function AgentBuildModal() {
       <div className="modal-content agent-build-modal-content" role="dialog" aria-modal="true" aria-labelledby="agent-build-title">
         <div className="modal-header">
           <h2 id="agent-build-title">AGENT BUILD</h2>
-          <button type="button" tabIndex={-1} className="icon-btn" aria-label="Close Agent Build" title="Close Agent Build (ESC)" onClick={() => spaceUiStore.toggleAgentBuild(false)}>✕</button>
+          <button type="button" className="icon-btn" aria-label="Close Agent Build" title="Close Agent Build (ESC)" onClick={() => spaceUiStore.toggleAgentBuild(false)}>✕</button>
         </div>
         <SpaceApiKeysSettings offlineFeature="agent-build" />
       </div>
