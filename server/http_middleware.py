@@ -8,6 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from rate_limit import limiter, ensure_rate_limit_headers
+from http_timing import ServerTimingMiddleware
 logger = logging.getLogger(__name__)
 
 DEFAULT_REQUEST_BODY_LIMIT_BYTES = 512 * 1024
@@ -168,9 +169,11 @@ def configure_http(app):
             "X-RateLimit-Remaining",
             "X-RateLimit-Reset",
             "Retry-After",
+            "Server-Timing",
         ],
     )
 
     app.add_middleware(SlowAPIMiddleware)
     app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
     app.middleware("http")(ensure_rate_limit_headers)
+    app.add_middleware(ServerTimingMiddleware)

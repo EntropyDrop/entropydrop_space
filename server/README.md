@@ -62,6 +62,35 @@ allowing a delayed, smaller sample count to overwrite the aggregate. Monitoring 
 refresh history from that shared database. Redis outages retain unpublished samples
 for retry within the 24-hour window. This aggregation change needs no schema migration.
 
+HTTP responses expose per-request latency in the `Server-Timing` header:
+
+- `space_app`: time from entry into the Space HTTP middleware until response
+  headers are ready, including request-body reads, middleware and application work.
+- `gateway_upstream`: added by the account service's Space proxy, from starting
+  the upstream request until its response headers arrive. This includes connection
+  pool waits, connection setup, upload, transit and the Space application time.
+
+The account gateway uses one bounded HTTPX pool per API process, with at most
+100 connections, 20 idle connections and a 30-second idle expiry. It closes each
+upstream response when streaming finishes, fails or is cancelled, and closes the
+pool at application shutdown. Cookies are neither forwarded nor retained by the
+shared client; authorization remains specific to each request.
+
+Inspect these metrics in browser Network response headers, or read
+`response.headers.get('Server-Timing')`; both services expose the header through
+CORS. A direct DS request has only `space_app`. A request through the updated
+gateway has both metrics once the Space service is also updated. The durations
+overlap: do not add them or interpret their difference as pure network RTT.
+Neither includes response-body download or browser rendering, and they are not
+WebSocket timings. These samples are response headers, not persisted monitoring
+aggregates; the HUD's existing HTTP Ping remains unchanged.
+
+For before/after comparisons, collect warm requests on the same client, route,
+environment and payload, and compare P50/P95/P99 with the two header metrics.
+Keep cold connection setup separate. A LAN development request and a proxied
+production request are not a controlled before/after comparison. This change
+requires restarting the updated account API and Space API; no migration is needed.
+
 Build the server image from the workspace root with
 `docker build -f deploy/Dockerfile --target runtime .`. This requires only Space;
 neither a backend nor frontend checkout is included in the image.
