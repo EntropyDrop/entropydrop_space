@@ -1,0 +1,913 @@
+{
+  "schema": 1,
+  "world": "aether-archipelago",
+  "seed": 42,
+  "generator": 3,
+  "spawn": [
+    8192.5,
+    180,
+    1024.5
+  ],
+  "source_hash": "42f7eb9253c8497b6afc48586df73b7865fad421444294878089e00ac067541b",
+  "focalUpperBound": 500,
+  "motionMargin": 55,
+  "areaLowerBound": 41.6,
+  "zones": [
+    {
+      "x": 0,
+      "z": 0,
+      "finest": 16,
+      "bytes": 110980,
+      "coarsestFaces": 672
+    },
+    {
+      "x": 0,
+      "z": 1,
+      "finest": 16,
+      "bytes": 124004,
+      "coarsestFaces": 804
+    },
+    {
+      "x": 0,
+      "z": 2,
+      "finest": 16,
+      "bytes": 119108,
+      "coarsestFaces": 720
+    },
+    {
+      "x": 0,
+      "z": 3,
+      "finest": 16,
+      "bytes": 127332,
+      "coarsestFaces": 774
+    },
+    {
+      "x": 1,
+      "z": 0,
+      "finest": 16,
+      "bytes": 131844,
+      "coarsestFaces": 768
+    },
+    {
+      "x": 1,
+      "z": 1,
+      "finest": 16,
+      "bytes": 112740,
+      "coarsestFaces": 708
+    },
+    {
+      "x": 1,
+      "z": 2,
+      "finest": 16,
+      "bytes": 114788,
+      "coarsestFaces": 714
+    },
+    {
+      "x": 1,
+      "z": 3,
+      "finest": 16,
+      "bytes": 132228,
+      "coarsestFaces": 780
+    },
+    {
+      "x": 2,
+      "z": 0,
+      "finest": 16,
+      "bytes": 112196,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 2,
+      "z": 1,
+      "finest": 16,
+      "bytes": 125284,
+      "coarsestFaces": 762
+    },
+    {
+      "x": 2,
+      "z": 2,
+      "finest": 16,
+      "bytes": 129316,
+      "coarsestFaces": 798
+    },
+    {
+      "x": 2,
+      "z": 3,
+      "finest": 16,
+      "bytes": 113860,
+      "coarsestFaces": 708
+    },
+    {
+      "x": 3,
+      "z": 0,
+      "finest": 16,
+      "bytes": 117700,
+      "coarsestFaces": 714
+    },
+    {
+      "x": 3,
+      "z": 1,
+      "finest": 16,
+      "bytes": 104388,
+      "coarsestFaces": 630
+    },
+    {
+      "x": 3,
+      "z": 2,
+      "finest": 16,
+      "bytes": 109220,
+      "coarsestFaces": 636
+    },
+    {
+      "x": 3,
+      "z": 3,
+      "finest": 16,
+      "bytes": 126788,
+      "coarsestFaces": 768
+    },
+    {
+      "x": 4,
+      "z": 0,
+      "finest": 16,
+      "bytes": 113860,
+      "coarsestFaces": 690
+    },
+    {
+      "x": 4,
+      "z": 1,
+      "finest": 16,
+      "bytes": 131940,
+      "coarsestFaces": 768
+    },
+    {
+      "x": 4,
+      "z": 2,
+      "finest": 16,
+      "bytes": 122564,
+      "coarsestFaces": 720
+    },
+    {
+      "x": 4,
+      "z": 3,
+      "finest": 16,
+      "bytes": 126148,
+      "coarsestFaces": 798
+    },
+    {
+      "x": 5,
+      "z": 0,
+      "finest": 16,
+      "bytes": 116772,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 5,
+      "z": 1,
+      "finest": 8,
+      "bytes": 332172,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 5,
+      "z": 2,
+      "finest": 8,
+      "bytes": 321324,
+      "coarsestFaces": 696
+    },
+    {
+      "x": 5,
+      "z": 3,
+      "finest": 16,
+      "bytes": 115780,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 6,
+      "z": 0,
+      "finest": 16,
+      "bytes": 112516,
+      "coarsestFaces": 672
+    },
+    {
+      "x": 6,
+      "z": 1,
+      "finest": 8,
+      "bytes": 351244,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 6,
+      "z": 2,
+      "finest": 8,
+      "bytes": 381292,
+      "coarsestFaces": 762
+    },
+    {
+      "x": 6,
+      "z": 3,
+      "finest": 16,
+      "bytes": 137668,
+      "coarsestFaces": 786
+    },
+    {
+      "x": 7,
+      "z": 0,
+      "finest": 8,
+      "bytes": 354764,
+      "coarsestFaces": 780
+    },
+    {
+      "x": 7,
+      "z": 1,
+      "finest": 8,
+      "bytes": 389740,
+      "coarsestFaces": 750
+    },
+    {
+      "x": 7,
+      "z": 2,
+      "finest": 8,
+      "bytes": 390316,
+      "coarsestFaces": 768
+    },
+    {
+      "x": 7,
+      "z": 3,
+      "finest": 8,
+      "bytes": 342380,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 8,
+      "z": 0,
+      "finest": 8,
+      "bytes": 418316,
+      "coarsestFaces": 750
+    },
+    {
+      "x": 8,
+      "z": 1,
+      "finest": 8,
+      "bytes": 372844,
+      "coarsestFaces": 750
+    },
+    {
+      "x": 8,
+      "z": 2,
+      "finest": 8,
+      "bytes": 414988,
+      "coarsestFaces": 804
+    },
+    {
+      "x": 8,
+      "z": 3,
+      "finest": 8,
+      "bytes": 334764,
+      "coarsestFaces": 702
+    },
+    {
+      "x": 9,
+      "z": 0,
+      "finest": 8,
+      "bytes": 337356,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 9,
+      "z": 1,
+      "finest": 8,
+      "bytes": 410252,
+      "coarsestFaces": 792
+    },
+    {
+      "x": 9,
+      "z": 2,
+      "finest": 8,
+      "bytes": 392236,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 9,
+      "z": 3,
+      "finest": 8,
+      "bytes": 359532,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 10,
+      "z": 0,
+      "finest": 8,
+      "bytes": 326540,
+      "coarsestFaces": 672
+    },
+    {
+      "x": 10,
+      "z": 1,
+      "finest": 8,
+      "bytes": 333004,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 10,
+      "z": 2,
+      "finest": 8,
+      "bytes": 392012,
+      "coarsestFaces": 750
+    },
+    {
+      "x": 10,
+      "z": 3,
+      "finest": 8,
+      "bytes": 331820,
+      "coarsestFaces": 684
+    },
+    {
+      "x": 11,
+      "z": 0,
+      "finest": 8,
+      "bytes": 357900,
+      "coarsestFaces": 750
+    },
+    {
+      "x": 11,
+      "z": 1,
+      "finest": 4,
+      "bytes": 1021636,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 11,
+      "z": 2,
+      "finest": 4,
+      "bytes": 1076068,
+      "coarsestFaces": 780
+    },
+    {
+      "x": 11,
+      "z": 3,
+      "finest": 8,
+      "bytes": 349580,
+      "coarsestFaces": 684
+    },
+    {
+      "x": 12,
+      "z": 0,
+      "finest": 4,
+      "bytes": 1294676,
+      "coarsestFaces": 798
+    },
+    {
+      "x": 12,
+      "z": 1,
+      "finest": 4,
+      "bytes": 1196100,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 12,
+      "z": 2,
+      "finest": 4,
+      "bytes": 1024052,
+      "coarsestFaces": 714
+    },
+    {
+      "x": 12,
+      "z": 3,
+      "finest": 4,
+      "bytes": 1124148,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 13,
+      "z": 0,
+      "finest": 4,
+      "bytes": 1042100,
+      "coarsestFaces": 702
+    },
+    {
+      "x": 13,
+      "z": 1,
+      "finest": 2,
+      "bytes": 3796588,
+      "coarsestFaces": 762
+    },
+    {
+      "x": 13,
+      "z": 2,
+      "finest": 2,
+      "bytes": 4510204,
+      "coarsestFaces": 816
+    },
+    {
+      "x": 13,
+      "z": 3,
+      "finest": 4,
+      "bytes": 1081524,
+      "coarsestFaces": 750
+    },
+    {
+      "x": 14,
+      "z": 0,
+      "finest": 2,
+      "bytes": 3709660,
+      "coarsestFaces": 702
+    },
+    {
+      "x": 14,
+      "z": 1,
+      "finest": 1,
+      "bytes": 12291444,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 14,
+      "z": 2,
+      "finest": 1,
+      "bytes": 11094660,
+      "coarsestFaces": 702
+    },
+    {
+      "x": 14,
+      "z": 3,
+      "finest": 2,
+      "bytes": 3962732,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 15,
+      "z": 0,
+      "finest": 2,
+      "bytes": 3981004,
+      "coarsestFaces": 708
+    },
+    {
+      "x": 15,
+      "z": 1,
+      "finest": 1,
+      "bytes": 12896740,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 15,
+      "z": 2,
+      "finest": 1,
+      "bytes": 12314580,
+      "coarsestFaces": 684
+    },
+    {
+      "x": 15,
+      "z": 3,
+      "finest": 2,
+      "bytes": 3626748,
+      "coarsestFaces": 720
+    },
+    {
+      "x": 16,
+      "z": 0,
+      "finest": 2,
+      "bytes": 3436732,
+      "coarsestFaces": 654
+    },
+    {
+      "x": 16,
+      "z": 1,
+      "finest": 1,
+      "bytes": 11406628,
+      "coarsestFaces": 708
+    },
+    {
+      "x": 16,
+      "z": 2,
+      "finest": 1,
+      "bytes": 14224948,
+      "coarsestFaces": 756
+    },
+    {
+      "x": 16,
+      "z": 3,
+      "finest": 2,
+      "bytes": 4089084,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 17,
+      "z": 0,
+      "finest": 2,
+      "bytes": 3638924,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 17,
+      "z": 1,
+      "finest": 1,
+      "bytes": 13410308,
+      "coarsestFaces": 714
+    },
+    {
+      "x": 17,
+      "z": 2,
+      "finest": 1,
+      "bytes": 12929124,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 17,
+      "z": 3,
+      "finest": 2,
+      "bytes": 3870668,
+      "coarsestFaces": 762
+    },
+    {
+      "x": 18,
+      "z": 0,
+      "finest": 4,
+      "bytes": 1075236,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 18,
+      "z": 1,
+      "finest": 2,
+      "bytes": 3752156,
+      "coarsestFaces": 768
+    },
+    {
+      "x": 18,
+      "z": 2,
+      "finest": 2,
+      "bytes": 4454844,
+      "coarsestFaces": 804
+    },
+    {
+      "x": 18,
+      "z": 3,
+      "finest": 4,
+      "bytes": 1129124,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 19,
+      "z": 0,
+      "finest": 4,
+      "bytes": 1149668,
+      "coarsestFaces": 750
+    },
+    {
+      "x": 19,
+      "z": 1,
+      "finest": 4,
+      "bytes": 1136724,
+      "coarsestFaces": 792
+    },
+    {
+      "x": 19,
+      "z": 2,
+      "finest": 4,
+      "bytes": 1280948,
+      "coarsestFaces": 810
+    },
+    {
+      "x": 19,
+      "z": 3,
+      "finest": 4,
+      "bytes": 1177428,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 20,
+      "z": 0,
+      "finest": 8,
+      "bytes": 371564,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 20,
+      "z": 1,
+      "finest": 4,
+      "bytes": 1242436,
+      "coarsestFaces": 804
+    },
+    {
+      "x": 20,
+      "z": 2,
+      "finest": 4,
+      "bytes": 1027124,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 20,
+      "z": 3,
+      "finest": 8,
+      "bytes": 399660,
+      "coarsestFaces": 768
+    },
+    {
+      "x": 21,
+      "z": 0,
+      "finest": 8,
+      "bytes": 301708,
+      "coarsestFaces": 624
+    },
+    {
+      "x": 21,
+      "z": 1,
+      "finest": 8,
+      "bytes": 338572,
+      "coarsestFaces": 684
+    },
+    {
+      "x": 21,
+      "z": 2,
+      "finest": 8,
+      "bytes": 364140,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 21,
+      "z": 3,
+      "finest": 8,
+      "bytes": 405196,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 22,
+      "z": 0,
+      "finest": 8,
+      "bytes": 394668,
+      "coarsestFaces": 756
+    },
+    {
+      "x": 22,
+      "z": 1,
+      "finest": 8,
+      "bytes": 435564,
+      "coarsestFaces": 816
+    },
+    {
+      "x": 22,
+      "z": 2,
+      "finest": 8,
+      "bytes": 389580,
+      "coarsestFaces": 792
+    },
+    {
+      "x": 22,
+      "z": 3,
+      "finest": 8,
+      "bytes": 365004,
+      "coarsestFaces": 756
+    },
+    {
+      "x": 23,
+      "z": 0,
+      "finest": 8,
+      "bytes": 418892,
+      "coarsestFaces": 786
+    },
+    {
+      "x": 23,
+      "z": 1,
+      "finest": 8,
+      "bytes": 362348,
+      "coarsestFaces": 762
+    },
+    {
+      "x": 23,
+      "z": 2,
+      "finest": 8,
+      "bytes": 376620,
+      "coarsestFaces": 708
+    },
+    {
+      "x": 23,
+      "z": 3,
+      "finest": 8,
+      "bytes": 385068,
+      "coarsestFaces": 780
+    },
+    {
+      "x": 24,
+      "z": 0,
+      "finest": 8,
+      "bytes": 345516,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 24,
+      "z": 1,
+      "finest": 8,
+      "bytes": 361868,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 24,
+      "z": 2,
+      "finest": 8,
+      "bytes": 332652,
+      "coarsestFaces": 654
+    },
+    {
+      "x": 24,
+      "z": 3,
+      "finest": 8,
+      "bytes": 376204,
+      "coarsestFaces": 774
+    },
+    {
+      "x": 25,
+      "z": 0,
+      "finest": 16,
+      "bytes": 120644,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 25,
+      "z": 1,
+      "finest": 8,
+      "bytes": 301484,
+      "coarsestFaces": 630
+    },
+    {
+      "x": 25,
+      "z": 2,
+      "finest": 8,
+      "bytes": 404588,
+      "coarsestFaces": 822
+    },
+    {
+      "x": 25,
+      "z": 3,
+      "finest": 16,
+      "bytes": 111364,
+      "coarsestFaces": 702
+    },
+    {
+      "x": 26,
+      "z": 0,
+      "finest": 16,
+      "bytes": 118244,
+      "coarsestFaces": 726
+    },
+    {
+      "x": 26,
+      "z": 1,
+      "finest": 8,
+      "bytes": 350636,
+      "coarsestFaces": 738
+    },
+    {
+      "x": 26,
+      "z": 2,
+      "finest": 8,
+      "bytes": 339500,
+      "coarsestFaces": 720
+    },
+    {
+      "x": 26,
+      "z": 3,
+      "finest": 16,
+      "bytes": 121316,
+      "coarsestFaces": 774
+    },
+    {
+      "x": 27,
+      "z": 0,
+      "finest": 16,
+      "bytes": 137604,
+      "coarsestFaces": 792
+    },
+    {
+      "x": 27,
+      "z": 1,
+      "finest": 16,
+      "bytes": 119012,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 27,
+      "z": 2,
+      "finest": 16,
+      "bytes": 118020,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 27,
+      "z": 3,
+      "finest": 16,
+      "bytes": 122148,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 28,
+      "z": 0,
+      "finest": 16,
+      "bytes": 123236,
+      "coarsestFaces": 720
+    },
+    {
+      "x": 28,
+      "z": 1,
+      "finest": 16,
+      "bytes": 127524,
+      "coarsestFaces": 768
+    },
+    {
+      "x": 28,
+      "z": 2,
+      "finest": 16,
+      "bytes": 136612,
+      "coarsestFaces": 744
+    },
+    {
+      "x": 28,
+      "z": 3,
+      "finest": 16,
+      "bytes": 131236,
+      "coarsestFaces": 762
+    },
+    {
+      "x": 29,
+      "z": 0,
+      "finest": 16,
+      "bytes": 131844,
+      "coarsestFaces": 732
+    },
+    {
+      "x": 29,
+      "z": 1,
+      "finest": 16,
+      "bytes": 117220,
+      "coarsestFaces": 708
+    },
+    {
+      "x": 29,
+      "z": 2,
+      "finest": 16,
+      "bytes": 132484,
+      "coarsestFaces": 810
+    },
+    {
+      "x": 29,
+      "z": 3,
+      "finest": 16,
+      "bytes": 105796,
+      "coarsestFaces": 648
+    },
+    {
+      "x": 30,
+      "z": 0,
+      "finest": 16,
+      "bytes": 117956,
+      "coarsestFaces": 696
+    },
+    {
+      "x": 30,
+      "z": 1,
+      "finest": 16,
+      "bytes": 140740,
+      "coarsestFaces": 822
+    },
+    {
+      "x": 30,
+      "z": 2,
+      "finest": 16,
+      "bytes": 117252,
+      "coarsestFaces": 702
+    },
+    {
+      "x": 30,
+      "z": 3,
+      "finest": 16,
+      "bytes": 125444,
+      "coarsestFaces": 756
+    },
+    {
+      "x": 31,
+      "z": 0,
+      "finest": 16,
+      "bytes": 114212,
+      "coarsestFaces": 684
+    },
+    {
+      "x": 31,
+      "z": 1,
+      "finest": 16,
+      "bytes": 112900,
+      "coarsestFaces": 660
+    },
+    {
+      "x": 31,
+      "z": 2,
+      "finest": 16,
+      "bytes": 111940,
+      "coarsestFaces": 714
+    },
+    {
+      "x": 31,
+      "z": 3,
+      "finest": 16,
+      "bytes": 127364,
+      "coarsestFaces": 720
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 # Local rendering fixture
 
+See the [Aether Firefox tilt-shift benchmark](../../docs/performance-aether-firefox-tilt-shift-2026-11-16.md) for the bounded and full-world captures.
+
 The [native hierarchy port](../../docs/performance-native-port-2026-11-02.md)
 adds ordered sphere/cone traversal and lazy position caches to the packed arena.
 Use `tools/visibility-browser.html?trial=native` for Ultra A/B captures, moving

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Aether tilt-shift benchmark</title>
+<style>
+  body { margin: 0; background: #15202d; color: #e7f1ff; font: 14px system-ui; }
+  #status { margin: 0; line-height: 30px; padding: 0 12px; }
+  iframe { display: block; width: 1280px; height: 720px; border: 0; }
+</style>
+<p id="status" role="status">Loading Aether Archipelago…</p>
+<iframe id="fixture" title="Aether Archipelago"></iframe>
+<script type="module">
+const fixture = document.getElementById('fixture');
+const status = document.getElementById('status');
+const query = new URLSearchParams(location.search);
+const fullCoarse = query.get('surface') === 'cached';
+const receiver = '/space/app/__dev/tilt-shift/' + (fullCoarse ? 'full/' : 'bounded/');
+async function save(name, data) {
+  // Image Blobs come from the iframe and have a different global constructor.
+  const body = typeof data?.arrayBuffer === 'function'
+    ? new Uint8Array(await data.arrayBuffer())
+    : JSON.stringify(data);
+  const response = await fetch(receiver + name, { method: 'POST', body });
+  if (!response.ok) throw new Error('Capture upload failed (' + response.status + ')');
+}
+window.tiltShiftHost = {
+  save,
+  captureOnly: query.get('capture') === '1',
+  fullCoarse,
+  async status(state, details = {}) {
+    status.textContent = state;
+    document.title = state;
+    await save('status.json', { state, ...details, time: new Date().toISOString() });
+  },
+};
+try {
+  if (!/Firefox\//.test(navigator.userAgent) || location.hostname !== '127.0.0.1')
+    throw new Error('Run in native Firefox on the loopback development server.');
+  if (document.visibilityState !== 'visible') {
+    await window.tiltShiftHost.status('Waiting for the Firefox window to become visible');
+    await new Promise(resolve => {
+      const onVisible = () => {
+        if (document.visibilityState !== 'visible') return;
+        document.removeEventListener('visibilitychange', onVisible);
+        resolve();
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      onVisible();
+    });
+  }
+  if (innerWidth < 1280 || innerHeight < 750) throw new Error('Resize Firefox to a 1280 × 750 viewport.');
+  const surface = fullCoarse ? 'cached' : '1';
+  const dpr = '2';
+  await window.tiltShiftHost.status('Loading Aether Archipelago', { surface, dpr, ua: navigator.userAgent, viewport: [innerWidth, innerHeight] });
+  fixture.addEventListener('load', () => {
+    if (fixture.contentWindow.location.pathname !== '/space/app/') return;
+    const script = fixture.contentDocument.createElement('script');
+    script.type = 'module';
+    script.src = new URL('../src/dev/TiltShiftBenchmark.ts', location.href).href;
+    script.onerror = () => window.tiltShiftHost.status('Failed to load the benchmark module');
+    fixture.contentDocument.body.append(script);
+  });
+  fixture.src = '/space/app/?world=aether-archipelago&dev_offline=1&dev_lod=' + surface + '&dev_dpr=' + dpr;
+} catch (error) {
+  await window.tiltShiftHost.status(String(error));
+}
+</script>
+</html>

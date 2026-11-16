@@ -1,0 +1,127 @@
+{
+  "started": "2026-11-16T09:00:34.005Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:159.0) Gecko/20100101 Firefox/159.0",
+  "renderer": "Three r183 WebGPU",
+  "world": "aether-archipelago",
+  "seed": 42,
+  "generator": 3,
+  "surface": {
+    "generated": 128,
+    "installed": 128,
+    "total": 128,
+    "mode": "coordinate-specific-cache",
+    "downloads": 128,
+    "sourceBytes": 187423312,
+    "coarsestFaces": 94404
+  },
+  "width": 2560,
+  "height": 1440,
+  "css": [
+    1280,
+    720
+  ],
+  "samples": 4,
+  "shadows": false,
+  "resolutionScale": {
+    "targetFps": 120,
+    "mode": "fixed",
+    "scale": 1,
+    "fixedScale": 1,
+    "averageFrameMs": 8.333333333333334,
+    "nativePixelRatio": 2,
+    "effectivePixelRatio": 2
+  },
+  "initialDistantSettings": {
+    "subdivisionSizePx2": 64,
+    "renderDistanceChunks": 2048,
+    "dataBudgetMiB": 512,
+    "geometryBudgetMiB": 160,
+    "torusBackfaceCulling": false,
+    "textureProxyBatching": 1,
+    "textureProxyEnabled": false,
+    "textureProxyEdge": 32,
+    "textureProxyDensity": 1,
+    "textureProxyDistance": 384,
+    "textureProxyBudgetMiB": 32,
+    "textureProxyLinear": false,
+    "textureProxyLodBias": 0
+  },
+  "cameraOrigin": [
+    8192.5,
+    180,
+    1024.5
+  ],
+  "fov": 75,
+  "cameraPath": "Across the ring: 12 m x amplitude, 6 m z amplitude, yaw pi/2 ± .25, pitch 1.22 ± .10, one cycle per block",
+  "blur": "Quarter width/height, two five-tap separable passes, blended into the existing output conversion",
+  "warmMs": 1200,
+  "sampleMs": 3000,
+  "errors": [],
+  "finished": "2026-11-16T09:02:30.518Z",
+  "qualities": {
+    "medium": {
+      "baseline": {
+        "frames": 1395,
+        "gpu_samples": 231,
+        "gpu_p50": 1.720333,
+        "gpu_p95": 2.666792,
+        "frame_p95": 13,
+        "fps": 115.90229312063808,
+        "triangles": 1133607,
+        "far_faces": 544479,
+        "cpu_mean": 3.935483870967742
+      },
+      "tilt": {
+        "frames": 1414,
+        "gpu_samples": 234,
+        "gpu_p50": 0.855,
+        "gpu_p95": 2.090334,
+        "frame_p95": 13,
+        "fps": 117.43210696785981,
+        "triangles": 135355,
+        "far_faces": 46331,
+        "cpu_mean": 3.3741159830268743
+      },
+      "gpu_change_percent": -50.30031976367366,
+      "far_face_change_percent": -91.49076456575919,
+      "paired_gpu_changes": [
+        -42.95665634674922,
+        -49.23576001191008,
+        -51.14372109078358,
+        -52.21807124288374
+      ]
+    },
+    "low": {
+      "baseline": {
+        "frames": 1369,
+        "gpu_samples": 226,
+        "gpu_p50": 1.6569165,
+        "gpu_p95": 2.624375,
+        "frame_p95": 13,
+        "fps": 113.8082966165101,
+        "triangles": 1132860,
+        "far_faces": 544176,
+        "cpu_mean": 3.8692476260043827
+      },
+      "tilt": {
+        "frames": 1429,
+        "gpu_samples": 236,
+        "gpu_p50": 0.8369789999999999,
+        "gpu_p95": 1.826666,
+        "frame_p95": 11,
+        "fps": 118.74688382915075,
+        "triangles": 135511,
+        "far_faces": 46357,
+        "cpu_mean": 3.1700489853044087
+      },
+      "gpu_change_percent": -49.48574656598568,
+      "far_face_change_percent": -91.48124871365147,
+      "paired_gpu_changes": [
+        -46.263559688112835,
+        -45.79265814203784,
+        -43.378550527800485,
+        -53.10511272992762
+      ]
+    }
+  }
+}

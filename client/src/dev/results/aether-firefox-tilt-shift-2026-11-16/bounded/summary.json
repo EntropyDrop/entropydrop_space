@@ -1,0 +1,936 @@
+{
+  "started": "2026-11-16T08:45:08.514Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:159.0) Gecko/20100101 Firefox/159.0",
+  "renderer": "Three r183 WebGPU",
+  "world": "aether-archipelago",
+  "seed": 42,
+  "generator": 3,
+  "surface": {
+    "mode": "bounded",
+    "generated": 8,
+    "installed": 8,
+    "total": 8
+  },
+  "width": 2560,
+  "height": 1440,
+  "css": [
+    1280,
+    720
+  ],
+  "samples": 4,
+  "shadows": false,
+  "resolutionScale": {
+    "targetFps": 120,
+    "mode": "fixed",
+    "scale": 1,
+    "fixedScale": 1,
+    "averageFrameMs": 8.333333333333334,
+    "nativePixelRatio": 2,
+    "effectivePixelRatio": 2
+  },
+  "initialDistantSettings": {
+    "subdivisionSizePx2": 64,
+    "renderDistanceChunks": 2048,
+    "dataBudgetMiB": 512,
+    "geometryBudgetMiB": 160,
+    "torusBackfaceCulling": false,
+    "textureProxyBatching": 1,
+    "textureProxyEnabled": false,
+    "textureProxyEdge": 32,
+    "textureProxyDensity": 1,
+    "textureProxyDistance": 384,
+    "textureProxyBudgetMiB": 32,
+    "textureProxyLinear": false,
+    "textureProxyLodBias": 0
+  },
+  "cameraOrigin": [
+    8192.5,
+    180,
+    1024.5
+  ],
+  "fov": 75,
+  "cameraPath": "12 m x amplitude, 6 m z amplitude, yaw pi/2 ± .48, pitch -.63 ± .12, one cycle per block",
+  "blur": "Quarter width/height, two five-tap separable passes, blended into the existing output conversion",
+  "warmMs": 1200,
+  "sampleMs": 3000,
+  "errors": [],
+  "finished": "2026-11-16T08:47:50.626Z",
+  "qualities": {
+    "medium": {
+      "baseline": {
+        "frames": 1436,
+        "gpu_samples": 239,
+        "gpu_p50_ms": 2.424958,
+        "gpu_p95_ms": 3.768791,
+        "frame_p95_ms": 13,
+        "fps": 119.36824605153782,
+        "cpu_mean_ms": 2.518802228412256,
+        "far_faces": 498991,
+        "triangles": 1325570,
+        "draws": 156.1,
+        "resident_faces": [
+          851514,
+          851514
+        ],
+        "pending_percent": 8.356545961002785,
+        "pass_counts": [
+          2
+        ],
+        "per_round": [
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 3.0535625,
+            "gpu_p95_ms": 3.896333,
+            "frame_p95_ms": 9,
+            "fps": 120.01329787234042,
+            "cpu_mean_ms": 2.515235457063712,
+            "far_faces": 499025,
+            "triangles": 1325487,
+            "draws": 150.6,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 6.9252077562326875,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 360,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.4243955,
+            "gpu_p95_ms": 3.790833,
+            "frame_p95_ms": 14,
+            "fps": 119.92005329780147,
+            "cpu_mean_ms": 2.408333333333333,
+            "far_faces": 499044,
+            "triangles": 1325695,
+            "draws": 158.9,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 9.166666666666666,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 360,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.4128955000000003,
+            "gpu_p95_ms": 3.712541,
+            "frame_p95_ms": 10,
+            "fps": 119.5219123505976,
+            "cpu_mean_ms": 2.5527777777777776,
+            "far_faces": 499054,
+            "triangles": 1325740,
+            "draws": 158.9,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 8.61111111111111,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 355,
+            "gpu_samples": 59,
+            "gpu_p50_ms": 2.064792,
+            "gpu_p95_ms": 3.330542,
+            "frame_p95_ms": 11,
+            "fps": 118.01861702127661,
+            "cpu_mean_ms": 2.6,
+            "far_faces": 498838,
+            "triangles": 1325354,
+            "draws": 156.0,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 8.732394366197182,
+            "pass_counts": [
+              2
+            ]
+          }
+        ],
+        "gpu_change_percent": 0.0,
+        "paired_gpu_change_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "blur": {
+        "frames": 1439,
+        "gpu_samples": 239,
+        "gpu_p50_ms": 2.521375,
+        "gpu_p95_ms": 3.775292,
+        "frame_p95_ms": 14,
+        "fps": 119.64745988193233,
+        "cpu_mean_ms": 2.5788742182070883,
+        "far_faces": 499119,
+        "triangles": 1325828,
+        "draws": 158.1,
+        "resident_faces": [
+          851514,
+          851514
+        ],
+        "pending_percent": 8.756080611535788,
+        "pass_counts": [
+          4
+        ],
+        "per_round": [
+          {
+            "frames": 362,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.509646,
+            "gpu_p95_ms": 3.647334,
+            "frame_p95_ms": 14,
+            "fps": 120.26578073089702,
+            "cpu_mean_ms": 2.4668508287292816,
+            "far_faces": 499112,
+            "triangles": 1325771,
+            "draws": 152.6,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 6.353591160220995,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 360,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.9345835,
+            "gpu_p95_ms": 3.838791,
+            "frame_p95_ms": 14,
+            "fps": 119.68085106382978,
+            "cpu_mean_ms": 2.6194444444444445,
+            "far_faces": 499038,
+            "triangles": 1325700,
+            "draws": 160.9,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 10.0,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.6254795,
+            "gpu_p95_ms": 3.861375,
+            "frame_p95_ms": 9,
+            "fps": 120.05320917858332,
+            "cpu_mean_ms": 2.6509695290858724,
+            "far_faces": 499189,
+            "triangles": 1326043,
+            "draws": 160.9,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 9.141274238227147,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 356,
+            "gpu_samples": 59,
+            "gpu_p50_ms": 2.230125,
+            "gpu_p95_ms": 3.367459,
+            "frame_p95_ms": 14,
+            "fps": 118.58760826115922,
+            "cpu_mean_ms": 2.5786516853932584,
+            "far_faces": 499138,
+            "triangles": 1325800,
+            "draws": 158.0,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 9.550561797752808,
+            "pass_counts": [
+              4
+            ]
+          }
+        ],
+        "gpu_change_percent": 3.976027626045475,
+        "paired_gpu_change_percent": [
+          -17.812522258837017,
+          21.04392620758453,
+          8.810327674779096,
+          8.007247219090342
+        ]
+      },
+      "lod": {
+        "frames": 1444,
+        "gpu_samples": 240,
+        "gpu_p50_ms": 1.6126665,
+        "gpu_p95_ms": 2.953792,
+        "frame_p95_ms": 13,
+        "fps": 120.07317478795943,
+        "cpu_mean_ms": 2.487534626038781,
+        "far_faces": 240832,
+        "triangles": 809499,
+        "draws": 145.9,
+        "resident_faces": [
+          423572,
+          428002
+        ],
+        "pending_percent": 11.842105263157894,
+        "pass_counts": [
+          2
+        ],
+        "per_round": [
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.5997915,
+            "gpu_p95_ms": 3.030667,
+            "frame_p95_ms": 14,
+            "fps": 120.25316455696202,
+            "cpu_mean_ms": 2.3157894736842106,
+            "far_faces": 240843,
+            "triangles": 810016,
+            "draws": 145.0,
+            "resident_faces": [
+              423572,
+              428002
+            ],
+            "pending_percent": 16.62049861495845,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.6552915000000001,
+            "gpu_p95_ms": 2.982375,
+            "frame_p95_ms": 13,
+            "fps": 119.9734130940512,
+            "cpu_mean_ms": 2.53185595567867,
+            "far_faces": 240833,
+            "triangles": 808919,
+            "draws": 144.9,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 7.202216066481995,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.5414585,
+            "gpu_p95_ms": 2.159,
+            "frame_p95_ms": 9,
+            "fps": 120.05320917858332,
+            "cpu_mean_ms": 2.5235457063711912,
+            "far_faces": 240826,
+            "triangles": 809004,
+            "draws": 146.6,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 9.141274238227147,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.2388335,
+            "gpu_p95_ms": 2.663708,
+            "frame_p95_ms": 9,
+            "fps": 120.01329787234042,
+            "cpu_mean_ms": 2.5789473684210527,
+            "far_faces": 240826,
+            "triangles": 810056,
+            "draws": 147.1,
+            "resident_faces": [
+              423572,
+              428002
+            ],
+            "pending_percent": 14.40443213296399,
+            "pass_counts": [
+              2
+            ]
+          }
+        ],
+        "gpu_change_percent": -33.49713685762805,
+        "paired_gpu_change_percent": [
+          -47.60901406144462,
+          -31.723536856919587,
+          -36.115820183675595,
+          8.429008829945106
+        ]
+      },
+      "tilt": {
+        "frames": 1425,
+        "gpu_samples": 237,
+        "gpu_p50_ms": 1.749167,
+        "gpu_p95_ms": 3.195959,
+        "frame_p95_ms": 14,
+        "fps": 118.38497964609121,
+        "cpu_mean_ms": 2.448421052631579,
+        "far_faces": 240750,
+        "triangles": 809469,
+        "draws": 147.9,
+        "resident_faces": [
+          423572,
+          428002
+        ],
+        "pending_percent": 12.0,
+        "pass_counts": [
+          4
+        ],
+        "per_round": [
+          {
+            "frames": 342,
+            "gpu_samples": 57,
+            "gpu_p50_ms": 1.92425,
+            "gpu_p95_ms": 3.471,
+            "frame_p95_ms": 15,
+            "fps": 113.77245508982037,
+            "cpu_mean_ms": 2.546783625730994,
+            "far_faces": 240406,
+            "triangles": 808370,
+            "draws": 146.8,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 8.47953216374269,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.7367495,
+            "gpu_p95_ms": 3.124458,
+            "frame_p95_ms": 14,
+            "fps": 119.9734130940512,
+            "cpu_mean_ms": 2.335180055401662,
+            "far_faces": 240896,
+            "triangles": 810146,
+            "draws": 147.0,
+            "resident_faces": [
+              423572,
+              428002
+            ],
+            "pending_percent": 14.40443213296399,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.888916,
+            "gpu_p95_ms": 3.251,
+            "frame_p95_ms": 13,
+            "fps": 120.13311148086522,
+            "cpu_mean_ms": 2.490304709141274,
+            "far_faces": 240868,
+            "triangles": 810160,
+            "draws": 148.7,
+            "resident_faces": [
+              423572,
+              428002
+            ],
+            "pending_percent": 16.06648199445983,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.6449375,
+            "gpu_p95_ms": 2.474,
+            "frame_p95_ms": 14,
+            "fps": 119.65528670865096,
+            "cpu_mean_ms": 2.4265927977839334,
+            "far_faces": 240811,
+            "triangles": 809144,
+            "draws": 149.0,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 8.86426592797784,
+            "pass_counts": [
+              4
+            ]
+          }
+        ],
+        "gpu_change_percent": -27.868152768006716,
+        "paired_gpu_change_percent": [
+          -36.983441472051084,
+          -28.363606515521088,
+          -21.715797472372934,
+          -20.33398521497566
+        ]
+      }
+    },
+    "low": {
+      "baseline": {
+        "frames": 1420,
+        "gpu_samples": 235,
+        "gpu_p50_ms": 2.558125,
+        "gpu_p95_ms": 3.931833,
+        "frame_p95_ms": 14,
+        "fps": 117.97939514788966,
+        "cpu_mean_ms": 2.5985915492957745,
+        "far_faces": 499205,
+        "triangles": 1325875,
+        "draws": 155.2,
+        "resident_faces": [
+          851514,
+          851514
+        ],
+        "pending_percent": 10.352112676056338,
+        "pass_counts": [
+          2
+        ],
+        "per_round": [
+          {
+            "frames": 354,
+            "gpu_samples": 59,
+            "gpu_p50_ms": 2.473167,
+            "gpu_p95_ms": 3.865834,
+            "frame_p95_ms": 13,
+            "fps": 117.25736999006294,
+            "cpu_mean_ms": 2.6666666666666665,
+            "far_faces": 499181,
+            "triangles": 1326001,
+            "draws": 156.8,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 9.322033898305085,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 355,
+            "gpu_samples": 59,
+            "gpu_p50_ms": 2.554167,
+            "gpu_p95_ms": 4.099125,
+            "frame_p95_ms": 14,
+            "fps": 118.21511821511821,
+            "cpu_mean_ms": 2.63943661971831,
+            "far_faces": 499158,
+            "triangles": 1325801,
+            "draws": 153.4,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 10.704225352112676,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 359,
+            "gpu_samples": 59,
+            "gpu_p50_ms": 2.681375,
+            "gpu_p95_ms": 4.470584,
+            "frame_p95_ms": 14,
+            "fps": 119.54711954711954,
+            "cpu_mean_ms": 2.434540389972145,
+            "far_faces": 499126,
+            "triangles": 1325770,
+            "draws": 156.2,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 11.142061281337048,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 352,
+            "gpu_samples": 58,
+            "gpu_p50_ms": 2.464646,
+            "gpu_p95_ms": 3.548958,
+            "frame_p95_ms": 14,
+            "fps": 116.9046828296247,
+            "cpu_mean_ms": 2.65625,
+            "far_faces": 499359,
+            "triangles": 1325933,
+            "draws": 154.6,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 10.227272727272728,
+            "pass_counts": [
+              2
+            ]
+          }
+        ],
+        "gpu_change_percent": 0.0,
+        "paired_gpu_change_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "blur": {
+        "frames": 1429,
+        "gpu_samples": 236,
+        "gpu_p50_ms": 2.3567705,
+        "gpu_p95_ms": 3.644209,
+        "frame_p95_ms": 13,
+        "fps": 118.687707641196,
+        "cpu_mean_ms": 2.669699090272918,
+        "far_faces": 499125,
+        "triangles": 1325909,
+        "draws": 157.3,
+        "resident_faces": [
+          851514,
+          851514
+        ],
+        "pending_percent": 8.81735479356193,
+        "pass_counts": [
+          4
+        ],
+        "per_round": [
+          {
+            "frames": 359,
+            "gpu_samples": 59,
+            "gpu_p50_ms": 2.278625,
+            "gpu_p95_ms": 3.554958,
+            "frame_p95_ms": 9,
+            "fps": 119.30874044533067,
+            "cpu_mean_ms": 2.754874651810585,
+            "far_faces": 499104,
+            "triangles": 1325758,
+            "draws": 158.6,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 7.7994428969359335,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.4586455000000003,
+            "gpu_p95_ms": 3.880625,
+            "frame_p95_ms": 13,
+            "fps": 119.8539176626826,
+            "cpu_mean_ms": 2.581717451523546,
+            "far_faces": 499154,
+            "triangles": 1325884,
+            "draws": 155.4,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 9.97229916897507,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 359,
+            "gpu_samples": 59,
+            "gpu_p50_ms": 2.4755,
+            "gpu_p95_ms": 3.773792,
+            "frame_p95_ms": 14,
+            "fps": 119.18990703851263,
+            "cpu_mean_ms": 2.5793871866295266,
+            "far_faces": 499143,
+            "triangles": 1325940,
+            "draws": 158.2,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 8.913649025069638,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 350,
+            "gpu_samples": 58,
+            "gpu_p50_ms": 2.1970625,
+            "gpu_p95_ms": 3.611166,
+            "frame_p95_ms": 13,
+            "fps": 116.39507815098105,
+            "cpu_mean_ms": 2.7657142857142856,
+            "far_faces": 499100,
+            "triangles": 1326058,
+            "draws": 157.0,
+            "resident_faces": [
+              851514,
+              851514
+            ],
+            "pending_percent": 8.571428571428571,
+            "pass_counts": [
+              4
+            ]
+          }
+        ],
+        "gpu_change_percent": -7.8711751771316845,
+        "paired_gpu_change_percent": [
+          -7.866108515923109,
+          -3.7398298545083364,
+          -7.67796373129459,
+          -10.856873563181091
+        ]
+      },
+      "lod": {
+        "frames": 1442,
+        "gpu_samples": 240,
+        "gpu_p50_ms": 1.8545625000000001,
+        "gpu_p95_ms": 3.192292,
+        "frame_p95_ms": 13,
+        "fps": 119.89689864471605,
+        "cpu_mean_ms": 2.4452149791955615,
+        "far_faces": 240853,
+        "triangles": 809309,
+        "draws": 144.8,
+        "resident_faces": [
+          423572,
+          428002
+        ],
+        "pending_percent": 10.610263522884882,
+        "pass_counts": [
+          2
+        ],
+        "per_round": [
+          {
+            "frames": 360,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.881646,
+            "gpu_p95_ms": 3.192292,
+            "frame_p95_ms": 14,
+            "fps": 119.92005329780147,
+            "cpu_mean_ms": 2.3583333333333334,
+            "far_faces": 240857,
+            "triangles": 810210,
+            "draws": 145.1,
+            "resident_faces": [
+              423572,
+              428002
+            ],
+            "pending_percent": 16.11111111111111,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.347646,
+            "gpu_p95_ms": 3.353084,
+            "frame_p95_ms": 13,
+            "fps": 120.01329787234042,
+            "cpu_mean_ms": 2.3850415512465375,
+            "far_faces": 240824,
+            "triangles": 808906,
+            "draws": 144.8,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 7.756232686980609,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.8275835,
+            "gpu_p95_ms": 3.226542,
+            "frame_p95_ms": 10,
+            "fps": 119.9734130940512,
+            "cpu_mean_ms": 2.4653739612188366,
+            "far_faces": 240865,
+            "triangles": 809030,
+            "draws": 144.6,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 9.141274238227147,
+            "pass_counts": [
+              2
+            ]
+          },
+          {
+            "frames": 360,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.7458749999999998,
+            "gpu_p95_ms": 2.955084,
+            "frame_p95_ms": 10,
+            "fps": 119.68085106382978,
+            "cpu_mean_ms": 2.5722222222222224,
+            "far_faces": 240864,
+            "triangles": 809092,
+            "draws": 144.6,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 9.444444444444445,
+            "pass_counts": [
+              2
+            ]
+          }
+        ],
+        "gpu_change_percent": -27.50305399462496,
+        "paired_gpu_change_percent": [
+          -23.91755186770648,
+          -8.085649842003285,
+          -31.841555172253045,
+          -29.16325508815466
+        ]
+      },
+      "tilt": {
+        "frames": 1444,
+        "gpu_samples": 240,
+        "gpu_p50_ms": 1.865521,
+        "gpu_p95_ms": 3.252625,
+        "frame_p95_ms": 14,
+        "fps": 120.0332502078138,
+        "cpu_mean_ms": 2.403047091412742,
+        "far_faces": 240851,
+        "triangles": 809276,
+        "draws": 146.8,
+        "resident_faces": [
+          423572,
+          428002
+        ],
+        "pending_percent": 9.764542936288088,
+        "pass_counts": [
+          4
+        ],
+        "per_round": [
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.791771,
+            "gpu_p95_ms": 2.7845,
+            "frame_p95_ms": 14,
+            "fps": 120.13311148086522,
+            "cpu_mean_ms": 2.326869806094183,
+            "far_faces": 240875,
+            "triangles": 809015,
+            "draws": 146.9,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 7.756232686980609,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.7849374999999998,
+            "gpu_p95_ms": 3.329292,
+            "frame_p95_ms": 14,
+            "fps": 120.01329787234042,
+            "cpu_mean_ms": 2.3905817174515236,
+            "far_faces": 240832,
+            "triangles": 808899,
+            "draws": 146.8,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 8.033240997229916,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 2.310542,
+            "gpu_p95_ms": 3.455917,
+            "frame_p95_ms": 10,
+            "fps": 120.25316455696202,
+            "cpu_mean_ms": 2.4293628808864267,
+            "far_faces": 240869,
+            "triangles": 810204,
+            "draws": 146.7,
+            "resident_faces": [
+              423572,
+              428002
+            ],
+            "pending_percent": 15.512465373961218,
+            "pass_counts": [
+              4
+            ]
+          },
+          {
+            "frames": 361,
+            "gpu_samples": 60,
+            "gpu_p50_ms": 1.6452505,
+            "gpu_p95_ms": 2.896166,
+            "frame_p95_ms": 14,
+            "fps": 119.7346600331675,
+            "cpu_mean_ms": 2.4653739612188366,
+            "far_faces": 240827,
+            "triangles": 808985,
+            "draws": 146.6,
+            "resident_faces": [
+              427179,
+              427179
+            ],
+            "pending_percent": 7.756232686980609,
+            "pass_counts": [
+              4
+            ]
+          }
+        ],
+        "gpu_change_percent": -27.074673833374053,
+        "paired_gpu_change_percent": [
+          -27.5515563647744,
+          -30.11664859815354,
+          -13.82995664537785,
+          -33.2459712266995
+        ]
+      }
+    }
+  }
+}
