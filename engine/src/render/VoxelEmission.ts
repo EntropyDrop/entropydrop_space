@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, reference, vec3, vec4, output, dot, max, sRGBTransferEOTF } from 'three/tsl';
+import { attribute, uniform, renderGroup, vec3, vec4, output, dot, max, sRGBTransferEOTF } from 'three/tsl';
 import { VOXEL_EMISSIVE_SURFACE_LUMINANCE } from '../voxel/VoxelMaterials.ts';
 
 export function voxelEmissionColor(tint: any) {
@@ -7,23 +7,14 @@ export function voxelEmissionColor(tint: any) {
   return linear.mul(VOXEL_EMISSIVE_SURFACE_LUMINANCE).div(max(dot(linear, vec3(.2126, .7152, .0722)), .000001));
 }
 
-/** HDR alpha > 1 carries emission coverage to the atmosphere and bloom passes. */
-export function createVoxelEmissionMaskUniform(material: THREE.Material,
-  mask: { value: number } = { value: 0 }): { value: number } {
-  // Materials that share one compiled program pass one holder: the program's
-  // graph reads a single object, whichever of them is being rendered.
-  const previous = material.onBeforeRender;
-  material.onBeforeRender = (...args) => {
-    previous.apply(material, args);
-    mask.value = args[0].getRenderTarget()?.texture.userData.voxelEmissionMask === true ? 1 : 0;
-  };
-  return mask;
-}
+// HDR alpha > 1 carries emission coverage. WebGPURenderer updates TSL nodes
+// during draws, while Material.onBeforeRender is specific to WebGLRenderer.
+export const voxelEmissionMask = uniform(0).setGroup(renderGroup).onRenderUpdate(({ renderer }) =>
+  renderer?.getRenderTarget()?.texture.userData.voxelEmissionMask === true ? 1 : 0);
 
 export function createVoxelEmissiveMaterial(): THREE.MeshBasicNodeMaterial {
   const material = new THREE.MeshBasicNodeMaterial({ toneMapped: true, fog: false });
-  const mask = createVoxelEmissionMaskUniform(material);
   material.colorNode = voxelEmissionColor(attribute<'vec3'>('color', 'vec3'));
-  material.outputNode = vec4(output.rgb, output.a.add(reference('value', 'float', mask)));
+  material.outputNode = vec4(output.rgb, output.a.add(voxelEmissionMask));
   return material;
 }

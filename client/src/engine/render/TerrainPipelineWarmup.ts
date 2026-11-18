@@ -25,8 +25,11 @@ export async function warmTerrainPipelines(renderer: Compiler, scene: THREE.Scen
     renderer.setRenderTarget(target);
     await renderer.compileAsync(scene, camera);
     // Character view changes also need first-draw bindings/upload work. Keep
-    // the hidden variants visible until that real pass has been submitted.
-    drawWarmFrame?.();
+    // the hidden variants visible and restore the output before post-processing.
+    if (drawWarmFrame) {
+      renderer.setRenderTarget(previousTarget);
+      drawWarmFrame();
+    }
   } finally {
     renderer.setRenderTarget(previousTarget);
     for (const [object, state] of saved) {

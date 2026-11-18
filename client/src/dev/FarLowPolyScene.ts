@@ -1,7 +1,7 @@
 /** Explicit offline-only integration trial. Normal game animation and PBR stay active. */
 import * as THREE from 'three/webgpu';
-import { attribute, varying, vec4, reference, output } from 'three/tsl';
-import { createVoxelEmissionMaskUniform, voxelEmissionColor } from '@entropydrop/space-engine/render/VoxelEmission.ts';
+import { attribute, varying, vec4, output } from 'three/tsl';
+import { voxelEmissionColor, voxelEmissionMask } from '@entropydrop/space-engine/render/VoxelEmission.ts';
 import { bendTorusPoint } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { corners, include, distanceToBounds, meshBrick, simplifyMesh, MeshoptSimplifier, type Brick, type MeshPart } from './FarLowPolyData.ts';
 import { interceptMethod } from './FrameDiagnostics.ts';
@@ -24,9 +24,9 @@ export async function createFarLowPolyScene(game:any, pixels=.5) {
   document.body.append(note);
   const group=new THREE.Group();group.name='FarLowPolyScene';group.visible=false;
   const material=new THREE.MeshStandardNodeMaterial({flatShading:true,roughness:.65,metalness:.15});
-  const color=attribute<'vec4'>('lowpolyColor','vec4'),emissionMask=createVoxelEmissionMaskUniform(material);
+  const color=attribute<'vec4'>('lowpolyColor','vec4');
   material.colorNode=color.xyz;
-  material.outputNode=varying(color.a).greaterThan(.5).select(vec4(voxelEmissionColor(color.xyz),reference('value','float',emissionMask).add(1)),output);
+  material.outputNode=varying(color.a).greaterThan(.5).select(vec4(voxelEmissionColor(color.xyz),voxelEmissionMask.add(1)),output);
   const resources:THREE.BufferGeometry[]=[],undo:(()=>void)[]=[];
   type Source={entry:any;geometry:any;count:number;versions:number[];bricks:{bounds:number[];start:number;count:number}[]};
   const sources:Source[]=[],chosen=new Map<any,Source>();

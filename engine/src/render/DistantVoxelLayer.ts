@@ -4,7 +4,7 @@ import { StaticTerrainGroup } from './StaticTerrainGroup.ts';
 import { SurfaceBatch } from './SurfaceBatch.ts';
 import { alignedInstanceAttribute, terrainCoverage, terrainDither, discardWhen } from './NodeMaterials.ts';
 import { Fn, If, attribute, uniform, reference, vec2, vec3, vec4, positionGeometry, varying, float, uint, screenCoordinate, output, texture } from 'three/tsl';
-import { createVoxelEmissionMaskUniform, voxelEmissionColor } from './VoxelEmission.ts';
+import { voxelEmissionColor, voxelEmissionMask } from './VoxelEmission.ts';
 import { computeBentBoundsSphere, getWorldProjection, hookSceneMaterials, projectBentSphereForView, type WorldProjection } from '../torus/TorusWorld.ts';
 import { voxelHandoffMode } from './VoxelDrawCulling.ts';
 import { VoxelLodPlanner, type VoxelLodTile, type VoxelLodView } from './VoxelLodPlanner.ts';
@@ -35,8 +35,7 @@ const opaqueMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMat
 const voxelMaterials = new WeakMap<THREE.DataTexture, THREE.MeshStandardNodeMaterial>();
 const bakedMaterials = new WeakMap<THREE.DataArrayTexture, { opaque: typeof opaqueMaterials; masked: typeof voxelMaterials }>();
 export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: THREE.Vector2, origin: THREE.Vector3,
-  optimized: { value: boolean }, solid = false, arena?: ArenaInputs, bakedTexture?: THREE.DataArrayTexture,
-  sharedEmissionMask?: { value: number }) {
+  optimized: { value: boolean }, solid = false, arena?: ArenaInputs, bakedTexture?: THREE.DataArrayTexture) {
   let cache = solid ? opaqueMaterials : voxelMaterials;
   if (bakedTexture) {
     let caches = bakedMaterials.get(bakedTexture);
@@ -46,7 +45,6 @@ export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: TH
   const cached = cache.get(mask);
   if (cached && !arena) return cached;
   const result = new THREE.MeshStandardNodeMaterial({ vertexColors: !arena, roughness: .65, metalness: .15 });
-  const emissionMask = createVoxelEmissionMaskUniform(result, sharedEmissionMask);
   const rawDir = arena?.direction ?? attribute<'float'>('voxelDirection', 'float');
   const dir = bakedTexture ? float(uint(rawDir).bitAnd(7)) : rawDir;
   const corner = arena?.quad ?? positionGeometry.xy;
@@ -102,8 +100,7 @@ export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: TH
     discardWhen(result, transition.lessThan(range.x).or(transition.greaterThanEqual(range.y)));
   }
   const emission = (arena?.emission ?? varying(float(attribute<'float'>('voxelEmission', 'float')))).greaterThan(.5);
-  result.outputNode = emission.select(vec4(voxelEmissionColor(surfaceColor),
-    reference('value', 'float', emissionMask).add(1)), output);
+  result.outputNode = emission.select(vec4(voxelEmissionColor(surfaceColor), voxelEmissionMask.add(1)), output);
   result.userData.sharedTerrainMaterial = true;
   // Source tiles draw with these only while they fade; keep their programs.
   result.userData.retainProgram = true;
@@ -260,19 +257,16 @@ export class DistantVoxelLayer {
       this.arena?.dispose(); this.arena = null;
       this.group.userData.voxelArenaStats = null;
     } else {
-      // Page materials differ only in the arena inputs, which resolve their
-      // page per object, so all pages can share one compiled program. Nothing
-      // else in their graphs may be per material: the emission mask holder is
-      // shared, and the textures they sample name the program.
-      const emissionMask = { value: 0 };
+      // Page inputs resolve per object so all pages can share one compiled
+      // program. The textures they sample identify the program.
       this.arena = new VoxelFaceArena(this.group, inputs => {
         const baked = inputs.baked ? this.texturePool?.texture : undefined;
         const mesh = new THREE.Mesh(geometry(), material(this.mask, new THREE.Vector2(0, 1),
-          new THREE.Vector3(), this.drawOptimizations, true, inputs, baked, emissionMask));
+          new THREE.Vector3(), this.drawOptimizations, true, inputs, baked));
         mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; hookSceneMaterials(mesh);
         this.group.registerStaticLeaf(mesh);
         mesh.userData.opaqueMaterial = mesh.material;
-        mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs, baked, emissionMask);
+        mesh.material = material(this.mask, new THREE.Vector2(0, 1), new THREE.Vector3(), this.drawOptimizations, false, inputs, baked);
         hookSceneMaterials(mesh); mesh.userData.maskedMaterial = mesh.material;
         mesh.material = mesh.userData.opaqueMaterial;
         mesh.userData.voxelArenaProgram = `${this.mask.id}:${baked?.id ?? 0}`;

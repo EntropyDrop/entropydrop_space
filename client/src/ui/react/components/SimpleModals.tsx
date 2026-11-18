@@ -5,6 +5,7 @@ import { SPACE_HOSTING_UI_ENABLED, SPACE_LOCAL_SESSION, SPACE_TUTORIAL } from '.
 import { OnlineSpaceNotice } from './OnlineSpaceNotice.tsx';
 import { CharacterSkinPreview } from './CharacterSkinPreview.tsx';
 import { LIGHTING_PRESETS, LIGHTING_QUALITY_LEVELS } from '../../../engine/render/LightingQuality.ts';
+import { EMISSIVE_BLOOM_LEVELS, EMISSIVE_BLOOM_PRESETS } from '../../../engine/render/EmissiveBloomQuality.ts';
 import { LINKED_WORLD_CLEARANCE, LINKED_WORLD_ROTATION_PERIOD_SECONDS } from '../../../engine/render/LinkedWorldGeometry.ts';
 import type { SpaceApiKeyRecord, SpaceApiUsage } from '../../../bootstrap/SpaceApiKeyClient.ts';
 import {
@@ -255,7 +256,7 @@ function OnlineSpaceApiKeysSettings() {
 
 export function GlobalSettingsModal() {
   const state = useSpaceUiFields(
-    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceEnabled', 'distantSurfaceSettings', 'worldProjection', 'world', 'musicEnabled', 'effectsEnabled'
+    'activeModal', 'isAdmin', 'currentSkin', 'skinWarning', 'fov', 'perspective', 'cameraDistance', 'minimapEnabled', 'linkedWorlds', 'particlesEnabled', 'lightingQuality', 'emissiveBloomQuality', 'shadowsEnabled', 'resolutionTargetFps', 'resolutionScale', 'resolutionPixelRatio', 'resolutionScaleMode', 'renderDistance', 'distantSurfaceEnabled', 'distantSurfaceSettings', 'worldProjection', 'world', 'musicEnabled', 'effectsEnabled'
   );
   const [tab, setTab] = React.useState<'character' | 'graphics' | 'sound' | 'api'>(() =>
     onlinePanelSettingsTab(typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('panel')) || 'character');
@@ -483,6 +484,26 @@ export function GlobalSettingsModal() {
                       onClick={() => spaceUiStore.setLightingQuality(quality)}
                     >
                       {LIGHTING_PRESETS[quality].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="settings-row settings-lighting-row">
+                <div className="settings-label-group">
+                  <span className="settings-label" id="setting-emissive-bloom-label">Emissive Bloom</span>
+                  <span className="settings-desc" id="setting-emissive-bloom-description">Glow around emissive materials.</span>
+                </div>
+                <div className="settings-segmented-control settings-lighting-control" role="group"
+                  aria-labelledby="setting-emissive-bloom-label" aria-describedby="setting-emissive-bloom-description">
+                  {EMISSIVE_BLOOM_LEVELS.map(quality => (
+                    <button
+                      key={quality}
+                      type="button"
+                      className={`segment-btn ${state.emissiveBloomQuality === quality ? 'active' : ''}`}
+                      aria-pressed={state.emissiveBloomQuality === quality}
+                      onClick={() => spaceUiStore.setEmissiveBloomQuality(quality)}
+                    >
+                      {EMISSIVE_BLOOM_PRESETS[quality].label}
                     </button>
                   ))}
                 </div>

@@ -63,7 +63,7 @@ test('near terrain reclassifies fade reversal, disabled handoffs and wrapped nes
   handoff.texture.dispose();
 });
 
-test('near variants preserve existing masks, transparent settings and emissive target callbacks', () => {
+test('near variants preserve existing masks, transparent settings and emissive output', () => {
   const handoff = new TerrainHandoff(); handoff.enabled.value = true;
   const solid = new THREE.MeshStandardNodeMaterial({ transparent: true, opacity: .5, depthWrite: false });
   solid.maskNode = float(1).greaterThan(0);
@@ -74,7 +74,6 @@ test('near variants preserve existing masks, transparent settings and emissive t
   assert.equal(masked[0].transparent, true); assert.equal(masked[0].opacity, .5);
   assert.equal(masked[0].depthWrite, false);
   assert.equal(masked[1].outputNode, emissive.outputNode);
-  assert.equal(masked[1].onBeforeRender, emissive.onBeforeRender);
   handoff.setReady(0, 0, true, false); handoff.hook(mesh);
   const opaque = mesh.material as THREE.NodeMaterial[];
   assert.equal(opaque[0], solid); assert.equal(opaque[0].maskNode, solid.maskNode);

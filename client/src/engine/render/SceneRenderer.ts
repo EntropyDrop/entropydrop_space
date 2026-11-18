@@ -38,6 +38,10 @@ import {
 } from './RemotePlayerMotion.ts';
 import { AdaptiveResolutionController, MIN_RESOLUTION_SCALE, MAX_RESOLUTION_SCALE } from './AdaptiveResolution.ts';
 import { CinematicEffects } from './CinematicEffects.ts';
+import { EmissiveBloom } from './EmissiveBloom.ts';
+import {
+  DEFAULT_EMISSIVE_BLOOM_QUALITY, normalizeEmissiveBloomQuality, type EmissiveBloomQuality,
+} from './EmissiveBloomQuality.ts';
 import { ShadowMapCache, snapShadowToTexels } from './ShadowMapCache.ts';
 import { createSkyMaterial } from './CinematicSky.ts';
 import {
@@ -197,6 +201,8 @@ export class SceneRenderer {
   declare shadowsEnabled: boolean;
   declare lightingQuality: LightingQuality;
   declare cinematicEffects: CinematicEffects | null;
+  private emissiveBloomQuality: EmissiveBloomQuality = DEFAULT_EMISSIVE_BLOOM_QUALITY;
+  private emissiveBloom: EmissiveBloom | null = null;
   declare resolutionScale: number;
   declare onResolutionScaleChange: ((state: any) => void) | null;
   declare previewRenderer: SpaceRenderer | null;
@@ -1803,6 +1809,23 @@ export class SceneRenderer {
     return this.lightingQuality;
   }
 
+  setEmissiveBloomQuality(quality: EmissiveBloomQuality): EmissiveBloomQuality {
+    const value = normalizeEmissiveBloomQuality(quality);
+    this.emissiveBloomQuality = value;
+    this.cinematicEffects?.setEmissiveBloomQuality(value);
+    if (value === 'off') {
+      this.emissiveBloom?.dispose();
+      this.emissiveBloom = null;
+    } else {
+      this.emissiveBloom?.setQuality(value);
+    }
+    return value;
+  }
+
+  getEmissiveBloomQuality(): EmissiveBloomQuality {
+    return this.emissiveBloomQuality;
+  }
+
   private applyLightingQuality() {
     const preset = LIGHTING_PRESETS[this.lightingQuality];
     const cinematic = this.lightingQuality === 'ultra';
@@ -1824,6 +1847,10 @@ export class SceneRenderer {
     if (!cinematic && this.cinematicEffects) {
       this.cinematicEffects.dispose();
       this.cinematicEffects = null;
+    }
+    if (cinematic && this.emissiveBloom) {
+      this.emissiveBloom.dispose();
+      this.emissiveBloom = null;
     }
 
     const shadow = this.sunLight.shadow;
@@ -2303,7 +2330,10 @@ export class SceneRenderer {
   private renderWorld() {
     const cinematic = this.lightingQuality === 'ultra';
     if (cinematic) {
-      this.cinematicEffects ??= new CinematicEffects();
+      if (!this.cinematicEffects) {
+        this.cinematicEffects = new CinematicEffects();
+        this.cinematicEffects.setEmissiveBloomQuality(this.emissiveBloomQuality);
+      }
       // The HDR atmosphere pass owns distance haze.
       // Stacking material fog on top bleaches the kilometre-scale opposite ring.
       // Keep the fog object/program intact and restore it for non-HDR rendering.
@@ -2316,6 +2346,12 @@ export class SceneRenderer {
       } finally {
         if (fog) fog.density = density;
       }
+    } else if (this.emissiveBloomQuality !== 'off') {
+      if (!this.emissiveBloom) {
+        this.emissiveBloom = new EmissiveBloom(this.renderer);
+        this.emissiveBloom.setQuality(this.emissiveBloomQuality);
+      }
+      this.emissiveBloom.render(this.scene, this.camera);
     } else {
       this.renderer.render(this.scene, this.camera);
     }
@@ -2435,9 +2471,8 @@ export class SceneRenderer {
     if (this.world.distantSurface.isEnabled()) {
       roots.push(this.world.distantSurface.mesh, this.world.distantSurface.sideMesh);
     }
-    // Match the actual color/depth attachments. Compiling Ultra's terrain for
-    // the canvas would leave its HDR pipeline cold when the camera first turns.
-    const target = this.lightingQuality === 'ultra' ? this.cinematicEffects?.sceneTarget ?? null : null;
+    // Match the color/depth attachments used for gameplay, including HDR effects.
+    const target = this.cinematicEffects?.sceneTarget ?? this.emissiveBloom?.sceneTarget ?? null;
     await warmTerrainPipelines(this.renderer, this.scene, this.camera, roots, target);
     this.warmTransientTerrainPrograms();
   }
@@ -2474,7 +2509,7 @@ export class SceneRenderer {
     this.render(false, true);
     const roots = [this.playerAvatar];
     if (this.playerFirstPersonHand) roots.push(this.playerFirstPersonHand);
-    const target = this.lightingQuality === 'ultra' ? this.cinematicEffects?.sceneTarget ?? null : null;
+    const target = this.cinematicEffects?.sceneTarget ?? this.emissiveBloom?.sceneTarget ?? null;
     await warmTerrainPipelines(this.renderer, this.scene, this.camera, roots, target, () => this.render(false, true));
     await (this.renderer.backend as any).device.queue.onSubmittedWorkDone();
     this.render(false, true);

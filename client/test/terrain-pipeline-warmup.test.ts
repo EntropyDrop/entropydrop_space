@@ -55,7 +55,10 @@ test('entry waits for the avatar and compiles hidden body and hand variants into
     playerAvatar: body, playerFirstPersonHand: hand,
     playerAvatarCharacter: { object3d: body, prepareHeldTools() { prepared = true; } },
     scene, camera, lightingQuality: 'ultra', cinematicEffects: { sceneTarget: hdr },
-    render() { if (compiled && body.visible) drewHiddenBody = true; },
+    render() {
+      assert.equal(target, null, 'warm frames must composite to the canvas');
+      if (compiled && body.visible) drewHiddenBody = true;
+    },
     renderer: {
       backend: { device: { queue: { async onSubmittedWorkDone() {} } } },
       getRenderTarget: () => target,

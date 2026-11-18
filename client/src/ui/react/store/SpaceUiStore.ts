@@ -51,6 +51,10 @@ import {
   DEFAULT_LIGHTING_QUALITY, LIGHTING_PRESETS, LIGHTING_QUALITY_SETTING_KEY,
   normalizeLightingQuality, type LightingQuality,
 } from '../../../engine/render/LightingQuality.ts';
+import {
+  DEFAULT_EMISSIVE_BLOOM_QUALITY, EMISSIVE_BLOOM_SETTING_KEY,
+  normalizeEmissiveBloomQuality, type EmissiveBloomQuality,
+} from '../../../engine/render/EmissiveBloomQuality.ts';
 import { entityDisplayName, entityRunStatus } from '../utils/entityNameplate.ts';
 import type { SpaceHostingList, SpaceEntityHostingStatus } from '../../../bootstrap/SpaceEntityClient.ts';
 import { networkTraffic, type NetworkRates } from '../../../bootstrap/NetworkTraffic.ts';
@@ -308,6 +312,7 @@ export interface SpaceUiSnapshot {
   resolutionTargetFps: number;
   shadowsEnabled: boolean;
   lightingQuality: LightingQuality;
+  emissiveBloomQuality: EmissiveBloomQuality;
   skinWarning: string | null;
   currentSkin: { url: string; model: 'strong' | 'slim' } | null;
   apiWorldId: string | null;
@@ -508,6 +513,7 @@ export class SpaceUiStore {
     resolutionTargetFps: 120,
     shadowsEnabled: false,
     lightingQuality: DEFAULT_LIGHTING_QUALITY,
+    emissiveBloomQuality: DEFAULT_EMISSIVE_BLOOM_QUALITY,
     skinWarning: null,
     currentSkin: null,
     apiWorldId: null,
@@ -821,12 +827,14 @@ export class SpaceUiStore {
     let setting: ResolutionScaleSetting = '1';
     let shadowsEnabled = false;
     let lightingQuality = DEFAULT_LIGHTING_QUALITY;
+    let emissiveBloomQuality = DEFAULT_EMISSIVE_BLOOM_QUALITY;
     let worldProjection: WorldProjection = 'torus';
     try {
       setting = normalizeResolutionScaleSetting(localStorage.getItem('space_setting_resolution_scale'));
       worldProjection = localStorage.getItem(WORLD_PROJECTION_SETTING_KEY) === 'flat' ? 'flat' : 'torus';
       shadowsEnabled = localStorage.getItem('space_setting_shadows') === 'true';
       lightingQuality = normalizeLightingQuality(localStorage.getItem(LIGHTING_QUALITY_SETTING_KEY));
+      emissiveBloomQuality = normalizeEmissiveBloomQuality(localStorage.getItem(EMISSIVE_BLOOM_SETTING_KEY));
     } catch { }
     this.setWorldProjection(worldProjection, false);
     this.setDistantSurfaceEnabled(this.snapshot.distantSurfaceEnabled, false);
@@ -834,8 +842,9 @@ export class SpaceUiStore {
       || sceneRenderer?.getResolutionScaleState?.();
     shadowsEnabled = sceneRenderer?.setShadowsEnabled?.(shadowsEnabled) ?? shadowsEnabled;
     lightingQuality = sceneRenderer?.setLightingQuality?.(lightingQuality) ?? lightingQuality;
+    emissiveBloomQuality = sceneRenderer?.setEmissiveBloomQuality?.(emissiveBloomQuality) ?? emissiveBloomQuality;
     this.patch({
-      sceneRenderer, shadowsEnabled, lightingQuality,
+      sceneRenderer, shadowsEnabled, lightingQuality, emissiveBloomQuality,
       ...resolutionSnapshot(sceneRenderer?.getResolutionScaleState?.() || state)
     });
   }
@@ -2087,6 +2096,7 @@ export class SpaceUiStore {
       minimapEnabled: minimap?.isEnabled?.() ?? this.snapshot.minimapEnabled,
       shadowsEnabled: sceneRenderer?.getShadowsEnabled?.() ?? this.snapshot.shadowsEnabled,
       lightingQuality: sceneRenderer?.getLightingQuality?.() ?? this.snapshot.lightingQuality,
+      emissiveBloomQuality: sceneRenderer?.getEmissiveBloomQuality?.() ?? this.snapshot.emissiveBloomQuality,
       worldProjection: getWorldProjection(),
       ...resolution,
       musicEnabled,
@@ -2285,6 +2295,13 @@ export class SpaceUiStore {
       try { localStorage.setItem(LIGHTING_QUALITY_SETTING_KEY, value); } catch { }
       this.showToast(`Lighting quality: ${LIGHTING_PRESETS[value].label}`);
     }
+  }
+
+  setEmissiveBloomQuality(quality: EmissiveBloomQuality): void {
+    const normalized = normalizeEmissiveBloomQuality(quality);
+    const value = this.snapshot.sceneRenderer?.setEmissiveBloomQuality?.(normalized) ?? normalized;
+    this.patch({ emissiveBloomQuality: value });
+    try { localStorage.setItem(EMISSIVE_BLOOM_SETTING_KEY, value); } catch { }
   }
 
   private buildSelectorView(): SelectorView {

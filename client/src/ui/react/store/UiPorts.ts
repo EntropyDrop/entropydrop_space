@@ -109,12 +109,14 @@ export type UiContraptionManager = Pick<ContraptionManager,
 
 export type UiSceneRenderer = Pick<SceneRenderer,
   'captureCleanScreenshotPng'
+  | 'getEmissiveBloomQuality'
   | 'getLightingQuality'
   | 'getResolutionScaleState'
   | 'getShadowsEnabled'
   | 'onEntityPreviewNodeSelect'
   | 'onResolutionScaleChange'
   | 'renderEntityPreview'
+  | 'setEmissiveBloomQuality'
   | 'setEntityPreviewCanvas'
   | 'setEntityPreviewTarget'
   | 'setLightingQuality'

@@ -10,6 +10,7 @@ import { SceneRenderer } from '../src/engine/render/SceneRenderer.ts';
 import {
   LIGHTING_QUALITY_SETTING_KEY, normalizeLightingQuality,
 } from '../src/engine/render/LightingQuality.ts';
+import { EMISSIVE_BLOOM_SETTING_KEY } from '../src/engine/render/EmissiveBloomQuality.ts';
 import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
 function lightingRenderer(maxTextureSize = 8192) {
@@ -33,6 +34,7 @@ function lightingRenderer(maxTextureSize = 8192) {
   };
   renderer.setupLighting();
   renderer.setLightingQuality('medium');
+  renderer.setEmissiveBloomQuality('off');
   return renderer;
 }
 
@@ -183,7 +185,7 @@ test('frame updates preserve the preset and align lighting with the torus projec
   assert.equal(renderer.sunLight.shadow.normalBias, 0.05);
 });
 
-test('lighting preference persists, restores, and coexists with legacy disabled shadows', t => {
+test('lighting and emissive bloom persist independently with legacy disabled shadows', t => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   const values = new Map([['space_setting_shadows', 'false']]);
   Object.defineProperty(globalThis, 'localStorage', {
@@ -205,19 +207,25 @@ test('lighting preference persists, restores, and coexists with legacy disabled 
   const store = new SpaceUiStore();
   store.setSceneRenderer(uiStub('sceneRenderer', bridge));
   assert.equal(store.getSnapshot().lightingQuality, 'medium');
+  assert.equal(store.getSnapshot().emissiveBloomQuality, 'medium');
   assert.equal(store.getSnapshot().shadowsEnabled, false);
   store.setLightingQuality('ultra');
+  store.setEmissiveBloomQuality('off');
   assert.equal(store.getSnapshot().lightingQuality, 'ultra');
   assert.equal(values.get(LIGHTING_QUALITY_SETTING_KEY), 'ultra');
+  assert.equal(values.get(EMISSIVE_BLOOM_SETTING_KEY), 'off');
   const restored = new SpaceUiStore();
   restored.setSceneRenderer(uiStub('sceneRenderer', bridge));
   assert.equal(restored.getSnapshot().lightingQuality, 'ultra');
+  assert.equal(restored.getSnapshot().emissiveBloomQuality, 'off');
   assert.equal(restored.getSnapshot().shadowsEnabled, false);
   assert.deepEqual(applied, ['medium', 'ultra', 'ultra']);
 
   values.set(LIGHTING_QUALITY_SETTING_KEY, 'invalid');
+  values.set(EMISSIVE_BLOOM_SETTING_KEY, 'invalid');
   restored.setSceneRenderer(uiStub('sceneRenderer', bridge));
   assert.equal(restored.getSnapshot().lightingQuality, 'medium');
+  assert.equal(restored.getSnapshot().emissiveBloomQuality, 'medium');
 });
 
 test('lighting still applies when browser storage is unavailable', t => {

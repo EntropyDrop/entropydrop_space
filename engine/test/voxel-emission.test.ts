@@ -2,12 +2,13 @@ import { requireValue } from './fixtures.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { NodeFrame, type Renderer } from 'three/webgpu';
 import { Chunk } from '../src/voxel/Chunk.ts';
 import { LowPolyMesher } from '../src/mesher/LowPolyMesher.ts';
 import { MicroVoxelLayer } from '../src/voxel/MicroVoxelLayer.ts';
 import { Contraption } from '../src/contraption/Contraption.ts';
 import { setTerrainKernelMode } from '../src/wasm/TerrainKernels.ts';
-import { createVoxelEmissiveMaterial, createVoxelEmissionMaskUniform } from '../src/render/VoxelEmission.ts';
+import { createVoxelEmissiveMaterial, voxelEmissionMask } from '../src/render/VoxelEmission.ts';
 
 function tint(mesh: THREE.Mesh, materialId: number) {
   const group = mesh.geometry.groups.find(group => group.materialIndex === materialId)!;
@@ -73,30 +74,26 @@ test('entity and terrain meshes feed the same emissive tint and shader', () => {
 
 test('emission uses scene tone mapping and only marks opted-in HDR buffers', () => {
   const material = createVoxelEmissiveMaterial();
-  const mask = createVoxelEmissionMaskUniform(material);
-  const geometry = new THREE.BoxGeometry();
-  const mesh = new THREE.Mesh(geometry, material);
-  const camera = new THREE.PerspectiveCamera();
-  const scene = new THREE.Scene();
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   let renderTarget: THREE.WebGLRenderTarget | null = null;
-  const renderer = { getRenderTarget: () => renderTarget } as THREE.WebGLRenderer;
+  const frame = new NodeFrame();
+  frame.renderer = { getRenderTarget: () => renderTarget } as Renderer;
   try {
-    const draw = () => material.onBeforeRender(renderer, scene, camera, geometry, mesh, new THREE.Group());
+    const draw = () => {
+      frame.renderId++;
+      frame.updateNode(voxelEmissionMask);
+      return voxelEmissionMask.value;
+    };
     assert.equal(material.toneMapped, true);
     assert.equal(material.fog, false);
     assert.ok(material.colorNode?.isNode);
     assert.ok(material.outputNode?.isNode);
-    draw();
-    assert.equal(mask.value, 0, 'direct rendering remains opaque');
+    assert.equal(draw(), 0, 'direct rendering remains opaque');
     renderTarget = target;
-    draw();
-    assert.equal(mask.value, 0, 'ordinary preview targets remain opaque');
+    assert.equal(draw(), 0, 'ordinary preview targets remain opaque');
     target.texture.userData.voxelEmissionMask = true;
-    draw();
-    assert.equal(mask.value, 1, 'HDR scene stores emission coverage separately from radiance');
+    assert.equal(draw(), 1, 'HDR scene stores emission coverage separately from radiance');
     renderTarget = null;
-    draw();
-    assert.equal(mask.value, 0, 'leaving Ultra clears the emission marker on shared materials');
-  } finally { geometry.dispose(); material.dispose(); target.dispose(); }
+    assert.equal(draw(), 0, 'switching targets clears the emission marker on shared materials');
+  } finally { material.dispose(); target.dispose(); }
 });

@@ -1,17 +1,12 @@
 import * as THREE from 'three/webgpu';
 import { Fn, If, Loop, Continue, uv, texture, uniform, vec2, vec3, vec4, float, int,
   max, min, abs, dot, cross, mix, clamp, smoothstep, exp, exp2, log2, pow, sin, cos, sqrt, floor, fract, renderOutput } from 'three/tsl';
-import BloomNode from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import type { SpaceRenderer } from './SpaceRenderer.ts';
-import { VOXEL_EMISSIVE_INTENSITY } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import { BoundedBloom, emissiveBloomColor, emissiveCoverage } from './EmissiveBloom.ts';
+import { DEFAULT_EMISSIVE_BLOOM_QUALITY, EMISSIVE_BLOOM_PRESETS, type EmissiveBloomQuality } from './EmissiveBloomQuality.ts';
 
-class BoundedBloom extends BloomNode {
-  setSize(width: number, height: number) {
-    const scale = Math.min(1, 2560 / Math.max(width, height));
-    super.setSize(Math.max(64, Math.round(width * scale)), Math.max(64, Math.round(height * scale)));
-  }
-}
+const ATMOSPHERE_BLOOM_STRENGTH = .06;
 const fullscreen = (node: any, name: string) => {
   const material = Object.assign(new THREE.NodeMaterial(), { name, depthTest: false, depthWrite: false, toneMapped: false });
   material.fragmentNode = node;
@@ -39,6 +34,7 @@ export class CinematicEffects {
   readonly secondary: THREE.NodeMaterial;
   readonly output: THREE.NodeMaterial;
   readonly bloom: BoundedBloom;
+  private readonly emissiveBloomScale = uniform(EMISSIVE_BLOOM_PRESETS[DEFAULT_EMISSIVE_BLOOM_QUALITY].strength / ATMOSPHERE_BLOOM_STRENGTH);
   readonly antialias: ReturnType<typeof fxaa>;
   private readonly quad = new THREE.QuadMesh();
   private pipeline: THREE.RenderPipeline | null = null;
@@ -151,10 +147,10 @@ export class CinematicEffects {
       return vec4(max(color,vec3(0)),1);
     })(), 'Space.Ultra.Atmosphere');
     const scene = colorAt(uv()), atmosphere = texture(this.atmosphereTarget.texture);
-    const coverage = clamp(scene.a.sub(1),0,1);
-    const emission = scene.rgb.mul(VOXEL_EMISSIVE_INTENSITY).div(max(dot(scene.rgb,vec3(.2126,.7152,.0722)),.000001));
-    const extracted = mix(vec4(0),atmosphere,smoothstep(1.5,1.51,dot(atmosphere.rgb,vec3(.2126,.7152,.0722))));
-    this.bloom = new BoundedBloom(mix(extracted,vec4(emission,1),coverage),.06,.15,0);
+    const highlights = atmosphere.rgb.mul(smoothstep(1.5,1.51,dot(atmosphere.rgb,vec3(.2126,.7152,.0722))));
+    const bloomSource = highlights.mul(emissiveCoverage(scene).oneMinus())
+      .add(emissiveBloomColor(scene).mul(this.emissiveBloomScale));
+    this.bloom = new BoundedBloom(vec4(bloomSource,1),ATMOSPHERE_BLOOM_STRENGTH);
     this.output = fullscreen(Fn(() => {
       const color = renderOutput(vec4(atmosphere.rgb.add(this.bloom.rgb),1),THREE.AgXToneMapping,THREE.SRGBColorSpace).rgb.toVar();
       color.assign(clamp(color.sub(.5).mul(1.08).add(.5),0,1));
@@ -176,6 +172,9 @@ export class CinematicEffects {
   }
   setSecondaryResolutionScale(scale: .5 | 1) { this.secondaryScale=scale; this.setSize(this.sceneTarget.width,this.sceneTarget.height); }
   getSecondaryResolutionScale() { return this.secondaryScale; }
+  setEmissiveBloomQuality(quality: EmissiveBloomQuality) {
+    this.emissiveBloomScale.value = EMISSIVE_BLOOM_PRESETS[quality].strength / ATMOSPHERE_BLOOM_STRENGTH;
+  }
   render(renderer: SpaceRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
     sunDirection: THREE.Vector3, surfaceUp: THREE.Vector3) {
     renderer.getDrawingBufferSize(this.size); this.setSize(this.size.x,this.size.y);
