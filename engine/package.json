@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.14.1",
-    "@dimforge/rapier3d-compat": "0.21.0",
+    "@entropydrop/rapier3d-compat": "npm:@dimforge/rapier3d-compat@0.21.0",
     "acorn": "^8.18.0",
     "simplex-noise": "^4.0.3",
     "assemblyscript": "0.28.20",

@@ -1,4 +1,4 @@
-import type * as Rapier from '@dimforge/rapier3d-compat';
+import type * as Rapier from '@entropydrop/rapier3d-compat';
 import { Vector3 } from 'three';
 import type { Contraption } from '../contraption/Contraption.ts';
 import type { EntityRigidBody } from '../contraption/EntityTypes.ts';
@@ -290,20 +290,23 @@ export class RapierContraptionPhysics extends ContraptionPhysics {
 
   private updateShape(resident: Resident, slot: Shape, source: readonly CollisionBox[], body: EntityRigidBody) {
     if (slot.source === source) return false;
-    slot.source = source;
     const boxes = source.filter(box => box.entityId === body.id);
     const previous = slot.boxes;
-    slot.boxes = boxes;
     if (previous.length === boxes.length && boxes.every((box, i) => {
       const old = previous[i];
       return box === old || (box.x === old.x && box.y === old.y && box.z === old.z
         && box.spanX === old.spanX && box.spanY === old.spanY && box.spanZ === old.spanZ);
-    })) return false;
+    })) {
+      slot.source = source;
+      return false;
+    }
     if (!boxes.length) {
       if (!slot.collider) return false;
       this.owners.delete(slot.collider.handle);
       this.physics.removeCollider(slot.collider, true);
       slot.collider = null;
+      slot.source = source;
+      slot.boxes = boxes;
       return true;
     }
     const shape = boxCompound(this.module, boxes.map(box => ({
@@ -319,6 +322,8 @@ export class RapierContraptionPhysics extends ContraptionPhysics {
         .setRestitution(body.restitution).setRestitutionCombineRule(Max), resident.rigid);
       this.owners.set(slot.collider.handle, resident);
     }
+    slot.source = source;
+    slot.boxes = boxes;
     return true;
   }
 

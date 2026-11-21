@@ -4,6 +4,7 @@ import type { PlayerPhysics } from '@entropydrop/space-engine/physics/PlayerPhys
 import type { ContraptionPhysics } from '@entropydrop/space-engine/physics/ContraptionPhysics.ts';
 import type { ContraptionManager } from '@entropydrop/space-engine/contraption/ContraptionManager.ts';
 import { portableEntityToRuntime } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
+import { preloadRapierPhysics } from '@entropydrop/space-engine/rapier/loadRapierPhysics.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import type { PlayerController } from '../engine/controls/PlayerController.ts';
 import { createCourse, createTank } from '../../tools/nature-tank/model.ts';
@@ -26,8 +27,7 @@ export const trialSpawn = { start_x_cm: (x + 1) * 100, start_y_cm: (y + 8) * 100
 export async function installPhysicsVehicleTrial(game: PhysicsTrialGame, mode: PhysicsTrialMode, course: PhysicsTrialCourse) {
   const started = performance.now();
   const candidate = mode === 'rapier' ? await import('./RapierVehiclePhysics.ts').then(async ({ RapierVehiclePhysics }) => {
-    const rapier = await import('@dimforge/rapier3d-compat');
-    await rapier.init();
+    const rapier = await preloadRapierPhysics();
     return new RapierVehiclePhysics(rapier, game.world,
       { minX: x - 6, maxX: x + 14, minY: y - 8, maxY: y + 12, minZ: z - 6, maxZ: z + 46 });
   }) : null;

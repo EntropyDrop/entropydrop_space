@@ -1,4 +1,4 @@
-import type * as Rapier from '@dimforge/rapier3d-compat';
+import type * as Rapier from '@entropydrop/rapier3d-compat';
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import type { EntityRigidBody } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
 import { ContraptionPhysics } from '@entropydrop/space-engine/physics/ContraptionPhysics.ts';
