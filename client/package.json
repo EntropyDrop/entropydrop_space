@@ -29,7 +29,6 @@
     "dev": "vite"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "0.21.0",
     "@entropydrop/space-engine": "file:../engine",
     "@iconify-json/pixelarticons": "^1.2.9",
     "@iconify/react": "^6.0.2",
@@ -41,6 +40,7 @@
     "three": "^0.183.2"
   },
   "devDependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

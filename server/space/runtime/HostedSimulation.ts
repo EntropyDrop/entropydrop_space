@@ -1,10 +1,11 @@
 import type { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
 import type { RuntimeVoxel } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
 import type { EntityStreamState } from '@entropydrop/space-engine/contraption/EntityStreaming.ts';
+import { loadRapierPhysics } from '@entropydrop/space-engine/rapier/loadRapierPhysics.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
 import { parseStoredTerrainDecoration, type TerrainDecoration } from '@entropydrop/space-engine/voxel/TerrainDecorationLayer.ts';
 import {
-  THREE, World, ContraptionManager, ContraptionPhysics,
+  THREE, World, ContraptionManager,
   portableEntityToRuntime, runtimeEntityToPortable, decodeInventoryResource, encodeInventoryResource,
   preloadAssemblyScriptRuntime,
   wrapX, wrapZ, wrapChunkX, wrapChunkZ, unwrapPeriodicNear, TORUS_SIZE_X, TORUS_SIZE_Z,
@@ -54,6 +55,7 @@ export class HostedSimulation {
 
   constructor(seed: number, terrainGeneratorVersion = 1) {
     this.world = new World(this.scene, seed, null, terrainGeneratorVersion, true);
+    this.world.useLiveMicroCollision();
     // No renderer, browser, terrain mesh builds or local-storage timers are started.
     const originalCreate = this.world.getOrCreateChunk.bind(this.world);
     this.world.getOrCreateChunk = (cx, cz) => {
@@ -166,7 +168,6 @@ export class HostedSimulation {
     } as any;
     const manager = new ContraptionManager(this.scene, this.world, null, null);
     manager.setWorldIdentity({ id: input.world_id, slug: input.world_slug, name: input.world_name });
-    manager.setPhysics(new ContraptionPhysics(this.world));
     manager.entityPersistenceMode = 'remote';
     manager.setRuntimeContextProvider(() => ({
       messages: {
@@ -181,7 +182,12 @@ export class HostedSimulation {
     manager.syncContraptionsToLoadedChunks = () => {};
     const hosted = new Map<string, any>();
     const faults: any[] = [];
+    let physics: Awaited<ReturnType<typeof loadRapierPhysics>> | undefined;
     try {
+      // Each candidate starts from its input checkpoint. Keep colliders resident
+      // during the batch and discard native solver state even if it is retried.
+      physics = await loadRapierPhysics(this.world);
+      manager.setPhysics(physics);
       for (const item of input.entities) {
         const portable = decodeInventoryResource(Buffer.from(item.definition_base64, 'base64'), 'entity').portable;
         const slot = portableEntityToRuntime(portable);
@@ -296,9 +302,13 @@ export class HostedSimulation {
       });
       return { entities: results, mutations: this.mutations, messages: this.outboundMessages, faults: [] };
     } finally {
-      for (const c of [...manager.contraptions]) manager.removeContraption(c, { skipSave: true, skipRemoteDelete: true });
-      this.world.dirtyChunks.clear();
-      this.world.editPersistence = null;
+      try {
+        for (const c of [...manager.contraptions]) manager.removeContraption(c, { skipSave: true, skipRemoteDelete: true });
+      } finally {
+        physics?.dispose();
+        this.world.dirtyChunks.clear();
+        this.world.editPersistence = null;
+      }
     }
   }
 }

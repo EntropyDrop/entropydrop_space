@@ -43,7 +43,7 @@ import { onlinePanelSettingsTab } from './bootstrap/SpaceSiteLinks.ts';
 import { captureTutorialLevel, tutorialDestination, type TutorialLevel } from './bootstrap/TutorialLevel.ts';
 import { rememberSpacePlayerName } from './bootstrap/SpacePlayerName.ts';
 import { configureTutorialTerrain } from './bootstrap/TutorialTerrain.ts';
-import { loadRapierPhysics } from './physics/loadRapierPhysics.ts';
+import { loadRapierPhysics } from '@entropydrop/space-engine/rapier/loadRapierPhysics.ts';
 
 logConsoleSecurityWarning();
 

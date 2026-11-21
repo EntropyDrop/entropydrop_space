@@ -7,7 +7,7 @@ import { TORUS_SIZE_X } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { Chunk } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
-import { loadRapierPhysics } from '../src/physics/loadRapierPhysics.ts';
+import { loadRapierPhysics } from '@entropydrop/space-engine/rapier/loadRapierPhysics.ts';
 
 const block = (localX: number) => ({ localX, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK });
 const dt = 1 / 20;

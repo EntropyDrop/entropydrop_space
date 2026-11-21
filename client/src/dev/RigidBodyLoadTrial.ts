@@ -3,7 +3,7 @@ import { BodyType, Contraption } from '@entropydrop/space-engine/contraption/Con
 import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import type { PhysicsTrialGame, PhysicsTrialMode } from './PhysicsVehicleTrial.ts';
 import { interceptMethod } from './FrameDiagnostics.ts';
-import { loadRapierPhysics } from '../physics/loadRapierPhysics.ts';
+import { loadRapierPhysics } from '@entropydrop/space-engine/rapier/loadRapierPhysics.ts';
 
 type RigidBodyLoadLayout = 'spread' | 'stack' | 'stack-agitated';
 const floor = { x: 5370, y: 64, z: 812, size: 44 };

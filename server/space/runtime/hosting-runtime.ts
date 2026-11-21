@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 import { HostedSimulation } from './HostedSimulation.ts';
 import { preloadAssemblyScriptRuntime } from '@entropydrop/space-engine';
+import { preloadRapierPhysics } from '@entropydrop/space-engine/rapier/loadRapierPhysics.ts';
 import { getTerrainKernels } from '@entropydrop/space-engine/wasm/TerrainKernels.ts';
 
 // Private, local pipe protocol. Guest AssemblyScript compiles to bounded native WASM.
@@ -17,7 +18,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       if (process.env.SPACE_TERRAIN_BACKEND !== 'js' && !getTerrainKernels()) {
         throw new Error('Terrain WASM unavailable in hosting runtime');
       }
-      await preloadAssemblyScriptRuntime();
+      await Promise.all([preloadAssemblyScriptRuntime(), preloadRapierPhysics()]);
       process.stdout.write('{"ready":true}\n');
       continue;
     }

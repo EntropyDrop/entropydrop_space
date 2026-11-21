@@ -284,6 +284,7 @@ export class World {
   private rayFlatPoint: THREE.Vector3;
   /** Bumped on any block/micro-voxel mutation — lets caches (e.g. minimap) know terrain changed. */
   terrainVersion: number;
+  private liveMicroCollision = false;
   private terrainDataWindow: { centerChunkX: number; centerChunkZ: number; radiusChunks: number; radiusChunksZ: number } | null = null;
 
   /** Online detail must not replace far LOD outside the authoritative snapshot
@@ -1199,8 +1200,12 @@ export class World {
     return this.microVoxels.parts.get(`${wrapMicroX(mx)},${my},${wrapMicroZ(mz)}`) ?? null;
   }
 
-  /** Read only micro occupancy represented by an already-published terrain view. */
+  /** Headless hosts apply authoritative terrain without publishing render meshes. */
+  useLiveMicroCollision() { this.liveMicroCollision = true; }
+
+  /** Read from the collision view selected by the host. */
   getMicroCollisionBlock(mx: number, my: number, mz: number) {
+    if (this.liveMicroCollision) return this.getMicroBlock(mx, my, mz);
     mx = wrapMicroX(mx);
     mz = wrapMicroZ(mz);
     if (!this.isMicroCollisionReady(mx, mz)) return null;
@@ -1358,6 +1363,7 @@ export class World {
   }
 
   raycastMicroCollision(origin: THREE.Vector3, direction: THREE.Vector3, maxDistance = 10) {
+    if (this.liveMicroCollision) return this.raycastMicro(origin, direction, maxDistance, false);
     return this.microVoxels.raycast(
       origin,
       direction,
@@ -1382,6 +1388,7 @@ export class World {
   }
 
   getMicroCollisionBoxesInAABB(aabb: CollisionBounds) {
+    if (this.liveMicroCollision) return this.microVoxels.getCollisionBoxesInAABB(aabb);
     return this.microVoxels.getCollisionBoxesInAABB(aabb, true,
       (mx: number, mz: number) => this.isMicroCollisionReady(mx, mz));
   }
@@ -1394,9 +1401,11 @@ export class World {
         const x = wrapChunkX(cx), z = wrapChunkZ(cz);
         const key = World.getChunkKey(x, z);
         const chunk = this.getChunk(x, z);
+        const microRevision = this.liveMicroCollision ? [this.microVoxels.getChunkRevision(x, z)]
+          : this.microVoxels.getCollisionStamp(x, z);
         stamp.push(key, chunk, chunk?.dataVersion, chunk?.publishedDataVersion,
           !!chunk?.mesh, this.activeChunkKeys.has(key),
-          ...this.microVoxels.getCollisionStamp(cx, cz), this.terrainDecorationCollision.stamp(cx, cz));
+          ...microRevision, this.terrainDecorationCollision.stamp(x, z));
       }
     }
     return stamp;
@@ -1405,11 +1414,8 @@ export class World {
   getMicroBlocksInAABB(aabb: CollisionBounds, collisionReadyOnly?: false): ReturnType<MicroVoxelLayer['getCellsInAABB']>;
   getMicroBlocksInAABB(aabb: CollisionBounds, collisionReadyOnly: boolean): ReturnType<MicroVoxelLayer['getPublishedCollisionCellsInAABB']>;
   getMicroBlocksInAABB(aabb: CollisionBounds, collisionReadyOnly = false) {
-    const cells = collisionReadyOnly
-      ? this.microVoxels.getPublishedCollisionCellsInAABB(aabb)
-      : this.microVoxels.getCellsInAABB(aabb);
-    if (!collisionReadyOnly) return cells;
-    return cells.filter(cell => this.isMicroCollisionReady(
+    if (!collisionReadyOnly || this.liveMicroCollision) return this.microVoxels.getCellsInAABB(aabb);
+    return this.microVoxels.getPublishedCollisionCellsInAABB(aabb).filter(cell => this.isMicroCollisionReady(
       Math.round(cell.x * MICRO_DIVISIONS),
       Math.round(cell.z * MICRO_DIVISIONS),
     ));

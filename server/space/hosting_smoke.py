@@ -14,20 +14,23 @@ async def main():
     try:
         assert await runtime.step({"probe": True}) == {"ready": True}
         definition = encode_inventory_resource("entity", {
-            "type": "space-entity", "version": 8, "root": {"name": "Hosting smoke", "id": "root", "body": {"type": "dynamic", "useGravity": False},
+            "type": "space-entity", "version": 8, "root": {"name": "Hosting smoke", "id": "root", "body": {"type": "dynamic", "useGravity": True},
                 "blocks": [{"dx": 0, "dy": 0, "dz": 0, "block": 1, "color": 123}],
-                "script": 'self.state.setNumber("ticks", self.state.getNumber("ticks") + 1);',
+                "script": 'self.state.setNumber("ticks", self.state.getNumber("ticks") + 1); '
+                          'self.state.setBoolean("grounded", ctx.isOnGround);',
                 "scriptLanguage": "assemblyscript",
                 "children": [], "seats": []}, "constraints": []})
         payload = {"world_id": "smoke", "seed": 1337, "terrain_generator_version": 1, "steps": 20,
             "entities": [{"id": "smoke-entity", "running": True, "position": [80, 220, 80],
                 "anchor": [80, 80], "yaw_quarter_turns": 0, "snapshot": None,
                 "definition_base64": base64.b64encode(definition).decode()}],
-            "chunks": [{"chunk_x": 5, "chunk_z": 5, "revision": 0, "standard": [], "micro": []}]}
+            "chunks": [{"chunk_x": 5, "chunk_z": 5, "revision": 0, "standard": [[80, 217, 80, 1, 123]], "micro": []}]}
         result = await runtime.step(payload)
         assert not result.get("faults") and not result.get("error"), result
         snapshot = result["entities"][0]["snapshot"]
         assert snapshot["states"]["root"]["ticks"] == 20
+        assert snapshot["states"]["root"]["grounded"] is True
+        assert abs(snapshot["position"][1] - 218.5) < 0.025
         restored = decode_inventory_resource(base64.b64decode(result["entities"][0]["definition_base64"]))[1]
         assert "name" not in restored and restored["root"]["name"] == "Hosting smoke"
         payload["entities"][0]["snapshot"] = snapshot
@@ -37,9 +40,10 @@ async def main():
         result = await runtime.step(payload)
         assert not result.get("faults") and not result.get("error"), result
         assert result["entities"][0]["snapshot"]["states"]["root"]["ticks"] == 40
+        assert abs(result["entities"][0]["snapshot"]["position"][1] - 218.5) < 0.025
         restored = decode_inventory_resource(base64.b64decode(result["entities"][0]["definition_base64"]))[1]
         assert restored["root"]["name"] == "Hosting smoke"
-        print("Hosted runtime: terrain WASM, offline execution and process-restart recovery passed")
+        print("Hosted runtime: terrain WASM, Rapier collision and process-restart recovery passed")
     finally:
         await runtime.close()
 

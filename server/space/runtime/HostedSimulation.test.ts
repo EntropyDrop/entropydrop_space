@@ -7,6 +7,7 @@ import {
 } from '@entropydrop/space-engine/storage/InventoryProtobuf.ts';
 import { HostedSimulation } from './HostedSimulation.ts';
 import { EntityScriptRuntimeClient } from '@entropydrop/space-engine/scripting/EntityScriptRuntime.ts';
+import { RapierContraptionPhysics } from '@entropydrop/space-engine/rapier/RapierContraptionPhysics.ts';
 
 const SOURCE_ID = '10000000-0000-4000-8000-000000000001';
 const TARGET_ID = '10000000-0000-4000-8000-000000000002';
@@ -73,6 +74,90 @@ test('hosted physics collides with terrain decorations from the chunk snapshot',
   assert.ok(Math.abs(resting - 216.125) < 0.02, `the entity rests on the plate, y=${resting}`);
   const falling = await fall([]);
   assert.ok(falling < 215.5, `without the decoration the entity falls past it, y=${falling}`);
+});
+
+test('hosted Rapier steps live micro terrain and restores a checkpoint after the floor is removed', async t => {
+  const dispose = t.mock.method(RapierContraptionPhysics.prototype, 'dispose');
+  const input: any = inputFor(`
+    if (ctx.contacts.length > 0) {
+      const contact = ctx.contacts.at(0);
+      self.state.setString("contact", contact.getString("kind"));
+      self.state.setVector("point", contact.get("position").asVector());
+    }
+  `, 20);
+  const actor = input.entities[0];
+  actor.position = [82, 220, 82];
+  const resource: any = decodeInventoryResource(Buffer.from(actor.definition_base64, 'base64'), 'entity').portable;
+  resource.root.body = { type: 'dynamic', useGravity: true };
+  actor.definition_base64 = Buffer.from(encodeInventoryResource('entity', resource)).toString('base64');
+  for (let mx = 648; mx < 672; mx++) for (let mz = 648; mz < 672; mz++) {
+    input.chunks[0].micro.push([mx, 215 * 8, mz, 0x808080]);
+  }
+
+  const simulation = new HostedSimulation(1337);
+  const first: any = await simulation.step(input);
+  assert.deepEqual(first.faults, []);
+  const entity = first.entities[0];
+  const y = entity.snapshot.position[1];
+  assert.ok(Math.abs(y - 215.625) < 0.025, `body height on the microvoxel floor ${y}`);
+  assert.equal(entity.snapshot.states.root.contact, 'terrain');
+  assert.ok(Math.abs(entity.snapshot.states.root.point[1] - 215.125) < 0.05);
+  assert.equal(entity.elapsed_ms, 1000);
+  assert.equal(entity.poses.length, 20);
+
+  const retried: any = await simulation.step(input);
+  assert.deepEqual(retried.faults, []);
+  assert.deepEqual(retried.entities[0].poses, entity.poses, 'retrying starts with clean solver state');
+  assert.deepEqual(retried.entities[0].snapshot.states, entity.snapshot.states);
+  assert.deepEqual(retried.mutations, first.mutations);
+
+  actor.definition_base64 = entity.definition_base64;
+  actor.snapshot = entity.snapshot;
+  input.steps = 6;
+  input.chunks[0].revision++;
+  input.chunks[0].micro = [];
+  const resumed: any = await simulation.step(input);
+  assert.deepEqual(resumed.faults, []);
+  assert.ok(resumed.entities[0].snapshot.position[1] < y - 0.5);
+  assert.equal(resumed.entities[0].elapsed_ms, 300);
+  assert.deepEqual(dispose.mock.calls.map(call => (call.this as RapierContraptionPhysics).counts.steps), [60, 60, 18]);
+});
+
+test('a hosted script clearing micro terrain invalidates the resident Rapier floor in the same batch', async () => {
+  const input: any = inputFor(`
+    if (ctx.isOnGround && !self.state.getBoolean("cleared")) {
+      const result = ctx.world.voxels.clearCell([82, 215, 82]);
+      self.state.setBoolean("cleared", result.getBoolean("ok"));
+    }
+  `, 20);
+  const actor = input.entities[0];
+  actor.position = [82, 216, 82];
+  const resource: any = decodeInventoryResource(Buffer.from(actor.definition_base64, 'base64'), 'entity').portable;
+  resource.root.body = { type: 'dynamic', useGravity: true };
+  actor.definition_base64 = Buffer.from(encodeInventoryResource('entity', resource)).toString('base64');
+  for (let mx = 656; mx < 664; mx++) for (let mz = 656; mz < 664; mz++) {
+    input.chunks[0].micro.push([mx, 215 * 8, mz, 0x808080]);
+  }
+  const result: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(result.faults, []);
+  assert.equal(result.entities[0].snapshot.states.root.cleared, true);
+  assert.ok(result.mutations.some((mutation: any) => mutation.kind === 'clear_micro_cell'));
+  assert.ok(result.entities[0].snapshot.position[1] < 214.9);
+});
+
+test('hosted Rapier keeps constrained bodies on the compatible Space solver', async t => {
+  const dispose = t.mock.method(RapierContraptionPhysics.prototype, 'dispose');
+  const input = inputFor('self.applyForce([0, -100, 0]);', 10);
+  const actor = input.entities[0];
+  const resource: any = decodeInventoryResource(Buffer.from(actor.definition_base64, 'base64'), 'entity').portable;
+  resource.constraints = [{ id: 'anchor', type: 'point', bodyA: null, bodyB: 'root',
+    anchorA: [80.5, 220.5, 80.5], anchorB: [0, 0, 0], stiffness: 1 }];
+  actor.definition_base64 = Buffer.from(encodeInventoryResource('entity', resource)).toString('base64');
+  const result: any = await new HostedSimulation(1337).step(input);
+  assert.deepEqual(result.faults, []);
+  assert.equal(result.entities[0].stopped, false);
+  assert.ok(Math.abs(result.entities[0].snapshot.position[1] - 220.5) < 0.01);
+  assert.deepEqual(dispose.mock.calls.map(call => (call.this as RapierContraptionPhysics).counts.steps), [0]);
 });
 
 test('hosted AssemblyScript restores typed state across transaction batches', async () => {

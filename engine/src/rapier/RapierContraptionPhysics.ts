@@ -1,10 +1,11 @@
 import type * as Rapier from '@dimforge/rapier3d-compat';
-import { BodyType, type Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
-import type { EntityRigidBody } from '@entropydrop/space-engine/contraption/EntityTypes.ts';
-import { ContraptionPhysics } from '@entropydrop/space-engine/physics/ContraptionPhysics.ts';
-import { collisionBoundsOverlap, type CollisionBounds, type CollisionBox } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
-import { MICRO_SIZE } from '@entropydrop/space-engine/voxel/MicroGrid.ts';
-import type { World } from '@entropydrop/space-engine/voxel/World.ts';
+import { Vector3 } from 'three';
+import type { Contraption } from '../contraption/Contraption.ts';
+import type { EntityRigidBody } from '../contraption/EntityTypes.ts';
+import { ContraptionPhysics } from '../physics/ContraptionPhysics.ts';
+import { collisionBoundsOverlap, type CollisionBounds, type CollisionBox } from '../physics/CollisionGeometry.ts';
+import { MICRO_SIZE } from '../voxel/MicroGrid.ts';
+import type { World } from '../voxel/World.ts';
 import { boxCompound, canPublishTerrain, identity, RapierTerrain, toLocal, zero, type RapierModule } from './RapierTerrain.ts';
 
 type Frame = NonNullable<ReturnType<ContraptionPhysics['prepareContraptionFrame']>>;
@@ -20,6 +21,7 @@ type Resident = {
   settings: number[];
 };
 type Route = { body: EntityRigidBody; frame: Frame | undefined; bounds: CollisionBounds };
+type Contact = { point: Rapier.Vector; normal: Rapier.Vector; distance: number; impulse: number };
 const emptyShape = (): Shape => ({ source: null, boxes: [], collider: null });
 const noPairs: PairFrame = { colliders: [], collisionCandidates: [] };
 const originGrid = 128;
@@ -32,7 +34,7 @@ function sameRotation(a: Rapier.Rotation, b: Rapier.Rotation) {
   return sameVector(a, b) && a.w === b.w;
 }
 
-/** Browser contraption solver. A fixed update is routed after scripts and before
+/** Shared contraption solver. A fixed update is routed after scripts and before
  * the first substep so contacts between nearby entities have a single owner. */
 export class RapierContraptionPhysics extends ContraptionPhysics {
   private readonly module: RapierModule;
@@ -54,6 +56,9 @@ export class RapierContraptionPhysics extends ContraptionPhysics {
   }
 
   get terrainRebuilds() { return this.terrain.rebuilt; }
+
+  /** The host owns the lifetime of the native world and all of its colliders. */
+  dispose() { this.physics.free(); }
 
   override beginEntityUpdate(entities: Contraption[]) {
     super.beginEntityUpdate(entities);
@@ -322,7 +327,9 @@ export class RapierContraptionPhysics extends ContraptionPhysics {
     if (frame !== this.dynamic[0]?.route.frame) return;
     this.physics.step();
     this.counts.steps++;
-    for (const { route, resident } of this.dynamic) this.publishContacts(route.body, resident);
+    const { normalizedAllowedLinearError, lengthUnit } = this.physics.integrationParameters;
+    const contactTolerance = normalizedAllowedLinearError * lengthUnit;
+    for (const { route, resident } of this.dynamic) this.publishContacts(route.body, resident, contactTolerance);
     for (const { route, resident } of this.dynamic) {
       const { body } = route;
       const { rigid, entity } = resident;
@@ -336,31 +343,59 @@ export class RapierContraptionPhysics extends ContraptionPhysics {
     }
   }
 
-  private publishContacts(body: EntityRigidBody, resident: Resident) {
+  private publishContacts(body: EntityRigidBody, resident: Resident, contactTolerance: number) {
     const sleeping = resident.rigid.isSleeping();
-    for (const { collider } of [resident.voxel, resident.decoration]) {
+    for (const { collider, boxes } of [resident.voxel, resident.decoration]) {
       if (!collider) continue;
       this.physics.contactPairsWith(collider, other => {
         const owner = this.owners.get(other.handle);
         if (owner === resident) return;
+        let geometric: Contact | null = null;
+        let reportedSolverContact = false;
         this.physics.contactPair(collider, other, (manifold, flipped) => {
-          if (!manifold.numSolverContacts()) return;
-          const p = manifold.solverContactPoint(0), n = manifold.normal();
-          if (!p) return;
           const sign = flipped ? 1 : -1;
-          body.isOnGround ||= n.y * sign > 0.55;
-          const relative = owner ? owner.entity.velocity.clone().sub(body.velocity) : body.velocity;
-          resident.entity.recordScriptContact({
-            kind: owner ? 'entity' : 'terrain', selfNodeId: body.id,
-            otherEntityId: owner?.entity.publicId ?? null, otherNodeId: owner?.nodeId ?? null, playerId: null,
-            position: [p.x + this.origin.x, p.y + this.origin.y, p.z + this.origin.z],
-            normal: [sign * n.x, sign * n.y, sign * n.z], relativeVelocity: relative.toArray(),
-            penetration: Math.max(0, -manifold.solverContactDist(0)),
-            impulse: sleeping || !manifold.numContacts() ? 0 : manifold.contactImpulse(0),
-          });
+          const n = manifold.normal();
+          const normal = { x: n.x * sign, y: n.y * sign, z: n.z * sign };
+          const solverPoint = manifold.numSolverContacts() ? manifold.solverContactPoint(0) : null;
+          if (solverPoint) {
+            reportedSolverContact = true;
+            this.recordContact(body, resident, owner, { point: solverPoint, normal,
+              distance: manifold.solverContactDist(0), impulse: manifold.numContacts() ? manifold.contactImpulse(0) : 0 }, sleeping);
+            return;
+          }
+          // Compound contact clustering can leave only geometric contacts in the
+          // exposed manifold. Keep support and report the deepest of those points.
+          for (let i = 0, count = manifold.numContacts(); i < count; i++) {
+            const distance = manifold.contactDist(i);
+            if (distance > contactTolerance) continue;
+            body.isOnGround ||= normal.y > 0.55;
+            if (reportedSolverContact || (geometric && geometric.distance <= distance)) continue;
+            const box = boxes[flipped ? manifold.subshape2() : manifold.subshape1()];
+            const local = flipped ? manifold.localContactPoint2(i) : manifold.localContactPoint1(i);
+            if (!box || !local) continue;
+            const point = new Vector3(local.x + (box.x + box.spanX / 2) * MICRO_SIZE,
+              local.y + (box.y + box.spanY / 2) * MICRO_SIZE, local.z + (box.z + box.spanZ / 2) * MICRO_SIZE)
+              .applyQuaternion(collider.rotation()).add(collider.translation());
+            geometric = { point, normal, distance, impulse: manifold.contactImpulse(i) };
+          }
         });
+        if (!reportedSolverContact && geometric) this.recordContact(body, resident, owner, geometric, sleeping);
       });
     }
+  }
+
+  private recordContact(body: EntityRigidBody, resident: Resident, owner: Resident | undefined, contact: Contact, sleeping: boolean) {
+    const { point, normal, distance, impulse } = contact;
+    body.isOnGround ||= normal.y > 0.55;
+    const relative = owner ? owner.entity.velocity.clone().sub(body.velocity) : body.velocity;
+    resident.entity.recordScriptContact({
+      kind: owner ? 'entity' : 'terrain', selfNodeId: body.id,
+      otherEntityId: owner?.entity.publicId ?? null, otherNodeId: owner?.nodeId ?? null, playerId: null,
+      position: [point.x + this.origin.x, point.y + this.origin.y, point.z + this.origin.z],
+      normal: [normal.x, normal.y, normal.z], relativeVelocity: sleeping ? [0, 0, 0] : relative.toArray(),
+      penetration: Math.max(0, -distance), impulse: sleeping ? 0 : impulse,
+      ...(sleeping ? { sleeping: true } : {}),
+    });
   }
 
   override finishContraptionFrame(frame: Frame | null) {

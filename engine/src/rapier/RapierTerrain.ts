@@ -1,7 +1,7 @@
 import type * as Rapier from '@dimforge/rapier3d-compat';
-import { mergeCollisionBoxes, type CollisionBounds } from '@entropydrop/space-engine/physics/CollisionGeometry.ts';
-import { CHUNK_SIZE_X, CHUNK_SIZE_Z } from '@entropydrop/space-engine/voxel/Chunk.ts';
-import type { World } from '@entropydrop/space-engine/voxel/World.ts';
+import { mergeCollisionBoxes, type CollisionBounds } from '../physics/CollisionGeometry.ts';
+import { CHUNK_SIZE_X, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
+import type { World } from '../voxel/World.ts';
 
 export type RapierModule = typeof Rapier;
 export const zero = { x: 0, y: 0, z: 0 };
