@@ -73,6 +73,8 @@ test('Space validates the bootstrap V2 contract before constructing the game', (
   };
 
   assert.equal(parseSpaceBootstrapPayload(payload), payload);
+  assert.equal(parseSpaceBootstrapPayload({ ...payload, max_online_players: 100 }).max_online_players, 100);
+  assert.throws(() => parseSpaceBootstrapPayload({ ...payload, max_online_players: 101 }), /API V2/);
   assert.throws(() => parseSpaceBootstrapPayload({ ...payload, protocol_version: 3 }), /API V2/);
   assert.throws(() => parseSpaceBootstrapPayload({
     ...payload,

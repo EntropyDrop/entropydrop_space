@@ -27,6 +27,12 @@ Set `DATABASE_URL`, `REDIS_URL`, `SPACE_ACCOUNT_API_URL`,
 The internal account endpoint requires the same service token on both sides.
 `SPACE_STANDALONE=false` is rejected. Paid hosting remains opt-in.
 
+Set `SPACE_DEV_MAX_ONLINE_PLAYERS=100` on the Space API for same-world development
+tests with 100 concurrent players. The optional setting overrides admission and
+the capacity reported to clients in `development`, `dev`, and `local`. Restart
+the API and use the updated client. Other environments use the stored capacity
+with a ceiling of 32. No schema migration is required.
+
 The existing migration chain and table names are preserved. Run
 `python -m alembic -c space/alembic.ini upgrade head` before starting the updated API
 and hosting workers. `space_0010` admits unified Item market resources while

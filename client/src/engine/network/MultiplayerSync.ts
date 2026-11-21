@@ -1,6 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack';
 import {
   DEFAULT_PLAYER_SKIN_URL,
+  MAX_SPACE_ONLINE_PLAYERS,
   encodePlayerPosition,
   terrainStreamAreaForPosition,
 } from '../../bootstrap/SpaceBootstrap.ts';
@@ -53,7 +54,6 @@ const IDLE_POSE_INTERVAL_MS = 1000;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 64 * 1024;
 const MAX_REALTIME_MESSAGE_BYTES = 1024 * 1024;
 const MAX_REALTIME_API_RESPONSE_BYTES = 16 * 1024 * 1024;
-const MAX_REMOTE_PLAYERS = 32;
 
 export function resolveWebSocketUrl(configuredUrl: string, apiOrigin: string) {
   const apiUrl = new URL(apiOrigin);
@@ -78,7 +78,7 @@ export function resolveWebSocketUrl(configuredUrl: string, apiOrigin: string) {
 export function parseRealtimePlayers(value: unknown, currentUserId: string): RemotePlayerInfo[] {
   if (!Array.isArray(value)) return [];
   const players: RemotePlayerInfo[] = [];
-  for (const raw of value.slice(0, MAX_REMOTE_PLAYERS)) {
+  for (const raw of value.slice(0, MAX_SPACE_ONLINE_PLAYERS)) {
     const player = raw as Record<string, unknown>;
     const userId = typeof player?.user_id === 'string' ? player.user_id.slice(0, 128) : '';
     const playerEntityId = typeof player?.player_entity_id === 'string'
@@ -274,7 +274,7 @@ export class MultiplayerSync {
         throw new Error('Space terrain synchronization returned invalid JSON');
       }
       if (includePlayers && Array.isArray(data?.players)) {
-        this.onPlayersUpdate?.(data.players.slice(0, MAX_REMOTE_PLAYERS));
+        this.onPlayersUpdate?.(data.players.slice(0, MAX_SPACE_ONLINE_PLAYERS));
       }
       if (Array.isArray(data?.terrain_chunks) && data.terrain_chunks.length > 0) {
         this.onTerrainUpdate?.(data.terrain_chunks.slice(0, 512));

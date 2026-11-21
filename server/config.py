@@ -1,6 +1,6 @@
 """Space-only settings. This process cannot open the account database or sign login JWTs."""
 import os
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     SPACE_OUTBOUND_PROXY_URL: str = ""
     SPACE_ACCOUNT_SERVICE_TOKEN: str = ""
     SPACE_IDENTITY_CACHE_SECONDS: int = 30
+    SPACE_DEV_MAX_ONLINE_PLAYERS: int | None = Field(default=None, ge=1, le=100)
     SPACE_PUBLIC_API_URL: str = ""
     SPACE_OBJECT_DIR: str = "/var/lib/space/objects"
     SPACE_JOIN_TICKET_SECRET: str = ""

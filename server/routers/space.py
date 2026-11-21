@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, defer
 from space import auth
 from space import models
 from space.decorations import MAX_TERRAIN_DECORATIONS_PER_CHUNK, normalize_terrain_decoration
-from space.worlds import find_world_spec, world_identity
+from space.worlds import DEFAULT_WORLD_PLAYER_CAPACITY, find_world_spec, world_identity, world_player_capacity
 import space_surface
 from config import settings
 from space.database import get_db
@@ -665,7 +665,7 @@ def _get_or_create_world(
         name=name,
         seed=seed,
         terrain_generator_version=terrain_generator_version,
-        max_online_players=32,
+        max_online_players=DEFAULT_WORLD_PLAYER_CAPACITY,
     )
     db.add(world)
     try:
@@ -799,7 +799,7 @@ def get_space_public_status(
     world = db.query(models.SpaceWorld).filter(
         models.SpaceWorld.id == default_world_id,
     ).first()
-    max_online_players = max(1, min(32, int(world.max_online_players))) if world else 32
+    max_online_players = world_player_capacity(world.max_online_players) if world else world_player_capacity()
     online_players = 0
     if world is not None:
         cutoff = now - datetime.timedelta(seconds=SPACE_ONLINE_PRESENCE_SECONDS)
@@ -844,7 +844,7 @@ def bootstrap_space(
 
     return {
         "protocol_version": 2,
-        "max_online_players": min(32, world.max_online_players),
+        "max_online_players": world_player_capacity(world.max_online_players),
         "queue_enabled": True,
         "websocket_url": settings.SPACE_WS_URL,
         "world": {

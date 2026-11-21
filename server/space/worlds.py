@@ -3,6 +3,15 @@ from dataclasses import dataclass
 
 from config import settings
 
+DEFAULT_WORLD_PLAYER_CAPACITY = 32
+
+
+def world_player_capacity(stored_capacity: int = DEFAULT_WORLD_PLAYER_CAPACITY) -> int:
+    dev_capacity = settings.SPACE_DEV_MAX_ONLINE_PLAYERS
+    if dev_capacity is not None and settings.ENVIRONMENT.strip().lower() in {"dev", "development", "local"}:
+        return dev_capacity
+    return max(1, min(DEFAULT_WORLD_PLAYER_CAPACITY, stored_capacity))
+
 
 @dataclass(frozen=True)
 class WorldSpec:

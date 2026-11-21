@@ -34,6 +34,7 @@
     "bench:physics": "node engine/tools/benchmark-physics.ts --compare-kernels",
     "bench:entity-runtime": "node --import ./engine/test/setup.ts engine/tools/benchmark-entity-runtime.ts",
     "test": "npm test --workspace @entropydrop/space",
+    "test:e2e": "playwright test --config client/playwright.config.ts",
     "generate:protobuf": "node tools/generate-protobuf.mjs",
     "check:protobuf": "node tools/generate-protobuf.mjs --check",
     "docs:generate": "node tools/generate-api-docs.ts",
@@ -48,6 +49,7 @@
     "bench:physics-solver": "node --import ./engine/test/setup.ts tools/benchmark-physics-solver.ts"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "assemblyscript": "0.28.20",
     "ts-proto": "2.12.1"
   }

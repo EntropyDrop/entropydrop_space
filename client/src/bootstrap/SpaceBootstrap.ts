@@ -48,6 +48,7 @@ export const TERRAIN_STREAM_PAGE_SIZE = 64;
 export const TERRAIN_STREAM_HYSTERESIS_CHUNKS = 1.5;
 export const TERRAIN_STREAM_SWITCH_DEBOUNCE_MS = 500;
 export const MAX_SKIN_PNG_BYTES = 256 * 1024;
+export const MAX_SPACE_ONLINE_PLAYERS = 100;
 const MAX_SPACE_API_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_TERRAIN_PAGE_BYTES = 16 * 1024 * 1024;
 
@@ -66,7 +67,7 @@ export const DEFAULT_PLAYER_SKIN_URL = new URL('../../skin_D2A9EB7A.png', import
 
 export interface SpaceBootstrapPayload {
   protocol_version: 2;
-  max_online_players: 32;
+  max_online_players: number;
   queue_enabled: true;
   websocket_url: string;
   world: {
@@ -123,7 +124,7 @@ export function parseSpaceBootstrapPayload(value: unknown): SpaceBootstrapPayloa
 
   if (
     payload?.protocol_version !== 2
-    || !isBoundedInteger(payload?.max_online_players, 1, 32)
+    || !isBoundedInteger(payload?.max_online_players, 1, MAX_SPACE_ONLINE_PLAYERS)
     || payload?.queue_enabled !== true
     || !isBoundedString(payload?.websocket_url, 2048)
     || !isBoundedString(world?.id, 128)

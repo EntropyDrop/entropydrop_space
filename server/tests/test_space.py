@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 from starlette.websockets import WebSocketDisconnect
 
+from config import settings
 from space.auth import get_current_user
 from space.main import app
 from rate_limit import limiter
@@ -284,6 +285,34 @@ def test_space_admission_queues_fifo_supports_cancel_and_promotes(client, db, mo
     app.dependency_overrides[get_current_user] = lambda: second_user
     promoted = client.post(f"/space/api/v2/worlds/{world_id}/admission")
     assert promoted.json() == {"state": "admitted", "position": None, "poll_after_ms": 2000}
+
+
+def test_space_development_player_capacity_reaches_bootstrap_and_admission(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    monkeypatch.setattr(settings, "SPACE_DEV_MAX_ONLINE_PLAYERS", 100)
+    user = _user(db, "dev-space-player", None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    bootstrap = client.post("/space/api/v2/bootstrap").json()
+    world_id = bootstrap["world"]["id"]
+    assert bootstrap["max_online_players"] == 100
+    assert client.get("/space/api/v2/status").json()["max_online_players"] == 100
+
+    capacities = []
+
+    def admit(*args):
+        capacities.append(args[-1])
+        return [1, 0]
+
+    monkeypatch.setattr(space_realtime._ticket_redis, "eval", admit)
+    assert client.post(f"/space/api/v2/worlds/{world_id}/admission").json()["state"] == "admitted"
+    assert client.post(f"/space/api/v2/worlds/{world_id}/join-ticket").status_code == 200
+    assert capacities == [100, 100]
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    assert client.post("/space/api/v2/bootstrap").json()["max_online_players"] == 32
+    assert client.get("/space/api/v2/status").json()["max_online_players"] == 32
+    assert client.post(f"/space/api/v2/worlds/{world_id}/admission").json()["state"] == "admitted"
+    assert capacities[-1] == 32
 
 
 def test_space_realtime_ticket_and_binary_pose_stream(client, db, monkeypatch):

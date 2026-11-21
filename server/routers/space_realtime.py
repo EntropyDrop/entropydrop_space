@@ -25,6 +25,7 @@ from rate_limit import limiter, get_authenticated_or_remote_address
 from routers import space as space_api
 from space.entity_pose import MAX_ENTITY_POSE_BYTES, MAX_SESSION_ENTITY_POSES, parse_entity_pose, authorize_entity_poses, parse_hosted_trajectory
 from space.hosting_cores import MAX_HOSTING_CORES
+from space.worlds import world_player_capacity
 
 
 logger = logging.getLogger(__name__)
@@ -214,6 +215,7 @@ def _admission_keys(world_id: str) -> tuple[str, str, str, str]:
 
 
 def _request_admission(world_id: str, user_id: str, capacity: int) -> tuple[str, int | None]:
+    capacity = world_player_capacity(capacity)
     now = time.time()
     keys = _admission_keys(world_id)
     try:
@@ -225,7 +227,7 @@ def _request_admission(world_id: str, user_id: str, capacity: int) -> tuple[str,
             now,
             now + SPACE_ADMISSION_RESERVATION_SECONDS,
             now + SPACE_ADMISSION_QUEUE_LEASE_SECONDS,
-            max(1, min(32, int(capacity))),
+            capacity,
         )
         if isinstance(result, (list, tuple)) and len(result) >= 2:
             state = "admitted" if int(result[0]) == 1 else "queued"

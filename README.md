@@ -64,6 +64,55 @@ private development domain. Production is available at
 `https://space.entropydrop.com/?world=aether-archipelago`; `default` and an omitted
 selector enter Aether. Nature and Copper retain their existing identities and data.
 
+### Headless browser smoke test
+
+```sh
+npx playwright install --no-shell chromium
+npm run test:e2e
+```
+
+Playwright starts its own Vite server on `127.0.0.1:4174` and enters the local
+offline Copper fixture without an account. The test requires a working WebGPU
+adapter and checks that the game renders a frame and that the backpack opens and
+closes. On failure, the terminal lists the screenshot, browser log and trace
+under `.local/playwright-results/`. Open the trace with
+`npx playwright show-trace <path-to-trace.zip>`. To watch the same test in a
+browser window, run `npm run test:e2e -- --headed`. To use an installed Google
+Chrome, run
+`SPACE_E2E_USE_SYSTEM_CHROME=1 npm run test:e2e`.
+
+### Multiplayer test accounts
+
+Use the local account backend virtualenv to create 100 synthetic development
+accounts and export sessions for the players you need.
+
+```sh
+../entropydrop_backend/venv/bin/python tools/dev_space_accounts.py seed
+../entropydrop_backend/venv/bin/python tools/dev_space_accounts.py sessions --count 2
+```
+
+The roster is `Space Player 001` through `Space Player 100`. Run `seed` again
+to reuse their identities. Each exported session uses the regular account
+login and refresh credentials and needs no Google sign-in. Use `--first 41
+--count 3` to export players 041 through 043, or `--count 100` for the whole
+roster. The ignored `.local/space-test-accounts/` directory holds live credentials.
+
+Give each player a separate Playwright browser context and open the same world
+in both. The Mac account API and the Space development API must be running.
+
+```js
+const alice = await browser.newPage({ storageState: '.local/space-test-accounts/player-001.json' });
+const bob = await browser.newPage({ storageState: '.local/space-test-accounts/player-002.json' });
+const world = 'https://space-dev-908123.entropydrop.com/?world=copper-metropolis';
+await Promise.all([alice.goto(world), bob.goto(world)]);
+```
+
+For the integrated localhost frontend, export with `--local`, use the session
+files in `.local/space-test-accounts/localhost/`, and open
+`http://localhost:5173/space/app/?world=copper-metropolis`. To admit 100 players
+to the same world, set `SPACE_DEV_MAX_ONLINE_PLAYERS=100` on the development
+Space API and run the updated client. [Server configuration](server/README.md)
+
 ## Offline distribution for itch.io
 
 ```sh

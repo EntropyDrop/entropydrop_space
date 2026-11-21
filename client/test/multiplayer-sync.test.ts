@@ -47,10 +47,11 @@ test('realtime player parsing drops non-finite records and caps untrusted snapsh
   };
   const parsed = parseRealtimePlayers([
     { ...valid, x_cm: Number.NaN },
-    ...Array.from({ length: 40 }, (_, index) => ({ ...valid, user_id: `user-${index + 1}` })),
+    ...Array.from({ length: 110 }, (_, index) => ({ ...valid, user_id: `user-${index + 1}` })),
   ], 'user-2');
 
-  assert.equal(parsed.length, 31);
+  assert.equal(parsed.length, 99);
+  assert.equal(parsed.at(-1)?.user_id, 'user-99');
   assert.equal(parsed[0].username.length, 80);
   assert.equal(parsed[1].is_self, true);
   assert.deepEqual([parsed[0].x, parsed[0].y, parsed[0].z], [1, 2, 3]);
