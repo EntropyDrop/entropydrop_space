@@ -123,7 +123,7 @@ export function voxelizeDecoration(shape: DecorationShape, entityId: string,
   const boxes: CollisionBox[] = [];
   for (let a = a0; a <= a1; a++) {
     const offsetA = (a + 0.5) * size - center[scanA];
-    for (let b = b0; b <= b1; b++) {
+    column: for (let b = b0; b <= b1; b++) {
       const offsetB = (b + 0.5) * size - center[scanB];
       // Each slab |dot(p - c, axis)| <= half bounds the run coordinate.
       let low = -Infinity, high = Infinity;
@@ -131,7 +131,7 @@ export function voxelizeDecoration(shape: DecorationShape, entityId: string,
         const slope = axes[k][run];
         const offset = axes[k][scanA] * offsetA + axes[k][scanB] * offsetB;
         if (Math.abs(slope) < 1e-12) {
-          if (Math.abs(offset) > half[k] + EPSILON) { low = Infinity; break; }
+          if (Math.abs(offset) > half[k] + EPSILON) continue column;
           continue;
         }
         const first = (-half[k] - offset) / slope, second = (half[k] - offset) / slope;

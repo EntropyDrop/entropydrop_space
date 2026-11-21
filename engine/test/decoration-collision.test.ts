@@ -47,6 +47,20 @@ test('rotated decorations fill exactly the micro cells whose centres lie inside 
   assert.ok(boxes.length < 40, `runs merge into a staircase, got ${boxes.length} boxes`);
 });
 
+test('columns outside a rotated windscreen do not produce infinite collision bounds', () => {
+  const angle = 0.25;
+  const boxes = voxelizeDecoration({
+    position: [2.58, 3.19, 0],
+    scale: [0.058, 1.46, 2.36],
+    rotation: [0, 0, Math.sin(angle / 2), Math.cos(angle / 2)],
+  }, 'windscreen');
+  assert.ok(boxes.length > 0);
+  for (const { x, y, z, spanX, spanY, spanZ } of boxes) {
+    assert.ok([x, y, z, spanX, spanY, spanZ].every(Number.isFinite));
+    assert.ok(spanX > 0 && spanY > 0 && spanZ > 0);
+  }
+});
+
 test('thin rotated panels stay closed and huge ones coarsen within the run budget', () => {
   const angle = Math.PI / 6;
   const rotation = [0, 0, Math.sin(angle / 2), Math.cos(angle / 2)];

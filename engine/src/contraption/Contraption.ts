@@ -366,6 +366,27 @@ type NodeBlockBounds = Readonly<{
   size: readonly number[]; center: readonly number[];
 }>;
 
+/** An affine matrix reaches each world-axis extreme at a signed corner. */
+function projectCollisionBounds(local: CollisionBounds, matrix: THREE.Matrix4, out: CollisionBounds) {
+  const m = matrix.elements;
+  if (m[3] !== 0 || m[7] !== 0 || m[11] !== 0 || m[15] !== 1) {
+    const box = new THREE.Box3(
+      new THREE.Vector3(local.minX, local.minY, local.minZ),
+      new THREE.Vector3(local.maxX, local.maxY, local.maxZ),
+    ).applyMatrix4(matrix);
+    out.minX = box.min.x; out.minY = box.min.y; out.minZ = box.min.z;
+    out.maxX = box.max.x; out.maxY = box.max.y; out.maxZ = box.max.z;
+    return;
+  }
+  const { minX, minY, minZ, maxX, maxY, maxZ } = local;
+  out.minX = m[0] * (m[0] < 0 ? maxX : minX) + m[4] * (m[4] < 0 ? maxY : minY) + m[8] * (m[8] < 0 ? maxZ : minZ) + m[12];
+  out.maxX = m[0] * (m[0] < 0 ? minX : maxX) + m[4] * (m[4] < 0 ? minY : maxY) + m[8] * (m[8] < 0 ? minZ : maxZ) + m[12];
+  out.minY = m[1] * (m[1] < 0 ? maxX : minX) + m[5] * (m[5] < 0 ? maxY : minY) + m[9] * (m[9] < 0 ? maxZ : minZ) + m[13];
+  out.maxY = m[1] * (m[1] < 0 ? minX : maxX) + m[5] * (m[5] < 0 ? minY : maxY) + m[9] * (m[9] < 0 ? minZ : maxZ) + m[13];
+  out.minZ = m[2] * (m[2] < 0 ? maxX : minX) + m[6] * (m[6] < 0 ? maxY : minY) + m[10] * (m[10] < 0 ? maxZ : minZ) + m[14];
+  out.maxZ = m[2] * (m[2] < 0 ? minX : maxX) + m[6] * (m[6] < 0 ? minY : maxY) + m[10] * (m[10] < 0 ? minZ : maxZ) + m[14];
+}
+
 export class Contraption {
   /** Authored content revision; simulation poses and runtime overrides do not change it. */
   definitionVersion = 0;
@@ -5593,8 +5614,7 @@ export class Contraption {
     return this.getCollisionWorldAABBs(false, true);
   }
 
-  /** World-space bounds, preserving individual voxels by default for player
-   * collision. Rotated boxes transform all eight corners in both poses. */
+  /** World-space bounds for both poses, preserving individual voxels by default for player collision. */
   getCollisionWorldAABBs(surfaceOnly = false, merged = false): EntityCollisionBounds[] {
     const cacheKey: 'all' | 'surface' | 'merged' = merged ? 'merged' : surfaceOnly ? 'surface' : 'all';
     if (
@@ -5616,82 +5636,60 @@ export class Contraption {
   }
 
   private buildCollisionWorldAABBs(entries: readonly (CollisionEntry | CollisionBox)[]): EntityCollisionBounds[] {
-    const boxes = [];
-    const nodeTransforms = new Map();
+    const boxes: EntityCollisionBounds[] = [];
+    const nodes = new Map<string, EntityNode | null>();
+    const local = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+    const current = { ...local };
+    const previous = { ...local };
+    const corner = new THREE.Vector3();
     for (const cell of entries) {
-      if (!this.isNodeCollisionEnabled(cell.entityId)) continue;
-      const node = this.entityNodes.get(cell.entityId) || this.entityNodes.get(this.rootComponentId);
-      let transform = nodeTransforms.get(cell.entityId);
-      if (!transform) {
-        node?.group?.updateWorldMatrix?.(true, false);
-        transform = node?.group
-          ? { matrix: node.group.matrixWorld, pivot: node.pivotLocal }
-          : null;
-        nodeTransforms.set(cell.entityId, transform);
+      let node = nodes.get(cell.entityId);
+      if (node === undefined) {
+        if (!this.isNodeCollisionEnabled(cell.entityId)) continue;
+        node = this.entityNodes.get(cell.entityId) || this.entityNodes.get(this.rootComponentId) || null;
+        node?.group.updateWorldMatrix(true, false);
+        nodes.set(cell.entityId, node);
       }
       const [spanX, spanY, spanZ] = collisionShapeSpans(cell);
-      const x0 = cell.x * MICRO_SIZE, x1 = (cell.x + spanX) * MICRO_SIZE;
-      const y0 = cell.y * MICRO_SIZE, y1 = (cell.y + spanY) * MICRO_SIZE;
-      const z0 = cell.z * MICRO_SIZE, z1 = (cell.z + spanZ) * MICRO_SIZE;
-      let minX = Infinity, minY = Infinity, minZ = Infinity;
-      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      let currentMinX = Infinity, currentMinY = Infinity, currentMinZ = Infinity;
-      let currentMaxX = -Infinity, currentMaxY = -Infinity, currentMaxZ = -Infinity;
-      let previousMinX = Infinity, previousMinY = Infinity, previousMinZ = Infinity;
-      let previousMaxX = -Infinity, previousMaxY = -Infinity, previousMaxZ = -Infinity;
-
-      for (let ix = 0; ix < 2; ix++) {
-        for (let iy = 0; iy < 2; iy++) {
-          for (let iz = 0; iz < 2; iz++) {
-            const cx = ix ? x1 : x0;
-            const cy = iy ? y1 : y0;
-            const cz = iz ? z1 : z0;
-            const corner = new THREE.Vector3(cx, cy, cz);
-            if (transform) corner.sub(transform.pivot).applyMatrix4(transform.matrix);
-            else corner.copy(this.localToWorld(corner));
-            minX = Math.min(minX, corner.x);
-            minY = Math.min(minY, corner.y);
-            minZ = Math.min(minZ, corner.z);
-            maxX = Math.max(maxX, corner.x);
-            maxY = Math.max(maxY, corner.y);
-            maxZ = Math.max(maxZ, corner.z);
-            currentMinX = Math.min(currentMinX, corner.x);
-            currentMinY = Math.min(currentMinY, corner.y);
-            currentMinZ = Math.min(currentMinZ, corner.z);
-            currentMaxX = Math.max(currentMaxX, corner.x);
-            currentMaxY = Math.max(currentMaxY, corner.y);
-            currentMaxZ = Math.max(currentMaxZ, corner.z);
-            if (node?.previousWorldMatrix) {
-              const previousCorner = new THREE.Vector3(cx, cy, cz)
-                .sub(node.pivotLocal).applyMatrix4(node.previousWorldMatrix);
-              minX = Math.min(minX, previousCorner.x);
-              minY = Math.min(minY, previousCorner.y);
-              minZ = Math.min(minZ, previousCorner.z);
-              maxX = Math.max(maxX, previousCorner.x);
-              maxY = Math.max(maxY, previousCorner.y);
-              maxZ = Math.max(maxZ, previousCorner.z);
-              previousMinX = Math.min(previousMinX, previousCorner.x);
-              previousMinY = Math.min(previousMinY, previousCorner.y);
-              previousMinZ = Math.min(previousMinZ, previousCorner.z);
-              previousMaxX = Math.max(previousMaxX, previousCorner.x);
-              previousMaxY = Math.max(previousMaxY, previousCorner.y);
-              previousMaxZ = Math.max(previousMaxZ, previousCorner.z);
+      const pivot = node?.pivotLocal;
+      local.minX = cell.x * MICRO_SIZE - (pivot?.x ?? 0);
+      local.minY = cell.y * MICRO_SIZE - (pivot?.y ?? 0);
+      local.minZ = cell.z * MICRO_SIZE - (pivot?.z ?? 0);
+      local.maxX = (cell.x + spanX) * MICRO_SIZE - (pivot?.x ?? 0);
+      local.maxY = (cell.y + spanY) * MICRO_SIZE - (pivot?.y ?? 0);
+      local.maxZ = (cell.z + spanZ) * MICRO_SIZE - (pivot?.z ?? 0);
+      if (node) {
+        projectCollisionBounds(local, node.group.matrixWorld, current);
+      } else {
+        current.minX = current.minY = current.minZ = Infinity;
+        current.maxX = current.maxY = current.maxZ = -Infinity;
+        for (const x of [local.minX, local.maxX]) {
+          for (const y of [local.minY, local.maxY]) {
+            for (const z of [local.minZ, local.maxZ]) {
+              const point = this.localToWorld(corner.set(x, y, z));
+              current.minX = Math.min(current.minX, point.x);
+              current.minY = Math.min(current.minY, point.y);
+              current.minZ = Math.min(current.minZ, point.z);
+              current.maxX = Math.max(current.maxX, point.x);
+              current.maxY = Math.max(current.maxY, point.y);
+              current.maxZ = Math.max(current.maxZ, point.z);
             }
           }
         }
       }
-
+      if (node?.previousWorldMatrix) projectCollisionBounds(local, node.previousWorldMatrix, previous);
+      const prior = node?.previousWorldMatrix ? previous : current;
       boxes.push({
-        minX, minY, minZ,
-        maxX, maxY, maxZ,
-        currentMinX, currentMinY, currentMinZ,
-        currentMaxX, currentMaxY, currentMaxZ,
-        previousMinX: Number.isFinite(previousMinX) ? previousMinX : currentMinX,
-        previousMinY: Number.isFinite(previousMinY) ? previousMinY : currentMinY,
-        previousMinZ: Number.isFinite(previousMinZ) ? previousMinZ : currentMinZ,
-        previousMaxX: Number.isFinite(previousMaxX) ? previousMaxX : currentMaxX,
-        previousMaxY: Number.isFinite(previousMaxY) ? previousMaxY : currentMaxY,
-        previousMaxZ: Number.isFinite(previousMaxZ) ? previousMaxZ : currentMaxZ,
+        minX: Math.min(current.minX, prior.minX), minY: Math.min(current.minY, prior.minY), minZ: Math.min(current.minZ, prior.minZ),
+        maxX: Math.max(current.maxX, prior.maxX), maxY: Math.max(current.maxY, prior.maxY), maxZ: Math.max(current.maxZ, prior.maxZ),
+        currentMinX: current.minX, currentMinY: current.minY, currentMinZ: current.minZ,
+        currentMaxX: current.maxX, currentMaxY: current.maxY, currentMaxZ: current.maxZ,
+        previousMinX: Number.isFinite(prior.minX) ? prior.minX : current.minX,
+        previousMinY: Number.isFinite(prior.minY) ? prior.minY : current.minY,
+        previousMinZ: Number.isFinite(prior.minZ) ? prior.minZ : current.minZ,
+        previousMaxX: Number.isFinite(prior.maxX) ? prior.maxX : current.maxX,
+        previousMaxY: Number.isFinite(prior.maxY) ? prior.maxY : current.maxY,
+        previousMaxZ: Number.isFinite(prior.maxZ) ? prior.maxZ : current.maxZ,
         cell,
         entityId: cell.entityId,
         bodyId: cell.entityId,

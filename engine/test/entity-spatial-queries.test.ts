@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Contraption } from '../src/contraption/Contraption.ts';
-import { collisionBoundsOverlap } from '../src/physics/CollisionGeometry.ts';
+import { collisionBoundsOverlap, collisionShapeSpans } from '../src/physics/CollisionGeometry.ts';
+import { MICRO_SIZE } from '../src/voxel/MicroGrid.ts';
 import { BlockTypes } from '../src/voxel/BlockTypes.ts';
 import { bendPoint, computeBentBoundsSphere } from '../src/torus/TorusWorld.ts';
 
@@ -16,6 +17,48 @@ const bounds = (x: number, y: number, z: number, width = 0.6) => ({
 const create = (blocks: import('../src/contraption/EntityTypes.ts').RuntimeVoxel[], position = new THREE.Vector3(), options = {}) => (
   new Contraption(1, blocks, position, new THREE.Scene(), options) as any
 );
+
+test('merged collision boxes match corner transforms at the previous and current poses', () => {
+  const c: Contraption = create([
+    block(0), block(1), block(-2, 1, 1, 0.125, 'arm'),
+  ], new THREE.Vector3(38, 5, 22), {
+    childEntities: [{ id: 'arm', parentId: 'root', pivot: [-1.5, 0.5, 1] }],
+  });
+  try {
+    c.quaternion.setFromEuler(new THREE.Euler(-0.4, 0.7, 0.2));
+    c.updateTransform();
+    c.capturePreviousEntityTransforms();
+    c.position.add(new THREE.Vector3(-2, 0.2, 3));
+    c.quaternion.setFromEuler(new THREE.Euler(0.9, -0.4, -0.7));
+    const arm = c.getEntityNode('arm')!;
+    arm.group.quaternion.setFromEuler(new THREE.Euler(-0.1, 0.3, 1.5));
+    c.updateTransform();
+
+    const boxes = c.getPhysicsCollisionWorldAABBs();
+    assert.ok(boxes.some(box => box.entityId === 'arm'));
+    for (const box of boxes) {
+      const node = c.getEntityNode(box.entityId)!;
+      const { x, y, z } = box.cell;
+      const [sx, sy, sz] = collisionShapeSpans(box.cell);
+      const boundsAt = (matrix: THREE.Matrix4) => {
+        const bounds = new THREE.Box3();
+        for (const cx of [x, x + sx]) for (const cy of [y, y + sy]) for (const cz of [z, z + sz]) {
+          bounds.expandByPoint(new THREE.Vector3(cx, cy, cz).multiplyScalar(MICRO_SIZE)
+            .sub(node.pivotLocal).applyMatrix4(matrix));
+        }
+        return [...bounds.min.toArray(), ...bounds.max.toArray()];
+      };
+      const current = boundsAt(node.group.matrixWorld);
+      const previous = boundsAt(node.previousWorldMatrix!);
+      assert.deepEqual([box.currentMinX, box.currentMinY, box.currentMinZ,
+        box.currentMaxX, box.currentMaxY, box.currentMaxZ], current);
+      assert.deepEqual([box.previousMinX, box.previousMinY, box.previousMinZ,
+        box.previousMaxX, box.previousMaxY, box.previousMaxZ], previous);
+      assert.deepEqual([box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ],
+        current.map((value, index) => (index < 3 ? Math.min : Math.max)(value, previous[index])));
+    }
+  } finally { c.dispose(); }
+});
 
 test('local voxel queries preserve exhaustive swept bounds across parent and child rotations', () => {
   const blocks = Array.from({ length: 128 }, (_, i) => block(
