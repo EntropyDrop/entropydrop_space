@@ -38,6 +38,9 @@ SPACE_JOIN_TICKET_TTL_SECONDS = 30
 SPACE_REALTIME_MAX_MESSAGE_BYTES = 4096
 SPACE_REALTIME_IDLE_TIMEOUT_SECONDS = 30
 SPACE_REALTIME_MAX_BUFFERED_SEND_SECONDS = 0.05
+SPACE_REALTIME_ENTITY_BATCH_ITEMS = 8
+# MessagePack arrays with fewer than 16 items all use a one-byte header.
+SPACE_REALTIME_ENTITY_BATCH_OVERHEAD = len(msgpack.packb({"type": "entity_state", "items": []}, use_bin_type=True))
 SPACE_ADMISSION_RESERVATION_SECONDS = 60
 SPACE_ADMISSION_QUEUE_LEASE_SECONDS = 30
 SPACE_ADMISSION_POLL_AFTER_MS = 2_000
@@ -52,6 +55,21 @@ _ticket_redis = Redis.from_url(
 )
 _used_ticket_lock = threading.Lock()
 _used_ticket_jtis: dict[str, float] = {}
+
+
+def _entity_state_payloads(items):
+    batch = []
+    size = SPACE_REALTIME_ENTITY_BATCH_OVERHEAD
+    for item, item_size in items:
+        if batch and (len(batch) == SPACE_REALTIME_ENTITY_BATCH_ITEMS or size + item_size > MAX_ENTITY_POSE_BYTES):
+            yield {"type": "entity_state", "items": batch}
+            batch = []
+            size = SPACE_REALTIME_ENTITY_BATCH_OVERHEAD
+        # Keep large poses intact when authority metadata pushes them over the batch budget.
+        batch.append(item)
+        size += item_size
+    if batch:
+        yield {"type": "entity_state", "items": batch}
 
 
 class SpaceJoinTicketResponse(BaseModel):
@@ -671,28 +689,31 @@ class SpaceRealtimeHub:
                 states[p["entity_id"]] = p
         self.entity_states[world_id] = states
         local_ids = {s.identity.user_id for s in sessions}
+        outgoing = []
         for pose in states.values():
             old = previous.get(pose["entity_id"])
             if pose.get("user_id") in local_ids and (not old or (old["execution_epoch"], old["sequence"]) != (pose["execution_epoch"], pose["sequence"])):
                 self._queue_fanout_event(world_id, {**pose, "type": "entity_pose"})
+            x, _, z = pose["bodies"][0]["position"]
+            item = {k: v for k, v in pose.items() if k not in {"instance_id", "user_id", "received_at", "type", "source"}}
+            outgoing.append((round(x * 100), round(z * 100), (item, len(msgpack.packb(item, use_bin_type=True)))))
         radius = settings.SPACE_REALTIME_AOI_RADIUS_CHUNKS * space_api.SPACE_CHUNK_SIZE * 100
         send_jobs = []
         async def send_items(observer, items):
-            for item in items:
-                if not await self._send(observer, {"type": "entity_state", "items": [item]}):
+            for payload in _entity_state_payloads(items):
+                if not await self._send(observer, payload):
                     break
         for observer in sessions:
             if observer.pose is None:
                 continue
             items = []
-            for pose in states.values():
-                x, _, z = pose["bodies"][0]["position"]
-                dx = self._wrapped_delta(observer.pose["x_cm"], round(x * 100) % observer.identity.world_width_cm, observer.identity.world_width_cm)
-                dz = self._wrapped_delta(observer.pose["z_cm"], round(z * 100) % observer.identity.world_length_cm, observer.identity.world_length_cm)
+            width, length = observer.identity.world_width_cm, observer.identity.world_length_cm
+            for x_cm, z_cm, sized_item in outgoing:
+                dx = self._wrapped_delta(observer.pose["x_cm"], x_cm % width, width)
+                dz = self._wrapped_delta(observer.pose["z_cm"], z_cm % length, length)
                 if dx * dx + dz * dz > radius * radius:
                     continue
-                items.append({k: v for k, v in pose.items() if k not in {"instance_id", "user_id", "received_at", "type", "source"}})
-            # Cap each outbound message independently, even for complex entities.
+                items.append(sized_item)
             if items:
                 send_jobs.append(send_items(observer, items))
         if send_jobs:

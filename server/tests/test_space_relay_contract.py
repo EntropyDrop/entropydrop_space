@@ -14,8 +14,8 @@ from pathlib import Path
 import msgpack
 import pytest
 
-from routers.space_realtime import SPACE_REALTIME_MAX_MESSAGE_BYTES, _unpack_message
-from space.entity_pose import parse_entity_pose
+from routers.space_realtime import SPACE_REALTIME_MAX_MESSAGE_BYTES, _entity_state_payloads, _unpack_message
+from space.entity_pose import MAX_ENTITY_POSE_BYTES, parse_entity_pose
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "space-relay-v1.json"
@@ -129,3 +129,16 @@ def test_entity_pose_frames_hide_executor_capability_and_pin_vectors():
                          'definition_digest', 'lease_expires_at', 'bodies'}
     assert item['bodies'] == sent['bodies']
     assert 'instance_id' not in item
+
+
+@pytest.mark.parametrize(('body_count', 'expected_lengths'), [(1, [8, 1]), (128, [1] * 9)])
+def test_outbound_entity_pose_batches_preserve_order_and_bound_the_frame_size(body_count, expected_lengths):
+    pose = frame('entity_state_server')['items'][0]
+    bodies = [{**pose['bodies'][0], 'id': f'{index:03d}' + '木' * 90} for index in range(body_count)]
+    items = [{**pose, 'sequence': seq, 'bodies': bodies} for seq in range(9)]
+    sized_items = [(item, len(msgpack.packb(item, use_bin_type=True))) for item in items]
+    frames = list(_entity_state_payloads(sized_items))
+
+    assert [len(payload['items']) for payload in frames] == expected_lengths
+    assert [item for payload in frames for item in payload['items']] == items
+    assert all(len(msgpack.packb(payload, use_bin_type=True)) <= MAX_ENTITY_POSE_BYTES for payload in frames)
