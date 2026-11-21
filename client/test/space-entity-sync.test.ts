@@ -458,6 +458,24 @@ test('Stop waits for backend acknowledgement and failed control preserves the cu
   assert.equal((sync as any).leasedUntil.get(target.publicId), expiry);
 });
 
+test('online Stop freezes a physics-only entity before it can be picked up with the wrench', async t => {
+  const { sync, created, actions } = harness('owner-1', { can_edit: true });
+  t.after(() => sync.stop());
+  await sync.poll();
+  const target = created[0];
+  target.scriptStatus = 'stopped'; // The dynamic body is running without any component code.
+  assert.equal(target.isPhysicsSimulationEnabled(), true);
+  const internal = sync as any;
+  internal.client.setRunState = async () => ({ ...record(), revision: 2,
+    desired_run_state: 'stopped', can_edit: true });
+
+  await internal.setRunState(target, 'stopped');
+
+  assert.equal(target.serverDesiredRunState, 'stopped');
+  assert.equal(target.isPhysicsSimulationEnabled(), false);
+  assert.deepEqual(actions, ['stop-scripts']);
+});
+
 test('an obsolete Stop reply cannot delete a newer Start execution lease', async () => {
   const { sync, created } = harness('owner-1', { can_edit: true });
   await sync.poll();

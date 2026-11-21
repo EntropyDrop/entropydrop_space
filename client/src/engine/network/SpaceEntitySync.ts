@@ -724,9 +724,13 @@ export class SpaceEntitySync {
       if (contraption.isPhysicsSimulationEnabled?.() !== false) contraption.setPhysicsSimulationEnabled?.(false);
       return;
     }
-    const isRunning = contraption.scriptStatus === 'running'
-      || (contraption.scriptStatus !== 'stopped' && contraption.isPhysicsSimulationEnabled?.() !== false);
-    if (shouldRun === isRunning) return;
+    const physicsEnabled = contraption.isPhysicsSimulationEnabled?.() !== false;
+    const scriptStatus = contraption.scriptStatus;
+    // A body can be simulating with no runnable scripts. Stop must freeze its
+    // physics as well before the Wrench can treat it as editable.
+    if (shouldRun
+      ? scriptStatus === 'running' || (scriptStatus !== 'stopped' && physicsEnabled)
+      : scriptStatus === 'stopped' && !physicsEnabled) return;
     this.contraptions.performBasicAction({
       domain: ActionDomain.ENTITY,
       action: shouldRun ? 'start-scripts' : 'stop-scripts',
