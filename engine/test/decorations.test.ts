@@ -81,6 +81,33 @@ test('child decorations follow their owning frame and survive hierarchy rebuilds
   } finally { entity.dispose(); }
 });
 
+test('terrain collision sources can be reused independently across pose, decoration and voxel changes', () => {
+  const entity = new Contraption(4, [block(0), block(1)], new THREE.Vector3(), new THREE.Scene(), {
+    rootComponentId: 'base', decorations: [decoration],
+  });
+  try {
+    const voxels = entity.getVoxelTerrainCollisionBoxes();
+    const decorations = entity.getDecorationTerrainCollisionBoxes();
+    entity.position.x++;
+    entity.updateTransform();
+    assert.equal(entity.getVoxelTerrainCollisionBoxes(), voxels);
+    assert.equal(entity.getDecorationTerrainCollisionBoxes(), decorations);
+    assert.equal(entity.editRuntimeDecoration('base', 'trim', { color: 0xffffff }).ok, true);
+    assert.equal(entity.getDecorationTerrainCollisionBoxes(), decorations);
+
+    assert.equal(entity.editRuntimeDecoration('base', 'trim', { position: [8, 1, 4] }).ok, true);
+    const moved = entity.getDecorationTerrainCollisionBoxes();
+    assert.notEqual(moved, decorations);
+    assert.equal(entity.getVoxelTerrainCollisionBoxes(), voxels);
+    assert.deepEqual(entity.collisionTerrainBoxes, [...voxels, ...moved]);
+
+    const removed = requireValue(entity.blocks.pop());
+    entity.rebuildAfterBlockChange('remove', 'base', null, { added: [], removed: [removed] });
+    assert.notEqual(entity.getVoxelTerrainCollisionBoxes(), voxels);
+    assert.equal(entity.getDecorationTerrainCollisionBoxes(), moved);
+  } finally { entity.dispose(); }
+});
+
 test('component installation rebases decoration positions together with voxels and pivots', () => {
   const scene = new THREE.Scene();
   const manager = new ContraptionManager(scene, worldStub(), null, null);

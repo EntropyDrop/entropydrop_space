@@ -43,6 +43,7 @@ import { onlinePanelSettingsTab } from './bootstrap/SpaceSiteLinks.ts';
 import { captureTutorialLevel, tutorialDestination, type TutorialLevel } from './bootstrap/TutorialLevel.ts';
 import { rememberSpacePlayerName } from './bootstrap/SpacePlayerName.ts';
 import { configureTutorialTerrain } from './bootstrap/TutorialTerrain.ts';
+import { loadRapierPhysics } from './physics/loadRapierPhysics.ts';
 
 logConsoleSecurityWarning();
 
@@ -55,7 +56,7 @@ class Game {
   world: World;
   soundManager: any;
   particleSystem: any;
-  contraptionPhysics: any;
+  contraptionPhysics: ContraptionPhysics;
   contraptionManager: any;
   playerPhysics: any;
   uiStore: SpaceUiStore;
@@ -466,6 +467,16 @@ class Game {
     }
   }
 
+  async prepareContraptionPhysics() {
+    try {
+      const physics = await loadRapierPhysics(this.world);
+      this.contraptionPhysics = physics;
+      this.contraptionManager.setPhysics(physics);
+    } catch (error) {
+      console.warn('Rapier WASM initialization failed. Using Space physics.', error);
+    }
+  }
+
   start() {
     if (this.started) return;
     this.started = true;
@@ -746,12 +757,14 @@ export async function startSpaceGame(auth?: SpaceEntryAuth): Promise<void> {
     await import('./bootstrap/TutorialSpace.ts').then(({ enterTutorialSpace }) =>
       enterTutorialSpace(async (session, backpackStorage, storage, level, reportProgress) => {
         const game = new Game(session, backpackStorage, false, { storage, level });
+        const physicsReady = game.prepareContraptionPhysics();
         if (import.meta.env.DEV) (window as any).game = game;
         await game.sceneRenderer.ready;
         await game.preloadInitialTerrain(reportProgress);
         reportProgress(98, 'Preparing tutorial rendering…');
         await game.sceneRenderer.prepareInitialTerrainPipelines();
         await game.sceneRenderer.preparePlayerPipelines();
+        await physicsReady;
         game.start();
         if (import.meta.env.DEV) {
           if (new URLSearchParams(location.search).get('dev_perf') === '1') {
@@ -766,10 +779,12 @@ export async function startSpaceGame(auth?: SpaceEntryAuth): Promise<void> {
     await import('./bootstrap/OfflineSpace.ts').then(({ enterOfflineSpace }) =>
       enterOfflineSpace(async (session, storage, reportProgress) => {
         const game = new Game(session, storage);
+        const physicsReady = game.prepareContraptionPhysics();
         await game.sceneRenderer.ready;
         await game.preloadInitialTerrain(reportProgress);
         reportProgress(98, 'Preparing character animations…');
         await game.sceneRenderer.preparePlayerPipelines();
+        await physicsReady;
         game.start();
       }));
     return;
@@ -790,6 +805,7 @@ export async function startSpaceGame(auth?: SpaceEntryAuth): Promise<void> {
     async (session, reportProgress) => {
       const persistentStorage = await createSpacePersistentStorage();
       const game = new Game(session, persistentStorage);
+      const physicsReady = game.prepareContraptionPhysics();
       await game.sceneRenderer.ready;
       // Distant terrain manifests, cache reads and downloads overlap the near
       // AOI; its loading frames and shader preparation follow the near AOI.
@@ -800,6 +816,7 @@ export async function startSpaceGame(auth?: SpaceEntryAuth): Promise<void> {
       await distantTerrain;
       reportProgress(99, 'Preparing character animations…');
       await game.sceneRenderer.preparePlayerPipelines();
+      await physicsReady;
       game.start();
       const panel = new URLSearchParams(window.location.search).get('panel');
       const settingsTab = onlinePanelSettingsTab(panel);

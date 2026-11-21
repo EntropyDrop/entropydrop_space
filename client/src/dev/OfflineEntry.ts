@@ -1,20 +1,17 @@
 import type { ReadySpaceSession } from '../bootstrap/SpaceBootstrap.ts';
 import { DEFAULT_PLAYER_SKIN_URL } from '../bootstrap/SpaceBootstrap.ts';
 import type { SpaceStorage } from '../engine/storage/BrowserStorage.ts';
-import type { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { readResponseBytes } from '../bootstrap/NetworkSafety.ts';
 import { networkTraffic } from '../bootstrap/NetworkTraffic.ts';
 import { installFrameDiagnostics } from './FrameDiagnostics.ts';
 import { MATCHED_SEED, TERRAIN_GENERATOR_MATCHED } from '@entropydrop/space-engine/worldgen/MatchedTerrainSpec.ts';
+import type { PhysicsTrialGame } from './PhysicsVehicleTrial.ts';
 
-interface OfflineGame {
-  world: World;
+interface OfflineGame extends PhysicsTrialGame {
   sceneRenderer: any;
-  playerPhysics: any;
-  controller: any;
   currentFps: number;
-  animate(): void;
   preloadInitialTerrain(report?: (value: number, message: string) => void): Promise<unknown>;
+  prepareContraptionPhysics(): Promise<void>;
   start(): void;
 }
 
@@ -86,7 +83,14 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   const parameters = new URLSearchParams(location.search);
   const baseline = parameters.get('dev_baseline') === '1';
   const busyStreaming = parameters.get('dev_stream_busy') === '1';
-  const session = offlineSession(parameters.get('world') ?? undefined);
+  const physicsMode = parameters.get('dev_physics');
+  const loadLayout = parameters.get('dev_physics_load');
+  const trialRequested = physicsMode === 'space' || physicsMode === 'rapier';
+  const loadRequested = loadLayout === 'spread' || loadLayout === 'stack' || loadLayout === 'stack-agitated';
+  const loadTrial = trialRequested && loadRequested
+    ? await import('./RigidBodyLoadTrial.ts') : null;
+  const physicsTrial = trialRequested && !loadTrial ? await import('./PhysicsVehicleTrial.ts') : null;
+  const session = offlineSession(trialRequested ? 'nature' : parameters.get('world') ?? undefined);
   // Reproduce a world seed and an existing-ground camera start for local captures.
   // These overrides are confined to the loopback-only development entry above.
   const captureSeed = parameters.get('dev_seed');
@@ -99,12 +103,15 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
     Object.assign(session.player, { start_x_cm: Math.round(captureSpawn[0] * 100),
       start_y_cm: Math.round(captureSpawn[1] * 100), start_z_cm: Math.round(captureSpawn[2] * 100) });
   }
+  if (physicsTrial) Object.assign(session.player, physicsTrial.trialSpawn);
+  if (loadTrial) Object.assign(session.player, loadTrial.loadSpawn);
   const game = create(session, ephemeralStorage());
+  const physicsReady = trialRequested ? Promise.resolve() : game.prepareContraptionPhysics();
   if (parameters.get('world') === 'matched-blocks') (game as any).uiStore.setWorldProjection('flat', false);
   const fixedDpr = Number(parameters.get('dev_dpr'));
   if (fixedDpr >= .5 && fixedDpr <= 2) game.sceneRenderer.cappedDevicePixelRatio = () => fixedDpr;
   (window as any).game = game;
-  game.world.setRenderDistance(8, baseline ? 8 : undefined);
+  game.world.setRenderDistance(trialRequested ? 4 : 8, baseline && !trialRequested ? 8 : undefined);
   game.world.microVoxels.setRenderBatchingEnabled(!baseline);
   // Fixed, identical render settings make A/B results comparable. Do not write
   // these choices into the regular user's persisted graphics preferences.
@@ -122,6 +129,17 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
     });
     if (status) status.textContent = 'Offline development: Preparing character animations…';
     await game.sceneRenderer.preparePlayerPipelines();
+    await physicsReady;
+    if (physicsTrial && (physicsMode === 'space' || physicsMode === 'rapier')) {
+      const requested = parameters.get('dev_physics_course');
+      const course = requested === 'ramp' || requested === 'flat' ? requested : 'vertical';
+      Object.assign(window, { spacePhysicsTrial: await physicsTrial.installPhysicsVehicleTrial(game, physicsMode, course) });
+    }
+    if (loadTrial && trialRequested && loadRequested) {
+      const requested = Number(parameters.get('dev_physics_count'));
+      const count = requested === 32 ? 32 : 128;
+      Object.assign(window, { spaceRigidBodyLoad: await loadTrial.installRigidBodyLoad(game, physicsMode, loadLayout, count) });
+    }
     if (gate) { gate.hidden = true; gate.style.display = 'none'; }
     if (busyStreaming) {
       // Deterministic busy-browser fixture: no idle opportunity is available,

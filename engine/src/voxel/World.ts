@@ -1391,8 +1391,9 @@ export class World {
     const stamp: unknown[] = [];
     for (let cx = Math.floor(bounds.minX / CHUNK_SIZE_X); cx <= Math.floor(bounds.maxX / CHUNK_SIZE_X); cx++) {
       for (let cz = Math.floor(bounds.minZ / CHUNK_SIZE_Z); cz <= Math.floor(bounds.maxZ / CHUNK_SIZE_Z); cz++) {
-        const key = World.getChunkKey(wrapChunkX(cx), wrapChunkZ(cz));
-        const chunk = this.getChunk(cx, cz);
+        const x = wrapChunkX(cx), z = wrapChunkZ(cz);
+        const key = World.getChunkKey(x, z);
+        const chunk = this.getChunk(x, z);
         stamp.push(key, chunk, chunk?.dataVersion, chunk?.publishedDataVersion,
           !!chunk?.mesh, this.activeChunkKeys.has(key),
           ...this.microVoxels.getCollisionStamp(cx, cz), this.terrainDecorationCollision.stamp(cx, cz));

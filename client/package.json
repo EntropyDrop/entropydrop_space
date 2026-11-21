@@ -29,6 +29,7 @@
     "dev": "vite"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
     "@entropydrop/space-engine": "file:../engine",
     "@iconify-json/pixelarticons": "^1.2.9",
     "@iconify/react": "^6.0.2",

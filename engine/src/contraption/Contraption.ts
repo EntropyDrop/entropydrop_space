@@ -543,6 +543,22 @@ export class Contraption {
   get collisionTerrainBoxes(): CollisionBox[] { return this.composeCollisionBoxes().terrain; }
   set collisionTerrainBoxes(value: CollisionBox[]) { this.voxelTerrainBoxes = value; }
 
+  /** Full voxel volume, shared by resident rigid-body colliders across pose changes. */
+  getVoxelPhysicsCollisionBoxes(): readonly CollisionBox[] {
+    return this.voxelPhysicsBoxes;
+  }
+
+  /** Keep the original array until the authored voxel collision is rebuilt. */
+  getVoxelTerrainCollisionBoxes(): readonly CollisionBox[] {
+    return this.voxelTerrainBoxes;
+  }
+
+  /** Use the same bounded footprints as the terrain solver, independently of voxel edits. */
+  getDecorationTerrainCollisionBoxes(): readonly CollisionBox[] {
+    this.flushDecorationCollision();
+    return this.decorationCollision.terrain;
+  }
+
   /** Decoration footprints in construction coordinates; they add no mass. */
   getDecorationCollisionBoxes(): CollisionBox[] {
     this.flushDecorationCollision();
@@ -1175,7 +1191,10 @@ export class Contraption {
     if (group) {
       const pivot = this.entityNodes.get(nodeId)!.pivotLocal;
       editDecorationGroup(group, id, next, pivot);
-      this.markDecorationCollisionDirty(nodeId);
+      if (!previous || !next || (['position', 'rotation', 'scale'] as const).some(field => {
+        const before = previous[field], after = next[field];
+        return before?.length !== after?.length || before?.some((value, axis) => value !== after?.[axis]);
+      })) this.markDecorationCollisionDirty(nodeId);
       if (this.selectedDecoration?.componentId === nodeId && this.selectedDecoration.decorationId === id) {
         this.setDecorationSelection(this.selectedDecoration);
       }

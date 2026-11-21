@@ -177,6 +177,8 @@ export class ContraptionPhysics {
 
   isSleeping(contraption: Contraption) { return this.sleep.isSleeping(contraption); }
 
+  protected resetSleep(contraption: Contraption) { this.sleep.suspend(contraption); }
+
   isInactiveCollider(contraption: Contraption) {
     return contraption.isPhysicsSimulationEnabled?.() === false || this.isSleeping(contraption);
   }
