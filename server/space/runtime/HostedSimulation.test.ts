@@ -145,7 +145,7 @@ test('a hosted script clearing micro terrain invalidates the resident Rapier flo
   assert.ok(result.entities[0].snapshot.position[1] < 214.9);
 });
 
-test('hosted Rapier keeps constrained bodies on the compatible Space solver', async t => {
+test('hosted Rapier solves world-anchor joints without touching the Space solver', async t => {
   const dispose = t.mock.method(RapierContraptionPhysics.prototype, 'dispose');
   const input = inputFor('self.applyForce([0, -100, 0]);', 10);
   const actor = input.entities[0];
@@ -157,7 +157,8 @@ test('hosted Rapier keeps constrained bodies on the compatible Space solver', as
   assert.deepEqual(result.faults, []);
   assert.equal(result.entities[0].stopped, false);
   assert.ok(Math.abs(result.entities[0].snapshot.position[1] - 220.5) < 0.01);
-  assert.deepEqual(dispose.mock.calls.map(call => (call.this as RapierContraptionPhysics).counts.steps), [0]);
+  const counts = dispose.mock.calls.map(call => (call.this as RapierContraptionPhysics).counts);
+  assert.deepEqual(counts.map(({ steps, jointCreates }) => [steps, jointCreates]), [[30, 1]]);
 });
 
 test('hosted AssemblyScript restores typed state across transaction batches', async () => {

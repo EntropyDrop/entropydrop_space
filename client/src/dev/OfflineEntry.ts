@@ -11,7 +11,6 @@ interface OfflineGame extends PhysicsTrialGame {
   sceneRenderer: any;
   currentFps: number;
   preloadInitialTerrain(report?: (value: number, message: string) => void): Promise<unknown>;
-  prepareContraptionPhysics(): Promise<void>;
   start(): void;
 }
 
@@ -76,7 +75,7 @@ export function ephemeralStorage(): SpaceStorage {
   };
 }
 
-export async function startOfflineSpace(create: (session: ReadySpaceSession, storage: SpaceStorage) => OfflineGame) {
+export async function startOfflineSpace(create: (session: ReadySpaceSession, storage: SpaceStorage, trial: boolean) => Promise<OfflineGame>) {
   if (!import.meta.env.DEV || !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
     throw new Error('Offline development entry is only available on loopback in Vite development mode.');
   }
@@ -105,8 +104,7 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
   }
   if (physicsTrial) Object.assign(session.player, physicsTrial.trialSpawn);
   if (loadTrial) Object.assign(session.player, loadTrial.loadSpawn);
-  const game = create(session, ephemeralStorage());
-  const physicsReady = trialRequested ? Promise.resolve() : game.prepareContraptionPhysics();
+  const game = await create(session, ephemeralStorage(), trialRequested);
   if (parameters.get('world') === 'matched-blocks') (game as any).uiStore.setWorldProjection('flat', false);
   const fixedDpr = Number(parameters.get('dev_dpr'));
   if (fixedDpr >= .5 && fixedDpr <= 2) game.sceneRenderer.cappedDevicePixelRatio = () => fixedDpr;
@@ -129,7 +127,6 @@ export async function startOfflineSpace(create: (session: ReadySpaceSession, sto
     });
     if (status) status.textContent = 'Offline development: Preparing character animations…';
     await game.sceneRenderer.preparePlayerPipelines();
-    await physicsReady;
     if (physicsTrial && (physicsMode === 'space' || physicsMode === 'rapier')) {
       const requested = parameters.get('dev_physics_course');
       const course = requested === 'ramp' || requested === 'flat' ? requested : 'vertical';

@@ -28,12 +28,6 @@ function tileRange(bounds: CollisionBounds) {
   };
 }
 
-export function canPublishTerrain(bounds: CollisionBounds) {
-  if (!Object.values(bounds).every(Number.isFinite)) return false;
-  const { x0, x1, y0, y1, z0, z1 } = tileRange(bounds);
-  return x0 <= x1 && y0 <= y1 && z0 <= z1 && (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) <= 128;
-}
-
 function sameGeometry(a: readonly CollisionBounds[], b: readonly CollisionBounds[]) {
   return a.length === b.length && a.every((box, i) => {
     const other = b[i];
@@ -77,12 +71,21 @@ export class RapierTerrain {
   }
 
   publish(bounds: CollisionBounds) {
+    if (!Object.values(bounds).every(Number.isFinite)) throw new Error('Cannot publish non-finite Rapier terrain bounds');
     const { x0, x1, y0, y1, z0, z1 } = tileRange(bounds);
     let changed = false;
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
       for (let y = y0; y <= y1; y++) changed = this.publishTile(x, y, z) || changed;
     }
     return changed;
+  }
+
+  *collidersIn(bounds: CollisionBounds) {
+    const { x0, x1, y0, y1, z0, z1 } = tileRange(bounds);
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
+      const collider = this.tiles.get(`${x},${y},${z}`)?.collider;
+      if (collider) yield collider;
+    }
   }
 
   finish() {

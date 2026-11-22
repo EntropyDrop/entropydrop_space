@@ -8,6 +8,7 @@ import { BlockTypes } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
 import { Chunk } from '@entropydrop/space-engine/voxel/Chunk.ts';
 import { World } from '@entropydrop/space-engine/voxel/World.ts';
 import { loadRapierPhysics } from '@entropydrop/space-engine/rapier/loadRapierPhysics.ts';
+import { RapierPlayerPhysics } from '@entropydrop/space-engine/rapier/RapierPlayerPhysics.ts';
 
 const block = (localX: number) => ({ localX, localY: 0, localZ: 0, block: BlockTypes.COLOR_BLOCK });
 const dt = 1 / 20;
@@ -77,7 +78,7 @@ test('resident terrain contacts retain sleeping support across a torus seam and 
   } finally { entity.dispose(); }
 });
 
-test('a swept collision with a kinematic entity stays in Space while distant bodies use Rapier', async () => {
+test('a kinematic collider and both dynamic bodies stay in the same Rapier world', async () => {
   const scene = new Scene();
   const world = new World(scene);
   const physics = await loadRapierPhysics(world);
@@ -93,11 +94,135 @@ test('a swept collision with a kinematic entity stays in Space while distant bod
     remote.velocity.x = 3;
     for (let i = 0; i < 4; i++) manager.update(dt, null);
     assert.equal(physics.counts.steps, 12);
-    assert.equal(physics.counts.bodyCreates, 1, 'only the remote body joins Rapier');
+    assert.equal(physics.counts.bodyCreates, 3);
     assert.ok(mover.position.x < wall.position.x);
     assert.ok(mover.pendingScriptContacts.some(contact => contact.kind === 'entity' && contact.otherEntityId === wall.publicId));
     assert.ok(remote.position.x > remoteStart);
   } finally { for (const entity of [mover, wall, remote]) entity.dispose(); }
+});
+
+test('a scripted kinematic body clips its swept motion against a stopped collider', async () => {
+  const scene = new Scene();
+  const world = new World(scene);
+  const physics = await loadRapierPhysics(world);
+  const manager = new ContraptionManager(scene, world, null, null);
+  manager.setPhysics(physics);
+  const moving = new Contraption('moving', [block(0)], new Vector3(4, 180, 4), scene, { bodyType: BodyType.KINEMATIC });
+  const stopped = new Contraption('stopped', [block(0)], new Vector3(6, 180, 4), scene, { physicsSimulationEnabled: false });
+  manager.registerContraption(moving);
+  manager.registerContraption(stopped);
+  try {
+    manager.update(dt, null);
+    moving.position.x += 4;
+    moving.updateTransform();
+    manager.update(dt, null);
+    assert.ok(Math.abs(stopped.position.x - moving.position.x - 1) < 0.015);
+    assert.equal(physics.counts.steps, 6);
+    assert.equal(physics.counts.bodyCreates, 2);
+  } finally { moving.dispose(); stopped.dispose(); physics.dispose(); }
+});
+
+test('an attached kinematic collider transfers impacts to its dynamic carrier', async () => {
+  const scene = new Scene();
+  const world = new World(scene);
+  const physics = await loadRapierPhysics(world);
+  const manager = new ContraptionManager(scene, world, null, null);
+  manager.setPhysics(physics);
+  const mover = new Contraption('mover', [{ ...block(0), entityId: 'base' }, { ...block(2), entityId: 'arm' }],
+    new Vector3(4, 180, 4), scene, { rootComponentId: 'base', useGravity: false,
+      childEntities: [{ id: 'arm', parentId: 'base', bodyType: BodyType.KINEMATIC, pivot: [2, 0, 0] }] });
+  const wall = new Contraption('wall', [block(0)], new Vector3(8, 180, 4), scene, { physicsSimulationEnabled: false });
+  manager.registerContraption(mover);
+  manager.registerContraption(wall);
+  try {
+    const start = mover.position.x;
+    mover.velocity.x = 18;
+    let travel = 0;
+    for (let i = 0; i < 4; i++) {
+      manager.update(dt, null);
+      travel = Math.max(travel, mover.position.x - start);
+    }
+    assert.ok(Math.abs(travel - 1) < 0.1, `arm travelled ${travel} m before impact`);
+    assert.ok(mover.pendingScriptContacts.some(contact => contact.selfNodeId === 'arm' && contact.otherEntityId === wall.publicId));
+  } finally { mover.dispose(); wall.dispose(); physics.dispose(); }
+});
+
+test('Rapier point, weld and limited hinge joints keep dynamic child anchors attached', async () => {
+  const scene = new Scene();
+  const world = new World(scene);
+  const physics = await loadRapierPhysics(world);
+  const manager = new ContraptionManager(scene, world, null, null);
+  manager.setPhysics(physics);
+  const types = ['point', 'weld', 'hinge'] as const;
+  const examples = types.map((type, index) => new Contraption(type,
+    [{ ...block(0), entityId: 'base' }, { ...block(2), entityId: 'child' }],
+    new Vector3(index * 10 + 4, 180, 4), scene, {
+      rootComponentId: 'base', bodyType: BodyType.KINEMATIC,
+      childEntities: [{ id: 'child', parentId: 'base', bodyType: BodyType.DYNAMIC }],
+      constraints: [{ id: 'joint', type, bodyA: 'base', bodyB: 'child',
+        axisA: [0, 1, 0], axisB: [0, 1, 0], limits: { min: -0.15, max: 0.15 } }],
+    }));
+  try {
+    for (const entity of examples) {
+      manager.registerContraption(entity);
+      entity.getRigidBody('child')!.angularVelocity.set(0, 6, 0);
+    }
+    for (let i = 0; i < 20; i++) manager.update(dt, null);
+    assert.equal(physics.counts.bodyCreates, 6);
+    assert.equal(physics.counts.jointCreates, 3);
+    for (const entity of examples) {
+      const joint = entity.constraintDefinitions.get('joint')!;
+      const a = entity.getRigidBody('base')!, b = entity.getRigidBody('child')!;
+      const anchorA = new Vector3().fromArray(joint.anchorA).applyQuaternion(a.quaternion).add(a.position);
+      const anchorB = new Vector3().fromArray(joint.anchorB).applyQuaternion(b.quaternion).add(b.position);
+      assert.ok(anchorA.distanceTo(anchorB) < 0.03, entity.id.toString());
+    }
+    assert.ok(examples[1].getRigidBody('child')!.quaternion.angleTo(examples[1].quaternion) < 0.04);
+    assert.ok(examples[2].getRigidBody('child')!.quaternion.angleTo(examples[2].quaternion) < 0.2);
+  } finally {
+    for (const entity of examples) entity.dispose();
+    physics.dispose();
+  }
+});
+
+test('Rapier resolves terrain and entity casts for the player without moving the entity', async () => {
+  const scene = new Scene();
+  const world = new World(scene);
+  world.chunks.set(World.getChunkKey(0, 0), new Chunk(0, 0, world));
+  world.setBlock(4, 179, 4, BlockTypes.COLOR_BLOCK, false);
+  const physics = await loadRapierPhysics(world);
+  const manager = new ContraptionManager(scene, world, null, null);
+  const cube = new Contraption('wall', [block(0)], new Vector3(6, 180, 4), scene, { useGravity: false });
+  manager.registerContraption(cube);
+  const player = new RapierPlayerPhysics(physics.module, world, manager);
+  try {
+    player.position.set(4.5, 180.5, 4.5);
+    player.velocity.set(0, -15, 0);
+    player.moveWithCollision(dt);
+    assert.ok(player.isOnGround);
+    assert.ok(Math.abs(player.position.y - 180) < 0.005);
+    const cubePosition = cube.position.clone();
+    player.velocity.set(50, 0, 0);
+    player.moveWithCollision(dt);
+    assert.ok(player.position.x + player.width / 2 <= 6.001);
+    assert.equal(player.velocity.x, 0);
+    assert.ok(cube.position.equals(cubePosition));
+    assert.equal(cube.velocity.lengthSq(), 0);
+
+    player.position.set(6.5, 181.05, 4.5);
+    player.velocity.set(0, -2, 0);
+    player.moveWithCollision(dt);
+    assert.equal(player.ridingContraption, cube);
+    cube.capturePreviousEntityTransforms();
+    cube.position.x += 0.75;
+    cube.updateTransform();
+    player.resolveDynamicContraptionOverlaps();
+    assert.ok(Math.abs(player.position.x - 7.25) < 0.005);
+    assert.equal(player.ridingContraption, cube);
+    cube.setCollisionSimulationEnabled(false);
+    player.resolveDynamicContraptionOverlaps();
+    assert.equal(player.ridingContraption, null);
+  } finally { cube.dispose(); physics.dispose(); }
 });
 
 test('stopped bodies remain solid and resume on the same Rapier body', async () => {

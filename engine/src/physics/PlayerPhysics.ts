@@ -182,9 +182,7 @@ export class PlayerPhysics {
 
     let adjusted = initialY !== requestedY;
     for (let attempt = 0; attempt < CHUNK_SIZE_Y + 2; attempt++) {
-      const overlaps = this.getIntersectingSolidBlocks(this.getAABB());
-      if (overlaps.length === 0) break;
-      const nextY = Math.max(...overlaps.map(block => this.getBlockAABB(block).maxY));
+      const nextY = this.spawnBlockingHeight();
       if (!(nextY > this.position.y + COLLISION_EPSILON)) break;
       this.position.y = nextY;
       adjusted = true;
@@ -192,6 +190,10 @@ export class PlayerPhysics {
 
     this.resetRenderInterpolation();
     return adjusted;
+  }
+
+  protected spawnBlockingHeight() {
+    return Math.max(-Infinity, ...this.getIntersectingSolidBlocks(this.getAABB()).map(block => this.getBlockAABB(block).maxY));
   }
 
   capturePreviousPosition() {
@@ -359,7 +361,7 @@ export class PlayerPhysics {
     this.captureRidingPlatformPose();
   }
 
-  private captureRidingPlatformPose() {
+  protected captureRidingPlatformPose() {
     const contraption = this.ridingContraption;
     const bodyId = entityBodyId(contraption, this.ridingBodyId);
     const group = contraption?.entityNodes?.get?.(bodyId)?.group;
@@ -375,7 +377,7 @@ export class PlayerPhysics {
     }
   }
 
-  private followRidingPlatformPose() {
+  protected followRidingPlatformPose() {
     const contraption = this.ridingContraption;
     if (!contraption || !this.isOnGround || this.isFlying) {
       this.ridingPlatformPose = null;
@@ -434,7 +436,7 @@ export class PlayerPhysics {
     }
   }
 
-  private moveWithExternalDisplacement(displacement: THREE.Vector3, carrier: Contraption) {
+  protected moveWithExternalDisplacement(displacement: THREE.Vector3, carrier: Contraption) {
     const others = this.getNearbyContraptions().filter(entity => entity !== carrier);
     for (const axis of ['y', 'x', 'z'] as const) {
       const delta = displacement[axis];
