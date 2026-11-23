@@ -11,7 +11,7 @@ import { createLessonWorld } from './tutorial-fixtures.ts';
 import { TUTORIAL_WORLD_ID } from '../src/bootstrap/TutorialLevel.ts';
 import { tutorialChassisBounds, tutorialChassisWheelMounts, tutorialWheelBounds, tutorialRotationBounds,
   tutorialMissingWheelMount, tutorialVehicleWorkbench, tutorialVehicleStation,
-  TUTORIAL_CHASSIS_ENTITY_ID, TUTORIAL_MODELING_EXAMPLE_ID } from '../src/tutorial/TutorialCourse.ts';
+  TUTORIAL_CHASSIS_ENTITY_ID } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
 
 // Code typed by the player from the lesson 10 world sign.
@@ -32,7 +32,7 @@ function vehicleFixture(t: test.TestContext) {
   const { world, storage } = createLessonWorld(scene, tutorialVehicleWorkbench());
   const manager = new ContraptionManager(scene, world, null, null, storage);
   manager.setWorldIdentity({ id: TUTORIAL_WORLD_ID, slug: 'tutorial', name: level.name });
-  assert.equal(manager.loadEntitiesFromStorage(), 2);
+  assert.equal(manager.loadEntitiesFromStorage(), 1);
   manager.setEntityPersistenceMode('none');
   const chassis = manager.contraptions.find(entity => entity.publicId === TUTORIAL_CHASSIS_ENTITY_ID)!;
   assert.ok(chassis);
@@ -167,9 +167,8 @@ test('the default cylinder selects the entire flat tutorial wheel while leaving 
       assert.ok(c[2] / divisor >= minZ && c[2] / divisor < minZ + size);
     }
   }
-  assert.deepEqual(new Set(level.entities.entities.map(entity => entity.publicId)),
-    new Set([TUTORIAL_CHASSIS_ENTITY_ID, TUTORIAL_MODELING_EXAMPLE_ID]),
-    'the car and finished example are provided; the Modeling practice pad still needs assembly');
+  assert.deepEqual(level.entities.entities.map(entity => entity.publicId), [TUTORIAL_CHASSIS_ENTITY_ID],
+    'the driving lesson provides only the practice car as an entity');
 });
 
 test('micro rotation practice matches the horizontal cylinder after rotating the selector', () => {
@@ -284,7 +283,7 @@ test('the player programs one wheel, installs it once, then drives the completed
   assert.equal(chassis.isPhysicsSimulationEnabled(), false, 'installation leaves the car stopped');
   assert.equal(chassis.getNodeScript(chassis.rootComponentId), '', 'the chassis needs no code');
   for (const [id, code] of installedCodes) assert.equal(chassis.getNodeScript(id), code, 'preinstalled wheel programs remain intact');
-  assert.equal(manager.contraptions.length, 2, 'the last wheel joins the car rather than becoming a separate entity');
+  assert.equal(manager.contraptions.length, 1, 'the last wheel becomes part of the car');
   assert.equal(chassis.entityNodes.size, 5);
   for (const box of chassis.getCollisionWorldAABBs()) {
     assert.ok(box.maxY <= bench.minY || box.minY >= bench.maxY - 1e-6

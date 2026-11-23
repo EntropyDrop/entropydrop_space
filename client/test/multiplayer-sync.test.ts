@@ -827,5 +827,6 @@ test('terrain continuations are echoed until the whole event is consumed and res
   x = 1000;
   await sync.performTerrainPoll();
   assert.equal(requests[3].terrain_cursor, undefined);
+  assert.equal(requests[3].since_terrain_revision, 0);
   assert.deepEqual(delivered, [1, 2, 3, 4]);
 });

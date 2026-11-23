@@ -13,7 +13,7 @@ This covers the entire straight course, the driving lane and the Modeling statio
 window does not follow the player, and distant terrain is always disabled.
 Terrain-distance settings from other worlds do not change the tutorial window.
 Entity nameplates appear only within 32 m of the camera in the tutorial, so the
-finished Modeling example does not overlay the entry or earlier chapters.
+practice car's nameplate appears only as players approach its station.
 
 Chapter signs follow roughly 20 m intervals along the initial heading. Chapter 10
 has extra space on each side for `self.setSpinYAxisRPM(30)` to appear on
@@ -26,8 +26,7 @@ from the repository root to rebuild the clear pixel lettering and spoked wheel. 
 motor stand, chassis assembly workbench, and driving lane follow in that order from chapter 09.
 Signs ask players to check STANDARD/MICRO instead of blindly toggling Tab at
 every chapter. Tab switches modes when the displayed mode is different.
-Chapters 08 and 09 use MICRO selection; chapter 11 uses MICRO Hammer positioning,
-and chapter 13 returns to STANDARD selection.
+Chapters 08 and 09 use MICRO selection, and chapter 11 uses MICRO Hammer positioning.
 Colored corner blocks identify the selection endpoints without additional HUD labels.
 A new click after a completed selection immediately starts the next selection. The horizontal
 rotation cylinder and its two corner markers use individual microcells. Run
@@ -86,16 +85,14 @@ New assemblies default to kinematic; switching a body to dynamic enables gravity
 Existing saved entities retain their authored settings; the provided tutorial chassis
 starts kinematic so the player can learn the transition in chapter 12.
 
-Chapter 13 continues straight beyond the driving lane with a 4 by 4 gray terrain
-pad and a separate finished sloping-panel example beside it. With Selector (`1`),
-check STANDARD mode (Tab if needed), choose Box (`Alt+1`), and click the blue and
-green pad corners. Press `G` to assemble the pad; it starts stopped and kinematic.
-Press `7`, aim at your assembled pad, then hold and drag RMB and release
-to create a panel. Creation selects it automatically; LMB selects it again later. Escape releases the cursor
-for the right properties panel: set Dimensions X/Y/Z to `4`, `0.25`, `3` and
-Rotation Z to `-30`. Lift it with the Y arrow to clear the base. Decorations collide
-as their 0.125 m grid footprint without adding mass, so the rotated panel is a stepped
-slope rather than a smooth drivable ramp.
+Chapter 13 continues beyond the driving lane with a gray terrain practice pad
+and a finished sloping panel beside it. Press `7` for Modeling, aim at the top of
+the blue block, then hold and drag RMB. Release to create a panel bound to that
+block. Creation selects the panel, and LMB selects it again later. Press Escape
+to use the properties panel. Set Dimensions X/Y/Z to `4`, `0.25`, `3`, Rotation Z
+to `-30`, and Position X/Y/Z to `-0.5`, `1.5`, `0.5` relative to the block center.
+The slope collides on the 0.125 m grid. Removing its anchor block also removes the
+panel.
 Run `node client/tools/refresh-tutorial-modeling.mjs` to rebuild the terrain pad and separate example.
 The finish sign is after this chapter. The fixed terrain window shifts one chunk
 forward to cover it while retaining the same 625 chunks and disabled distant terrain.
@@ -117,11 +114,11 @@ the Space project. Keep this plugin development-only and retain its same-origin
 loopback checks.
 
 The file contains generator metadata, spawn, sparse standard/micro voxel edits
-(including AIR tombstones for removed ground), and all active and dormant
-entities, including their scripts and component hierarchy. It excludes generated
+(including AIR tombstones for removed ground), terrain decorations, and all active
+and dormant entities with their scripts and component hierarchy. It excludes generated
 terrain, backpacks, account information and network queues. The checked-in file
-contains the authored course, the unassembled Modeling pad, the car with three
-preinstalled wheels, and the separate finished Modeling example entity.
+contains the authored course, the car with three preinstalled wheels, and the
+Modeling practice pad and finished example on terrain.
 
 Every entry creates fresh in-memory terrain/entity storage from the bundled
 file. Edits made while playing are temporary, including entity changes, unless

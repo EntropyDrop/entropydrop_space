@@ -8,6 +8,7 @@ import { getWorldProjection, setWorldProjection } from '@entropydrop/space-engin
 import { ModelingTool } from '../src/engine/controls/ModelingTool.ts';
 import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 import { rotateAnchoredDecorations, rotateBlocksX90, rotateBlocksY90 } from '../src/engine/inventory/InventoryRotation.ts';
+import { SpaceUiStore } from '../src/ui/react/store/SpaceUiStore.ts';
 
 const near = (actual: ArrayLike<number>, expected: ArrayLike<number>, label = '') => {
   for (let index = 0; index < expected.length; index++) {
@@ -115,6 +116,55 @@ function copyFixture() {
   controller.inventoryCategory();
   return { controller, world, manager, toasts };
 }
+
+test('construction tools hand visible terrain decorations to Modeling and clear pending edits', () => {
+  const previous = getWorldProjection();
+  setWorldProjection('flat');
+  const { controller, world, manager } = copyFixture();
+  const store = new SpaceUiStore();
+  controller.ui = store;
+  controller.isLocked = true;
+  controller.camera = new THREE.PerspectiveCamera();
+  controller.camera.position.set(3.5, 44, 3.5);
+  controller.camera.lookAt(3.5, 40, 3.5);
+  controller.modeling = new ModelingTool(controller);
+  (store as any).patch({ controller, hasStarted: true, pointerLocked: true });
+  const anchor = { x: 3, y: 40, z: 3 };
+  world.setBlock(3, 40, 3, BlockTypes.COLOR_BLOCK, false);
+  world.setTerrainDecoration({ ...anchor, id: 'sign', color: 1, position: [0, 0.75, 0], scale: [0.5, 0.5, 0.5] });
+  world.terrainDecorationMeshes.sync(null);
+  try {
+    for (const tool of [SpecialTool.SELECTOR, SpecialTool.HAMMER, SpecialTool.SHOVEL, SpecialTool.SPOON]) {
+      store.selectTool(tool);
+      if (tool === SpecialTool.SELECTOR) {
+        manager.selectionCornerA = anchor;
+        manager.selectionCornerB = { x: 4, y: 40, z: 3 };
+      }
+      assert.equal(controller.handleLeftClick(), true, tool);
+      assert.equal(controller.activeTool, SpecialTool.MODELING);
+      assert.equal(store.getSnapshot().hotbarSlots[store.getSnapshot().selectedHotbarIndex].value, SpecialTool.MODELING);
+      assert.equal(controller.modeling.getSelection()?.decorationId, 'sign');
+      assert.deepEqual(controller.modeling.getSelection()?.terrain, anchor);
+      assert.equal(manager.selectionCornerA, null);
+      assert.equal(manager.selectionCornerB, null);
+      assert.equal(world.getBlock(3, 40, 3), BlockTypes.COLOR_BLOCK);
+    }
+    store.selectTool(SpecialTool.HAMMER);
+    controller.hammerPlacement.pose = { position: new THREE.Vector3(8, 40, 8) };
+    controller.inventoryPlacementPreview = controller.hammerPlacement.pose;
+    assert.equal(controller.hammerPlacement.pointerDown({ button: 0 }), true);
+    assert.equal(controller.hammerPlacementActive, false);
+    assert.equal(controller.inventoryPlacementPreview, null);
+    assert.equal(controller.isLocked, true);
+    assert.equal(controller.modeling.getSelection()?.decorationId, 'sign');
+
+    world.setBlock(3, 42, 3, BlockTypes.COLOR_BLOCK, false);
+    assert.equal(controller.modeling.pickDecoration(null), null, 'a nearer voxel occludes the decoration');
+  } finally {
+    controller.modeling.deactivate();
+    setWorldProjection(previous);
+  }
+});
 
 test('cutting world blocks carries their decorations, and pasting the Item rebinds them rotated', () => {
   const f = copyFixture();

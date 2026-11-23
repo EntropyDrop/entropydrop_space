@@ -53,6 +53,11 @@ Heartbeat responses fit the 16 MiB and 512-chunk client limits. `max_terrain_rev
 advances only past complete events. If one event spans several pages, echo the
 opaque `terrain_cursor` alongside `since_terrain_revision` and the same terrain AOI
 until the server returns a null cursor. Clear the cursor when the AOI changes.
+The browser keeps polling the loaded AOI while fetching the next window's
+snapshot. After all snapshot pages arrive, heartbeat polling switches to that
+window and resumes from a world revision captured before the snapshot request.
+This catches edits made during pagination. Superseded requests are canceled,
+and each chunk's revision determines which snapshot can replace it.
 
 Browser checkpoints for running entities, including a script stopping itself,
 must include the current `execution_instance_id` and `execution_epoch`. The server

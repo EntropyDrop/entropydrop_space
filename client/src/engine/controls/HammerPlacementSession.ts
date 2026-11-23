@@ -206,7 +206,10 @@ export class HammerPlacementSession {
     if (event.button !== 0) return true;
     this.pointerMove(event);
     const group = this.gizmo?.group, handle = this.hovered;
-    if (!group || !handle || !this.pose) return true;
+    if (!group || !handle || !this.pose) {
+      this.controller.tryActivateModeling(event);
+      return true;
+    }
     const camera = transformViewCamera(this.controller.camera);
     const { width, height } = this.viewport();
     const axis = transformAxis(handle.axis).applyQuaternion(this.axesRotation);

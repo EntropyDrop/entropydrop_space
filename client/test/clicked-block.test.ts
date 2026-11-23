@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Contraption } from '@entropydrop/space-engine/contraption/Contraption.ts';
+import { ModelingTool } from '../src/engine/controls/ModelingTool.ts';
 import { PlayerController, SpecialTool } from '../src/engine/controls/PlayerController.ts';
 
 function fixture(tool = SpecialTool.SHOVEL, micro = false) {
@@ -73,12 +74,15 @@ test('all tools can click runtime decorations even when no physical voxel is und
   entity.editRuntimeDecoration('root', 'panel', { position: [4, 2, 0], scale: [1, 1, 1] });
   const center = entity.entityLocalToWorld('root', new THREE.Vector3(4, 2, 0));
   eye.copy(center).add(new THREE.Vector3(0, 0, 3));
+  controller.camera.position.copy(eye);
   controller.performAimRaycast = () => ({ kind: null, entityHit: null, worldHit: null });
   const tools = [...new Set(Object.values(SpecialTool))];
-  controller.modeling = { deactivate() {} };
+  controller.modeling = new ModelingTool(controller);
+  const handoffTools = [SpecialTool.SELECTOR, SpecialTool.HAMMER, SpecialTool.SHOVEL, SpecialTool.SPOON];
   for (const tool of tools) {
     controller.activeTool = tool;
     controller.handleLeftClick();
+    assert.equal(controller.activeTool, handoffTools.includes(tool) ? SpecialTool.MODELING : tool);
   }
   assert.equal(entity.pendingClickedBlocks.length, tools.length);
   for (const entry of entity.pendingClickedBlocks) {
@@ -88,6 +92,26 @@ test('all tools can click runtime decorations even when no physical voxel is und
     assert.deepEqual(entry.position, [4, 2, 0]);
   }
   assert.deepEqual(entity.getComponentDecorations('root'), [], 'runtime-created decorations are selectable without authored geometry');
+});
+
+test('clicking a stopped entity decoration with Shovel selects it in Modeling', () => {
+  const { controller, entity } = fixture();
+  entity.stopAllNodeScripts();
+  entity.setComponentDecorations('door', [{ id: 'handle', position: [2, 1, 0.7], scale: [0.5, 0.5, 0.5] }]);
+  const center = entity.entityLocalToWorld('door', new THREE.Vector3(2, 1, 0.7));
+  controller.camera.position.copy(center).add(new THREE.Vector3(0, 0, 3));
+  controller.modeling = new ModelingTool(controller);
+  try {
+    assert.equal(controller.handleLeftClick(), true);
+    assert.equal(controller.activeTool, SpecialTool.MODELING);
+    assert.equal(controller.modeling.getSelection()?.componentId, 'door');
+    assert.equal(controller.modeling.getSelection()?.decorationId, 'handle');
+    assert.equal(entity.blocks.length, 2);
+    assert.equal(entity.pendingClickedBlocks.length, 0);
+  } finally {
+    controller.modeling.deactivate();
+    entity.dispose();
+  }
 });
 
 test('UI consumes clicks first, suspended picking ignores clicks, and server replicas route input once', async () => {

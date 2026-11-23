@@ -19,15 +19,13 @@ import {
   enterSpace,
   initialTerrainStreamArea,
   resolveInitialPlayerPose,
-  TERRAIN_STREAM_SWITCH_DEBOUNCE_MS,
-  terrainStreamAreaForPositionWithHysteresis,
   type PlayerPositionPayload,
   type PlayerPositionRemote,
   type ReadySpaceSession,
-  type TerrainStreamArea,
 } from './bootstrap/SpaceBootstrap.ts';
 import { MultiplayerSync, type RemotePlayerInfo } from './engine/network/MultiplayerSync.ts';
 import { SpaceEntitySync } from './engine/network/SpaceEntitySync.ts';
+import { TerrainAreaSync } from './engine/network/TerrainAreaSync.ts';
 import { mountSpaceUi, mountAdminMonitoring } from './ui/react/mountSpaceUi.tsx';
 import { spaceUiStore, type DistantTerrainProgress, type SpaceUiStore } from './ui/react/store/SpaceUiStore.ts';
 import {
@@ -108,13 +106,7 @@ class Game {
   multiplayerSync: MultiplayerSync | null;
   entitySync: SpaceEntitySync | null;
   remotePlayers: RemotePlayerInfo[];
-  terrainEditRemote: ReadySpaceSession['terrain_edit_remote'];
-  terrainArea: TerrainStreamArea;
-  terrainAreaLoadedKey: string;
-  terrainAreaCandidateKey: string;
-  terrainAreaCandidateSince: number;
-  terrainAreaLoadInFlight: boolean;
-  terrainAreaRetryAt: number;
+  terrainAreaSync: TerrainAreaSync | null;
   started: boolean;
   surfaceSnapshotRemote: ReadySpaceSession['surface_snapshot_remote'];
   /** Background far-terrain refinement after entry, for the HUD. */
@@ -334,16 +326,10 @@ class Game {
     this.currentFps = 60;
     this.latencyMonitor = session.latency_monitor;
     this.playerPositionRemote = session.player_position_remote;
-    this.terrainEditRemote = session.terrain_edit_remote;
     this.pendingPlayerPosition = null;
     this.playerPositionSaveInFlight = false;
-    this.terrainArea = initialTerrainStreamArea(session.player);
-    if (!offline) this.world.setTerrainDataWindow(this.terrainArea);
-    this.terrainAreaLoadedKey = this.terrainArea.key;
-    this.terrainAreaCandidateKey = '';
-    this.terrainAreaCandidateSince = 0;
-    this.terrainAreaLoadInFlight = false;
-    this.terrainAreaRetryAt = 0;
+    const initialTerrainArea = initialTerrainStreamArea(session.player);
+    if (!offline) this.world.setTerrainDataWindow(initialTerrainArea);
     this.started = false;
 
     // 5. Initial Spawn & Worldgen
@@ -361,6 +347,7 @@ class Game {
     // 5b. Multiplayer Synchronizer (Real-time player presence & terrain updates)
     this.multiplayerSync = null;
     this.entitySync = null;
+    this.terrainAreaSync = null;
     if (!offline) {
       this.multiplayerSync = new MultiplayerSync({
         apiOrigin: session.api_origin,
@@ -387,7 +374,14 @@ class Game {
         yaw: this.controller.viewYaw,
         pitch: this.controller.pitch
       });
-      this.multiplayerSync.setSinceTerrainRevision(session.world.terrain_revision);
+      this.multiplayerSync.setTerrainArea(initialTerrainArea, session.world.terrain_revision);
+      const loadArea = session.terrain_edit_remote?.loadArea;
+      if (loadArea) this.terrainAreaSync = new TerrainAreaSync({
+        initialArea: initialTerrainArea,
+        loadArea,
+        world: this.world,
+        realtime: this.multiplayerSync,
+      });
       this.multiplayerSync.start();
 
       this.entitySync = new SpaceEntitySync({
@@ -566,59 +560,6 @@ class Game {
     });
   }
 
-  ensureTerrainArea(playerX: number, playerZ: number) {
-    const remote = this.terrainEditRemote;
-    if (!remote?.loadArea) return;
-
-    const now = Date.now();
-    const candidate = terrainStreamAreaForPositionWithHysteresis(
-      playerX,
-      playerZ,
-      this.terrainArea
-    );
-    if (candidate.key === this.terrainArea.key) {
-      this.terrainAreaCandidateKey = '';
-      this.terrainAreaCandidateSince = 0;
-    } else if (candidate.key !== this.terrainAreaCandidateKey) {
-      this.terrainAreaCandidateKey = candidate.key;
-      this.terrainAreaCandidateSince = now;
-    } else if (now - this.terrainAreaCandidateSince >= TERRAIN_STREAM_SWITCH_DEBOUNCE_MS) {
-      this.terrainArea = candidate;
-      this.terrainAreaCandidateKey = '';
-      this.terrainAreaCandidateSince = 0;
-    }
-
-    const area = this.terrainArea;
-    if (
-      area.key === this.terrainAreaLoadedKey
-      || this.terrainAreaLoadInFlight
-      || now < this.terrainAreaRetryAt
-    ) return;
-
-    // Serialize AOI loads. If the player crosses another tile while this one is
-    // loading, the next frame starts the latest target after this request ends.
-    this.terrainAreaLoadInFlight = true;
-    void remote.loadArea(
-      area.centerChunkX,
-      area.centerChunkZ,
-      area.radiusChunks,
-      chunks => this.world.queueRemoteChunkUpdates(chunks),
-      area.radiusChunksZ
-    )
-      .then(() => {
-        this.terrainAreaLoadedKey = area.key;
-        this.world.setTerrainDataWindow(area);
-        this.terrainAreaRetryAt = 0;
-      })
-      .catch(error => {
-        this.terrainAreaRetryAt = Date.now() + 2_000;
-        console.warn('Space terrain area loading is temporarily unavailable.', error);
-      })
-      .finally(() => {
-        this.terrainAreaLoadInFlight = false;
-      });
-  }
-
   animate() {
     requestAnimationFrame(this.animate);
 
@@ -664,7 +605,7 @@ class Game {
     // Keep movement and camera presentation independent from terrain loading.
     // The actual stream work is requested after rendering below.
     this.world.updateChunksAround(playerPos.x, playerPos.z, false);
-    this.ensureTerrainArea(playerPos.x, playerPos.z);
+    this.terrainAreaSync?.update(playerPos.x, playerPos.z);
 
     // Publish/dispatch direct terrain edits before picking. Raycasts, cursor
     // overlays and the draw submitted below must all observe the same latest

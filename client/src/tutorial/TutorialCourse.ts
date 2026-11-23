@@ -67,15 +67,20 @@ export function tutorialVehicleWorkbench() {
   return { minX, maxX: minX + 11, minY: 17, maxY: 19, minZ, maxZ: minZ + 3 };
 }
 
-export const TUTORIAL_MODELING_ENTITY_ID = 'tutorial-modeling-base';
-export const TUTORIAL_MODELING_EXAMPLE_ID = 'tutorial-modeling-example';
+export const TUTORIAL_MODELING_EXAMPLE_ID = 'slope-example';
 export const TUTORIAL_RAMP_DIMENSIONS = [4, 0.25, 3] as const;
 export const TUTORIAL_RAMP_ROTATION_Z = -30;
+export const TUTORIAL_RAMP_POSITION = [-0.5, 1.5, 0.5] as const;
 
-/** Standard terrain blocks form the empty pad the player assembles. */
-export function tutorialModelingOrigin() {
+/** The practice pad and the example both use standard terrain blocks. */
+export function tutorialModelingOrigin(example = false) {
   const station = tutorialVehicleStation(13);
-  return { x: Math.floor(station.x) - 2, y: 17, z: Math.floor(station.z) - 4 };
+  return { x: Math.floor(station.x) - 2, y: 17, z: Math.floor(station.z) - (example ? 0 : 4) };
+}
+
+export function tutorialModelingAnchor(example = false) {
+  const origin = tutorialModelingOrigin(example);
+  return { x: origin.x + 2, y: origin.y, z: origin.z + 1 };
 }
 
 export function tutorialFinishPosition() {

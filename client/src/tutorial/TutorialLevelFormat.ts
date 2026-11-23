@@ -1,4 +1,5 @@
 import type { PlayerPositionPayload } from '../bootstrap/SpaceBootstrap.ts';
+import type { storedTerrainDecoration } from '@entropydrop/space-engine/voxel/TerrainDecorationLayer.ts';
 
 export interface TutorialLevel {
   format: 'entropydrop-tutorial';
@@ -6,7 +7,7 @@ export interface TutorialLevel {
   name: string;
   generator: { version: number; seed: number };
   spawn: PlayerPositionPayload;
-  terrain: { version: 3; standard: unknown[][]; micro: unknown[][] };
+  terrain: { version: 3; standard: unknown[][]; micro: unknown[][]; decorations?: ReturnType<typeof storedTerrainDecoration>[] };
   entities: { version: number; entities: unknown[] };
 }
 
@@ -26,6 +27,7 @@ export function parseTutorialLevel(value: unknown): TutorialLevel {
     || level.terrain?.version !== 3
     || !Array.isArray(level.terrain.standard) || !level.terrain.standard.every(Array.isArray)
     || !Array.isArray(level.terrain.micro) || !level.terrain.micro.every(Array.isArray)
+    || (level.terrain.decorations !== undefined && !Array.isArray(level.terrain.decorations))
     || level.entities?.version !== 4 || !Array.isArray(level.entities.entities)) {
     throw new Error('Invalid or unsupported tutorial level file.');
   }

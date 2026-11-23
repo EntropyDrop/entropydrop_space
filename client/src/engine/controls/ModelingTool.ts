@@ -4,6 +4,7 @@ import { createDecorationGroup, syncDecorationMeshTransform } from '@entropydrop
 import { hookSceneMaterials, TORUS_SIZE_X, TORUS_SIZE_Z, unwrapPeriodicNear } from '@entropydrop/space-engine/torus/TorusWorld.ts';
 import type { PlayerController } from './PlayerController.ts';
 import { ActionDomain } from '@entropydrop/space-engine/actions/BasicActions.ts';
+import type { ActionRaycastResult } from '@entropydrop/space-engine/actions/ActionContracts.ts';
 import {
   MAX_ENTITY_BOUNDS, MAX_TERRAIN_DECORATION_EXTENT, MAX_TERRAIN_DECORATIONS_PER_CHUNK,
 } from '@entropydrop/space-engine/constants/SpaceConstants.ts';
@@ -17,6 +18,10 @@ import type { Contraption } from '@entropydrop/space-engine/contraption/Contrapt
 type TerrainAnchor = { x: number; y: number; z: number };
 type Target = { contraption: any; componentId: string; decorationId?: string; terrain?: undefined }
   | { terrain: TerrainAnchor; decorationId?: string; contraption?: undefined; componentId?: undefined };
+type DecorationHitDetails = { decorationId: string; distance: number; point: THREE.Vector3; worldNormal: THREE.Vector3 };
+export type EntityDecorationHit = DecorationHitDetails & { contraption: Contraption; componentId: string; terrain?: undefined };
+type DecorationHit = EntityDecorationHit
+  | (DecorationHitDetails & { terrain: TerrainAnchor; contraption?: undefined; componentId?: undefined });
 type Edit = { target: Target; before: DecorationDefinition[]; after: DecorationDefinition[] };
 type PointerInput = Pick<MouseEvent, 'clientX' | 'clientY'> & Partial<Pick<MouseEvent, 'movementX' | 'movementY' | 'shiftKey'>>;
 type PointerGesture = { locked: boolean; startX: number; startY: number; delta: THREE.Vector2 };
@@ -262,32 +267,38 @@ export class ModelingTool {
     this.preview.visible = true;
   }
 
-  private updateTarget(query: any, origin: THREE.Vector3, direction: THREE.Vector3) {
-    let distance = query.kind === 'entity' ? query.entityHit.distance
-      : query.kind === 'world' ? query.worldHit.distance : 16;
-    if (!Number.isFinite(distance)) distance = 16;
-    this.hovered = null;
+  private raycastDecoration(query: ActionRaycastResult, origin: THREE.Vector3, direction: THREE.Vector3): DecorationHit | null {
+    const surfaceDistance = query.kind === 'entity' ? query.entityHit?.distance
+      : query.kind === 'world' ? query.worldHit?.distance : undefined;
+    let distance = surfaceDistance !== undefined && Number.isFinite(surfaceDistance) ? surfaceDistance : 16;
+    let closest: DecorationHit | null = null;
     for (const entity of this.controller.contraptions?.contraptions || []) {
-      const hit = entity.raycastDecorations(origin, direction, distance);
-      if (hit && (!this.hovered || hit.distance < this.hovered.distance)) {
-        this.hovered = hit;
+      const hit = entity.raycastDecorations?.(origin, direction, distance);
+      if (hit && (!closest || hit.distance < closest.distance)) {
+        closest = hit;
         distance = hit.distance;
       }
     }
     const terrainHit = this.terrainWorld()?.terrainDecorationMeshes?.raycast(origin, direction, distance, true);
-    if (terrainHit && (!this.hovered || terrainHit.distance < this.hovered.distance)) {
+    if (terrainHit && (!closest || terrainHit.distance < closest.distance)) {
       const { x, y, z, id } = terrainHit.decoration;
-      this.hovered = { terrain: { x, y, z }, decorationId: id, distance: terrainHit.distance,
+      return { terrain: { x, y, z }, decorationId: id, distance: terrainHit.distance,
         point: terrainHit.point, worldNormal: terrainHit.worldNormal };
     }
-    const hit = this.hovered || (query.kind === 'entity' ? query.entityHit : null);
+    return closest;
+  }
+
+  private updateTarget(query: any, origin: THREE.Vector3, direction: THREE.Vector3) {
+    const decoration = this.raycastDecoration(query, origin, direction);
+    this.hovered = decoration;
+    const hit = decoration || (query.kind === 'entity' ? query.entityHit : null);
     this.focusedEntity = hit?.contraption ?? null;
-    this.focusedTerrain = hit?.terrain ?? null;
+    this.focusedTerrain = decoration?.terrain ?? null;
     this.placement = null;
-    if (!this.hovered && query.kind === 'world' && query.worldHit?.kind === 'standard' && this.terrainWorld()) {
+    if (!decoration && query.kind === 'world' && query.worldHit?.kind === 'standard' && this.terrainWorld()) {
       this.placeOnTerrain(query.worldHit);
-    } else if (hit?.terrain && hit.point && hit.worldNormal) {
-      this.placeAt({ terrain: hit.terrain }, hit.point, hit.worldNormal);
+    } else if (decoration?.terrain) {
+      this.placeAt({ terrain: decoration.terrain }, decoration.point, decoration.worldNormal);
     }
     if (hit?.contraption && hit.point && hit.worldNormal) {
       const entity = hit.contraption;
@@ -428,6 +439,17 @@ export class ModelingTool {
     return raycaster.ray;
   }
 
+  private queryPointerRay(ray: THREE.Ray) {
+    return this.controller.performBasicAction({ domain: ActionDomain.QUERY, action: 'raycast',
+      origin: ray.origin, direction: ray.direction, maxDistance: 16, space: 'bent', include: 'all', voxelKinds: ['standard', 'micro'] });
+  }
+
+  pickDecoration(event: PointerInput | null) {
+    if (!this.controller.camera) return null;
+    const ray = this.pointerRay(event);
+    return this.raycastDecoration(this.queryPointerRay(ray), ray.origin, ray.direction);
+  }
+
   pointerMove(event: MouseEvent) {
     if (this.creation) return this.updateCreation(event);
     if (this.drag) return this.updateDrag(event);
@@ -449,9 +471,7 @@ export class ModelingTool {
     this.pointerMove(event);
     if (event.button === 0 && this.hoveredHandle) return this.beginDrag(this.hoveredHandle, event);
     const ray = this.pointerRay(event);
-    const query = this.controller.performBasicAction({ domain: ActionDomain.QUERY, action: 'raycast',
-      origin: ray.origin, direction: ray.direction, maxDistance: 16, space: 'bent', include: 'all', voxelKinds: ['standard', 'micro'] });
-    this.updateTarget(query, ray.origin, ray.direction);
+    this.updateTarget(this.queryPointerRay(ray), ray.origin, ray.direction);
     if (event.button === 2) return this.beginCreation(event);
     return this.leftDown(event);
   }

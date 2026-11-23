@@ -51,6 +51,7 @@ export const MAX_SKIN_PNG_BYTES = 256 * 1024;
 export const MAX_SPACE_ONLINE_PLAYERS = 100;
 const MAX_SPACE_API_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_TERRAIN_PAGE_BYTES = 16 * 1024 * 1024;
+const TERRAIN_AREA_PAGE_TIMEOUT_MS = 15_000;
 
 export interface TerrainStreamArea {
   centerChunkX: number;
@@ -436,13 +437,16 @@ export async function loadTerrainEditRemote(
 
   const fetchPages = async (
     area?: TerrainStreamArea,
-    onPage?: (chunks: TerrainEditChunk[]) => void
+    onPage?: (chunks: TerrainEditChunk[]) => void,
+    signal?: AbortSignal,
   ) => {
     const chunks: TerrainEditChunk[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | null = null;
 
     do {
+      signal?.throwIfAborted();
+      const pageSignal = signal && AbortSignal.any([signal, AbortSignal.timeout(TERRAIN_AREA_PAGE_TIMEOUT_MS)]);
       const url = new URL(
         baseUrl,
         typeof window === 'undefined' ? 'http://localhost' : window.location.href
@@ -462,11 +466,13 @@ export async function loadTerrainEditRemote(
           Authorization: `Bearer ${token}`,
           Accept: 'application/json'
         },
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: pageSignal,
       });
       const body = await readJsonResponse<any>(response, MAX_TERRAIN_PAGE_BYTES, {
         offMainThread: true,
       }).catch(() => null);
+      pageSignal?.throwIfAborted();
       if (!response.ok) {
         throw new SpaceEntryError(
           response.status === 401 || response.status === 403 ? 'LOGIN_REQUIRED' : 'BOOTSTRAP_FAILED',
@@ -506,7 +512,8 @@ export async function loadTerrainEditRemote(
     centerChunkZ: number,
     radiusChunks: number,
     onPage?: (chunks: TerrainEditChunk[]) => void,
-    radiusChunksZ = Math.min(radiusChunks, TERRAIN_STREAM_RADIUS_Z_CHUNKS)
+    radiusChunksZ = Math.min(radiusChunks, TERRAIN_STREAM_RADIUS_Z_CHUNKS),
+    signal?: AbortSignal,
   ) => {
     const radiusZ = Math.max(1, Math.min(Math.floor(radiusChunks), Math.floor(radiusChunksZ)));
     const area = {
@@ -516,11 +523,11 @@ export async function loadTerrainEditRemote(
       radiusChunksZ: radiusZ,
       key: `${Math.floor(centerChunkX)},${Math.floor(centerChunkZ)},${Math.max(1, Math.floor(radiusChunks))},${radiusZ}`,
     };
+    if (signal) return fetchPages(area, onPage, signal);
     const existing = areaRequests.get(area.key);
     if (existing) return existing;
     // Coalesce only concurrent requests. A completed area must be fetched again
-    // when the player later returns, because other players may have edited it
-    // while the global terrain cursor advanced in another AOI.
+    // when the player later returns, because other players may have edited it.
     const request = fetchPages(area, onPage).finally(() => areaRequests.delete(area.key));
     areaRequests.set(area.key, request);
     return request;

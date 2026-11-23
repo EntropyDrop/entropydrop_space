@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tutorialLessonHint, tutorialVehicleStation, tutorialWheelBounds, tutorialFinishPosition, tutorialChassisBounds,
-  TUTORIAL_LESSON_STEP, TUTORIAL_RAMP_DIMENSIONS, TUTORIAL_RAMP_ROTATION_Z } from '../src/tutorial/TutorialCourse.ts';
+  TUTORIAL_LESSON_STEP, TUTORIAL_RAMP_DIMENSIONS, TUTORIAL_RAMP_POSITION, TUTORIAL_RAMP_ROTATION_Z } from '../src/tutorial/TutorialCourse.ts';
 import { getTutorialTerrainCenter, TUTORIAL_CHUNK_RADIUS } from '../src/bootstrap/TutorialTerrain.ts';
 import { computeSelectionCells } from '../src/engine/controls/SelectorShapes.ts';
 
@@ -163,12 +163,10 @@ const lessons = [
   ['12 DRIVE', [instruction('3', 'WRENCH'), text('CAR TO START LINE'), text('ALIGN WITH THE LANE'),
     instruction('RMB', 'TYPE: DYNAMIC'), text('WHEELS: KINEMATIC'),
     instruction('LMB X2', 'START'), text('GRAVITY PULLS IT DOWN'), instruction('LMB X2', 'STOP')]],
-  ['13 MODELING', [join([instruction('1', 'SELECTOR'), instruction('ALT+1', 'BOX')]),
-    join([text('STANDARD'), instruction('TAB', 'IF NEEDED')]), corners(),
-    join([instruction('G', 'ASSEMBLE'), instruction('7', 'MODELING')]),
+  ['13 MODELING', [instruction('7', 'MODELING'), text('AIM AT BLUE BLOCK TOP'),
     instruction('RMB', 'DRAG + RELEASE'), instruction('LMB', 'SELECT PANEL'),
     instruction('ESC', 'SIDE PANEL'), text(`DIMENSIONS ${TUTORIAL_RAMP_DIMENSIONS.join(' ')}`),
-    text(`ROTATION Z: ${TUTORIAL_RAMP_ROTATION_Z}`), text('Y ARROW: LIFT PANEL'), text('VISUAL: NO COLLISION')]],
+    text(`ROTATION Z ${TUTORIAL_RAMP_ROTATION_Z}`), text(`POSITION ${TUTORIAL_RAMP_POSITION.join(' ')}`)]],
 ].map(([title, content], index) => ({
   title,
   rows: [text(title, { scale: 2 }), ...content],

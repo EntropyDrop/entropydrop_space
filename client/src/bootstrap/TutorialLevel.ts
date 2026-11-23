@@ -34,7 +34,10 @@ export function captureTutorialLevel(
     ...base,
     // Saving lesson content must preserve its authored spawn and entry direction.
     spawn: { ...base.spawn },
-    terrain: { version: 3, standard: terrain?.standard ?? [], micro: terrain?.micro ?? [] },
+    terrain: {
+      version: 3, standard: terrain?.standard ?? [], micro: terrain?.micro ?? [],
+      ...(terrain?.decorations?.length ? { decorations: terrain.decorations } : {}),
+    },
     entities: { version: ENTITY_STORAGE_VERSION, entities: entities?.entities ?? [] },
   });
 }

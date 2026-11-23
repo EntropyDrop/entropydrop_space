@@ -56,7 +56,7 @@ import { transformGizmoSize, transformScreenPoint, transformViewCamera, TRANSFOR
 import type { SpaceStorage } from '../storage/BrowserStorage.ts';
 import { CameraPerspectiveTransition } from './CameraPerspectiveTransition.ts';
 import { isPerspectiveToggleCode, SpecialTool, type PlayerPerspective } from './ControlBindings.ts';
-import { ModelingTool } from './ModelingTool.ts';
+import { ModelingTool, type EntityDecorationHit } from './ModelingTool.ts';
 import { type SelectorShape } from './SelectorShapes.ts';
 // Keep existing imports working while new consumers use the owning modules directly.
 export { validateVoxelOccupancy, withinEntityBounds } from '../inventory/InventoryGeometry.ts';
@@ -131,6 +131,7 @@ export class PlayerController {
     if (this._toolSession) return this._toolSession;
     const host = this;
     return this._toolSession = new ToolInteractionSession({
+      get activateTool() { return host.activateTool.bind(host); },
       get applySelectionShape() { return host.applySelectionShape.bind(host); },
       get boxSelectionPreview() { return host.boxSelectionPreview; },
       set boxSelectionPreview(value) { host.boxSelectionPreview = value; },
@@ -1497,6 +1498,10 @@ export class PlayerController {
 
   handleLeftClick(e: MouseEvent | null = null) {
     return this.toolSession.handleLeftClick(e);
+  }
+
+  tryActivateModeling(e: MouseEvent) {
+    return this.toolSession.tryActivateModeling(e);
   }
 
   /**
@@ -6999,27 +7004,28 @@ export class PlayerController {
       { animateChildren: true });
   }
 
-  /** Resolve a fresh click against visible geometry before any tool edits. */
-  tryClickRunningEntity() {
-    if (!this.camera || !this.contraptions) return false;
-    const hit = this.performAimRaycast('all');
-    let target = hit.kind === 'entity' ? hit.entityHit : null;
-    let distance = hit.kind === 'world' ? hit.worldHit?.distance ?? 16 : target?.distance ?? 16;
-    let decoration: ReturnType<Contraption['raycastDecorations']> = null;
-    const eye = this.cameraSession.getEyePosition();
-    const origin = bendPointForView(eye.x, eye.y, eye.z, new THREE.Vector3());
-    const direction = bendDirection(eye.x, eye.y, eye.z,
-      new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion), new THREE.Vector3());
-    for (const entity of this.contraptions.contraptions || []) {
-      const candidate = entity.raycastDecorations?.(origin, direction, distance, true);
-      if (candidate && candidate.distance <= distance) {
-        decoration = candidate;
-        distance = candidate.distance;
+  /** Dispatch to the picked decoration or resolve a fresh click under the crosshair. */
+  tryClickRunningEntity(decoration?: EntityDecorationHit) {
+    let target: EntityHit | null = null;
+    if (!decoration) {
+      if (!this.camera || !this.contraptions) return false;
+      const hit = this.performAimRaycast('all');
+      target = hit.kind === 'entity' ? hit.entityHit ?? null : null;
+      let distance = hit.kind === 'world' ? hit.worldHit?.distance ?? 16 : target?.distance ?? 16;
+      const eye = this.cameraSession.getEyePosition();
+      const origin = bendPointForView(eye.x, eye.y, eye.z, new THREE.Vector3());
+      const direction = bendDirection(eye.x, eye.y, eye.z,
+        new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion), new THREE.Vector3());
+      for (const entity of this.contraptions.contraptions || []) {
+        const candidate = entity.raycastDecorations?.(origin, direction, distance, true);
+        if (candidate && candidate.distance <= distance) {
+          decoration = candidate;
+          distance = candidate.distance;
+        }
       }
     }
-    if (decoration) target = null;
     const entity = decoration?.contraption || target?.contraption;
-    if (!this.isEntityRunning(entity)) return false;
+    if (!entity || !this.isEntityRunning(entity)) return false;
     const nodeId = decoration?.componentId || target!.entityId || entity.rootComponentId;
     const definition = decoration && entity.getRuntimeComponentDecorations(nodeId)
       .find((item: { id: string }) => item.id === decoration.decorationId);

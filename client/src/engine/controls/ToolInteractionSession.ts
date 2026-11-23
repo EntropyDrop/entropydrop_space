@@ -9,6 +9,7 @@ import type { PlayerController } from './PlayerController.ts';
 import { contraptionRootId } from './SelectionGeometry.ts';
 
 export interface ToolInteractionSessionPort {
+  activateTool: PlayerController['activateTool'];
   applySelectionShape: PlayerController['applySelectionShape'];
   boxSelectionPreview: PlayerController['boxSelectionPreview'];
   bulkEditJob: PlayerController['bulkEditJob'];
@@ -195,6 +196,20 @@ export class ToolInteractionSession {
     this.entityInputReleased?.clear();
   }
 
+  tryActivateModeling(e: MouseEvent | null) {
+    const tool = this.activeTool;
+    if (this.worldPickingSuspended || this.host.bulkEditJob
+      || (tool === SpecialTool.SELECTOR && this.host.hoveredGizmoHandle)
+      || ![SpecialTool.SELECTOR, SpecialTool.HAMMER, SpecialTool.SHOVEL, SpecialTool.SPOON].includes(tool)) return false;
+    const modeling = this.host.modeling;
+    const hit = modeling?.pickDecoration?.(e);
+    if (!hit) return false;
+    this.host.activateTool(SpecialTool.MODELING);
+    modeling.hovered = hit;
+    if (!hit.contraption || !this.host.tryClickRunningEntity(hit)) modeling.selectHovered();
+    return true;
+  }
+
   handleLeftClick(e: MouseEvent | null = null) {
     if (this.worldPickingSuspended) return false;
     if (this.host.hammerPlacementActive) return true;
@@ -202,6 +217,7 @@ export class ToolInteractionSession {
       this.host.resetEntityPlaybackClickGesture();
       return true;
     }
+    if (this.tryActivateModeling(e)) return true;
     const selectorTool = this.activeTool === SpecialTool.SELECTOR || this.activeTool === SpecialTool.SUPER_GLUE;
     if (selectorTool && !this.host.bulkEditJob && !this.host.hoveredGizmoHandle
       && !(e?.shiftKey || this.host.keys?.crouch)) {

@@ -4,6 +4,7 @@ import {
   MAX_SPACE_ONLINE_PLAYERS,
   encodePlayerPosition,
   terrainStreamAreaForPosition,
+  type TerrainStreamArea,
 } from '../../bootstrap/SpaceBootstrap.ts';
 import { readJsonResponse } from '../../bootstrap/NetworkSafety.ts';
 import { parseEntityPose, type EntityPoseFrame } from './EntityPoseBuffer.ts';
@@ -50,10 +51,17 @@ export interface MultiplayerSyncOptions {
 const SPACE_REALTIME_PROTOCOL = 'space-relay-v1';
 const DEFAULT_POSE_INTERVAL_MS = 50;
 const DEFAULT_TERRAIN_POLL_INTERVAL_MS = 1000;
+const TERRAIN_POLL_TIMEOUT_MS = 15_000;
 const IDLE_POSE_INTERVAL_MS = 1000;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 64 * 1024;
 const MAX_REALTIME_MESSAGE_BYTES = 1024 * 1024;
 const MAX_REALTIME_API_RESPONSE_BYTES = 16 * 1024 * 1024;
+
+interface TerrainPollState {
+  area: TerrainStreamArea | null;
+  revision: number;
+  cursor: string | null;
+}
 
 export function resolveWebSocketUrl(configuredUrl: string, apiOrigin: string) {
   const apiUrl = new URL(apiOrigin);
@@ -138,12 +146,12 @@ export class MultiplayerSync {
   private websocket: WebSocket | null = null;
   private websocketReady = false;
   private entityPosesSupported = false;
-  private terrainInFlight = false;
+  private terrainRequest: AbortController | null = null;
   private terrainPollRequested = false;
   private isRunning = false;
-  private sinceTerrainRevision = 0;
-  private terrainCursor: string | null = null;
-  private terrainPollAreaKey = '';
+  private explicitTerrainArea = false;
+  private terrainPollState: TerrainPollState = { area: null, revision: 0, cursor: null };
+  private latestTerrainRevision = 0;
   private poseSequence = 0;
   private lastPoseKey = '';
   private lastPoseSentAt = 0;
@@ -182,6 +190,9 @@ export class MultiplayerSync {
 
   stop() {
     this.isRunning = false;
+    this.terrainRequest?.abort();
+    this.terrainRequest = null;
+    this.terrainPollRequested = false;
     this.websocketReady = false;
     this.entityPosesSupported = false;
     if (this.terrainTimer) clearTimeout(this.terrainTimer);
@@ -200,11 +211,20 @@ export class MultiplayerSync {
     }
   }
 
-  setSinceTerrainRevision(rev: number) {
-    const numericRevision = Number(rev);
-    if (Number.isFinite(numericRevision) && numericRevision >= 0) {
-      this.sinceTerrainRevision = Math.max(this.sinceTerrainRevision, Math.floor(numericRevision));
-    }
+  /** Capture before fetching the first page of an AOI snapshot. */
+  getTerrainSnapshotBaseline() {
+    return this.latestTerrainRevision;
+  }
+
+  setTerrainArea(area: TerrainStreamArea, snapshotBaseline: number) {
+    const revision = Number.isSafeInteger(snapshotBaseline) && snapshotBaseline >= 0 ? snapshotBaseline : 0;
+    this.explicitTerrainArea = true;
+    this.terrainPollState = { area, revision, cursor: null };
+    this.latestTerrainRevision = Math.max(this.latestTerrainRevision, revision);
+    this.terrainRequest?.abort();
+    this.terrainRequest = null;
+    this.terrainPollRequested = false;
+    this.scheduleTerrainPoll(0);
   }
 
   private logTemporaryFailure(message: string, error: unknown) {
@@ -223,33 +243,39 @@ export class MultiplayerSync {
 
   private async performTerrainPoll() {
     if (!this.isRunning) return;
-    if (this.terrainInFlight) {
+    if (this.terrainRequest) {
       this.terrainPollRequested = true;
       return;
     }
 
-    this.terrainInFlight = true;
+    const request = new AbortController();
+    this.terrainRequest = request;
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(TERRAIN_POLL_TIMEOUT_MS)]);
     const includePlayers = !this.websocketReady;
     try {
+      const pose = this.getPlayerPosition?.();
+      const validPose = pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) && Number.isFinite(pose.z);
+      if (!this.explicitTerrainArea && validPose) {
+        const area = terrainStreamAreaForPosition(pose.x, pose.z);
+        if (area.key !== this.terrainPollState.area?.key) {
+          this.terrainPollState = { area, revision: 0, cursor: null };
+        }
+      }
+      const terrain = this.terrainPollState;
       const body: Record<string, number | boolean | string> = {
-        since_terrain_revision: this.sinceTerrainRevision,
+        since_terrain_revision: terrain.revision,
         include_players: includePlayers
       };
-      const pose = this.getPlayerPosition?.();
-      if (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) && Number.isFinite(pose.z)) {
-        const area = terrainStreamAreaForPosition(pose.x, pose.z);
-        if (this.terrainPollAreaKey !== area.key) this.terrainCursor = null;
-        this.terrainPollAreaKey = area.key;
+      const { area } = terrain;
+      if (area) {
         body.center_chunk_x = area.centerChunkX;
         body.center_chunk_z = area.centerChunkZ;
         body.terrain_radius_chunks = area.radiusChunks;
         if (area.radiusChunksZ !== undefined) body.terrain_radius_chunks_z = area.radiusChunksZ;
       }
-      if (this.terrainCursor) body.terrain_cursor = this.terrainCursor;
-      if (includePlayers) {
-        if (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) && Number.isFinite(pose.z)) {
-          Object.assign(body, encodePlayerPosition(pose, pose.yaw || 0, pose.pitch || 0));
-        }
+      if (terrain.cursor) body.terrain_cursor = terrain.cursor;
+      if (includePlayers && validPose) {
+        Object.assign(body, encodePlayerPosition(pose, pose.yaw || 0, pose.pitch || 0));
       }
 
       const response = await fetch(
@@ -261,15 +287,20 @@ export class MultiplayerSync {
             Accept: 'application/json',
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
+          signal,
         }
       );
+      signal.throwIfAborted();
       if (!response.ok) {
+        // Restart an invalid continuation from the last complete event.
+        if (response.status === 422) terrain.cursor = null;
         throw new Error(`Space terrain synchronization failed with HTTP ${response.status}`);
       }
       const data: any = await readJsonResponse(response, MAX_REALTIME_API_RESPONSE_BYTES, {
         offMainThread: true,
       });
+      signal.throwIfAborted();
       if (!data || typeof data !== 'object') {
         throw new Error('Space terrain synchronization returned invalid JSON');
       }
@@ -279,20 +310,22 @@ export class MultiplayerSync {
       if (Array.isArray(data?.terrain_chunks) && data.terrain_chunks.length > 0) {
         this.onTerrainUpdate?.(data.terrain_chunks.slice(0, 512));
       }
-      if (Number.isFinite(data?.max_terrain_revision)) {
-        this.sinceTerrainRevision = Math.max(
-          this.sinceTerrainRevision,
-          Number(data.max_terrain_revision)
-        );
+      if (Number.isSafeInteger(data.max_terrain_revision)) {
+        terrain.revision = Math.max(terrain.revision, data.max_terrain_revision);
+        this.latestTerrainRevision = Math.max(this.latestTerrainRevision, terrain.revision);
       }
-      this.terrainCursor = typeof data.terrain_cursor === 'string' ? data.terrain_cursor : null;
+      terrain.cursor = typeof data.terrain_cursor === 'string' ? data.terrain_cursor : null;
     } catch (error) {
-      this.logTemporaryFailure('Space terrain synchronization is temporarily unavailable.', error);
+      if (!request.signal.aborted) {
+        this.logTemporaryFailure('Space terrain synchronization is temporarily unavailable.', error);
+      }
     } finally {
-      this.terrainInFlight = false;
-      const requested = this.terrainPollRequested;
-      this.terrainPollRequested = false;
-      if (this.isRunning) this.scheduleTerrainPoll(requested ? 0 : this.terrainPollIntervalMs);
+      if (this.terrainRequest === request) {
+        this.terrainRequest = null;
+        const requested = this.terrainPollRequested;
+        this.terrainPollRequested = false;
+        this.scheduleTerrainPoll(requested ? 0 : this.terrainPollIntervalMs);
+      }
     }
   }
 
@@ -390,7 +423,8 @@ export class MultiplayerSync {
     }
     if (message.type === 'terrain') {
       const revision = Number(message.terrain_revision);
-      if (Number.isFinite(revision) && revision > this.sinceTerrainRevision) {
+      if (Number.isSafeInteger(revision) && revision > this.terrainPollState.revision) {
+        this.latestTerrainRevision = Math.max(this.latestTerrainRevision, revision);
         this.terrainPollRequested = true;
         void this.performTerrainPoll();
       }
