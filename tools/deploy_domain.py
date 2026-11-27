@@ -24,7 +24,7 @@ BUCKET = 'entropydrop-com-frontend'
 MAIN_DISTRIBUTION = 'E1EYC8VR1RCTFX'
 API_DISTRIBUTION = 'E1Y004OSRWPKO6'
 PROXY = 'http://127.0.0.1:19100'
-CONFIG = Config(proxies={'http': PROXY, 'https': PROXY}, connect_timeout=10, read_timeout=60, max_pool_connections=16, retries={'max_attempts': 5, 'mode': 'standard'})
+CONFIG = Config(proxies={'http': PROXY, 'https': PROXY}, connect_timeout=30, read_timeout=120, max_pool_connections=16, retries={'max_attempts': 5, 'mode': 'standard'})
 
 def initialize():
     values = dotenv_values(ROOT.parent / 'entropydrop_backend/.env.prod')
@@ -238,14 +238,52 @@ def retain_assets(old_prefix, prefix):
 
 def verify_objects(directory, prefix, aliases=()):
     s3 = client('s3', 'us-east-2')
+    directory = Path(directory)
     expected = manifest(directory, main=bool(aliases))
-    expected.update({route: expected[route + '/index.html'] for route in aliases})
+    sizes = {name: (directory / name).stat().st_size for name in expected}
+    for route in aliases:
+        expected[route] = expected[route + '/index.html']
+        sizes[route] = sizes[route + '/index.html']
+    chunk_bytes = 1024 * 1024
+
+    def digest_object(key, expected_size):
+        if expected_size <= chunk_bytes:
+            for attempt in range(5):
+                try:
+                    return hashlib.sha256(s3.get_object(Bucket=BUCKET, Key=key)['Body'].read()).hexdigest()
+                except Exception as exc:
+                    if isinstance(exc, RuntimeError) or attempt == 4:
+                        raise
+                    time.sleep(1 + attempt)
+        hasher = hashlib.sha256()
+        offset = 0
+        while offset < expected_size:
+            end = min(expected_size - 1, offset + chunk_bytes - 1)
+            expected_len = end - offset + 1
+            part = None
+            for attempt in range(8):
+                try:
+                    actual = s3.get_object(Bucket=BUCKET, Key=key, Range=f'bytes={offset}-{end}')
+                    part = actual['Body'].read()
+                    if len(part) != expected_len:
+                        raise OSError(f'Short S3 range read for {key}: {len(part)}/{expected_len}')
+                    content_range = actual.get('ContentRange', '')
+                    if content_range and not content_range.endswith(f'/{expected_size}'):
+                        raise RuntimeError(f'Staged object differs from build: {key}')
+                    break
+                except Exception as exc:
+                    if isinstance(exc, RuntimeError) or attempt == 7:
+                        raise
+                    time.sleep(min(4, 1 + attempt))
+            hasher.update(part)
+            offset += expected_len
+        return hasher.hexdigest()
+
     def check(item):
         name, digest = item
-        actual = s3.get_object(Bucket=BUCKET, Key=prefix + name)
-        if hashlib.sha256(actual['Body'].read()).hexdigest() != digest:
+        if digest_object(prefix + name, sizes[name]) != digest:
             raise RuntimeError(f'Staged object differs from build: {prefix + name}')
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         list(pool.map(check, expected.items()))
 
 

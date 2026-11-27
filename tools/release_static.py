@@ -10,7 +10,7 @@ import shutil
 import time
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, quote, urlsplit
-from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
 MAIN_ROUTES = (
@@ -110,14 +110,61 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+RANGE_CHUNK_BYTES = 1024 * 1024
+
+
+def _fetch_range_chunks(opener, url, status, headers, total):
+    buf = bytearray()
+    lower = {k.lower(): v for k, v in headers.items()}
+    etag = lower.get('etag')
+    while len(buf) < total:
+        start = len(buf)
+        end = min(total - 1, start + RANGE_CHUNK_BYTES - 1)
+        expected_len = end - start + 1
+        part = None
+        for attempt in range(8):
+            try:
+                req_headers = {'Range': f'bytes={start}-{end}'}
+                if etag:
+                    req_headers['If-Range'] = etag
+                with opener.open(Request(url, headers=req_headers), timeout=45) as resp:
+                    if resp.status != 206:
+                        raise OSError(f'Expected HTTP 206 for range read on {url}, got {resp.status}')
+                    part = resp.read()
+                    if len(part) != expected_len:
+                        raise OSError(f'Short range read on {url}: {len(part)}/{expected_len}')
+                    break
+            except Exception:
+                if attempt == 7:
+                    raise
+                time.sleep(min(4, 1 + attempt))
+        buf.extend(part)
+    return status, headers, bytes(buf)
+
+
 def fetch(url, proxy):
     opener = build_opener(ProxyHandler({'http': proxy, 'https': proxy}), NoRedirect())
-    try:
-        response = opener.open(url, timeout=30)
-    except HTTPError as error:
-        response = error
-    with response:
-        return response.status, dict(response.headers.items()), response.read()
+    for attempt in range(5):
+        try:
+            try:
+                response = opener.open(url, timeout=60)
+            except HTTPError as error:
+                response = error
+            with response:
+                status = response.status
+                headers = dict(response.headers.items())
+                lower = {k.lower(): v for k, v in headers.items()}
+                content_length = lower.get('content-length', '')
+                total = int(content_length) if content_length.isdigit() else None
+                use_range = (status == 200 and total and total > RANGE_CHUNK_BYTES
+                             and lower.get('accept-ranges', '').lower() == 'bytes')
+                if not use_range:
+                    return status, headers, response.read()
+            return _fetch_range_chunks(opener, url, status, headers, total)
+        except Exception:
+            if attempt == 4:
+                raise
+            time.sleep(1 + attempt)
 
 
 def verify_online(directory, origin, proxy, *, main=False, fetcher=None):
@@ -144,7 +191,7 @@ def verify_online(directory, origin, proxy, *, main=False, fetcher=None):
     for path, name in entries.items():
         check(path, name)
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         list(pool.map(lambda name: check('/' + quote(name, safe='/'), name), sorted(assets)))
     if main:
         query = '?world=copper-metropolis&tag=a&tag=b'
