@@ -2,6 +2,9 @@
 !package.json
 !package-lock.json
 !.npmrc
+!tools/
+tools/**
+!tools/npm-resumable-install.mjs
 !engine/
 !engine/package.json
 !engine/src/
