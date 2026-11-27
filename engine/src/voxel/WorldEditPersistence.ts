@@ -1210,6 +1210,7 @@ export class WorldEditPersistence {
           this.loadStoredDecorations(payload.decorations);
         }
         this.loadPendingBatches(payload.pendingBatches);
+        this.migrateLegacyEmissiveState();
         this.replayPendingBatches();
         return;
       }
@@ -1224,6 +1225,45 @@ export class WorldEditPersistence {
         this.decorations?.clear();
       }
       this.pendingBatches.length = 0;
+    }
+  }
+
+  private migrateLegacyEmissiveState() {
+    let migrated = false;
+    for (const edit of this.standardEdits.values()) {
+      if (edit.material === VoxelMaterialIds.LEGACY_EMISSIVE) {
+        edit.material = VoxelMaterialIds.EMISSIVE;
+        migrated = true;
+      }
+    }
+    for (const edit of this.microEdits.values()) {
+      if (edit.material === VoxelMaterialIds.LEGACY_EMISSIVE) {
+        edit.material = VoxelMaterialIds.EMISSIVE;
+        migrated = true;
+      }
+    }
+    if (this.decorations) {
+      for (const value of [...this.decorations.all()]) {
+        if (value.materialId === VoxelMaterialIds.LEGACY_EMISSIVE) {
+          this.decorations.upsert({ ...value, materialId: VoxelMaterialIds.EMISSIVE });
+          migrated = true;
+        }
+      }
+    }
+    for (const batch of this.pendingBatches) {
+      for (const mutation of batch.mutations) {
+        if (
+          (mutation.kind === 'set_standard' || mutation.kind === 'set_micro' || mutation.kind === 'set_decoration')
+          && mutation.material === VoxelMaterialIds.LEGACY_EMISSIVE
+        ) {
+          mutation.material = VoxelMaterialIds.EMISSIVE;
+          migrated = true;
+        }
+      }
+    }
+    if (migrated) {
+      this.dirty = true;
+      this.flush();
     }
   }
 

@@ -14,8 +14,9 @@ function referenceMips(source: Uint32Array, origin: number[]) {
     const bytes = new Uint8Array(6 * data.length * 16), view = new DataView(bytes.buffer);
     let offset = 0;
     meshVoxelBrick(data, axis, size, origin, (x, y, z, w, h, dir, value) => {
+      const level = (value >>> 24) & 127;
       for (const [i, n] of [x, y, z, w, h].entries()) view.setUint16(offset + i * 2, n * 8, true);
-      bytes.set([dir, value >>> 24 & 1, value >>> 16 & 255, value >>> 8 & 255, value & 255, 0], offset + 10);
+      bytes.set([dir, level > 0 ? level + 101 : 0, value >>> 16 & 255, value >>> 8 & 255, value & 255, 0], offset + 10);
       offset += 16;
     });
     levels.push(bytes.slice(0, offset));
@@ -33,7 +34,8 @@ function addBrick(column: VoxelSurfaceColumn, data: Uint32Array, by: number) {
       const value = data[cx * 16 + x + y * 64 + (cz * 16 + z) * 4096];
       if (!value) continue;
       const wy = by * 64 + y, at = Chunk.getIndex(x, wy, z);
-      chunk.blocks[at] = 1; chunk.colors[at] = value & 0xffffff; chunk.materials[at] = value >>> 24 & 1;
+      const level = (value >>> 24) & 127;
+      chunk.blocks[at] = 1; chunk.colors[at] = value & 0xffffff; chunk.materials[at] = level > 0 ? level + 101 : 0;
       low = Math.min(low, wy); high = Math.max(high, wy);
     }
     chunk.setGeneratedOccupiedYRange(low, high);
@@ -53,9 +55,12 @@ for (const shape of ['slabs', 'checkerboard', 'random'] as const) {
         const at = x + y * 64 + z * 4096;
         random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
         if (shape === 'slabs' && [0, 1, 12, 63].includes(y) && (x < 24 || z > 32)) {
-          data[at] = x < 8 ? 0x80000000 : x < 16 ? 0x81010203 : 0x80020304;
-        } else if (shape === 'checkerboard' && (x + y + z) % 2 === 0) data[at] = 0x81123456;
-        else if (shape === 'random' && random % 7 < 3) data[at] = (0x80000000 | (random & 0x1ffffff)) >>> 0;
+          data[at] = x < 8 ? 0x80000000 : x < 16 ? (0x80010203 | (50 << 24)) >>> 0 : 0x80020304;
+        } else if (shape === 'checkerboard' && (x + y + z) % 2 === 0) data[at] = (0x80123456 | (100 << 24)) >>> 0;
+        else if (shape === 'random' && random % 7 < 3) {
+          const level = (random >>> 24) % 3 === 0 ? ((random >>> 16) % 100) + 1 : 0;
+          data[at] = (0x80000000 | (level << 24) | (random & 0xffffff)) >>> 0;
+        }
       }
       const column = getTerrainKernels()!.createVoxelSurfaceColumn();
       const by = 3;
@@ -95,13 +100,13 @@ test('voxel columns preserve solid precedence, micro order across batches, emiss
     column.addChunk(chunk, 3, 3);
     const expected = new Uint32Array(64 ** 3);
     expected[48 + 48 * 4096] = 0x80000000;
-    expected[49 + 48 * 4096] = 0x81010203;
+    expected[49 + 48 * 4096] = (0x80010203 | (50 << 24)) >>> 0;
     const first = column.meshBrick(0, 0, 0)!;
     assert.deepEqual(first, referenceMips(expected, [0, 0, 0]));
     other.addChunk(chunk, 0, 0);
     other.meshBrick(3, 64, 128); other.reset();
     assert.deepEqual(column.meshBrick(0, 0, 0), first);
-    expected.fill(0); expected[63 + 63 * 64 + 63 * 4096] = 0x81fedcba;
+    expected.fill(0); expected[63 + 63 * 64 + 63 * 4096] = (0x80fedcba | (50 << 24)) >>> 0;
     assert.deepEqual(column.meshBrick(3, 0, 0), referenceMips(expected, [0, 192, 0]));
     assert.equal(column.meshBrick(1, 0, 0), null);
     assert.throws(() => column.addChunk(chunk, 4, 0), /Invalid voxel surface chunk/);

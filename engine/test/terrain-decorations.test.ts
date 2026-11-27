@@ -66,7 +66,7 @@ test('decoration edits enter the outbox and survive a refresh in local mode', ()
   first.setBlock(5, 40, 3, BlockTypes.AIR, false);
   first.flushPersistedEdits();
   const second = new World(new THREE.Scene(), 1337, persistence) as any;
-  assert.deepEqual([...second.terrainDecorations.all()].map((value: any) => [value.id, value.materialId]), [['d_trim', 1]]);
+  assert.deepEqual([...second.terrainDecorations.all()].map((value: any) => [value.id, value.materialId]), [['d_trim', 151]]);
 });
 
 test('remote snapshots replace decorations, then replay the unacknowledged outbox', async () => {

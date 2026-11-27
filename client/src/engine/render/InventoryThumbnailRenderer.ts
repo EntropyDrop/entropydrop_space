@@ -1,7 +1,7 @@
 import { SpaceRenderer } from './SpaceRenderer.ts';
 import * as THREE from 'three/webgpu';
 import { normalizeColor } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId, VoxelMaterialIds } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import { isEmissiveVoxelMaterial, normalizeVoxelMaterialId } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import { getInventoryRenderPreviewBlocks } from '../inventory/InventoryRenderGeometry.ts';
 
 // Backpack, market and hotbar thumbnails retain exact geometry below 10,000 blocks.
@@ -190,8 +190,8 @@ export class InventoryThumbnailRenderer {
       const blocksByGroup = new Map<string, any[]>();
       for (const block of previewBlocks) {
         const s = Number(block.size) || 1;
-        const materialId = normalizeVoxelMaterialId(block.materialId);
-        const key = `${s}:${materialId}`;
+        const emissive = isEmissiveVoxelMaterial(normalizeVoxelMaterialId(block.materialId)) ? 1 : 0;
+        const key = `${s}:${emissive}`;
         if (!blocksByGroup.has(key)) blocksByGroup.set(key, []);
         blocksByGroup.get(key)!.push(block);
       }
@@ -201,11 +201,11 @@ export class InventoryThumbnailRenderer {
 
 
       for (const [key, blocks] of blocksByGroup.entries()) {
-        const [sizeText, materialText] = key.split(':');
+        const [sizeText, emissiveText] = key.split(':');
         const s = Number(sizeText);
-        const materialId = Number(materialText);
+        const emissive = Number(emissiveText) === 1;
         const geom = new THREE.BoxGeometry(s, s, s);
-        const mat = materialId === VoxelMaterialIds.EMISSIVE
+        const mat = emissive
           ? new THREE.MeshBasicNodeMaterial({ toneMapped: false })
           : new THREE.MeshStandardNodeMaterial({ roughness: 0.45, metalness: 0.05 });
 

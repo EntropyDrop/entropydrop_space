@@ -16,7 +16,7 @@ import type {
   DecodedInventoryResource,
 } from './InventoryTypes.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
-import { parseVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
+import { migrateLegacyVoxelMaterialId, parseVoxelMaterialId, VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import { normalizeGradientStops, normalizePaletteEntry } from '../voxel/Palette.ts';
 import {
   normalizeAnchoredDecorations, normalizeDecorations, type AnchoredDecorationDefinition,
@@ -1237,4 +1237,59 @@ export function protobufFromBase64(encoded: string): Uint8Array {
   const result = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index++) result[index] = binary.charCodeAt(index);
   return result;
+}
+
+/** Migrate reserved legacy emissive ID (1) to canonical 50% glow (151) in a portable resource. */
+export function migrateLegacyPortableMaterialIds<T>(resource: T): { resource: T; changed: boolean } {
+  let changed = false;
+  const migrateId = (value: unknown) => {
+    if (value !== VoxelMaterialIds.LEGACY_EMISSIVE) return value;
+    changed = true;
+    return migrateLegacyVoxelMaterialId(value);
+  };
+  const migrateList = (items: any) => Array.isArray(items)
+    ? items.map((entry: any) => (
+      entry && typeof entry === 'object' && entry.materialId === VoxelMaterialIds.LEGACY_EMISSIVE
+        ? { ...entry, materialId: migrateId(entry.materialId) }
+        : entry
+    ))
+    : items;
+  const migrateComponent = (component: any): any => {
+    if (!component || typeof component !== 'object') return component;
+    const blocks = migrateList(component.blocks);
+    const decorations = migrateList(component.decorations);
+    const children = Array.isArray(component.children)
+      ? component.children.map(migrateComponent)
+      : component.children;
+    if (blocks === component.blocks && decorations === component.decorations && children === component.children) {
+      return component;
+    }
+    return { ...component, blocks, decorations, children };
+  };
+  const migrateResource = (value: any): any => {
+    if (!value || typeof value !== 'object') return value;
+    if (value.type === 'space-item') {
+      const blockSet = value.blockSet ? migrateResource(value.blockSet) : value.blockSet;
+      const entityList = Array.isArray(value.entityList)
+        ? value.entityList.map(migrateResource)
+        : value.entityList;
+      return changed ? { ...value, blockSet, entityList } : value;
+    }
+    if (value.type === 'space-blockset') {
+      const blocks = migrateList(value.blocks);
+      const decorations = migrateList(value.decorations);
+      return changed ? { ...value, blocks, decorations } : value;
+    }
+    if (value.type === 'space-entity') {
+      const root = value.root ? migrateComponent(value.root) : value.root;
+      return changed ? { ...value, root } : value;
+    }
+    if (value.type === 'space-colorset') {
+      const entries = migrateList(value.entries);
+      return changed ? { ...value, entries } : value;
+    }
+    return value;
+  };
+  const migrated = migrateResource(resource);
+  return { resource: changed ? migrated : resource, changed };
 }

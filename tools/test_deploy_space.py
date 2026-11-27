@@ -271,12 +271,16 @@ class RemoteRolloutTests(SpaceTestCase):
         smoke = self.index(lambda c: "space.hosting_smoke" in c)
         backup = self.index(lambda c: any(arg.endswith("backup-production.sh") for arg in c))
         migrate = self.index(lambda c: "alembic" in c)
+        market_v8 = self.index(lambda c: "space.migrate_market_v8" in c)
+        market_emissive = self.index(lambda c: "space.migrate_market_emissive" in c)
         data_check = self.index(lambda c: "space.release_check" in c)
         provision = self.index(lambda c: any("('nature', 'copper-metropolis', 'aether-archipelago')" in arg for arg in c))
         stop = self.index(lambda c: c[:2] == ["docker", "stop"])
         self.assertLess(smoke, backup)
         self.assertLess(backup, migrate)
-        self.assertLess(migrate, data_check)
+        self.assertLess(migrate, market_v8)
+        self.assertLess(market_v8, market_emissive)
+        self.assertLess(market_emissive, data_check)
         self.assertLess(data_check, provision)
         self.assertLess(provision, stop)
         self.assertFalse(any(c[:2] == ["docker", "rm"] for c in self.commands))
@@ -292,6 +296,7 @@ class RemoteRolloutTests(SpaceTestCase):
             lambda c: "space.hosting_smoke" in c,
             lambda c: any(arg.endswith("backup-production.sh") for arg in c),
             lambda c: "alembic" in c,
+            lambda c: "space.migrate_market_emissive" in c,
             lambda c: "space.release_check" in c,
         ):
             with self.subTest(stage=predicate):

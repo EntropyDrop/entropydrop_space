@@ -24,10 +24,14 @@ export function emissiveCoverage(sceneColor: THREE.Node<'vec4'>) {
   return clamp(sceneColor.a.sub(1), 0, 1);
 }
 
+export function emissiveStrength(sceneColor: THREE.Node<'vec4'>) {
+  return max(sceneColor.a.sub(1), 0);
+}
+
 export function emissiveBloomColor(sceneColor: THREE.Node<'vec4'>) {
   const color = sceneColor.rgb;
   const luminance = dot(color, vec3(.2126, .7152, .0722));
-  return color.mul(VOXEL_EMISSIVE_INTENSITY).div(max(luminance, .000001)).mul(emissiveCoverage(sceneColor));
+  return color.mul(VOXEL_EMISSIVE_INTENSITY).div(max(luminance, .000001)).mul(emissiveStrength(sceneColor));
 }
 
 /** Selective HDR bloom for the standard lighting presets. */

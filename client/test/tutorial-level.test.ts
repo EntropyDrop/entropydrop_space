@@ -49,10 +49,10 @@ test('tutorial files round trip additions, carved ground, paint, micro materials
   const storage = createTutorialStorage(level);
   const edits = new WorldEditPersistence({ worldId: TUTORIAL_WORLD_ID, storage });
   edits.recordStandard(8192, 16, 1024, BlockTypes.AIR, 0);
-  edits.recordStandard(8193, 17, 1024, BlockTypes.COLOR_BLOCK, 0xaabbcc, 1);
+  edits.recordStandard(8193, 17, 1024, BlockTypes.COLOR_BLOCK, 0xaabbcc, 151);
   edits.recordStandard(8194, 16, 1024, BlockTypes.COLOR_BLOCK, 0xabcdef);
   edits.recordStandard(16000, 20, 2000, BlockTypes.COLOR_BLOCK, 0x102030);
-  edits.recordMicro(8192 * 8, 18 * 8, 1024 * 8, 0x334455, 'root', 1);
+  edits.recordMicro(8192 * 8, 18 * 8, 1024 * 8, 0x334455, 'root', 151);
   edits.flush();
   const saved = captureTutorialLevel(storage, level);
   assert.equal(saved.terrain.standard.length, 4);

@@ -46,7 +46,10 @@ test('entity voxel meshes keep default and emissive materials independently edit
   assert.equal((meshes[0].material[1] as THREE.MeshBasicNodeMaterial).color.r, 1);
 
   const slot = contraption.serializeSubtree('root');
-  assert.deepEqual(slot.blocks.map((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => block.materialId), [0, 1]);
+  assert.deepEqual(
+    slot.blocks.map((block: import('../src/contraption/EntityTypes.ts').RuntimeVoxel) => block.materialId),
+    [0, VoxelMaterialIds.EMISSIVE],
+  );
   contraption.dispose();
 });
 

@@ -1,9 +1,16 @@
-import { isTranslucentVoxelMaterial, voxelMaterialRenderBucket, voxelMaterialOpacity } from '../voxel/VoxelMaterials.ts';
+import {
+  isEmissiveVoxelMaterial,
+  isTranslucentVoxelMaterial,
+  voxelMaterialRenderBucket,
+  voxelMaterialOpacity,
+  voxelMaterialAlphaByte,
+  voxelMaterialEmissionStrength,
+} from '../voxel/VoxelMaterials.ts';
 import { createVoxelTranslucentMaterial } from '../render/VoxelTranslucency.ts';
 import * as THREE from 'three/webgpu';
-import { attribute, mat3, mat4, vec3, vec4, dot } from 'three/tsl';
+import { attribute, mat3, mat4, vec3, vec4, dot, output } from 'three/tsl';
 import { bendPointForView, hookSceneMaterials } from '../torus/TorusWorld.ts';
-import { createVoxelEmissiveMaterial, voxelEmissionColor } from '../render/VoxelEmission.ts';
+import { createVoxelEmissiveMaterial, voxelEmissionColor, voxelEmissionMask } from '../render/VoxelEmission.ts';
 import type { DecorationDefinition } from './Decorations.ts';
 
 // Keep individual transform handles for picking, editor gizmos and camera bounds.
@@ -75,11 +82,18 @@ export function syncDecorationMeshTransform(mesh: THREE.Mesh) {
 function syncInstanceColor(handle: THREE.Mesh) {
   const { batch, index } = instances.get(handle)!;
   const color = handle.userData.decorationColor;
-  if (handle.userData.decorationMaterialId === 1) {
-    batch.colors.setXYZW(index, ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
+  const matId = handle.userData.decorationMaterialId;
+  if (isEmissiveVoxelMaterial(matId)) {
+    batch.colors.setXYZW(
+      index,
+      ((color >> 16) & 255) / 255,
+      ((color >> 8) & 255) / 255,
+      (color & 255) / 255,
+      voxelMaterialEmissionStrength(matId),
+    );
   } else {
     tint.setHex(color);
-    batch.colors.setXYZW(index, tint.r, tint.g, tint.b, voxelMaterialOpacity(handle.userData.decorationMaterialId));
+    batch.colors.setXYZW(index, tint.r, tint.g, tint.b, voxelMaterialOpacity(matId));
   }
   dirtyRange(batch.colors, index * 4, 4);
 }
@@ -97,9 +111,14 @@ function createBatch(materialId: number, capacity: number): Batch {
   material.userData.flatNormalNode = normalMatrix.mul(attribute<'vec3'>('normal', 'vec3').div(scaleSq));
   const tint = attribute<'vec4'>('decorationTint', 'vec4');
   const color = tint.xyz;
-  // Emission takes raw sRGB tint and retains the HDR mask; ordinary tint is linear.
-  material.colorNode = materialId === 1 ? voxelEmissionColor(color) : color;
-  if (materialId === 2) material.opacityNode = tint.w;
+  // Emission takes raw sRGB tint plus relative strength in tint.w and retains the HDR mask; ordinary tint is linear.
+  if (materialId === 1) {
+    material.colorNode = voxelEmissionColor(color, tint.w);
+    material.outputNode = vec4(output.rgb, output.a.add(voxelEmissionMask.mul(tint.w)));
+  } else {
+    material.colorNode = color;
+    if (materialId === 2) material.opacityNode = tint.w;
+  }
   const mesh = new DecorationBatchMesh(material, capacity);
   const colors = mesh.tintAttribute;
   mesh.name = `DecorationBatch:${materialId}`;
@@ -226,9 +245,10 @@ export function updateDecorationMesh(mesh: THREE.Mesh, value: DecorationDefiniti
     else {
       (mesh.material as THREE.MeshStandardNodeMaterial).color.setHex(value.color);
       const colors = mesh.geometry.getAttribute('color');
-      if (value.materialId === 1 && colors) {
-        for (let i = 0; i < colors.count; i++) colors.setXYZ(i,
-          ((value.color >> 16) & 255) / 255, ((value.color >> 8) & 255) / 255, (value.color & 255) / 255);
+      if (isEmissiveVoxelMaterial(value.materialId) && colors) {
+        const alpha = voxelMaterialAlphaByte(value.materialId!) / 255;
+        for (let i = 0; i < colors.count; i++) colors.setXYZW(i,
+          ((value.color >> 16) & 255) / 255, ((value.color >> 8) & 255) / 255, (value.color & 255) / 255, alpha);
         colors.needsUpdate = true;
       }
     }
@@ -241,15 +261,17 @@ function createDecorationMesh(value: DecorationDefinition, pivot: THREE.Vector3,
   let material: THREE.Material | undefined = state.material;
   if (!geometry) {
     geometry = new THREE.BoxGeometry(1, 1, 1);
-    material = value.materialId === 1
+    const emissive = isEmissiveVoxelMaterial(value.materialId);
+    material = emissive
       ? createVoxelEmissiveMaterial()
       : isTranslucentVoxelMaterial(value.materialId) ? createVoxelTranslucentMaterial(false, voxelMaterialOpacity(value.materialId!))
       : new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
-    if (value.materialId === 1) {
-      // Emission reads an sRGB vertex tint, matching the voxel shader contract.
-      const color = [((value.color >> 16) & 255) / 255, ((value.color >> 8) & 255) / 255, (value.color & 255) / 255];
+    if (emissive) {
+      // Emission reads sRGB tint + glow alpha byte / 255, matching the voxel shader contract.
+      const alpha = voxelMaterialAlphaByte(value.materialId!) / 255;
+      const color = [((value.color >> 16) & 255) / 255, ((value.color >> 8) & 255) / 255, (value.color & 255) / 255, alpha];
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(
-        Array.from({ length: geometry.getAttribute('position').count }, () => color).flat(), 3));
+        Array.from({ length: geometry.getAttribute('position').count }, () => color).flat(), 4));
     }
   }
   const mesh = new THREE.Mesh(geometry, material!);
@@ -271,10 +293,17 @@ export function editDecorationGroup(group: THREE.Group, id: string, value: Decor
   let mesh = state.handles.get(id);
   if (mesh && value && mesh.userData.decorationMaterialId !== (value.materialId || 0)
     && voxelMaterialRenderBucket(mesh.userData.decorationMaterialId) === voxelMaterialRenderBucket(value.materialId || 0)) {
-    // Opacity-only edits never move instances or recreate a material/pipeline.
+    // Opacity-only or glow-level-only edits never move instances or recreate a material/pipeline.
     mesh.userData.decorationMaterialId = value.materialId || 0;
     if (instances.has(mesh)) syncInstanceColor(mesh);
-    else (mesh.material as THREE.Material).opacity = voxelMaterialOpacity(value.materialId || 0);
+    else if (isEmissiveVoxelMaterial(value.materialId)) {
+      const colors = mesh.geometry.getAttribute('color');
+      if (colors) {
+        const alpha = voxelMaterialAlphaByte(value.materialId!) / 255;
+        for (let i = 0; i < colors.count; i++) colors.setW(i, alpha);
+        colors.needsUpdate = true;
+      }
+    } else (mesh.material as THREE.Material).opacity = voxelMaterialOpacity(value.materialId || 0);
     updateDecorationMesh(mesh, value, pivot);
     return;
   }

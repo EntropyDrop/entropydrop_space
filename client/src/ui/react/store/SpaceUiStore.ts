@@ -35,7 +35,14 @@ import {
 } from '@entropydrop/space-engine/render/DistantSurfaceLayer.ts';
 import { triggerProtobufDownload, triggerFileDownload } from '../browser/downloadProtobuf.ts';
 import { colorToHex, normalizeColor, PRESET_COLORS } from '@entropydrop/space-engine/voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId, isTranslucentVoxelMaterial, voxelMaterialTransparency } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import {
+  normalizeVoxelMaterialId,
+  isEmissiveVoxelMaterial,
+  isTranslucentVoxelMaterial,
+  voxelMaterialEmission,
+  voxelMaterialTransparency,
+  migrateLegacyVoxelMaterialId,
+} from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import {
   MAX_GRADIENT_STOPS,
   normalizeGradientStops,
@@ -682,7 +689,19 @@ export class SpaceUiStore {
       const saved = localStorage.getItem('space_palette_colors');
       const parsed = saved ? JSON.parse(saved) : null;
       if (Array.isArray(parsed) && parsed.length >= 9) {
-        paletteColors = parsed.slice(0, 9).map((item: any) => normalizePaletteEntry(item));
+        let migrated = false;
+        paletteColors = parsed.slice(0, 9).map((item: any) => {
+          const entry = normalizePaletteEntry(item);
+          const nextMaterialId = migrateLegacyVoxelMaterialId(entry.materialId);
+          if (nextMaterialId !== entry.materialId) {
+            migrated = true;
+            return { ...entry, materialId: nextMaterialId };
+          }
+          return entry;
+        });
+        if (migrated) {
+          try { localStorage.setItem('space_palette_colors', JSON.stringify(paletteColors)); } catch { }
+        }
       }
     } catch { }
 
@@ -1352,7 +1371,7 @@ export class SpaceUiStore {
       }
     }
     if (notify && this.snapshot.hasStarted) {
-      const materialLabel = selectedMaterialId === 1 ? 'Emissive'
+      const materialLabel = isEmissiveVoxelMaterial(selectedMaterialId) ? `${voxelMaterialEmission(selectedMaterialId)}% glow`
         : isTranslucentVoxelMaterial(selectedMaterialId) ? `${voxelMaterialTransparency(selectedMaterialId)}% transparent` : 'Default';
       this.showToast(`${entry.stops.length > 1 ? 'Gradient' : 'Color'}: ${entry.hex.toUpperCase()} · ${materialLabel}`);
     }

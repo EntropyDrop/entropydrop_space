@@ -4,7 +4,13 @@ import * as THREE from 'three/webgpu';
 import type { RuntimeVoxel } from './EntityTypes.ts';
 import { MICRO_DIVISIONS, MICRO_SIZE } from '../voxel/MicroGrid.ts';
 import { DEFAULT_BLOCK_COLOR } from '../voxel/BlockTypes.ts';
-import { normalizeVoxelMaterialId, VoxelMaterialIds, isTranslucentVoxelMaterial, voxelMaterialRenderBucket, voxelMaterialOpacityByte } from '../voxel/VoxelMaterials.ts';
+import {
+  normalizeVoxelMaterialId,
+  isEmissiveVoxelMaterial,
+  isTranslucentVoxelMaterial,
+  voxelMaterialRenderBucket,
+  voxelMaterialAlphaByte,
+} from '../voxel/VoxelMaterials.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 
 export type VoxelMeshIndex = Map<string, RuntimeVoxel | number>;
@@ -85,8 +91,8 @@ export function* visibleVoxelFaceQuads(block: RuntimeVoxel, normal: number[], qu
 
 export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigin: THREE.Vector3Like, parentGroup: THREE.Group, externalMeshCellMap: VoxelMeshIndex | null = null, existingMesh: THREE.Mesh | null = null) {
   if (blocks.length === 0) return null;
-  // Keep existing opaque entity chunks at RGB32F; only glass needs alpha.
-  const colorSize = blocks.some(block => isTranslucentVoxelMaterial(block.materialId)) ? 4 : 3;
+  // Keep existing lit-only entity chunks at RGB32F; glass and glow carry alpha.
+  const colorSize = blocks.some(block => isTranslucentVoxelMaterial(block.materialId) || isEmissiveVoxelMaterial(block.materialId)) ? 4 : 3;
   const buckets = [
     { positions: [] as number[], normals: [] as number[], colors: [] as number[] },
     { positions: [] as number[], normals: [] as number[], colors: [] as number[] },
@@ -112,8 +118,9 @@ export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigi
   for (const b of blocks) {
     const blockSize = b.size || 1;
     const materialId = normalizeVoxelMaterialId(b.materialId);
+    const emissive = isEmissiveVoxelMaterial(materialId);
     const bucket = buckets[voxelMaterialRenderBucket(materialId)];
-    const alpha = voxelMaterialOpacityByte(materialId) / 255;
+    const alpha = voxelMaterialAlphaByte(materialId) / 255;
 
     const ox = b.localX - coordinateOrigin.x;
     const oy = b.localY - coordinateOrigin.y;
@@ -121,11 +128,11 @@ export function createVoxelMesh(blocks: readonly RuntimeVoxel[], coordinateOrigi
 
     for (const f of faces) {
       const hexColor = b.color ?? DEFAULT_BLOCK_COLOR;
-      if (materialId === VoxelMaterialIds.EMISSIVE) {
+      if (emissive) {
         if (typeof hexColor === 'string') tempColor.setStyle(hexColor, THREE.LinearSRGBColorSpace);
         else tempColor.setHex(hexColor, THREE.LinearSRGBColorSpace);
       } else tempColor.set(hexColor);
-      const shade = materialId === VoxelMaterialIds.EMISSIVE
+      const shade = emissive
         ? 1.0
         : f.face === 'top' ? 1.0 : f.face === 'bottom' ? 0.6 : 0.85;
       const r = tempColor.r * shade;

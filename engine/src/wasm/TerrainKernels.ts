@@ -128,7 +128,7 @@ export class TerrainKernels {
     return new Int32Array(buffer, output, count * 3).slice();
   }
 
-  meshMicroPartition(halo: Int32Array, height: number, minY: number, linear: Float64Array) {
+  meshMicroPartition(halo: Uint32Array, height: number, minY: number, linear: Float64Array) {
     if (!Number.isInteger(height) || height < 1 || height > 16
       || halo.length !== 18 * 18 * (height + 2) || linear.length !== 256) {
       throw new RangeError('Invalid micro mesh partition');
@@ -136,7 +136,7 @@ export class TerrainKernels {
     this.cursor = 65536;
     const input = this.copy(halo), lookup = this.copy(linear);
     const capacity = 6 * 16 * 16 * height;
-    const mask = this.alloc(16 * 16 * 4), quads = this.alloc(capacity * 32);
+    const mask = this.alloc(16 * 16 * 5), quads = this.alloc(capacity * 32);
     const positions = this.alloc(capacity * 24), normals = this.alloc(capacity * 12);
     const colors = this.alloc(capacity * 16), indices = this.alloc(capacity * 24), counts = this.alloc(12);
     const count = this.exports.microMesh(input, height, minY, mask, quads, positions, normals, colors, indices, lookup, counts);

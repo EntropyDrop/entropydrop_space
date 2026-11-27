@@ -1,5 +1,6 @@
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
+import { VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import { TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z } from '../torus/TorusWorld.ts';
 import { terrainLabSpawnAnchor } from './TerrainLabGenerator.ts';
 import { AETHER_DEFAULTS, aetherSpawnAnchor, generateAetherRegion } from './AetherArchipelagoGenerator.ts';
@@ -210,8 +211,15 @@ export function generateMixedChunk(chunk: Chunk, seed: number, includeDetails: b
   let minY = CHUNK_SIZE_Y, maxY = -1;
   for (let i = 0; i < region.voxels.length; i++) if (region.voxels[i]) {
     const value = region.voxels[i], y = Math.floor(i / (CHUNK_SIZE_X * CHUNK_SIZE_Z));
-    chunk.blocks[i] = BlockTypes.COLOR_BLOCK; chunk.colors[i] = value & 0xffffff; chunk.materials[i] = value >>> 24 & 1;
+    chunk.blocks[i] = BlockTypes.COLOR_BLOCK;
+    chunk.colors[i] = value & 0xffffff;
+    chunk.materials[i] = (value >>> 24 & 1) ? VoxelMaterialIds.EMISSIVE : VoxelMaterialIds.DEFAULT;
     minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  for (let i = 3; i < region.details.length; i += 4) {
+    if ((region.details[i] >>> 24) === VoxelMaterialIds.LEGACY_EMISSIVE) {
+      region.details[i] = ((region.details[i] & 0xffffff) | (VoxelMaterialIds.EMISSIVE << 24)) >>> 0;
+    }
   }
   chunk.setGeneratedOccupiedYRange(minY, maxY); chunk.hasGenerated = true;
   return region.details;

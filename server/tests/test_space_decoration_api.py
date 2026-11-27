@@ -14,7 +14,7 @@ def request(ops, revision=1, component='root'):
     return edit(revision, [{'id': component, 'decoration_ops': ops}])
 
 
-@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 100, 101])
+@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 100, 101, 102, 151, 201])
 def test_decoration_crud_preserves_physics_and_merges_partial_updates(client, db, configured, material_id):
     url, keys, _ = configured
     headers = keys['basic']
@@ -50,7 +50,7 @@ def test_decoration_crud_preserves_physics_and_merges_partial_updates(client, db
     [{'op': 'upsert', 'id': 'trim', 'rotation': [0, 0, 0, 0]}],
     [{'op': 'upsert', 'id': 'trim', 'color': True}],
     [{'op': 'upsert', 'id': 'trim', 'color': 0x1000000}],
-    [{'op': 'upsert', 'id': 'trim', 'materialId': 102}],
+    [{'op': 'upsert', 'id': 'trim', 'materialId': 202}],
     [{'op': 'upsert', 'id': 'trim', 'scale': None}],
     [{'op': 'upsert', 'id': 'trim', 'unknown': 1}],
     [{'op': 'remove', 'id': 'trim', 'position': [0, 0, 0]}],

@@ -74,17 +74,17 @@ test('standard and micro terrain edits survive constructing a fresh world after 
 
   assert.equal(second.getBlock(40, 80, 48), BlockTypes.COLOR_BLOCK);
   assert.equal(second.getBlockColor(40, 80, 48), 0x123456);
-  assert.equal(second.getBlockMaterial(40, 80, 48), 1);
+  assert.equal(second.getBlockMaterial(40, 80, 48), 151);
   assert.equal(second.getBlock(41, 0, 48), BlockTypes.AIR);
   assert.deepEqual(
     second.getMicroBlock(42 * 8 + 1, 80 * 8 + 2, 48 * 8 + 3),
-    { block: BlockTypes.COLOR_BLOCK, color: 0xabcdef, materialId: 1 }
+    { block: BlockTypes.COLOR_BLOCK, color: 0xabcdef, materialId: 151 }
   );
-  assert.equal(second.microVoxels.getMaterial(42 * 8 + 1, 80 * 8 + 2, 48 * 8 + 3), 1);
+  assert.equal(second.microVoxels.getMaterial(42 * 8 + 1, 80 * 8 + 2, 48 * 8 + 3), 151);
   assert.equal(second.microVoxels.parts.get(`${42 * 8 + 1},${80 * 8 + 2},${48 * 8 + 3}`), 'tip');
   assert.equal(second.getBlock(43, 80, 48), BlockTypes.AIR);
   assert.equal(second.getMicroBlock(43 * 8, 80 * 8, 48 * 8)?.color, 0x55aa33);
-  assert.equal(second.microVoxels.getMaterial(43 * 8, 80 * 8, 48 * 8), 1);
+  assert.equal(second.microVoxels.getMaterial(43 * 8, 80 * 8, 48 * 8), 151);
   assert.equal(second.getMicroBlock(43 * 8 + 4, 80 * 8 + 4, 48 * 8 + 4), null);
 });
 
@@ -105,7 +105,7 @@ for (const [name, seed, version] of [['Copper', 20260922, 2], ['Aether', 42, 3]]
         chunk.terrainDetails[offset + 1],
         cz * 16 * MICRO_DIVISIONS + chunk.terrainDetails[offset + 2],
       ];
-      if (first.getMicroBlock(...candidate) && (version !== 3 || chunk.terrainDetails[offset + 3] >>> 24 === 1)) {
+      if (first.getMicroBlock(...candidate) && (version !== 3 || chunk.terrainDetails[offset + 3] >>> 24 === 151)) {
         assert.equal(first.microVoxels.getMaterial(...candidate), chunk.terrainDetails[offset + 3] >>> 24);
         target = candidate;
         break;

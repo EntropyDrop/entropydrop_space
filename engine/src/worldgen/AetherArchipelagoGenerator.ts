@@ -1,6 +1,7 @@
 import { acceptsTerrainFeature, type TerrainFeaturePolicy } from './TerrainFeaturePolicy.ts';
 import { Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
+import { VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import { TORUS_SIZE_X, TORUS_SIZE_Z, TORUS_SPAWN_X, TORUS_SPAWN_Z } from '../torus/TorusWorld.ts';
 
 /** Port of entropydrop_frontend/src/pages/terrainLab/aetherArchipelago.ts.
@@ -597,9 +598,14 @@ export function generateAetherArchipelagoChunk(chunk: Chunk, seed: number, inclu
     const { color, emission } = region.palette[id];
     chunk.blocks[index] = BlockTypes.COLOR_BLOCK;
     chunk.colors[index] = color;
-    chunk.materials[index] = emission > 0 ? 1 : 0;
+    chunk.materials[index] = emission > 0 ? VoxelMaterialIds.EMISSIVE : VoxelMaterialIds.DEFAULT;
     const y = Math.floor(index / (CHUNK_SIZE_X * CHUNK_SIZE_Z));
     minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  for (let i = 3; i < region.details.length; i += 4) {
+    if ((region.details[i] >>> 24) === VoxelMaterialIds.LEGACY_EMISSIVE) {
+      region.details[i] = ((region.details[i] & 0xffffff) | (VoxelMaterialIds.EMISSIVE << 24)) >>> 0;
+    }
   }
   chunk.setGeneratedOccupiedYRange(minY, maxY);
   chunk.hasGenerated = true;

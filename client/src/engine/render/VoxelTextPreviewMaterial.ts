@@ -1,16 +1,24 @@
 import * as THREE from 'three/webgpu';
-import { vec3 } from 'three/tsl';
-import { createVoxelEmissiveMaterial, voxelEmissionColor } from '@entropydrop/space-engine/render/VoxelEmission.ts';
+import { float, output, vec3, vec4 } from 'three/tsl';
+import { createVoxelEmissiveMaterial, voxelEmissionColor, voxelEmissionMask } from '@entropydrop/space-engine/render/VoxelEmission.ts';
 import { createVoxelTranslucentMaterial } from '@entropydrop/space-engine/render/VoxelTranslucency.ts';
-import { normalizeVoxelMaterialId, VoxelMaterialIds, isTranslucentVoxelMaterial, voxelMaterialOpacity } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import {
+  normalizeVoxelMaterialId,
+  isEmissiveVoxelMaterial,
+  isTranslucentVoxelMaterial,
+  voxelMaterialEmissionStrength,
+  voxelMaterialOpacity,
+} from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 
 /** Match the authored material while retaining the placement ghost's opacity. */
 export function createVoxelTextPreviewMaterial(materialId: number, color: number) {
   const id = normalizeVoxelMaterialId(materialId);
-  if (id === VoxelMaterialIds.EMISSIVE) {
+  if (isEmissiveVoxelMaterial(id)) {
     const material = createVoxelEmissiveMaterial();
+    const strength = float(voxelMaterialEmissionStrength(id));
     // The text mesh stores linear RGB; the shared emission shader expects sRGB.
-    material.colorNode = voxelEmissionColor(vec3(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255));
+    material.colorNode = voxelEmissionColor(vec3(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255), strength);
+    material.outputNode = vec4(output.rgb, output.a.add(voxelEmissionMask.mul(strength)));
     material.transparent = true;
     material.opacity = 0.38;
     material.depthWrite = false;

@@ -126,7 +126,16 @@ test('voxel materials round trip and reject unknown presets', () => {
     blocks: [{ ...portable.blocks[0], block: 1 }],
   });
 
-  portable.blocks[0].materialId = 102;
+  for (const materialId of [1, 2, 61, 101, 102, 151, 201]) {
+    portable.blocks[0].materialId = materialId;
+    const roundTripped = encodeInventoryResource('blockset', portable);
+    assert.deepEqual(decodeInventoryResource(roundTripped).portable, {
+      ...portable,
+      blocks: [{ ...portable.blocks[0], block: 1 }],
+    });
+  }
+
+  portable.blocks[0].materialId = 202;
   assert.throws(() => encodeInventoryResource('blockset', portable), /materialId/);
 
   const invalidWire = InventoryResource.encode({
@@ -138,7 +147,7 @@ test('voxel materials round trip and reject unknown presets', () => {
         blocks: [{
           dx: 0, dy: 0, dz: 0, isMicro: false,
           microX: 0, microY: 0, microZ: 0,
-          colorRgb: 1, materialId: 102,
+          colorRgb: 1, materialId: 202,
         }],
       },
     },

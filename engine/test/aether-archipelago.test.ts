@@ -27,7 +27,7 @@ test('Aether preserves mixed sizes, emissions, solid interiors and floating air'
     assert.equal(chunk.blocks[Chunk.getIndex(mx >> 3, my >> 3, mz >> 3)], 0);
     materials.add(packed >>> 24);
   }
-  assert.deepEqual([...materials].sort(), [0, 1]);
+  assert.deepEqual([...materials].sort((a, b) => a - b), [0, 151]);
   const headless = new Chunk(512, 64, null);
   generator.generateChunk(headless, false);
   assert.deepEqual(headless.blocks, chunk.blocks);

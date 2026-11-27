@@ -43,7 +43,7 @@ for (const world of worlds) {
       assert.ok(chunk.terrainDetails.length > 0);
       for (let i = 0; i < chunk.terrainDetails.length; i += 4) {
         const [x, y, z, packed] = chunk.terrainDetails.subarray(i, i + 4);
-        assert.ok(x < 128 && z < 128 && y < 2048 && packed >>> 24 <= 1);
+        assert.ok(x < 128 && z < 128 && y < 2048 && (packed >>> 24 === 0 || packed >>> 24 === 151));
         assert.equal(chunk.blocks[Chunk.getIndex(x >> 3, y >> 3, z >> 3)], 0);
       }
     }

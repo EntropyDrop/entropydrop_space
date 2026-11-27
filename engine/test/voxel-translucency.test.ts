@@ -156,7 +156,7 @@ test('100 distinct material IDs encode 1–100% transparency with three render b
     assert.equal(voxelMaterialOpacity(id), 1);
     assert.equal(voxelMaterialRenderBucket(id), id);
   }
-  for (const id of [-1, 102, 2.5, NaN, Infinity]) assert.throws(() => parseVoxelMaterialId(id), /materialId/);
+  for (const id of [-1, 202, 2.5, NaN, Infinity]) assert.throws(() => parseVoxelMaterialId(id), /materialId/);
 });
 
 test('all opacity levels survive JS/WASM meshing and merged micro render batches', () => {

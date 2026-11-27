@@ -6,7 +6,14 @@ import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
 import { linearSrgbLookup } from '../wasm/ColorLookup.ts';
 import { MicroRenderBatches } from '../render/MicroRenderBatches.ts';
 import { DEFAULT_BLOCK_COLOR, normalizeColor } from './BlockTypes.ts';
-import { VoxelMaterialIds, normalizeVoxelMaterialId, voxelMaterialRenderBucket, voxelMaterialOpacityByte } from './VoxelMaterials.ts';
+import {
+  VoxelMaterialIds,
+  isEmissiveVoxelMaterial,
+  isTranslucentVoxelMaterial,
+  normalizeVoxelMaterialId,
+  voxelMaterialRenderBucket,
+  voxelMaterialAlphaByte,
+} from './VoxelMaterials.ts';
 import { createVoxelEmissiveMaterial } from '../render/VoxelEmission.ts';
 import type { MicroMeshResult, MicroMeshSnapshot } from './MicroMeshSnapshot.ts';
 import {
@@ -80,7 +87,8 @@ type MicroMeshBuildJob = {
   v: number;
   maskWidth: number;
   maskHeight: number;
-  mask: Int32Array | null;
+  mask: Uint32Array | null;
+  maskDir: Uint8Array | null;
   maskIndex: number;
   greedyIndex: number;
   quads: number[];
@@ -90,7 +98,7 @@ type MicroMeshBuildJob = {
   indices: Uint16Array | Uint32Array | null;
   writeQuadIndex: number;
   materialIndexCounts: [number, number, number];
-  halo: Int32Array | null;
+  halo: Uint32Array | null;
   haloIndex: number;
   interactive: boolean;
   snapshotIterator: Iterator<number> | null;
@@ -1441,6 +1449,7 @@ export class MicroVoxelLayer {
       maskWidth: 0,
       maskHeight: 0,
       mask: null,
+      maskDir: null,
       maskIndex: 0,
       greedyIndex: 0,
       quads: [],
@@ -1498,7 +1507,7 @@ export class MicroVoxelLayer {
           job.snapshotIterator = this.meshSnapshotCells(job);
           job.phase = 'worker-pack';
         } else {
-          job.halo = new Int32Array(18 * 18 * (job.dimensions[1] + 2));
+          job.halo = new Uint32Array(18 * 18 * (job.dimensions[1] + 2));
           job.phase = 'wasm-pack';
         }
       } else this.prepareMeshMask(job);
@@ -1508,7 +1517,7 @@ export class MicroVoxelLayer {
       if (!this.meshWorker) {
         job.snapshotIterator = null;
         job.snapshotCells = [];
-        job.halo = new Int32Array(18 * 18 * (job.dimensions![1] + 2));
+        job.halo = new Uint32Array(18 * 18 * (job.dimensions![1] + 2));
         job.phase = 'wasm-pack';
       } else {
         let visited = 0;
@@ -1582,6 +1591,7 @@ export class MicroVoxelLayer {
 
       if (job.phase === 'mask') {
         const mask = job.mask!;
+        const maskDir = job.maskDir!;
         const dimensions = job.dimensions!;
         let processed = 0;
         while (job.maskIndex < mask.length) {
@@ -1598,11 +1608,18 @@ export class MicroVoxelLayer {
             lz + (job.axis === 2 ? 1 : 0));
           const aInside = job.slice >= 0;
           const bInside = job.slice + 1 < dimensions[job.axis];
-          mask[index] = a !== undefined && (b === undefined || ((b >>> 24) >= VoxelMaterialIds.TRANSLUCENT_MIN && (a >>> 24) < VoxelMaterialIds.TRANSLUCENT_MIN)) && aInside
-            ? a + 1
-            : b !== undefined && (a === undefined || ((a >>> 24) >= VoxelMaterialIds.TRANSLUCENT_MIN && (b >>> 24) < VoxelMaterialIds.TRANSLUCENT_MIN)) && bInside
-              ? -(b + 1)
-              : 0;
+          const aTranslucent = a !== undefined && isTranslucentVoxelMaterial(a >>> 24);
+          const bTranslucent = b !== undefined && isTranslucentVoxelMaterial(b >>> 24);
+          if (a !== undefined && (b === undefined || (bTranslucent && !aTranslucent)) && aInside) {
+            mask[index] = a + 1;
+            maskDir[index] = 1;
+          } else if (b !== undefined && (a === undefined || (aTranslucent && !bTranslucent)) && bInside) {
+            mask[index] = b + 1;
+            maskDir[index] = 0;
+          } else {
+            mask[index] = 0;
+            maskDir[index] = 0;
+          }
           processed++;
           if (processed % MESH_TIME_CHECK_INTERVAL === 0 && performance.now() >= deadline) {
             return 'pending';
@@ -1614,6 +1631,7 @@ export class MicroVoxelLayer {
 
       if (job.phase === 'greedy') {
         const mask = job.mask!;
+        const maskDir = job.maskDir!;
         let processed = 0;
         while (job.greedyIndex < mask.length) {
           const maskIndex = job.greedyIndex;
@@ -1623,13 +1641,14 @@ export class MicroVoxelLayer {
           if (value === 0) {
             job.greedyIndex++;
           } else {
+            const dir = maskDir[maskIndex];
             let width = 1;
-            while (i + width < job.maskWidth && mask[maskIndex + width] === value) width++;
+            while (i + width < job.maskWidth && mask[maskIndex + width] === value && maskDir[maskIndex + width] === dir) width++;
             let height = 1;
             heightLoop: while (j + height < job.maskHeight) {
               const row = maskIndex + height * job.maskWidth;
               for (let k = 0; k < width; k++) {
-                if (mask[row + k] !== value) break heightLoop;
+                if (mask[row + k] !== value || maskDir[row + k] !== dir) break heightLoop;
               }
               height++;
             }
@@ -1646,9 +1665,9 @@ export class MicroVoxelLayer {
               base[0], base[1], base[2],
               du[0], du[1], du[2],
               dv[0], dv[1], dv[2],
-              value > 0 ? 1 : 0,
+              dir,
               job.axis,
-              Math.abs(value) - 1,
+              value - 1,
             );
             for (let row = 0; row < height; row++) {
               mask.fill(0, maskIndex + row * job.maskWidth, maskIndex + row * job.maskWidth + width);
@@ -1698,7 +1717,10 @@ export class MicroVoxelLayer {
     job.maskWidth = job.dimensions![job.u];
     job.maskHeight = job.dimensions![job.v];
     const maskLength = job.maskWidth * job.maskHeight;
-    if (!job.mask || job.mask.length !== maskLength) job.mask = new Int32Array(maskLength);
+    if (!job.mask || job.mask.length !== maskLength) {
+      job.mask = new Uint32Array(maskLength);
+      job.maskDir = new Uint8Array(maskLength);
+    }
     job.maskIndex = 0;
     job.greedyIndex = 0;
     job.phase = 'mask';
@@ -1762,14 +1784,16 @@ export class MicroVoxelLayer {
     const materialId = token >>> 24;
     const color = token & 0xffffff;
     // Keep emissive sRGB bytes intact; its shader converts before normalization.
-    this.meshTempColor.setHex(color, materialId === VoxelMaterialIds.EMISSIVE
+    const emissive = isEmissiveVoxelMaterial(materialId);
+    this.meshTempColor.setHex(color, emissive
       ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace);
-    const shade = materialId === VoxelMaterialIds.EMISSIVE
+    const shade = emissive
       ? 1
       : axis === 1 ? (positive ? 1 : 0.6) : 0.85;
     const r = Math.round(this.meshTempColor.r * shade * 255);
     const g = Math.round(this.meshTempColor.g * shade * 255);
     const b = Math.round(this.meshTempColor.b * shade * 255);
+    const alphaByte = voxelMaterialAlphaByte(materialId);
     const quad = positive ? POSITIVE_QUAD : NEGATIVE_QUAD;
     const positions = job.positions!;
     const normals = job.normals!;
@@ -1791,7 +1815,7 @@ export class MicroVoxelLayer {
       normals[attributeOffset] = (axis === 2 ? (positive ? 1 : -1) : 0) * 127;
       attributeOffset++;
       colors[colorOffset++] = b;
-      colors[colorOffset++] = voxelMaterialOpacityByte(materialId);
+      colors[colorOffset++] = alphaByte;
     }
     const indices = job.indices!;
     const indexOffset = quadIndex * 6;

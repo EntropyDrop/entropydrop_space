@@ -603,7 +603,7 @@ def test_space_heartbeat_filters_incremental_chunks_to_player_aoi(client, db):
     assert poll.json()["max_terrain_revision"] == near_apply.json()["terrain_revision"]
 
 
-@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 101])
+@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 101, 102, 151, 201])
 def test_space_terrain_edits_are_durable_and_visible_to_another_browser_user(client, db, material_id):
     first_user = _user(db, "space-editor-001", "https://cdn.entropydrop.com/skins/editor.png")
     app.dependency_overrides[get_current_user] = lambda: first_user
@@ -667,7 +667,7 @@ def test_terrain_batch_round_trips_all_transparency_levels(client, db):
     assert sorted(block[5] for chunk in chunks for block in chunk["micro"]) == list(range(2, 102))
 
 
-@pytest.mark.parametrize("material_id", [-1, 102])
+@pytest.mark.parametrize("material_id", [-1, 202])
 def test_terrain_batch_rejects_materials_outside_the_supported_range(client, db, material_id):
     user = _user(db, "space-invalid-material", None)
     app.dependency_overrides[get_current_user] = lambda: user

@@ -14,6 +14,11 @@ export {
 
 export { MICRO_DIVISIONS, MICRO_SIZE, MICRO_CELLS_PER_BLOCK } from './voxel/MicroGrid.ts';
 export {
-  VoxelMaterialIds, VOXEL_EMISSIVE_INTENSITY, normalizeVoxelMaterialId, parseVoxelMaterialId,
+  VoxelMaterialIds, VOXEL_EMISSIVE_INTENSITY,
+  isTranslucentVoxelMaterial, isEmissiveVoxelMaterial,
+  voxelMaterialTransparency, voxelMaterialEmission, voxelMaterialEmissionStrength,
+  emissiveVoxelMaterialId, migrateLegacyVoxelMaterialId,
+  voxelMaterialRenderBucket, voxelMaterialAlphaByte, voxelMaterialOpacityByte, voxelMaterialOpacity,
+  normalizeVoxelMaterialId, parseVoxelMaterialId,
 } from './voxel/VoxelMaterials.ts';
 export * from './constants/SpaceConstants.ts';

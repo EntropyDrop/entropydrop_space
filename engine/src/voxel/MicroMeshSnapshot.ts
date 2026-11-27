@@ -31,7 +31,7 @@ export function buildMicroMeshSnapshot(snapshot: MicroMeshSnapshot): MicroMeshDa
   if (!Number.isInteger(height) || height < 1 || height > 16 || cells.length % 2) {
     throw new RangeError('Invalid micro mesh snapshot');
   }
-  const halo = new Int32Array(18 * 18 * (height + 2));
+  const halo = new Uint32Array(18 * 18 * (height + 2));
   for (let i = 0; i < cells.length; i += 2) halo[cells[i]] = cells[i + 1];
   return kernels.meshMicroPartition(halo, height, minY, linear);
 }

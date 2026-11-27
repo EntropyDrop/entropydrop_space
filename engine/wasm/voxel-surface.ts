@@ -1,5 +1,11 @@
 // Volumetric LOD uses x-fastest 64^3 bricks stacked in a 64x256x64 column.
-// Zero is air; bit 31 marks occupancy, bit 24 emission, and bits 0..23 sRGB.
+// Zero is air; bit 31 marks occupancy, bits 24..30 hold glow level 0..100, and bits 0..23 sRGB.
+@inline function emissionLevel(materialId: u32): u32 {
+  if (materialId == 1) return 50;
+  if (materialId >= 102 && materialId <= 201) return materialId - 101;
+  return 0;
+}
+
 export function voxelColumnChunk(column: usize, blocks: usize, colors: usize, materials: usize,
   ox: i32, oz: i32, top: i32): i32 {
   let occupied = 0;
@@ -8,8 +14,8 @@ export function voxelColumnChunk(column: usize, blocks: usize, colors: usize, ma
     if (load<u8>(blocks + source) == 0) continue;
     const brick = y >> 6;
     const target = brick * 262144 + ox + x + (y & 63) * 64 + (oz + z) * 4096;
-    store<u32>(column + target * 4, 0x80000000 | load<u32>(colors + source * 4)
-      | (u32(load<u8>(materials + source)) << 24));
+    const level = emissionLevel(u32(load<u8>(materials + source)));
+    store<u32>(column + target * 4, 0x80000000 | (load<u32>(colors + source * 4) & 0xffffff) | (level << 24));
     occupied |= 1 << brick;
   }
   return occupied;
@@ -24,7 +30,11 @@ export function voxelColumnMicro(column: usize, micro: usize, count: i32, ox: i3
     const target = column + (brick * 262144 + ox + i32(mx >> 3) + (y & 63) * 64
       + (oz + i32(mz >> 3)) * 4096) * 4;
     // Solids win; the first micro ornament in an empty 1m cell is stable.
-    if (load<u32>(target) == 0) store<u32>(target, 0x80000000 | load<u32>(micro + 12));
+    if (load<u32>(target) == 0) {
+      const packed = load<u32>(micro + 12);
+      const level = emissionLevel(packed >> 24);
+      store<u32>(target, 0x80000000 | (packed & 0xffffff) | (level << 24));
+    }
     occupied |= 1 << brick;
   }
   return occupied;
@@ -53,15 +63,19 @@ export function voxelColumnRecords(column: usize, output: usize, occupied: i32):
 export function reduceVoxelBrick(data: usize, axis: i32, output: usize): void {
   const n = axis / 2;
   for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    let count = 0, red = 0, green = 0, blue = 0, emissive = 0;
+    let count = 0, red = 0, green = 0, blue = 0, emissive = 0, emissionSum = 0;
     for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
       const value = load<u32>(data + (x * 2 + dx + (y * 2 + dy) * axis + (z * 2 + dz) * axis * axis) * 4);
       if (value == 0) continue;
       count++; red += i32(value >> 16 & 255); green += i32(value >> 8 & 255); blue += i32(value & 255);
-      emissive += i32(value >> 24 & 1);
+      const level = i32((value >> 24) & 127);
+      if (level > 0) { emissive++; emissionSum += level; }
     }
+    const reducedLevel = emissive > 0 && emissive * 2 >= count
+      ? (emissionSum * 2 + emissive) / (emissive * 2)
+      : 0;
     // Positive integer ratios match Math.round, including half ties.
-    const value = count == 0 ? 0 : 0x80000000 | (emissive * 2 >= count ? 1 << 24 : 0)
+    const value = count == 0 ? 0 : 0x80000000 | (u32(reducedLevel) << 24)
       | ((red * 2 + count) / (count * 2)) << 16
       | ((green * 2 + count) / (count * 2)) << 8 | ((blue * 2 + count) / (count * 2));
     store<u32>(output + (x + y * n + z * n * n) * 4, value);
@@ -101,11 +115,12 @@ export function meshVoxelBrick(data: usize, axis: i32, size: i32, ox: i32, oy: i
         }
         if (count >= capacity) return -1;
         const at = output + count++ * 16;
+        const level = (value >> 24) & 127;
         store<u16>(at, (ox + (dim == 0 ? plane + positive : u == 0 ? i : j) * size) * 8);
         store<u16>(at + 2, (oy + (dim == 1 ? plane + positive : u == 1 ? i : j) * size) * 8);
         store<u16>(at + 4, (oz + (dim == 2 ? plane + positive : u == 2 ? i : j) * size) * 8);
         store<u16>(at + 6, width * size * 8); store<u16>(at + 8, height * size * 8);
-        store<u8>(at + 10, dim * 2 + positive); store<u8>(at + 11, value >> 24 & 1);
+        store<u8>(at + 10, dim * 2 + positive); store<u8>(at + 11, level > 0 ? level + 101 : 0);
         store<u8>(at + 12, value >> 16); store<u8>(at + 13, value >> 8);
         store<u8>(at + 14, value); store<u8>(at + 15, 0);
         for (let y = 0; y < height; y++) memory.fill(mask + (i + (j + y) * axis) * 4, 0, width * 4);

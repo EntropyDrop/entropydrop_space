@@ -1,6 +1,7 @@
 import { Chunk } from '../voxel/Chunk.ts';
 import type { TerrainGenerator } from './TerrainGenerator.ts';
 import { getTerrainKernels } from '../wasm/TerrainKernels.ts';
+import { voxelMaterialEmission } from '../voxel/VoxelMaterials.ts';
 
 export const VOXEL_LOD_SIZES = [1, 2, 4, 8, 16, 32, 64] as const;
 export const VOXEL_FACE_BYTES = 16;
@@ -50,14 +51,18 @@ export function meshVoxelBrick(data: Uint32Array, axis: number, size: number,
 export function reduceVoxelBrick(data: Uint32Array, axis: number): Uint32Array {
   const n = axis / 2, result = new Uint32Array(n ** 3);
   for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    let count = 0, red = 0, green = 0, blue = 0, emissive = 0;
+    let count = 0, red = 0, green = 0, blue = 0, emissive = 0, emissionSum = 0;
     for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
       const value = data[x * 2 + dx + (y * 2 + dy) * axis + (z * 2 + dz) * axis * axis];
       if (!value) continue;
       count++; red += value >>> 16 & 255; green += value >>> 8 & 255; blue += value & 255;
-      emissive += value >>> 24 & 1;
+      const level = (value >>> 24) & 127;
+      if (level > 0) { emissive++; emissionSum += level; }
     }
-    if (count) result[x + y * n + z * n * n] = (OCCUPIED | (emissive * 2 >= count ? 1 << 24 : 0)
+    const reducedLevel = emissive > 0 && emissive * 2 >= count
+      ? Math.round(emissionSum / emissive)
+      : 0;
+    if (count) result[x + y * n + z * n * n] = (OCCUPIED | (reducedLevel << 24)
       | Math.round(red / count) << 16 | Math.round(green / count) << 8 | Math.round(blue / count)) >>> 0;
   }
   return result;
@@ -82,8 +87,9 @@ class FaceWriter {
   emit = (x: number, y: number, z: number, w: number, h: number, dir: number, value: number) => {
     this.reserve(this.length + 16);
     const at = this.length;
+    const level = (value >>> 24) & 127;
     for (const [i, n] of [x, y, z, w, h].entries()) this.view.setUint16(at + i * 2, n * 8, true);
-    this.bytes[at + 10] = dir; this.bytes[at + 11] = value >>> 24 & 1;
+    this.bytes[at + 10] = dir; this.bytes[at + 11] = level > 0 ? level + 101 : 0;
     this.bytes[at + 12] = value >>> 16 & 255; this.bytes[at + 13] = value >>> 8 & 255; this.bytes[at + 14] = value & 255;
     this.length += 16;
   };
@@ -128,7 +134,8 @@ export function generateVoxelSurfaceZone(generator: TerrainGenerator, zoneX: num
         const index = Chunk.getIndex(x, y, z);
         if (!chunk.blocks[index]) continue;
         const by = y >> 6, lx = cx * 16 + x, lz = cz * 16 + z;
-        bricks[by][lx + (y & 63) * 64 + lz * 4096] = (OCCUPIED | chunk.colors[index] | chunk.materials[index] << 24) >>> 0;
+        const level = voxelMaterialEmission(chunk.materials[index]);
+        bricks[by][lx + (y & 63) * 64 + lz * 4096] = (OCCUPIED | (chunk.colors[index] & 0xffffff) | (level << 24)) >>> 0;
         occupied[by] = 1;
       }
       for (let i = 0; i < chunk.terrainDetails.length; i += 4) {
@@ -136,7 +143,10 @@ export function generateVoxelSurfaceZone(generator: TerrainGenerator, zoneX: num
         const x = cx * 16 + (mx >> 3), y = my >> 3, z = cz * 16 + (mz >> 3), by = y >> 6;
         const index = x + (y & 63) * 64 + z * 4096;
         // Keep solids authoritative; use one stable micro representative per cell.
-        if (!bricks[by][index]) bricks[by][index] = (OCCUPIED | value) >>> 0;
+        if (!bricks[by][index]) {
+          const level = voxelMaterialEmission(value >>> 24);
+          bricks[by][index] = (OCCUPIED | (value & 0xffffff) | (level << 24)) >>> 0;
+        }
         occupied[by] = 1;
       }
     }

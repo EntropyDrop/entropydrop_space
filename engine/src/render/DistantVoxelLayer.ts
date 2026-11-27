@@ -99,8 +99,12 @@ export function createVoxelSurfaceMaterial(mask: THREE.DataTexture, coverage: TH
     const range = uniform(new THREE.Vector2(0,1)).onObjectUpdate(({object}) => object?.userData.terrainCoverage ?? coverage);
     discardWhen(result, transition.lessThan(range.x).or(transition.greaterThanEqual(range.y)));
   }
-  const emission = (arena?.emission ?? varying(float(attribute<'float'>('voxelEmission', 'float')))).greaterThan(.5);
-  result.outputNode = emission.select(vec4(voxelEmissionColor(surfaceColor), voxelEmissionMask.add(1)), output);
+  const rawEmission = arena?.emission ?? varying(float(attribute<'float'>('voxelEmission', 'float')));
+  const emissionLevel = rawEmission.greaterThanEqual(101.5)
+    .select(rawEmission.sub(101), rawEmission.greaterThan(.5).select(float(50), float(0)));
+  const emissionStrength = emissionLevel.div(50);
+  result.outputNode = emissionLevel.greaterThan(.5)
+    .select(vec4(voxelEmissionColor(surfaceColor, emissionStrength), voxelEmissionMask.mul(emissionStrength).add(1)), output);
   result.userData.sharedTerrainMaterial = true;
   // Source tiles draw with these only while they fade; keep their programs.
   result.userData.retainProgram = true;

@@ -7,6 +7,16 @@ const QUADS: usize = memory.data<u8>([
   1,1,1, 1,0,1, 1,0,0, 1,1,0,
 ]);
 
+@inline function isTranslucent(id: i32): bool { return id >= 2 && id <= 101; }
+@inline function isEmissive(id: i32): bool { return id == 1 || (id >= 102 && id <= 201); }
+@inline function materialBucket(id: i32): i32 { return isEmissive(id) ? 1 : isTranslucent(id) ? 2 : 0; }
+@inline function materialAlpha(id: i32): u8 {
+  if (isTranslucent(id)) return u8(101 - id);
+  if (id == 1) return 50;
+  if (id >= 102 && id <= 201) return u8(id - 101);
+  return 255;
+}
+
 export function standardFaces(blocks: usize, colors: usize, materials: usize, neighbors: usize,
   minY: i32, maxY: i32, faces: usize, table: usize, counts: usize): i32 {
   memory.fill(table, 0, 32768 * 16);
@@ -15,7 +25,7 @@ export function standardFaces(blocks: usize, colors: usize, materials: usize, ne
   for (let y = minY; y <= maxY; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const index = (y * 16 + z) * 16 + x;
     if (load<u8>(blocks + index) == 0) continue;
-    const color = load<u32>(colors + index * 4), material = load<u8>(materials + index);
+    const color = load<u32>(colors + index * 4), material = i32(load<u8>(materials + index));
     for (let face = 0; face < 6; face++) {
       const nx = x + (face == 4 ? -1 : face == 5 ? 1 : 0);
       const ny = y + (face == 1 ? -1 : face == 0 ? 1 : 0);
@@ -24,15 +34,15 @@ export function standardFaces(blocks: usize, colors: usize, materials: usize, ne
       if (ny >= 0 && ny < 256) {
         if (nx >= 0 && nx < 16 && nz >= 0 && nz < 16) {
           const ni = (ny * 16 + nz) * 16 + nx;
-          neighbor = load<u8>(blocks + ni) | (load<u8>(materials + ni) >= 2 ? 512 : 0);
+          neighbor = load<u8>(blocks + ni) | (isTranslucent(i32(load<u8>(materials + ni))) ? 512 : 0);
         }
         else neighbor = load<u16>(neighbors + ((face - 2) * height * 16 + (y - minY) * 16 + (face < 4 ? x : z)) * 2);
       }
-      if ((neighbor & 255) != 0 && ((neighbor & 512) == 0 || material >= 2)) continue;
+      if ((neighbor & 255) != 0 && ((neighbor & 512) == 0 || isTranslucent(material))) continue;
       const cut = (neighbor & 256) != 0;
       if (cut && face >= 2) {
         // Match the reference's numeric run key and first-face output order.
-        const key = u64((face * 16 + x) * 16 + z) * 0x1000000 + color + u64(material) * 0x100000000;
+        const key = u64((face * 16 + x) * 16 + z) * 0x1000000 + color + u64(material) * 0x800000000;
         let hash = u32(key) ^ u32(key >> 32);
         hash ^= hash >> 16; hash *= 0x7feb352d; hash ^= hash >> 15;
         let slot = hash & 32767;
@@ -53,8 +63,8 @@ export function standardFaces(blocks: usize, colors: usize, materials: usize, ne
   }
   memory.fill(counts, 0, 12);
   for (let i = 0; i < count; i++) {
-    const material = min(2, load<i32>(faces + i * 32 + 24));
-    if (material < 3) store<i32>(counts + material * 4, load<i32>(counts + material * 4) + 6);
+    const bucket = materialBucket(load<i32>(faces + i * 32 + 24));
+    store<i32>(counts + bucket * 4, load<i32>(counts + bucket * 4) + 6);
   }
   return count;
 }
@@ -65,7 +75,7 @@ export function standardMesh(faces: usize, faceCount: i32, vertexCount: i32,
   for (let material = 0; material < 3; material++) for (let i = 0; i < faceCount; i++) {
     const p = faces + i * 32;
     const id = load<i32>(p + 24);
-    if (min(2, id) != material) continue;
+    if (materialBucket(id) != material) continue;
     const face = load<i32>(p + 12), color = load<u32>(p + 20);
     const shade: f64 = material == 1 || face == 0 || load<i32>(p + 16) != 0 ? 1 : face == 1 ? 0.6 : 0.85;
     for (let v = 0; v < 4; v++) for (let c = 0; c < 3; c++) {
@@ -79,7 +89,8 @@ export function standardMesh(faces: usize, faceCount: i32, vertexCount: i32,
       store<u8>(colors + (written * 4 + v) * 4 + c, material == 1 ? channel
         : i32(Math.floor(load<f64>(linear + channel * 8) * shade * 255 + 0.5)));
     }
-    for (let v = 0; v < 4; v++) store<u8>(colors + (written * 4 + v) * 4 + 3, material == 2 ? 101 - id : 255);
+    const alpha = materialAlpha(id);
+    for (let v = 0; v < 4; v++) store<u8>(colors + (written * 4 + v) * 4 + 3, alpha);
     for (let k = 0; k < 6; k++) {
       const value = written * 4 + (k == 0 || k == 3 ? 0 : k == 1 ? 1 : k == 5 ? 3 : 2);
       if (vertexCount <= 65535) store<u16>(indices + (written * 6 + k) * 2, value);

@@ -4,6 +4,7 @@ import {
   encodeBackpack,
   encodeInventoryResource,
   inventoryKindForPortable,
+  migrateLegacyPortableMaterialIds,
   protobufFromBase64,
   protobufToBase64,
   type PortableBackpack,
@@ -82,8 +83,10 @@ export function loadBackpack(storage: BackpackStorage | null): BackpackLoadResul
         const storedItems = Array.isArray(storedGroup?.items) ? storedGroup.items.slice(0, maxLen) : [];
         for (let index = 0; index < storedItems.length; index++) {
           if (!storedItems[index]) continue;
+          const migrated = migrateLegacyPortableMaterialIds(storedItems[index]);
+          if (migrated.changed) changed = true;
           const parsed = parseInventoryImport(
-            encodeInventoryResource(inventoryKindForPortable(storedItems[index]), storedItems[index]),
+            encodeInventoryResource(inventoryKindForPortable(migrated.resource), migrated.resource),
             category
           );
           if (parsed.ok) inventories[category].items[index] = parsed.item;

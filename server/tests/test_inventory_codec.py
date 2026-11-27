@@ -197,7 +197,7 @@ def test_shared_inventory_schema_excludes_browser_backpack_state():
     assert "color" not in voxel_fields
 
 
-@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 100, 101])
+@pytest.mark.parametrize("material_id", [1, 2, 51, 61, 100, 101, 102, 151, 201])
 def test_inventory_voxel_material_round_trip_and_validation(material_id):
     canonical = {
         "type": "space-blockset",
@@ -211,13 +211,13 @@ def test_inventory_voxel_material_round_trip_and_validation(material_id):
     encoded = encode_inventory_resource("blockset", canonical)
     assert decode_inventory_resource(encoded) == ("blockset", canonical)
 
-    canonical["blocks"][0]["material_id"] = 102
+    canonical["blocks"][0]["material_id"] = 202
     with pytest.raises(InventoryCodecError, match="material_id"):
         encode_inventory_resource("blockset", canonical)
 
     invalid_wire = inventory_pb2.InventoryResource(schema_version=8)
     invalid_wire.block_set.name = "Invalid"
-    invalid_wire.block_set.blocks.add(color_rgb=1, material_id=102)
+    invalid_wire.block_set.blocks.add(color_rgb=1, material_id=202)
     with pytest.raises(InventoryCodecError, match="material_id"):
         decode_inventory_resource(invalid_wire.SerializeToString())
 

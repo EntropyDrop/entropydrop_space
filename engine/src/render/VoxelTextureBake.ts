@@ -22,7 +22,7 @@ export const DEFAULT_VOXEL_TEXTURE_BAKE: Readonly<VoxelTextureBakeSettings> = Ob
 export type BakedVoxelTile = Pick<VoxelLodTile, 'count' | 'offset' | 'span' | 'direction' | 'emission' | 'color' | 'visibility'>
   & { pixels: Uint8Array; atlasSize: number; patches: number; originalFaces: number };
 type Face = { p: number[]; w: number; h: number; dir: number; emission: number; rgb: number };
-type Plane = { p: number[]; dir: number; cells: Uint32Array; };
+type Plane = { p: number[]; dir: number; cells: Uint32Array; emissions: Uint8Array };
 
 /** Coplanar color baking in flat coordinates. Occupancy, emission and holes are
  * preserved. A bounded atlas and a net face reduction are required; otherwise
@@ -45,11 +45,12 @@ export function* bakeVoxelTile(tile: VoxelLodTile, edge = 8, density = 1, detail
   if (detail !== tile) for (let i = 0; i < detail.count; i++) {
     const dir = detail.direction[i], dim = dir >> 1, u = (dim + 1) % 3, v = (dim + 2) % 3;
     const p = [detail.offset[i * 3] / 8, detail.offset[i * 3 + 1] / 8, detail.offset[i * 3 + 2] / 8];
-    const value = (0x80000000 | detail.emission[i] << 24 | detail.color[i * 3] | detail.color[i * 3 + 1] << 8 | detail.color[i * 3 + 2] << 16) >>> 0;
+    const rgb = detail.color[i * 3] | detail.color[i * 3 + 1] << 8 | detail.color[i * 3 + 2] << 16;
+    const em = detail.emission[i];
     for (let y = p[v]; y < p[v] + detail.span[i * 2 + 1] / 8; y += cell) {
       for (let x = p[u]; x < p[u] + detail.span[i * 2] / 8; x += cell) {
         const key = rayKey(dir, x, y), ray = rays.get(key);
-        if (ray) ray.push(p[dim], value); else rays.set(key, [p[dim], value]);
+        if (ray) ray.push(p[dim], rgb, em); else rays.set(key, [p[dim], rgb, em]);
       }
       yield;
     }
@@ -69,33 +70,38 @@ export function* bakeVoxelTile(tile: VoxelLodTile, edge = 8, density = 1, detail
       let plane = planes.get(key);
       if (!plane) {
         const origin = [...p]; origin[u] = gx; origin[v] = gy;
-        plane = { p: origin, dir, cells: new Uint32Array(side * side) }; planes.set(key, plane);
+        plane = { p: origin, dir, cells: new Uint32Array(side * side), emissions: new Uint8Array(side * side) };
+        planes.set(key, plane);
       }
       const at = (x - gx) / cell + (y - gy) / cell * side;
       // A malformed/overlapping source must never silently lose a face.
       if (plane.cells[at]) return;
-      let value = (0x80000000 | emission << 24 | rgb) >>> 0;
+      let value = (0x80000000 | rgb) >>> 0;
       const ray = rays.get(rayKey(dir, x, y));
       if (ray) {
         let distance = projectionDepth + .001;
-        for (let k = 0; k < ray.length; k += 2) {
+        for (let k = 0; k < ray.length; k += 3) {
           const next = Math.abs(ray[k] - p[dim]);
-          if (next < distance && (ray[k + 1] >>> 24 & 1) === emission) { distance = next; value = ray[k + 1]; }
+          if (next < distance && ray[k + 2] === emission) { distance = next; value = (0x80000000 | ray[k + 1]) >>> 0; }
         }
       }
       plane.cells[at] = value;
+      plane.emissions[at] = emission;
     }
     if ((i & 255) === 255) yield;
   }
   const faces = retained, charts: { face: Face; plane: Plane; x: number; y: number; w: number; h: number; ox: number; oy: number }[] = [];
   for (const plane of planes.values()) {
-    const cells = plane.cells, visited = new Uint8Array(cells.length), dim = plane.dir >> 1;
+    const cells = plane.cells, emissions = plane.emissions, visited = new Uint8Array(cells.length), dim = plane.dir >> 1;
     const u = (dim + 1) % 3, v = (dim + 2) % 3;
     for (let y = 0; y < side; y++) for (let x = 0; x < side;) {
       const value = cells[x + y * side];
       if (!value || visited[x + y * side]) { x++; continue; }
-      const token = value & 0xff000000;
-      const matches = (px: number, py: number) => !visited[px + py * side] && (cells[px + py * side] & 0xff000000) === token;
+      const em = emissions[x + y * side];
+      const matches = (px: number, py: number) => {
+        const idx = px + py * side;
+        return !visited[idx] && cells[idx] !== 0 && emissions[idx] === em;
+      };
       let w = 1, h = 1;
       while (x + w < side && matches(x + w, y)) w++;
       outer: while (y + h < side) {
@@ -108,7 +114,7 @@ export function* bakeVoxelTile(tile: VoxelLodTile, edge = 8, density = 1, detail
         visited[x + dx + (y + dy) * side] = 1;
       }
       const p = [...plane.p]; p[u] += x * cell; p[v] += y * cell;
-      const face: Face = { p, w: w * cell, h: h * cell, dir: plane.dir, emission: value >>> 24 & 1, rgb: value & 0xffffff };
+      const face: Face = { p, w: w * cell, h: h * cell, dir: plane.dir, emission: em, rgb: value & 0xffffff };
       if (!uniform) {
         face.dir |= VOXEL_BAKE_FLAG;
         charts.push({face, plane, x, y, w, h, ox: 0, oy: 0});

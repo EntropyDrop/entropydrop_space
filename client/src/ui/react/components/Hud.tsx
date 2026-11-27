@@ -1,4 +1,9 @@
-import { isTranslucentVoxelMaterial, voxelMaterialTransparency } from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
+import {
+  isEmissiveVoxelMaterial,
+  isTranslucentVoxelMaterial,
+  voxelMaterialEmission,
+  voxelMaterialTransparency,
+} from '@entropydrop/space-engine/voxel/VoxelMaterials.ts';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EntityContextMenu, EntityNameplates } from './EntityMenus.tsx';
 import { HostedEntities } from './HostedEntities.tsx';
@@ -422,7 +427,7 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
               id={isActive ? 'active-palette-color-chip' : undefined}
               className={`color-chip ${isActive ? 'active' : ''}`}
               style={{ background: gradientCss(item.stops) }}
-              title={`${item.name || 'Custom'} (${item.stops.length > 1 ? `${item.stops.length}-stop gradient` : item.hex.toUpperCase()}) · ${item.materialId === 1 ? 'Emissive' : isTranslucentVoxelMaterial(item.materialId) ? `${voxelMaterialTransparency(item.materialId)}% transparent` : 'Default'} · ${altLabel}+${index + 1}${isActive ? ' · I to edit' : ''}`}
+              title={`${item.name || 'Custom'} (${item.stops.length > 1 ? `${item.stops.length}-stop gradient` : item.hex.toUpperCase()}) · ${isEmissiveVoxelMaterial(item.materialId) ? `${voxelMaterialEmission(item.materialId)}% glow` : isTranslucentVoxelMaterial(item.materialId) ? `${voxelMaterialTransparency(item.materialId)}% transparent` : 'Default'} · ${altLabel}+${index + 1}${isActive ? ' · I to edit' : ''}`}
               onClick={() => {
                 if (isActive) {
                   spaceUiStore.openColorPicker();
@@ -432,7 +437,7 @@ function PaletteBar({ isBrush = false }: { isBrush?: boolean }) {
               }}
             >
               <span className="chip-num">{index + 1}</span>
-              {item.materialId !== 0 && <span className="chip-material">{item.materialId === 1 ? 'E' : `${voxelMaterialTransparency(item.materialId)}%`}</span>}
+              {item.materialId !== 0 && <span className="chip-material">{isEmissiveVoxelMaterial(item.materialId) ? `E${voxelMaterialEmission(item.materialId)}` : `${voxelMaterialTransparency(item.materialId)}%`}</span>}
             </button>
           );
         })}

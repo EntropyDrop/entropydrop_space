@@ -791,6 +791,11 @@ likes or downloads. The `kind=item` listing includes all three kinds, while Colo
 Sets remain separate. Existing resources keep their original wire envelopes and
 are wrapped when imported into the shared local Item collection; absolute world
 anchors remain standalone until the source world pose is available.
+`space_0013` migrates stored terrain overlays (`chunk_snapshots`) and world entity
+definitions and runtime decoration snapshots (`space_world_entities`) from the
+reserved legacy emissive material ID (`1`) to canonical 50% glow (`151`);
+`python -m space.migrate_market_emissive` migrates immutable market objects in S3
+separately.
 Voxel ownership follows recursive component nesting, so voxels carry neither component
 indexes nor `part`; mountability is derived solely from explicit component seats.
 

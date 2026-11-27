@@ -375,6 +375,10 @@ def remote_deploy(environment, branch="main", quiesce=False):
             run(["docker", "run", "--rm", "--network", "host", "--env-file", config / "app.env",
                  "-v", f"{data / 'objects'}:/var/lib/space/objects", image,
                  "python", "-m", "space.migrate_market_v8"])
+            phase("Space market emissive migration")
+            run(["docker", "run", "--rm", "--network", "host", "--env-file", config / "app.env",
+                 "-v", f"{data / 'objects'}:/var/lib/space/objects", image,
+                 "python", "-m", "space.migrate_market_emissive"])
             if environment == "dev":
                 run(["docker", "run", "--rm", "--network", "host", "--env-file", config / "app.env", image,
                      "python", "-c", "from config import settings; from space.database import SessionLocal; "

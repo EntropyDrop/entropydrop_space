@@ -32,6 +32,7 @@ import {
   isValidComponentId
 } from './Contraption.ts';
 import { BlockTypes } from '../voxel/BlockTypes.ts';
+import { VoxelMaterialIds } from '../voxel/VoxelMaterials.ts';
 import { CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../voxel/Chunk.ts';
 import {
   TORUS_SIZE_X,
@@ -616,8 +617,37 @@ export class ContraptionManager {
       for (const id of this.dormantRenderProxies.keys()) this.deleteDormantContraption(id);
 
       let loadedCount = 0;
+      let migrated = false;
+      const migrateSlotMaterials = (node: any) => {
+        if (!node || typeof node !== 'object') return;
+        for (const list of [node.blocks, node.decorations]) {
+          if (!Array.isArray(list)) continue;
+          for (const item of list) {
+            if (item && typeof item === 'object' && item.materialId === VoxelMaterialIds.LEGACY_EMISSIVE) {
+              item.materialId = VoxelMaterialIds.EMISSIVE;
+              migrated = true;
+            }
+          }
+        }
+        for (const children of [node.childEntities, node.children]) {
+          if (!Array.isArray(children)) continue;
+          for (const child of children) migrateSlotMaterials(child);
+        }
+      };
       for (const record of data.entities) {
         if (!record?.slot) continue;
+        migrateSlotMaterials(record.slot);
+        if (Array.isArray(record.runtimeDecorations)) {
+          for (const entry of record.runtimeDecorations) {
+            if (!Array.isArray(entry?.decorations)) continue;
+            for (const decoration of entry.decorations) {
+              if (decoration && typeof decoration === 'object' && decoration.materialId === VoxelMaterialIds.LEGACY_EMISSIVE) {
+                decoration.materialId = VoxelMaterialIds.EMISSIVE;
+                migrated = true;
+              }
+            }
+          }
+        }
         const origin = new THREE.Vector3().fromArray(record.constructorOrigin || record.position || [0, 0, 0]);
         const contraption = this.buildFromSlot(record.slot, origin, record, false);
         if (contraption) {
@@ -628,6 +658,7 @@ export class ContraptionManager {
           }
         }
       }
+      if (migrated) this.saveEntitiesToStorage(storage);
       return loadedCount;
     } catch (err) {
       console.warn('Could not load entities from storage:', err);
